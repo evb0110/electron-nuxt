@@ -41,3 +41,5 @@ export type TTabContextCommand =
         kind: 'copy';
         direction: TPaneDirection
     };
+
+export type TDirectionalTabContextCommand = Extract<TTabContextCommand, { direction: TPaneDirection }>;

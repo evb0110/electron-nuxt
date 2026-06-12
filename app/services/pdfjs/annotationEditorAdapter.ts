@@ -183,9 +183,10 @@ export function getEditorsOnPage(
     uiManager: AnnotationEditorUIManager,
     pageIndex: number,
 ) {
-    return Array.from(uiManager.getEditors(pageIndex))
-        .map(asPdfjsEditor)
-        .filter((editor): editor is IPdfjsEditor => editor !== null);
+    return Array.from(uiManager.getEditors(pageIndex)).flatMap((editor) => {
+        const pdfjsEditor = asPdfjsEditor(editor);
+        return pdfjsEditor ? [pdfjsEditor] : [];
+    });
 }
 
 export function getActiveEditor(uiManager: AnnotationEditorUIManager) {

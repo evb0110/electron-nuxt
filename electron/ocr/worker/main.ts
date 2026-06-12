@@ -72,15 +72,16 @@ import {
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
 
-const paths = resolveWorkerPaths(workerData);
+const initialWorkerData: unknown = workerData;
+const paths = resolveWorkerPaths(initialWorkerData);
 const activeJobControllers = new Map<string, AbortController>();
 const OCR_PAGE_SIZES_TIMEOUT_MS = 30_000;
-type TOcrResourceLease = {
+interface IOcrResourceSlotLease {
     token: string;
     effectiveDpi: number;
-};
+}
 const pendingResourceAcquires = new Map<string, {
-    resolve: (lease: TOcrResourceLease) => void;
+    resolve: (lease: IOcrResourceSlotLease) => void;
     reject: (error: Error) => void;
 }>();
 
@@ -146,7 +147,7 @@ async function acquireOcrResourceSlot(
     }
 
     throwIfAborted(signal);
-    const leasePromise = new Promise<TOcrResourceLease>((resolve, reject) => {
+    const leasePromise = new Promise<IOcrResourceSlotLease>((resolve, reject) => {
         pendingResourceAcquires.set(requestId, {
             resolve,
             reject,
@@ -326,7 +327,7 @@ async function processOcrPages(
 
     sendProgress(jobId, targetPages[0]?.pageNumber ?? 0, 0, targetPages.length);
 
-    const processPageWithLimit = limitAsync(async (page) => {
+    const processPageWithLimit = limitAsync(async (page: IOcrPdfPageRequest) => {
         const result = await processOcrPage(page, context);
         processedCount += 1;
         sendProgress(
@@ -343,14 +344,25 @@ async function processOcrPages(
 
     const pageResults = await Promise.all(targetPages.map(page => processPageWithLimit(page)));
 
+    const errors: string[] = [];
+    const ocrPageData: IOcrPageWithWords[] = [];
+    const effectiveDpis: number[] = [];
+    for (const { result } of pageResults) {
+        if (result.error) {
+            errors.push(result.error);
+        }
+        if (result.pageData) {
+            ocrPageData.push(result.pageData);
+        }
+        if (typeof result.effectiveDpi === 'number') {
+            effectiveDpis.push(result.effectiveDpi);
+        }
+    }
+
     return {
-        errors: pageResults
-            .map(({ result }) => result.error)
-            .filter((error): error is string => Boolean(error)),
+        errors,
         ocrPageData: sortBy(
-            pageResults
-                .map(({ result }) => result.pageData)
-                .filter((pageData): pageData is IOcrPageWithWords => Boolean(pageData)),
+            ocrPageData,
             [pageData => pageData.pageNumber],
         ),
         ocrPdfMap: new Map(pageResults.flatMap(({
@@ -364,12 +376,7 @@ async function processOcrPages(
                 ] as const]
                 : []
         ))),
-        effectiveRenderDpi: Math.min(
-            context.extractionDpi,
-            ...pageResults
-                .map(({ result }) => result.effectiveDpi)
-                .filter((dpi): dpi is number => typeof dpi === 'number'),
-        ),
+        effectiveRenderDpi: Math.min(context.extractionDpi, ...effectiveDpis),
     };
 }
 
@@ -429,7 +436,7 @@ function logPopplerEnvironment(popplerEnv?: NodeJS.ProcessEnv) {
     if (popplerEnv) {
         log(
             'debug',
-            `Poppler env: POPPLER_DATADIR=${popplerEnv.POPPLER_DATADIR || 'unset'}, FONTCONFIG_PATH=${popplerEnv.FONTCONFIG_PATH || 'unset'}, FONTCONFIG_FILE=${popplerEnv.FONTCONFIG_FILE || 'unset'}`,
+            `Poppler env: POPPLER_DATADIR=${popplerEnv.POPPLER_DATADIR?.length ? popplerEnv.POPPLER_DATADIR : 'unset'}, FONTCONFIG_PATH=${popplerEnv.FONTCONFIG_PATH?.length ? popplerEnv.FONTCONFIG_PATH : 'unset'}, FONTCONFIG_FILE=${popplerEnv.FONTCONFIG_FILE?.length ? popplerEnv.FONTCONFIG_FILE : 'unset'}`,
         );
         return;
     }
@@ -501,7 +508,7 @@ async function readPdfPageSizesInchesNative(pdfPath: string) {
             timeoutMs: OCR_PAGE_SIZES_TIMEOUT_MS,
             commandLabel: 'evb-pdf-page-ops(page-sizes)',
         });
-        const payload = JSON.parse(await readFile(outputPath, 'utf8'));
+        const payload: unknown = JSON.parse(await readFile(outputPath, 'utf8'));
         return parseNativePageSizesPayload(payload);
     } catch (error) {
         log('debug', `Native PDF page-size inspection failed for OCR resource budgeting; falling back to pdf-lib: ${getErrorMessage(error)}`);
@@ -549,7 +556,7 @@ async function buildOcrPageProcessingPlan(
     popplerEnv: NodeJS.ProcessEnv | undefined,
     baseContext: Omit<IOcrPageProcessingContext, 'extractionDpi' | 'tesseractThreads' | 'pageSizeByNumber' | 'pageSourceDpiByNumber'>,
 ) {
-    const targetPages = pages.filter((p): p is IOcrPdfPageRequest => !!p);
+    const targetPages = pages;
     const detectedSourceDpi = renderDpi === undefined
         ? await detectSourceDpiDetails(
             popplerSourcePdfPath,

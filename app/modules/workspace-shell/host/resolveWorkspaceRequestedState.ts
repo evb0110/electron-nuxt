@@ -1,10 +1,5 @@
 import { shouldAutoRequestWorkspace } from '@app/modules/workspace-shell/host/shouldAutoRequestWorkspace';
-
-interface IWorkspaceHostSignals {
-    hasQueuedSplitRestore: boolean;
-    hasDocumentHint: boolean;
-    isActive: boolean;
-}
+import type { IWorkspaceHostSignals } from '@app/modules/workspace-shell/host/shouldAutoRequestWorkspace';
 
 export function resolveWorkspaceRequestedState(
     currentRequested: boolean,

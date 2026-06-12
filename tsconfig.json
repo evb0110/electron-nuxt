@@ -1,18 +1,6 @@
 {
-    "extends": "./.nuxt/tsconfig.json",
+    "extends": ["./.nuxt/tsconfig.json", "./tsconfig.base.json"],
     "compilerOptions": {
-        "strict": true,
-        "exactOptionalPropertyTypes": true,
-        "noImplicitReturns": true,
-        "noFallthroughCasesInSwitch": true,
-        "noUncheckedIndexedAccess": true,
-        "noImplicitOverride": true,
-        "useUnknownInCatchVariables": true,
-        "strictBuiltinIteratorReturn": true,
-        "verbatimModuleSyntax": true,
-        "moduleDetection": "force",
-        "isolatedModules": true,
-        "forceConsistentCasingInFileNames": true,
         "baseUrl": ".",
         "paths": {
             "@app/*": ["app/*"],
@@ -32,5 +20,6 @@
             "@server/*": ["server/*"],
             "@tests/*": ["tests/*"]
         }
-    }
+    },
+    "files": ["types/vendor/utif.d.ts"]
 }

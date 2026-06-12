@@ -186,15 +186,18 @@ function registerDocumentMenuActions(
     deps: ITabsMenuBindingDeps,
     runMenuAction: TMenuRunAction,
 ) {
-    return documentMenuActions
-        .map((binding) => {
-            const register = getNoArgDocumentMenuRegister(documents, binding.register);
-            return register?.(() => {
-                runMenuAction(binding.name, () => binding.run(deps));
-            });
-        })
-        .map(toCleanup)
-        .filter((cleanup): cleanup is TCleanup => Boolean(cleanup));
+    const cleanups: TCleanup[] = [];
+    for (const binding of documentMenuActions) {
+        const register = getNoArgDocumentMenuRegister(documents, binding.register);
+        const cleanup = toCleanup(register?.(() => {
+            runMenuAction(binding.name, () => binding.run(deps));
+        }));
+        if (cleanup) {
+            cleanups.push(cleanup);
+        }
+    }
+
+    return cleanups;
 }
 
 /**
@@ -300,7 +303,7 @@ export function registerTabsMenuBindings(
         api.windowTabs?.onWindowAction((action) => {
             runMenuAction('window-action', () => deps.handleWindowTabsAction(action));
         }),
-    ].filter((cleanup): cleanup is () => void => typeof cleanup === 'function');
+    ].flatMap(cleanup => typeof cleanup === 'function' ? [cleanup] : []);
 
     return [
         ...cleanups,

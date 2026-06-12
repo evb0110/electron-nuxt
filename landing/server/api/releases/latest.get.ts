@@ -101,8 +101,8 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
         }
     }
 
-    const clientHintsPlatform = getHeader(event, 'sec-ch-ua-platform')?.replace(/"/g, '') || '';
-    const profile = parseUserAgent(getHeader(event, 'user-agent') || '', clientHintsPlatform);
+    const clientHintsPlatform = getHeader(event, 'sec-ch-ua-platform')?.replace(/"/g, '') ?? '';
+    const profile = parseUserAgent(getHeader(event, 'user-agent') ?? '', clientHintsPlatform);
     const recommended = recommendInstaller(installers, profile);
     setHeader(event, 'vary', 'User-Agent, Sec-CH-UA-Platform');
 
@@ -115,7 +115,7 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
     return {
         release: {
             tag: release.tag_name,
-            name: release.name || release.tag_name,
+            name: release.name ?? release.tag_name,
             publishedAt: release.published_at,
             htmlUrl: release.html_url,
         },
@@ -123,7 +123,7 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
         recommendation: {
             platform: profile.platform,
             arch: profile.arch,
-            assetId: recommended?.id || null,
+            assetId: recommended?.id ?? null,
         },
     };
 });

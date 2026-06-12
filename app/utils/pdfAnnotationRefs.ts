@@ -38,5 +38,5 @@ export function normalizePdfJsAnnotationId(annotationId: string | null | undefin
     }
 
     const trimmed = annotationId?.trim();
-    return trimmed ? trimmed : null;
+    return trimmed && trimmed.length > 0 ? trimmed : null;
 }

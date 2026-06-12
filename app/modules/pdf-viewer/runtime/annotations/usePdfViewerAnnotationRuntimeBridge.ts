@@ -15,7 +15,7 @@ import type {
     IAnnotationSettings,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { useAnnotationOrchestrator } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationOrchestrator';
+import type { TAnnotationOrchestrator } from '@app/modules/pdf-viewer/runtime/annotations/annotationOrchestrator';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { applyAnnotationCommentTextMarkupColor } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor';
@@ -23,8 +23,6 @@ import { syncAnnotationCommentTextMarkupVisualOverlays } from '@app/modules/pdf-
 import { toOpaqueHighlightDisplayColor } from '@app/modules/pdf-viewer/engine/text-markup-color/toOpaqueHighlightDisplayColor';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { BrowserLogger } from '@app/utils/browserLogger';
-
-type TAnnotationOrchestrator = ReturnType<typeof useAnnotationOrchestrator>;
 
 interface IUsePdfViewerAnnotationRuntimeBridgeOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -82,7 +80,8 @@ export function usePdfViewerAnnotationRuntimeBridge(options: IUsePdfViewerAnnota
     }
 
     function resolveRenderedTextMarkupOverlayColor(comment: IAnnotationCommentSummary) {
-        return comment.color?.trim() || null;
+        const color = comment.color?.trim();
+        return color && color.length > 0 ? color : null;
     }
 
     function resolveRenderedTextMarkupHighlightOpacity(comment: IAnnotationCommentSummary) {

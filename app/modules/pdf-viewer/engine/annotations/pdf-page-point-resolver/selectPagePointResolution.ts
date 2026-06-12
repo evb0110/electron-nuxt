@@ -1,24 +1,10 @@
+import type {
+    IGeometryResolution,
+    IPagePointResolutionSelection,
+} from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/pdfPagePointResolverTypes';
 
 
-interface IPageCandidateLogEntry {
-    pageNumber: number | null;
-    inside: boolean;
-    distanceSquared: number;
-    rect: {
-        left: number;
-        top: number;
-        right: number;
-        bottom: number;
-        width: number;
-        height: number;
-    };
-}
 
-interface IGeometryResolution {
-    pageContainer: HTMLElement | null;
-    source: 'inside' | 'nearest' | 'none';
-    candidates: IPageCandidateLogEntry[] | null;
-}
 
 interface IPagePointResolutionInputs {
     targetPageContainer: HTMLElement | null;
@@ -29,13 +15,6 @@ interface IPagePointResolutionInputs {
     byGeometryPage: number | null;
 }
 
-interface IPagePointResolutionSelection {
-    pageContainer: HTMLElement | null;
-    selectedSource: string;
-    targetConflictsWithElementPoint: boolean;
-    targetConflictsWithGeometry: boolean;
-    hasTargetConflict: boolean;
-}
 
 export function selectPagePointResolution(inputs: IPagePointResolutionInputs): IPagePointResolutionSelection {
     const {

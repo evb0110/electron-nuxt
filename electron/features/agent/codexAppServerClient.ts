@@ -10,9 +10,9 @@ import { createLogger } from '@electron/utils/createLogger';
 const logger = createLogger('agent-codex-assistant');
 const APP_SERVER_REQUEST_TIMEOUT_MS = 30_000;
 
-type TJsonRpcId = number;
+type TAppServerJsonRpcId = number;
 
-interface IJsonRpcResponse {
+interface IAppServerJsonRpcResponse {
     id?: unknown;
     result?: unknown;
     error?: {
@@ -36,7 +36,7 @@ interface IPendingAppServerRequest {
 
 export class CodexAppServerClient {
     private readonly child: ChildProcessWithoutNullStreams;
-    private readonly pending = new Map<TJsonRpcId, IPendingAppServerRequest>();
+    private readonly pending = new Map<TAppServerJsonRpcId, IPendingAppServerRequest>();
     private nextId = 1;
     private stdoutBuffer = '';
     private stderrBuffer = '';
@@ -61,8 +61,8 @@ export class CodexAppServerClient {
 
         this.child.stdout.setEncoding('utf8');
         this.child.stderr.setEncoding('utf8');
-        this.child.stdout.on('data', chunk => this.handleStdout(chunk));
-        this.child.stderr.on('data', chunk => this.handleStderr(chunk));
+        this.child.stdout.on('data', (chunk: string | Buffer) => this.handleStdout(String(chunk)));
+        this.child.stderr.on('data', (chunk: string | Buffer) => this.handleStderr(String(chunk)));
         this.child.on('error', error => this.failAll(`Codex app-server failed: ${getErrorMessage(error)}`));
         this.child.on('close', (exitCode) => {
             const detail = this.stderrBuffer.trim();
@@ -217,7 +217,7 @@ export class CodexAppServerClient {
         }
     }
 
-    private handleResponse(response: IJsonRpcResponse) {
+    private handleResponse(response: IAppServerJsonRpcResponse) {
         const id = typeof response.id === 'number' ? response.id : null;
         if (id === null) {
             return;
@@ -231,7 +231,9 @@ export class CodexAppServerClient {
         clearTimeout(pending.timeout);
         this.pending.delete(id);
         if (response.error) {
-            pending.reject(new Error(response.error.message || `${pending.method} failed.`));
+            pending.reject(new Error(response.error.message && response.error.message.length > 0
+                ? response.error.message
+                : `${pending.method} failed.`));
             return;
         }
         pending.resolve(response.result);

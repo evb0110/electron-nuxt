@@ -12,7 +12,7 @@ import {
 } from '@app/platform/browser-api/browserPlatformHelpers';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 
-interface IPickedBrowserFile {
+export interface IPickedBrowserFile {
     file: File;
     handle?: FileSystemFileHandle | null;
 }

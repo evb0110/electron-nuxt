@@ -159,24 +159,22 @@ async function ensureUpdaterSupported() {
         return codeSignatureValid;
     }
 
-    if (!codeSignatureCheckPromise) {
-        codeSignatureCheckPromise = checkMacCodeSignature()
-            .then((valid) => {
-                codeSignatureValid = valid;
-                if (!valid) {
-                    logger.info('Ad-hoc code signature detected; auto-updates require Developer ID signing');
-                }
-                return valid;
-            })
-            .catch(() => {
-                codeSignatureValid = false;
-                logger.info('Unable to validate macOS code signature; updater disabled');
-                return false;
-            })
-            .finally(() => {
-                codeSignatureCheckPromise = null;
-            });
-    }
+    codeSignatureCheckPromise ??= checkMacCodeSignature()
+        .then((valid) => {
+            codeSignatureValid = valid;
+            if (!valid) {
+                logger.info('Ad-hoc code signature detected; auto-updates require Developer ID signing');
+            }
+            return valid;
+        })
+        .catch(() => {
+            codeSignatureValid = false;
+            logger.info('Unable to validate macOS code signature; updater disabled');
+            return false;
+        })
+        .finally(() => {
+            codeSignatureCheckPromise = null;
+        });
 
     return codeSignatureCheckPromise;
 }
@@ -329,12 +327,13 @@ function setAutoUpdaterListeners() {
     });
 
     const onUpdateAvailable = (info: UpdateInfo) => {
-        const version = normalizeVersion(info.version) || pendingVersion;
-        pendingVersion = version || null;
+        const normalizedVersion = normalizeVersion(info.version);
+        const version = normalizedVersion.length > 0 ? normalizedVersion : pendingVersion;
+        pendingVersion = version && version.length > 0 ? version : null;
         updateStatus({
             phase: 'downloading',
             origin: currentCheckOrigin,
-            version: version || null,
+            version: version && version.length > 0 ? version : null,
             percent: 0,
             message: null,
         });
@@ -401,9 +400,10 @@ function setAutoUpdaterListeners() {
 
     const onUpdateDownloaded = async (event: UpdateDownloadedEvent) => {
         try {
-            const version = normalizeVersion(event.version) || pendingVersion;
-            pendingVersion = version || null;
-            downloadedVersion = version || null;
+            const normalizedVersion = normalizeVersion(event.version);
+            const version = normalizedVersion.length > 0 ? normalizedVersion : pendingVersion;
+            pendingVersion = version && version.length > 0 ? version : null;
+            downloadedVersion = version && version.length > 0 ? version : null;
 
             const skippedVersion = await readSkippedVersion();
             if (
@@ -426,7 +426,7 @@ function setAutoUpdaterListeners() {
             updateStatus({
                 phase: 'downloaded',
                 origin: currentCheckOrigin,
-                version: version || null,
+                version: version && version.length > 0 ? version : null,
                 percent: 100,
                 message: null,
             });

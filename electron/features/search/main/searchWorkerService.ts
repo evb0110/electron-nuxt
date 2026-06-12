@@ -256,8 +256,9 @@ export class SearchWorkerService {
     ): Promise<ISearchResponse> {
         const senderId = event.sender.id;
         const state = this.ensureSenderState(event, senderId);
-        const requestId = payload.requestId
-            || `${payload.requestIdPrefix}-${randomUUID()}`;
+        const requestId = payload.requestId && payload.requestId.length > 0
+            ? payload.requestId
+            : `${payload.requestIdPrefix}-${randomUUID()}`;
         if (state.pendingByRequestId.has(requestId)) {
             throw new Error(`Search request with id "${requestId}" is already in progress`);
         }
@@ -321,7 +322,10 @@ export class SearchWorkerService {
             return { canceled: false };
         }
 
-        const targetRequestId = requestId?.trim() || state.activeRequestId;
+        const trimmedRequestId = requestId?.trim();
+        const targetRequestId = trimmedRequestId && trimmedRequestId.length > 0
+            ? trimmedRequestId
+            : state.activeRequestId;
         if (!targetRequestId) {
             return { canceled: false };
         }

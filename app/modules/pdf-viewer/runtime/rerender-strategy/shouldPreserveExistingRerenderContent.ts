@@ -1,9 +1,6 @@
+import type { IPageRange } from '@app/types/pdf';
 import { isResizeRerenderSource } from '@app/modules/pdf-viewer/runtime/rerender-strategy/isResizeRerenderSource';
 
-interface IPageRange {
-    start: number;
-    end: number;
-}
 
 const PRESERVE_EXISTING_RENDER_SOURCES = new Set([
     'zoom-change',

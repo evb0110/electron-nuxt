@@ -3,48 +3,15 @@ import {
     workerData,
 } from 'worker_threads';
 import type {
-    ICropMargins,
-    IPageGeometry,
-} from '@contracts/shared';
+    TCropWorkerInput,
+    TCropWorkerResult,
+} from '@electron/features/page-ops/main/cropWorkerProtocol';
 import {
     cropPagesLocal,
     getPageGeometryLocal,
     removeCropFromPagesLocal,
 } from '@electron/features/page-ops/main/cropLocal';
 import { getErrorMessage } from '@electron/utils/error';
-
-type TCropWorkerInput =
-    | {
-        type: 'crop';
-        workingCopyPath: string;
-        pages: number[];
-        margins: ICropMargins;
-        senderWebContentsId?: number;
-    }
-    | {
-        type: 'removeCrop';
-        workingCopyPath: string;
-        pages: number[];
-        senderWebContentsId?: number;
-    }
-    | {
-        type: 'getPageGeometry';
-        workingCopyPath: string;
-        pageNumber: number;
-        senderWebContentsId?: number;
-    };
-
-type TCropWorkerResult =
-    | {
-        type: 'result';
-        ok: true;
-        data?: IPageGeometry;
-    }
-    | {
-        type: 'result';
-        ok: false;
-        error: string;
-    };
 
 function getInput(): TCropWorkerInput {
     const input = workerData as TCropWorkerInput | undefined;

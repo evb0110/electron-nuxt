@@ -1,9 +1,6 @@
+import type { IPoint2D } from '@app/types/point2D';
 import type { IImagePlacementRectPx } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
 
-interface IPoint2D {
-    x: number;
-    y: number;
-}
 
 function toRadians(degrees: number) {
     return (degrees * Math.PI) / 180;

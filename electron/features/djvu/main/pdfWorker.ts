@@ -8,6 +8,7 @@ import type {
     TDjvuPdfWorkerMessage,
     TDjvuPdfWorkerTask,
 } from '@electron/features/djvu/main/pdfWorkerProtocol';
+import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import { isRecord } from '@contracts/runtimeGuards';
 import { getErrorMessage } from '@electron/utils/error';
 
@@ -19,8 +20,20 @@ function isFiniteNumber(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value);
 }
 
+function isPdfBookmarkEntry(value: unknown): value is IPdfBookmarkEntry {
+    return isRecord(value)
+        && typeof value.title === 'string'
+        && (typeof value.pageIndex === 'number' || value.pageIndex === null)
+        && (typeof value.namedDest === 'string' || value.namedDest === null)
+        && typeof value.bold === 'boolean'
+        && typeof value.italic === 'boolean'
+        && (typeof value.color === 'string' || value.color === null)
+        && Array.isArray(value.items)
+        && value.items.every(isPdfBookmarkEntry);
+}
+
 function getTask(): TDjvuPdfWorkerTask {
-    const task = workerData;
+    const task: unknown = workerData;
     if (!isRecord(task) || typeof task.type !== 'string') {
         throw new Error('Invalid DjVu PDF worker payload');
     }
@@ -48,6 +61,7 @@ function getTask(): TDjvuPdfWorkerTask {
                 typeof task.inputPdfPath !== 'string'
                 || typeof task.outputPdfPath !== 'string'
                 || !Array.isArray(task.bookmarks)
+                || !task.bookmarks.every(isPdfBookmarkEntry)
             ) {
                 throw new Error('Invalid DjVu PDF bookmark task payload');
             }

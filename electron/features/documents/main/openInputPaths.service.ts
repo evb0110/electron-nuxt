@@ -30,10 +30,9 @@ import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { addRecentInputs } from '@electron/features/documents/main/addRecentInputs.service';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
+import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
 
 const logger = createLogger('documents-open-service');
-
-type TOpenPathOwner = number | Electron.WebContents;
 
 interface IOpenInputPathsOptions {onCombineProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;}
 

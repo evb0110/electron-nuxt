@@ -32,7 +32,7 @@ export function isScopedJobOwnedBySender(scopedJobId: string, webContentsId: num
     return scopedJobId.startsWith(`${webContentsId}:`);
 }
 
-type TOcrWorkerManagerMessage = Exclude<
+export type TOcrWorkerManagerMessage = Exclude<
     TOcrWorkerOutboundMessage,
     { type: 'resource-acquire' } | { type: 'resource-release' }
 >;

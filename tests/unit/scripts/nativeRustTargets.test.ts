@@ -6,7 +6,7 @@ import {
     it,
 } from 'vitest';
 
-type TNativeRustTarget = {
+interface INativeRustTarget {
     arch: string;
     binaryExtension: string;
     cargoReleaseDirSegments: string[];
@@ -15,9 +15,9 @@ type TNativeRustTarget = {
     platform: string;
     platformArch: string;
     rustTarget: string;
-};
+}
 
-type TNativeRustTargetsModule = {
+interface INativeRustTargetsModule {
     getHostNativeTarget: (target?: {
         arch?: string;
         platform?: string;
@@ -31,10 +31,10 @@ type TNativeRustTargetsModule = {
             arch: string;
             platform: string;
         },
-    ) => TNativeRustTarget;
+    ) => INativeRustTarget;
     normalizeNativeTargetArch: (value: string) => string;
     normalizeNativeTargetPlatform: (value: string) => string;
-};
+}
 
 const {
     getHostNativeTarget,
@@ -43,7 +43,7 @@ const {
     normalizeNativeTargetPlatform,
 } = await import(
     pathToFileURL(path.join(process.cwd(), 'scripts/native-rust-targets.mjs')).href
-) as TNativeRustTargetsModule;
+) as INativeRustTargetsModule;
 
 describe('native Rust targets', () => {
     it('normalizes release workflow platform and architecture aliases', () => {

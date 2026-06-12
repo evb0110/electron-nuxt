@@ -1,3 +1,4 @@
+import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 import {
     beforeEach,
     describe,
@@ -6,16 +7,15 @@ import {
     vi,
 } from 'vitest';
 
-type TRegisteredHandler = (...args: unknown[]) => unknown;
 
-interface IMockWorkerRecord {
+interface IWarmIndexMockWorkerRecord {
     onHandlers: Map<string, Array<(arg: unknown) => void>>;
     postMessageCalls: Array<Record<string, unknown>>;
 }
 
 const mocks = vi.hoisted(() => ({
     handlers: new Map<string, TRegisteredHandler>(),
-    workerRecords: [] as IMockWorkerRecord[],
+    workerRecords: [] as IWarmIndexMockWorkerRecord[],
     resolveAllowedReadPath: vi.fn(),
     findWorkingCopyPathByOriginalPath: vi.fn(),
     logger: {
@@ -43,7 +43,7 @@ function emitWorkerEvent(
 }
 
 vi.mock('worker_threads', () => ({Worker: class {
-    private record: IMockWorkerRecord;
+    private record: IWarmIndexMockWorkerRecord;
 
     constructor() {
         this.record = {
@@ -70,7 +70,7 @@ vi.mock('worker_threads', () => ({Worker: class {
         if (!requestId) {
             return;
         }
-        Promise.resolve().then(() => {
+        void Promise.resolve().then(() => {
             emitWorkerEvent(
                 mocks.workerRecords.indexOf(this.record),
                 'message',

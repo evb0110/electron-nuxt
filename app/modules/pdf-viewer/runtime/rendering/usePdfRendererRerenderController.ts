@@ -1,9 +1,12 @@
+import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import type {
     MaybeRefOrGetter,
     Ref,
 } from 'vue';
-import type { IScrollSnapshot } from '@app/types/pdf';
-import type { IPageRange } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/pageRange';
+import type {
+    IPageRange,
+    IScrollSnapshot,
+} from '@app/types/pdf';
 import { captureScrollSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/captureScrollSnapshot';
 import { collectPreservedRenderPageNumbers } from '@app/modules/pdf-viewer/engine/pdf-page-render-preservation/collectPreservedRenderPageNumbers';
 import { createPdfRerenderRestorationLogger } from '@app/modules/pdf-viewer/engine/pdf-rerender-restoration/createPdfRerenderRestorationLogger';
@@ -45,12 +48,6 @@ interface IRerenderRestoreContext extends INormalizedRerenderOptions, IRerenderR
     snapshotToRestore: IScrollSnapshot | null;
 }
 
-interface IRenderVisiblePagesOptions {
-    preserveRenderedPages?: boolean;
-    bufferOverride?: number;
-    forceRerender?: boolean;
-    maxCanvasPixelsOverride?: number;
-}
 
 interface IUsePdfRendererRerenderControllerOptions {
     container: Ref<HTMLElement | null>;

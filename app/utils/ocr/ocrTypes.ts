@@ -8,7 +8,7 @@ export interface IOcrSettings {
     selectedLanguages: string[];
 }
 
-export interface IOcrProgress {
+export interface IOcrUiProgress {
     isRunning: boolean;
     phase: 'preparing' | 'processing';
     currentPage: number;

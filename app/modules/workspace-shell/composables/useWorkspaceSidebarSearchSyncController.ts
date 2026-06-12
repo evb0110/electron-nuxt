@@ -10,6 +10,8 @@ interface IWorkspaceSidebarSearchSyncControllerDeps {
     initialViewState?: ITabViewSessionState | null;
 }
 
+type TWorkspaceSidebarSearchSnapshot = readonly [boolean, unknown, number, boolean];
+
 export const useWorkspaceSidebarSearchSyncController = (
     deps: IWorkspaceSidebarSearchSyncControllerDeps,
 ) => {
@@ -33,7 +35,7 @@ export const useWorkspaceSidebarSearchSyncController = (
         totalPages,
     });
 
-    watch(currentPage, (next, previous) => {
+    watch(currentPage, (next: number, previous: number) => {
         if (next === previous) {
             return;
         }
@@ -54,17 +56,16 @@ export const useWorkspaceSidebarSearchSyncController = (
             totalPages.value,
             isLoading.value,
         ] as const,
-        ([
-            nextShowSidebar,
-            nextSidebarTab,
-            nextTotalPages,
-            nextLoading,
-        ], [
-            prevShowSidebar,
-            prevSidebarTab,
-            prevTotalPages,
-            prevLoading,
-        ]) => {
+        (nextSnapshot: TWorkspaceSidebarSearchSnapshot, previousSnapshot: TWorkspaceSidebarSearchSnapshot) => {
+            const nextShowSidebar = nextSnapshot[0];
+            const nextSidebarTab = nextSnapshot[1];
+            const nextTotalPages = nextSnapshot[2];
+            const nextLoading = nextSnapshot[3];
+            const prevShowSidebar = previousSnapshot[0];
+            const prevSidebarTab = previousSnapshot[1];
+            const prevTotalPages = previousSnapshot[2];
+            const prevLoading = previousSnapshot[3];
+
             if (
                 nextShowSidebar === prevShowSidebar
                 && nextSidebarTab === prevSidebarTab

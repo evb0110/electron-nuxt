@@ -41,43 +41,52 @@ export function resolveStablePdfDeleteFallback(options: IResolveStablePdfDeleteF
     } = options;
     const targetText = comment.text.trim().toLowerCase();
 
-    const scoredCandidates = candidates
-        .filter(c => c.pageIndex === comment.pageIndex && Boolean(c.annotationId))
-        .map((candidate) => {
-            const ct = candidate.text.trim().toLowerCase();
-            if (targetText.length > 0 && ct.length > 0 && targetText !== ct) {
-                return null;
-            }
-            const iou = markerRectIoU(comment.markerRect, candidate.markerRect);
-            const distance = markerRectCenterDistance(comment.markerRect, candidate.markerRect);
-            if (!hasSupportedDeleteGeometry(comment, candidate, iou, distance)) {
-                return null;
-            }
-            return {
-                candidate,
-                iou,
-                distance,
-                score: (
-                    (ct && targetText && ct === targetText ? 8 : 0)
-                    + (iou * 10)
-                    + Math.max(0, 3 - (distance * 8))
-                    + identity.commentMergePriority(candidate)
-                ),
-            };
-        })
-        .filter((e): e is NonNullable<typeof e> => Boolean(e))
-        .sort((l, r) => {
-            if (l.score !== r.score) {
-                return r.score - l.score;
-            }
-            if (l.iou !== r.iou) {
-                return r.iou - l.iou;
-            }
-            if (l.distance !== r.distance) {
-                return l.distance - r.distance;
-            }
-            return r.candidate.stableKey.localeCompare(l.candidate.stableKey);
+    const scoredCandidates: Array<{
+        candidate: IAnnotationCommentSummary;
+        iou: number;
+        distance: number;
+        score: number;
+    }> = [];
+    for (const candidate of candidates) {
+        if (candidate.pageIndex !== comment.pageIndex || !candidate.annotationId) {
+            continue;
+        }
+
+        const ct = candidate.text.trim().toLowerCase();
+        if (targetText.length > 0 && ct.length > 0 && targetText !== ct) {
+            continue;
+        }
+        const iou = markerRectIoU(comment.markerRect, candidate.markerRect);
+        const distance = markerRectCenterDistance(comment.markerRect, candidate.markerRect);
+        if (!hasSupportedDeleteGeometry(comment, candidate, iou, distance)) {
+            continue;
+        }
+
+        scoredCandidates.push({
+            candidate,
+            iou,
+            distance,
+            score: (
+                (ct && targetText && ct === targetText ? 8 : 0)
+                + (iou * 10)
+                + Math.max(0, 3 - (distance * 8))
+                + identity.commentMergePriority(candidate)
+            ),
         });
+    }
+
+    scoredCandidates.sort((l, r) => {
+        if (l.score !== r.score) {
+            return r.score - l.score;
+        }
+        if (l.iou !== r.iou) {
+            return r.iou - l.iou;
+        }
+        if (l.distance !== r.distance) {
+            return l.distance - r.distance;
+        }
+        return r.candidate.stableKey.localeCompare(l.candidate.stableKey);
+    });
 
     const best = scoredCandidates[0] ?? null;
     if (!best) {

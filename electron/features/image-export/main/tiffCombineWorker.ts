@@ -26,8 +26,14 @@ function getWorkerInput() {
     if (!Array.isArray(input?.pagePaths) || typeof input.outputPath !== 'string') {
         throw new Error('Invalid TIFF combine worker payload');
     }
+    const pagePaths: string[] = [];
+    for (const path of input.pagePaths) {
+        if (typeof path === 'string') {
+            pagePaths.push(path);
+        }
+    }
     return {
-        pagePaths: input.pagePaths.filter((path): path is string => typeof path === 'string'),
+        pagePaths,
         outputPath: input.outputPath,
     };
 }

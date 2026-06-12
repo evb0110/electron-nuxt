@@ -24,7 +24,7 @@ import { usePdfViewerPublicApiController } from '@app/modules/pdf-viewer/runtime
 import { useEditedTextMarkupVisualSync } from '@app/modules/pdf-viewer/runtime/annotations/useEditedTextMarkupVisualSync';
 import type {
     IPdfViewerProps,
-    TPdfViewerEmit,
+    IPdfViewerEmit,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 import { usePdfViewerPropModel } from '@app/modules/pdf-viewer/runtime/contracts/usePdfViewerPropModel';
 import { usePdfCropSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCropSelection';
@@ -40,7 +40,7 @@ import type {
 } from '@app/types/annotations';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 
-export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdfViewerEmit) {
+export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdfViewerEmit) {
     const {
         src,
         sourcePdfData,

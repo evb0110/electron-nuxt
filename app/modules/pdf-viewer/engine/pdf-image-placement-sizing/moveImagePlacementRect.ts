@@ -1,3 +1,4 @@
+import type { IPoint2D } from '@app/types/point2D';
 import type {
     IImagePlacementContainerRect,
     IImagePlacementRectPx,
@@ -11,10 +12,6 @@ interface IImagePlacementMoveOptions {
     rotationDegrees?: number;
 }
 
-interface IPoint2D {
-    x: number;
-    y: number;
-}
 
 function toRadians(degrees: number) {
     return (degrees * Math.PI) / 180;

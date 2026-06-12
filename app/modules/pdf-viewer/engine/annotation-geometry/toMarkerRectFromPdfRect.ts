@@ -1,3 +1,4 @@
+import type { IPageRectBounds } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRectBounds';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import {
     normalizeMarkerRectBounds,
@@ -8,12 +9,6 @@ import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation
 
 const MIN_POINT_MARKER_SIZE = 0.0016;
 
-interface IPageRectBounds {
-    xMin: number;
-    yMin: number;
-    width: number;
-    height: number;
-}
 
 function getPageRectBounds(pageView: number[] | null | undefined): IPageRectBounds | null {
     if (!pageView || pageView.length < 4) {

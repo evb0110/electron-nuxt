@@ -139,12 +139,10 @@ function normalizeLayoutForPanes(
     validPaneIds: Set<string>,
 ): TEditorLayoutNode {
     let nextLayout = layout ? pruneLayoutToExistingPanes(layout, validPaneIds) : null;
-    if (!nextLayout) {
-        nextLayout = {
-            type: 'leaf',
-            paneId: panes[0]!.paneId,
-        };
-    }
+    nextLayout ??= {
+        type: 'leaf',
+        paneId: panes[0]!.paneId,
+    };
 
     const layoutPaneIds = new Set<string>();
     collectLayoutPaneIds(nextLayout, layoutPaneIds);

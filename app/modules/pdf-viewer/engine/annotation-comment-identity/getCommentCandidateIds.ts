@@ -30,10 +30,17 @@ function parseStableKeyCandidates(stableKey: string | null | undefined) {
 }
 
 export function getCommentCandidateIds(comment: IAnnotationCommentSummary) {
-    return uniq([
+    const candidateIds: string[] = [];
+    for (const id of [
         ...parseStableKeyCandidates(comment.stableKey),
         comment.uid,
         comment.annotationId,
         comment.id,
-    ].filter((id): id is string => typeof id === 'string' && id.length > 0));
+    ]) {
+        if (typeof id === 'string' && id.length > 0) {
+            candidateIds.push(id);
+        }
+    }
+
+    return uniq(candidateIds);
 }

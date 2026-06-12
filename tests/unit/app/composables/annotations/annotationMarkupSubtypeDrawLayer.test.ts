@@ -10,7 +10,7 @@ import {
 import type { IPdfjsDrawLayer } from '@app/types/pdfjs';
 import { createAnnotationMarkupSubtypeDrawLayer } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/createAnnotationMarkupSubtypeDrawLayer';
 
-interface ITestRect {
+interface IAnnotationMarkupDrawLayerTestRect {
     height: number;
     left: number;
     top: number;
@@ -19,11 +19,11 @@ interface ITestRect {
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
-function toDomRect(rect: ITestRect): DOMRect {
+function toDomRect(rect: IAnnotationMarkupDrawLayerTestRect): DOMRect {
     return new DOMRect(rect.left, rect.top, rect.width, rect.height);
 }
 
-function setElementRect(element: Element, rect: ITestRect) {
+function setElementRect(element: Element, rect: IAnnotationMarkupDrawLayerTestRect) {
     vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(toDomRect(rect));
 }
 

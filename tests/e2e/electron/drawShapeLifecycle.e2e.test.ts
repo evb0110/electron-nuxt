@@ -1,4 +1,5 @@
 import type { Page } from 'puppeteer-core';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
 import {
     afterEach,
     describe,
@@ -32,15 +33,11 @@ import {
     readWorkspaceStateValues,
     waitForWorkspaceToolbarIdle,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import type { IPdfRenderTraceEntry } from '@app/utils/pdfRenderTrace';
 
 interface IRendererErrorTracker {
     errors: string[];
     detach: () => void;
-}
-
-interface IPdfRenderTraceEntry {
-    event: string;
-    payload: Record<string, unknown>;
 }
 
 interface IManagedShapeDebugShape {
@@ -72,8 +69,8 @@ async function enableDebugBrowserLogging(page: Page) {
     await waitForFunctionInPage(page, () => {
         const nuxtRoot = document.querySelector('#__nuxt');
         const hasNuxt = Boolean(nuxtRoot && nuxtRoot.children.length > 0);
-        const hasOpenFile = typeof (window as Window & { __openFileDirect?: unknown }).__openFileDirect === 'function';
-        const hasElectronApi = typeof (window as Window & { electronAPI?: unknown }).electronAPI === 'object';
+        const hasOpenFile = typeof (window as IE2EWindow & { __openFileDirect?: unknown }).__openFileDirect === 'function';
+        const hasElectronApi = typeof (window as IE2EWindow & { electronAPI?: unknown }).electronAPI === 'object';
         return hasNuxt && hasOpenFile && hasElectronApi;
     }, { timeout: 30_000 });
 }
@@ -82,7 +79,7 @@ async function enableBufferedPdfRenderTrace(page: Page) {
     await page.evaluate(() => {
         localStorage.setItem('evb-viewer:pdf-render-trace', '1');
         localStorage.removeItem('evb-viewer:pdf-render-trace-console');
-        const traceWindow = window as Window & {
+        const traceWindow = window as IE2EWindow & {
             __pdfRenderTrace?: boolean;
             __pdfRenderTraceConsole?: boolean;
             __pdfRenderTraceBuffer?: IPdfRenderTraceEntry[];
@@ -101,14 +98,14 @@ async function enableBufferedPdfRenderTrace(page: Page) {
 
 async function getBufferedPdfRenderTrace(page: Page) {
     return page.evaluate(() => {
-        const traceWindow = window as Window & { __getPdfRenderTrace?: () => IPdfRenderTraceEntry[] };
+        const traceWindow = window as IE2EWindow & { __getPdfRenderTrace?: () => IPdfRenderTraceEntry[] };
         return traceWindow.__getPdfRenderTrace?.() ?? [];
     });
 }
 
 async function waitForManagedShapeSelfSaveImportWithoutRerender(page: Page) {
     await waitForFunctionInPage(page, () => {
-        const traceWindow = window as Window & { __getPdfRenderTrace?: () => IPdfRenderTraceEntry[] };
+        const traceWindow = window as IE2EWindow & { __getPdfRenderTrace?: () => IPdfRenderTraceEntry[] };
         const trace = traceWindow.__getPdfRenderTrace?.() ?? [];
         return trace.some(entry => (
             entry.event === 'managed-shapes-import-end'
@@ -920,10 +917,10 @@ async function waitForNoVisibleInkAtPoint(page: Page, point: {
                 return isVisibleGhostElement(element)
                     && Boolean(
                         element instanceof SVGElement
-                        || element.closest('.inkEditor')
-                        || element.closest('.highlightEditor')
-                        || element.closest('.editorAnnotation')
-                        || element.closest('[data-annotation-id]'),
+                        || Boolean(element.closest('.inkEditor'))
+                        || Boolean(element.closest('.highlightEditor'))
+                        || Boolean(element.closest('.editorAnnotation'))
+                        || Boolean(element.closest('[data-annotation-id]')),
                     );
             })
         );
@@ -1188,7 +1185,7 @@ async function waitForAllShapesEmbedded(page: Page, expectedCount: number) {
     throw new Error(`Timed out waiting for ${expectedCount} embedded shapes: ${JSON.stringify(shapes)}`);
 }
 
-interface IPoint {
+interface IDrawShapePoint {
     x: number;
     y: number;
 }
@@ -1202,17 +1199,17 @@ type TScenarioShapeSource = 'local' | 'embedded';
 interface IInkScenarioShape {
     kind: 'ink';
     color: string;
-    hit: IPoint;
-    points: readonly IPoint[];
+    hit: IDrawShapePoint;
+    points: readonly IDrawShapePoint[];
     drawMode?: 'mouse' | 'pointer';
 }
 
 interface ILineScenarioShape {
     kind: 'line';
     color: string;
-    start: IPoint;
-    end: IPoint;
-    hit: IPoint;
+    start: IDrawShapePoint;
+    end: IDrawShapePoint;
+    hit: IDrawShapePoint;
 }
 
 type TScenarioShape = IInkScenarioShape | ILineScenarioShape;
@@ -1266,15 +1263,15 @@ interface ISavedShapeDeleteScenario {
     steps: readonly TScenarioStep[];
 }
 
-const p = (x: number, y: number): IPoint => ({
+const p = (x: number, y: number): IDrawShapePoint => ({
     x,
     y,
 });
 
 const ink = (
     color: string,
-    hit: IPoint,
-    points: readonly IPoint[],
+    hit: IDrawShapePoint,
+    points: readonly IDrawShapePoint[],
     drawMode: IInkScenarioShape['drawMode'] = 'pointer',
 ): IInkScenarioShape => ({
     kind: 'ink',
@@ -1286,9 +1283,9 @@ const ink = (
 
 const line = (
     color: string,
-    start: IPoint,
-    end: IPoint,
-    hit: IPoint,
+    start: IDrawShapePoint,
+    end: IDrawShapePoint,
+    hit: IDrawShapePoint,
 ): ILineScenarioShape => ({
     kind: 'line',
     color,

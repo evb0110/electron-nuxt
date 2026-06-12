@@ -1,22 +1,12 @@
 {
+    "extends": "../tsconfig.base.json",
     "compilerOptions": {
         "target": "ESNext",
         "module": "ESNext",
         "moduleResolution": "Bundler",
         "resolveJsonModule": true,
         "esModuleInterop": true,
-        "strict": true,
         "noEmit": true,
-        "noImplicitReturns": true,
-        "noImplicitOverride": true,
-        "noFallthroughCasesInSwitch": true,
-        "noUncheckedIndexedAccess": true,
-        "useUnknownInCatchVariables": true,
-        "strictBuiltinIteratorReturn": true,
-        "verbatimModuleSyntax": true,
-        "moduleDetection": "force",
-        "isolatedModules": true,
-        "forceConsistentCasingInFileNames": true,
         "baseUrl": "..",
         "paths": {
             "@contracts": ["packages/contracts/index.ts"],
@@ -39,7 +29,8 @@
     },
     "include": [
         "./**/*.ts",
-        "./**/*.d.ts"
+        "./**/*.d.ts",
+        "../types/vendor/utif.d.ts"
     ],
     "exclude": [
         "node_modules"

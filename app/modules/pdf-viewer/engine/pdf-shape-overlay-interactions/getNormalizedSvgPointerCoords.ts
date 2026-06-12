@@ -1,11 +1,5 @@
 import { resolveSvgPointerTarget } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/resolveSvgPointerTarget';
-
-interface IPointerEventLike {
-    currentTarget: EventTarget | null;
-    target: EventTarget | null;
-    clientX: number;
-    clientY: number;
-}
+import type { IPointerEventLike } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/pdfShapeOverlayInteractionTypes';
 
 export function getNormalizedSvgPointerCoords(event: IPointerEventLike) {
     const svg = resolveSvgPointerTarget(event);

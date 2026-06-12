@@ -30,13 +30,13 @@ function createResizeAnchor(page: number): IResizeAnchorContext {
     };
 }
 
-type TTestPageRange = {
+interface ITestPageRange {
     start: number;
     end: number;
-};
+}
 
 type TReRenderAllVisiblePagesMock = (
-    getVisibleRange: () => TTestPageRange,
+    getVisibleRange: () => ITestPageRange,
     options?: Record<string, unknown>,
 ) => Promise<void>;
 

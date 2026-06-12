@@ -7,6 +7,16 @@ import { getRuntimeEnv } from '@server/utils/getRuntimeEnv';
 
 const DEFAULT_PRODUCTION_SITE_URL = 'https://evb-viewer-web.vercel.app';
 
+function firstNonEmptyString(values: Array<string | undefined>) {
+    for (const value of values) {
+        if (typeof value === 'string' && value.length > 0) {
+            return value;
+        }
+    }
+
+    return '';
+}
+
 export function normalizeSiteUrl(siteUrl: string) {
     return siteUrl.endsWith('/') ? siteUrl : `${siteUrl}/`;
 }
@@ -14,15 +24,16 @@ export function normalizeSiteUrl(siteUrl: string) {
 export function resolveSiteUrl(event: H3Event) {
     const requestUrl = getRequestURL(event);
     const env = getRuntimeEnv();
-    const configuredSiteUrl = (env.NUXT_PUBLIC_SITE_URL
-        || env.NUXT_SITE_URL
-        || env.SITE_URL
-        || '').trim();
+    const configuredSiteUrl = firstNonEmptyString([
+        env.NUXT_PUBLIC_SITE_URL,
+        env.NUXT_SITE_URL,
+        env.SITE_URL,
+    ]).trim();
     if (configuredSiteUrl) {
         return normalizeSiteUrl(configuredSiteUrl);
     }
 
-    const allowedSiteHosts = compact((env.SITE_URL_ALLOWED_HOSTS || '')
+    const allowedSiteHosts = compact((env.SITE_URL_ALLOWED_HOSTS ?? '')
         .split(',')
         .map(host => host.trim().toLowerCase()));
 

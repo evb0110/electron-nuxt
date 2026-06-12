@@ -7,19 +7,6 @@ import {
     vi,
 } from 'vitest';
 
-interface IUtifFrame {
-    width?: number;
-    height?: number;
-    t273?: number[];
-    [key: string]: unknown;
-}
-
-interface IUtifModule {
-    decode(input: Uint8Array | ArrayBuffer): IUtifFrame[];
-    decodeImage(input: Uint8Array | ArrayBuffer, frame: IUtifFrame): void;
-    toRGBA8(frame: IUtifFrame): Uint8Array;
-}
-
 const browserDocumentStoreMock = vi.hoisted(() => ({
     cleanupDetachedDocument: vi.fn(async () => true),
     createStoredDocument: vi.fn(),
@@ -68,7 +55,7 @@ vi.mock('@app/platform/browser-api/browserFileName', () => ({ ensurePdfExtension
 
 vi.mock('@app/platform/browser-api/browserBytes', () => ({ toUint8Array: (value: Uint8Array | ArrayBuffer) => value instanceof Uint8Array ? value : new Uint8Array(value) }));
 
-const UTIF = utifModule as IUtifModule;
+const UTIF = utifModule;
 
 function countTiffDirectories(bytes: Uint8Array) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);

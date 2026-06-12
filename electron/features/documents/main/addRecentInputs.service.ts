@@ -2,8 +2,7 @@ import { uniq } from 'es-toolkit/array';
 import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
 import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
-
-type TOpenPathOwner = number | Electron.WebContents;
+import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
 
 export async function addRecentInputs(paths: string[], owner?: TOpenPathOwner) {
     const uniquePaths = uniq(paths);

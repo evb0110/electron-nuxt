@@ -20,6 +20,7 @@ import {
 } from '@electron/utils/workerTask';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
+import type { TCropWorkerInput } from '@electron/features/page-ops/main/cropWorkerProtocol';
 
 const log = createLogger('page-ops-crop');
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -34,27 +35,6 @@ class CropWorkerUnavailableError extends Error {
         this.name = 'CropWorkerUnavailableError';
     }
 }
-
-type TCropWorkerInput =
-    | {
-        type: 'crop';
-        workingCopyPath: string;
-        pages: number[];
-        margins: ICropMargins;
-        senderWebContentsId?: number;
-    }
-    | {
-        type: 'removeCrop';
-        workingCopyPath: string;
-        pages: number[];
-        senderWebContentsId?: number;
-    }
-    | {
-        type: 'getPageGeometry';
-        workingCopyPath: string;
-        pageNumber: number;
-        senderWebContentsId?: number;
-    };
 
 function resolveCropWorkerPath() {
     return resolveUnpackedWorkerPath(__dirname, CROP_WORKER_FILENAME);

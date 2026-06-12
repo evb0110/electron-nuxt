@@ -14,7 +14,7 @@ interface IMenuItemLike {
     submenu?: IMenuItemLike[] | unknown;
 }
 
-interface ITestWindow {
+interface IMenuPerWindowStateTestWindow {
     id: number;
     webContents: {
         send: ReturnType<typeof vi.fn>;
@@ -30,21 +30,21 @@ interface ITestWindow {
     close: () => void;
     isDestroyed: () => boolean;
     getTitle: () => string;
-    on: (event: string, handler: (...args: unknown[]) => void) => ITestWindow;
+    on: (event: string, handler: (...args: unknown[]) => void) => IMenuPerWindowStateTestWindow;
 }
 
 const mocks = vi.hoisted(() => ({
-    windows: [] as ITestWindow[],
+    windows: [] as IMenuPerWindowStateTestWindow[],
     buildFromTemplate: vi.fn((template: unknown) => ({
         popup: vi.fn(),
         template,
     })),
     setApplicationMenu: vi.fn(),
     appListeners: new Map<string, (...args: unknown[]) => void>(),
-    createWindow: ((_id: number, _title: string): ITestWindow => {
+    createWindow: ((_id: number, _title: string): IMenuPerWindowStateTestWindow => {
         throw new Error('createWindow mock not initialized');
     }),
-    focusWindow: ((_window: ITestWindow | null): void => {
+    focusWindow: ((_window: IMenuPerWindowStateTestWindow | null): void => {
         throw new Error('focusWindow mock not initialized');
     }),
 }));
@@ -107,7 +107,7 @@ vi.mock('electron', () => {
     }
 
     mocks.createWindow = (id: number, title: string) => new MockBrowserWindow(id, title);
-    mocks.focusWindow = (window: ITestWindow | null) => {
+    mocks.focusWindow = (window: IMenuPerWindowStateTestWindow | null) => {
         MockBrowserWindow.focusedWindow = window as MockBrowserWindow | null;
     };
 
@@ -149,6 +149,11 @@ const {
 function getLastMenuTemplate() {
     const lastCall = mocks.buildFromTemplate.mock.calls.at(-1);
     return (lastCall?.[0] as IMenuItemLike[] | undefined) ?? [];
+}
+
+async function waitForMenuClickTasks() {
+    await Promise.resolve();
+    await Promise.resolve();
 }
 
 function isSaveEnabled(template: IMenuItemLike[]) {
@@ -312,7 +317,8 @@ describe('menu per-window document state', () => {
 
         const undoItem = getEditMenuSubmenu(getLastMenuTemplate())
             .find(item => item.label === 'menu.undo');
-        await undoItem?.click?.({}, window);
+        undoItem?.click?.({}, window);
+        await waitForMenuClickTasks();
 
         expect(window.webContents.undo).toHaveBeenCalledOnce();
         expect(window.webContents.send).not.toHaveBeenCalledWith('menu:undo');
@@ -332,7 +338,8 @@ describe('menu per-window document state', () => {
 
         const undoItem = getEditMenuSubmenu(getLastMenuTemplate())
             .find(item => item.label === 'menu.undo');
-        await expect(undoItem?.click?.({}, window)).resolves.toBeUndefined();
+        undoItem?.click?.({}, window);
+        await waitForMenuClickTasks();
 
         expect(window.webContents.undo).not.toHaveBeenCalled();
         expect(window.webContents.send).not.toHaveBeenCalledWith('menu:undo');
@@ -349,7 +356,8 @@ describe('menu per-window document state', () => {
 
         const undoItem = getEditMenuSubmenu(getLastMenuTemplate())
             .find(item => item.label === 'menu.undo');
-        await undoItem?.click?.({}, window);
+        undoItem?.click?.({}, window);
+        await waitForMenuClickTasks();
 
         expect(window.webContents.undo).not.toHaveBeenCalled();
         expect(window.webContents.send).toHaveBeenCalledWith('menu:undo');

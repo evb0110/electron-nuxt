@@ -474,9 +474,7 @@ function normalizeAnnotationDeletes(deletes: unknown) {
             && Number.isSafeInteger(candidate.generationNumber)
             && candidate.generationNumber >= 0
             && candidate.generationNumber <= 65_535;
-        const createdAt = candidate.createdAt === undefined || candidate.createdAt === null
-            ? null
-            : candidate.createdAt;
+        const createdAt = candidate.createdAt ?? null;
         if (
             typeof candidate.pageIndex !== 'number'
             || !Number.isSafeInteger(candidate.pageIndex)
@@ -832,10 +830,11 @@ function normalizeNativeMarkupOverride(value: unknown, index: number) {
     if (!Array.isArray(value) || value.length !== 2) {
         throw new Error(`Invalid native markup override at index ${index}`);
     }
+    const tuple: unknown[] = value;
     const [
         annotationId,
         subtype,
-    ] = value;
+    ] = tuple;
     if (
         typeof annotationId !== 'string'
         || annotationId.trim().length === 0
@@ -948,9 +947,7 @@ function normalizeNativePlacedImages(rawPlacedImages: unknown) {
             width: candidate.width,
             height: candidate.height,
         }, `Native placed image ${index}`);
-        const rotationDegrees = candidate.rotationDegrees === undefined || candidate.rotationDegrees === null
-            ? null
-            : candidate.rotationDegrees;
+        const rotationDegrees = candidate.rotationDegrees ?? null;
         if (
             rotationDegrees !== null
             && (typeof rotationDegrees !== 'number' || !Number.isFinite(rotationDegrees))

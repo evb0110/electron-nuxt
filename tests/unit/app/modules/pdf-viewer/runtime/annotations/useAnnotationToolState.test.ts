@@ -114,6 +114,36 @@ function createToolStateOptions(uiManager: ReturnType<typeof createUiManager>, o
     };
 }
 
+interface IAnnotationToolStateTestManager {
+    applyAnnotationSettings: (settings: IAnnotationSettings) => void;
+    forgetMarkupSubtypeOverride: (annotationId: string) => void;
+    getAnnotationMode: (tool: string) => number;
+    getMarkupSubtypeHints: () => unknown[];
+    getMarkupSubtypeOverrides: () => Map<string, unknown>;
+    getSelectedTextMarkupAnnotationProperties: () => unknown;
+    maybeAutoResetAnnotationTool: () => void;
+    rememberMarkupSubtypeColorOverride: (annotationId: string, color: string) => void;
+    resolveEditorMarkupSubtypeColor: (editor: unknown, subtype: string, pageIndex: number) => string;
+    resolveEditorMarkupSubtypeOverride: (editor: unknown, pageIndex: number) => string | null;
+    resolveHighlightColorForTool: (settings: IAnnotationSettings, tool: string) => string;
+    resolveHighlightOpacityForTool: (settings: IAnnotationSettings, tool: string) => number;
+    setAnnotationTool: (tool: string) => Promise<void>;
+    setEditorMarkupSubtypeOverride: (
+        editor: unknown,
+        pageIndex: number,
+        subtype: string,
+        options?: { preferEditorColor?: boolean },
+    ) => void;
+    updateModeWithRetry: (uiManager: unknown, mode: number, pageNumber: number) => Promise<Error | null>;
+    updateSelectedTextMarkupAnnotationColor: (color: string) => boolean;
+    updateTextMarkupAnnotationColor: (editor: unknown, pageIndex: number, subtype: string, color: string) => boolean;
+}
+
+async function loadUseAnnotationToolState(): Promise<(options: unknown) => IAnnotationToolStateTestManager> {
+    const module = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+    return module.useAnnotationToolState as (options: unknown) => IAnnotationToolStateTestManager;
+}
+
 describe('useAnnotationToolState', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -125,23 +155,23 @@ describe('useAnnotationToolState', () => {
     });
 
     it('retries mode switch once after waiting for editors', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const firstError = new Error('mode not ready');
         const uiManager = createUiManager({updateMode: vi.fn()
             .mockRejectedValueOnce(firstError)
             .mockResolvedValueOnce(undefined)});
 
-        const manager = useAnnotationToolState(createToolStateOptions(uiManager, { currentPage: ref(3) }) as never);
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager, { currentPage: ref(3) }));
 
         const expectedMode = manager.getAnnotationMode('text');
-        const result = await manager.updateModeWithRetry(uiManager as never, expectedMode, 3);
+        const result = await manager.updateModeWithRetry(uiManager, expectedMode, 3);
         expect(result).toBeNull();
         expect(uiManager.updateMode).toHaveBeenCalledTimes(2);
         expect(uiManager.waitForEditorsRendered).toHaveBeenCalledWith(3);
     });
 
     it('returns retry error when second mode switch fails', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const retryError = new Error('still failing');
         const uiManager = createUiManager({
             updateMode: vi.fn()
@@ -152,18 +182,18 @@ describe('useAnnotationToolState', () => {
             }),
         });
 
-        const manager = useAnnotationToolState(createToolStateOptions(uiManager) as never);
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager));
 
         const expectedMode = manager.getAnnotationMode('draw');
-        const result = await manager.updateModeWithRetry(uiManager as never, expectedMode, 1);
+        const result = await manager.updateModeWithRetry(uiManager, expectedMode, 1);
         expect(result).toBe(retryError);
     });
 
     it('serializes rapid tool changes and applies only latest pending mode', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const uiManager = createUiManager();
 
-        const manager = useAnnotationToolState(createToolStateOptions(uiManager) as never);
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager));
 
         manager.applyAnnotationSettings(createAnnotationSettings());
         await Promise.all([
@@ -176,12 +206,12 @@ describe('useAnnotationToolState', () => {
     });
 
     it('auto-resets tool when keep-active is disabled', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const emitAnnotationToolAutoReset = vi.fn();
         const manager = useAnnotationToolState(createToolStateOptions(createUiManager(), {
             tool: 'text',
             emitAnnotationToolAutoReset,
-        }) as never);
+        }));
 
         manager.maybeAutoResetAnnotationTool();
         await Promise.resolve();
@@ -190,12 +220,12 @@ describe('useAnnotationToolState', () => {
     });
 
     it('does not auto-reset explicit select mode', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const emitAnnotationToolAutoReset = vi.fn();
         const manager = useAnnotationToolState(createToolStateOptions(createUiManager(), {
             tool: 'select',
             emitAnnotationToolAutoReset,
-        }) as never);
+        }));
 
         manager.maybeAutoResetAnnotationTool();
         await Promise.resolve();
@@ -210,12 +240,12 @@ describe('useAnnotationToolState', () => {
     ] as const)(
         'does not auto-reset selection-markup tool %s',
         async (tool) => {
-            const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+            const useAnnotationToolState = await loadUseAnnotationToolState();
             const emitAnnotationToolAutoReset = vi.fn();
             const manager = useAnnotationToolState(createToolStateOptions(createUiManager(), {
                 tool,
                 emitAnnotationToolAutoReset,
-            }) as never);
+            }));
 
             manager.maybeAutoResetAnnotationTool();
             await Promise.resolve();
@@ -225,20 +255,20 @@ describe('useAnnotationToolState', () => {
     );
 
     it('keeps idle mode at none even when annotation cursor mode is enabled', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const manager = useAnnotationToolState(createToolStateOptions(
             createUiManager(),
             { annotationCursorMode: computed(() => true) },
-        ) as never);
+        ));
 
         expect(manager.getAnnotationMode('none')).toBe(0);
         expect(manager.getAnnotationMode('select')).toBe(0);
     });
 
     it('uses an opaque preblended display color for text highlights', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const uiManager = createUiManager();
-        const manager = useAnnotationToolState(createToolStateOptions(uiManager, { tool: 'highlight' }) as never);
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager, { tool: 'highlight' }));
 
         manager.applyAnnotationSettings(createAnnotationSettings());
 
@@ -247,9 +277,9 @@ describe('useAnnotationToolState', () => {
     });
 
     it('clears selected pdf.js editors before applying toolbar settings as future defaults', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const uiManager = createUiManager();
-        const manager = useAnnotationToolState(createToolStateOptions(uiManager, { tool: 'underline' }) as never);
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager, { tool: 'underline' }));
 
         manager.applyAnnotationSettings(createAnnotationSettings());
 
@@ -261,7 +291,7 @@ describe('useAnnotationToolState', () => {
     });
 
     it('updates underline toolbar color as a default without mutating stale selected editors', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const selectedEditor = { updateParams: vi.fn() };
         const updateDefaultParams = vi.fn(() => true);
         const uiManager = createUiManager({
@@ -273,7 +303,7 @@ describe('useAnnotationToolState', () => {
                 }
             }),
         });
-        const manager = useAnnotationToolState(createToolStateOptions(uiManager, { tool: 'underline' }) as never);
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager, { tool: 'underline' }));
 
         manager.applyAnnotationSettings(createAnnotationSettings());
 
@@ -283,7 +313,7 @@ describe('useAnnotationToolState', () => {
     });
 
     it('keeps each existing underline painted with its captured editor color when defaults change', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const settings = ref(createAnnotationSettings());
         const firstEditor = {
             id: 'underline-1',
@@ -303,7 +333,7 @@ describe('useAnnotationToolState', () => {
             annotationSettings: settings,
             getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
             tool: 'underline',
-        }) as never);
+        }));
 
         manager.setEditorMarkupSubtypeOverride(firstEditor, 0, 'Underline');
         manager.setEditorMarkupSubtypeOverride(secondEditor, 0, 'Underline');
@@ -318,7 +348,7 @@ describe('useAnnotationToolState', () => {
     });
 
     it('updates selected highlights with an opaque display color and raw persisted color', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const highlightEditor = {
             id: 'highlight-1',
             color: '#ffff66',
@@ -338,7 +368,7 @@ describe('useAnnotationToolState', () => {
         const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
             getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
             tool: 'highlight',
-        }) as never);
+        }));
 
         manager.setEditorMarkupSubtypeOverride(highlightEditor, 0, 'Highlight');
         highlightEditor.onUpdatedColor.mockClear();
@@ -364,7 +394,7 @@ describe('useAnnotationToolState', () => {
     });
 
     it('marks existing materialized text markup as changed after color updates', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const addChangedExistingAnnotation = vi.fn();
         const highlightEditor = {
             id: 'highlight-1',
@@ -387,10 +417,10 @@ describe('useAnnotationToolState', () => {
         const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
             getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
             tool: 'highlight',
-        }) as never);
+        }));
 
         expect(manager.updateTextMarkupAnnotationColor(
-            highlightEditor as never,
+            highlightEditor,
             0,
             'Highlight',
             '#22c55e',
@@ -401,7 +431,7 @@ describe('useAnnotationToolState', () => {
     });
 
     it('reapplies underline presentation after PDF.js updates editor color', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const div = createMarkupElement();
         const underlineEditor = {
             id: 'underline-1',
@@ -424,7 +454,7 @@ describe('useAnnotationToolState', () => {
         const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
             getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
             tool: 'underline',
-        }) as never);
+        }));
 
         manager.setEditorMarkupSubtypeOverride(underlineEditor, 0, 'Underline');
         underlineEditor.onUpdatedColor.mockClear();
@@ -438,7 +468,7 @@ describe('useAnnotationToolState', () => {
     });
 
     it('stores raw highlight color for selection-created editors instead of the opaque display color', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const highlightEditor = {
             id: 'highlight-1',
             color: '#ffff66',
@@ -454,14 +484,14 @@ describe('useAnnotationToolState', () => {
         const manager = useAnnotationToolState(createToolStateOptions(createUiManager(), {
             getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
             tool: 'highlight',
-        }) as never);
+        }));
 
-        expect(manager.resolveEditorMarkupSubtypeColor(highlightEditor as never, 'Highlight', 0)).toBe('#ffff00');
+        expect(manager.resolveEditorMarkupSubtypeColor(highlightEditor, 'Highlight', 0)).toBe('#ffff00');
         expect((highlightEditor as { __evbMarkupSubtypeColor?: string }).__evbMarkupSubtypeColor).toBe('#ffff00');
     });
 
     it('uses raw highlight settings for active-tool subtype overrides while keeping the visual color opaque', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const highlightEditor = {
             id: 'highlight-1',
             color: '#ffff66',
@@ -478,7 +508,7 @@ describe('useAnnotationToolState', () => {
         const manager = useAnnotationToolState(createToolStateOptions(createUiManager(), {
             getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
             tool: 'highlight',
-        }) as never);
+        }));
 
         manager.setEditorMarkupSubtypeOverride(
             highlightEditor,
@@ -493,7 +523,7 @@ describe('useAnnotationToolState', () => {
     });
 
     it('prefers materialized annotation colors over stale editor defaults', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const underlineEditor = {
             id: 'underline-1',
             annotationElementId: '42R0',
@@ -505,18 +535,18 @@ describe('useAnnotationToolState', () => {
         const manager = useAnnotationToolState(createToolStateOptions(createUiManager({ getEditors: vi.fn(() => [underlineEditor]) }), {
             getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
             tool: 'underline',
-        }) as never);
+        }));
 
-        expect(manager.resolveEditorMarkupSubtypeColor(underlineEditor as never, 'Underline', 0)).toBe('#ffd400');
+        expect(manager.resolveEditorMarkupSubtypeColor(underlineEditor, 'Underline', 0)).toBe('#ffd400');
 
         manager.rememberMarkupSubtypeColorOverride('42R0', '#22c55e');
 
-        expect(manager.resolveEditorMarkupSubtypeColor(underlineEditor as never, 'Underline', 0)).toBe('#22c55e');
+        expect(manager.resolveEditorMarkupSubtypeColor(underlineEditor, 'Underline', 0)).toBe('#22c55e');
         expect((underlineEditor as { __evbMarkupSubtypeColor?: string }).__evbMarkupSubtypeColor).toBe('#22c55e');
     });
 
     it('uses normalized materialized annotation ids for markup color overrides', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const underlineEditor = {
             id: 'underline-1',
             annotationElementId: '42R',
@@ -527,15 +557,15 @@ describe('useAnnotationToolState', () => {
         const manager = useAnnotationToolState(createToolStateOptions(createUiManager({ getEditors: vi.fn(() => [underlineEditor]) }), {
             getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
             tool: 'underline',
-        }) as never);
+        }));
 
         manager.rememberMarkupSubtypeColorOverride('42R0', '#3b82f6');
 
-        expect(manager.resolveEditorMarkupSubtypeColor(underlineEditor as never, 'Underline', 0)).toBe('#3b82f6');
+        expect(manager.resolveEditorMarkupSubtypeColor(underlineEditor, 'Underline', 0)).toBe('#3b82f6');
     });
 
     it('records the per-page text markup order for subtype geometry hints', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const highlightEditor = {
             id: 'highlight-1',
             div: createMarkupElement(),
@@ -561,7 +591,7 @@ describe('useAnnotationToolState', () => {
         const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
             getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
             tool: 'underline',
-        }) as never);
+        }));
 
         manager.setEditorMarkupSubtypeOverride(underlineEditor, 0, 'Underline');
 
@@ -577,7 +607,7 @@ describe('useAnnotationToolState', () => {
     });
 
     it('drops subtype geometry hints for editors no longer present on the page', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const underlineEditor = {
             id: 'underline-1',
             div: createMarkupElement(),
@@ -591,7 +621,7 @@ describe('useAnnotationToolState', () => {
         const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
             getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
             tool: 'underline',
-        }) as never);
+        }));
 
         manager.setEditorMarkupSubtypeOverride(underlineEditor, 0, 'Underline');
         uiManager.getEditors.mockReturnValue([]);
@@ -600,7 +630,7 @@ describe('useAnnotationToolState', () => {
     });
 
     it('clears stale ref overrides for materialized PDF annotations', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+        const useAnnotationToolState = await loadUseAnnotationToolState();
         const underlineEditor = {
             id: 'underline-1',
             annotationElementId: '42R0',
@@ -615,19 +645,19 @@ describe('useAnnotationToolState', () => {
         const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
             getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
             tool: 'underline',
-        }) as never);
+        }));
 
         manager.setEditorMarkupSubtypeOverride(underlineEditor, 0, 'Underline');
         manager.forgetMarkupSubtypeOverride('42R0');
 
         expect(manager.getMarkupSubtypeOverrides().has('42R0')).toBe(false);
-        expect(manager.resolveEditorMarkupSubtypeOverride(underlineEditor as never, 0)).toBeNull();
+        expect(manager.resolveEditorMarkupSubtypeOverride(underlineEditor, 0)).toBeNull();
         expect(manager.getMarkupSubtypeHints()).toEqual([]);
     });
 
     it('keeps underline and strikethrough colors/opacity literal', async () => {
-        const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
-        const manager = useAnnotationToolState(createToolStateOptions(createUiManager()) as never);
+        const useAnnotationToolState = await loadUseAnnotationToolState();
+        const manager = useAnnotationToolState(createToolStateOptions(createUiManager()));
         const settings = createAnnotationSettings();
 
         expect(manager.resolveHighlightColorForTool(settings, 'underline')).toBe('#00ff00');

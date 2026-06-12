@@ -116,7 +116,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     }
 
     function hasAnnotationNoteStableIdentifier(comment: IAnnotationCommentSummary) {
-        return Boolean(comment.annotationId || comment.uid);
+        return Boolean(comment.annotationId) || Boolean(comment.uid);
     }
 
     function canMatchAnnotationNotesByPlacement(

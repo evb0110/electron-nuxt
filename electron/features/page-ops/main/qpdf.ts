@@ -78,9 +78,7 @@ function formatComplementPageList(pagesToRemove: number[], totalPages: number) {
         }
 
         keptCount += 1;
-        if (rangeStart === null) {
-            rangeStart = page;
-        }
+        rangeStart ??= page;
         previous = page;
     }
 

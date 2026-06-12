@@ -1,11 +1,5 @@
-import type { IPdfjsEditor } from '@app/types/pdfjs';
+import type { IMarkerRectEditorMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-matcher/markerRectEditorMatch';
 
-interface IMarkerRectEditorMatch {
-    editor: IPdfjsEditor;
-    pageIndex: number;
-    distance: number;
-    textScore: number;
-}
 
 export function isBetterMarkerRectMatch(
     candidate: IMarkerRectEditorMatch,

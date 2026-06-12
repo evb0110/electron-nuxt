@@ -1,3 +1,7 @@
+import type {
+    IGeometryResolution,
+    IPagePointResolutionSelection,
+} from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/pdfPagePointResolverTypes';
 import type { Ref } from 'vue';
 import type { IPagePointTarget } from '@app/modules/pdf-viewer/engine/annotations/types';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -10,33 +14,8 @@ const NOTE_PLACEMENT_LOG_SECTION = 'note-placement';
 
 const MAX_PAGE_CANDIDATE_LOG_ENTRIES = 14;
 
-interface IPageCandidateLogEntry {
-    pageNumber: number | null;
-    inside: boolean;
-    distanceSquared: number;
-    rect: {
-        left: number;
-        top: number;
-        right: number;
-        bottom: number;
-        width: number;
-        height: number;
-    };
-}
 
-interface IGeometryResolution {
-    pageContainer: HTMLElement | null;
-    source: 'inside' | 'nearest' | 'none';
-    candidates: IPageCandidateLogEntry[] | null;
-}
 
-interface IPagePointResolutionSelection {
-    pageContainer: HTMLElement | null;
-    selectedSource: string;
-    targetConflictsWithElementPoint: boolean;
-    targetConflictsWithGeometry: boolean;
-    hasTargetConflict: boolean;
-}
 
 interface IPagePointPageNumbers {
     byTargetPage: number | null;

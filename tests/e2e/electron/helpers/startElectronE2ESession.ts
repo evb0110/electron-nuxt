@@ -20,6 +20,7 @@ import {
     setCurrentSessionName,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import type { TElectronRunCommand } from '@scripts/electron-run/electronRunProtocol';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
 import {
     startSessionDetached,
     stopSingleSession,
@@ -117,15 +118,15 @@ async function waitForRendererReady(page: Page, timeoutMs = RENDERER_READY_TIMEO
     await waitForFunctionInPage(page, () => {
         const nuxtRoot = document.querySelector('#__nuxt');
         const hasNuxt = Boolean(nuxtRoot && nuxtRoot.children.length > 0);
-        const hasOpenFile = typeof (window as Window & { __openFileDirect?: unknown }).__openFileDirect === 'function';
-        const hasElectronApi = typeof (window as Window & { electronAPI?: unknown }).electronAPI === 'object';
+        const hasOpenFile = typeof (window as IE2EWindow & { __openFileDirect?: unknown }).__openFileDirect === 'function';
+        const hasElectronApi = typeof (window as IE2EWindow & { electronAPI?: unknown }).electronAPI === 'object';
         return hasNuxt && hasOpenFile && hasElectronApi;
     }, { timeout: timeoutMs });
 }
 
 async function installPageEvaluationShims(page: Page) {
     const install = () => {
-        (window as Window & { __name?: <TFunction extends (...args: never[]) => unknown>(fn: TFunction) => TFunction }).__name = fn => fn;
+        (window as IE2EWindow & { __name?: <TFunction extends (...args: never[]) => unknown>(fn: TFunction) => TFunction }).__name = fn => fn;
     };
     await page.evaluateOnNewDocument(install);
     await page.evaluate(install);
@@ -288,7 +289,7 @@ export async function startElectronE2ESession(sessionName: string, options?: {cl
 
     const stop = async () => {
         try {
-            browser.disconnect();
+            await browser.disconnect();
         } catch {
             // Disconnect best-effort for cleanup.
         }

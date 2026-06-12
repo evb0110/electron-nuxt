@@ -7,45 +7,17 @@ import {
     rm,
 } from 'fs/promises';
 import { sumBy } from 'es-toolkit/math';
-import * as utifModule from 'utif';
+import UTIF, { type IUtifFrame } from 'utif';
 import {
     buildTiffImageIfd,
     encodeTiffIfds,
 } from '@pdf-core';
+import type { ITiffImageDescriptor } from '@pdf-core';
 import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { tryCombinePagesWithNativeTiffCombiner } from '@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner';
-
-interface IUtifFrame {
-    width?: number;
-    height?: number;
-    [key: string]: unknown;
-}
-
-interface IUtifModule {
-    decode(input: Uint8Array | ArrayBuffer): IUtifFrame[];
-    decodeImage(input: Uint8Array | ArrayBuffer, frame: IUtifFrame): void;
-    toRGBA8(frame: IUtifFrame): Uint8Array;
-    encode(ifds: Array<Record<string, unknown>>): ArrayBuffer;
-}
-
-interface IUtifBinaryWriter {
-    writeUint(buffer: Uint8Array, offset: number, value: number): void;
-    writeUshort(buffer: Uint8Array, offset: number, value: number): void;
-}
-
-interface IUtifEncoderModule extends IUtifModule {
-    _binBE: IUtifBinaryWriter;
-    _writeIFD(
-        bin: IUtifBinaryWriter,
-        data: Uint8Array,
-        offset: number,
-        ifd: Record<string, unknown>,
-    ): [number, number];
-    ttypes: Record<number, number | undefined>;
-}
 
 interface ITiffPageRgba {
     width: number;
@@ -53,16 +25,18 @@ interface ITiffPageRgba {
     rgba: Uint8Array;
 }
 
-interface ITiffImageDescriptor {
-    width: number;
-    height: number;
-    dataLength: number;
+interface ILocalTiffPageDescriptor extends ITiffImageDescriptor { path: string }
+
+const CLASSIC_TIFF_MAX_BYTE_LENGTH = 0xFFFFFFFF;
+
+interface IIndexedArrayBufferView extends ArrayBufferView {
+    readonly length: number;
+    readonly [index: number]: unknown;
 }
 
-interface ITiffPageDescriptor extends ITiffImageDescriptor { path: string; }
-
-const UTIF = utifModule as IUtifModule as IUtifEncoderModule;
-const CLASSIC_TIFF_MAX_BYTE_LENGTH = 0xFFFFFFFF;
+function isIndexedArrayBufferView(value: ArrayBufferView): value is IIndexedArrayBufferView {
+    return 'length' in value && typeof value.length === 'number';
+}
 
 function toPositiveInteger(value: unknown) {
     if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
@@ -84,11 +58,8 @@ function resolveTiffDimensionValue(value: unknown) {
         return toPositiveInteger(value[0]);
     }
 
-    if (ArrayBuffer.isView(value)) {
-        const length = Reflect.get(value, 'length');
-        if (typeof length === 'number' && length > 0) {
-            return toPositiveInteger(Reflect.get(value, 0));
-        }
+    if (ArrayBuffer.isView(value) && isIndexedArrayBufferView(value) && value.length > 0) {
+        return toPositiveInteger(value[0]);
     }
 
     return null;
@@ -266,7 +237,7 @@ export function splitTiffPageDescriptorsForClassicLimit<TPage extends ITiffImage
 }
 
 export async function readTiffPageDescriptors(pagePaths: string[]) {
-    const pages: ITiffPageDescriptor[] = [];
+    const pages: ILocalTiffPageDescriptor[] = [];
 
     for (const pagePath of pagePaths) {
         const tiffBytes = await readFile(pagePath);

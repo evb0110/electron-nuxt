@@ -76,10 +76,15 @@ export function compareAnnotationCommentSummaries(left: IAnnotationCommentSummar
 }
 
 export function getAnnotationCommentPreviewText(comment: IAnnotationCommentSummary) {
-    return comment.displayText?.trim()
-        || comment.text.trim()
-        || comment.previewText?.trim()
-        || '';
+    const displayText = comment.displayText?.trim();
+    if (displayText) {
+        return displayText;
+    }
+    const text = comment.text.trim();
+    if (text) {
+        return text;
+    }
+    return comment.previewText?.trim() ?? '';
 }
 
 export function matchesCommentQuery(
@@ -91,7 +96,11 @@ export function matchesCommentQuery(
         return true;
     }
 
-    const author = comment.author?.trim() || fallbackAuthor?.trim() || '';
+    const commentAuthor = comment.author?.trim();
+    const fallback = fallbackAuthor?.trim();
+    const author = commentAuthor && commentAuthor.length > 0
+        ? commentAuthor
+        : fallback ?? '';
     const pageNumber = String(comment.pageNumber);
     const pageTokens = [
         `p${pageNumber}`,

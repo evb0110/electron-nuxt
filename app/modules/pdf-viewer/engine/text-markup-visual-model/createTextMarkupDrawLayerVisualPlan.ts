@@ -130,9 +130,10 @@ export function createTextMarkupDrawLayerVisualPlan(options: {
         return null;
     }
 
-    const paths = normalizeTextMarkupBoxesByLine(boxes)
-        .map(box => createTextMarkupDrawLayerPath(subtype, box, drawLayerRect, pageDimensions))
-        .filter((path): path is ITextMarkupLivePath => Boolean(path));
+    const paths = normalizeTextMarkupBoxesByLine(boxes).flatMap((box) => {
+        const path = createTextMarkupDrawLayerPath(subtype, box, drawLayerRect, pageDimensions);
+        return path ? [path] : [];
+    });
     if (paths.length === 0) {
         return null;
     }

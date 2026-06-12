@@ -122,12 +122,12 @@ function subtypeHintsShareIdentity(left: IMarkupSubtypeHint, right: IMarkupSubty
     if (left.subtype !== right.subtype) {
         return false;
     }
-    return Boolean(
-        (left.id && right.id && left.id === right.id)
-        || (
-            normalizeHintAnnotationRef(left)
-            && normalizeHintAnnotationRef(left) === normalizeHintAnnotationRef(right)
-        ),
+    const leftRef = normalizeHintAnnotationRef(left);
+    const rightRef = normalizeHintAnnotationRef(right);
+    return (
+        Boolean(left.id) && left.id === right.id
+    ) || (
+        Boolean(leftRef) && leftRef === rightRef
     );
 }
 

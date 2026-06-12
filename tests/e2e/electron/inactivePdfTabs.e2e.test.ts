@@ -6,6 +6,7 @@ import {
 import { createMultiPageTextFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
 import {assertInactiveDocumentPressureReleased} from '@tests/e2e/electron/helpers/viewerPressure';
 import {
     getToolbarCurrentPage,
@@ -130,7 +131,7 @@ async function waitForInactiveHostsToReleaseRenderedPages(session: IElectronE2ES
 
 async function splitActiveDocument(session: IElectronE2ESession, direction: 'right' | 'down' = 'right') {
     const split = await session.page.evaluate(async (targetDirection: 'right' | 'down') => {
-        const splitEditor = (window as Window & {__splitEditorForE2E?: (direction: 'right' | 'down') => Promise<void> | void;}).__splitEditorForE2E;
+        const splitEditor = (window as IE2EWindow & {__splitEditorForE2E?: (direction: 'right' | 'down') => Promise<void> | void;}).__splitEditorForE2E;
         if (typeof splitEditor === 'function') {
             await splitEditor(targetDirection);
             return true;

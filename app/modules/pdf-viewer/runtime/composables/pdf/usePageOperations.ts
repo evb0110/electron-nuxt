@@ -3,6 +3,7 @@ import { clamp } from 'es-toolkit/math';
 import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { IPageOpsResult } from '@contracts/electronApiPageOps';
 import type { TTranslationKey } from '@i18n-app';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useAnalytics } from '@app/composables/useAnalytics';
@@ -13,7 +14,6 @@ import {
 import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
 
 type TPageOpsRotation = 90 | 180 | 270;
-interface IPageOpsResult {success: boolean;}
 type TPageOperationRunner<TResult extends IPageOpsResult> = (path: TDocumentRef) => Promise<TResult>;
 type TPageOperationSuccess<TResult extends IPageOpsResult> = (result: TResult) => boolean;
 

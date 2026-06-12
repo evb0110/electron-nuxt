@@ -4,6 +4,7 @@ import type {
     ShallowRef,
 } from 'vue';
 import type {
+    IPageRange,
     IScrollSnapshot,
     PDFDocumentProxy,
     TFitMode,
@@ -11,10 +12,6 @@ import type {
     TZoomMode,
 } from '@app/types/pdf';
 
-interface IPageRange {
-    start: number;
-    end: number;
-}
 
 interface IUsePdfViewerFitWidthControllerOptions {
     viewerContainer: Ref<HTMLElement | null>;

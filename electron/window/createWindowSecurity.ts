@@ -1,10 +1,9 @@
+import type { ILogger } from '@electron/utils/createLogger';
 import type { BrowserWindow } from 'electron';
 import { shell } from 'electron';
 import { inspectAllowedExternalUrl } from '@contracts/externalUrl';
 import { getErrorMessage } from '@electron/utils/error';
 import { isTrustedRendererUrl as matchesTrustedRendererUrl } from '@electron/security/isTrustedRendererUrl';
-
-interface ILogger {warn(message: string): void;}
 
 interface ICreateWindowSecurityOptions {
     getTrustedRendererUrl: () => string;

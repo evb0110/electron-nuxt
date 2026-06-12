@@ -1,7 +1,5 @@
-interface IPageRange {
-    start: number;
-    end: number;
-}
+import type { IPageRange } from '@app/types/pdf';
+
 
 export function hasRenderedPageInRange(
     visibleRange: IPageRange,

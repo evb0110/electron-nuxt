@@ -25,13 +25,11 @@ function getStartupState() {
 
     const startupWindow = window as Window & {[STARTUP_STATE_KEY]?: IRendererStartupState;};
 
-    if (!startupWindow[STARTUP_STATE_KEY]) {
-        startupWindow[STARTUP_STATE_KEY] = {
-            sequence: 0,
-            startedAtIso: new Date().toISOString(),
-            startedAtPerfMs: performance.now(),
-        };
-    }
+    startupWindow[STARTUP_STATE_KEY] ??= {
+        sequence: 0,
+        startedAtIso: new Date().toISOString(),
+        startedAtPerfMs: performance.now(),
+    };
 
     return startupWindow[STARTUP_STATE_KEY];
 }
@@ -52,9 +50,7 @@ function isStartupTraceEnabled() {
 function getStartupEvents() {
     const startupWindow = window as Window & {[STARTUP_TRACE_EVENTS_KEY]?: IStartupTraceEvent[];};
 
-    if (!startupWindow[STARTUP_TRACE_EVENTS_KEY]) {
-        startupWindow[STARTUP_TRACE_EVENTS_KEY] = [];
-    }
+    startupWindow[STARTUP_TRACE_EVENTS_KEY] ??= [];
 
     return startupWindow[STARTUP_TRACE_EVENTS_KEY];
 }

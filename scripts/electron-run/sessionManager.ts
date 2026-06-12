@@ -402,8 +402,8 @@ async function checkHydration(page: Page) {
             const automationWindow = window as Window & {__appReady?: boolean;};
             const nuxtEl = document.querySelector('#__nuxt');
             return !!(
-                automationWindow.__appReady
-                || (nuxtEl && nuxtEl.children.length > 0)
+                automationWindow.__appReady === true
+                || (nuxtEl !== null && nuxtEl.children.length > 0)
             );
         });
     } catch {
@@ -1161,20 +1161,19 @@ function attachPageDiagnostics(page: Page) {
 
 function readNuxtSessionShareMetadata(): INuxtSessionShareMetadata[] {
     return listAllSessionNames()
-        .map((name): INuxtSessionShareMetadata | null => {
+        .flatMap((name) => {
             const info = getSessionInfo(name);
             if (!info) {
-                return null;
+                return [];
             }
 
-            return {
+            return [{
                 name,
                 sessionAlive: isProcessAlive(info.pid),
                 nuxtPid: info.nuxtPid,
                 nuxtPort: info.nuxtPort,
-            };
-        })
-        .filter((session): session is INuxtSessionShareMetadata => session !== null);
+            }];
+        });
 }
 
 async function stopSessionElectronProcess(state: ISessionState | null) {

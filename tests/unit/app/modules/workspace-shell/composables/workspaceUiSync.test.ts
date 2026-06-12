@@ -9,6 +9,7 @@ import {
     ref,
 } from 'vue';
 import type { Ref } from 'vue';
+import type { IOpenBatchProgressState } from '@app/modules/workspace-shell/composables/openBatchProgressState';
 import { useWorkspaceUiSyncWatchers } from '@app/modules/workspace-shell/composables/useWorkspaceUiSyncWatchers';
 import { resolveWorkspaceTabUpdate } from '@app/modules/workspace-shell/state/resolveWorkspaceTabUpdate';
 import { resolveWorkspaceWindowTitle } from '@app/modules/workspace-shell/state/resolveWorkspaceWindowTitle';
@@ -117,10 +118,7 @@ interface IWorkspaceUiSyncTestDeps {
     pdfViewerRef: Ref<{ scrollToPage: (page: number) => void } | null>;
     originalPath: Ref<string | null>;
     closeFile: TWorkspaceUiSyncDeps['closeFile'];
-    openBatchProgress: Ref<{
-        processed: number;
-        total: number
-    } | null>;
+    openBatchProgress: Ref<IOpenBatchProgressState | null>;
     isActive: Ref<boolean>;
     fileName: Ref<string | null>;
     isDirty: Ref<boolean>;
@@ -141,7 +139,7 @@ function createWatcherDeps(overrides: Partial<IWorkspaceUiSyncTestDeps> = {}): I
         pdfViewerRef: ref(null),
         originalPath: ref<string | null>(null),
         closeFile: vi.fn(async () => {}),
-        openBatchProgress: ref(null),
+        openBatchProgress: ref<IOpenBatchProgressState | null>(null),
         isActive: ref(false),
         fileName: ref<string | null>(null),
         isDirty: ref(false),

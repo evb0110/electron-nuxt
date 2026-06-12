@@ -32,6 +32,7 @@ import {
     buildTiffImageIfd,
     encodeTiffIfds,
 } from '@pdf-core';
+import type { ITiffImageDescriptor } from '@pdf-core';
 
 type TBrowserImageExportFormat = 'jpeg' | 'png' | 'tiff';
 type TBrowserImageExportProgressPayload = Omit<IImageExportProgress, 'format' | 'requestId'>;
@@ -43,12 +44,7 @@ interface IRenderedPdfPage {
     height: number;
 }
 
-interface ITiffPageDescriptor {
-    pageNumber: number;
-    width: number;
-    height: number;
-    dataLength: number;
-}
+interface IBrowserTiffPageDescriptor extends ITiffImageDescriptor {pageNumber: number;}
 
 const BROWSER_INLINE_TIFF_EXPORT_MAX_RGBA_BYTES = 64 * 1024 * 1024;
 const imageExportProgressListeners = new Set<(progress: IImageExportProgress) => void>();
@@ -73,23 +69,7 @@ const BROWSER_IMAGE_EXPORT_PICKER_TYPES: IFilePickerAcceptType[] = [
     },
 ];
 
-interface IUtifBinaryWriter {
-    writeUint(buffer: Uint8Array, offset: number, value: number): void;
-    writeUshort(buffer: Uint8Array, offset: number, value: number): void;
-}
-
-interface IUtifEncoderModule {
-    _binBE: IUtifBinaryWriter;
-    _writeIFD(
-        bin: IUtifBinaryWriter,
-        data: Uint8Array,
-        offset: number,
-        ifd: Record<string, unknown>,
-    ): [number, number];
-    ttypes: Record<number, number | undefined>;
-}
-
-const UTIF_ENCODER = UTIF as typeof UTIF & IUtifEncoderModule;
+const UTIF_ENCODER = UTIF;
 
 function normalizeBrowserExportRequestId(requestId: unknown) {
     return typeof requestId === 'string' ? requestId.trim() : '';
@@ -289,7 +269,7 @@ async function collectTiffPageDescriptors(
     pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
     pageNumbers: number[],
 ) {
-    const descriptors: ITiffPageDescriptor[] = [];
+    const descriptors: IBrowserTiffPageDescriptor[] = [];
 
     for (const pageNumber of pageNumbers) {
         const page = await pdfDocument.getPage(pageNumber);
@@ -324,7 +304,7 @@ function alignOffset(offset: number, alignment: number) {
     return remainder === 0 ? offset : offset + (alignment - remainder);
 }
 
-function encodeMultiPageTiffHeader(pageDescriptors: ITiffPageDescriptor[]) {
+function encodeMultiPageTiffHeader(pageDescriptors: IBrowserTiffPageDescriptor[]) {
     let firstDataOffset = 0;
     let header = new Uint8Array();
 
@@ -363,7 +343,7 @@ function encodeMultiPageTiffHeader(pageDescriptors: ITiffPageDescriptor[]) {
     };
 }
 
-function createMultiPageTiffOutput(pageDescriptors: ITiffPageDescriptor[]) {
+function createMultiPageTiffOutput(pageDescriptors: IBrowserTiffPageDescriptor[]) {
     const {
         header,
         firstDataOffset,
@@ -380,7 +360,7 @@ function createMultiPageTiffOutput(pageDescriptors: ITiffPageDescriptor[]) {
 
 async function encodeTiffToWritable(
     pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
-    pageDescriptors: ITiffPageDescriptor[],
+    pageDescriptors: IBrowserTiffPageDescriptor[],
     handle: FileSystemFileHandle,
     onPageWritten?: (processed: number) => void,
 ) {
@@ -420,7 +400,7 @@ async function encodeTiffToWritable(
 
 async function encodeTiffToBytes(
     pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
-    pageDescriptors: ITiffPageDescriptor[],
+    pageDescriptors: IBrowserTiffPageDescriptor[],
     onPageWritten?: (processed: number) => void,
 ) {
     const {

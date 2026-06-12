@@ -23,6 +23,7 @@ import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     DOCUMENTS_EVENT_CHANNELS,
+    type TOpenBatchProgressPayload,
     type TOpenFileResult,
 } from '@electron/features/documents/contract';
 import { openInputPaths } from '@electron/features/documents/main/openInputPaths.service';
@@ -33,8 +34,6 @@ import {
 } from '@electron/features/documents/main/documentDialogCommon';
 
 const logger = createLogger('documents-dialogs');
-
-type TOpenBatchProgressPayload = ICreatePdfFromInputPathsProgress & {requestId: string;};
 
 function sendOpenBatchProgress(
     event: Electron.IpcMainInvokeEvent,

@@ -333,7 +333,8 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
     }
 
     function resolveEditorSummaryAuthor() {
-        return authorName.value?.trim() || null;
+        const author = authorName.value?.trim();
+        return author && author.length > 0 ? author : null;
     }
 
     function toEditorSummary(

@@ -1,3 +1,4 @@
+import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 import {
     beforeEach,
     describe,
@@ -6,9 +7,8 @@ import {
     vi,
 } from 'vitest';
 
-type TRegisteredHandler = (...args: unknown[]) => unknown;
 
-interface IMockWorkerRecord {
+interface ISearchResourceLimitMockWorkerRecord {
     onHandlers: Map<string, Array<(arg: unknown) => void>>;
     postMessageCalls: Array<Record<string, unknown>>;
     terminate: ReturnType<typeof vi.fn<() => Promise<number>>>;
@@ -16,7 +16,7 @@ interface IMockWorkerRecord {
 
 const mocks = vi.hoisted(() => ({
     handlers: new Map<string, TRegisteredHandler>(),
-    workerRecords: [] as IMockWorkerRecord[],
+    workerRecords: [] as ISearchResourceLimitMockWorkerRecord[],
     workerCtor: vi.fn(),
     resolveAllowedReadPath: vi.fn(),
     findWorkingCopyPathByOriginalPath: vi.fn(),
@@ -66,7 +66,7 @@ function emitWorkerComplete(
 }
 
 vi.mock('worker_threads', () => ({Worker: class {
-    private record: IMockWorkerRecord;
+    private record: ISearchResourceLimitMockWorkerRecord;
 
     constructor(workerPath: string) {
         this.record = {
@@ -92,7 +92,7 @@ vi.mock('worker_threads', () => ({Worker: class {
             const payload = message.payload as { requestId?: string } | undefined;
             const requestId = payload?.requestId;
             if (typeof requestId === 'string' && requestId.length > 0) {
-                Promise.resolve().then(() => {
+                void Promise.resolve().then(() => {
                     emitWorkerComplete(mocks.workerRecords.indexOf(this.record), requestId);
                 });
             }

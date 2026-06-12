@@ -153,26 +153,10 @@ import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { parseCssRgbColor } from '@app/modules/pdf-viewer/engine/text-markup-color/parseCssRgbColor';
 import { rgbToHex } from '@app/modules/pdf-viewer/engine/text-markup-color/rgbToHex';
-
-interface IContextMenuState {
-    visible: boolean;
-    comment: {
-        stableKey: string;
-        text: string;
-        color?: string | null;
-        hasNote?: boolean | undefined;
-        source?: string | undefined;
-        subtype?: string | null | undefined;
-    } | null;
-    hasSelection: boolean;
-    selectionText: string;
-    pageNumber: number | null;
-    pageX: number | null;
-    pageY: number | null;
-}
+import type { IAnnotationContextMenuState } from '@app/types/pdfContextMenu';
 
 const props = defineProps<{
-    menu: IContextMenuState;
+    menu: IAnnotationContextMenuState;
     style: Record<string, string>;
     canCopy: boolean;
     canCopySelection: boolean;

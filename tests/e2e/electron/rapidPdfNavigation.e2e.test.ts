@@ -18,13 +18,16 @@ import {
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
 import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
 import { callWorkspaceCommand } from '@tests/e2e/electron/helpers/workspaceExpose';
+import type { IPdfRenderTraceEntry } from '@app/utils/pdfRenderTrace';
 
 const PAGE_JUMP_PDF_ENV_VAR = 'EVB_E2E_PAGE_JUMP_PDF_PATH';
 const PAGE_JUMP_REQUIRE_ENV_VAR = 'EVB_E2E_REQUIRE_PAGE_JUMP_FIXTURE';
-const PAGE_JUMP_PDF_PATH = process.env[PAGE_JUMP_PDF_ENV_VAR]
-    || resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'page-jump-source.pdf');
+const PAGE_JUMP_PDF_PATH = process.env[PAGE_JUMP_PDF_ENV_VAR]?.length
+    ? process.env[PAGE_JUMP_PDF_ENV_VAR]
+    : resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'page-jump-source.pdf');
 const TARGET_PAGE = 100;
 const TRACE_OUTPUT_PATH = resolve(
     process.cwd(),
@@ -47,11 +50,6 @@ const pageJumpFixture = resolvePathFixtureAvailability({
     requiredEnvVar: PAGE_JUMP_REQUIRE_ENV_VAR,
 });
 const pageJumpDescribe = selectFixtureDescribe(describe, pageJumpFixture);
-
-type TPdfRenderTraceEntry = {
-    event: string;
-    payload: Record<string, unknown>;
-};
 
 interface IVisiblePageState {
     page: number | null;
@@ -84,7 +82,7 @@ async function enableBufferedPdfTrace(session: IElectronE2ESession) {
     await session.page.evaluate(() => {
         localStorage.setItem('evb-viewer:pdf-render-trace', '1');
         localStorage.removeItem('evb-viewer:pdf-render-trace-console');
-        const traceWindow = window as Window & {
+        const traceWindow = window as IE2EWindow & {
             __pdfRenderTrace?: boolean;
             __pdfRenderTraceConsole?: boolean;
             __clearPdfRenderTrace?: () => void;
@@ -152,7 +150,7 @@ async function collectVisiblePageState(session: IElectronE2ESession) {
 
 async function collectTrace(session: IElectronE2ESession) {
     return session.page.evaluate(() => {
-        const traceWindow = window as Window & { __getPdfRenderTrace?: () => TPdfRenderTraceEntry[]; };
+        const traceWindow = window as IE2EWindow & { __getPdfRenderTrace?: () => IPdfRenderTraceEntry[]; };
         return traceWindow.__getPdfRenderTrace?.() ?? [];
     });
 }
@@ -350,7 +348,7 @@ pageJumpDescribe('Electron E2E - PDF Page Jump Rendering', () => {
         let targetCanvasMounted = false;
         let visiblePages: IVisiblePageState[] = [];
         let navigationControls: Awaited<ReturnType<typeof collectNavigationControlState>> | null = null;
-        let trace: TPdfRenderTraceEntry[] = [];
+        let trace: IPdfRenderTraceEntry[] = [];
 
         try {
             await jumpToPageAndWaitForCanvas(session, 1);

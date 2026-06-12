@@ -1,3 +1,4 @@
+import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import type { MaybeRefOrGetter } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
@@ -9,12 +10,6 @@ import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
-interface IRenderVisiblePagesOptions {
-    preserveRenderedPages?: boolean;
-    bufferOverride?: number;
-    forceRerender?: boolean;
-    maxCanvasPixelsOverride?: number;
-}
 
 interface ISinglePageRenderTarget {
     container: HTMLElement;

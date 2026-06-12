@@ -89,7 +89,7 @@ function extractPlaceholders(text: string): string[] {
 function extractPlaceholdersFromLeaf(leaf: TTranslationLeaf): string[] {
     const texts = typeof leaf === 'string'
         ? [leaf]
-        : Object.values(leaf.forms);
+        : Object.values(leaf.forms).flatMap(text => typeof text === 'string' ? [text] : []);
 
     return uniq(texts.flatMap(text => extractPlaceholders(text))).sort();
 }

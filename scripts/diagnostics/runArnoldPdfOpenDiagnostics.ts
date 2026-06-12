@@ -17,9 +17,14 @@ import { delay } from 'es-toolkit/promise';
 import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import { getWorkspaceToolbarSnapshot } from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    toPdfNavLogEntries,
+    toPdfRenderTraceEntries,
+} from '@scripts/diagnostics/pdfTraceEntryGuards';
 
-const TARGET_PDF_PATH = process.env.EVB_E2E_ARNOLD_PDF_PATH
-    || resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'arnold-grammar.pdf');
+const TARGET_PDF_PATH = process.env.EVB_E2E_ARNOLD_PDF_PATH?.length
+    ? process.env.EVB_E2E_ARNOLD_PDF_PATH
+    : resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'arnold-grammar.pdf');
 const DIAGNOSTIC_OUTPUT_PATH = resolve(
     process.cwd(),
     '.devkit',
@@ -48,17 +53,6 @@ const SAMPLE_OFFSETS_MS = [
     25_000,
     30_000,
 ];
-
-type TPdfNavLogEntry = {
-    message: string;
-    args: unknown[];
-    loggedAtMs: number;
-};
-
-type TPdfRenderTraceEntry = {
-    event: string;
-    payload: Record<string, unknown>;
-};
 
 interface IConsoleLogEntry {
     receivedAtMs: number;
@@ -350,21 +344,25 @@ async function openPathDirectWithRetry(
 }
 
 async function collectPdfNavLog(page: Page) {
-    return evaluateInPage(page, () => {
-        const logWindow = window as Window & { __getPdfNavLog?: () => TPdfNavLogEntry[]; };
-        return logWindow.__getPdfNavLog?.() ?? [];
+    const entries: unknown = await evaluateInPage(page, () => {
+        const logWindow = window as Window & { __getPdfNavLog?: () => unknown[]; };
+        const logEntries = logWindow.__getPdfNavLog?.();
+        return Array.isArray(logEntries) ? Array.from(logEntries as readonly unknown[]) : [];
     });
+    return toPdfNavLogEntries(entries);
 }
 
 async function collectPdfRenderTrace(page: Page) {
-    return evaluateInPage(page, () => {
-        const traceWindow = window as Window & { __getPdfRenderTrace?: () => TPdfRenderTraceEntry[]; };
-        return traceWindow.__getPdfRenderTrace?.() ?? [];
+    const entries: unknown = await evaluateInPage(page, () => {
+        const traceWindow = window as Window & { __getPdfRenderTrace?: () => unknown[]; };
+        const traceEntries = traceWindow.__getPdfRenderTrace?.();
+        return Array.isArray(traceEntries) ? Array.from(traceEntries as readonly unknown[]) : [];
     });
+    return toPdfRenderTraceEntries(entries);
 }
 
 async function collectOpenSnapshot(page: Page, label: string, startedAtMs: number): Promise<IArnoldSnapshot> {
-    const snapshot = await evaluateInPage(page, (snapshotLabel: string, nodeStartedAtMs: number): TArnoldSnapshotWithoutToolbar => {
+    const rawSnapshot: unknown = await evaluateInPage(page, (snapshotLabel: string, nodeStartedAtMs: number) => {
         const diagnosticWindow = window as Window & {__arnoldDiagnosticOpenResult?: unknown;};
 
         const rectSnapshot = (element: Element | null) => {
@@ -482,7 +480,7 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
         const pagesToSample = Array.from(new Set([
             firstPage,
             ...visiblePages,
-        ].filter((element): element is HTMLElement => Boolean(element)))).slice(0, 5);
+        ].flatMap(element => element ? [element] : []))).slice(0, 5);
 
         return {
             label: snapshotLabel,
@@ -535,7 +533,9 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
             }),
         };
     }, label, startedAtMs);
-    const toolbarSnapshot = await getWorkspaceToolbarSnapshot(page, {requireVisible: true});
+    const snapshot = rawSnapshot as TArnoldSnapshotWithoutToolbar;
+    const rawToolbarSnapshot: unknown = await getWorkspaceToolbarSnapshot(page, {requireVisible: true});
+    const toolbarSnapshot = rawToolbarSnapshot;
     return {
         ...snapshot,
         workspace: {

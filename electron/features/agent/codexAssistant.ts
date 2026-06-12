@@ -201,11 +201,11 @@ function normalizeAssistantScope(scope: IAgentAssistantChatScope | null | undefi
         return null;
     }
 
-    const title = scope.title?.trim() || null;
+    const title = scope.title?.trim();
     return {
         kind: 'document',
         key,
-        title,
+        title: title && title.length > 0 ? title : null,
         ...(scope.tabId?.trim() ? { tabId: scope.tabId.trim() } : {}),
         ...(scope.documentRef?.trim() ? { documentRef: scope.documentRef.trim() } : {}),
     } satisfies IAgentAssistantChatScope;
@@ -854,7 +854,8 @@ async function refreshMcpToolCount() {
         if (!isRecord(response) || !Array.isArray(response.data)) {
             return;
         }
-        const server = response.data.find(candidate => isRecord(candidate) && candidate.name === ASSISTANT_MCP_SERVER_NAME);
+        const servers: unknown[] = response.data;
+        const server = servers.find(candidate => isRecord(candidate) && candidate.name === ASSISTANT_MCP_SERVER_NAME);
         if (!isRecord(server) || !isRecord(server.tools)) {
             return;
         }

@@ -648,7 +648,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     }
 
     function hasNativePdfMutationCapability() {
-        return Boolean(trySavePdfNativeMutations || trySaveEmbeddedNoteTextUpdates);
+        return Boolean(trySavePdfNativeMutations) || Boolean(trySaveEmbeddedNoteTextUpdates);
     }
 
     function canPersistNativeMetadataMutations() {
@@ -722,11 +722,9 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             } as const;
         }
         return buildPdfAnnotationSavePlan({
-            hasPendingReplayableEmbeddedChanges: Boolean(
-                opts?.pendingTexts?.size
-                || opts?.pendingDeletes?.length
+            hasPendingReplayableEmbeddedChanges: Boolean(opts?.pendingTexts?.size)
+                || Boolean(opts?.pendingDeletes?.length)
                 || replayableIds.size > 0,
-            ),
             hasEditorOnlyAnnotationsPendingMaterialization: hasUnreplayableEditorOnlyAnnotationsPendingMaterialization(),
             liveAnnotationChanges: liveChanges,
             replayableEmbeddedAnnotationIds: replayableIds,

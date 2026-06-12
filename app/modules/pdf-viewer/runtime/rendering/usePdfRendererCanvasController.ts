@@ -1,3 +1,7 @@
+import type {
+    ICancelableRenderTask,
+    IRenderVisiblePagesOptions,
+} from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import type { usePdfCanvasRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer';
 import {
@@ -9,12 +13,7 @@ import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-re
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
-interface ICancelableRenderTask {
-    cancel: () => void;
-    promise: Promise<unknown>;
-}
 
-interface IRenderVisiblePagesOptions {maxCanvasPixelsOverride?: number;}
 
 interface IUsePdfRendererCanvasControllerOptions {
     canvasRenderer: ReturnType<typeof usePdfCanvasRenderer>;

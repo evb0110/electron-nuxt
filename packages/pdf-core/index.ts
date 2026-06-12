@@ -32,3 +32,4 @@ export {
     getTiffValueCount,
     measureTiffIfdSize,
 } from '@pdf-core/tiffEncoding';
+export type { ITiffImageDescriptor } from '@pdf-core/tiffEncoding';

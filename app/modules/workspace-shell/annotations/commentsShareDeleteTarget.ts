@@ -41,7 +41,8 @@ export function commentsShareDeleteTarget(
     const rightText = normalizeNoteText(right.text);
     const sameText = leftText.length > 0 && leftText === rightText;
     const closePlacement = markerRectCenterDistance(left.markerRect, right.markerRect) < 0.035;
-    const oneHasStableEditorRef = Boolean(left.annotationId || left.uid) !== Boolean(right.annotationId || right.uid);
+    const oneHasStableEditorRef = (Boolean(left.annotationId) || Boolean(left.uid))
+        !== (Boolean(right.annotationId) || Boolean(right.uid));
     return (
         sameText && (closePlacement || oneHasStableEditorRef)
     ) || (

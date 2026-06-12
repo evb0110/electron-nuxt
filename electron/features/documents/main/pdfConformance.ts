@@ -41,7 +41,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function sanitizeValidationFileName(fileName?: string) {
     const fallback = 'document.pdf';
-    const baseName = basename(fileName?.trim() || fallback);
+    const trimmed = fileName?.trim();
+    const baseName = basename(trimmed && trimmed.length > 0 ? trimmed : fallback);
     const sanitized = baseName.replace(/[^\w.-]+/gu, '-');
     return sanitized.toLowerCase().endsWith('.pdf') ? sanitized : `${sanitized}.pdf`;
 }

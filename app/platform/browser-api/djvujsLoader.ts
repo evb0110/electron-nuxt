@@ -1,4 +1,8 @@
+import type { IDjvuPageSize } from '@contracts/electronApiDjvu';
+
 const DJVU_SCRIPT_PATH = '/vendor/djvujs/djvu.js';
+
+export type { IDjvuPageSize } from '@contracts/electronApiDjvu';
 
 interface IDjvuWorkerTask<T> { run(): Promise<T>; }
 
@@ -12,12 +16,6 @@ interface IDjvuPageTask {
     createPngObjectUrl(): IDjvuWorkerTask<IDjvuPngObjectData>;
     getImageData(rotate?: boolean): IDjvuWorkerTask<IDjvuImageData>;
     getText(): IDjvuWorkerTask<string>;
-}
-
-export interface IDjvuPageSize {
-    width: number;
-    height: number;
-    dpi: number;
 }
 
 export interface IDjvuContentsItem {

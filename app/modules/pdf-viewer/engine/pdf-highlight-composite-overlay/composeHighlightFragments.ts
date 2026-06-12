@@ -1,4 +1,8 @@
-import type { THighlightCompositeSource } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/highlightCompositeSource';
+import type {
+    IHighlightPaintFragment,
+    IHighlightRect,
+    THighlightCompositeSource,
+} from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/highlightCompositeSource';
 
 /**
  * Per-page compositing overlay for **true text highlights** (PDF `Highlight`
@@ -28,18 +32,6 @@ import type { THighlightCompositeSource } from '@app/modules/pdf-viewer/engine/p
  * load-bearing. Do not revert to native multiply stacking without also bringing
  * back the same-colour darkening seam.
  */
-interface IHighlightRect {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-}
-
-interface IHighlightPaintFragment extends IHighlightRect {
-    fill: string;
-    opacity: string;
-}
-
 const EPSILON = 0.5;
 
 function overlapRect(left: IHighlightRect, right: IHighlightRect): IHighlightRect | null {

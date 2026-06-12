@@ -114,7 +114,7 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
             if (!raw) {
                 return [];
             }
-            const parsed = JSON.parse(raw);
+            const parsed: unknown = JSON.parse(raw);
             if (!Array.isArray(parsed)) {
                 return [];
             }
@@ -200,14 +200,14 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
         }
 
         try {
-            const parsed = JSON.parse(raw);
+            const parsed: unknown = JSON.parse(raw);
             if (!isRecord(parsed) || typeof parsed.timestamp !== 'number') {
                 return null;
             }
 
             return normalizeRecentViteReloadMarker({
                 timestamp: parsed.timestamp,
-                event: typeof parsed.event === 'string' ? parsed.event : undefined,
+                ...(typeof parsed.event === 'string' ? { event: parsed.event } : {}),
                 payload: parsed.payload,
             });
         } catch {
@@ -306,7 +306,7 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
             appendReloadHistory({
                 ...baseEvent,
                 blocked: true,
-                blockReason: decision.blockReason,
+                ...(decision.blockReason !== undefined ? { blockReason: decision.blockReason } : {}),
             });
             log('debug', '[Dev] Reload blocked by guardrails', {
                 reloadId,

@@ -285,6 +285,7 @@ import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import type { TTranslationKey } from '@i18n-app';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppSpinner from '@app/components/AppSpinner.vue';
+import type { IAgentOcrRunOptions } from '@app/types/ocrAgent';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 import type {
@@ -295,12 +296,6 @@ import type {
 const { t } = useTypedI18n();
 const { copy: copyClipboardText } = useClipboard();
 type TOcrLanguageTranslationKey = Extract<TTranslationKey, `ocr.languageName.${string}`>;
-type TAgentOcrRunOptions = {
-    pageRange?: TOcrPageRange;
-    customRange?: string;
-    languages?: string[];
-    open?: boolean;
-};
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -416,14 +411,21 @@ function normalizeAgentLanguages(value: unknown) {
     if (!Array.isArray(value)) {
         return null;
     }
-    const languages = value
-        .filter((language): language is string => typeof language === 'string')
-        .map(language => language.trim())
-        .filter(Boolean);
+    const languages: string[] = [];
+    for (const language of value) {
+        if (typeof language !== 'string') {
+            continue;
+        }
+
+        const trimmedLanguage = language.trim();
+        if (trimmedLanguage) {
+            languages.push(trimmedLanguage);
+        }
+    }
     return languages.length > 0 ? Array.from(new Set(languages)) : null;
 }
 
-function applyAgentOcrOptions(options: TAgentOcrRunOptions) {
+function applyAgentOcrOptions(options: IAgentOcrRunOptions) {
     const nextSettings = {...settings.value};
     if (isOcrPageRange(options.pageRange)) {
         nextSettings.pageRange = options.pageRange;
@@ -532,7 +534,7 @@ function handleRunOcr() {
     void runOcr(currentPage, totalPages, workingCopyPath);
 }
 
-async function runOcrForAgent(options: TAgentOcrRunOptions = {}) {
+async function runOcrForAgent(options: IAgentOcrRunOptions = {}) {
     applyAgentOcrOptions(options);
     if (options.open !== false) {
         isOpen.value = true;

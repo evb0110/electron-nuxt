@@ -1,3 +1,4 @@
+import type { IPoint2D } from '@app/types/point2D';
 import type {
     IImagePlacementContainerRect,
     IImagePlacementRectPx,
@@ -16,10 +17,6 @@ interface IImagePlacementPointerResizeOptions {
     minSizePx?: number;
 }
 
-interface IPoint2D {
-    x: number;
-    y: number;
-}
 
 const DEFAULT_MIN_IMAGE_PLACEMENT_SIZE_PX = 32;
 

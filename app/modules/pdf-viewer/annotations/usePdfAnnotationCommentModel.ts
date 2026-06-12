@@ -48,10 +48,15 @@ function normalizeAnnotationNoteText(comment: IAnnotationCommentSummary) {
 }
 
 function getAnnotationDisplayText(comment: IAnnotationCommentSummary) {
-    return comment.displayText?.trim()
-        || comment.text.trim()
-        || comment.previewText?.trim()
-        || '';
+    const displayText = comment.displayText?.trim();
+    if (displayText) {
+        return displayText;
+    }
+    const text = comment.text.trim();
+    if (text) {
+        return text;
+    }
+    return comment.previewText?.trim() ?? '';
 }
 
 function isTextMarkupComment(comment: IAnnotationCommentSummary) {

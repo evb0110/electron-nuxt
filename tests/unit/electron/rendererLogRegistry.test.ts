@@ -5,13 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-
-interface IRegisteredEvent {
-    sender: unknown;
-    senderFrame?: unknown;
-}
-
-type TRegisteredHandler = (event: IRegisteredEvent, ...args: unknown[]) => unknown;
+import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 
 const rendererLogRegistryImportTimeoutMs = 10_000;
 

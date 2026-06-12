@@ -17,11 +17,13 @@ import {
     sep,
 } from 'path';
 import type {
-    IOcrIndexV2Manifest,
-    IOcrIndexV2Page,
     IOcrPageWithWords,
     TWorkerLog,
 } from '@electron/ocr/worker/types';
+import type {
+    IOcrIndexV2Manifest,
+    IOcrIndexV2Page,
+} from '@contracts/ocrIndex';
 import {
     OCR_TEXT_LAYER_INDEX_VERSION,
     buildOcrTextLayerIndexText,
@@ -277,12 +279,14 @@ async function collectCompactSearchIndexPages(
     ocrPageData: IOcrPageWithWords[],
     existingManifestMtimeMs: number | undefined,
 ) {
-    const manifestPageNumbers = Object.keys(manifest.pages)
-        .map(parseManifestPageNumber)
-        .filter((pageNumber): pageNumber is number => (
-            pageNumber !== null && pageNumber <= manifest.pageCount
-        ))
-        .sort((a, b) => a - b);
+    const manifestPageNumbers: number[] = [];
+    for (const pageKey of Object.keys(manifest.pages)) {
+        const pageNumber = parseManifestPageNumber(pageKey);
+        if (pageNumber !== null && pageNumber <= manifest.pageCount) {
+            manifestPageNumbers.push(pageNumber);
+        }
+    }
+    manifestPageNumbers.sort((a, b) => a - b);
 
     const textsByPage = await seedSearchSidecarTextsFromExistingCompactIndex(
         workingCopyPath,
@@ -307,15 +311,19 @@ async function collectCompactSearchIndexPages(
         }
     }
 
-    const pages = manifestPageNumbers
-        .map(pageNumber => ({
-            pageNumber,
-            text: textsByPage.get(pageNumber),
-        }))
-        .filter((page): page is {
-            pageNumber: number;
-            text: string;
-        } => page.text !== undefined);
+    const pages: Array<{
+        pageNumber: number;
+        text: string;
+    }> = [];
+    for (const pageNumber of manifestPageNumbers) {
+        const text = textsByPage.get(pageNumber);
+        if (text !== undefined) {
+            pages.push({
+                pageNumber,
+                text,
+            });
+        }
+    }
 
     return pages.length === manifestPageNumbers.length
         ? pages

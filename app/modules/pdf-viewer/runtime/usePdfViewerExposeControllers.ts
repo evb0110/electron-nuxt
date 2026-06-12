@@ -11,6 +11,7 @@ import { usePdfViewerScrollSnapshot } from '@app/modules/pdf-viewer/runtime/comp
 import { usePdfViewerFitWidthController } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewerFitWidthController';
 import { usePdfViewerSavePrintController } from '@app/modules/pdf-viewer/runtime/usePdfViewerSavePrintController';
 import type {
+    IPageRange,
     IScrollSnapshot,
     TFitMode,
     TPdfViewMode,
@@ -18,10 +19,6 @@ import type {
 } from '@app/types/pdf';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 
-interface IPageRange {
-    start: number;
-    end: number;
-}
 
 interface IUsePdfViewerExposeControllersOptions {
     viewerContainer: Ref<HTMLElement | null>;

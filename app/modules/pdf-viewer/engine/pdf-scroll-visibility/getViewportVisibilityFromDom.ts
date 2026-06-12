@@ -59,9 +59,7 @@ function collectVisiblePageMetrics(container: HTMLElement): IVisiblePageMetrics 
         const visibleArea = Math.max(0, visibleBottom - visibleTop);
 
         if (visibleArea > 0) {
-            if (firstVisiblePage === null) {
-                firstVisiblePage = pageNumber;
-            }
+            firstVisiblePage ??= pageNumber;
             lastVisiblePage = pageNumber;
 
             if (visibleArea > maxVisibleArea) {

@@ -571,9 +571,11 @@ export async function waitForNoOpenNoteWindows(page: Page) {
                 : (visibleHosts.length === 1 ? visibleHosts[0] : null);
             const root: ParentNode = host ?? document;
             return Array.from(root.querySelectorAll('textarea.note-window__textarea'))
-                .filter((candidate): candidate is HTMLTextAreaElement => (
+                .flatMap(candidate => (
                     candidate instanceof HTMLTextAreaElement
                     && isVisible(candidate)
+                        ? [candidate]
+                        : []
                 ))
                 .length === 0;
         }, { timeout: 8_000 });
@@ -603,9 +605,11 @@ export async function clickLatestVisibleNoteWindowClose(page: Page) {
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
         const root: ParentNode = host ?? document;
         const closeButton = Array.from(root.querySelectorAll('.note-window__close'))
-            .filter((candidate): candidate is HTMLButtonElement => (
+            .flatMap(candidate => (
                 candidate instanceof HTMLButtonElement
                 && isVisible(candidate)
+                    ? [candidate]
+                    : []
             ))
             .at(-1);
         closeButton?.click();

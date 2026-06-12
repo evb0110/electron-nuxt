@@ -233,9 +233,9 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         }
 
         return Boolean(
-            target.isContentEditable
-            || target.closest('[contenteditable="true"], [contenteditable=""]')
-            || target.closest('input, textarea, select'),
+            target.isContentEditable === true
+            || Boolean(target.closest('[contenteditable="true"], [contenteditable=""]'))
+            || Boolean(target.closest('input, textarea, select')),
         );
     }
 

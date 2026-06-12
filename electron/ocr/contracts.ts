@@ -1,21 +1,10 @@
 import { uniq } from 'es-toolkit/array';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/availableLanguages';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
-
-type TOcrErrorCode =
-    | 'OCR_INVALID_PAYLOAD'
-    | 'OCR_INTERNAL_ERROR'
-    | 'OCR_QUEUE_BACKPRESSURE'
-    | 'OCR_WORKER_UNAVAILABLE'
-    | 'OCR_TOOLS_VALIDATION_FAILED';
-
-interface IOcrErrorEnvelope {
-    code: TOcrErrorCode;
-    message: string;
-    retryable: boolean;
-    timestamp: number;
-    details?: string;
-}
+import type {
+    IOcrErrorEnvelope,
+    TOcrErrorCode,
+} from '@contracts/electronApiOcr';
 
 interface IOcrRecognizePageRequest {
     pageNumber: number;

@@ -46,6 +46,47 @@ const MAX_U32 = 0xffff_ffff;
 
 let wasmExportsPromise: Promise<IPdfPageOpsWasmExports | null> | null = null;
 
+function isWasmNumberFunction(value: WebAssembly.ExportValue | undefined): value is (...args: number[]) => number {
+    return typeof value === 'function';
+}
+
+function getPdfPageOpsWasmExports(exports: WebAssembly.Exports): IPdfPageOpsWasmExports | null {
+    const {
+        memory,
+        evb_pdf_page_ops_alloc: alloc,
+        evb_pdf_page_ops_free: free,
+        evb_pdf_page_ops_run: run,
+        evb_pdf_page_ops_output_ptr: outputPtr,
+        evb_pdf_page_ops_output_len: outputLen,
+        evb_pdf_page_ops_error_ptr: errorPtr,
+        evb_pdf_page_ops_error_len: errorLen,
+    } = exports;
+
+    if (
+        !(memory instanceof WebAssembly.Memory)
+        || !isWasmNumberFunction(alloc)
+        || !isWasmNumberFunction(free)
+        || !isWasmNumberFunction(run)
+        || !isWasmNumberFunction(outputPtr)
+        || !isWasmNumberFunction(outputLen)
+        || !isWasmNumberFunction(errorPtr)
+        || !isWasmNumberFunction(errorLen)
+    ) {
+        return null;
+    }
+
+    return {
+        memory,
+        evb_pdf_page_ops_alloc: alloc,
+        evb_pdf_page_ops_free: free,
+        evb_pdf_page_ops_run: run,
+        evb_pdf_page_ops_output_ptr: outputPtr,
+        evb_pdf_page_ops_output_len: outputLen,
+        evb_pdf_page_ops_error_ptr: errorPtr,
+        evb_pdf_page_ops_error_len: errorLen,
+    };
+}
+
 function canUsePdfPageOpsWasm() {
     return typeof WebAssembly !== 'undefined'
         && typeof fetch === 'function';
@@ -72,7 +113,7 @@ async function loadPdfPageOpsWasm() {
             const instance = 'instance' in instantiated
                 ? instantiated.instance
                 : instantiated;
-            return instance.exports as unknown as IPdfPageOpsWasmExports;
+            return getPdfPageOpsWasmExports(instance.exports);
         } catch {
             return null;
         }

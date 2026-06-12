@@ -689,7 +689,8 @@ function normalizeBookmarkEntry(
     untitledTitle: string,
     actionId: string,
 ): IPdfBookmarkEntry {
-    const title = getRawStringInput(input, 'title')?.trim() || untitledTitle;
+    const rawTitle = getRawStringInput(input, 'title')?.trim();
+    const title = rawTitle && rawTitle.length > 0 ? rawTitle : untitledTitle;
     const namedDest = getRawStringInput(input, 'namedDest')
         ?? getRawStringInput(input, 'dest')
         ?? null;
@@ -925,9 +926,12 @@ function createBookmarkIssues(bookmarks: IPdfBookmarkEntry[]) {
 }
 
 function createBookmarkSummary(bookmarks: IPdfBookmarkEntry[], flat: IAgentBookmarkFlatEntry[]) {
-    const pageNumbers = flat
-        .map(entry => entry.pageNumber)
-        .filter((pageNumber): pageNumber is number => typeof pageNumber === 'number');
+    const pageNumbers: number[] = [];
+    for (const entry of flat) {
+        if (typeof entry.pageNumber === 'number') {
+            pageNumbers.push(entry.pageNumber);
+        }
+    }
     return {
         rootCount: bookmarks.length,
         totalCount: flat.length,

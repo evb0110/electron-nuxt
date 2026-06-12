@@ -1,4 +1,5 @@
 import type { Page } from 'puppeteer-core';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
 import { waitForActiveWorkspaceHost } from '@tests/e2e/electron/helpers/viewerDom';
 
 export async function getLinkOverlayCount(page: Page) {
@@ -33,13 +34,13 @@ export async function getLinkOverlayCount(page: Page) {
 
 export async function installOpenExternalSpy(page: Page) {
     return page.evaluate(() => {
-        const electronApi = (window as Window & {
+        const electronApi = (window as IE2EWindow & {
             electronAPI?: {shell?: {openExternal?: (url: string) => Promise<unknown>;};};
             __e2eOpenExternalCalls?: string[];
             __e2eOriginalOpenExternal?: (url: string) => Promise<unknown>;
         }).electronAPI;
 
-        const root = window as Window & {
+        const root = window as IE2EWindow & {
             __e2eOpenExternalCalls?: string[];
             __e2eOriginalOpenExternal?: (url: string) => Promise<unknown>;
         };
@@ -50,12 +51,13 @@ export async function installOpenExternalSpy(page: Page) {
         }
 
         const descriptor = Object.getOwnPropertyDescriptor(electronApi.shell, 'openExternal');
-        const canOverride = !descriptor || descriptor.writable || descriptor.set || descriptor.configurable;
+        const canOverride = descriptor === undefined
+            || descriptor.writable === true
+            || typeof descriptor.set === 'function'
+            || descriptor.configurable === true;
 
         if (canOverride) {
-            if (!root.__e2eOriginalOpenExternal) {
-                root.__e2eOriginalOpenExternal = electronApi.shell.openExternal.bind(electronApi.shell);
-            }
+            root.__e2eOriginalOpenExternal ??= electronApi.shell.openExternal.bind(electronApi.shell);
 
             electronApi.shell.openExternal = async (url) => {
                 root.__e2eOpenExternalCalls?.push(String(url));
@@ -128,6 +130,6 @@ export async function clickFirstLinkOverlay(page: Page) {
 
 export async function readOpenExternalCalls(page: Page) {
     return page.evaluate(() => {
-        return (window as Window & { __e2eOpenExternalCalls?: string[] }).__e2eOpenExternalCalls ?? [];
+        return (window as IE2EWindow & { __e2eOpenExternalCalls?: string[] }).__e2eOpenExternalCalls ?? [];
     });
 }

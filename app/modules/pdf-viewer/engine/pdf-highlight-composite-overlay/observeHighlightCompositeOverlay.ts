@@ -1,4 +1,5 @@
 import { refreshHighlightCompositeOverlay } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay';
+import type { IHighlightCompositeHost } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/highlightCompositeSource';
 
 const OVERLAY_CLASS = 'pdf-highlight-composite-overlay';
 
@@ -8,12 +9,7 @@ const OBSERVER_KEY = '__evbHighlightCompositeObserver';
 
 const SCHEDULED_KEY = '__evbHighlightCompositeScheduled';
 
-type THighlightCompositeHost = HTMLElement & {
-    [OBSERVER_KEY]?: MutationObserver | undefined;
-    [SCHEDULED_KEY]?: boolean | undefined;
-};
-
-function scheduleCompositeRefresh(host: THighlightCompositeHost) {
+function scheduleCompositeRefresh(host: IHighlightCompositeHost) {
     if (host[SCHEDULED_KEY]) {
         return;
     }
@@ -28,7 +24,7 @@ function scheduleCompositeRefresh(host: THighlightCompositeHost) {
 }
 
 export function observeHighlightCompositeOverlay(pageContainer: HTMLElement) {
-    const host = pageContainer.querySelector<THighlightCompositeHost>('.page_canvas, .canvasWrapper');
+    const host = pageContainer.querySelector<IHighlightCompositeHost>('.page_canvas, .canvasWrapper');
     if (!host || host[OBSERVER_KEY] || typeof MutationObserver === 'undefined') {
         return;
     }

@@ -5,6 +5,8 @@ import {
     it,
     vi,
 } from 'vitest';
+import type { Ref } from 'vue';
+import type { IPdfConformanceProfile } from '@contracts/pdfConformance';
 
 const mockOpenPdfDialog = vi.fn();
 const mockOpenPdfDirect = vi.fn();
@@ -72,6 +74,65 @@ vi.stubGlobal('window', {
 
 const { usePdfFile } = await import('@app/modules/workspace-shell/composables/usePdfFile');
 
+interface IPdfFileTestOpenOutcome {
+    error?: string;
+    status: string;
+}
+
+interface IPdfFileTestSaveResult {
+    didSaveAs: boolean;
+    outPath: string | null;
+    saveMode: string;
+    success: boolean;
+}
+
+interface IPdfFileTestSourcePath {
+    kind: 'path';
+    path: string;
+    size: number;
+}
+
+interface IPdfFileTestApi {
+    canRedo: Ref<boolean>;
+    canUndo: Ref<boolean>;
+    closeFile: () => void;
+    ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
+    error: Ref<string | null>;
+    fileName: Ref<string | null>;
+    isDirty: Ref<boolean>;
+    lastSaveMode: Ref<string>;
+    loadPdfFromData: (data: Uint8Array) => Promise<void>;
+    loadPdfFromPath: (path: string) => Promise<void>;
+    markDirty: () => void;
+    openBatchProgress: Ref<unknown | null>;
+    openFile: (result?: unknown) => Promise<IPdfFileTestOpenOutcome>;
+    openFileDirect: (path: string) => Promise<IPdfFileTestOpenOutcome>;
+    openFileDirectBatch: (paths: string[]) => Promise<IPdfFileTestOpenOutcome>;
+    originalPath: Ref<string | null>;
+    pdfConformanceProfile: Ref<IPdfConformanceProfile | null>;
+    pdfData: Ref<Uint8Array | null>;
+    pdfSrc: Ref<Blob | IPdfFileTestSourcePath | null>;
+    pendingDjvu: Ref<string | null>;
+    persistPdfDataSilently: (data: Uint8Array) => Promise<boolean>;
+    redo: () => Promise<boolean>;
+    reloadWorkingCopyIntoHistory: (options?: { markDirty?: boolean }) => Promise<boolean>;
+    saveFile: (
+        data: Uint8Array,
+        options?: {
+            expectedWorkingPath?: string;
+            saveMode?: string;
+        },
+    ) => Promise<IPdfFileTestSaveResult>;
+    saveWorkingCopyAs: () => Promise<IPdfFileTestSaveResult>;
+    trySaveEmbeddedNoteTextUpdates: (updates: unknown[], options: unknown) => Promise<IPdfFileTestSaveResult>;
+    undo: () => Promise<boolean>;
+    workingCopyPath: Ref<string | null>;
+}
+
+function createTestPdfFile() {
+    return usePdfFile() as IPdfFileTestApi;
+}
+
 function deferred<T>() {
     let resolve: ((value: T | PromiseLike<T>) => void) | null = null;
     const promise = new Promise<T>((resolvePromise) => {
@@ -106,7 +167,7 @@ describe('usePdfFile', () => {
                 originalPath: '/docs/scan.djvu',
             });
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             const outcome = await file.openFile();
 
             expect(outcome.status).toBe('opened');
@@ -129,7 +190,7 @@ describe('usePdfFile', () => {
             mockDocuments.statFile.mockResolvedValue({ size: pdfBytes.length });
             mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             const outcome = await file.openFile();
 
             expect(outcome.status).toBe('opened');
@@ -147,7 +208,7 @@ describe('usePdfFile', () => {
             });
             mockDocuments.statFile.mockResolvedValue({ size: 0 });
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             const outcome = await file.openFile();
 
             expect(outcome).toEqual({
@@ -190,7 +251,7 @@ describe('usePdfFile', () => {
                 saveRestrictions: [] as string[],
             });
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.loadPdfFromPath('/tmp/large.pdf');
 
             expect(mockDocuments.readFile).not.toHaveBeenCalled();
@@ -206,7 +267,7 @@ describe('usePdfFile', () => {
         it('does nothing when dialog is cancelled', async () => {
             mockDocuments.openPdfDialog.mockResolvedValue(null);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             const outcome = await file.openFile();
 
             expect(outcome.status).toBe('cancelled');
@@ -217,7 +278,7 @@ describe('usePdfFile', () => {
         it('sets error on failure', async () => {
             mockDocuments.openPdfDialog.mockRejectedValue(new Error('Access denied'));
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             const outcome = await file.openFile();
 
             expect(outcome).toEqual({
@@ -243,7 +304,7 @@ describe('usePdfFile', () => {
             mockDocuments.statFile.mockResolvedValue({ size: pdfBytes.length });
             mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
 
             expect(file.workingCopyPath.value).toBe('browser://documents/working/browser-open.pdf');
@@ -271,7 +332,7 @@ describe('usePdfFile', () => {
             mockDocuments.statFile.mockResolvedValue({ size: pdfBytes.length });
             mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
 
             expect(file.fileName.value).toBe('Глава.pdf');
@@ -284,7 +345,7 @@ describe('usePdfFile', () => {
                 originalPath: 'browser://documents/source/browser-open.djvu',
             });
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
 
             expect(file.pendingDjvu.value).toBe(
@@ -315,7 +376,7 @@ describe('usePdfFile', () => {
                 throw new Error(`unexpected read path ${path}`);
             });
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             const stalePickerOpen = file.openFile();
             await expect(file.openFile({
                 kind: 'pdf',
@@ -345,7 +406,7 @@ describe('usePdfFile', () => {
                 originalPath: '/path/doc.djvu',
             });
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFileDirect('/path/doc.djvu');
 
             expect(file.pendingDjvu.value).toBe('/path/doc.djvu');
@@ -358,7 +419,7 @@ describe('usePdfFile', () => {
                 originalPath: 'browser://documents/source/browser-open.djvu',
             });
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFileDirect(
                 'browser://documents/source/browser-open.djvu',
             );
@@ -372,7 +433,7 @@ describe('usePdfFile', () => {
         it('sets error when result is null', async () => {
             mockDocuments.openPdfDirect.mockResolvedValue(null);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             const outcome = await file.openFileDirect('/nonexistent.pdf');
 
             expect(outcome).toEqual({
@@ -405,7 +466,7 @@ describe('usePdfFile', () => {
             mockDocuments.statFile.mockResolvedValue({ size: pdfBytes.length });
             mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             const staleOpen = file.openFileDirect('/stale.djvu');
             await expect(file.openFileDirect('/new.pdf')).resolves.toMatchObject({status: 'opened'});
 
@@ -439,7 +500,7 @@ describe('usePdfFile', () => {
             mockDocuments.statFile.mockResolvedValue({ size: pdfBytes.length });
             mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             const staleBatch = file.openFileDirectBatch(['/stale.djvu']);
             await expect(file.openFileDirect('/new.pdf')).resolves.toMatchObject({status: 'opened'});
 
@@ -472,7 +533,7 @@ describe('usePdfFile', () => {
             mockDocuments.statFile.mockResolvedValueOnce({ size: oldPdf.length });
             mockDocuments.readFile.mockResolvedValueOnce(oldPdf.buffer);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
 
             mockDocuments.statFile.mockRejectedValueOnce(new Error('read failure'));
@@ -496,7 +557,7 @@ describe('usePdfFile', () => {
             mockDocuments.readFile.mockResolvedValueOnce(oldPdf.buffer);
             mockDocuments.cleanupFile.mockResolvedValue(undefined);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
 
             const firstReadGate = deferred<ArrayBuffer>();
@@ -551,12 +612,12 @@ describe('usePdfFile', () => {
             mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
             mockDocuments.cleanupFile.mockResolvedValue(undefined);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
 
             expect(file.pdfSrc.value).not.toBeNull();
 
-            await file.closeFile();
+            file.closeFile();
 
             expect(file.pdfSrc.value).toBeNull();
             expect(file.pdfData.value).toBeNull();
@@ -577,9 +638,9 @@ describe('usePdfFile', () => {
             mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
             mockDocuments.cleanupFile.mockResolvedValue(undefined);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
-            await file.closeFile();
+            file.closeFile();
 
             expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/a.pdf');
         });
@@ -595,9 +656,9 @@ describe('usePdfFile', () => {
             mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
             mockHasElectronAPI.mockReturnValue(false);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
-            await file.closeFile();
+            file.closeFile();
 
             expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/a.pdf');
         });
@@ -623,7 +684,7 @@ describe('usePdfFile', () => {
             mockDocuments.readFile.mockResolvedValue(bytes1.buffer);
             mockDocuments.writeFile.mockResolvedValue(undefined);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
             await file.loadPdfFromData(bytes2);
 
@@ -663,7 +724,7 @@ describe('usePdfFile', () => {
             mockDocuments.readFile.mockResolvedValue(bytes1.buffer);
             mockDocuments.writeFile.mockImplementation(async () => writeGate.promise);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
             await file.loadPdfFromData(bytes2);
 
@@ -700,7 +761,7 @@ describe('usePdfFile', () => {
                 .mockResolvedValueOnce(bytes2.buffer);
             mockDocuments.writeFile.mockResolvedValue(undefined);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
 
             await expect(file.reloadWorkingCopyIntoHistory({ markDirty: true })).resolves.toBe(true);
@@ -725,7 +786,7 @@ describe('usePdfFile', () => {
                 .mockResolvedValueOnce('/tmp/history-large-crop.pdf')
                 .mockResolvedValueOnce('/tmp/history-large-restored.pdf');
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
 
             expect(file.pdfData.value).toBeNull();
@@ -777,7 +838,7 @@ describe('usePdfFile', () => {
                 .mockResolvedValueOnce('/tmp/history-large-base.pdf')
                 .mockResolvedValueOnce('/tmp/history-large-crop.pdf');
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
             await file.ensureHistoryBaselineForExternalMutation();
             await file.reloadWorkingCopyIntoHistory({ markDirty: true });
@@ -825,7 +886,7 @@ describe('usePdfFile', () => {
                 return path;
             });
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
             await file.loadPdfFromData(bytes2);
 
@@ -868,7 +929,7 @@ describe('usePdfFile', () => {
             mockDocuments.readFile.mockResolvedValue(bytes1.buffer);
             mockDocuments.writeFile.mockResolvedValue(undefined);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
 
             await file.persistPdfDataSilently(bytes2);
@@ -882,7 +943,7 @@ describe('usePdfFile', () => {
 
     describe('saveFile', () => {
         it('returns a failed persist result when no working copy path', async () => {
-            const file = usePdfFile();
+            const file = createTestPdfFile();
 
             const result = await file.saveFile(new Uint8Array([1]));
             expect(result).toEqual({
@@ -914,7 +975,7 @@ describe('usePdfFile', () => {
             mockDocuments.writeFile.mockResolvedValue(undefined);
             mockDocuments.saveFile.mockResolvedValue(undefined);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
             file.markDirty();
 
@@ -969,7 +1030,7 @@ describe('usePdfFile', () => {
                 .mockResolvedValueOnce(unsignedProfile)
                 .mockImplementationOnce(() => conformanceGate.promise);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
             await vi.waitFor(() => {
                 expect(file.pdfConformanceProfile.value).toEqual(unsignedProfile);
@@ -1029,7 +1090,7 @@ describe('usePdfFile', () => {
                 },
             });
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.loadPdfFromPath('/tmp/large.pdf');
             await vi.waitFor(() => {
                 expect(file.pdfConformanceProfile.value).toEqual(unsignedProfile);
@@ -1085,7 +1146,7 @@ describe('usePdfFile', () => {
                 },
             });
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.loadPdfFromPath('/tmp/large.pdf');
             expect(file.pdfConformanceProfile.value).toBeNull();
 
@@ -1145,7 +1206,7 @@ describe('usePdfFile', () => {
                 .mockImplementationOnce(() => staleConformanceGate.promise)
                 .mockImplementationOnce(() => latestConformanceGate.promise);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.loadPdfFromPath('/tmp/save.pdf');
             expect(file.pdfConformanceProfile.value).toBeNull();
 
@@ -1195,7 +1256,7 @@ describe('usePdfFile', () => {
                 throw new Error(`unexpected save path ${path}`);
             });
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile({
                 kind: 'pdf',
                 originalPath: '/first.pdf',
@@ -1233,7 +1294,7 @@ describe('usePdfFile', () => {
             mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
             mockDocuments.writeFile.mockResolvedValue(undefined);
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.loadPdfFromPath('/tmp/active.pdf');
 
             const result = await file.saveFile(savedBytes, { expectedWorkingPath: '/tmp/stale.pdf' });
@@ -1279,7 +1340,7 @@ describe('usePdfFile', () => {
                 throw new Error(`unexpected Save As path ${path}`);
             });
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile({
                 kind: 'pdf',
                 originalPath: '/first.pdf',
@@ -1332,7 +1393,7 @@ describe('usePdfFile', () => {
             mockDocuments.writeFile.mockResolvedValue(undefined);
             mockDocuments.savePdfAs.mockResolvedValue('/exports/signed-copy.pdf');
 
-            const file = usePdfFile();
+            const file = createTestPdfFile();
             await file.openFile();
 
             const result = await file.saveFile(pdfBytes, { saveMode: 'rewrite' });

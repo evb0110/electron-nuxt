@@ -239,28 +239,30 @@ function createTextAwareWindowMenuAction(options: ITextAwareWindowMenuActionOpti
     return {
         label,
         ...(accelerator ? { accelerator } : {}),
-        click: async (_item, window) => {
-            const targetWindow = resolveWindowFromMenuContext(window);
-            if (!targetWindow) {
-                return;
-            }
-
-            if (await isTextEditingFocused(targetWindow)) {
-                if (targetWindow.isDestroyed() || targetWindow.webContents.isDestroyed()) {
+        click: (_item, window) => {
+            void (async () => {
+                const targetWindow = resolveWindowFromMenuContext(window);
+                if (!targetWindow) {
                     return;
                 }
 
-                try {
-                    targetWindow.webContents[nativeEditCommand]();
-                } catch (error) {
-                    logger.warn(`Failed to invoke native ${nativeEditCommand}: ${getErrorMessage(error)}`);
-                }
-                return;
-            }
+                if (await isTextEditingFocused(targetWindow)) {
+                    if (targetWindow.isDestroyed() || targetWindow.webContents.isDestroyed()) {
+                        return;
+                    }
 
-            if (enabled) {
-                sendToWindow(targetWindow, channel, ...args);
-            }
+                    try {
+                        targetWindow.webContents[nativeEditCommand]();
+                    } catch (error) {
+                        logger.warn(`Failed to invoke native ${nativeEditCommand}: ${getErrorMessage(error)}`);
+                    }
+                    return;
+                }
+
+                if (enabled) {
+                    sendToWindow(targetWindow, channel, ...args);
+                }
+            })().catch(error => logger.warn(`Failed to handle menu action "${channel}": ${getErrorMessage(error)}`));
         },
     };
 }

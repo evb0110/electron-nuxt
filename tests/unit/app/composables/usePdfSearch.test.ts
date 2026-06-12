@@ -6,16 +6,89 @@ import {
     it,
     vi,
 } from 'vitest';
+import type { Ref } from 'vue';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 
+interface IPdfSearchTestExcerpt {
+    after: string;
+    before: string;
+    match: string;
+}
+
+interface IPdfSearchBackendMatch {
+    endOffset: number;
+    excerpt?: IPdfSearchTestExcerpt;
+    matchIndex: number;
+    pageMatchIndex: number;
+    pageNumber: number;
+    startOffset: number;
+}
+
+interface IPdfSearchTestProgress {
+    processed: number;
+    requestId: string;
+    results?: IPdfSearchBackendMatch[];
+    total: number;
+    truncated?: boolean;
+}
+
+interface IPdfSearchRunOptions { requestId: string }
+
+interface IPdfSearchRunResult {
+    results: unknown[];
+    truncated: boolean;
+}
+
+interface IPdfSearchTestResult {
+    endOffset: number;
+    matchIndex: number;
+    pageIndex: number;
+    pageMatchIndex: number;
+    startOffset: number;
+}
+
+interface IPdfSearchPageMatches {
+    matches: Array<{
+        end: number;
+        matchIndex: number;
+        start: number;
+    }>;
+    searchQuery: string;
+}
+
+interface IPdfSearchTestApi {
+    clearSearch: () => void;
+    currentMatch: Ref<number>;
+    currentResult: Ref<IPdfSearchTestResult | null>;
+    currentResultIndex: Ref<number>;
+    currentResultNavigationId: Ref<number>;
+    getMatchesForPage: (pageIndex: number) => IPdfSearchPageMatches | null;
+    goToResult: (direction: 'next' | 'previous' | 1 | -1) => void;
+    isSearching: Ref<boolean>;
+    isTruncated: Ref<boolean>;
+    resetSearchCache: (pdfPath?: string) => void;
+    results: Ref<IPdfSearchTestResult[]>;
+    search: (query: string, pdfPath: string, totalPages?: number) => Promise<boolean>;
+    searchError: Ref<string | null>;
+    searchProgress: Ref<IPdfSearchTestProgress | undefined>;
+    searchQuery: Ref<string>;
+    setResultIndex: (index: number) => void;
+    totalMatches: Ref<number>;
+}
+
 const mockSearch = {
-    onProgress: vi.fn(),
-    run: vi.fn(),
-    cancel: vi.fn(),
-    resetCache: vi.fn(),
+    onProgress: vi.fn<(listener: (progress: IPdfSearchTestProgress) => void) => () => void>(),
+    run: vi.fn<(pdfPath: string, query: string, options: IPdfSearchRunOptions) => Promise<IPdfSearchRunResult>>(),
+    cancel: vi.fn<() => void>(),
+    resetCache: vi.fn<() => void>(),
 };
 vi.mock('@app/utils/getSearchCapability', () => ({ getSearchCapability: () => mockSearch }));
 vi.mock('#imports', () => ({ useTypedI18n: () => ({ t: (key: string) => key }) }));
+
+async function createPdfSearch(): Promise<IPdfSearchTestApi> {
+    const { usePdfSearch } = await import('@app/composables/usePdfSearch');
+    return usePdfSearch() as IPdfSearchTestApi;
+}
 
 describe('usePdfSearch', () => {
     beforeEach(() => {
@@ -33,8 +106,7 @@ describe('usePdfSearch', () => {
     });
 
     it('rejects too-short queries without calling backend search', async () => {
-        const { usePdfSearch } = await import('@app/composables/usePdfSearch');
-        const search = usePdfSearch();
+        const search = await createPdfSearch();
 
         const applied = await search.search('a', '/tmp/work.pdf');
 
@@ -95,9 +167,7 @@ describe('usePdfSearch', () => {
                 truncated: true,
             };
         });
-
-        const { usePdfSearch } = await import('@app/composables/usePdfSearch');
-        const search = usePdfSearch();
+        const search = await createPdfSearch();
 
         const promise = search.search('term', '/tmp/work.pdf', 10);
         await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
@@ -175,9 +245,7 @@ describe('usePdfSearch', () => {
             });
             resolveSearch = resolve;
         }));
-
-        const { usePdfSearch } = await import('@app/composables/usePdfSearch');
-        const search = usePdfSearch();
+        const search = await createPdfSearch();
 
         const promise = search.search('араб', '/tmp/work.pdf', 928);
         await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
@@ -251,9 +319,7 @@ describe('usePdfSearch', () => {
                 resolveSearch = resolve;
             });
         });
-
-        const { usePdfSearch } = await import('@app/composables/usePdfSearch');
-        const search = usePdfSearch();
+        const search = await createPdfSearch();
 
         const promise = search.search('alpha', '/tmp/work.pdf', 928);
         await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
@@ -327,9 +393,7 @@ describe('usePdfSearch', () => {
             ],
             truncated: false,
         });
-
-        const { usePdfSearch } = await import('@app/composables/usePdfSearch');
-        const search = usePdfSearch();
+        const search = await createPdfSearch();
 
         const promise = search.search('alpha', '/tmp/work.pdf');
         await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
@@ -369,9 +433,7 @@ describe('usePdfSearch', () => {
                 resolveSearch = resolve;
             });
         });
-
-        const { usePdfSearch } = await import('@app/composables/usePdfSearch');
-        const search = usePdfSearch();
+        const search = await createPdfSearch();
 
         const searchPromise = search.search('alpha', '/tmp/work.pdf');
         await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
@@ -425,9 +487,7 @@ describe('usePdfSearch', () => {
         mockSearch.cancel.mockImplementation(async () => new Promise<void>((resolve) => {
             resolveCancel = resolve;
         }));
-
-        const { usePdfSearch } = await import('@app/composables/usePdfSearch');
-        const search = usePdfSearch();
+        const search = await createPdfSearch();
 
         const firstSearch = search.search('alpha', '/tmp/work.pdf');
         await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
@@ -460,9 +520,7 @@ describe('usePdfSearch', () => {
 
     it('surfaces a localized search error when backend search fails', async () => {
         mockSearch.run.mockRejectedValue(new Error('ERR_BROWSER_SEARCH_TOO_LARGE'));
-
-        const { usePdfSearch } = await import('@app/composables/usePdfSearch');
-        const search = usePdfSearch();
+        const search = await createPdfSearch();
 
         const promise = search.search('alpha', '/tmp/work.pdf');
         await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);

@@ -9,6 +9,7 @@ import { runGuardedTask } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type {
+    IPageRange,
     IScrollSnapshot,
     PDFDocumentProxy,
     PDFPageProxy,
@@ -24,10 +25,6 @@ import { preservePdfPageAnnotationVisualSnapshot } from '@app/modules/pdf-viewer
 import { schedulePdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/schedulePdfLayerVisualSnapshotRelease';
 import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';
 
-interface IPageRange {
-    start: number;
-    end: number;
-}
 
 interface IReloadPlan {
     pageToRestore: number;

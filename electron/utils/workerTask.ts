@@ -57,7 +57,8 @@ function toError(error: unknown) {
 
 function getAbortReason(signal: AbortSignal) {
     if (signal.reason !== undefined) {
-        return signal.reason;
+        const reason: unknown = signal.reason;
+        return reason;
     }
     return new DOMException('The operation was aborted', 'AbortError');
 }

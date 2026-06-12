@@ -203,6 +203,10 @@ import { PdfZoomDropdown } from '@app/modules/pdf-viewer/public/component-export
 import ToolbarAppMenu from '@app/components/toolbar/ToolbarAppMenu.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
 import { useWorkspaceToolbarPageModel } from '@app/modules/workspace-shell/composables/useWorkspaceToolbarPageModel';
+import type {
+    IAgentOcrRunOptions,
+    IOcrPopupAgentExpose,
+} from '@app/types/ocrAgent';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IReaderCommandSurface } from '@app/utils/readerCommandSurface';
 
@@ -210,21 +214,6 @@ const OcrPopup = defineAsyncComponent(
     () => import('@app/modules/ocr-panel/public')
         .then(componentModule => componentModule.OcrPopup),
 );
-
-type TAgentOcrPageRange = 'all' | 'current' | 'custom';
-
-interface IAgentOcrRunOptions {
-    pageRange?: TAgentOcrPageRange;
-    customRange?: string;
-    languages?: string[];
-    open?: boolean;
-}
-
-interface IOcrPopupAgentExpose {
-    runOcrForAgent: (options?: IAgentOcrRunOptions) => Promise<Record<string, unknown>>;
-    cancelOcrForAgent: () => Record<string, unknown>;
-    getAgentOcrSnapshot: () => Record<string, unknown>;
-}
 
 const {
     appMenuOpen,

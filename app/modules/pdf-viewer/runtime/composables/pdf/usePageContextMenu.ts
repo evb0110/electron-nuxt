@@ -1,11 +1,5 @@
 import { usePositionedMenu } from '@app/composables/usePositionedMenu';
-
-interface IPageContextMenuState {
-    visible: boolean;
-    x: number;
-    y: number;
-    pages: number[];
-}
+import type { IPageContextMenuState } from '@app/types/pdfContextMenu';
 
 export const usePageContextMenu = () => {
     function createInitialPageContextMenuState(): IPageContextMenuState {

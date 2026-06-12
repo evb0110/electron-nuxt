@@ -248,7 +248,7 @@ export function mergeCommentSummaries(
 
     const source = existing.source === 'editor' ? 'editor' : incoming.source;
     const sortIndex = mergeSortIndex(existing, incoming);
-    const hasNote = Boolean(existing.hasNote || incoming.hasNote);
+    const hasNote = existing.hasNote === true || incoming.hasNote === true;
     const subtype = mergeSubtypeField(existing, incoming);
 
     return {
@@ -266,7 +266,7 @@ export function mergeCommentSummaries(
         uid: existing.uid ?? incoming.uid,
         subtype,
         color: mergeColorField(existing, incoming),
-        colorEdited: Boolean(existing.colorEdited || incoming.colorEdited),
+        colorEdited: existing.colorEdited === true || incoming.colorEdited === true,
         source,
         hasNote,
         markerRect: pickPreferredMarkerRect(existing, incoming),

@@ -1,3 +1,4 @@
+import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 import {
     beforeEach,
     describe,
@@ -7,7 +8,6 @@ import {
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
 
-type TRegisteredHandler = (...args: unknown[]) => unknown;
 type TProgressCallback = (progress: {
     processed: number;
     total: number;

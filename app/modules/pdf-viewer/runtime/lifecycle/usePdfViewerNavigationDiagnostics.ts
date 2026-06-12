@@ -2,14 +2,13 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import type { TPdfViewMode } from '@app/types/pdf';
+import type {
+    IPageRange,
+    TPdfViewMode,
+} from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfNav } from '@app/utils/logPdfNav';
 
-interface IPageRange {
-    start: number;
-    end: number;
-}
 
 interface IUsePdfViewerNavigationDiagnosticsOptions {
     currentPage: Ref<number>;
@@ -28,6 +27,9 @@ interface IUsePdfViewerNavigationDiagnosticsOptions {
     summarizeViewerStateForLog: () => unknown;
 }
 
+type TNavigationDiagnosticSnapshot = readonly [boolean, number, number, number, number, number, number | null, string];
+type TVisibleRangeSnapshot = readonly [number, number];
+
 export function usePdfViewerNavigationDiagnostics(options: IUsePdfViewerNavigationDiagnosticsOptions) {
     watch(
         () => [
@@ -40,16 +42,16 @@ export function usePdfViewerNavigationDiagnostics(options: IUsePdfViewerNavigati
             options.searchNavigationTargetPage.value,
             options.searchNavigationState.value,
         ] as const,
-        ([
-            anchored,
-            start,
-            end,
-            page,
-            visibleStart,
-            visibleEnd,
-            searchAnchorPage,
-            searchNavigationState,
-        ]) => {
+        (snapshot: TNavigationDiagnosticSnapshot) => {
+            const anchored = snapshot[0];
+            const start = snapshot[1];
+            const end = snapshot[2];
+            const page = snapshot[3];
+            const visibleStart = snapshot[4];
+            const visibleEnd = snapshot[5];
+            const searchAnchorPage = snapshot[6];
+            const searchNavigationState = snapshot[7];
+
             if (!options.virtualizedContinuousMode.value) {
                 return;
             }
@@ -67,7 +69,7 @@ export function usePdfViewerNavigationDiagnostics(options: IUsePdfViewerNavigati
         },
     );
 
-    watch(options.currentPage, (next, previous) => {
+    watch(options.currentPage, (next: number, previous: number) => {
         if (next === previous) {
             return;
         }
@@ -92,13 +94,12 @@ export function usePdfViewerNavigationDiagnostics(options: IUsePdfViewerNavigati
             options.visibleRange.value.start,
             options.visibleRange.value.end,
         ] as const,
-        ([
-            nextStart,
-            nextEnd,
-        ], [
-            prevStart,
-            prevEnd,
-        ]) => {
+        (nextSnapshot: TVisibleRangeSnapshot, previousSnapshot: TVisibleRangeSnapshot) => {
+            const nextStart = nextSnapshot[0];
+            const nextEnd = nextSnapshot[1];
+            const prevStart = previousSnapshot[0];
+            const prevEnd = previousSnapshot[1];
+
             if (nextStart === prevStart && nextEnd === prevEnd) {
                 return;
             }

@@ -20,7 +20,7 @@ const randomUuidMock = vi.hoisted(() => vi.fn(() => 'fixed-output-id'));
 const runNativeToolCommandMock = vi.hoisted(() => vi.fn());
 const ensureWorkingCopyDirectoryMock = vi.hoisted(() => vi.fn());
 
-type TRunCommandOptionsExpectation = { allowedExitCodes?: number[] };
+interface IQpdfRunCommandOptionsExpectation { allowedExitCodes?: number[] }
 
 async function readQpdfArgFile(args: string[]) {
     const argFile = args[0];
@@ -135,7 +135,7 @@ describe('page-ops qpdf extract', () => {
             runNativeToolCommandMock.mockImplementationOnce(async (
                 _qpdf,
                 args: string[],
-                options: TRunCommandOptionsExpectation,
+                options: IQpdfRunCommandOptionsExpectation,
             ) => {
                 const qpdfArgs = await readQpdfArgFile(args);
                 expect(qpdfArgs.at(-1)).toBe(tempOutputPath);

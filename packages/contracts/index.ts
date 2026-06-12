@@ -182,6 +182,12 @@ export {
 } from '@contracts/ocrText';
 
 export type {
+    IOcrIndexV2Manifest,
+    IOcrIndexV2Page,
+    TOcrIndexRotation,
+} from '@contracts/ocrIndex';
+
+export type {
     IDjvuSplitPayload,
     IEmptySplitPayload,
     IPdfSnapshotSplitPayload,

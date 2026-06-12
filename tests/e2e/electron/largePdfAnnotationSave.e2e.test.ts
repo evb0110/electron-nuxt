@@ -240,14 +240,21 @@ async function tryCreatePageNoteViaAgentAction(page: Page, text: string) {
     for (let attempt = 0; attempt < 20; attempt += 1) {
         const resourceResult = await callWorkspaceCommand<Record<string, unknown>>(page, 'readAgentResource', [notesUri], {requiredMethods: ['runAgentAction']});
         const notes = Array.isArray(resourceResult.value?.notes) ? resourceResult.value.notes : [];
-        const pageNotes = notes.filter((note): note is Record<string, unknown> => (
-            note !== null
-            && typeof note === 'object'
-            && Number((note as Record<string, unknown>).pageNumber) === point.pageNumber
-        ));
-        const targetNote = pageNotes.at(-1) ?? null;
-        if (typeof targetNote?.stableKey === 'string') {
-            targetStableKey = targetNote.stableKey;
+        let latestPageNoteStableKey: string | null = null;
+        for (const note of notes) {
+            if (
+                note !== null
+                && typeof note === 'object'
+                && 'pageNumber' in note
+                && Number(note.pageNumber) === point.pageNumber
+                && 'stableKey' in note
+                && typeof note.stableKey === 'string'
+            ) {
+                latestPageNoteStableKey = note.stableKey;
+            }
+        }
+        if (latestPageNoteStableKey) {
+            targetStableKey = latestPageNoteStableKey;
             break;
         }
         await delay(100);

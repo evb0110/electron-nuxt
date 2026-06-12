@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 
-interface ITestWindow {
+interface IHostZenEscapeTestWindow {
     id: number;
     webContents: {
         focus: ReturnType<typeof vi.fn>;
@@ -30,10 +30,10 @@ interface ITestWindow {
 }
 
 const mocks = vi.hoisted(() => ({
-    focusedWindow: null as ITestWindow | null,
+    focusedWindow: null as IHostZenEscapeTestWindow | null,
     shortcutHandler: null as (() => void) | null,
     registeredAccelerator: '',
-    createWindow: ((_id: number): ITestWindow => {
+    createWindow: ((_id: number): IHostZenEscapeTestWindow => {
         throw new Error('createWindow mock not initialized');
     }),
 }));
@@ -43,10 +43,10 @@ vi.mock('electron', () => {
         return mocks.focusedWindow;
     })};
 
-    mocks.createWindow = (id: number): ITestWindow => {
+    mocks.createWindow = (id: number): IHostZenEscapeTestWindow => {
         let fullScreen = false;
         let simpleFullScreen = false;
-        const window: ITestWindow = {
+        const window: IHostZenEscapeTestWindow = {
             id,
             webContents: {
                 focus: vi.fn(),

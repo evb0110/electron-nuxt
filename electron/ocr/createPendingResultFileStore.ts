@@ -1,6 +1,5 @@
+import type { ILogger } from '@electron/utils/createLogger';
 import type { IOcrPendingResultFile } from '@electron/ocr/jobManager.types';
-
-interface ILogger {warn(message: string): void;}
 
 interface ICreatePendingResultFileStoreOptions {
     logger: ILogger;

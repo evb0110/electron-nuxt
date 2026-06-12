@@ -40,7 +40,8 @@ export function useEditedTextMarkupVisualSync(options: IEditedTextMarkupVisualSy
     }
 
     function resolveRenderedTextMarkupOverlayColor(comment: IAnnotationCommentSummary) {
-        return comment.color?.trim() || null;
+        const color = comment.color?.trim();
+        return color && color.length > 0 ? color : null;
     }
 
     function resolveRenderedTextMarkupHighlightOpacity(comment: IAnnotationCommentSummary) {

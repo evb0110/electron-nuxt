@@ -7,6 +7,7 @@ import type {
     IBeginSerializedPdfPersistenceResult,
     IBeginSerializedPdfSaveAsResult,
 } from '@electron/features/documents/serializedPdfPersistenceContract';
+import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConversion';
 
 export const DOCUMENTS_CHANNELS = {
     openDocumentDialog: 'dialog:openPdf',
@@ -95,6 +96,8 @@ export const DOCUMENTS_EVENT_CHANNELS = {
     openDocumentDirectBatchProgress: 'dialog:openPdfDirectBatch:progress',
     openPdfDirectBatchProgress: 'dialog:openPdfDirectBatch:progress',
 } as const;
+
+export type TOpenBatchProgressPayload = ICreatePdfFromInputPathsProgress & {requestId: string;};
 
 export interface IDocumentsInvokeMap {
     [DOCUMENTS_CHANNELS.openDocumentDialog]: {

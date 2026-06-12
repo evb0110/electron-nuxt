@@ -179,7 +179,7 @@ describe('pdfSerializationWorkerClient', () => {
         };
 
         await serializePdfEditsOffThread(data, payload);
-        await vi.runAllTicks();
+        vi.runAllTicks();
         expect(terminateSpy).not.toHaveBeenCalled();
 
         await vi.advanceTimersByTimeAsync(15_000);

@@ -25,7 +25,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 
 const { WindowTabTransferBroker } = await import('@electron/windowTabTransfer');
 
-interface ITestWindow {
+interface IWindowTabTransferTestWindow {
     id: number;
     destroyed: boolean;
     sentTransfers: unknown[];
@@ -49,8 +49,8 @@ function createTransferRequest(targetWindowId: number): IWindowTabTransferReques
     };
 }
 
-function createWindow(windowId: number): ITestWindow {
-    const window: ITestWindow = {
+function createWindow(windowId: number): IWindowTabTransferTestWindow {
+    const window: IWindowTabTransferTestWindow = {
         id: windowId,
         destroyed: false,
         sentTransfers: [],
@@ -70,7 +70,7 @@ async function flushTransferTasks(cycles = 2) {
 }
 
 describe('WindowTabTransferBroker', () => {
-    const windowsById = new Map<number, ITestWindow>();
+    const windowsById = new Map<number, IWindowTabTransferTestWindow>();
     let nextCreatedWindowId = 100;
 
     const createTargetWindow = vi.fn(async () => {

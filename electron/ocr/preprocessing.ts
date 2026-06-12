@@ -14,6 +14,7 @@ import {
     createDetachedChildProcessSpawnOptions,
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
+import type { IPreprocessingValidationResult } from '@contracts/electronApiOcr';
 
 const log = createLogger('preprocessing');
 
@@ -29,12 +30,6 @@ interface IPreprocessingResult {
     stdout?: string;
     stderr?: string;
     error?: string;
-}
-
-interface IPreprocessingValidationResult {
-    valid: boolean;
-    available: string[];
-    missing: string[];
 }
 
 const PREPROCESS_KILL_GRACE_MS = parseIntegerEnv('EVB_PREPROCESS_KILL_GRACE_MS', 2_000, 250);
@@ -199,7 +194,7 @@ async function runPreprocessing(
         let settled = false;
         let forceFinalizeHandle: NodeJS.Timeout | null = null;
 
-        const timeout = options.timeout || 60000; // 60 seconds default
+        const timeout = options.timeout && options.timeout > 0 ? options.timeout : 60000; // 60 seconds default
         const timeoutHandle = setTimeout(() => {
             timedOut = true;
             log.debug('Process timeout');
@@ -383,12 +378,10 @@ export async function preprocessPageForOcr(
  * Check if required binaries are available
  */
 export async function validatePreprocessingSetup(): Promise<IPreprocessingValidationResult> {
-    if (!preprocessingValidationPromise) {
-        preprocessingValidationPromise = buildPreprocessingValidation().catch((error) => {
-            preprocessingValidationPromise = null;
-            throw error;
-        });
-    }
+    preprocessingValidationPromise ??= buildPreprocessingValidation().catch((error) => {
+        preprocessingValidationPromise = null;
+        throw error;
+    });
 
     return preprocessingValidationPromise;
 }

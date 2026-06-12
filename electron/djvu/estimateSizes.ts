@@ -16,14 +16,7 @@ import { buildOptimizedPdf } from '@electron/djvu/buildOptimizedPdf';
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
-
-interface IDjvuSizeEstimate {
-    subsample: number;
-    label: string;
-    description: string;
-    resultingDpi: number;
-    estimatedBytes: number;
-}
+import type { IDjvuSizeEstimate } from '@contracts/electronApiDjvu';
 
 const logger = createLogger('djvu-estimate');
 const DJVU_ESTIMATE_CACHE_MAX_ENTRIES = (() => {

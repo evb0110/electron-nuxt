@@ -9,20 +9,20 @@ import { removeEmbeddedShapeAnnotationDom } from '@app/modules/pdf-viewer/engine
 import { rerenderRenderedManagedEmbeddedShapePages } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/rerenderRenderedManagedEmbeddedShapePages';
 import { shouldRefreshManagedShapePage } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/shouldRefreshManagedShapePage';
 
-interface IFakeAnnotationElement {
+interface IFakeEmbeddedShapeAnnotationElement {
     dataset: { annotationId?: string; };
     remove: ReturnType<typeof vi.fn>;
-    closest: (selector: string) => IFakeAnnotationElement | null;
+    closest: (selector: string) => IFakeEmbeddedShapeAnnotationElement | null;
 }
 
 interface IFakeViewerContainer {
-    elements: IFakeAnnotationElement[];
-    popups: IFakeAnnotationElement[];
-    querySelectorAll: (selector: string) => IFakeAnnotationElement[];
+    elements: IFakeEmbeddedShapeAnnotationElement[];
+    popups: IFakeEmbeddedShapeAnnotationElement[];
+    querySelectorAll: (selector: string) => IFakeEmbeddedShapeAnnotationElement[];
 }
 
-function createFakeAnnotationElement(annotationId: string): IFakeAnnotationElement {
-    const element: IFakeAnnotationElement = {
+function createFakeAnnotationElement(annotationId: string): IFakeEmbeddedShapeAnnotationElement {
+    const element: IFakeEmbeddedShapeAnnotationElement = {
         dataset: { annotationId },
         remove: vi.fn(),
         closest: () => element,
@@ -30,7 +30,7 @@ function createFakeAnnotationElement(annotationId: string): IFakeAnnotationEleme
     return element;
 }
 
-function createFakePopup(parentAnnotationId: string): IFakeAnnotationElement {
+function createFakePopup(parentAnnotationId: string): IFakeEmbeddedShapeAnnotationElement {
     const parent = createFakeAnnotationElement(parentAnnotationId);
     return {
         dataset: { annotationId: `popup-${parentAnnotationId}` },
@@ -205,12 +205,12 @@ describe('rerenderRenderedManagedEmbeddedShapePages', () => {
         );
     });
 
-    it('skips rerender when there are no rendered managed embedded shapes', () => {
+    it('skips rerender when there are no rendered managed embedded shapes', async () => {
         const renderVisiblePages = vi.fn(async () => {});
         const invalidatePages = vi.fn();
         const isPageRendered = vi.fn(() => false);
 
-        rerenderRenderedManagedEmbeddedShapePages({
+        await rerenderRenderedManagedEmbeddedShapePages({
             shapes: [{
                 annotationId: '22R0',
                 pageIndex: 8,

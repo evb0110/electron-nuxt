@@ -146,6 +146,10 @@ import { PdfAnnotationProperties } from '@app/modules/pdf-viewer/public/componen
 import { PdfPageContextMenu } from '@app/modules/pdf-viewer/public/component-exports/pdfPageContextMenu';
 import { PdfTextMarkupAnnotationProperties } from '@app/modules/pdf-viewer/public/component-exports/pdfTextMarkupAnnotationProperties';
 import type {
+    IAnnotationContextMenuState,
+    IPageContextMenuState,
+} from '@app/types/pdfContextMenu';
+import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
     ITextMarkupAnnotationProperties,
@@ -185,25 +189,6 @@ interface IAnnotationNoteWindowEntry {
     isMinimized: boolean;
 }
 
-interface IContextMenuState {
-    visible: boolean;
-    x: number;
-    y: number;
-    comment: IAnnotationCommentSummary | null;
-    hasSelection: boolean;
-    selectionText: string;
-    pageNumber: number | null;
-    pageX: number | null;
-    pageY: number | null;
-}
-
-interface IPageContextMenuState {
-    visible: boolean;
-    x: number;
-    y: number;
-    pages: number[];
-}
-
 const {
     annotationNotePositions,
     annotationViewportRoot = undefined,
@@ -215,7 +200,7 @@ const {
     annotationNotePositions: Record<string, IAnnotationNotePosition>;
     annotationViewportRoot?: HTMLElement | null;
     annotationZoom?: number;
-    annotationContextMenu: IContextMenuState;
+    annotationContextMenu: IAnnotationContextMenuState;
     annotationContextMenuStyle: Record<string, string>;
     annotationContextMenuCanCopy: boolean;
     annotationContextMenuCanCopySelection: boolean;
@@ -1033,7 +1018,10 @@ function handleMarkerDragFrame() {
 }
 
 function handleMarkerDragState(event: Event) {
-    const active = event instanceof CustomEvent && event.detail?.active === true;
+    const detail = event instanceof CustomEvent && typeof event.detail === 'object' && event.detail !== null
+        ? event.detail as { active?: unknown }
+        : null;
+    const active = detail?.active === true;
     setMarkerDragTooltipSuppressed(active);
 }
 

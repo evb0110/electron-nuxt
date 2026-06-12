@@ -1,6 +1,6 @@
 export type TJsonRpcId = string | number | null;
 
-export type TJsonRpcResponse = {
+export interface IJsonRpcResponse {
     jsonrpc: '2.0';
     id: TJsonRpcId;
     result?: unknown;
@@ -9,7 +9,7 @@ export type TJsonRpcResponse = {
         message: string;
         data?: unknown;
     };
-};
+}
 
 export function getJsonRpcId(value: unknown): TJsonRpcId {
     if (typeof value === 'string' || typeof value === 'number' || value === null) {
@@ -18,7 +18,7 @@ export function getJsonRpcId(value: unknown): TJsonRpcId {
     return null;
 }
 
-export function createResultResponse(id: TJsonRpcId, result: unknown): TJsonRpcResponse {
+export function createResultResponse(id: TJsonRpcId, result: unknown): IJsonRpcResponse {
     return {
         jsonrpc: '2.0',
         id,
@@ -31,7 +31,7 @@ export function createErrorResponse(
     code: number,
     message: string,
     data?: unknown,
-): TJsonRpcResponse {
+): IJsonRpcResponse {
     return {
         jsonrpc: '2.0',
         id,

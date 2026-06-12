@@ -955,7 +955,7 @@ async function preloadWorkspaceComponent(reason: string) {
             BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Failed to preload DocumentWorkspace chunk', {
                 tabId: tabId,
                 reason,
-                error,
+                error: error instanceof Error ? error.message : String(error),
             });
             return false;
         })
@@ -1007,11 +1007,9 @@ async function ensureWorkspaceLoaded(reason: string) {
     });
 
     workspaceRequested.value = true;
-    if (!workspaceLoadPromise) {
-        workspaceLoadPromise = waitForWorkspaceMount().finally(() => {
-            workspaceLoadPromise = null;
-        });
-    }
+    workspaceLoadPromise ??= waitForWorkspaceMount().finally(() => {
+        workspaceLoadPromise = null;
+    });
 
     const loadedWorkspace = await workspaceLoadPromise;
     if (!loadedWorkspace) {

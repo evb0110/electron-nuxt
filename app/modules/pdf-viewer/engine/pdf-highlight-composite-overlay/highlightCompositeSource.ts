@@ -26,16 +26,21 @@
  * load-bearing. Do not revert to native multiply stacking without also bringing
  * back the same-colour darkening seam.
  */
-interface IHighlightRect {
+export interface IHighlightRect {
     x: number;
     y: number;
     width: number;
     height: number;
 }
 
-interface IHighlightPaintFragment extends IHighlightRect {
+export interface IHighlightPaintFragment extends IHighlightRect {
     fill: string;
     opacity: string;
 }
 
 export type THighlightCompositeSource = IHighlightPaintFragment;
+
+export interface IHighlightCompositeHost extends HTMLElement {
+    __evbHighlightCompositeObserver?: MutationObserver | undefined;
+    __evbHighlightCompositeScheduled?: boolean | undefined;
+}

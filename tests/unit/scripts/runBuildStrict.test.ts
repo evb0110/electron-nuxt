@@ -6,22 +6,22 @@ import {
     it,
 } from 'vitest';
 
-type TPnpmInvocation = {
+interface IPnpmInvocation {
     args: string[];
     command: string;
-};
+}
 
-type TBuildStrictModule = {
-    getPnpmInvocation: (args: string[], platform?: NodeJS.Platform) => TPnpmInvocation;
+interface IBuildStrictModule {
+    getPnpmInvocation: (args: string[], platform?: NodeJS.Platform) => IPnpmInvocation;
     getStrictBuildEnv: (env?: NodeJS.ProcessEnv) => NodeJS.ProcessEnv;
-};
+}
 
 const {
     getPnpmInvocation,
     getStrictBuildEnv,
 } = await import(
     pathToFileURL(path.join(process.cwd(), 'scripts/run-build-strict.mjs')).href
-) as TBuildStrictModule;
+) as IBuildStrictModule;
 
 describe('run-build-strict', () => {
     it('uses cmd.exe for Windows pnpm child processes', () => {

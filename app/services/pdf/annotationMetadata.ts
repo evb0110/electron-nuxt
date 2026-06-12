@@ -47,5 +47,5 @@ export function getAnnotationAuthor(annotation: {
         return withObj;
     }
     const direct = annotation.title?.trim();
-    return direct || null;
+    return direct && direct.length > 0 ? direct : null;
 }

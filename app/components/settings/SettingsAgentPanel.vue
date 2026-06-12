@@ -356,7 +356,9 @@ const assistantPrimaryActionLabel = computed(() => assistantSetup.value.primaryA
     ? t(assistantSetup.value.primaryActionLabelKey)
     : '');
 const mcpServerName = computed(() => props.status?.serverName ?? t('settings.agentMcpUnavailable'));
-const mcpServerUrl = computed(() => props.status?.serverUrl || t('settings.agentMcpUnavailable'));
+const mcpServerUrl = computed(() => props.status?.serverUrl?.length
+    ? props.status.serverUrl
+    : t('settings.agentMcpUnavailable'));
 const codexCommand = computed(() => `codex mcp add ${mcpServerName.value} --url ${mcpServerUrl.value}`);
 const claudeCommand = computed(() => `claude mcp add --transport http --scope user ${mcpServerName.value} ${mcpServerUrl.value}`);
 const cursorConfig = computed(() => JSON.stringify(

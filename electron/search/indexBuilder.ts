@@ -17,6 +17,10 @@ import { range } from 'es-toolkit/math';
 import { isOcrWord } from '@contracts/shared';
 import { isRecord } from '@contracts/runtimeGuards';
 import type { IOcrWord } from '@contracts/shared';
+import type {
+    IOcrIndexV2Manifest,
+    IOcrIndexV2Page,
+} from '@contracts/ocrIndex';
 import {
     OCR_TEXT_LAYER_INDEX_SOURCE,
     OCR_TEXT_LAYER_INDEX_VERSION,
@@ -72,26 +76,6 @@ const SEARCH_PDFJS_FIRST_MAX_BYTES = (() => {
     }
     return parsed * 1024 * 1024;
 })();
-
-interface IOcrIndexV2Manifest {
-    version: number;
-    createdAt: number;
-    source: { pdfPath: string };
-    pageCount: number;
-    pageBox: string;
-    ocr: {
-        engine: string;
-        languages: string[];
-        renderDpi: number;
-    };
-    pages: Record<number, { path: string }>;
-}
-
-interface IOcrIndexV2Page {
-    pageNumber: number;
-    text: string;
-    words?: IOcrWord[];
-}
 
 interface IBuildSearchIndexOptions {
     pageCount?: number;
@@ -201,21 +185,21 @@ function parseOcrManifestPayload(payload: unknown): IOcrIndexV2Manifest | null {
         }
     }
     return {
-        version: payload.version,
+        version: 2,
         createdAt: finiteNumberOrUndefined(payload.createdAt) ?? Date.now(),
         source: { pdfPath: payload.source.pdfPath },
         pageCount: payload.pageCount,
-        pageBox: typeof payload.pageBox === 'string' ? payload.pageBox : 'crop',
+        pageBox: 'crop',
         ocr: isRecord(payload.ocr)
             ? {
-                engine: typeof payload.ocr.engine === 'string' ? payload.ocr.engine : '',
+                engine: 'tesseract',
                 languages: Array.isArray(payload.ocr.languages) && payload.ocr.languages.every(item => typeof item === 'string')
                     ? payload.ocr.languages
                     : [],
                 renderDpi: finiteNumberOrUndefined(payload.ocr.renderDpi) ?? 0,
             }
             : {
-                engine: '',
+                engine: 'tesseract',
                 languages: [],
                 renderDpi: 0,
             },
@@ -238,12 +222,17 @@ function parseOcrPagePayload(payload: unknown): IOcrIndexV2Page | null {
     }
     const page: IOcrIndexV2Page = {
         pageNumber: isPositiveInteger(payload.pageNumber) ? payload.pageNumber : 0,
+        rotation: 0,
+        render: {
+            dpi: 0,
+            imagePx: {
+                w: 0,
+                h: 0,
+            },
+        },
         text: typeof payload.text === 'string' ? payload.text : '',
+        words: ocrWordsOrUndefined(payload.words) ?? [],
     };
-    const words = ocrWordsOrUndefined(payload.words);
-    if (words) {
-        page.words = words;
-    }
     return page;
 }
 
@@ -841,7 +830,9 @@ function mergePageData(
         const previous = nextPages.get(page.pageNumber);
         const indexedPage: IPageIndex = {
             pageNumber: page.pageNumber,
-            text: text || previous?.text || '',
+            text: text.length > 0
+                ? text
+                : previous?.text ?? '',
         };
         if (page.pageWidth !== undefined) {
             indexedPage.pageWidth = page.pageWidth;

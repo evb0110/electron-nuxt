@@ -14,11 +14,13 @@ import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type {
     ITabContextAvailability,
     TDirectionalCommandAvailability,
+    TDirectionalTabContextCommand,
     TTabContextCommand,
 } from '@app/types/tabContextMenu';
 import { hasElectronAPI } from '@app/utils/platform';
 import { isWindowTabTransferSupported } from '@app/utils/platformWindowTabs';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import type { IWorkspaceSplitCacheLike } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 
 const TAB_TRANSITION_CACHE_GRACE_MS = 1200;
 const DIRECTION_ORDER = [
@@ -27,11 +29,6 @@ const DIRECTION_ORDER = [
     'up',
     'down',
 ] as const satisfies readonly TPaneDirection[];
-
-interface IWorkspaceSplitCacheLike {
-    set: (tabId: string, payload: TSplitPayload | null | undefined) => string | null;
-    clear: (tabId: string, entryId?: string | null) => void;
-}
 
 interface IUseAppShellDirectionalTabsOptions {
     activePaneId: Ref<string | null>;
@@ -64,7 +61,6 @@ interface IUseAppShellDirectionalTabsOptions {
     handleCloseTab: (paneId: string, tabId: string) => Promise<void>;
 }
 
-type TDirectionalTabContextCommand = Extract<TTabContextCommand, { direction: TPaneDirection }>;
 type TStaticTabContextCommand = Exclude<TTabContextCommand, TDirectionalTabContextCommand>;
 type TStaticTabContextCommandWithoutTargetWindow = Exclude<TStaticTabContextCommand, { kind: 'move-to-window' }>;
 

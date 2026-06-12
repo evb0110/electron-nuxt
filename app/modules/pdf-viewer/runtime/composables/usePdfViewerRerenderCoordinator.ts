@@ -5,6 +5,7 @@ import type {
 import { delay } from 'es-toolkit/promise';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
+    IPageRange,
     IScrollSnapshot,
     PDFDocumentProxy,
     TFitMode,
@@ -17,6 +18,7 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import type { IBuildResizeAnchorContextOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
+import type { IZoomViewportAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import { shouldPreserveExistingRerenderContent } from '@app/modules/pdf-viewer/runtime/rerender-strategy/shouldPreserveExistingRerenderContent';
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
@@ -25,18 +27,6 @@ const CURRENT_PAGE_FIT_RERENDER_SETTLE_MS = 80;
 const CURRENT_PAGE_FIT_CANCEL_SETTLE_MS = 150;
 const FIT_HEIGHT_PRE_RENDER_SNAP_MAX_TICKS = 4;
 
-interface IPageRange {
-    start: number;
-    end: number;
-}
-
-interface IZoomViewportAnchor {
-    id?: number;
-    sessionId?: number;
-    x: number;
-    y: number;
-    capturedAtMs: number;
-}
 
 interface IUsePdfViewerRerenderCoordinatorOptions {
     viewerContainer: Ref<HTMLElement | null>;

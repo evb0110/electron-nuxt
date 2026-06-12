@@ -2,17 +2,10 @@ import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
 import { parseCssRgbColor } from '@app/modules/pdf-viewer/engine/text-markup-color/parseCssRgbColor';
 import { rgbToHex } from '@app/modules/pdf-viewer/engine/text-markup-color/rgbToHex';
-
-interface IRgbColor {
-    b: number;
-    g: number;
-    r: number;
-}
-
-interface IAnnotationSwatchRgb {
-    color: string;
-    rgb: IRgbColor;
-}
+import type {
+    IAnnotationSwatchRgb,
+    IRgbColor,
+} from '@app/modules/pdf-viewer/engine/text-markup-color/rgbColor';
 
 function colorDistanceScoreFromPoint(
     dx: number,

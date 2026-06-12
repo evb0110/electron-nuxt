@@ -3,18 +3,9 @@ import { until } from '@vueuse/core';
 import { delay } from 'es-toolkit/promise';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IPdfReloadWaiterViewer } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
 
 const PDF_RELOAD_TIMEOUT_MS = 8000;
-
-interface IPdfReloadWaiterViewer {
-    scrollToPage: (page: number) => void;
-    captureScrollSnapshot?: () => IScrollSnapshot | null;
-    restoreScrollSnapshot?: (
-        snapshot: IScrollSnapshot | null,
-        options?: { fallbackPage?: number | null; },
-    ) => void;
-    waitForViewerLoadSettled?: () => Promise<void>;
-}
 
 interface ICreatePdfReloadWaiterOptions {
     pdfDocument: Ref<PDFDocumentProxy | null>;

@@ -125,8 +125,8 @@ function extractEditorPdfMirrorFacts(
 ): IEditorPdfMirrorFacts {
     const leftText = left.text.trim();
     const rightText = right.text.trim();
-    const hasLeftStableRef = Boolean(left.annotationId || left.uid);
-    const hasRightStableRef = Boolean(right.annotationId || right.uid);
+    const hasLeftStableRef = Boolean(left.annotationId) || Boolean(left.uid);
+    const hasRightStableRef = Boolean(right.annotationId) || Boolean(right.uid);
     const leftTs = left.modifiedAt ?? 0;
     const rightTs = right.modifiedAt ?? 0;
 

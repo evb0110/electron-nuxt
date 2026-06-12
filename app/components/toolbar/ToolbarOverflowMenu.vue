@@ -293,6 +293,7 @@
 <script setup lang="ts">
 import type { TPdfViewMode } from '@contracts/shared';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
+import type { TToolbarOverflowMenuCommand } from '@app/types/toolbarMenuCommands';
 import {
     isReaderCommandInMenu,
     isReaderCommandInline,
@@ -373,24 +374,6 @@ const emit = defineEmits<{
     (e: 'convert-to-pdf'): void
 }>();
 
-type TMenuCommand =
-    | 'open-ocr'
-    | 'toggle-sidebar'
-    | 'actual-size'
-    | 'fit-width'
-    | 'fit-height'
-    | 'enable-drag'
-    | 'disable-drag'
-    | 'toggle-continuous-scroll'
-    | 'capture-region'
-    | 'crop'
-    | 'quick-note'
-    | 'toggle-fullscreen'
-    | 'open-settings'
-    | 'combine-images'
-    | 'print-current-page'
-    | 'convert-to-pdf';
-
 const emitMenuCommand = {
     'open-ocr': () => emit('open-ocr'),
     'toggle-sidebar': () => emit('toggle-sidebar'),
@@ -408,7 +391,7 @@ const emitMenuCommand = {
     'combine-images': () => emit('combine-images'),
     'print-current-page': () => emit('print-current-page'),
     'convert-to-pdf': () => emit('convert-to-pdf'),
-} satisfies Record<TMenuCommand, () => void>;
+} satisfies Record<TToolbarOverflowMenuCommand, () => void>;
 
 const isOpen = computed({
     get: () => open,
@@ -460,7 +443,7 @@ function close() {
     isOpen.value = false;
 }
 
-function handleMenuCommand(command: TMenuCommand) {
+function handleMenuCommand(command: TToolbarOverflowMenuCommand) {
     emitMenuCommand[command]();
     close();
 }

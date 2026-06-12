@@ -185,7 +185,7 @@ function parsePersistedSearchCacheRecord(value: unknown): IPersistedSearchDocume
         || value.fileSize < 0
         || !isPositiveInteger(value.pageCount)
         || !Array.isArray(pageTexts)
-        || !pageTexts.every((item): item is string => typeof item === 'string')
+        || pageTexts.some(item => typeof item !== 'string')
     ) {
         return null;
     }
@@ -194,13 +194,19 @@ function parsePersistedSearchCacheRecord(value: unknown): IPersistedSearchDocume
     const textBytes = finiteNumberOrUndefined(value.textBytes);
     const lastAccessedAt = finiteNumberOrUndefined(value.lastAccessedAt);
     const createdAt = finiteNumberOrUndefined(value.createdAt);
+    const parsedPageTexts: string[] = [];
+    for (const item of pageTexts) {
+        if (typeof item === 'string') {
+            parsedPageTexts.push(item);
+        }
+    }
     return {
         ...(typeof value.version === 'number' ? { version: value.version } : {}),
         pdfPath: value.pdfPath,
         fileSize: value.fileSize,
         ...(typeof value.contentSignature === 'string' ? { contentSignature: value.contentSignature } : {}),
         pageCount: value.pageCount,
-        pageTexts,
+        pageTexts: parsedPageTexts,
         ...(textBytes !== undefined ? { textBytes } : {}),
         ...(lastAccessedAt !== undefined ? { lastAccessedAt } : {}),
         ...(createdAt !== undefined ? { createdAt } : {}),
@@ -283,9 +289,10 @@ async function loadAllPersistedSearchCacheRecords() {
             'Failed to list search cache records',
         ),
     ) ?? [];
-    return records
-        .map(record => parsePersistedSearchCacheRecord(record))
-        .filter((record): record is IPersistedSearchDocumentCacheRecord => record !== null);
+    return records.flatMap((record) => {
+        const parsed = parsePersistedSearchCacheRecord(record);
+        return parsed ? [parsed] : [];
+    });
 }
 
 async function deletePersistedSearchCacheRecord(cacheKey: string) {
@@ -797,7 +804,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                     {shouldContinue: () => (
                         !isExtractionCanceled(options.requestId)
                             && !canceled
-                            && (options.continueExtractionAfterStop || !stopped)
+                            && (options.continueExtractionAfterStop === true || !stopped)
                     )},
                 );
             } catch (error) {

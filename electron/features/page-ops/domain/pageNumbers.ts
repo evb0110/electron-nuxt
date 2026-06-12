@@ -16,7 +16,7 @@ export function formatPageRange(pages: number[]) {
     return `p${parts.join(',')}`;
 }
 
-function isValidPageNumber(value: unknown) {
+function isValidPageNumber(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value >= 1;
 }
 
@@ -42,7 +42,8 @@ export function validatePageNumbers(
     }
 
     const pageSet = new Set<number>();
-    for (const p of pages) {
+    const pageCandidates: unknown[] = pages;
+    for (const p of pageCandidates) {
         if (!isValidPageNumber(p)) {
             throw new Error(`${label}: invalid page number ${p}`);
         }

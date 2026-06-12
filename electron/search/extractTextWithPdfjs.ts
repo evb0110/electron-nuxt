@@ -11,6 +11,7 @@ import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { collapseRepeatedPdfSearchPageText } from '@contracts/search';
+import type { IPageText } from '@electron/search/pageText';
 
 const log = createLogger('pdfjsTextExtractor');
 const PDFJS_MAX_INPUT_BYTES = (() => {
@@ -20,11 +21,6 @@ const PDFJS_MAX_INPUT_BYTES = (() => {
     }
     return parsed * 1024 * 1024;
 })();
-
-interface IPageText {
-    pageNumber: number;
-    text: string;
-}
 
 interface IExtractPdfjsTextOptions {
     signal?: AbortSignal;

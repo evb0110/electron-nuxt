@@ -7,6 +7,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type { PackageJson } from 'type-fest';
 
 interface IElectronE2EProjectTestConfig {
     fileParallelism?: boolean;
@@ -23,8 +24,6 @@ interface IElectronE2EProjectTestConfig {
 interface IElectronE2EProjectConfig { test?: IElectronE2EProjectTestConfig }
 
 interface IVitestSharedConfigModule { vitestProjects: IElectronE2EProjectConfig[] }
-
-interface IPackageJson { scripts: Record<string, string> }
 
 const vitestProjectNames = {
     electronE2ESmoke: 'e2e-smoke',
@@ -99,6 +98,14 @@ function e2eProjectNames() {
     ];
 }
 
+function getPackageScripts(packageJson: PackageJson) {
+    const scripts = packageJson.scripts;
+    if (!scripts) {
+        throw new Error('Missing package scripts');
+    }
+    return scripts;
+}
+
 describe('electron e2e Vitest project topology', () => {
     it('keeps one local retry and two CI retries for startup flakes', async () => {
         const localConfig = await loadVitestSharedConfig(undefined);
@@ -143,7 +150,8 @@ describe('electron e2e Vitest project topology', () => {
     it('exposes opt-in e2e subsets as named projects instead of env-mutated includes', async () => {
         const config = await loadVitestSharedConfig(undefined);
         const sharedConfigSource = await readFile('vitest.shared.config.ts', 'utf8');
-        const packageJson = JSON.parse(await readFile('package.json', 'utf8')) as IPackageJson;
+        const packageJson = JSON.parse(await readFile('package.json', 'utf8')) as PackageJson;
+        const packageScripts = getPackageScripts(packageJson);
         const largePdfSource = await readFile('tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts', 'utf8');
 
         expect(projectByName(config, vitestProjectNames.electronE2EDrawShapes).test?.include)
@@ -159,14 +167,14 @@ describe('electron e2e Vitest project topology', () => {
             'EVB_E2E_RAPID_PDF_NAVIGATION',
         ]) {
             expect(sharedConfigSource).not.toContain(obsoleteEnvFlag);
-            expect(JSON.stringify(packageJson.scripts)).not.toContain(obsoleteEnvFlag);
+            expect(JSON.stringify(packageScripts)).not.toContain(obsoleteEnvFlag);
             expect(largePdfSource).not.toContain(obsoleteEnvFlag);
         }
-        expect(packageJson.scripts['test:e2e:electron:draw-shapes:no-build'])
+        expect(packageScripts['test:e2e:electron:draw-shapes:no-build'])
             .toBe('vitest run --project e2e-draw-shapes --reporter verbose');
-        expect(packageJson.scripts['test:e2e:electron:large:no-build'])
+        expect(packageScripts['test:e2e:electron:large:no-build'])
             .toBe('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 vitest run --project e2e-large-pdf --reporter verbose');
-        expect(packageJson.scripts['test:e2e:electron:rapid-navigation:no-build'])
+        expect(packageScripts['test:e2e:electron:rapid-navigation:no-build'])
             .toBe('vitest run --project e2e-rapid-navigation --reporter verbose');
     });
 });
@@ -174,11 +182,12 @@ describe('electron e2e Vitest project topology', () => {
 describe('electron e2e quarantine Vitest project', () => {
     it('runs only the quarantine include group and lets the script own empty-lane handling', async () => {
         const config = await loadVitestSharedConfig(undefined);
-        const packageJson = JSON.parse(await readFile('package.json', 'utf8')) as IPackageJson;
+        const packageJson = JSON.parse(await readFile('package.json', 'utf8')) as PackageJson;
+        const packageScripts = getPackageScripts(packageJson);
         const quarantineProject = projectByName(config, vitestProjectNames.electronE2EQuarantine);
 
         expect(quarantineProject.test?.include).toEqual(electronE2EQuarantineTestFiles);
-        expect(packageJson.scripts['test:e2e:electron:quarantine:no-build'])
+        expect(packageScripts['test:e2e:electron:quarantine:no-build'])
             .toBe('vitest run --project e2e-quarantine --passWithNoTests --reporter verbose');
     });
 });

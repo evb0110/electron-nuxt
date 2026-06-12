@@ -27,6 +27,7 @@ import {
     isAbortError,
     isScopedJobOwnedBySender,
     parseWorkerMessage,
+    type TOcrWorkerManagerMessage,
     toScopedOcrJobId,
 } from '@electron/ocr/jobManagerProtocol';
 import { createPendingResultFileStore } from '@electron/ocr/createPendingResultFileStore';
@@ -69,11 +70,6 @@ const queuedJobIds = new Set<string>();
 const preparingJobs = new Map<string, IOcrPreparingJob>();
 const cancelledJobs = new Set<string>();
 const registeredSenderCleanupIds = new Set<number>();
-
-type TOcrWorkerManagerMessage = Exclude<
-    TOcrWorkerOutboundMessage,
-    { type: 'resource-acquire' } | { type: 'resource-release' }
->;
 
 function assertNever(value: never) {
     throw new Error(`Unhandled OCR worker message: ${JSON.stringify(value)}`);
@@ -735,7 +731,7 @@ function getAbortedPreparationResult(
     requestId: string,
     signal: AbortSignal,
 ) {
-    const reason = signal.reason;
+    const reason: unknown = signal.reason;
     if (reason instanceof Error && reason.name === 'TimeoutError') {
         throw reason;
     }

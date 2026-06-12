@@ -24,7 +24,7 @@ export interface IProcessSnapshotSummary {
     interesting: number;
 }
 
-interface ICommandResult {
+interface IStartupDiagnosticCommandResult {
     ok: boolean;
     output: string;
     error: string;
@@ -66,7 +66,7 @@ function truncateText(value: string, options: {
     return `${lineCapped.slice(0, maxChars)}\n... truncated ${lineCapped.length - maxChars} additional character(s) ...`;
 }
 
-function runCommand(command: string, args: string[]): ICommandResult {
+function runCommand(command: string, args: string[]): IStartupDiagnosticCommandResult {
     try {
         return {
             ok: true,

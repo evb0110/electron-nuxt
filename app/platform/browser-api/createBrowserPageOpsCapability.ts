@@ -4,6 +4,7 @@ import {
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
+import type { IPickedBrowserFile } from '@app/platform/browser-api/browserFilePickerAdapter';
 import { buildPdfSaveTypes } from '@app/platform/browser-api/browserFileAccepts';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/browserFileAccepts';
 import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
@@ -29,11 +30,6 @@ import {
     rotatePdfBytes,
 } from '@app/platform/browser-api/browserPageOpsCore';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
-
-interface IPickedBrowserFile {
-    file: File;
-    handle?: FileSystemFileHandle | null;
-}
 
 interface ISaveBytesResult {
     canceled: boolean;

@@ -5,7 +5,7 @@ import { createWordBoxOverlays } from '@app/modules/pdf-viewer/engine/ocr/pdf-wo
 import { isOcrDebugEnabled } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/isOcrDebugEnabled';
 import { transformOcrWordToViewport } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport';
 import { transformWordBox } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox';
-import type { IOcrIndexV2Page } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/ocrIndexV2Page';
+import type { IOcrIndexV2Page } from '@contracts/ocrIndex';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { readOptionalOcrArtifactJson } from '@app/utils/platformOcrArtifacts';
 

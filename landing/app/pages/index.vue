@@ -253,7 +253,7 @@ const {
     status,
 } = await useFetch('/api/releases/latest', { key: 'latest-release-data' });
 
-const releaseAssets = computed(() => releaseData.value?.assets || []);
+const releaseAssets = computed(() => releaseData.value?.assets ?? []);
 const releaseAssetGroups = computed(() => {
     const [
         legacyInstallers,
@@ -293,7 +293,7 @@ const recommendedInstaller = computed<IReleaseInstaller | null>(() => {
         }
     }
 
-    return installers.value[0] || null;
+    return installers.value[0] ?? null;
 });
 
 const selectedInstallerTabOverride = ref<TReleasePlatform | null>(null);
@@ -303,19 +303,22 @@ const selectedInstallerTab = computed<TReleasePlatform>(() => {
         return selectedInstallerTabOverride.value;
     }
 
-    const recPlatform = recommendedInstaller.value?.platform || 'unknown';
+    const recPlatform = recommendedInstaller.value?.platform ?? 'unknown';
     if (selectablePlatforms.value.includes(recPlatform)) {
         return recPlatform;
     }
 
-    return selectablePlatforms.value[0] || 'unknown';
+    return selectablePlatforms.value[0] ?? 'unknown';
 });
 
 const installersForSelectedPlatform = computed(() => {
     const base = selectInstallersForPlatform(installers.value, selectedInstallerTab.value);
 
     if (selectedInstallerTab.value === 'windows') {
-        return [...base, ...legacyInstallers.value];
+        return [
+            ...base,
+            ...legacyInstallers.value,
+        ];
     }
 
     return base;
@@ -337,7 +340,7 @@ const installerPlatformHint = computed(() => {
     return t('home.installers.platformHint.default');
 });
 
-const fallbackReleaseUrl = computed(() => releaseData.value?.release.htmlUrl || `${GITHUB_REPOSITORY_URL}/releases/latest`);
+const fallbackReleaseUrl = computed(() => releaseData.value?.release.htmlUrl ?? `${GITHUB_REPOSITORY_URL}/releases/latest`);
 const softwareApplicationSchema = computed(() => {
     const latestRelease = releaseData.value?.release;
 
@@ -397,14 +400,23 @@ function buildClientProfile(
     const platform = hintedPlatform === 'unknown' ? uaProfile.platform : hintedPlatform;
 
     if (hintedArch !== 'unknown') {
-        return { platform, arch: hintedArch };
+        return {
+            platform,
+            arch: hintedArch, 
+        };
     }
 
     if (platform === 'macos') {
-        return { platform, arch: 'arm64' };
+        return {
+            platform,
+            arch: 'arm64', 
+        };
     }
 
-    return { platform, arch: uaProfile.arch };
+    return {
+        platform,
+        arch: uaProfile.arch, 
+    };
 }
 
 async function detectClientProfile(): Promise<IUserAgentProfile> {
@@ -588,9 +600,7 @@ function installerMeta(installer: IReleaseInstaller): string {
 }
 
 function downloadAriaLabel(installer: IReleaseInstaller): string {
-    return t('home.hero.downloadInstaller', {
-        installerLabel: `${installerLabel(installer)} ${packageLabel(installer)}`,
-    });
+    return t('home.hero.downloadInstaller', {installerLabel: `${installerLabel(installer)} ${packageLabel(installer)}`});
 }
 
 async function refreshReleaseData() {

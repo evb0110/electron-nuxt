@@ -60,7 +60,7 @@ const configuredLogLevel = (() => {
         // Ignore localStorage errors (privacy mode / disabled storage)
     }
 
-    const maybeGlobal = normalizeLogLevel(window.__logLevel);
+    const maybeGlobal = normalizeLogLevel((window as Window & {__logLevel?: unknown;}).__logLevel);
     if (maybeGlobal) {
         return maybeGlobal;
     }

@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type { TOpenDjvuFile } from '@app/composables/useDjvu';
 import { useDocumentTransitions } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
 import type { IDocumentTransitionDeps } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
+import type { IOpenBatchProgressState } from '@app/modules/workspace-shell/composables/openBatchProgressState';
 import { useWorkspaceUiSyncWatchers } from '@app/modules/workspace-shell/composables/useWorkspaceUiSyncWatchers';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -17,10 +18,7 @@ interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionD
     } | null>;
     originalPath: Ref<TDocumentRef | null>;
     closeFile: () => void | Promise<void>;
-    openBatchProgress: Ref<{
-        processed: number;
-        total: number;
-    } | null>;
+    openBatchProgress: Ref<IOpenBatchProgressState | null>;
     isActive: Ref<boolean>;
     fileName: Ref<string | null>;
     hasPendingTabChanges: Readonly<Ref<boolean>>;

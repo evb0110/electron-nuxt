@@ -1,9 +1,6 @@
+import type { IPageRange } from '@app/types/pdf';
 
 
-interface IPageRange {
-    start: number;
-    end: number;
-}
 
 interface IShouldRefreshManagedShapePageOptions {
     pageNumber: number;

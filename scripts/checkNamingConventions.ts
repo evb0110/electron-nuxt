@@ -10,18 +10,18 @@ import {
 } from 'node:path';
 import ts from 'typescript';
 
-type TNamingIssue = {
+interface INamingIssue {
     path: string;
     expected: string;
-};
+}
 
 type TExportSymbolKind = 'class' | 'const' | 'enum' | 'function' | 'interface' | 'let' | 'type' | 'var';
 
-type TExportSymbol = {
+interface IExportSymbol {
     name: string;
     kind: TExportSymbolKind;
     isValue: boolean;
-};
+}
 
 const ROOTS = [
     'app',
@@ -168,7 +168,7 @@ const snakeToCamel = (value: string) => value
     .map((part, index) => index === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1))
     .join('');
 
-const normalizeExportName = (symbol: TExportSymbol) => {
+const normalizeExportName = (symbol: IExportSymbol) => {
     let name = symbol.name;
 
     if ((symbol.kind === 'interface' || symbol.kind === 'type') && /^[IT][A-Z]/.test(name)) {
@@ -196,7 +196,7 @@ const isValueExportKind = (kind: TExportSymbolKind) => kind === 'class'
     || kind === 'var';
 
 const collectExportedSymbols = (sourceFile: ts.SourceFile) => {
-    const symbols: TExportSymbol[] = [];
+    const symbols: IExportSymbol[] = [];
     const add = (name: string, kind: TExportSymbolKind) => symbols.push({
         name,
         kind,
@@ -328,7 +328,7 @@ const collectMainExportFileNameIssue = async (absolutePath: string, relativePath
     };
 };
 
-const collectNamingIssues = async (directory: string, issues: TNamingIssue[]) => {
+const collectNamingIssues = async (directory: string, issues: INamingIssue[]) => {
     const entries = await readdir(directory, { withFileTypes: true });
 
     for (const entry of entries) {
@@ -382,7 +382,7 @@ const collectNamingIssues = async (directory: string, issues: TNamingIssue[]) =>
     }
 };
 
-const issues: TNamingIssue[] = [];
+const issues: INamingIssue[] = [];
 
 function parseRoots(argv = process.argv.slice(2)): string[] {
     const rootsArg = argv.find(argument => argument.startsWith('--roots='));

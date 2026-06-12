@@ -174,6 +174,7 @@
 import { getShortcutLabels } from '@app/constants/shortcuts';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
+import type { TToolbarAppMenuCommand } from '@app/types/toolbarMenuCommands';
 
 const { t } = useTypedI18n();
 const { isBrowserRuntime } = useRuntimeEnvironment();
@@ -221,23 +222,6 @@ const emit = defineEmits<{
     (e: 'paste-image-from-clipboard'): void
 }>();
 
-type TMenuCommand =
-    | 'open-file'
-    | 'save'
-    | 'repair-save'
-    | 'save-as'
-    | 'print'
-    | 'print-current-page'
-    | 'combine-images'
-    | 'export-docx'
-    | 'export-images'
-    | 'export-multi-page-tiff'
-    | 'convert-to-pdf'
-    | 'undo'
-    | 'redo'
-    | 'insert-image-from-file'
-    | 'paste-image-from-clipboard';
-
 const emitMenuCommand = {
     'open-file': () => emit('open-file'),
     save: () => emit('save'),
@@ -254,7 +238,7 @@ const emitMenuCommand = {
     redo: () => emit('redo'),
     'insert-image-from-file': () => emit('insert-image-from-file'),
     'paste-image-from-clipboard': () => emit('paste-image-from-clipboard'),
-} satisfies Record<TMenuCommand, () => void>;
+} satisfies Record<TToolbarAppMenuCommand, () => void>;
 
 const shortcutLabels = getShortcutLabels();
 const hasInteractiveDocument = computed(() => hasPdf && documentBusy !== true);
@@ -274,7 +258,7 @@ function close() {
     emit('update:open', false);
 }
 
-function handleMenuCommand(command: TMenuCommand) {
+function handleMenuCommand(command: TToolbarAppMenuCommand) {
     emitMenuCommand[command]();
     close();
 }
