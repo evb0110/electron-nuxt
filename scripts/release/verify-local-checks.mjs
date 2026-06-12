@@ -14,6 +14,15 @@ export function getLocalReleaseCheckCommands() {
         },
         {
             args: [
+                '--dir',
+                'landing',
+                'run',
+                'check:vendor',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
                 'run',
                 'typecheck',
             ],
