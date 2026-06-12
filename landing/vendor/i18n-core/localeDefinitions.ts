@@ -1,6 +1,6 @@
 import type { TLocale } from './localeCodes';
 
-interface ILocaleDefinition<TLocaleCode extends string = string> {
+interface ICoreLocaleDefinition<TLocaleCode extends string = string> {
     code: TLocaleCode;
     file: `${TLocaleCode}.ts`;
     name: string;
@@ -56,4 +56,4 @@ export const LOCALE_DEFINITIONS = [
         name: 'Nederlands',
         language: 'nl',
     },
-] as const satisfies ReadonlyArray<ILocaleDefinition<TLocale>>;
+] as const satisfies ReadonlyArray<ICoreLocaleDefinition<TLocale>>;
