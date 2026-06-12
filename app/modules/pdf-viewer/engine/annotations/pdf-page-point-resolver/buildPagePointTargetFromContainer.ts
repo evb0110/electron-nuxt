@@ -42,7 +42,7 @@ export function buildPagePointTargetFromContainer(
     const rect = pageContainer.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) {
         if (diagnostics) {
-            BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Resolved quick-note page container has invalid rect', {
+            BrowserLogger.diagnostic(NOTE_PLACEMENT_LOG_SECTION, 'Resolved quick-note page container has invalid rect', {
                 attemptId: diagnostics.attemptId ?? null,
                 selectedSource,
                 pageNumberFromDataset: pageContainer.dataset.page ?? null,
@@ -55,7 +55,7 @@ export function buildPagePointTargetFromContainer(
     const pageNumber = Number.isFinite(parsedPageNumber) && parsedPageNumber > 0 ? parsedPageNumber : null;
     if (pageNumber === null) {
         if (diagnostics) {
-            BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Resolved quick-note page container has invalid page number', {
+            BrowserLogger.diagnostic(NOTE_PLACEMENT_LOG_SECTION, 'Resolved quick-note page container has invalid page number', {
                 attemptId: diagnostics.attemptId ?? null,
                 selectedSource,
                 datasetPage: pageContainer.dataset.page ?? null,

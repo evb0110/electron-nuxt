@@ -2,6 +2,7 @@ interface IDebugLogMessage {
     source: string;
     message: string;
     timestamp: string;
+    level?: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
 }
 
 const MAX_DEBUG_LOG_ENTRIES = 2000;

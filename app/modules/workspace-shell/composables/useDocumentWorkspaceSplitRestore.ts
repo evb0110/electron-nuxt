@@ -121,7 +121,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
         options.isRestoringSplitPayload.value = true;
         try {
             preseedCachedSplitPayload(payload);
-            BrowserLogger.warn('toolbar-transition', 'Restoring cached split payload', {
+            BrowserLogger.diagnostic('toolbar-transition', 'Restoring cached split payload', {
                 tabId: options.tabId,
                 payloadKind: payload.kind,
                 hadPdfBeforeRestore: options.hasPdf.value,
@@ -265,7 +265,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
             return;
         }
         const viewer = options.pdfViewerRef.value?.getViewerContainer?.() ?? null;
-        BrowserLogger.warn('pdf-nav', `[workspace-sidebar] ${previous ? 'open' : 'closed'} -> ${next ? 'open' : 'closed'}`, {
+        BrowserLogger.diagnostic('pdf-nav', `[workspace-sidebar] ${previous ? 'open' : 'closed'} -> ${next ? 'open' : 'closed'}`, {
             previous,
             next,
             currentPage: options.currentPage.value,
@@ -282,7 +282,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
             return;
         }
         const viewer = options.pdfViewerRef.value?.getViewerContainer?.() ?? null;
-        BrowserLogger.warn('pdf-nav', `[workspace-page-ref] ${previous}->${next}`, {
+        BrowserLogger.diagnostic('pdf-nav', `[workspace-page-ref] ${previous}->${next}`, {
             previous,
             next,
             sidebarOpen: options.showSidebar.value,
@@ -312,7 +312,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
             const first = history[history.length - 3]!;
             const isBounce = first.page === last.page && first.page !== mid.page;
             if (isBounce) {
-                BrowserLogger.warn('pdf-nav', `[workspace-page-bounce] detected ${first.page}->${mid.page}->${last.page}`, {
+                BrowserLogger.diagnostic('pdf-nav', `[workspace-page-bounce] detected ${first.page}->${mid.page}->${last.page}`, {
                     history: history.map((entry) => ({
                         page: entry.page,
                         dtMs: now - entry.at,
@@ -355,7 +355,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
             ) {
                 return;
             }
-            BrowserLogger.warn('pdf-nav', 'DocumentWorkspace view controls changed', {
+            BrowserLogger.diagnostic('pdf-nav', 'DocumentWorkspace view controls changed', {
                 fitMode: {
                     previous: prevFit,
                     next: nextFit,

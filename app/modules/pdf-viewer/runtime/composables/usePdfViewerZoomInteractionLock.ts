@@ -50,7 +50,7 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
             bottomSpacerHeight: Number.isFinite(bottomSpacerHeight) ? Math.max(0, bottomSpacerHeight) : 0,
         };
 
-        BrowserLogger.warnThrottled(
+        BrowserLogger.diagnosticThrottled(
             'pdf-zoom-debug',
             'virtualization-freeze-capture',
             wheelDetailLogThrottleMs,
@@ -73,7 +73,7 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
             return;
         }
 
-        BrowserLogger.warnThrottled(
+        BrowserLogger.diagnosticThrottled(
             'pdf-zoom-debug',
             'virtualization-freeze-release',
             wheelDetailLogThrottleMs,
@@ -158,7 +158,7 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
         } else {
             maybeReleaseZoomVirtualizationFreeze('core-rerender-idle');
         }
-        BrowserLogger.warn('pdf-zoom-debug', `[wheel-zoom-session] core-busy=${busy}`, {
+        BrowserLogger.diagnostic('pdf-zoom-debug', `[wheel-zoom-session] core-busy=${busy}`, {
             busy,
             lockUntilMs: zoomRerenderBusyLockUntilMs,
             activeSessionId: getActiveSessionId(),

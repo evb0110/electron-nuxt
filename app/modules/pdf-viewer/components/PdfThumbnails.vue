@@ -552,7 +552,7 @@ function updateThumbnailAspectRatioForPage(
     const nextRatios = thumbnailAspectRatios.value.slice(0, Math.max(totalPages, page));
     nextRatios[page - 1] = nextAspectRatio;
     thumbnailAspectRatios.value = nextRatios;
-    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail aspect ratio changed', {
+    BrowserLogger.diagnostic(THUMBNAIL_LOG_SECTION, 'Thumbnail aspect ratio changed', {
         reason,
         page,
         previousAspectRatio: previousAspectRatio === null ? null : roundMetric(previousAspectRatio),
@@ -592,7 +592,7 @@ function markUserInteraction(reason: string) {
 
     lastUserInteractionReason = reason;
     lastUserInteractionLogAtMs = now;
-    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail user interaction detected', {
+    BrowserLogger.diagnostic(THUMBNAIL_LOG_SECTION, 'Thumbnail user interaction detected', {
         reason,
         currentPage: currentPage,
         totalPages: totalPages,
@@ -814,7 +814,7 @@ function resolveVisibleContainer(reason: string) {
     const container = containerRef.value;
     if (!container) {
         if (containerVisibilityState !== 'unknown') {
-            BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail container detached', {
+            BrowserLogger.diagnostic(THUMBNAIL_LOG_SECTION, 'Thumbnail container detached', {
                 reason,
                 stateBeforeDetach: containerVisibilityState,
                 currentPage: currentPage,
@@ -829,7 +829,7 @@ function resolveVisibleContainer(reason: string) {
     const nextState = isVisible ? 'visible' : 'hidden';
     if (containerVisibilityState !== nextState) {
         containerVisibilityState = nextState;
-        BrowserLogger.warn(THUMBNAIL_LOG_SECTION, nextState === 'visible'
+        BrowserLogger.diagnostic(THUMBNAIL_LOG_SECTION, nextState === 'visible'
             ? 'Thumbnail container became visible'
             : 'Thumbnail container became hidden', {
             reason,
@@ -861,7 +861,7 @@ function updateViewportMetrics() {
     if (Math.abs(nextThumbnailRenderWidth - thumbnailRenderWidth.value) >= THUMBNAIL_WIDTH_CHANGE_THRESHOLD) {
         const previousThumbnailRenderWidth = thumbnailRenderWidth.value;
         thumbnailRenderWidth.value = nextThumbnailRenderWidth;
-        BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail render width changed', {
+        BrowserLogger.diagnostic(THUMBNAIL_LOG_SECTION, 'Thumbnail render width changed', {
             previousThumbnailRenderWidth: roundMetric(previousThumbnailRenderWidth),
             nextThumbnailRenderWidth: roundMetric(thumbnailRenderWidth.value),
             currentPage: currentPage,
@@ -870,7 +870,7 @@ function updateViewportMetrics() {
         });
     }
     if (Math.abs(previousViewportHeight - viewportHeight.value) >= 1) {
-        BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail viewport height changed', {
+        BrowserLogger.diagnostic(THUMBNAIL_LOG_SECTION, 'Thumbnail viewport height changed', {
             previousViewportHeight: roundMetric(previousViewportHeight),
             nextViewportHeight: roundMetric(viewportHeight.value),
             currentPage: currentPage,
@@ -917,7 +917,7 @@ function warnMissingMeasurementItem(container: HTMLElement) {
     }
 
     measurementState = 'no-item';
-    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Skipping thumbnail height measurement: no thumbnail items', {
+    BrowserLogger.diagnostic(THUMBNAIL_LOG_SECTION, 'Skipping thumbnail height measurement: no thumbnail items', {
         currentPage: currentPage,
         totalPages: totalPages,
         geometry: describeContainerGeometry(container),
@@ -934,7 +934,7 @@ function warnMissingRenderedCanvas(
     }
 
     measurementState = 'no-rendered-canvas';
-    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Skipping thumbnail height measurement: no rendered canvas in virtual window yet', {
+    BrowserLogger.diagnostic(THUMBNAIL_LOG_SECTION, 'Skipping thumbnail height measurement: no rendered canvas in virtual window yet', {
         currentPage: currentPage,
         totalPages: totalPages,
         geometry: describeContainerGeometry(container),
@@ -953,7 +953,7 @@ function logMeasurementReady(
     }
 
     measurementState = 'ready';
-    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail height measurement resumed with rendered canvas', {
+    BrowserLogger.diagnostic(THUMBNAIL_LOG_SECTION, 'Thumbnail height measurement resumed with rendered canvas', {
         currentPage: currentPage,
         totalPages: totalPages,
         itemPage: measurementItem.dataset.page ?? null,
@@ -978,7 +978,7 @@ function measureRenderedThumbnailHeight(container: HTMLElement) {
     }
 
     logMeasurementReady(measurementItem, canvas);
-    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail layout measurement checked', {
+    BrowserLogger.diagnostic(THUMBNAIL_LOG_SECTION, 'Thumbnail layout measurement checked', {
         geometry: describeContainerGeometry(container),
         itemPage: measurementItem.dataset.page ?? null,
     });
@@ -1140,7 +1140,7 @@ function cleanupPdfPage(page: PDFPageProxy) {
     try {
         page.cleanup();
     } catch (error) {
-        BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Failed to cleanup thumbnail PDF page', {error});
+        BrowserLogger.diagnostic(THUMBNAIL_LOG_SECTION, 'Failed to cleanup thumbnail PDF page', {error});
     }
 }
 
@@ -1445,7 +1445,7 @@ async function preloadThumbnailAspectRatio(pdfDocument: PDFDocumentProxy, runId:
         if (shouldIgnoreThumbnailRenderError(error, pdfDocument, runId)) {
             return;
         }
-        BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Failed to preload thumbnail aspect ratio', {
+        BrowserLogger.diagnostic(THUMBNAIL_LOG_SECTION, 'Failed to preload thumbnail aspect ratio', {
             page: pageNum,
             currentPage: currentPage,
             totalPages: totalPages,
@@ -1489,7 +1489,7 @@ watch(
         thumbnailKeySignal.value += 1;
         pageRenderEpochs.clear();
         clearVisibleThumbnailCanvases();
-        BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail source/watch cycle started', {
+        BrowserLogger.diagnostic(THUMBNAIL_LOG_SECTION, 'Thumbnail source/watch cycle started', {
             hasDocument: Boolean(doc),
             hadDocument: Boolean(oldDoc),
             totalPages: total,
@@ -1616,7 +1616,7 @@ function invalidatePages(pages: number[]) {
         thumbnailAspectRatios.value = nextRatios;
     }
     thumbnailKeySignal.value += 1;
-    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Invalidating thumbnail pages', {
+    BrowserLogger.diagnostic(THUMBNAIL_LOG_SECTION, 'Invalidating thumbnail pages', {
         pages: pages.slice(0, 40),
         totalPages: pages.length,
         renderRunId,

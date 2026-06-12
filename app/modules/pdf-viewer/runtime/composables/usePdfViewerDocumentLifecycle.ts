@@ -258,7 +258,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             }
         }
 
-        BrowserLogger.warn('pdf-nav', '[load-from-source] zoom restore did not sync before render', {
+        BrowserLogger.diagnostic('pdf-nav', '[load-from-source] zoom restore did not sync before render', {
             currentZoom: options.zoom.value,
             targetZoom,
         });

@@ -11,12 +11,18 @@ import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/worksp
 import type { ICropSelectionResult } from '@app/types/crop';
 
 const mocks = vi.hoisted(() => ({
+    diagnostic: vi.fn(),
+    diagnosticThrottled: vi.fn(),
     getPageGeometry: vi.fn(),
     warn: vi.fn(),
 }));
 
 vi.mock('@app/utils/platformDocuments', () => ({ getPageOpsCapability: () => ({ getPageGeometry: (...args: unknown[]) => mocks.getPageGeometry(...args) }) }));
-vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: { warn: (...args: unknown[]) => mocks.warn(...args) } }));
+vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: {
+    diagnostic: (...args: unknown[]) => mocks.diagnostic(...args),
+    diagnosticThrottled: (...args: unknown[]) => mocks.diagnosticThrottled(...args),
+    warn: (...args: unknown[]) => mocks.warn(...args),
+} }));
 
 describe('useWorkspaceCrop', () => {
     beforeEach(() => {

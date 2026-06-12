@@ -61,7 +61,7 @@ export function usePdfViewerViewportLifecycle(options: IUsePdfViewerViewportLife
         }
         options.resizeTransitionVisible.value = payload.active;
         options.resizeTransitionAnchorPage.value = nextAnchorPage;
-        BrowserLogger.warn('pdf-nav', `[resize-transition-ui] active=${payload.active}`, {
+        BrowserLogger.diagnostic('pdf-nav', `[resize-transition-ui] active=${payload.active}`, {
             ...payload,
             storedAnchorPage: options.resizeTransitionAnchorPage.value,
             viewer: options.summarizeViewerStateForLog(),

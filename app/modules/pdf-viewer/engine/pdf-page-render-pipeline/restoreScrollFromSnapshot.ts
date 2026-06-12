@@ -171,7 +171,7 @@ function applyPageAnchorRestoration(
         const targetLeft =
             anchorPageElement.offsetLeft + pageXRatio * safeWidth - anchorViewportX;
         container.scrollLeft = clamp(targetLeft, 0, maxScrollLeft);
-        BrowserLogger.warnThrottled('pdf-zoom-debug', 'snapshot-restore-horizontal-page-anchor', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] horizontal-page-anchor', {
+        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'snapshot-restore-horizontal-page-anchor', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] horizontal-page-anchor', {
             anchorPageNumber,
             pageXRatio,
             targetLeft,
@@ -193,7 +193,7 @@ function applyPageAnchorRestoration(
             anchorViewportY,
         );
         container.scrollTop = clamp(targetTop, 0, maxScrollTop);
-        BrowserLogger.warnThrottled('pdf-zoom-debug', 'snapshot-restore-vertical-page-anchor', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] vertical-page-anchor', {
+        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'snapshot-restore-vertical-page-anchor', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] vertical-page-anchor', {
             anchorPageNumber,
             pageYRatio,
             effectivePageYRatio,
@@ -221,7 +221,7 @@ export function restoreScrollFromSnapshot(
     },
 ) {
     if (!snapshot || !container) {
-        BrowserLogger.warn('pdf-zoom-debug', '[snapshot-restore] skipped missing snapshot/container', {
+        BrowserLogger.diagnostic('pdf-zoom-debug', '[snapshot-restore] skipped missing snapshot/container', {
             hasSnapshot: Boolean(snapshot),
             hasContainer: Boolean(container),
         });
@@ -230,14 +230,14 @@ export function restoreScrollFromSnapshot(
 
     const restoreOptions = resolveRestoreOptions(options);
     if (!restoreOptions.restoreHorizontal && !restoreOptions.restoreVertical) {
-        BrowserLogger.warn('pdf-zoom-debug', '[snapshot-restore] skipped both axes disabled');
+        BrowserLogger.diagnostic('pdf-zoom-debug', '[snapshot-restore] skipped both axes disabled');
         return;
     }
     const newWidth = container.scrollWidth;
     const newHeight = container.scrollHeight;
 
     if (!newWidth || !newHeight || !snapshot.width || !snapshot.height) {
-        BrowserLogger.warn('pdf-zoom-debug', '[snapshot-restore] skipped invalid dimensions', {
+        BrowserLogger.diagnostic('pdf-zoom-debug', '[snapshot-restore] skipped invalid dimensions', {
             newWidth,
             newHeight,
             snapshotWidth: snapshot.width,
@@ -267,7 +267,7 @@ export function restoreScrollFromSnapshot(
         );
         const targetLeft = contentXRatio * newWidth - anchorViewportXForRatio;
         container.scrollLeft = clamp(targetLeft, 0, maxScrollLeft);
-        BrowserLogger.warnThrottled('pdf-zoom-debug', 'snapshot-restore-horizontal-ratio', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] horizontal-ratio', {
+        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'snapshot-restore-horizontal-ratio', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] horizontal-ratio', {
             targetLeft,
             beforeScrollLeft,
             afterScrollLeft: container.scrollLeft,
@@ -296,7 +296,7 @@ export function restoreScrollFromSnapshot(
             );
             return;
         }
-        BrowserLogger.warn('pdf-zoom-debug', '[snapshot-restore] page-anchor-missing', {anchorPageNumber});
+        BrowserLogger.diagnostic('pdf-zoom-debug', '[snapshot-restore] page-anchor-missing', {anchorPageNumber});
     }
 
     if (!restoreOptions.restoreVertical) {
@@ -308,7 +308,7 @@ export function restoreScrollFromSnapshot(
         && restoreOptions.preferPageAnchor
         && anchorPageNumber !== null
     ) {
-        BrowserLogger.warnThrottled('pdf-zoom-debug', 'snapshot-restore-vertical-ratio-skipped', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] vertical-ratio-skipped', {
+        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'snapshot-restore-vertical-ratio-skipped', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] vertical-ratio-skipped', {
             reason: 'missing-page-anchor',
             anchorPageNumber,
             beforeScrollTop,
@@ -324,7 +324,7 @@ export function restoreScrollFromSnapshot(
     );
     const targetTop = contentYRatio * newHeight - anchorViewportYForRatio;
     container.scrollTop = clamp(targetTop, 0, maxScrollTop);
-    BrowserLogger.warnThrottled('pdf-zoom-debug', 'snapshot-restore-vertical-ratio', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] vertical-ratio', {
+    BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'snapshot-restore-vertical-ratio', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] vertical-ratio', {
         targetTop,
         beforeScrollTop,
         afterScrollTop: container.scrollTop,

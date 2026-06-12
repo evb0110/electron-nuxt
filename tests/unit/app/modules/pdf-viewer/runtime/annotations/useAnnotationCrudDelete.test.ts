@@ -46,6 +46,8 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({AnnotationEditorType: {
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     debug: vi.fn(),
+    diagnostic: vi.fn(),
+    diagnosticThrottled: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),

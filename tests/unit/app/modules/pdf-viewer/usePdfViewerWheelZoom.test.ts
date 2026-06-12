@@ -21,6 +21,8 @@ vi.mock('@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/restoreScrollFr
 
 vi.mock('@app/utils/browserLogger', () => {
     return { BrowserLogger: {
+        diagnostic: vi.fn(),
+        diagnosticThrottled: vi.fn(),
         warn: vi.fn(),
         warnThrottled: vi.fn(),
     } };

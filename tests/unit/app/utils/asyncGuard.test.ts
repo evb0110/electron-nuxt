@@ -13,6 +13,8 @@ import {
 const loggerSpies = vi.hoisted(() => ({
     error: vi.fn(),
     debug: vi.fn(),
+    diagnostic: vi.fn(),
+    diagnosticThrottled: vi.fn(),
     warn: vi.fn(),
 }));
 

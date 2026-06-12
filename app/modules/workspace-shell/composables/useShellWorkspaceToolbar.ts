@@ -222,7 +222,7 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
             }
 
             warnedMissingToolbarForKey = warningKey;
-            BrowserLogger.warn('toolbar-transition', 'Shell toolbar handoff stayed visible without teleported workspace toolbar content', {
+            BrowserLogger.diagnostic('toolbar-transition', 'Shell toolbar handoff stayed visible without teleported workspace toolbar content', {
                 activeTabId: options.activeTabId.value,
                 activePaneId: options.activePaneId.value,
                 isTabTransitionBusy: options.isTabTransitionBusy.value,

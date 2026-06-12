@@ -874,7 +874,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             ]);
             return true;
         } catch (error) {
-            BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Timed out waiting for PDF.js editor layer before creating note', {
+            BrowserLogger.diagnostic(NOTE_PLACEMENT_LOG_SECTION, 'Timed out waiting for PDF.js editor layer before creating note', {
                 attemptId: diagnosticsContext?.attemptId ?? null,
                 pageNumber,
                 reason,
@@ -912,7 +912,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 diagnosticsContext,
             );
         } catch (error) {
-            BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Failed to rerender PDF.js editor layer before creating note', {
+            BrowserLogger.diagnostic(NOTE_PLACEMENT_LOG_SECTION, 'Failed to rerender PDF.js editor layer before creating note', {
                 attemptId: diagnosticsContext?.attemptId ?? null,
                 pageNumber,
                 error: errorToLogText(error),
@@ -977,7 +977,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         if (!diagnosticsContext || summaryPageNumber === pageNumber) {
             return;
         }
-        BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Quick-note page mismatch: summary page differs from requested page', {
+        BrowserLogger.diagnostic(NOTE_PLACEMENT_LOG_SECTION, 'Quick-note page mismatch: summary page differs from requested page', {
             attemptId: diagnosticsContext.attemptId ?? null,
             requestedPageNumber: pageNumber,
             summaryPageNumber,
@@ -1179,7 +1179,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             return true;
         } catch (error) {
             if (diagnosticsContext) {
-                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint threw while creating quick-note annotation', {
+                BrowserLogger.diagnostic(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint threw while creating quick-note annotation', {
                     attemptId: diagnosticsContext.attemptId ?? null,
                     pageNumber,
                     error: errorToLogText(error),

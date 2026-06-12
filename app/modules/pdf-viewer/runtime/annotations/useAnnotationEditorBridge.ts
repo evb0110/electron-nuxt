@@ -270,7 +270,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                     ? editor.__evbPlacementAttemptId
                     : null;
                 if (parentPageIndex !== null && parentPageIndex !== pageIndex) {
-                    BrowserLogger.warn('note-placement', 'Editor bridge adjusted page index before opening note', {
+                    BrowserLogger.diagnostic('note-placement', 'Editor bridge adjusted page index before opening note', {
                         attemptId: placementAttemptId,
                         editorUid: editor.uid ?? null,
                         annotationId: editor.annotationElementId ?? null,

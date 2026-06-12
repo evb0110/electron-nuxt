@@ -12,6 +12,8 @@ const createObjectURLMock = vi.fn(() => 'blob:pdf-load');
 const revokeObjectURLMock = vi.fn();
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
+    diagnostic: vi.fn(),
+    diagnosticThrottled: vi.fn(),
     error: loggerError,
     warn: vi.fn(),
     warnThrottled: vi.fn(),
