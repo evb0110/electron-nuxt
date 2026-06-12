@@ -7,7 +7,7 @@
       <div class="home-brand">
         <NuxtLink
           class="brand-link"
-          to="/"
+          :to="localePath('/')"
         >
           <span class="brand-mark">EVB</span>
           <span class="brand-name">Viewer</span>
@@ -33,6 +33,8 @@
           size="md"
           icon="i-ph-globe"
         />
+
+        <LanguageSwitcher />
 
         <UButton
           :to="GITHUB_REPOSITORY_URL"
@@ -224,6 +226,7 @@ interface INavigatorUADataLike {
 }
 
 const { t } = useTypedI18n();
+const localePath = useLocalePath();
 const runtimeConfig = useRuntimeConfig();
 
 const webAppUrl = computed(() => runtimeConfig.public.webAppUrl?.trim() || '');

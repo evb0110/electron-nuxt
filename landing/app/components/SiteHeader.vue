@@ -7,6 +7,10 @@
       <span class="brand-mark">{{ brandTitle.mark }}</span>
       <span class="brand-name">{{ brandTitle.name }}</span>
     </NuxtLink>
+
+    <div class="header-actions">
+      <LanguageSwitcher />
+    </div>
   </header>
 </template>
 
