@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { ref } from 'vue';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { usePdfCanvasRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer';
 import { cast } from '@tests/helpers/cast';
@@ -91,12 +92,18 @@ describe('usePdfCanvasRenderer', () => {
             outputScale: 2,
             defaultMaxCanvasPixels: 20_000,
         });
-        await renderer.renderCanvas(pdfPage as never, 1);
+        const result = await renderer.renderCanvas(pdfPage as never, 1);
 
         expect(canvas.width).toBe(200);
         expect(canvas.height).toBe(100);
         expect(canvas.style.width).toBe('200px');
         expect(canvas.style.height).toBe('100px');
+        expect(result).toMatchObject({
+            requestedPixels: 80_000,
+            grantedPixels: 20_000,
+            pixelScaleFactor: 0.5,
+            wasClamped: true,
+        });
     });
 
     it('lets explicit render options override the settled default canvas budget', async () => {
@@ -131,10 +138,49 @@ describe('usePdfCanvasRenderer', () => {
             outputScale: 2,
             defaultMaxCanvasPixels: 80_000,
         });
-        await renderer.renderCanvas(pdfPage as never, 1, { maxCanvasPixels: 20_000 });
+        const result = await renderer.renderCanvas(pdfPage as never, 1, { maxCanvasPixels: 20_000 });
 
         expect(canvas.width).toBe(200);
         expect(canvas.height).toBe(100);
+        expect(result?.wasClamped).toBe(true);
+    });
+
+    it('uses the latest reactive output scale for future canvas sizing', async () => {
+        const canvas = {
+            width: 0,
+            height: 0,
+            style: {} as CSSStyleDeclaration,
+            getContext: vi.fn(() => ({})),
+            remove: vi.fn(),
+        };
+        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
+
+        const renderTask = {
+            cancel: vi.fn(),
+            promise: Promise.resolve(),
+        };
+        const pdfPage = {
+            pageNumber: 1,
+            getViewport: vi.fn(() => ({
+                width: 200,
+                height: 100,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 200,
+                    pageHeight: 100,
+                },
+            })),
+            render: vi.fn(() => renderTask),
+        } as const;
+
+        const outputScale = ref(1);
+        const renderer = usePdfCanvasRenderer({ outputScale });
+        outputScale.value = 2;
+        const result = await renderer.renderCanvas(pdfPage as never, 1);
+
+        expect(canvas.width).toBe(400);
+        expect(canvas.height).toBe(200);
+        expect(result?.requestedPixels).toBe(80_000);
     });
 
     it('replaces the existing page canvas without clearing sibling overlay layers', () => {

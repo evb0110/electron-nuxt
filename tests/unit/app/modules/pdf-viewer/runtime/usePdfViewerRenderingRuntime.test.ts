@@ -27,6 +27,7 @@ function createRuntime() {
         currentPage: ref(1),
         isActive: computed(() => true),
         effectiveScale: computed(() => 1),
+        outputScale: ref(1),
         bufferPages: computed(() => 2),
         showAnnotations: computed(() => true),
         hiddenAnnotationIds: ref(new Set<string>()),

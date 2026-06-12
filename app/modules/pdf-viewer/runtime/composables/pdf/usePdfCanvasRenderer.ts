@@ -1,4 +1,5 @@
 import type { ICancelableRenderTask } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type { MaybeRefOrGetter } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -14,6 +15,10 @@ interface ICanvasRenderResult {
         pageWidth: number;
         pageHeight: number;
     };
+    requestedPixels: number;
+    grantedPixels: number;
+    pixelScaleFactor: number;
+    wasClamped: boolean;
     userUnit: number;
     totalScaleFactor: number;
 }
@@ -30,6 +35,10 @@ interface IRenderCanvasOptions {
 interface ICanvasPixelSize {
     pixelWidth: number;
     pixelHeight: number;
+    requestedPixels: number;
+    grantedPixels: number;
+    pixelScaleFactor: number;
+    wasClamped: boolean;
 }
 
 interface ICanvasScale {
@@ -38,13 +47,20 @@ interface ICanvasScale {
 }
 
 export const usePdfCanvasRenderer = (deps: {
-    outputScale: number;
+    outputScale: MaybeRefOrGetter<number>;
     defaultMaxCanvasPixels?: number | undefined;
 }) => {
     const {
         outputScale,
         defaultMaxCanvasPixels,
     } = deps;
+
+    function getOutputScale() {
+        const value = toValue(outputScale);
+        return typeof value === 'number' && Number.isFinite(value) && value > 0
+            ? value
+            : 1;
+    }
 
     function cleanupCanvas(canvas: HTMLCanvasElement) {
         canvas.width = 0;
@@ -84,19 +100,33 @@ export const usePdfCanvasRenderer = (deps: {
         cssHeight: number,
         options?: IRenderCanvasOptions,
     ): ICanvasPixelSize {
-        const requestedPixelWidth = Math.max(1, Math.round(cssWidth * outputScale));
-        const requestedPixelHeight = Math.max(1, Math.round(cssHeight * outputScale));
+        const currentOutputScale = getOutputScale();
+        const requestedPixelWidth = Math.max(1, Math.round(cssWidth * currentOutputScale));
+        const requestedPixelHeight = Math.max(1, Math.round(cssHeight * currentOutputScale));
         const requestedPixelCount = requestedPixelWidth * requestedPixelHeight;
         const maxCanvasPixels = getMaxCanvasPixels(options);
         const shouldClampPixels = maxCanvasPixels !== null && requestedPixelCount > maxCanvasPixels;
         const pixelScaleFactor = shouldClampPixels
             ? Math.sqrt(maxCanvasPixels / requestedPixelCount)
             : 1;
+        const pixelWidth = Math.max(1, Math.round(requestedPixelWidth * pixelScaleFactor));
+        const pixelHeight = Math.max(1, Math.round(requestedPixelHeight * pixelScaleFactor));
 
         return {
-            pixelWidth: Math.max(1, Math.round(requestedPixelWidth * pixelScaleFactor)),
-            pixelHeight: Math.max(1, Math.round(requestedPixelHeight * pixelScaleFactor)),
+            pixelWidth,
+            pixelHeight,
+            requestedPixels: requestedPixelCount,
+            grantedPixels: pixelWidth * pixelHeight,
+            pixelScaleFactor,
+            wasClamped: shouldClampPixels,
         };
+    }
+
+    function estimateRequestedPixels(cssWidth: number, cssHeight: number) {
+        const currentOutputScale = getOutputScale();
+        const requestedPixelWidth = Math.max(1, Math.round(cssWidth * currentOutputScale));
+        const requestedPixelHeight = Math.max(1, Math.round(cssHeight * currentOutputScale));
+        return requestedPixelWidth * requestedPixelHeight;
     }
 
     function setupCanvas(
@@ -214,6 +244,10 @@ export const usePdfCanvasRenderer = (deps: {
             scaleX: canvasScale.scaleX,
             scaleY: canvasScale.scaleY,
             rawDims,
+            requestedPixels: pixelSize.requestedPixels,
+            grantedPixels: pixelSize.grantedPixels,
+            pixelScaleFactor: pixelSize.pixelScaleFactor,
+            wasClamped: pixelSize.wasClamped,
             userUnit,
             totalScaleFactor,
             startRender: () => (pdfPage.render(renderContext)),
@@ -277,6 +311,7 @@ export const usePdfCanvasRenderer = (deps: {
     return {
         cleanupCanvas,
         cleanupCanvasRenderResult,
+        estimateRequestedPixels,
         prepareCanvasRender,
         renderCanvas,
         applyContainerDimensions,

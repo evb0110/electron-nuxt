@@ -22,6 +22,7 @@ interface IUsePdfViewerRenderingRuntimeOptions {
     currentPage: Ref<number>;
     isActive: ComputedRef<boolean>;
     effectiveScale: ComputedRef<number>;
+    outputScale: Ref<number>;
     bufferPages: ComputedRef<number>;
     showAnnotations: ComputedRef<boolean>;
     hiddenAnnotationIds: Ref<Set<string>> | ComputedRef<Set<string>>;
@@ -52,6 +53,7 @@ export function usePdfViewerRenderingRuntime(options: IUsePdfViewerRenderingRunt
         currentPage: options.currentPage,
         isActive: options.isActive,
         effectiveScale: options.effectiveScale,
+        outputScale: options.outputScale,
         bufferPages: options.bufferPages,
         showAnnotations: options.showAnnotations,
         hiddenAnnotationIds: options.hiddenAnnotationIds,

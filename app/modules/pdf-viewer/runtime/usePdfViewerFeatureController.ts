@@ -19,6 +19,7 @@ import { usePdfViewerAnnotationRuntime } from '@app/modules/pdf-viewer/runtime/a
 import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import { usePdfViewerMouseInteractions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerMouseInteractions';
 import { usePdfViewerWheelZoom } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoom';
+import { usePdfViewerOutputScale } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerOutputScale';
 import { createPdfViewerEventAdapter } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerEventAdapter';
 import { usePdfViewerPublicApiController } from '@app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController';
 import { useEditedTextMarkupVisualSync } from '@app/modules/pdf-viewer/runtime/annotations/useEditedTextMarkupVisualSync';
@@ -235,6 +236,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         hiddenEmbeddedAnnotationIds,
         annotationSettings,
     });
+    const outputScale = usePdfViewerOutputScale();
     const {
         setupPagePlaceholders,
         renderVisiblePages,
@@ -256,6 +258,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         currentPage: viewerCurrentPage,
         isActive,
         effectiveScale,
+        outputScale,
         bufferPages,
         showAnnotations,
         hiddenAnnotationIds: hiddenEmbeddedAnnotationIds,
@@ -272,11 +275,31 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         currentSearchMatchNavigationId,
         workingCopyPath,
         onRenderStall: relayPageRenderStall,
-        onPageCanvasMounted: handlePageCanvasMounted,
+        onPageCanvasMounted: pageNumber => {
+            handlePageCanvasMounted(pageNumber);
+            singlePageScroll.releasePagedNavigationHoldForPage(pageNumber);
+        },
         onPageRendered: handlePageRendered,
         onAnnotationLayersRendered: pageNumber => applyEditedTextMarkupColorsForRenderedPage(pageNumber),
         onRenderedPageStateChanged: handleRenderedPageStateChanged,
         renderedPageStateVersion,
+    });
+    watch(outputScale, (nextScale, previousScale) => {
+        if (nextScale === previousScale || !pdfDocument.value || isLoading.value) {
+            return;
+        }
+
+        runGuardedTask(
+            () => reRenderAllVisiblePages(() => visibleRange.value, {
+                preserveExistingPages: true,
+                rerenderSource: 'dpr-change',
+                renderBufferOverride: 0,
+            }),
+            {
+                scope: 'pdf-viewer',
+                message: 'Failed to re-render PDF pages after display scale change',
+            },
+        );
     });
     /**
      * In paged fit-height/fit-width mode, current-page changes are rendered by
@@ -296,6 +319,9 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
             )
         );
     }
+    let ensurePagePreviewRangeBridge: Parameters<typeof usePdfSinglePageNavigationController>[0]['ensurePagePreviewRange'] = () => {};
+    let hasPagePreviewBridge = (_pageNumber: number) => false;
+    let getPagePreviewBridge: ReturnType<typeof usePdfRenderViewModel>['getPagePreview'] = () => null;
     const singlePageScroll = usePdfSinglePageNavigationController({
         viewerContainer,
         numPages,
@@ -312,6 +338,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         renderVisiblePages,
         ensurePageMetricsInRange: pdfDocumentResult.ensurePageMetricsInRange,
         suppressPagedRowRender: shouldSuppressPagedFitRowRender,
+        ensurePagePreviewRange: (range, options) => ensurePagePreviewRangeBridge?.(range, options),
         visibleRange,
         emitCurrentPage: viewerEvents.updateCurrentPage,
         requestedCurrentPage,
@@ -607,6 +634,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
     function isPageVisuallyReady(pageNumber: number) {
         return (
             isPageRenderedForClass(pageNumber)
+            || hasPagePreviewBridge(pageNumber)
             || (
                 hasMountedPageCanvas(pageNumber)
                 && isPageRendering(pageNumber)
@@ -657,15 +685,11 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         handleViewerDblClickAnnotation: (event) => commentCrud.handleAnnotationEditorDblClick(event),
         handleViewerContextMenuAnnotation: (event) => commentCrud.handleAnnotationCommentContextMenu(event),
     });
-    const {
-        visibleMarkersByPage,
-        visibleLinksByPage,
-        shouldShowPageSkeleton,
-        markPageRendered: markDelayedSkeletonPageRendered,
-    } = usePdfRenderViewModel({
+    const renderViewModel = usePdfRenderViewModel({
         src,
         isLoading,
         pdfDocument,
+        getPage: pdfDocumentResult.getPage,
         viewerContainer,
         isVisualReloadTransitionActive,
         suppressLoadingOverlay,
@@ -686,11 +710,21 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         effectiveScale,
         continuousScroll,
         numPages,
+        isPagedNavigationBurstActive: () => singlePageScroll.isPagedNavigationBurstActive(),
         markersByPage,
         linksByPage,
         renderVisiblePages,
         runGuardedTask,
     });
+    ensurePagePreviewRangeBridge = renderViewModel.ensurePagePreviewRange;
+    hasPagePreviewBridge = renderViewModel.hasPagePreview;
+    getPagePreviewBridge = renderViewModel.getPagePreview;
+    const {
+        visibleMarkersByPage,
+        visibleLinksByPage,
+        shouldShowPageSkeleton,
+        markPageRendered: markDelayedSkeletonPageRendered,
+    } = renderViewModel;
     usePdfViewerNavigationDiagnostics({
         currentPage: viewerCurrentPage,
         visibleRange,
@@ -709,6 +743,12 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
     });
     function isSpreadSingle(page: number) {
         return isStandaloneSpreadPage(page, viewMode.value, numPages.value);
+    }
+    function getPagePreview(page: number) {
+        return getPagePreviewBridge(page);
+    }
+    function handlePagePreviewDrawn(page: number) {
+        singlePageScroll.releasePagedNavigationHoldForPage(page);
     }
     const {
         captureViewerScrollSnapshot,
@@ -780,6 +820,9 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         isSpreadSingle,
         isPageBuffered,
         isPageRenderedForClass,
+        getPagePreview,
+        isNavigationHeldPage: singlePageScroll.isNavigationHeldPage,
+        getNavigationHoldStyle: singlePageScroll.getNavigationHoldStyle,
         getPagePlaceholderStyle,
         topVirtualSpacerStyle,
         bottomVirtualSpacerStyle,
@@ -796,6 +839,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         handleViewerContextMenu,
         handleSelectStart,
         handlePageContainerMounted,
+        handlePagePreviewDrawn,
         updatePendingImagePlacementRect,
         requestPendingImagePlacementFinalize,
         clearPendingImagePlacement,

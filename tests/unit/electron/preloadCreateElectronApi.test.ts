@@ -40,6 +40,7 @@ describe('createElectronApi', () => {
         expect('exportPdfToImages' in api.documents).toBe(false);
         expect(api.pageOps).toBe(pageOpsClientMock);
         expect(api.imageExport).toBe(imageExportClientMock);
+        expect(typeof api.system.getMemoryInfo).toBe('function');
     });
 
     it('awaits renderer file-open authorization before single-file direct open', async () => {

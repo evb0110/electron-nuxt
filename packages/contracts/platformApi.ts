@@ -10,6 +10,7 @@ import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
 import type { ISearchCapability } from '@contracts/searchCapability';
 import type { ISettingsCapability } from '@contracts/settingsCapability';
 import type { IShellCapability } from '@contracts/shellCapability';
+import type { ISystemCapability } from '@contracts/electronApiSystem';
 import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
 import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 
@@ -21,6 +22,7 @@ export interface IPlatformApi {
     search: ISearchCapability;
     djvu: IDjvuCapability;
     settings: ISettingsCapability;
+    system: ISystemCapability;
     updates: IUpdatesCapability;
     windowTabs: IWindowTabsCapability;
     shell: IShellCapability;
@@ -39,6 +41,7 @@ export type * from '@contracts/electronApiDjvu';
 export type * from '@contracts/electronApiHost';
 export type * from '@contracts/electronApiOcr';
 export type * from '@contracts/electronApiPageOps';
+export type * from '@contracts/electronApiSystem';
 export type * from '@contracts/electronApiUpdates';
 export type * from '@contracts/electronApiWindowTabs';
 export type * from '@contracts/searchCapability';

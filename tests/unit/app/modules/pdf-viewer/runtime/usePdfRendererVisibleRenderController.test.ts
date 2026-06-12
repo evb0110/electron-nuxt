@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { usePdfRendererVisibleRenderController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererVisibleRenderController';
+import { cast } from '@tests/helpers/cast';
 
 function createControllerHarness(options?: {
     activeRequestId?: number;
@@ -106,5 +107,67 @@ describe('usePdfRendererVisibleRenderController', () => {
 
         expect(harness.nextVisibleRenderRequestId).toHaveBeenCalledTimes(1);
         expect(harness.ensurePageMetricsInRange).toHaveBeenCalledWith(12, 14);
+    });
+
+    it('keeps visible pages while deferring buffer pages rejected by the render policy', async () => {
+        const pageElement = cast<HTMLElement>({
+            dataset: { page: '10' },
+            querySelector: vi.fn(() => null),
+        });
+        const containerRoot = cast<HTMLElement>({
+            querySelector: vi.fn((selector: string) => (
+                selector === '.page_container[data-page="10"]'
+                    ? pageElement
+                    : null
+            )),
+            querySelectorAll: vi.fn(() => []),
+        });
+        let visibleRenderRequestId = 7;
+        const renderSingleVisiblePage = vi.fn(async () => undefined);
+        const controller = usePdfRendererVisibleRenderController({
+            container: ref(containerRoot),
+            currentPage: ref(10),
+            numPages: ref(20),
+            isActive: true,
+            bufferPages: 1,
+            renderConcurrency: 3,
+            effectiveScale: 1,
+            renderedPages: new Set<number>(),
+            staleRenderedPages: new Set<number>(),
+            renderingPages: new Map<number, number>(),
+            renderingPageRequestIds: new Map<number, number>(),
+            getRenderVersion: () => 3,
+            getVisibleRenderRequestId: () => visibleRenderRequestId,
+            nextVisibleRenderRequestId: () => {
+                visibleRenderRequestId += 1;
+                return visibleRenderRequestId;
+            },
+            ensurePageMetricsInRange: vi.fn(async () => true),
+            setupPagePlaceholders: vi.fn(),
+            cleanupPage: vi.fn(),
+            cancelObsoleteInFlightRenders: vi.fn(),
+            renderSingleVisiblePage,
+            scheduleMissingRenderTargetRetry: vi.fn(),
+            shouldRenderPage: (_pageNumber, context) => !context.isBufferPage,
+            throttleMs: 0,
+        });
+
+        await controller.renderVisiblePages({
+            start: 10,
+            end: 10,
+        });
+
+        expect(renderSingleVisiblePage).toHaveBeenCalledTimes(1);
+        expect(renderSingleVisiblePage).toHaveBeenCalledWith(
+            containerRoot,
+            10,
+            expect.any(Number),
+            expect.any(Number),
+            expect.any(Boolean),
+            expect.any(Number),
+            expect.any(Function),
+            new Set([10]),
+            undefined,
+        );
     });
 });

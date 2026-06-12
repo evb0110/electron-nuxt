@@ -23,6 +23,7 @@ import { shouldPreserveExistingRerenderContent } from '@app/modules/pdf-viewer/r
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
 const ZOOM_CHANGE_MAX_CANVAS_PIXELS = 14_000_000;
+const ZOOM_CHANGE_SETTLE_CLAMP_SCALE_THRESHOLD = 0.98;
 const CURRENT_PAGE_FIT_RERENDER_SETTLE_MS = 80;
 const CURRENT_PAGE_FIT_CANCEL_SETTLE_MS = 150;
 const FIT_HEIGHT_PRE_RENDER_SNAP_MAX_TICKS = 4;
@@ -241,6 +242,53 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         return ZOOM_CHANGE_MAX_CANVAS_PIXELS;
     }
 
+    function getPageElement(pageNumber: number) {
+        const container = viewerContainer.value;
+        return container?.querySelector<HTMLElement>(
+            `.page_container[data-page="${pageNumber}"]`,
+        ) ?? null;
+    }
+
+    function shouldScheduleZoomSettleForClamp(
+        visibleRangeForDecision: IPageRange,
+        maxCanvasPixels: number,
+    ) {
+        if (typeof window === 'undefined') {
+            return true;
+        }
+
+        const outputScale = window.devicePixelRatio || 1;
+        for (
+            let pageNumber = visibleRangeForDecision.start;
+            pageNumber <= visibleRangeForDecision.end;
+            pageNumber += 1
+        ) {
+            const pageElement = getPageElement(pageNumber);
+            if (!pageElement) {
+                return true;
+            }
+
+            const width = pageElement.offsetWidth || pageElement.clientWidth;
+            const height = pageElement.offsetHeight || pageElement.clientHeight;
+            if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+                return true;
+            }
+
+            const requestedPixels = Math.max(1, Math.round(width * outputScale))
+                * Math.max(1, Math.round(height * outputScale));
+            if (requestedPixels <= maxCanvasPixels) {
+                continue;
+            }
+
+            const pixelScaleFactor = Math.sqrt(maxCanvasPixels / requestedPixels);
+            if (pixelScaleFactor < ZOOM_CHANGE_SETTLE_CLAMP_SCALE_THRESHOLD) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     function canTrustCurrentPageAsZoomAnchor() {
         const page = currentPage.value;
         if (!Number.isFinite(page) || page < 1 || page > numPages.value) {
@@ -423,7 +471,13 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             isPageRendered,
         });
         const maxCanvasPixelsOverride = resolveMaxCanvasPixelsOverride(source);
-        if (maxCanvasPixelsOverride !== undefined) {
+        if (
+            maxCanvasPixelsOverride !== undefined
+            && shouldScheduleZoomSettleForClamp(
+                visibleRangeForDecision,
+                maxCanvasPixelsOverride,
+            )
+        ) {
             markLowResZoomRerenderUsed();
         }
         const renderBufferOverride = resolveRerenderBufferOverride(source);

@@ -310,9 +310,10 @@ export async function setTabMemoryPolicyForE2E(
             setter(policy);
         }, policy);
     });
-    await waitForFunctionInPage(page, (policy: 'conservative' | 'aggressive') => (
-        window.electronAPI?.settings.get().then(settings => settings.tabMemoryPolicy === policy) ?? false
-    ), { timeout: timeoutMs }, policy);
+    await waitForFunctionInPage(page, (policy: 'conservative' | 'aggressive') => {
+        const settingsApi = (window as IE2EWindow & {electronAPI?: {settings?: {get?: () => Promise<{tabMemoryPolicy?: string;}>;};};}).electronAPI?.settings;
+        return settingsApi?.get?.().then(settings => settings.tabMemoryPolicy === policy) ?? false;
+    }, { timeout: timeoutMs }, policy);
 }
 
 export async function waitForViewerInteractive(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
