@@ -822,6 +822,7 @@ export default {
         'languageSpanish': 'Spanish',
         'languageItalian': 'Italian',
         'languagePortuguese': 'Portuguese',
+        'languagePortugueseBr': 'Portuguese (Brazil)',
         'languageDutch': 'Dutch',
         'uiScale': 'Interface Size',
         'uiScaleDescription': 'Auto adjusts on Windows displays scaled above 100%. Pick a preset to override.',

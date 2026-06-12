@@ -822,6 +822,7 @@ export default {
         'languageSpanish': 'Spanisch',
         'languageItalian': 'Italienisch',
         'languagePortuguese': 'Portugiesisch',
+        'languagePortugueseBr': 'Portugiesisch (Brasilien)',
         'languageDutch': 'Niederländisch',
         'uiScale': 'Oberflächengröße',
         'uiScaleDescription': 'Auto passt sich auf Windows-Displays mit Skalierung über 100 % an. Wählen Sie eine Voreinstellung zum Überschreiben.',

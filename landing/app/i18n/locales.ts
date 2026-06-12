@@ -6,6 +6,7 @@ import fr from '../locales/fr';
 import it from '../locales/it';
 import nl from '../locales/nl';
 import pt from '../locales/pt';
+import ptBr from '../locales/pt-BR';
 import ru from '../locales/ru';
 import type { EN_MESSAGE_SCHEMA } from './enMessageSchema';
 import {
@@ -37,6 +38,7 @@ export const LOCALE_MESSAGES = {
     it,
     nl,
     pt,
+    'pt-BR': ptBr,
     ru,
 } as const satisfies Record<TLocale, TLocaleSchema>;
 

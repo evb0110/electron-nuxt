@@ -6,6 +6,7 @@ export const LOCALE_CODES = [
     'es',
     'it',
     'pt',
+    'pt-BR',
     'nl',
 ] as const;
 
