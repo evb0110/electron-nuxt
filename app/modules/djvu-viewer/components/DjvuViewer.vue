@@ -123,6 +123,7 @@ import { createWheelPageAccumulatorState } from '@app/utils/document-viewer/sing
 import type { IWheelPageAccumulatorState } from '@app/utils/document-viewer/single-page-wheel/singlePageWheelTypes';
 import { normalizePageWheelDelta } from '@app/utils/document-viewer/single-page-wheel/normalizePageWheelDelta';
 import { resolveWheelPageFlipStepDelta } from '@app/utils/document-viewer/single-page-wheel/resolveWheelPageFlipStepDelta';
+import { resolveDjvuPreviewResolutionPlan } from '@app/utils/djvuPreviewResolution';
 
 interface IProps {
     src: TDocumentRef | null;
@@ -136,7 +137,9 @@ interface IProps {
 }
 
 interface IDjvuPageState {
+    failedRenderPx: number;
     objectUrl: string | null;
+    renderedPx: number;
     status: 'idle' | 'loading' | 'loaded' | 'error';
     token: number;
 }
@@ -164,6 +167,7 @@ const DJVU_BASE_MARGIN = 16;
 const WHEEL_DELTA_EPSILON = 0.01;
 const HORIZONTAL_INTENT_REJECT_RATIO = 2.5;
 const PAGE_SCROLL_EDGE_EPSILON = 1;
+const DJVU_ZOOM_SETTLE_RERENDER_MS = 200;
 
 const viewerContainer = ref<HTMLElement | null>(null);
 const pageElements = new Map<number, HTMLElement>();
@@ -608,6 +612,7 @@ let loadGeneration = 0;
 let activeRenderPromise: Promise<void> | null = null;
 let queuedPageNumbers: number[] = [];
 let lastRenderedPageSet = new Set<number>();
+let zoomSettleRerenderTimer: number | null = null;
 let wheelAccumulator: IWheelPageAccumulatorState = createWheelPageAccumulatorState();
 
 function isCurrentLoadGeneration(generation: number) {
@@ -661,6 +666,36 @@ function getPageShellStyle(pageNumber: number) {
     };
 }
 
+function getPageDisplayScale(pageNumber: number) {
+    const pageSize = pageSizes.value[pageNumber - 1];
+    if (!pageSize) {
+        return 1;
+    }
+
+    return (isContinuousScroll.value && zoomMode.value === 'fit-width' && pageSize.width > 0)
+        ? Math.max(0.1, fitWidthAvailable() / pageSize.width)
+        : effectiveZoom.value;
+}
+
+function getNeededDeviceWidth(pageNumber: number) {
+    const pageSize = pageSizes.value[pageNumber - 1];
+    if (!pageSize) {
+        return 1;
+    }
+
+    const cssWidth = Math.max(1, Math.round(pageSize.width * getPageDisplayScale(pageNumber)));
+    const devicePixelRatio = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    return Math.max(1, Math.ceil(cssWidth * devicePixelRatio));
+}
+
+function getPreviewResolutionPlan(pageNumber: number) {
+    const pageSize = pageSizes.value[pageNumber - 1];
+    return resolveDjvuPreviewResolutionPlan({
+        nativeWidth: pageSize?.width ?? 1,
+        neededDevicePx: getNeededDeviceWidth(pageNumber),
+    });
+}
+
 function revokePageUrl(pageNumber: number) {
     const state = pageStates.value[pageNumber - 1];
     if (!state?.objectUrl || !activeWorker) {
@@ -677,6 +712,8 @@ function revokePageUrl(pageNumber: number) {
     }
 
     state.objectUrl = null;
+    state.failedRenderPx = 0;
+    state.renderedPx = 0;
 }
 
 function resetPageState(pageNumber: number) {
@@ -687,7 +724,9 @@ function resetPageState(pageNumber: number) {
 
     state.token += 1;
     revokePageUrl(pageNumber);
+    state.failedRenderPx = 0;
     state.status = 'idle';
+    state.renderedPx = 0;
 }
 
 function cleanupViewerState() {
@@ -710,6 +749,7 @@ function cleanupViewerState() {
 
 function releaseRenderedPagePreviews() {
     activeRenderPromise = null;
+    clearZoomSettleRerenderTimer();
 
     for (let pageNumber = 1; pageNumber <= pageStates.value.length; pageNumber += 1) {
         const state = pageStates.value[pageNumber - 1];
@@ -727,6 +767,7 @@ function releaseRenderedPagePreviews() {
 }
 
 function stopWorker() {
+    clearZoomSettleRerenderTimer();
     if (!activeWorker) {
         return;
     }
@@ -757,8 +798,33 @@ function suspendWorker() {
     invalidateContinuousScrollWindowCache();
 }
 
-function canLoadPagePreview(state: IDjvuPageState | undefined): state is IDjvuPageState {
-    return Boolean(state && state.status !== 'loading' && state.status !== 'loaded');
+function isPagePreviewUndersized(pageNumber: number, state: IDjvuPageState | undefined) {
+    return Boolean(
+        state
+        && state.status === 'loaded'
+        && state.objectUrl
+        && state.renderedPx > 0
+        && getNeededDeviceWidth(pageNumber) > state.renderedPx
+        && getNeededDeviceWidth(pageNumber) > state.failedRenderPx,
+    );
+}
+
+function canLoadPagePreview(pageNumber: number, state: IDjvuPageState | undefined): state is IDjvuPageState {
+    return Boolean(
+        state
+        && state.status !== 'loading'
+        && (state.status !== 'loaded' || isPagePreviewUndersized(pageNumber, state)),
+    );
+}
+
+function shouldQueuePagePreview(pageNumber: number, state: IDjvuPageState | undefined) {
+    return Boolean(
+        state
+        && (
+            state.status === 'idle'
+            || isPagePreviewUndersized(pageNumber, state)
+        ),
+    );
 }
 
 function discardStalePageObjectUrl(
@@ -783,6 +849,7 @@ function commitLoadedPagePreview(
     generation: number,
     worker: Awaited<ReturnType<typeof createDjvuPagePreviewSourceFromPath>>,
     objectUrl: string,
+    renderedPx: number,
 ) {
     const currentState = pageStates.value[pageNumber - 1];
     if (
@@ -796,9 +863,21 @@ function commitLoadedPagePreview(
         return false;
     }
 
-    revokePageUrl(pageNumber);
+    const previousObjectUrl = currentState.objectUrl;
     currentState.objectUrl = objectUrl;
+    currentState.failedRenderPx = 0;
+    currentState.renderedPx = renderedPx;
     currentState.status = 'loaded';
+    if (previousObjectUrl && previousObjectUrl !== objectUrl) {
+        try {
+            worker.revokeObjectURL(previousObjectUrl);
+        } catch (error) {
+            BrowserLogger.warn('djvu-viewer', 'Failed to revoke previous DjVu page URL', {
+                pageNumber,
+                error,
+            });
+        }
+    }
     finishInitialPreviewLoadIfSettled();
     return true;
 }
@@ -821,11 +900,34 @@ function markPagePreviewLoadFailed(
         return;
     }
 
-    currentState.status = 'error';
-    finishInitialPreviewLoadIfSettled();
-    BrowserLogger.warn('djvu-viewer', 'Failed to load DjVu page preview', {
-        pageNumber,
-        error,
+    if (currentState.objectUrl) {
+        currentState.failedRenderPx = Math.max(currentState.failedRenderPx, getNeededDeviceWidth(pageNumber));
+        currentState.status = 'loaded';
+        finishInitialPreviewLoadIfSettled();
+        BrowserLogger.warn('djvu-viewer', 'Failed to refresh DjVu page preview', {
+            pageNumber,
+            error,
+        });
+    } else {
+        currentState.status = 'error';
+        finishInitialPreviewLoadIfSettled();
+        BrowserLogger.warn('djvu-viewer', 'Failed to load DjVu page preview', {
+            pageNumber,
+            error,
+        });
+    }
+}
+
+function preloadPageObjectUrl(objectUrl: string) {
+    if (typeof Image === 'undefined') {
+        return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error('Failed to decode DjVu page preview'));
+        image.src = objectUrl;
     });
 }
 
@@ -860,17 +962,22 @@ async function ensurePageLoaded(pageNumber: number) {
     const state = pageStates.value[pageNumber - 1];
     const worker = activeWorker;
     const generation = loadGeneration;
-    if (!isActive.value || !worker || !canLoadPagePreview(state)) {
+    if (!isActive.value || !worker || !canLoadPagePreview(pageNumber, state)) {
         return;
     }
 
     state.status = 'loading';
     state.token += 1;
     const token = state.token;
+    const previewPlan = getPreviewResolutionPlan(pageNumber);
 
     try {
-        const objectUrl = await worker.renderPageObjectUrl(pageNumber);
-        commitLoadedPagePreview(pageNumber, token, generation, worker, objectUrl);
+        const {
+            objectUrl,
+            renderedPx,
+        } = await worker.renderPageObjectUrl(pageNumber, { subsample: previewPlan.subsample });
+        await preloadPageObjectUrl(objectUrl);
+        commitLoadedPagePreview(pageNumber, token, generation, worker, objectUrl, renderedPx);
     } catch (error) {
         markPagePreviewLoadFailed(pageNumber, token, generation, worker, error);
     }
@@ -916,7 +1023,7 @@ async function processRenderQueue() {
 
     const nextPageNumber = queuedPageNumbers.find((pageNumber) => {
         const state = pageStates.value[pageNumber - 1];
-        return state?.status === 'idle';
+        return shouldQueuePagePreview(pageNumber, state);
     });
 
     if (!nextPageNumber) {
@@ -963,6 +1070,27 @@ function syncLoadedPages() {
 
     lastRenderedPageSet = activePages;
     void processRenderQueue();
+}
+
+function clearZoomSettleRerenderTimer() {
+    if (zoomSettleRerenderTimer === null || typeof window === 'undefined') {
+        return;
+    }
+
+    window.clearTimeout(zoomSettleRerenderTimer);
+    zoomSettleRerenderTimer = null;
+}
+
+function scheduleSettledPreviewRerender() {
+    if (!import.meta.client || !isActive.value || totalPages.value <= 0 || typeof window === 'undefined') {
+        return;
+    }
+
+    clearZoomSettleRerenderTimer();
+    zoomSettleRerenderTimer = window.setTimeout(() => {
+        zoomSettleRerenderTimer = null;
+        syncLoadedPages();
+    }, DJVU_ZOOM_SETTLE_RERENDER_MS);
 }
 
 function detectCurrentPageFromViewport() {
@@ -1230,7 +1358,9 @@ watch(
 
             pageSizes.value = sizes;
             pageStates.value = sizes.map(() => ({
+                failedRenderPx: 0,
                 objectUrl: null,
+                renderedPx: 0,
                 status: 'idle',
                 token: 0,
             }));
@@ -1310,7 +1440,9 @@ watch(isActive, async (active) => {
 
                 pageSizes.value = sizes;
                 pageStates.value = sizes.map(() => ({
+                    failedRenderPx: 0,
                     objectUrl: null,
+                    renderedPx: 0,
                     status: 'idle',
                     token: 0,
                 }));
@@ -1355,6 +1487,7 @@ watch(
 
         await nextTick();
         syncHorizontalScrollForZoomMode();
+        scheduleSettledPreviewRerender();
         scheduleViewportSync();
     },
     { flush: 'post' },
@@ -1365,6 +1498,7 @@ function handleContainerResize() {
         return;
     }
     measureContainer();
+    scheduleSettledPreviewRerender();
     scheduleViewportSync();
 }
 
@@ -1373,6 +1507,7 @@ onMounted(measureContainer);
 useResizeObserver(viewerContainer, handleContainerResize);
 
 onBeforeUnmount(() => {
+    clearZoomSettleRerenderTimer();
     if (scrollRafId !== 0) {
         window.cancelAnimationFrame(scrollRafId);
         scrollRafId = 0;

@@ -851,7 +851,7 @@ export const browserDjvuCapability: IDjvuCapability = {
     getPageSizes(djvuPath) {
         return withDjvuWorker(djvuPath, worker => worker.doc.getPagesSizes().run());
     },
-    renderPagePreview(djvuPath, pageNumber) {
+    renderPagePreview(djvuPath, pageNumber, _options) {
         return withDjvuWorker(djvuPath, async (worker) => {
             const pageObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
             try {

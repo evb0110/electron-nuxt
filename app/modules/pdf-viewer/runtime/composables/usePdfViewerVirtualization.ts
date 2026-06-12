@@ -47,6 +47,7 @@ const VIRTUAL_MOUNT_BUFFER_MIN = 6;
 const NAVIGATION_ANCHOR_VIRTUAL_BUFFER_MIN = 18;
 const PAGED_MOUNT_ROW_BUFFER_BEFORE_MIN = 1;
 const PAGED_MOUNT_ROW_BUFFER_AFTER_MIN = 2;
+const CONTINUOUS_LAYOUT_PENDING_FALLBACK_RADIUS = 30;
 
 export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationOptions) => {
     const {
@@ -373,7 +374,9 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
                     ? range(bounds.start, bounds.end + 1)
                     : [];
             }
-            return range(1, numPages.value + 1);
+            const start = Math.max(1, currentPage.value - CONTINUOUS_LAYOUT_PENDING_FALLBACK_RADIUS);
+            const end = Math.min(numPages.value, currentPage.value + CONTINUOUS_LAYOUT_PENDING_FALLBACK_RADIUS);
+            return range(start, end + 1);
         }
 
         if (!continuousScroll.value) {

@@ -7,16 +7,10 @@ import type {
 } from '@app/types/pdf';
 import {
     buildBrowserPrintFrameMarkup,
-    buildPrintablePdfData,
     normalizePrintPageNumbers,
-    renderPdfPagesForBrowserPrint,
-    shouldPrintPageMetricsDirectly,
-    waitForPrintPaint,
-} from '@app/utils/pdfPrint';
-import type {
-    IBrowserPrintDocument,
-    TPrintOrientation,
-} from '@app/utils/pdfPrint';
+    type IBrowserPrintDocument,
+    type TPrintOrientation,
+} from '@app/utils/pdfPrintShared';
 
 const BROWSER_PRINT_CLEANUP_TIMEOUT_MS = 60000;
 const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
@@ -180,6 +174,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             orientation: 'auto',
         } satisfies IPrintDialogSubmitPayload;
 
+        const { shouldPrintPageMetricsDirectly } = await import('@app/utils/pdfPrint');
         shouldPrintPageMetricsDirectly(
             await deps.getQuickPrintPageMetrics() ?? [],
             defaultPayload,
@@ -315,6 +310,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     async function waitForPrintFrameReady(targetWindow: Window, signal?: AbortSignal) {
         throwIfPrintAborted(signal);
         try {
+            const { waitForPrintPaint } = await import('@app/utils/pdfPrint');
             await waitForPrintPaint(targetWindow);
         } catch (error) {
             if (!isCrossOriginFrameAccessError(error)) {
@@ -395,11 +391,14 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
 
     async function printPdfInHiddenFrame(printablePdf: Blob | Uint8Array, signal?: AbortSignal) {
         await printRenderedContentInHiddenFrame(
-            (targetDocument, renderSignal) => renderPdfPagesForBrowserPrint(
-                targetDocument,
-                printablePdf,
-                createPrintSignalOptions(renderSignal),
-            ),
+            async (targetDocument, renderSignal) => {
+                const { renderPdfPagesForBrowserPrint } = await import('@app/utils/pdfPrint');
+                await renderPdfPagesForBrowserPrint(
+                    targetDocument,
+                    printablePdf,
+                    createPrintSignalOptions(renderSignal),
+                );
+            },
             signal,
         );
     }
@@ -541,6 +540,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 throw new Error('Missing printable PDF source data');
             }
 
+            const { buildPrintablePdfData } = await import('@app/utils/pdfPrint');
             const printablePdfData = await buildPrintablePdfData(sourceData, payload);
             throwIfPrintAborted(signal);
             if (!printablePdfData) {

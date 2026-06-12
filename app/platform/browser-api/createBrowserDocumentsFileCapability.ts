@@ -20,6 +20,7 @@ import {
     ensurePdfExtension,
     isPdfFileName,
 } from '@app/platform/browser-api/browserFileName';
+import type { IBrowserBatchOpenProgressOptions } from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import {
     analyzeBrowserPdfConformance,
     validateBrowserPdfData,
@@ -33,7 +34,6 @@ import {
     writeBytesToHandle,
     writeDocumentRefToHandle,
 } from '@app/platform/browser-api/browserFilePickerAdapter';
-import { createCombinedPdfFromPaths } from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import {
     createBrowserWorkingCopyFromBytes,
     decryptBrowserWorkingCopy,
@@ -44,9 +44,15 @@ import {
     saveWorkingBytesToSource,
 } from '@app/platform/browser-api/browserSaveTargets';
 import { writeRecentFilesToStorage } from '@app/platform/browser/browserRecentFilesStore';
-import { stripPdfEncryption } from '@app/utils/stripPdfEncryption';
+import { stripBrowserPdfEncryption } from '@app/platform/browser-api/stripBrowserPdfEncryption';
 
-export { createCombinedPdfFromPaths };
+export async function createBrowserCombinedPdfFromPaths(
+    paths: string[],
+    progressOptions?: IBrowserBatchOpenProgressOptions,
+) {
+    const module = await import('@app/platform/browser-api/createCombinedPdfFromPaths');
+    return module.createCombinedPdfFromPaths(paths, progressOptions);
+}
 
 interface ICreateBrowserDocumentsFileCapabilityOptions {
     clearSearchCaches: (pdfPath?: string) => void;
@@ -440,7 +446,7 @@ export function createBrowserDocumentsFileCapability(
         },
         async createWorkingCopyFromData(fileName, data, originalPath) {
             const decryptedData = isPdfFileName(fileName)
-                ? new Uint8Array(await stripPdfEncryption(data))
+                ? new Uint8Array(await stripBrowserPdfEncryption(data))
                 : data;
 
             return createBrowserWorkingCopyFromBytes({

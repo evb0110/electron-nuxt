@@ -311,6 +311,31 @@ describe('window runtime readiness', () => {
         await expect(createPromise).resolves.toBe(window);
     });
 
+    it('can show the real shell on first load without an about:blank placeholder', async () => {
+        vi.useFakeTimers();
+        try {
+            mocks.config.automation.hideWindow = false;
+            const { createAppWindow } = await import('@electron/window');
+
+            const createdWindow = await createAppWindow({ showStartupPlaceholder: false });
+            const window = mocks.BrowserWindow.windows.at(-1);
+
+            expect(createdWindow).toBe(window);
+            expect(window).toBeDefined();
+            expect(mocks.loadURL).not.toHaveBeenCalledWith('about:blank');
+            expect(mocks.loadURL).toHaveBeenCalledWith(mocks.config.renderer.url);
+            expect(window?.isVisible()).toBe(false);
+
+            window?.emitWebContents('did-finish-load');
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(window?.maximize).toHaveBeenCalledTimes(1);
+            expect(window?.isVisible()).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('does not clear the dev renderer cache by default', async () => {
         mocks.config.isDev = true;
         const { createAppWindow } = await import('@electron/window');

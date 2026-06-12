@@ -39,6 +39,8 @@ await mkdir('dist-electron', { recursive: true });
 
 await Promise.all(builds.map(build => esbuild.build({
     bundle: true,
+    minify: true,
+    keepNames: true,
     platform: 'node',
     ...build,
 })));

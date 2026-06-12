@@ -74,7 +74,7 @@
     "diag:pdf-skeleton-navigation": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts",
     "diag:pdf-tabs": "pnpm exec tsx scripts/diagnostics/pdfTabPressure.ts",
     "diag:arnold-pdf-open": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/runArnoldPdfOpenDiagnostics.ts",
-    "diag:pdf-tabs:ci": "sh -c 'pnpm electron:run stop --session=pdf-tabs-ci >/dev/null 2>&1 || true; pnpm run build:electron && pnpm electron:run start --session=pdf-tabs-ci && pnpm diag:pdf-tabs --session pdf-tabs-ci --tabs 4 --cycles 3 --gc --sample-heap --max-inactive-canvases 0 --max-inactive-rendered-pages 0 --max-inactive-djvu-images 0 --max-inactive-canvas-pixels 0; status=$?; pnpm electron:run stop --session=pdf-tabs-ci >/dev/null 2>&1 || true; exit $status'",
+    "diag:pdf-tabs:ci": "sh -c 'pnpm electron:run stop --session=pdf-tabs-ci >/dev/null 2>&1 || true; pnpm run build:electron && pnpm electron:run startd --session=pdf-tabs-ci && pnpm diag:pdf-tabs --session pdf-tabs-ci --tabs 4 --cycles 3 --gc --sample-heap --max-inactive-canvases 0 --max-inactive-rendered-pages 0 --max-inactive-djvu-images 0 --max-inactive-canvas-pixels 0; status=$?; pnpm electron:run stop --session=pdf-tabs-ci >/dev/null 2>&1 || true; exit $status'",
     "dist": "pnpm run build:desktop && electron-builder",
     "dist:mac": "pnpm run build:desktop && electron-builder --mac",
     "dist:win": "pnpm run build:desktop && electron-builder --win",

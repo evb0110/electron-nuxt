@@ -3,8 +3,7 @@ import type {
     PDFDocumentProxy,
 } from 'pdfjs-dist';
 import { savePdfDocumentWithCommittedEditors } from '@app/modules/pdf-viewer/engine/pdf-save-document/savePdfDocumentWithCommittedEditors';
-import { renderPdfDocumentPagesForBrowserPrint } from '@app/utils/pdfPrint';
-import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
+import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 
 interface IUsePdfViewerSavePrintControllerOptions {
     getPdfDocument: () => PDFDocumentProxy | null;
@@ -30,6 +29,7 @@ export function usePdfViewerSavePrintController(options: IUsePdfViewerSavePrintC
             throw new Error('Missing loaded PDF document');
         }
 
+        const { renderPdfDocumentPagesForBrowserPrint } = await import('@app/utils/pdfPrint');
         await renderPdfDocumentPagesForBrowserPrint(
             targetDocument,
             pdfDocument,

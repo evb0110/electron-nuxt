@@ -59,6 +59,7 @@ let createMainWindowPromise: Promise<BrowserWindow> | null = null;
 
 interface ICreateAppWindowOptions {
     setAsMain?: boolean;
+    showStartupPlaceholder?: boolean;
     waitForInitialRendererReady?: boolean;
 }
 const windowSecurity = createWindowSecurity({
@@ -316,7 +317,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     registerAppWindow(window, {...(options.setAsMain === undefined ? {} : { setAsMain: options.setAsMain })});
 
     const shouldWaitForInitialRendererReady = options.waitForInitialRendererReady ?? false;
-    const shouldShowStartupPlaceholder = !shouldWaitForInitialRendererReady;
+    const shouldShowStartupPlaceholder = options.showStartupPlaceholder ?? !shouldWaitForInitialRendererReady;
     windowSecurity.hardenWindowWebContents(window);
     attachRendererDiagnostics(window);
     attachShowLifecycle(window, {
@@ -378,7 +379,10 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     return window;
 }
 
-export async function createWindow(options: { waitForInitialRendererReady?: boolean; } = {}) {
+export async function createWindow(options: {
+    showStartupPlaceholder?: boolean;
+    waitForInitialRendererReady?: boolean;
+} = {}) {
     const existingMainWindow = getRegisteredMainWindow();
     if (existingMainWindow) {
         return existingMainWindow;
@@ -393,6 +397,9 @@ export async function createWindow(options: { waitForInitialRendererReady?: bool
         ...(options.waitForInitialRendererReady === undefined
             ? {}
             : { waitForInitialRendererReady: options.waitForInitialRendererReady }),
+        ...(options.showStartupPlaceholder === undefined
+            ? {}
+            : { showStartupPlaceholder: options.showStartupPlaceholder }),
     });
     try {
         return await createMainWindowPromise;

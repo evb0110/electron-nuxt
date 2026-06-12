@@ -50,6 +50,4 @@ export const NOTE_WINDOW = {
     DEFAULT_Z_INDEX: 55,
 };
 
-export const CONCURRENT_RENDERS = 3;
-
 export const THUMBNAIL_WIDTH = 150;

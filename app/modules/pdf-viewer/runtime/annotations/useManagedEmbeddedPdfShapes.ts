@@ -1,7 +1,6 @@
 import type { Ref } from 'vue';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { collectEmbeddedShapeAnnotationIds } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/collectEmbeddedShapeAnnotationIds';
-import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import { refreshDeletedEmbeddedShapePage } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/refreshDeletedEmbeddedShapePage';
 import { rerenderRenderedManagedEmbeddedShapePages } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/rerenderRenderedManagedEmbeddedShapePages';
 import { shouldRefreshManagedShapePage } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/shouldRefreshManagedShapePage';
@@ -242,6 +241,9 @@ export function useManagedEmbeddedPdfShapes({
                 logStaleEmbeddedShapeImport(token, path);
                 return { status: 'stale' };
             }
+            const { importEmbeddedShapeAnnotations } = await import(
+                '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations'
+            );
             const shapes = await importEmbeddedShapeAnnotations(sourceData);
             if (isStaleEmbeddedShapeImport(token, path)) {
                 logStaleEmbeddedShapeImport(token, path);
@@ -476,6 +478,9 @@ export function useManagedEmbeddedPdfShapes({
         const snapshot = shapeComposable.captureShapeStateSnapshot();
 
         try {
+            const { importEmbeddedShapeAnnotations } = await import(
+                '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations'
+            );
             const importedShapes = await importEmbeddedShapeAnnotations(data);
             shapeComposable.primePersistedShapes(importedShapes);
             await waitForNextTick();

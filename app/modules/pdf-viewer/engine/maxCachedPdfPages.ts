@@ -1,1 +1,3 @@
-export const maxCachedPdfPages = 48;
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
+
+export const maxCachedPdfPages = getPerformanceProfile().maxCachedPdfPages;

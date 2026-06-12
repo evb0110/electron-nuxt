@@ -7,7 +7,6 @@ import { chunk } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
 import type { IPageRange } from '@app/types/pdf';
 import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
-import { CONCURRENT_RENDERS } from '@app/constants/pdfLayout';
 import { shouldRenderPageWithPreservedState } from '@app/modules/pdf-viewer/engine/pdf-page-render-preservation/shouldRenderPageWithPreservedState';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
@@ -31,6 +30,7 @@ interface IUsePdfRendererVisibleRenderControllerOptions {
     numPages: Ref<number>;
     isActive: MaybeRefOrGetter<boolean>;
     bufferPages: MaybeRefOrGetter<number>;
+    renderConcurrency: MaybeRefOrGetter<number>;
     effectiveScale: MaybeRefOrGetter<number>;
     renderedPages: Set<number>;
     staleRenderedPages: Set<number>;
@@ -70,6 +70,7 @@ export function usePdfRendererVisibleRenderController(options: IUsePdfRendererVi
         numPages,
         isActive,
         bufferPages,
+        renderConcurrency,
         effectiveScale,
         renderedPages,
         staleRenderedPages,
@@ -224,7 +225,8 @@ export function usePdfRendererVisibleRenderController(options: IUsePdfRendererVi
         shouldContinue: () => boolean,
         renderOptions?: IRenderVisiblePagesOptions,
     ) {
-        for (const batch of chunk(pagesToRenderNow, CONCURRENT_RENDERS)) {
+        const concurrentRenders = Math.max(1, Math.trunc(toValue(renderConcurrency)));
+        for (const batch of chunk(pagesToRenderNow, concurrentRenders)) {
             if (!shouldContinue()) {
                 logPdfRenderTrace('renderer-visible-render-abort-stale-batch', {
                     version,

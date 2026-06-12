@@ -29,7 +29,6 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
 import { collectPagePdfSnapshotEntries } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPagePdfSnapshotEntries';
-import { collectPdfAnnotationNamesByPage } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage';
 import { loadPdfPageAnnotations } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/loadPdfPageAnnotations';
 import { resolveEditorMarkerRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveEditorMarkerRect';
 import { resolveMarkupSubtypeOverrideRegistration } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveMarkupSubtypeOverrideRegistration';
@@ -412,6 +411,9 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             computeStableKey: identity.computeSummaryStableKey,
             resolveKindLabel: resolveAnnotationKindLabel,
         };
+        const { collectPdfAnnotationNamesByPage } = await import(
+            '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage'
+        );
         const annotationNamesByPage = await collectPdfAnnotationNamesByPage(doc).catch((error: unknown) => {
             BrowserLogger.debug(
                 'annotations',

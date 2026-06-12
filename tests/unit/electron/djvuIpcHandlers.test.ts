@@ -212,13 +212,13 @@ describe('registerDjvuHandlers', () => {
             registerDjvuHandlers();
             const handler = getHandler('djvu:renderPagePreview');
 
-            await expect(handler(event, realPath, 1)).resolves.toEqual({
+            await expect(handler(event, realPath, 1, {subsample: 3})).resolves.toEqual({
                 bytes: new Uint8Array([1]),
                 width: 100,
                 height: 200,
             });
 
-            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledWith(canonicalRealPath, 1);
+            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledWith(canonicalRealPath, 1, {subsample: 3});
             expect(mocks.getDjvuPageCount).not.toHaveBeenCalled();
         } finally {
             rmSync(tempRoot, {

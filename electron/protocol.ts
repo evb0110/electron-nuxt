@@ -82,6 +82,7 @@ export function registerAppProtocolScheme() {
             secure: true,
             standard: true,
             supportFetchAPI: true,
+            codeCache: true,
         },
     }]);
 }

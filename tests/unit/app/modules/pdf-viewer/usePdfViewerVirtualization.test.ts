@@ -275,6 +275,34 @@ describe('usePdfViewerVirtualization', () => {
         });
     });
 
+    it('clamps continuous-mode placeholder mounts while layout metrics are unavailable', () => {
+        const virtualization = usePdfViewerVirtualization({
+            bufferPages: computed(() => 2),
+            viewMode: computed(() => 'single'),
+            numPages: ref(2_000),
+            currentPage: ref(1_000),
+            continuousScroll: computed(() => true),
+            basePageWidth: ref(null),
+            basePageHeight: ref(null),
+            pageMetrics: ref([]),
+            pageMetricsVersion: ref(0),
+            effectiveScale: ref(1),
+            scaledMargin: ref(20),
+            visibleRange: ref({
+                start: 1_000,
+                end: 1_000,
+            }),
+            navigationAnchorPage: ref(null),
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref(null),
+        });
+
+        expect(virtualization.pagesToRender.value).toEqual(
+            Array.from({length: 13}, (_, index) => 994 + index),
+        );
+        expect(virtualization.pagesToRender.value.length).toBeLessThan(2_000);
+    });
+
     it('ignores a zoom freeze that would hide the active navigation anchor', () => {
         const navigationAnchorPage = ref(10);
         const zoomVirtualizationFreeze = ref({

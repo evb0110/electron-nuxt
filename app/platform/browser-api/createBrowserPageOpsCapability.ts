@@ -1,5 +1,6 @@
 import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
 import type { IPageGeometry } from '@contracts/shared';
+import type * as BrowserPageOpsCoreModule from '@app/platform/browser-api/browserPageOpsCore';
 import {
     browserDocumentStore,
     getBrowserDocumentFileName,
@@ -19,16 +20,6 @@ import type {
     IBrowserPageOpsWorkerResultMap,
     TBrowserPageOpsWorkerRequestType,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
-import {
-    cropPdfBytes,
-    deletePdfPages,
-    extractPdfPages,
-    getPageGeometryFromPdfBytes,
-    insertPdfPages,
-    removeCropPdfBytes,
-    reorderPdfPages,
-    rotatePdfBytes,
-} from '@app/platform/browser-api/browserPageOpsCore';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 
 interface ISaveBytesResult {
@@ -82,6 +73,15 @@ const BROWSER_PAGE_OP_INSERT_MAX_BYTES = BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_B
 const BROWSER_PAGE_OP_GEOMETRY_MAX_BYTES = 128 * 1024 * 1024;
 const BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES = 64 * 1024 * 1024;
 const BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES = 96 * 1024 * 1024;
+
+type TBrowserPageOpsCoreModule = typeof BrowserPageOpsCoreModule;
+
+let browserPageOpsCorePromise: Promise<TBrowserPageOpsCoreModule> | null = null;
+
+function loadBrowserPageOpsCore() {
+    browserPageOpsCorePromise ??= import('@app/platform/browser-api/browserPageOpsCore');
+    return browserPageOpsCorePromise;
+}
 
 function buildBrowserPageOpLimitError(label: string, maxBytes: number) {
     return buildBrowserByteLimitError(label, maxBytes, 'PDFs');
@@ -266,7 +266,10 @@ export function createBrowserPageOpsCapability(
                         data,
                         pages,
                     }),
-                    runDirect: (data) => deletePdfPages(data, pages),
+                    runDirect: async (data) => {
+                        const { deletePdfPages } = await loadBrowserPageOpsCore();
+                        return deletePdfPages(data, pages);
+                    },
                 });
                 return writePageMutationResult(
                     workingCopyPath,
@@ -300,7 +303,10 @@ export function createBrowserPageOpsCapability(
                     data,
                     pages,
                 }),
-                runDirect: (data) => extractPdfPages(data, pages),
+                runDirect: async (data) => {
+                    const { extractPdfPages } = await loadBrowserPageOpsCore();
+                    return extractPdfPages(data, pages);
+                },
             });
             const outputBytes = result.data;
 
@@ -356,7 +362,10 @@ export function createBrowserPageOpsCapability(
                         data,
                         newOrder,
                     }),
-                    runDirect: (data) => reorderPdfPages(data, newOrder),
+                    runDirect: async (data) => {
+                        const { reorderPdfPages } = await loadBrowserPageOpsCore();
+                        return reorderPdfPages(data, newOrder);
+                    },
                 });
                 return writePageMutationResult(
                     workingCopyPath,
@@ -456,18 +465,24 @@ export function createBrowserPageOpsCapability(
                                 BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
                             );
                         }
-                        result = await runDirectPdfOperation(() => insertPdfPages(
+                        result = await runDirectPdfOperation(async () => {
+                            const { insertPdfPages } = await loadBrowserPageOpsCore();
+                            return insertPdfPages(
+                                destinationData,
+                                insertionData,
+                                afterPage,
+                            );
+                        });
+                    }
+                } else {
+                    result = await runDirectPdfOperation(async () => {
+                        const { insertPdfPages } = await loadBrowserPageOpsCore();
+                        return insertPdfPages(
                             destinationData,
                             insertionData,
                             afterPage,
-                        ));
-                    }
-                } else {
-                    result = await runDirectPdfOperation(() => insertPdfPages(
-                        destinationData,
-                        insertionData,
-                        afterPage,
-                    ));
+                        );
+                    });
                 }
                 return writePageMutationResult(
                     workingCopyPath,
@@ -488,7 +503,10 @@ export function createBrowserPageOpsCapability(
                         pages,
                         angle,
                     }),
-                    runDirect: (data) => rotatePdfBytes(data, pages, angle),
+                    runDirect: async (data) => {
+                        const { rotatePdfBytes } = await loadBrowserPageOpsCore();
+                        return rotatePdfBytes(data, pages, angle);
+                    },
                 });
                 return writePageMutationResult(
                     workingCopyPath,
@@ -509,7 +527,10 @@ export function createBrowserPageOpsCapability(
                         pages,
                         margins,
                     }),
-                    runDirect: (data) => cropPdfBytes(data, pages, margins),
+                    runDirect: async (data) => {
+                        const { cropPdfBytes } = await loadBrowserPageOpsCore();
+                        return cropPdfBytes(data, pages, margins);
+                    },
                 });
                 return writePageMutationResult(
                     workingCopyPath,
@@ -529,7 +550,10 @@ export function createBrowserPageOpsCapability(
                         data,
                         pages,
                     }),
-                    runDirect: (data) => removeCropPdfBytes(data, pages),
+                    runDirect: async (data) => {
+                        const { removeCropPdfBytes } = await loadBrowserPageOpsCore();
+                        return removeCropPdfBytes(data, pages);
+                    },
                 });
                 return writePageMutationResult(
                     workingCopyPath,
@@ -548,7 +572,10 @@ export function createBrowserPageOpsCapability(
                     data,
                     pageNumber,
                 }),
-                runDirect: (data) => getPageGeometryFromPdfBytes(data, pageNumber),
+                runDirect: async (data) => {
+                    const { getPageGeometryFromPdfBytes } = await loadBrowserPageOpsCore();
+                    return getPageGeometryFromPdfBytes(data, pageNumber);
+                },
             });
         },
     };

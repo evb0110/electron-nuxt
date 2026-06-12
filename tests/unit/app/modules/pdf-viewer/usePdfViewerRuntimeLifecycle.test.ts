@@ -118,6 +118,8 @@ function mountCore(options?: {
     isActive?: boolean;
     src?: TPdfSource | null;
     hasDocument?: boolean;
+    pdfDocument?: unknown;
+    isAnySaving?: boolean;
     currentPage?: number;
     numPages?: number;
     visibleRange?: {
@@ -136,7 +138,11 @@ function mountCore(options?: {
         path: 'fixture.pdf',
         size: 100,
     });
-    const pdfDocument = shallowRef(options?.hasDocument ? {} : null);
+    const pdfDocument = shallowRef<unknown | null>(options?.hasDocument ? {} : null);
+    if (options?.pdfDocument) {
+        pdfDocument.value = options.pdfDocument;
+    }
+    const isAnySaving = ref(options?.isAnySaving ?? false);
     const visibleRange = ref(options?.visibleRange ?? {
         start: 2,
         end: 3,
@@ -166,6 +172,7 @@ function mountCore(options?: {
         usePdfViewerRuntimeLifecycle({
             viewerContainer,
             src: computed(() => src.value),
+            isAnySaving: computed(() => isAnySaving.value),
             zoom: computed(() => 1),
             zoomMode: computed(() => 'fit-width'),
             fitMode: computed(() => 'width'),
@@ -242,6 +249,7 @@ function mountCore(options?: {
         cleanupDocument,
         highlight,
         host,
+        isAnySaving,
         isActive,
         isPageRendered,
         pdfDocument,
@@ -317,6 +325,45 @@ describe('usePdfViewerRuntimeLifecycle inactive lifecycle', () => {
         expect(lifecycleMocks.resetZoomRerenderQueueState).toHaveBeenCalledWith('inactive-tab');
         expect(lifecycleMocks.cleanupResizeLifecycle).toHaveBeenCalledTimes(1);
         expect(harness.highlight.clearSelectionCache).toHaveBeenCalledTimes(1);
+
+        harness.app.unmount();
+    });
+
+    it('cleans inactive PDF document caches after rendered pages are released', async () => {
+        const cleanupPdfCaches = vi.fn(async () => undefined);
+        const harness = mountCore({
+            isActive: true,
+            hasDocument: true,
+            pdfDocument: { cleanup: cleanupPdfCaches },
+        });
+        vi.clearAllMocks();
+
+        harness.isActive.value = false;
+        await nextTick();
+        await Promise.resolve();
+
+        expect(lifecycleMocks.cleanupRenderedPages).toHaveBeenCalledTimes(1);
+        expect(cleanupPdfCaches).toHaveBeenCalledTimes(1);
+
+        harness.app.unmount();
+    });
+
+    it('skips inactive PDF document cache cleanup while saving', async () => {
+        const cleanupPdfCaches = vi.fn(async () => undefined);
+        const harness = mountCore({
+            isActive: true,
+            hasDocument: true,
+            pdfDocument: { cleanup: cleanupPdfCaches },
+            isAnySaving: true,
+        });
+        vi.clearAllMocks();
+
+        harness.isActive.value = false;
+        await nextTick();
+        await Promise.resolve();
+
+        expect(lifecycleMocks.cleanupRenderedPages).toHaveBeenCalledTimes(1);
+        expect(cleanupPdfCaches).not.toHaveBeenCalled();
 
         harness.app.unmount();
     });

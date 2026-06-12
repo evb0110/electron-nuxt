@@ -9,6 +9,7 @@ import type {
     TZoomMode,
 } from '@app/types/pdf';
 import type { IPdfViewerProps } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
 
 const emptyAnnotationMatches = new Map<number, IPdfPageMatches>();
 
@@ -21,6 +22,7 @@ function isPropProvided(...names: string[]) {
 }
 
 export function usePdfViewerPropModel(props: Readonly<IPdfViewerProps>) {
+    const performanceProfile = getPerformanceProfile();
     const fitMode = computed<TFitMode>(() => props.fitMode ?? 'width');
     const hasShowAnnotationsProp = isPropProvided('showAnnotations', 'show-annotations');
 
@@ -28,7 +30,7 @@ export function usePdfViewerPropModel(props: Readonly<IPdfViewerProps>) {
         src: computed(() => props.src),
         sourcePdfData: computed(() => props.sourcePdfData ?? null),
         suppressLoadingOverlay: computed(() => props.suppressLoadingOverlay === true),
-        bufferPages: computed(() => props.bufferPages ?? 2),
+        bufferPages: computed(() => props.bufferPages ?? performanceProfile.pdfBufferPages),
         isAnySaving: computed(() => props.isAnySaving ?? false),
         zoom: computed(() => props.zoom ?? 1),
         dragMode: computed(() => props.dragMode ?? false),
