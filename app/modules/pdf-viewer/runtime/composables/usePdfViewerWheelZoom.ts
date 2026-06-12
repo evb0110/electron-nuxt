@@ -53,7 +53,7 @@ interface IUsePdfViewerWheelZoomOptions {
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
     singlePageScroll: {
         suppressSnapFor: (ms: number) => void;
-        handleWheel: (event: WheelEvent) => void;
+        handleWheel: (event: WheelEvent) => boolean;
         handleScroll: () => void;
         cancelProgrammaticNavigation: () => void;
     };
@@ -650,18 +650,28 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             return;
         }
 
-        markUserViewportInteraction?.();
+        function markWheelViewportInteraction() {
+            if (markUserViewportInteraction) {
+                markUserViewportInteraction();
+                return;
+            }
+            singlePageScroll.cancelProgrammaticNavigation();
+        }
 
         if (
             routeModifierWheelZoom(event)
             || suppressWheelDuringActiveZoom(event, context)
         ) {
+            markWheelViewportInteraction();
             return;
         }
 
         cancelPendingSearchScroll();
-        singlePageScroll.cancelProgrammaticNavigation();
-        singlePageScroll.handleWheel(event);
+        if (singlePageScroll.handleWheel(event)) {
+            return;
+        }
+
+        markWheelViewportInteraction();
     }
 
     function handleViewerScroll(event: Event) {

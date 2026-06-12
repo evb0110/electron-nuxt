@@ -1341,6 +1341,59 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         expect(emitCurrentPage).toHaveBeenCalledWith(2);
     });
 
+    it('advances wheel paging from the current page after stale visibility lags behind', () => {
+        vi.useFakeTimers();
+        try {
+            const staleVisiblePage = vi.fn(() => 3);
+            const {
+                currentPage,
+                emitCurrentPage,
+                singlePageScroll,
+            } = createSinglePageScrollHarness({
+                pageGeometries: [
+                    {
+                        offsetTop: 20,
+                        offsetHeight: 60,
+                    },
+                    {
+                        offsetTop: 100,
+                        offsetHeight: 60,
+                    },
+                    {
+                        offsetTop: 180,
+                        offsetHeight: 60,
+                    },
+                    {
+                        offsetTop: 260,
+                        offsetHeight: 60,
+                    },
+                    {
+                        offsetTop: 340,
+                        offsetHeight: 60,
+                    },
+                ],
+                clientHeight: 100,
+                scrollHeight: 420,
+                getMostVisiblePage: staleVisiblePage,
+            });
+
+            singlePageScroll.scrollToPage(4);
+            expect(currentPage.value).toBe(4);
+
+            vi.advanceTimersByTime(601);
+
+            const wheelEvent = createWheelEvent(120, 700);
+            expect(singlePageScroll.handleWheel(wheelEvent)).toBe(true);
+
+            expect(wheelEvent.preventDefault).toHaveBeenCalled();
+            expect(currentPage.value).toBe(5);
+            expect(emitCurrentPage).toHaveBeenLastCalledWith(5);
+            expect(staleVisiblePage).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('scrollToPage in single-page mode snaps fit-height pages to top (no "1.5 pages" bleed)', () => {
         // Fit-height geometry: page (60 tall) + 20-margin gutters within a
         // 100-tall viewport. The pre-fix 'center' anchor would set
