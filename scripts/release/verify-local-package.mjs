@@ -16,6 +16,7 @@ import {
     expectsUpdaterMetadata,
     getLocalReleaseTargets,
     getRequiredArtifactPatterns,
+    parseUpdaterMetadataFileUrls,
     parseUpdaterMetadataPath,
     shouldVerifyPackagedStartup,
 } from './policy.mjs';
@@ -108,14 +109,17 @@ function validateUpdaterMetadata(target, env = process.env) {
     }
 
     for (const ymlPath of ymlFiles) {
-        const relPath = parseUpdaterMetadataPath(ymlPath, readFileSync(ymlPath, 'utf8'));
-        if (!relPath) {
-            throw new Error(`Missing path entry in ${ymlPath}`);
-        }
+        const metadataText = readFileSync(ymlPath, 'utf8');
+        const referencedArtifacts = new Set([
+            parseUpdaterMetadataPath(ymlPath, metadataText),
+            ...parseUpdaterMetadataFileUrls(ymlPath, metadataText),
+        ]);
 
-        const artifactPath = join(distDir, relPath);
-        if (!existsSync(artifactPath)) {
-            throw new Error(`Updater metadata mismatch in ${ymlPath} -> ${relPath} not found`);
+        for (const relPath of referencedArtifacts) {
+            const artifactPath = join(distDir, relPath);
+            if (!existsSync(artifactPath)) {
+                throw new Error(`Updater metadata mismatch in ${ymlPath} -> ${relPath} not found`);
+            }
         }
     }
 }
@@ -135,6 +139,7 @@ function verifyLocalPackageArtifacts(target) {
             '--verbose=2',
             appDir,
         ], { stdio: 'inherit' });
+        run('node', [ 'scripts/release/assert-packaged-app-contents.mjs' ], { stdio: 'inherit' });
         process.stdout.write(
             `Cross-arch local verification passed for ${target.platform}-${target.arch} packaging/signature path.\n`,
         );
@@ -146,6 +151,7 @@ function verifyLocalPackageArtifacts(target) {
         target.platform,
         target.arch,
     ], {stdio: 'inherit'});
+    run('node', [ 'scripts/release/assert-packaged-app-contents.mjs' ], { stdio: 'inherit' });
 
     if (shouldVerifyPackagedStartup(target)) {
         run('bash', [

@@ -107,7 +107,8 @@ describe('macOS native tool workflow', () => {
         const smokeFunction = extractShellFunction(verifier, 'run_macos_packaged_tool_smoke');
 
         expect(verifier).toContain('source "$(dirname "$0")/release/platform-arch.sh"');
-        expect(smokeFunction).toContain('[ "$exit_code" -ne 137 ] || [ "$attempt" -ge 2 ]');
+        expect(smokeFunction).toContain('local max_attempts=8');
+        expect(smokeFunction).toContain('[ "$exit_code" -ne 137 ] || [ "$attempt" -ge "$max_attempts" ]');
         expect(smokeFunction).toContain('codesign --verify --strict --verbose=2 "$tool_path"');
         expect(smokeFunction).toContain('attempt=$((attempt + 1))');
     });

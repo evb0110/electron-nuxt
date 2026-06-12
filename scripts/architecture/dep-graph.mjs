@@ -88,6 +88,8 @@ const INTERNAL_LIKE_PREFIXES = [
     '~~/',
 ];
 
+const EXTERNAL_PACKAGE_SPECIFIERS = new Set(['@electron/asar']);
+
 function toPosixPath(filePath) {
     return filePath.split(path.sep).join('/');
 }
@@ -206,6 +208,9 @@ function getNuxtSourceRootForFile(sourceFile) {
 }
 
 function isInternalLikeSpecifier(specifier) {
+    if (EXTERNAL_PACKAGE_SPECIFIERS.has(specifier)) {
+        return false;
+    }
     return INTERNAL_LIKE_PREFIXES.some(prefix => specifier.startsWith(prefix));
 }
 

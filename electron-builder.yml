@@ -4,13 +4,19 @@ copyright: Copyright © 2026 Eugene Barsky
 
 # Keep the built Nuxt renderer as static assets. Electron backend behavior lives
 # in main/preload plus typed IPC; packaged apps do not ship or spawn Nitro.
-# Only worker entry files that require direct filesystem paths are unpacked.
+# Main, preload, and all workers are fully esbuild-bundled
+# (scripts/build-electron.mjs), so the package ships no node_modules at all.
+# Worker entry files that require direct filesystem paths are unpacked, together
+# with the pdfjs fallback worker they dynamically import and the package.json
+# that pins dist-electron/*.js to ESM semantics.
 asar: true
 asarUnpack:
+  - dist-electron/package.json
   - dist-electron/djvu-pdfWorker.js
   - dist-electron/image-export-tiff-worker.js
   - dist-electron/ocr-worker.js
   - dist-electron/page-ops-cropWorker.js
+  - dist-electron/pdf.worker.mjs
   - dist-electron/pdfCombineWorker.js
   - dist-electron/pdfConformanceWorker.js
   - dist-electron/search-worker.js
@@ -27,14 +33,18 @@ files:
   - dist-electron/
   - nuxt-output/public/
   - package.json
+  # Runtime needs nothing from node_modules (electron-updater is bundled into
+  # main.cjs); production dependencies exist for the web/Nitro target only.
+  - "!**/node_modules/**"
   - "!nuxt-output/**/*.map"
   - "!dist-electron/**/*.map"
-  - "!**/node_modules/**/*.map"
-  - "!**/node_modules/**/*.d.ts"
-  - "!**/node_modules/**/*.d.mts"
-  - "!**/node_modules/**/*.d.cts"
-  - "!**/node_modules/**/*.md"
-  - "!**/node_modules/**/README*"
+  # Web-only marketing/SEO surface — unreachable from the desktop shell.
+  - "!nuxt-output/public/evb-viewer-seo.png"
+  - "!nuxt-output/public/evb-viewer-preview-cropped.png"
+  - "!nuxt-output/public/evb-viewer-og.png"
+  - "!nuxt-output/public/mobile-reader-proof/**"
+  - "!nuxt-output/public/robots.txt"
+  - "!nuxt-output/public/sitemap.xml"
   - "!.devkit/**/*"
   - "!.devkit"
 

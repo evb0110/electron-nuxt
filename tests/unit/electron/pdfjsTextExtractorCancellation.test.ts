@@ -23,7 +23,10 @@ vi.mock('fs/promises', () => ({
     stat: mocks.stat,
 }));
 
-vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({getDocument: mocks.getDocument}));
+vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+    getDocument: mocks.getDocument,
+    GlobalWorkerOptions: { workerSrc: '' },
+}));
 
 describe('extractTextWithPdfjs cancellation', () => {
     beforeEach(() => {

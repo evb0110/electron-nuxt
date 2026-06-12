@@ -14,6 +14,7 @@ const {
     getLocalReleaseTargets,
     getReleaseAutomationEnv,
     getRequiredArtifactPatterns,
+    parseUpdaterMetadataFileUrls,
     shouldVerifyPackagedStartup,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/policy.mjs')).href);
 const {
@@ -183,6 +184,52 @@ describe('release policy', () => {
 
         expect(() => assertPublishUpdaterMetadataReferences([ 'latest.yml' ], () => 'path: "../EVB Viewer Setup 0.1.0.exe"\n'))
             .toThrow('Unsafe path entry');
+    });
+
+    describe('updater metadata file url validation', () => {
+        const metadataText = [
+            'version: 0.1.0',
+            'files:',
+            '  - url: EVB-Viewer-0.1.0-arm64.zip',
+            '    sha512: abc',
+            '  - url: EVB-Viewer-0.1.0-arm64.dmg',
+            '    sha512: def',
+            'path: EVB-Viewer-0.1.0-arm64.zip',
+        ].join('\n');
+
+        it('parses every files[].url entry', () => {
+            expect(parseUpdaterMetadataFileUrls('latest-mac.yml', metadataText)).toEqual([
+                'EVB-Viewer-0.1.0-arm64.zip',
+                'EVB-Viewer-0.1.0-arm64.dmg',
+            ]);
+        });
+
+        it('rejects metadata whose files[].url is not among the artifacts', () => {
+            const artifacts = [
+                'latest-mac.yml',
+                'EVB-Viewer-0.1.0-arm64.zip',
+            ];
+            expect(() => assertPublishUpdaterMetadataReferences(
+                artifacts,
+                () => metadataText,
+            )).toThrow(/EVB-Viewer-0\.1\.0-arm64\.dmg not found/u);
+        });
+
+        it('accepts metadata whose path and files[].url all exist', () => {
+            const artifacts = [
+                'latest-mac.yml',
+                'EVB-Viewer-0.1.0-arm64.zip',
+                'EVB-Viewer-0.1.0-arm64.dmg',
+            ];
+            expect(assertPublishUpdaterMetadataReferences(
+                artifacts,
+                () => metadataText,
+            )).toBe(true);
+        });
+
+        it('rejects unsafe url entries', () => {
+            expect(() => parseUpdaterMetadataFileUrls('latest-mac.yml', 'files:\n  - url: ../evil.zip\n')).toThrow(/Unsafe path entry/u);
+        });
     });
 
     it('keeps release checks focused on static checks and release-critical tests', () => {

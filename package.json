@@ -164,6 +164,7 @@
     "vue-router": "^5.1.0"
   },
   "devDependencies": {
+    "@electron/asar": "^3.4.1",
     "@iconify-json/circle-flags": "^1.2.10",
     "@iconify-json/ph": "^1.2.2",
     "@nuxt/eslint": "^1.15.2",

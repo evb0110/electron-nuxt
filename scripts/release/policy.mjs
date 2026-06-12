@@ -144,6 +144,18 @@ export function getUpdaterMetadataFileNames(artifactNames) {
     return [...artifactNames].filter(fileName => /^latest.*\.yml$/u.test(fileName));
 }
 
+function assertSafeArtifactReference(metadataFileName, artifactPath) {
+    if (
+        artifactPath.startsWith('/')
+        || /^[A-Za-z]:[\\/]/u.test(artifactPath)
+        || artifactPath.split(/[\\/]/u).some(segment => segment === '' || segment === '.' || segment === '..')
+    ) {
+        throw new Error(`Unsafe path entry in ${metadataFileName}: ${artifactPath}`);
+    }
+
+    return artifactPath;
+}
+
 export function parseUpdaterMetadataPath(metadataFileName, metadataText) {
     const pathLine = metadataText
         .split(/\r?\n/u)
@@ -158,16 +170,21 @@ export function parseUpdaterMetadataPath(metadataFileName, metadataText) {
         throw new Error(`Unsupported path entry in ${metadataFileName}: ${pathLine}`);
     }
 
-    const artifactPath = match[1] ?? match[2] ?? match[3];
-    if (
-        artifactPath.startsWith('/')
-        || /^[A-Za-z]:[\\/]/u.test(artifactPath)
-        || artifactPath.split(/[\\/]/u).some(segment => segment === '' || segment === '.' || segment === '..')
-    ) {
-        throw new Error(`Unsafe path entry in ${metadataFileName}: ${artifactPath}`);
+    return assertSafeArtifactReference(metadataFileName, match[1] ?? match[2] ?? match[3]);
+}
+
+export function parseUpdaterMetadataFileUrls(metadataFileName, metadataText) {
+    const urls = [];
+
+    for (const line of metadataText.split(/\r?\n/u)) {
+        const match = line.match(/^\s*(?:-\s*)?url:\s*(?:"([^"]+)"|'([^']+)'|([^#\s]+))\s*(?:#.*)?$/u);
+        if (!match) {
+            continue;
+        }
+        urls.push(assertSafeArtifactReference(metadataFileName, match[1] ?? match[2] ?? match[3]));
     }
 
-    return artifactPath;
+    return urls;
 }
 
 export function assertPublishUpdaterMetadataReferences(artifactNames, readMetadataText) {
@@ -180,16 +197,19 @@ export function assertPublishUpdaterMetadataReferences(artifactNames, readMetada
     }
 
     for (const metadataFileName of metadataFileNames) {
-        const artifactPath = parseUpdaterMetadataPath(
-            metadataFileName,
-            readMetadataText(metadataFileName),
-        );
+        const metadataText = readMetadataText(metadataFileName);
+        const referencedArtifacts = new Set([
+            parseUpdaterMetadataPath(metadataFileName, metadataText),
+            ...parseUpdaterMetadataFileUrls(metadataFileName, metadataText),
+        ]);
 
-        if (!artifactSet.has(artifactPath)) {
-            throw new Error(
-                `Updater metadata mismatch in ${metadataFileName} -> ${artifactPath} not found. `
-                + `Available artifacts: ${files.sort().join(', ')}`,
-            );
+        for (const artifactPath of referencedArtifacts) {
+            if (!artifactSet.has(artifactPath)) {
+                throw new Error(
+                    `Updater metadata mismatch in ${metadataFileName} -> ${artifactPath} not found. `
+                    + `Available artifacts: ${files.sort().join(', ')}`,
+                );
+            }
         }
     }
 

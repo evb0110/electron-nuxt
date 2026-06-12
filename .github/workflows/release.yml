@@ -145,6 +145,9 @@ jobs:
       - name: Download release artifacts
         uses: actions/download-artifact@v8
         with:
+          # dist-* matches exactly the five main build-matrix artifacts; the
+          # supplemental lanes upload under supplemental-*/legacy-* and attach
+          # in their own follow-up jobs.
           pattern: dist-*
           path: artifacts
           merge-multiple: true
@@ -190,7 +193,7 @@ jobs:
       - name: Download macOS Intel artifacts
         uses: actions/download-artifact@v8
         with:
-          pattern: dist-mac-x64
+          pattern: supplemental-mac-x64
           path: artifacts
           merge-multiple: true
 
@@ -218,7 +221,7 @@ jobs:
       - name: Download Windows 7 legacy artifacts
         uses: actions/download-artifact@v8
         with:
-          pattern: dist-win7-legacy-*
+          pattern: legacy-win7-*
           path: artifacts
           merge-multiple: true
 

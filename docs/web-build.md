@@ -44,8 +44,10 @@
 
 ## Dependency Lockstep
 
-The web build ships Nuxt/Nitro production dependencies, and desktop packaging
-also carries the production dependency set. The direct Vue runtime/compiler
+The web build ships Nuxt/Nitro production dependencies; desktop packaging
+bundles all runtime code into dist-electron via esbuild and ships no
+node_modules (enforced by scripts/release/assert-packaged-app-contents.mjs).
+The direct Vue runtime/compiler
 packages therefore stay exact-pinned to `dependencies.vue`, with
 `@vue/compiler-sfc` pinned through `pnpm.overrides`; the intlify runtime
 packages stay exact-pinned together, and `vue-i18n` must declare a range that

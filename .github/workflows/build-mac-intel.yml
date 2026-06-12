@@ -106,13 +106,17 @@ jobs:
       - name: Verify packaged native tools
         run: bash scripts/verify-packaged-native-tools.sh mac x64
 
+      - name: Verify packaged app contents
+        shell: bash
+        run: node scripts/release/assert-packaged-app-contents.mjs
+
       - name: Verify packaged startup
         run: bash scripts/verify-packaged-startup.sh mac x64
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: dist-mac-x64
+          name: supplemental-mac-x64
           path: |
             release/*.zip
           if-no-files-found: error
