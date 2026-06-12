@@ -38,7 +38,7 @@ const documentsMock = vi.hoisted(() => ({
 }));
 
 vi.mock('@app/composables/useAnalytics', () => ({useAnalytics: () => analyticsMock}));
-vi.mock('@app/composables/pdf/useOcrTextContent', () => ({useOcrTextContent: () => ({clearCache: vi.fn()})}));
+vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent', () => ({useOcrTextContent: () => ({clearCache: vi.fn()})}));
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentsCapability: () => documentsMock,
     shouldRefreshWorkingCopyAfterSaveAs: () => false,

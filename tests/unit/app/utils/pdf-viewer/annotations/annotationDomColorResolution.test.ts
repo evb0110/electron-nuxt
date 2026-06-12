@@ -9,8 +9,8 @@ import {
     vi,
 } from 'vitest';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { resolveAnnotationCommentTextMarkupColor } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor';
-import { resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics';
+import { resolveAnnotationCommentTextMarkupColor } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor';
+import { resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics';
 
 interface IRect {
     height: number;

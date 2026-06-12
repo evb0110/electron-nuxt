@@ -1,4 +1,4 @@
-import type { TPageSnapAnchor } from '@app/utils/pdf-viewer/single-page-wheel/singlePageWheelTypes';
+import type { TPageSnapAnchor } from '@app/utils/document-viewer/single-page-wheel/singlePageWheelTypes';
 
 export type TPdfNavigationSource =
     | 'paged'

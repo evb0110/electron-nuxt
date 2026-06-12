@@ -1,5 +1,5 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { isNoteEligibleComment } from '@app/utils/pdf-viewer/annotations/annotation-rules/isNoteEligibleComment';
+import { isNoteEligibleComment } from '@app/modules/pdf-viewer/public';
 
 const FRESH_NOTE_CREATION_UNDO_WINDOW_MS = 5_000;
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;

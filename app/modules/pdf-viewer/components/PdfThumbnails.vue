@@ -90,9 +90,9 @@ import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
 import { buildThumbnailRenderQueue } from '@app/modules/pdf-viewer/thumbnails/buildThumbnailRenderQueue';
 import { resolveThumbnailRenderConcurrency } from '@app/modules/pdf-viewer/thumbnails/resolveThumbnailRenderConcurrency';
-import { usePageDragDrop } from '@app/composables/pdf/usePageDragDrop';
+import { usePageDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
 import { runGuardedTask } from '@app/utils/asyncGuard';
-import { createHiddenAnnotationOperationsFilter } from '@app/utils/pdf-viewer/pdf-hidden-annotation-operations/createHiddenAnnotationOperationsFilter';
+import { createHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createHiddenAnnotationOperationsFilter';
 import {
     createEditedTextMarkupThumbnailVisualSignature,
     createHiddenAnnotationIdsSignature,

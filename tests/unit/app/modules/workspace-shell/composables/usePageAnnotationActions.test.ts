@@ -23,7 +23,7 @@ import { usePageAnnotationActions } from '@app/modules/workspace-shell/composabl
 
 const { resolveAnnotationCommentTextMarkupColor } = vi.hoisted(() => ({resolveAnnotationCommentTextMarkupColor: vi.fn(() => null as string | null)}));
 
-vi.mock('@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor', () => ({resolveAnnotationCommentTextMarkupColor}));
+vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor', () => ({resolveAnnotationCommentTextMarkupColor}));
 
 function createComment(stableKey: string): IAnnotationCommentSummary {
     return {

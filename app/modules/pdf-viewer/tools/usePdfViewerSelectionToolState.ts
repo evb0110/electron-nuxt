@@ -3,9 +3,9 @@ import type {
     Ref,
 } from 'vue';
 import { clamp } from 'es-toolkit/math';
-import { usePdfDrag } from '@app/composables/pdf/usePdfDrag';
-import { isSelectionInteractionTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isSelectionInteractionTool';
-import { isSelectionMarkupTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isSelectionMarkupTool';
+import { usePdfDrag } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDrag';
+import { isSelectionInteractionTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionInteractionTool';
+import { isSelectionMarkupTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionMarkupTool';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import type {
     IAnnotationSettings,

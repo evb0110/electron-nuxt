@@ -6,17 +6,17 @@ import type {
 } from '@app/types/annotations';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
-import { areTextMarkupCommentsLikelySame } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/areTextMarkupCommentsLikelySame';
-import { annotationCommentsMatch } from '@app/utils/pdf-viewer/annotation-comment-matching/annotationCommentsMatch';
-import { commentMergePriority } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/commentMergePriority';
-import { commentsAreSameLogicalAnnotation } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/commentsAreSameLogicalAnnotation';
-import { computeSummaryStableKey } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/computeSummaryStableKey';
-import { dedupeAnnotationCommentSummaries } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/dedupeAnnotationCommentSummaries';
-import { getSummaryMemoryKeys } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/getSummaryMemoryKeys';
-import { mergeCommentSummaries } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/mergeCommentSummaries';
-import { mergeDuplicateCommentSummary } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/mergeDuplicateCommentSummary';
-import { normalizeSummaryStableKey } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/normalizeSummaryStableKey';
-import { toCanonicalStableKey } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/toCanonicalStableKey';
+import { areTextMarkupCommentsLikelySame } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/areTextMarkupCommentsLikelySame';
+import { annotationCommentsMatch } from '@app/modules/pdf-viewer/engine/annotation-comment-matching/annotationCommentsMatch';
+import { commentMergePriority } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/commentMergePriority';
+import { commentsAreSameLogicalAnnotation } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/commentsAreSameLogicalAnnotation';
+import { computeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/computeSummaryStableKey';
+import { dedupeAnnotationCommentSummaries } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/dedupeAnnotationCommentSummaries';
+import { getSummaryMemoryKeys } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/getSummaryMemoryKeys';
+import { mergeCommentSummaries } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/mergeCommentSummaries';
+import { mergeDuplicateCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/mergeDuplicateCommentSummary';
+import { normalizeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/normalizeSummaryStableKey';
+import { toCanonicalStableKey } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/toCanonicalStableKey';
 import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
 
 interface ISummaryMemoryEntry {

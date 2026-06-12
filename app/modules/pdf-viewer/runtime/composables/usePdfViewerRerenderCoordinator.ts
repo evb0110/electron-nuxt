@@ -16,7 +16,7 @@ import type {
     IResizeAnchorContext,
 } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import type { IBuildResizeAnchorContextOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle';
-import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { shouldPreserveExistingRerenderContent } from '@app/modules/pdf-viewer/runtime/rerender-strategy/shouldPreserveExistingRerenderContent';
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;

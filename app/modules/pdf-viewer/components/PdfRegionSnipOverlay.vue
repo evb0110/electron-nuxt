@@ -35,13 +35,13 @@
 
 <script setup lang="ts">
 import type { CSSProperties } from 'vue';
-import type { ILocalRect } from '@app/utils/pdf-viewer/pdf-region-geometry/pdfRegionGeometryTypes';
+import type { ILocalRect } from '@app/utils/document-viewer/region-geometry/regionGeometryTypes';
 import type {
     IRegionSelectionOverlayBaseProps,
     IRegionSelectionOverlayEmits,
-} from '@app/composables/pdf/usePdfRegionSelectionOverlay';
-import { useEmittedPdfRegionSelectionOverlay } from '@app/composables/pdf/useEmittedPdfRegionSelectionOverlay';
-import { regionRectStyle } from '@app/utils/pdf-viewer/region-selection/regionRectStyle';
+} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSelectionOverlay';
+import { useEmittedPdfRegionSelectionOverlay } from '@app/modules/pdf-viewer/runtime/composables/pdf/useEmittedPdfRegionSelectionOverlay';
+import { regionRectStyle } from '@app/modules/pdf-viewer/engine/region-selection/regionRectStyle';
 
 interface IProps {
     active: IRegionSelectionOverlayBaseProps['active'];

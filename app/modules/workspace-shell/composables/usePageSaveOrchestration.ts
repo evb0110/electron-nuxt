@@ -15,18 +15,20 @@ import type {
     IScrollSnapshot,
 } from '@app/types/pdf';
 import type { TDocumentRef } from '@contracts/documentRef';
-import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
-import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
+import {
+    getEmbeddedMutationBaseData as resolveEmbeddedMutationBaseData,
+    usePdfSerialization,
+    capturePdfReloadSnapshot,
+    createPdfReloadWaiter,
+} from '@app/modules/pdf-viewer/public';
+import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/public';
 import { useFileOperations } from '@app/modules/workspace-shell/composables/useFileOperations';
 import type { IFileOperationsDeps } from '@app/modules/workspace-shell/composables/useFileOperations';
-import type { TDocumentOperationKind } from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
-import { getEmbeddedMutationBaseData as resolveEmbeddedMutationBaseData } from '@app/services/pdf-save/getEmbeddedMutationBaseData';
+import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSearchCapability } from '@app/utils/getSearchCapability';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import { getOcrCapability } from '@app/utils/getOcrCapability';
-import { capturePdfReloadSnapshot } from '@app/utils/pdf-viewer/pdf-reload-waiter/capturePdfReloadSnapshot';
-import { createPdfReloadWaiter } from '@app/utils/pdf-viewer/pdf-reload-waiter/createPdfReloadWaiter';
 import { hasViewerShapeChanges } from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';
 import type { IOcrSearchablePdfResult } from '@app/utils/ocr/ocrTypes';
 

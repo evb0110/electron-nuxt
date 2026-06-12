@@ -4,7 +4,7 @@ import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import { clamp } from 'es-toolkit/math';
 import type { IAnnotationSettings } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
-import { detectEditorSubtype } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/detectEditorSubtype';
+import { detectEditorSubtype } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/detectEditorSubtype';
 import {
     getEditorsOnPage,
     setSelectedEditor,

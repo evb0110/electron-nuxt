@@ -27,6 +27,21 @@ MEMORIES.md
 .playwright-mcp/
 after-*.yml
 .tmp/
+tmp/
+temp/
+.temp/
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*.swp
+*.swo
+*~
+*.log
+.eslintcache
+playwright-report/
+test-results/
 auto-imports.d.ts
 
 # Large/manual regression fixtures live in the repo checkout but are opt-in and

@@ -3,9 +3,9 @@ import type {
     Ref,
 } from 'vue';
 import { clamp } from 'es-toolkit/math';
-import { captureScrollSnapshot } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/captureScrollSnapshot';
-import { restoreScrollFromSnapshot } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/restoreScrollFromSnapshot';
-import { summarizeViewerMetrics } from '@app/utils/pdf-viewer/pdf-viewer-metrics/summarizeViewerMetrics';
+import { captureScrollSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/captureScrollSnapshot';
+import { restoreScrollFromSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/restoreScrollFromSnapshot';
+import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
 import { ZOOM } from '@app/constants/pdfLayout';
 import type {
     TPdfSource,

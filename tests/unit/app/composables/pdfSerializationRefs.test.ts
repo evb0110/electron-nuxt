@@ -2,7 +2,6 @@ import {
     describe,
     expect,
     it,
-    vi,
 } from 'vitest';
 import {
     PDFDocument,
@@ -15,13 +14,11 @@ import type {
     PDFRef,
 } from 'pdf-lib';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { resolveCommentPdfRefInDocument } from '@app/utils/pdf-viewer/pdf-serialization-refs/resolveCommentPdfRefInDocument';
+import { resolveCommentPdfRefInDocument } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/resolveCommentPdfRefInDocument';
 import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 
 interface ILiteralObject { [key: string]: PDFObject | string | number | boolean | null | undefined | ILiteralObject | TLiteralArray; }
 type TLiteralArray = Array<PDFObject | string | number | boolean | null | undefined | ILiteralObject | TLiteralArray>;
-
-vi.mock('@app/utils/pdf-viewer/pdfAnnotationUtils', () => ({ markerRectIoU: () => 0 }));
 
 function createEditorComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {

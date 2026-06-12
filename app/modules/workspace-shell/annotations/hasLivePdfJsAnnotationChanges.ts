@@ -1,4 +1,4 @@
-import { collectLivePdfJsAnnotationChangeIds } from '@app/services/pdf-save/pdfAnnotationStorageChanges';
+import { collectLivePdfJsAnnotationChangeIds } from '@app/modules/pdf-viewer/public';
 import type { IHasAnnotationChangesDeps } from '@app/modules/workspace-shell/annotations/workspaceAnnotationTypes';
 
 export function hasLivePdfJsAnnotationChanges(deps: Omit<IHasAnnotationChangesDeps, 'pdfViewerRef'>) {

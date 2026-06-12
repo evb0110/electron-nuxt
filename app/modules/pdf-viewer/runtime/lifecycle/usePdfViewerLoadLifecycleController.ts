@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import { useViewerLoadSettle } from '@app/composables/pdf/useViewerLoadSettle';
+import { useViewerLoadSettle } from '@app/modules/pdf-viewer/runtime/composables/pdf/useViewerLoadSettle';
 import { usePdfViewerInitialVisualLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerInitialVisualLifecycle';
 import type { usePdfViewerAnnotationRuntime } from '@app/modules/pdf-viewer/runtime/annotations/usePdfViewerAnnotationRuntime';
 

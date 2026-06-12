@@ -412,7 +412,7 @@ import { useWorkspaceStartupReadiness } from '@app/modules/workspace-shell/compo
 import { useWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorkspaceOrchestration';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
-import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/utils/pdf-viewer/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
+import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TTabUpdate } from '@app/types/tabs';
@@ -430,8 +430,14 @@ import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandS
 import type { IRecentFile } from '@contracts/shared';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 
-const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/components/djvu/DjvuConversionOverlay.vue'));
-const DjvuViewer = defineAsyncComponent(() => import('@app/components/djvu/DjvuViewer.vue'));
+const DjvuConversionOverlay = defineAsyncComponent(
+    () => import('@app/modules/djvu-viewer/public')
+        .then(componentModule => componentModule.DjvuConversionOverlay),
+);
+const DjvuViewer = defineAsyncComponent(
+    () => import('@app/modules/djvu-viewer/public')
+        .then(componentModule => componentModule.DjvuViewer),
+);
 
 const {
     fullscreenSupported,

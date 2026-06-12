@@ -8,7 +8,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { clearPdfSelectionForLayerTeardown } from '@app/utils/pdf-viewer/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
+import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 
 function createElement(
     classNames: string[] = [],

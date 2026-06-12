@@ -2,9 +2,12 @@ import type { Ref } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
-import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
-import { usePageContextMenu } from '@app/composables/pdf/usePageContextMenu';
-import { usePdfHistory } from '@app/composables/usePdfHistory';
+import {
+    useOcrTextContent,
+    usePageContextMenu,
+    usePdfHistory,
+    isNoteEligibleComment,
+} from '@app/modules/pdf-viewer/public';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
 import { useWorkspaceDocumentControls } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentControls';
@@ -29,7 +32,6 @@ import { useMetadataSession } from '@app/modules/workspace-shell/composables/use
 import { useDocumentOperationLease } from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
-import { isNoteEligibleComment } from '@app/utils/pdf-viewer/annotations/annotation-rules/isNoteEligibleComment';
 
 interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;

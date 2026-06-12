@@ -7,7 +7,7 @@ import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import { useManagedEmbeddedPdfShapes } from '@app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
-import { isImportedEmbeddedShapeSubtype } from '@app/utils/pdf-viewer/pdf-embedded-shape-annotations/isImportedEmbeddedShapeSubtype';
+import { isImportedEmbeddedShapeSubtype } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/isImportedEmbeddedShapeSubtype';
 import type { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
 import { useAnnotationOrchestrator } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationOrchestrator';
 import {
@@ -17,7 +17,7 @@ import {
 } from '@app/modules/pdf-viewer/annotations/public';
 import { usePdfShapeTool } from '@app/modules/pdf-viewer/tools/public';
 import { usePdfViewerPortalAnnotationHandlers } from '@app/modules/pdf-viewer/runtime/annotations/usePdfViewerPortalAnnotationHandlers';
-import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import type {

@@ -1,10 +1,10 @@
 import type { MaybeRefOrGetter } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
-import { getPageContainer } from '@app/utils/pdf-viewer/pdf-page-buffer-manager/getPageContainer';
-import { formatRenderError } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/formatRenderError';
-import { isRenderingCancelledError } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/isRenderingCancelledError';
-import { isPageRenderTimeoutError } from '@app/utils/pdf-viewer/pdf-page-render-timeout/isPageRenderTimeoutError';
-import type { IPageRenderTimeoutError } from '@app/utils/pdf-viewer/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
+import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
+import { formatRenderError } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/formatRenderError';
+import { isRenderingCancelledError } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/isRenderingCancelledError';
+import { isPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/isPageRenderTimeoutError';
+import type { IPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';

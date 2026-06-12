@@ -8,7 +8,7 @@ import {
     vi,
 } from 'vitest';
 import type { IPdfjsDrawLayer } from '@app/types/pdfjs';
-import { createAnnotationMarkupSubtypeDrawLayer } from '@app/utils/pdf-viewer/annotations/annotation-markup-subtype-draw-layer/createAnnotationMarkupSubtypeDrawLayer';
+import { createAnnotationMarkupSubtypeDrawLayer } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/createAnnotationMarkupSubtypeDrawLayer';
 
 interface ITestRect {
     height: number;

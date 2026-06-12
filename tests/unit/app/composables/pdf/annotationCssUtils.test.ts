@@ -3,9 +3,9 @@ import {
     expect,
     it,
 } from 'vitest';
-import { commentPreviewFromRawText } from '@app/utils/pdf-viewer/annotation-css-utils/commentPreviewFromRawText';
-import { commentPreviewText } from '@app/utils/pdf-viewer/annotation-css-utils/commentPreviewText';
-import { toCssColor } from '@app/utils/pdf-viewer/annotation-css-utils/toCssColor';
+import { commentPreviewFromRawText } from '@app/modules/pdf-viewer/engine/annotation-css-utils/commentPreviewFromRawText';
+import { commentPreviewText } from '@app/modules/pdf-viewer/engine/annotation-css-utils/commentPreviewText';
+import { toCssColor } from '@app/modules/pdf-viewer/engine/annotation-css-utils/toCssColor';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
 function createComment(text: string): IAnnotationCommentSummary {

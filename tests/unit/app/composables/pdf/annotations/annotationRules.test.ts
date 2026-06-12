@@ -4,8 +4,8 @@ import {
     it,
 } from 'vitest';
 import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
-import { isNoteEligible } from '@app/utils/pdf-viewer/annotations/annotation-rules/isNoteEligible';
-import { isSelectionInteractionTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isSelectionInteractionTool';
+import { isNoteEligible } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligible';
+import { isSelectionInteractionTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionInteractionTool';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {

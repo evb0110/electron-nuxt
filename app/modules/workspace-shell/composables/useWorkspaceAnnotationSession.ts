@@ -4,6 +4,7 @@ import {
     useStorage,
 } from '@vueuse/core';
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
+import { collectLivePdfJsAnnotationChangeFingerprint } from '@app/modules/pdf-viewer/public';
 import { useAnnotationContextMenu } from '@app/modules/workspace-shell/composables/useAnnotationContextMenu';
 import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -11,7 +12,6 @@ import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { hasAnnotationChanges as detectAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
 import { hasLivePdfJsAnnotationChanges as detectLivePdfJsAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasLivePdfJsAnnotationChanges';
-import { collectLivePdfJsAnnotationChangeFingerprint } from '@app/services/pdf-save/pdfAnnotationStorageChanges';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 
 interface IWorkspaceAnnotationSessionOptions {

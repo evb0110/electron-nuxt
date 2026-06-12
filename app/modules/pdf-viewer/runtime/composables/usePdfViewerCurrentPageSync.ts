@@ -5,8 +5,8 @@ import {
 } from 'es-toolkit/array';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { getVisiblePageDebugSnapshot } from '@app/utils/pdf-viewer/pdf-scroll-visibility/getVisiblePageDebugSnapshot';
-import { summarizeViewerMetrics } from '@app/utils/pdf-viewer/pdf-viewer-metrics/summarizeViewerMetrics';
+import { getVisiblePageDebugSnapshot } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getVisiblePageDebugSnapshot';
+import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
 import type {
     IScrollSnapshot,
     PDFDocumentProxy,

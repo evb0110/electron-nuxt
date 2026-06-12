@@ -3,8 +3,8 @@ import {
     expect,
     it,
 } from 'vitest';
-import { collectPreservedRenderPageNumbers } from '@app/utils/pdf-viewer/pdf-page-render-preservation/collectPreservedRenderPageNumbers';
-import { shouldRenderPageWithPreservedState } from '@app/utils/pdf-viewer/pdf-page-render-preservation/shouldRenderPageWithPreservedState';
+import { collectPreservedRenderPageNumbers } from '@app/modules/pdf-viewer/engine/pdf-page-render-preservation/collectPreservedRenderPageNumbers';
+import { shouldRenderPageWithPreservedState } from '@app/modules/pdf-viewer/engine/pdf-page-render-preservation/shouldRenderPageWithPreservedState';
 
 describe('collectPreservedRenderPageNumbers', () => {
     it('preserves finalized pages and pages with mounted canvases during rerender handoff', () => {

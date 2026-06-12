@@ -10,15 +10,15 @@ import type {
     TDrawableShapeType,
     TShapeResizeHandle,
 } from '@app/types/annotations';
-import { isShapeTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isShapeTool';
-import { generateManagedShapeStableKey } from '@app/utils/pdf-viewer/pdf-serialization-refs/generateManagedShapeStableKey';
-import { normalizeManagedShapeStableKey } from '@app/utils/pdf-viewer/pdf-serialization-refs/normalizeManagedShapeStableKey';
+import { isShapeTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isShapeTool';
+import { generateManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/generateManagedShapeStableKey';
+import { normalizeManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/normalizeManagedShapeStableKey';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
-import { getPointMinMaxBounds } from '@app/utils/pdf-viewer/pdf-shape-resize/getPointMinMaxBounds';
-import { toShapeRect } from '@app/utils/pdf-viewer/pdf-shape-resize/toShapeRect';
-import { cloneShapePoints } from '@app/utils/pdf-viewer/pdf-shape-strokes/cloneShapePoints';
-import { cloneShapeStrokes } from '@app/utils/pdf-viewer/pdf-shape-strokes/cloneShapeStrokes';
-import { getAllShapePoints } from '@app/utils/pdf-viewer/pdf-shape-strokes/getAllShapePoints';
+import { getPointMinMaxBounds } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/getPointMinMaxBounds';
+import { toShapeRect } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/toShapeRect';
+import { cloneShapePoints } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/cloneShapePoints';
+import { cloneShapeStrokes } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/cloneShapeStrokes';
+import { getAllShapePoints } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getAllShapePoints';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 function generateShapeId() {

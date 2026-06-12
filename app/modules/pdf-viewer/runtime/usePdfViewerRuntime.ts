@@ -1,9 +1,9 @@
 import type { Ref } from 'vue';
-import { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
-import { usePdfScale } from '@app/composables/pdf/usePdfScale';
-import { usePdfScroll } from '@app/composables/pdf/usePdfScroll';
+import { usePdfDocument } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
+import { usePdfScale } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScale';
+import { usePdfScroll } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { usePdfSkeletonInsets } from '@app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets';
-import { useViewportPagePin } from '@app/composables/pdf/useViewportPagePin';
+import { useViewportPagePin } from '@app/modules/pdf-viewer/runtime/composables/pdf/useViewportPagePin';
 import { usePdfViewerReloadTransition } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerReloadTransition';
 import type {
     TFitMode,

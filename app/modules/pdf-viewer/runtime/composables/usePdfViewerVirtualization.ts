@@ -5,12 +5,12 @@ import type {
 import { range } from 'es-toolkit/math';
 import type { IPdfPageMetric } from '@app/types/pdf';
 import type { TPdfViewMode } from '@contracts/shared';
-import { buildPageLayoutMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/buildPageLayoutMetrics';
-import { getLeadingSpacerHeightForPage } from '@app/utils/pdf-viewer/pdf-page-layout/getLeadingSpacerHeightForPage';
-import { getPageRowBounds } from '@app/utils/pdf-viewer/pdf-page-layout/getPageRowBounds';
-import { getPageRowBoundsForViewMode } from '@app/utils/pdf-viewer/pdf-page-layout/getPageRowBoundsForViewMode';
-import { getTrailingSpacerHeightForPage } from '@app/utils/pdf-viewer/pdf-page-layout/getTrailingSpacerHeightForPage';
-import { normalizePageMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/normalizePageMetrics';
+import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
+import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
+import { getPageRowBounds } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBounds';
+import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
+import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
+import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import { expandVirtualWindowForAnchor } from '@app/modules/pdf-viewer/runtime/viewport/expandVirtualWindowForAnchor';
 
 export interface IZoomVirtualizationFreeze {

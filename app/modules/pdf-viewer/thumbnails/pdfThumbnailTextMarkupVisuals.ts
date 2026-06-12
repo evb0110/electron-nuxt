@@ -3,7 +3,7 @@ import type {
     IAnnotationSettings,
 } from '@app/types/annotations';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { drawEditedTextMarkupCanvasVisual } from '@app/utils/pdf-viewer/annotations/annotation-edited-text-markup-canvas/drawEditedTextMarkupCanvasVisual';
+import { drawEditedTextMarkupCanvasVisual } from '@app/modules/pdf-viewer/engine/annotations/annotation-edited-text-markup-canvas/drawEditedTextMarkupCanvasVisual';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 
 export function getEditedTextMarkupThumbnailComments(comments: readonly IAnnotationCommentSummary[]) {

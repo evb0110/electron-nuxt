@@ -15,10 +15,10 @@ import {
 import type { Ref } from 'vue';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import { usePdfSinglePageScroll } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageScroll';
-import { accumulateWheelForPageFlips } from '@app/utils/pdf-viewer/single-page-wheel/accumulateWheelForPageFlips';
-import { resolveWheelPageFlipStepDelta } from '@app/utils/pdf-viewer/single-page-wheel/resolveWheelPageFlipStepDelta';
-import { resolveSnapAnchorForWheelDirection } from '@app/utils/pdf-viewer/single-page-wheel/resolveSnapAnchorForWheelDirection';
-import type { TWheelDirection } from '@app/utils/pdf-viewer/single-page-wheel/singlePageWheelTypes';
+import { accumulateWheelForPageFlips } from '@app/utils/document-viewer/single-page-wheel/accumulateWheelForPageFlips';
+import { resolveWheelPageFlipStepDelta } from '@app/utils/document-viewer/single-page-wheel/resolveWheelPageFlipStepDelta';
+import { resolveSnapAnchorForWheelDirection } from '@app/utils/document-viewer/single-page-wheel/resolveSnapAnchorForWheelDirection';
+import type { TWheelDirection } from '@app/utils/document-viewer/single-page-wheel/singlePageWheelTypes';
 import type { TPdfViewMode } from '@contracts/shared';
 import { cast } from '@tests/helpers/cast';
 

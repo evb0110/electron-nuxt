@@ -2,7 +2,7 @@ import type {
     IAnnotationCommentSummary,
     TAnnotationTool,
 } from '@app/types/annotations';
-import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
+import { normalizeMarkerRect } from '@app/modules/pdf-viewer/public';
 import {
     getAgentNumberInput,
     getAgentNumberArrayInput,

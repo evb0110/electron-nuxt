@@ -181,7 +181,7 @@ import {
 import { resolveAppWindowTitle } from '@app/utils/appWindowTitle';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { syncBrowserWindowTitle } from '@app/platform/browserWindowTabs';
-import AgentAssistantPanel from '@app/components/agent/AgentAssistantPanel.vue';
+import { AgentAssistantPanel } from '@app/modules/agent-panel/public';
 import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
 import DirtyTabCloseDialog from '@app/modules/workspace-shell/components/DirtyTabCloseDialog.vue';

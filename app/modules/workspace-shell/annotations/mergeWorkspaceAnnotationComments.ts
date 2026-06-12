@@ -1,9 +1,11 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { annotationCommentsMatch } from '@app/utils/pdf-viewer/annotation-comment-matching/annotationCommentsMatch';
-import { selectPreferredAnnotationComment } from '@app/utils/pdf-viewer/annotation-comment-matching/selectPreferredAnnotationComment';
-import { isNoteEligibleComment } from '@app/utils/pdf-viewer/annotations/annotation-rules/isNoteEligibleComment';
-import { markerRectCenterDistance } from '@app/utils/pdf-viewer/annotations/annotation-rules/markerRectCenterDistance';
-import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
+import {
+    annotationCommentsMatch,
+    selectPreferredAnnotationComment,
+    isNoteEligibleComment,
+    markerRectCenterDistance,
+    normalizeMarkerRect,
+} from '@app/modules/pdf-viewer/public';
 import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
 
 export interface IWorkspaceOpenAnnotationNote {

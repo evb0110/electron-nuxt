@@ -1,14 +1,14 @@
 import type { Ref } from 'vue';
 import { delay } from 'es-toolkit/promise';
-import { capturePdfRegionAsPngBlob } from '@app/utils/pdf-viewer/pdf-region-capture/capturePdfRegionAsPngBlob';
-import { getRectHeight } from '@app/utils/pdf-viewer/pdf-region-geometry/getRectHeight';
-import { getRectWidth } from '@app/utils/pdf-viewer/pdf-region-geometry/getRectWidth';
-import type { IClientRect } from '@app/utils/pdf-viewer/pdf-region-geometry/pdfRegionGeometryTypes';
-import { toClientRect } from '@app/utils/pdf-viewer/pdf-region-geometry/toClientRect';
 import {
+    capturePdfRegionAsPngBlob,
     findPdfPageContainer,
-    pdfViewerDomSelectors,
+    pdfViewerDomSelectors, 
 } from '@app/modules/pdf-viewer/public';
+import { getRectHeight } from '@app/utils/document-viewer/region-geometry/getRectHeight';
+import { getRectWidth } from '@app/utils/document-viewer/region-geometry/getRectWidth';
+import type { IClientRect } from '@app/utils/document-viewer/region-geometry/regionGeometryTypes';
+import { toClientRect } from '@app/utils/document-viewer/region-geometry/toClientRect';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import {
     getAgentNumberInput,

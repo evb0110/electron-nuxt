@@ -8,7 +8,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { findAnnotationSummaryFromPoint } from '@app/utils/pdf-viewer/annotation-comment-crud-helpers/findAnnotationSummaryFromPoint';
+import { findAnnotationSummaryFromPoint } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findAnnotationSummaryFromPoint';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
 interface IRect {

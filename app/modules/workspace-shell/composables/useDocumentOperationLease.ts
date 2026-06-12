@@ -2,25 +2,12 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-
-export type TDocumentOperationKind =
-    | 'save'
-    | 'save-as'
-    | 'repair-save'
-    | 'page-operation'
-    | 'split-capture';
+import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 
 export interface IDocumentOperationLease {
     activeKind: Ref<TDocumentOperationKind | null>;
     isBusy: ComputedRef<boolean>;
     runExclusive: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
-}
-
-export function runWithoutDocumentOperationLease<T>(
-    _kind: TDocumentOperationKind,
-    operation: () => Promise<T>,
-) {
-    return operation();
 }
 
 export function useDocumentOperationLease(): IDocumentOperationLease {

@@ -99,7 +99,7 @@ import type {
     TBookmarkDisplayMode,
 } from '@app/types/pdfOutline';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
-import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {
     buildResolvedOutline,
@@ -107,12 +107,12 @@ import {
     parseOutlineItems,
     resolveActiveBookmarkForPage,
 } from '@app/utils/pdfOutlineHelpers';
-import { usePdfOutlineSelection } from '@app/composables/pdf/usePdfOutlineSelection';
+import { usePdfOutlineSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineSelection';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { usePdfOutlineDragDrop } from '@app/composables/pdf/usePdfOutlineDragDrop';
-import { usePdfOutlineEditing } from '@app/composables/pdf/usePdfOutlineEditing';
-import { usePdfOutlineContextMenu } from '@app/composables/pdf/usePdfOutlineContextMenu';
-import { pdfOutlineTreeKey } from '@app/utils/pdf-viewer/pdf-outline-tree-context/pdfOutlineTreeKey';
+import { usePdfOutlineDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineDragDrop';
+import { usePdfOutlineEditing } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineEditing';
+import { usePdfOutlineContextMenu } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineContextMenu';
+import { pdfOutlineTreeKey } from '@app/modules/pdf-viewer/engine/pdf-outline-tree-context/pdfOutlineTreeKey';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import PdfOutlineContextMenu from '@app/modules/pdf-viewer/components/PdfOutlineContextMenu.vue';
 import PdfOutlineItem from '@app/modules/pdf-viewer/components/PdfOutlineItem.vue';

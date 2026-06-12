@@ -9,16 +9,16 @@ import {
     vi,
 } from 'vitest';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { applyAnnotationCommentTextMarkupColor } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor';
-import { applyAnnotationCommentTextMarkupVisualOverlay } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupVisualOverlay';
-import { drawEditedTextMarkupCanvasVisual } from '@app/utils/pdf-viewer/annotations/annotation-edited-text-markup-canvas/drawEditedTextMarkupCanvasVisual';
-import { removeAnnotationCommentDom } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/removeAnnotationCommentDom';
-import { resolveAnnotationCommentTextMarkupColor } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor';
-import { resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics';
-import { resolveCommentWithRenderedTextMarkupColorAtPoint } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveCommentWithRenderedTextMarkupColorAtPoint';
-import { refreshHighlightCompositeOverlay } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay';
+import { applyAnnotationCommentTextMarkupColor } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor';
+import { applyAnnotationCommentTextMarkupVisualOverlay } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupVisualOverlay';
+import { drawEditedTextMarkupCanvasVisual } from '@app/modules/pdf-viewer/engine/annotations/annotation-edited-text-markup-canvas/drawEditedTextMarkupCanvasVisual';
+import { removeAnnotationCommentDom } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/removeAnnotationCommentDom';
+import { resolveAnnotationCommentTextMarkupColor } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor';
+import { resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics';
+import { resolveCommentWithRenderedTextMarkupColorAtPoint } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveCommentWithRenderedTextMarkupColorAtPoint';
+import { refreshHighlightCompositeOverlay } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay';
 
-vi.mock('@app/utils/pdf-viewer/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay', () => ({ refreshHighlightCompositeOverlay: vi.fn() }));
+vi.mock('@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay', () => ({ refreshHighlightCompositeOverlay: vi.fn() }));
 
 interface ITestRect {
     left: number;

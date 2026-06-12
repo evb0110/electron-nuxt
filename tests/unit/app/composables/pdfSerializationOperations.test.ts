@@ -18,13 +18,13 @@ import type {
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import { serializePdfEdits } from '@app/utils/pdf-viewer/pdf-serialization-operations/serializePdfEdits';
-import { updateEmbeddedAnnotationText } from '@app/utils/pdf-viewer/pdf-serialization-operations/updateEmbeddedAnnotationText';
-import type { IPdfSerializationSavePayload } from '@app/utils/pdf-viewer/pdf-serialization-operations/pdfSerializationSavePayload';
-import { importEmbeddedShapeAnnotations } from '@app/utils/pdf-viewer/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
-import { readManagedShapeStableKey } from '@app/utils/pdf-viewer/pdf-serialization-refs/readManagedShapeStableKey';
-import { writeManagedShapeStableKey } from '@app/utils/pdf-viewer/pdf-serialization-refs/writeManagedShapeStableKey';
-import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
+import { serializePdfEdits } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/serializePdfEdits';
+import { updateEmbeddedAnnotationText } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/updateEmbeddedAnnotationText';
+import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/pdfSerializationSavePayload';
+import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
+import { readManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/readManagedShapeStableKey';
+import { writeManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/writeManagedShapeStableKey';
+import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import {
     getPdfDictContents,
     getPdfStringValue,

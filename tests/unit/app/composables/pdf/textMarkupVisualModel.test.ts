@@ -3,9 +3,9 @@ import {
     expect,
     it,
 } from 'vitest';
-import { createTextMarkupDrawLayerVisualPlan } from '@app/utils/pdf-viewer/text-markup-visual-model/createTextMarkupDrawLayerVisualPlan';
-import { createTextMarkupLiveVisualPlan } from '@app/utils/pdf-viewer/text-markup-visual-model/createTextMarkupLiveVisualPlan';
-import { pdfTextMarkupNativeAppearance } from '@app/utils/pdf-viewer/text-markup-visual-model/pdfTextMarkupNativeAppearance';
+import { createTextMarkupDrawLayerVisualPlan } from '@app/modules/pdf-viewer/engine/text-markup-visual-model/createTextMarkupDrawLayerVisualPlan';
+import { createTextMarkupLiveVisualPlan } from '@app/modules/pdf-viewer/engine/text-markup-visual-model/createTextMarkupLiveVisualPlan';
+import { pdfTextMarkupNativeAppearance } from '@app/modules/pdf-viewer/engine/text-markup-visual-model/pdfTextMarkupNativeAppearance';
 
 describe('textMarkupVisualModel', () => {
     it('derives live underline and strikeout geometry from the native PDF.js contract', () => {

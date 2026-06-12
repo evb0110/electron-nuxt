@@ -5,8 +5,8 @@ import {
     vi,
 } from 'vitest';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { resolveCommentForDelete } from '@app/utils/pdf-viewer/annotations/annotation-delete-resolver/resolveCommentForDelete';
-import { resolveStablePdfDeleteFallback } from '@app/utils/pdf-viewer/annotations/annotation-delete-resolver/resolveStablePdfDeleteFallback';
+import { resolveCommentForDelete } from '@app/modules/pdf-viewer/engine/annotations/annotation-delete-resolver/resolveCommentForDelete';
+import { resolveStablePdfDeleteFallback } from '@app/modules/pdf-viewer/engine/annotations/annotation-delete-resolver/resolveStablePdfDeleteFallback';
 
 const identity = {
     resolveCommentFromCache: () => null,

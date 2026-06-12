@@ -8,9 +8,9 @@ import type {
     IAnnotationEditorState,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import { isAuthoringAnnotationTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isAuthoringAnnotationTool';
+import { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/public';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 interface IWorkspaceViewStateDeps {

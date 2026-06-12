@@ -11,18 +11,18 @@ import {
 } from 'pdf-lib';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
-import { buildPdfAnnotationCommentSummary } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/buildPdfAnnotationCommentSummary';
-import { buildPopupIndex } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/buildPopupIndex';
-import { collectPagePdfSnapshotEntries } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/collectPagePdfSnapshotEntries';
-import { collectPdfAnnotationNamesByPage } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage';
-import { computeSummaryStableKey } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/computeSummaryStableKey';
-import { loadPdfPageAnnotations } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/loadPdfPageAnnotations';
-import { pickLatestAnnotationTimestamp } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/pickLatestAnnotationTimestamp';
-import { resolveCombinedAnnotationText } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/resolveCombinedAnnotationText';
-import { resolveEditorMarkerRect } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/resolveEditorMarkerRect';
-import { resolveMarkupSubtypeOverrideRegistration } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/resolveMarkupSubtypeOverrideRegistration';
-import { safeReadEditorData } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/safeReadEditorData';
-import { tryExtractPdfLinkAnnotation } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/tryExtractPdfLinkAnnotation';
+import { buildPdfAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPdfAnnotationCommentSummary';
+import { buildPopupIndex } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPopupIndex';
+import { collectPagePdfSnapshotEntries } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPagePdfSnapshotEntries';
+import { collectPdfAnnotationNamesByPage } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage';
+import { computeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/computeSummaryStableKey';
+import { loadPdfPageAnnotations } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/loadPdfPageAnnotations';
+import { pickLatestAnnotationTimestamp } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/pickLatestAnnotationTimestamp';
+import { resolveCombinedAnnotationText } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveCombinedAnnotationText';
+import { resolveEditorMarkerRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveEditorMarkerRect';
+import { resolveMarkupSubtypeOverrideRegistration } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveMarkupSubtypeOverrideRegistration';
+import { safeReadEditorData } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/safeReadEditorData';
+import { tryExtractPdfLinkAnnotation } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/tryExtractPdfLinkAnnotation';
 
 vi.mock('pdfjs-dist', () => ({AnnotationEditorType: {
     DISABLE: -1,

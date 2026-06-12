@@ -1,6 +1,5 @@
 import type { Ref } from 'vue';
-
-export type TWorkspaceUndoSource = 'file' | 'metadata';
+import type { TWorkspaceUndoSource } from '@app/types/workspaceUndoSource';
 
 export const useWorkspaceUndoTimeline = (deps: {
     fileHistoryMutationVersion: Ref<number>;

@@ -206,7 +206,10 @@ import { useWorkspaceToolbarPageModel } from '@app/modules/workspace-shell/compo
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IReaderCommandSurface } from '@app/utils/readerCommandSurface';
 
-const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
+const OcrPopup = defineAsyncComponent(
+    () => import('@app/modules/ocr-panel/public')
+        .then(componentModule => componentModule.OcrPopup),
+);
 
 type TAgentOcrPageRange = 'all' | 'current' | 'custom';
 

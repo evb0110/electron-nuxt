@@ -1,6 +1,6 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
-import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
+import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 
 export function collectEditedTextMarkupCanvasSuppressionIds(

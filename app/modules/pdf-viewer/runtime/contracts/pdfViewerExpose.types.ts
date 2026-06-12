@@ -11,12 +11,12 @@ import type {
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type { ICropSelectionResult } from '@app/types/crop';
-import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
+import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type {
     IPdfPageMetric,
     IScrollSnapshot,
 } from '@app/types/pdf';
-import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
 
 export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';

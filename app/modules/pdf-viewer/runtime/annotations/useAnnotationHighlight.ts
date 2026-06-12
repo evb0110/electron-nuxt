@@ -21,12 +21,12 @@ import type {
     ICreateTextMarkupFromTextResult,
     TAgentTextMarkupKind,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
-import { markerRectCenterDistance } from '@app/utils/pdf-viewer/annotations/annotation-rules/markerRectCenterDistance';
-import { getCommentText } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/getCommentText';
-import { toMarkerRectFromEditor } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/toMarkerRectFromEditor';
-import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annotationContextMenuPayload';
-import { clamp01 } from '@app/utils/pdf-viewer/annotation-geometry/clamp01';
-import { errorToLogText } from '@app/utils/pdf-viewer/annotation-css-utils/errorToLogText';
+import { markerRectCenterDistance } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/markerRectCenterDistance';
+import { getCommentText } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/getCommentText';
+import { toMarkerRectFromEditor } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/toMarkerRectFromEditor';
+import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
+import { clamp01 } from '@app/modules/pdf-viewer/engine/annotation-geometry/clamp01';
+import { errorToLogText } from '@app/modules/pdf-viewer/engine/annotation-css-utils/errorToLogText';
 import { SELECTION_CACHE_TTL_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
@@ -41,16 +41,16 @@ import {
     isPdfjsEditorWithEditComment,
 } from '@app/services/pdfjs/annotationEditorAdapter';
 import { replaceOverlappingSelectionMarkup } from '@app/services/pdfjs/replaceOverlappingSelectionMarkup';
-import { createPdfPagePointResolver } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/createPdfPagePointResolver';
-import { markerRectFromPoint } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/markerRectFromPoint';
-import type { INotePlacementDiagnosticsContext } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/notePlacementDiagnosticsContext';
-import { buildRangeFromPagePoint } from '@app/utils/pdf-viewer/annotations/pdf-text-anchor-resolver/buildRangeFromPagePoint';
-import { buildRangeFromPageText } from '@app/utils/pdf-viewer/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
-import { resolveCommentWithRenderedTextMarkupColorAtPoint } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveCommentWithRenderedTextMarkupColorAtPoint';
+import { createPdfPagePointResolver } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/createPdfPagePointResolver';
+import { markerRectFromPoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/markerRectFromPoint';
+import type { INotePlacementDiagnosticsContext } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/notePlacementDiagnosticsContext';
+import { buildRangeFromPagePoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPagePoint';
+import { buildRangeFromPageText } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
+import { resolveCommentWithRenderedTextMarkupColorAtPoint } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveCommentWithRenderedTextMarkupColorAtPoint';
 import {
     markCommentMarkerAnchorEditor,
     syncCommentMarkerAnchorEditor,
-} from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
+} from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
 
 interface IHighlightIdentity {
     getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;

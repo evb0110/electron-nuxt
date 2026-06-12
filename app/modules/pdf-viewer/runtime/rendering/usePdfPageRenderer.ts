@@ -11,18 +11,18 @@ import type {
     MaybeRefOrGetter,
     Ref,
 } from 'vue';
-import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
-import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
-import { usePdfCanvasRenderer } from '@app/composables/pdf/usePdfCanvasRenderer';
-import { usePdfTextLayerRenderer } from '@app/composables/pdf/usePdfTextLayerRenderer';
+import type { usePdfDocument } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
+import { usePdfCanvasRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer';
+import { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
 import { usePdfAnnotationLayerRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
-import { setupPagePlaceholderSizes } from '@app/utils/pdf-viewer/pdf-page-buffer-manager/setupPagePlaceholderSizes';
-import { normalizePageMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/normalizePageMetrics';
+import { setupPagePlaceholderSizes } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/setupPagePlaceholderSizes';
+import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runGuardedTask } from '@app/utils/asyncGuard';
-import type { IPageRenderStallPayload } from '@app/utils/pdf-viewer/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
-import { clearPdfSelectionForLayerTeardown } from '@app/utils/pdf-viewer/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
+import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
+import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 import { usePdfRendererSearchController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController';
 import { usePdfRendererPageRegistry } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererPageRegistry';
 import { createPdfRendererPageDom } from '@app/modules/pdf-viewer/runtime/rendering/pdf-renderer-page-dom/createPdfRendererPageDom';
@@ -34,7 +34,7 @@ import { usePdfRendererRerenderController } from '@app/modules/pdf-viewer/runtim
 import { usePdfRendererVisibleRenderController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererVisibleRenderController';
 import { usePdfRendererSinglePageController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSinglePageController';
 
-export type { IPageRenderStallPayload } from '@app/utils/pdf-viewer/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
+export type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 
 const MAX_MISSING_RENDER_TARGET_RETRIES = 4;
 

@@ -7,9 +7,9 @@ import type {
     IPdfPageMatches,
     IPdfSearchMatch,
 } from '@app/types/pdf';
-import { createPdfSearchMatchScroller } from '@app/utils/pdf-viewer/pdf-search-match-scroller/createPdfSearchMatchScroller';
-import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
-import type { usePdfTextLayerRenderer } from '@app/composables/pdf/usePdfTextLayerRenderer';
+import { createPdfSearchMatchScroller } from '@app/modules/pdf-viewer/engine/pdf-search-match-scroller/createPdfSearchMatchScroller';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
+import type { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfNav } from '@app/utils/logPdfNav';
 

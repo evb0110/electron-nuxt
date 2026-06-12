@@ -8,10 +8,8 @@ import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/worksp
 import type { TPdfSource } from '@app/types/pdf';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
-import {
-    runWithoutDocumentOperationLease,
-    type TDocumentOperationKind,
-} from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
+import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
+import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
 
 interface IUseWorkspaceSplitPayloadOptions {
     pdfSrc: Ref<TPdfSource | null>;

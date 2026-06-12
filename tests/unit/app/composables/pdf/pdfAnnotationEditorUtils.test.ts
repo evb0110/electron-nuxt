@@ -5,12 +5,12 @@ import {
     vi,
 } from 'vitest';
 import { cast } from '@tests/helpers/cast';
-import { toMarkerRectFromEditor } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/toMarkerRectFromEditor';
+import { toMarkerRectFromEditor } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/toMarkerRectFromEditor';
 import {
     COMMENT_MARKER_ANCHOR_EDITOR_ATTRIBUTE,
     COMMENT_MARKER_ANCHOR_EDITOR_CLASS,
     syncCommentMarkerAnchorEditor,
-} from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
+} from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 
 vi.mock('pdfjs-dist', () => ({PDFDateString: {toDateObject: vi.fn(() => null)}}));

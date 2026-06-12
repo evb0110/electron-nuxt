@@ -2,7 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import type { IAnnotationNoteWindowState } from '@app/utils/pdf-viewer/annotations/annotationNoteWindowTypes';
+import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { ICloseFileFromUiOptions } from '@app/types/workspaceExpose';

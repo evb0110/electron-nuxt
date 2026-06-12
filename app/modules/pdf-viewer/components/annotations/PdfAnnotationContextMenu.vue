@@ -151,8 +151,8 @@ import PdfContextMenuBase from '@app/modules/pdf-viewer/components/PdfContextMen
 import type { TAnnotationTool } from '@app/types/annotations';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { parseCssRgbColor } from '@app/utils/pdf-viewer/text-markup-color/parseCssRgbColor';
-import { rgbToHex } from '@app/utils/pdf-viewer/text-markup-color/rgbToHex';
+import { parseCssRgbColor } from '@app/modules/pdf-viewer/engine/text-markup-color/parseCssRgbColor';
+import { rgbToHex } from '@app/modules/pdf-viewer/engine/text-markup-color/rgbToHex';
 
 interface IContextMenuState {
     visible: boolean;

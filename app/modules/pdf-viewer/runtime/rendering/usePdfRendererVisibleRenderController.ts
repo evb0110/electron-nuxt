@@ -4,10 +4,10 @@ import type {
 } from 'vue';
 import { chunk } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
-import type { IPageRange } from '@app/utils/pdf-viewer/pdf-page-buffer-manager/pageRange';
-import { getPageContainer } from '@app/utils/pdf-viewer/pdf-page-buffer-manager/getPageContainer';
+import type { IPageRange } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/pageRange';
+import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
 import { CONCURRENT_RENDERS } from '@app/constants/pdfLayout';
-import { shouldRenderPageWithPreservedState } from '@app/utils/pdf-viewer/pdf-page-render-preservation/shouldRenderPageWithPreservedState';
+import { shouldRenderPageWithPreservedState } from '@app/modules/pdf-viewer/engine/pdf-page-render-preservation/shouldRenderPageWithPreservedState';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 

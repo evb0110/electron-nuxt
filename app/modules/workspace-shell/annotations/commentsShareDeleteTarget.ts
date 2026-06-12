@@ -1,6 +1,8 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { isNoteEligibleComment } from '@app/utils/pdf-viewer/annotations/annotation-rules/isNoteEligibleComment';
-import { markerRectCenterDistance } from '@app/utils/pdf-viewer/annotations/annotation-rules/markerRectCenterDistance';
+import {
+    isNoteEligibleComment,
+    markerRectCenterDistance,
+} from '@app/modules/pdf-viewer/public';
 
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 

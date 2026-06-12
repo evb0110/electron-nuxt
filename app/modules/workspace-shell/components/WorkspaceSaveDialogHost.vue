@@ -51,7 +51,10 @@ import { PdfCropDialog } from '@app/modules/pdf-viewer/public/component-exports/
 import { PdfExportScopeDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfExportScopeDialog';
 import { PdfPrintDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfPrintDialog';
 
-const DjvuConvertDialog = defineAsyncComponent(() => import('@app/components/djvu/DjvuConvertDialog.vue'));
+const DjvuConvertDialog = defineAsyncComponent(
+    () => import('@app/modules/djvu-viewer/public')
+        .then(componentModule => componentModule.DjvuConvertDialog),
+);
 
 type TPdfExportScopeDialogProps = InstanceType<typeof PdfExportScopeDialog>['$props'];
 type TPdfPrintDialogProps = InstanceType<typeof PdfPrintDialog>['$props'];

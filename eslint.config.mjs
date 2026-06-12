@@ -135,6 +135,20 @@ function createCrossFeatureZones(relativeRoot, zoneMessagePrefix) {
     }));
 }
 
+function createLayerToModulePublicEntryZones(relativeRoot, targetLayers, zoneMessagePrefix) {
+    const features = readFeatureDirectories(relativeRoot);
+    if (features.length === 0) {
+        return [];
+    }
+
+    return features.map(feature => ({
+        target: targetLayers.map(layer => `./${layer}`),
+        from: `./${relativeRoot}/${feature}`,
+        except: FEATURE_PUBLIC_ENTRYPOINT_EXCEPTIONS,
+        message: `${zoneMessagePrefix} imports from app/modules must use public entrypoints.`,
+    }));
+}
+
 export default withNuxt(
     {ignores: [
         '**/.devkit/**',
@@ -222,6 +236,14 @@ export default withNuxt(
                             from: './app/composables',
                             message: 'app/services/** must not import app/composables/**.',
                         },
+                        ...createLayerToModulePublicEntryZones(
+                            'app/modules',
+                            [
+                                'app/components',
+                                'app/composables',
+                            ],
+                            'app/components and app/composables',
+                        ),
                         {
                             target: './packages',
                             from: './app',
@@ -317,7 +339,7 @@ export default withNuxt(
         },
     },
     {
-        files: ['app/composables/pdf/annotations/useAnnotationEditorBridge.ts'],
+        files: ['app/modules/pdf-viewer/runtime/composables/pdf/annotations/useAnnotationEditorBridge.ts'],
         rules: {
             '@typescript-eslint/no-unsafe-assignment': 'off',
         },

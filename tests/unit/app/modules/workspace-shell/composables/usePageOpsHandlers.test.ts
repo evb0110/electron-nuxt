@@ -19,7 +19,7 @@ const operationMocks = vi.hoisted(() => ({
     removeCrop: vi.fn(),
 }));
 
-vi.mock('@app/composables/pdf/usePageOperations', () => ({ usePageOperations: () => ({
+vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations', () => ({ usePageOperations: () => ({
     isOperationInProgress: ref(false),
     deletePages: operationMocks.deletePages,
     extractPages: operationMocks.extractPages,

@@ -3,11 +3,11 @@ import {
     expect,
     it,
 } from 'vitest';
-import { composeHighlightFragments } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/composeHighlightFragments';
-import { extractRectsFromHighlightPath } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/extractRectsFromHighlightPath';
-import { isRectangularHighlightPathData } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/isRectangularHighlightPathData';
-import { shouldCompositeHighlightClassList } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/shouldCompositeHighlightClassList';
-import { shouldCompositeHighlightSources } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/shouldCompositeHighlightSources';
+import { composeHighlightFragments } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/composeHighlightFragments';
+import { extractRectsFromHighlightPath } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/extractRectsFromHighlightPath';
+import { isRectangularHighlightPathData } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/isRectangularHighlightPathData';
+import { shouldCompositeHighlightClassList } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/shouldCompositeHighlightClassList';
+import { shouldCompositeHighlightSources } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/shouldCompositeHighlightSources';
 
 function createSource(x: number, fill = '#ffff66') {
     return {

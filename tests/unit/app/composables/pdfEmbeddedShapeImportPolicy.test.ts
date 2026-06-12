@@ -3,8 +3,8 @@ import {
     expect,
     it,
 } from 'vitest';
-import { embeddedShapeImportInitialRenderMaxBytes } from '@app/utils/pdf-viewer/pdf-embedded-shape-import-policy/embeddedShapeImportInitialRenderMaxBytes';
-import { resolveEmbeddedShapeImportLoadPolicy } from '@app/utils/pdf-viewer/pdf-embedded-shape-import-policy/resolveEmbeddedShapeImportLoadPolicy';
+import { embeddedShapeImportInitialRenderMaxBytes } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-import-policy/embeddedShapeImportInitialRenderMaxBytes';
+import { resolveEmbeddedShapeImportLoadPolicy } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-import-policy/resolveEmbeddedShapeImportLoadPolicy';
 
 describe('resolveEmbeddedShapeImportLoadPolicy', () => {
     it('awaits path-backed embedded drawings before the first page render', () => {
