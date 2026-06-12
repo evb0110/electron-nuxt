@@ -69,7 +69,7 @@ watch(
         ) {
             return;
         }
-        BrowserLogger.warn('pdf-nav', `[sidebar-host] show=${nextShowSidebar} width=${String(nextWidth)} resizing=${nextResizing}`, {
+        BrowserLogger.diagnostic('pdf-nav', `[sidebar-host] show=${nextShowSidebar} width=${String(nextWidth)} resizing=${nextResizing}`, {
             showSidebar: {
                 previous: prevShowSidebar,
                 next: nextShowSidebar, 

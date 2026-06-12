@@ -6,6 +6,7 @@ export interface IDebugLogEntry {
     source: string;
     message: string;
     timestamp: string;
+    level?: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
 }
 
 export interface IRendererLogEntry {

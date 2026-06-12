@@ -73,7 +73,7 @@ export function usePdfViewerNavigationDiagnostics(options: IUsePdfViewerNavigati
         if (next === previous) {
             return;
         }
-        BrowserLogger.warn('pdf-nav', `[viewer-current-page-ref] ${previous}->${next}`, {
+        BrowserLogger.diagnostic('pdf-nav', `[viewer-current-page-ref] ${previous}->${next}`, {
             previous,
             next,
             isLoading: options.isLoading.value,
@@ -103,7 +103,7 @@ export function usePdfViewerNavigationDiagnostics(options: IUsePdfViewerNavigati
             if (nextStart === prevStart && nextEnd === prevEnd) {
                 return;
             }
-            BrowserLogger.warn('pdf-nav', `[viewer-visible-range] ${prevStart}-${prevEnd} -> ${nextStart}-${nextEnd}`, {
+            BrowserLogger.diagnostic('pdf-nav', `[viewer-visible-range] ${prevStart}-${prevEnd} -> ${nextStart}-${nextEnd}`, {
                 previous: {
                     start: prevStart,
                     end: prevEnd,

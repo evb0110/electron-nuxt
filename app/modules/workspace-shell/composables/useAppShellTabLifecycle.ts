@@ -81,7 +81,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
     }
 
     function logSuppressedDocumentClearDuringRemount(tabId: string, updates: Partial<ITab>, tab: ITab, nextTabState: ITab) {
-        BrowserLogger.warn('toolbar-transition', 'Suppressing transient placeholder tab update during remount handoff', {
+        BrowserLogger.diagnostic('toolbar-transition', 'Suppressing transient placeholder tab update during remount handoff', {
             tabId,
             updates,
             activeTabId: activeTabId.value,

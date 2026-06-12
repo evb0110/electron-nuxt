@@ -14,6 +14,14 @@ export function installDebugLogListener(ipcRenderer: Pick<IpcRenderer, 'on'>) {
     preloadState[PRELOAD_DEBUG_LOG_LISTENER_FLAG] = true;
     ipcRenderer.on(CORE_IPC_EVENT_CHANNELS.debugLog, (_event, data: IDebugLogEntry) => {
         pushDebugLogMessage(data);
-        console.log(`[${data.timestamp}] [${data.source}] ${data.message}`);
+
+        const level = data.level ?? 'WARN';
+        if (level === 'ERROR') {
+            console.error(`[${data.timestamp}] [${data.source}] ${data.message}`);
+            return;
+        }
+        if (level === 'WARN') {
+            console.warn(`[${data.timestamp}] [${data.source}] ${data.message}`);
+        }
     });
 }

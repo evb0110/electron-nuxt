@@ -164,7 +164,7 @@ describe('useShellWorkspaceToolbar', () => {
     });
 
     it('keeps expected transition handoff quiet', async () => {
-        const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
+        const diagnostic = vi.spyOn(BrowserLogger, 'diagnostic').mockImplementation(() => {});
         const activeWorkspace = ref<IWorkspaceExpose | null>(createWorkspace(createSnapshot({
             hasPdf: true,
             totalPages: 3,
@@ -177,11 +177,11 @@ describe('useShellWorkspaceToolbar', () => {
 
         await vi.advanceTimersByTimeAsync(shellToolbarHandoffWarningDelayMs + 1);
 
-        expect(warn).not.toHaveBeenCalled();
+        expect(diagnostic).not.toHaveBeenCalled();
     });
 
     it('warns when shell handoff remains visible after transition with a mounted document workspace', async () => {
-        const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
+        const diagnostic = vi.spyOn(BrowserLogger, 'diagnostic').mockImplementation(() => {});
         const activeWorkspace = ref<IWorkspaceExpose | null>(createWorkspace(createSnapshot({
             hasPdf: true,
             totalPages: 3,
@@ -193,11 +193,11 @@ describe('useShellWorkspaceToolbar', () => {
         }));
 
         await vi.advanceTimersByTimeAsync(shellToolbarHandoffWarningDelayMs - 1);
-        expect(warn).not.toHaveBeenCalled();
+        expect(diagnostic).not.toHaveBeenCalled();
 
         await vi.advanceTimersByTimeAsync(1);
 
-        expect(warn).toHaveBeenCalledWith(
+        expect(diagnostic).toHaveBeenCalledWith(
             'toolbar-transition',
             'Shell toolbar handoff stayed visible without teleported workspace toolbar content',
             expect.objectContaining({

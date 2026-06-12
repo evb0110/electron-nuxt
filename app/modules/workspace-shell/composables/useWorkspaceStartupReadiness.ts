@@ -99,7 +99,7 @@ export function useWorkspaceStartupReadiness(options: IWorkspaceStartupReadiness
                 }
             } catch (error) {
                 timedOut = true;
-                BrowserLogger.warn('loader', 'Startup visual readiness wait failed', error);
+                BrowserLogger.diagnostic('loader', 'Startup visual readiness wait failed', error);
             }
 
             if (token !== startupOpenVisualReadyToken) {

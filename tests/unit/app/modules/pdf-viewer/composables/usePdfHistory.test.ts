@@ -18,7 +18,11 @@ import { cast } from '@tests/helpers/cast';
 
 const loggerWarn = vi.fn();
 
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: (...args: unknown[]) => loggerWarn(...args)}}));
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
+    diagnostic: vi.fn(),
+    diagnosticThrottled: vi.fn(),
+    warn: (...args: unknown[]) => loggerWarn(...args),
+}}));
 
 function createMockDeps(overrides: Partial<Parameters<typeof usePdfHistory>[0]> = {}) {
     return cast<Parameters<typeof usePdfHistory>[0]>({

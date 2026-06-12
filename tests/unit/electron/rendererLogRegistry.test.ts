@@ -98,7 +98,7 @@ describe('renderer log registry', () => {
             expect(handler).toBeTypeOf('function');
 
             const firstSender = createSender(7);
-            for (let index = 0; index < 41; index += 1) {
+            for (let index = 0; index < 121; index += 1) {
                 handler?.({
                     sender: firstSender,
                     senderFrame: null,
@@ -110,7 +110,7 @@ describe('renderer log registry', () => {
                 });
             }
 
-            expect(mocks.logger.info).toHaveBeenCalledTimes(40);
+            expect(mocks.logger.info).toHaveBeenCalledTimes(120);
             expect(firstSender.once).toHaveBeenCalledTimes(2);
 
             const destroyedHandler = firstSender.once.mock.calls
@@ -129,7 +129,7 @@ describe('renderer log registry', () => {
             });
 
             expect(secondSender.once).toHaveBeenCalledTimes(2);
-            expect(mocks.logger.info).toHaveBeenCalledTimes(41);
+            expect(mocks.logger.info).toHaveBeenCalledTimes(121);
         } finally {
             vi.useRealTimers();
         }

@@ -123,7 +123,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
             return;
         }
         const viewerState = summarizeViewerStateForLog();
-        BrowserLogger.warn('pdf-zoom-debug', `[wheel-zoom-session] end reason=${reason}`, {
+        BrowserLogger.diagnostic('pdf-zoom-debug', `[wheel-zoom-session] end reason=${reason}`, {
             reason,
             session: finishedSession,
             viewer: viewerState,
@@ -202,7 +202,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
         };
         activeWheelZoomSession = nextSession;
         captureZoomVirtualizationFreeze(nextSession.id, 'session-start');
-        BrowserLogger.warn('pdf-zoom-debug', '[wheel-zoom-session] start', {
+        BrowserLogger.diagnostic('pdf-zoom-debug', '[wheel-zoom-session] start', {
             session: nextSession,
             viewer: summarizeViewerStateForLog(),
         });
@@ -230,7 +230,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
                     y: activeSession.anchorY,
                     capturedAtMs: activeSession.lastPacketAtMs,
                 };
-                BrowserLogger.warnThrottled(
+                BrowserLogger.diagnosticThrottled(
                     'pdf-zoom-debug',
                     'anchor-consume-session-fallback',
                     wheelDetailLogThrottleMs,
@@ -244,7 +244,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
                 );
                 return fallbackAnchor;
             }
-            BrowserLogger.warnThrottled(
+            BrowserLogger.diagnosticThrottled(
                 'pdf-zoom-debug',
                 'anchor-consume-none',
                 wheelDetailLogThrottleMs,
@@ -263,7 +263,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
             && !belongsToActiveSession;
         if (staleWithoutZoomContext) {
             pendingZoomViewportAnchor.value = null;
-            BrowserLogger.warnThrottled(
+            BrowserLogger.diagnosticThrottled(
                 'pdf-zoom-debug',
                 'anchor-consume-stale',
                 wheelDetailLogThrottleMs,
@@ -280,7 +280,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
         }
 
         pendingZoomViewportAnchor.value = null;
-        BrowserLogger.warnThrottled(
+        BrowserLogger.diagnosticThrottled(
             'pdf-zoom-debug',
             'anchor-consume',
             wheelDetailLogThrottleMs,

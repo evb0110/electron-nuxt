@@ -125,7 +125,7 @@ export const usePdfScale = (
         currentSpreadBaseWidth: number | null,
         documentBaseHeight: number | null,
     ) {
-        BrowserLogger.warn('pdf-nav', '[scale] skipped computeFitWidthScale: missing container/base dimensions', {
+        BrowserLogger.diagnostic('pdf-nav', '[scale] skipped computeFitWidthScale: missing container/base dimensions', {
             hasContainer: Boolean(container),
             basePageWidth: toValue(basePageWidth),
             basePageHeight: toValue(basePageHeight),
@@ -155,7 +155,7 @@ export const usePdfScale = (
         const rawSize = getFitRawSize(container, mode);
 
         if (rawSize <= 0) {
-            BrowserLogger.warn('pdf-nav', `[scale] skipped computeFitWidthScale: rawSize<=0 mode=${mode}`, {
+            BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: rawSize<=0 mode=${mode}`, {
                 rawSize,
                 clientWidth: container.clientWidth,
                 clientHeight: container.clientHeight,
@@ -165,7 +165,7 @@ export const usePdfScale = (
 
         const availableSize = getFitAvailableSize(rawSize, mode);
         if (availableSize <= 0) {
-            BrowserLogger.warn('pdf-nav', `[scale] skipped computeFitWidthScale: availableSize<=0 mode=${mode}`, {
+            BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: availableSize<=0 mode=${mode}`, {
                 rawSize,
                 baseMargin: BASE_MARGIN,
                 availableSize,
@@ -177,7 +177,7 @@ export const usePdfScale = (
             : width;
 
         if (hasUnchangedFitDimensions(rawSize, baseDimension)) {
-            BrowserLogger.warn('pdf-nav', `[scale] skipped computeFitWidthScale: dimensions unchanged mode=${mode}`, {
+            BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: dimensions unchanged mode=${mode}`, {
                 rawSize,
                 previousRawSize: lastContainerSize.value,
                 baseDimension,
@@ -191,7 +191,7 @@ export const usePdfScale = (
         const newScale = Math.min(availableSize / baseDimension, ZOOM.MAX);
 
         if (Math.abs(newScale - fitWidthScale.value) < 0.001) {
-            BrowserLogger.warn('pdf-nav', `[scale] skipped computeFitWidthScale: delta below epsilon mode=${mode}`, {
+            BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: delta below epsilon mode=${mode}`, {
                 currentScale: fitWidthScale.value,
                 newScale,
                 availableSize,
@@ -201,7 +201,7 @@ export const usePdfScale = (
             return false;
         }
 
-        BrowserLogger.warn('pdf-nav', `[scale] computeFitWidthScale mode=${mode} ${fitWidthScale.value.toFixed(4)}->${newScale.toFixed(4)}`, {
+        BrowserLogger.diagnostic('pdf-nav', `[scale] computeFitWidthScale mode=${mode} ${fitWidthScale.value.toFixed(4)}->${newScale.toFixed(4)}`, {
             rawSize,
             availableSize,
             baseDimension,

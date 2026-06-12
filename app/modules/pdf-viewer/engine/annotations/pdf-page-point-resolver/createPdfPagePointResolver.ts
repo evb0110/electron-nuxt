@@ -187,7 +187,7 @@ export function createPdfPagePointResolver(options: IPdfPagePointResolverOptions
         pageNumbers: IPagePointPageNumbers,
     ) {
         const viewer = viewerContainer.value;
-        BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Quick-note page target conflict detected', {
+        BrowserLogger.diagnostic(NOTE_PLACEMENT_LOG_SECTION, 'Quick-note page target conflict detected', {
             attemptId: diagnostics.attemptId ?? null,
             source: diagnostics.source ?? null,
             selectedSource: selection.selectedSource,
@@ -216,7 +216,7 @@ export function createPdfPagePointResolver(options: IPdfPagePointResolverOptions
         selection: IPagePointResolutionSelection,
         pageNumbers: IPagePointPageNumbers,
     ) {
-        BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Failed to resolve quick-note page container', {
+        BrowserLogger.diagnostic(NOTE_PLACEMENT_LOG_SECTION, 'Failed to resolve quick-note page container', {
             attemptId: diagnostics.attemptId ?? null,
             source: diagnostics.source ?? null,
             clientX: roundForLog(clientX),
