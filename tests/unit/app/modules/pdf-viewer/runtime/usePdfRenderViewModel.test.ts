@@ -40,6 +40,7 @@ function createHarness(options?: {
         src: computed(() => null as TPdfSource | null),
         isLoading: ref(false),
         pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+        getPage: vi.fn(async () => cast({})),
         viewerContainer: ref(null),
         isVisualReloadTransitionActive: ref(false),
         suppressLoadingOverlay: computed(() => false),

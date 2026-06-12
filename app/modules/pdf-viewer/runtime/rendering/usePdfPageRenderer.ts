@@ -59,7 +59,7 @@ export interface IUsePdfPageRendererOptions {
     suppressSnap?: () => void;
     beginSearchNavigation?: (pageNumber: number) => void;
     endSearchNavigation?: (settleMs?: number) => void;
-    outputScale?: number;
+    outputScale?: MaybeRefOrGetter<number>;
 
     annotationUiManager?: MaybeRefOrGetter<AnnotationEditorUIManager | null>;
     annotationL10n?: MaybeRefOrGetter<IPdfjsL10n | null>;
@@ -433,6 +433,33 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         setupPagePlaceholderSizes(containerRoot, normalizedPageMetrics, scale);
     }
 
+    function shouldRenderPageWithinCanvasBudget(
+        pageNumber: number,
+        context: {
+            containerRoot: HTMLElement;
+            isBufferPage: boolean;
+            renderOptions?: { maxCanvasPixelsOverride?: number; } | undefined;
+        },
+    ) {
+        if (!context.isBufferPage || context.renderOptions?.maxCanvasPixelsOverride !== undefined) {
+            return true;
+        }
+
+        const pageContainer = getMountedPageContainer(pageNumber, context.containerRoot);
+        if (!pageContainer) {
+            return true;
+        }
+
+        const width = pageContainer.offsetWidth || pageContainer.clientWidth;
+        const height = pageContainer.offsetHeight || pageContainer.clientHeight;
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+            return true;
+        }
+
+        return canvasRenderer.estimateRequestedPixels(width, height)
+            <= performanceProfile.maxBufferCanvasPixels;
+    }
+
     const { renderVisiblePages } = usePdfRendererVisibleRenderController({
         container: options.container,
         currentPage: options.currentPage,
@@ -463,6 +490,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         },
         renderSingleVisiblePage,
         scheduleMissingRenderTargetRetry,
+        shouldRenderPage: shouldRenderPageWithinCanvasBudget,
         throttleMs: RERENDER_LOG_THROTTLE_MS,
     });
 

@@ -19,6 +19,7 @@ const {
 } = createBrowserSearchCapability();
 
 const browserDocumentCapabilities = createBrowserDocumentsCapability({clearSearchCaches});
+const browserSystemApi: IPlatformApi['system'] = { getMemoryInfo: () => null };
 const browserShellApi: IPlatformApi['shell'] = { openExternal(url: string) {
     if (typeof window === 'undefined') {
         return Promise.resolve();
@@ -50,6 +51,7 @@ export const browserPlatformApi = {
     search: browserSearchCapability,
     djvu: browserDjvuCapability,
     settings: browserSettingsCapability,
+    system: browserSystemApi,
     updates: browserUpdatesCapability,
     windowTabs: browserWindowTabsCapability,
     shell: browserShellApi,

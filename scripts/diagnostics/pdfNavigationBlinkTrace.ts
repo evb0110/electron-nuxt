@@ -13,6 +13,7 @@ import {
     startDiagnosticFrameCapture,
 } from '@scripts/diagnostics/diagnosticFrameCapture';
 import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
@@ -139,65 +140,6 @@ async function enablePdfDiagnostics(page: Awaited<ReturnType<typeof startElectro
     });
 }
 
-function isExecutionContextDestroyedError(error: unknown) {
-    return error instanceof Error
-        && /Execution context was destroyed|Cannot find context with specified id|Target closed|Session closed|Frame was detached/i.test(error.message);
-}
-
-async function openPdfInApp(
-    page: Awaited<ReturnType<typeof startElectronE2ESession>>['page'],
-    pdfPath: string,
-    timeoutMs: number,
-) {
-    let lastError: unknown = null;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-            await page.evaluate(async (path: string) => {
-                const automationWindow = window as Window & {
-                    __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
-                    __openFileDirect?: (value: string) => Promise<boolean>;
-                    electronAPI?: {documents?: {recentFiles?: {add?: (value: string) => Promise<void>;};};};
-                };
-
-                const automationGrant = automationWindow.__allowRendererFileOpenForAutomation;
-                if (typeof automationGrant === 'function') {
-                    await automationGrant(path);
-                }
-
-                try {
-                    await automationWindow.electronAPI?.documents?.recentFiles?.add?.(path);
-                } catch {
-                    // Recent-file writes are not required for diagnostics.
-                }
-
-                const openFileDirect = automationWindow.__openFileDirect;
-                if (typeof openFileDirect !== 'function') {
-                    throw new Error('window.__openFileDirect is not available');
-                }
-                await openFileDirect(path);
-            }, pdfPath);
-            await waitForWorkspaceReady(page, timeoutMs);
-            return;
-        } catch (error) {
-            lastError = error;
-            if (!isExecutionContextDestroyedError(error)) {
-                throw error;
-            }
-
-            try {
-                await waitForWorkspaceReady(page, 10_000);
-                return;
-            } catch {
-                await delay(1_000);
-            }
-        }
-    }
-
-    throw lastError instanceof Error
-        ? lastError
-        : new Error(`Failed to open PDF in app: ${String(lastError)}`);
-}
-
 async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectronE2ESession>>['page']) {
     await installWorkspaceExposeProbe(page);
     await page.evaluate(() => {
@@ -290,6 +232,7 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
                     const skeleton = container.querySelector<HTMLElement>('.pdf-page-skeleton');
                     const skeletonStyle = skeleton ? window.getComputedStyle(skeleton) : null;
                     const canvases = Array.from(container.querySelectorAll<HTMLCanvasElement>('.page_canvas canvas'));
+                    const previews = Array.from(container.querySelectorAll<HTMLCanvasElement>('.page_preview canvas'));
                     const pageCanvas = container.querySelector<HTMLElement>('.page_canvas');
                     return {
                         page: Number(container.dataset.page) || 0,
@@ -303,7 +246,9 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
                         skeletonDisplay: skeletonStyle?.display ?? null,
                         skeletonOpacity: skeletonStyle?.opacity ?? null,
                         hasCanvas: canvases.length > 0,
+                        hasPreview: previews.length > 0,
                         canvasCount: canvases.length,
+                        previewCount: previews.length,
                         canvasSizes: canvases.map(canvas => ({
                             width: canvas.width,
                             height: canvas.height,
@@ -315,13 +260,13 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
                 })
                 .filter(pageInfo => pageInfo.bottom >= viewerRect.top && pageInfo.top <= viewerRect.bottom);
             const blankVisiblePages = visiblePages
-                .filter(pageInfo => !pageInfo.hasSkeleton && !pageInfo.hasCanvas)
+                .filter(pageInfo => !pageInfo.hasSkeleton && !pageInfo.hasCanvas && !pageInfo.hasPreview)
                 .map(pageInfo => pageInfo.page);
             const skeletonPages = visiblePages
                 .filter(pageInfo => pageInfo.hasSkeleton)
                 .map(pageInfo => pageInfo.page);
             const canvasPages = visiblePages
-                .filter(pageInfo => pageInfo.hasCanvas)
+                .filter(pageInfo => pageInfo.hasCanvas || pageInfo.hasPreview)
                 .map(pageInfo => pageInfo.page);
             const centerX = Math.round(viewerRect.left + viewerRect.width / 2);
             const centerY = Math.round(viewerRect.top + viewerRect.height / 2);
@@ -432,17 +377,6 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
             return traceWindow.__pdfBlinkTrace ?? null;
         };
     });
-}
-
-async function waitForWorkspaceReady(
-    page: Awaited<ReturnType<typeof startElectronE2ESession>>['page'],
-    timeoutMs = 60_000,
-) {
-    await waitForWorkspaceToolbarSnapshot(page, {
-        hasPdf: true,
-        minTotalPages: 2,
-    }, { timeoutMs });
-    await page.waitForSelector('#pdf-viewer', { timeout: timeoutMs });
 }
 
 async function recordTraceEvent(

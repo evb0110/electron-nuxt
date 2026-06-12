@@ -1013,43 +1013,54 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
     });
 
     it('skips stale queued paged row renders after a newer navigation wins', async () => {
-        const {
-            renderVisiblePages,
-            singlePageScroll,
-        } = createSinglePageScrollHarness({
-            pageGeometries: [
-                {
-                    offsetTop: 20,
-                    offsetHeight: 100,
-                },
-                {
-                    offsetTop: 140,
-                    offsetHeight: 100,
-                },
-                {
-                    offsetTop: 260,
-                    offsetHeight: 100,
-                },
-            ],
-            clientHeight: 100,
-            scrollHeight: 380,
-        });
+        vi.useFakeTimers();
+        vi.setSystemTime(1_000);
+        try {
+            const {
+                renderVisiblePages,
+                singlePageScroll,
+            } = createSinglePageScrollHarness({
+                pageGeometries: [
+                    {
+                        offsetTop: 20,
+                        offsetHeight: 100,
+                    },
+                    {
+                        offsetTop: 140,
+                        offsetHeight: 100,
+                    },
+                    {
+                        offsetTop: 260,
+                        offsetHeight: 100,
+                    },
+                ],
+                clientHeight: 100,
+                scrollHeight: 380,
+            });
 
-        singlePageScroll.scrollToPage(2);
-        singlePageScroll.scrollToPage(3);
-        await nextTick();
+            singlePageScroll.scrollToPage(2);
+            singlePageScroll.scrollToPage(3);
+            await nextTick();
 
-        expect(renderVisiblePages).toHaveBeenCalledTimes(1);
-        expect(renderVisiblePages).toHaveBeenCalledWith(
-            {
-                start: 3,
-                end: 3,
-            },
-            {
-                preserveRenderedPages: true,
-                bufferOverride: 0,
-            },
-        );
+            expect(renderVisiblePages).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(181);
+            await nextTick();
+
+            expect(renderVisiblePages).toHaveBeenCalledTimes(1);
+            expect(renderVisiblePages).toHaveBeenCalledWith(
+                {
+                    start: 3,
+                    end: 3,
+                },
+                {
+                    preserveRenderedPages: true,
+                    bufferOverride: 0,
+                },
+            );
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('can snap to a mounted paged target without queueing another row render', async () => {

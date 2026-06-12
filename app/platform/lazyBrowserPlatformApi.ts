@@ -8,6 +8,7 @@ import type {
 import type { IHostCapability } from '@contracts/electronApiHost';
 import type { IOcrCapability } from '@contracts/electronApiOcr';
 import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
+import type { ISystemCapability } from '@contracts/electronApiSystem';
 import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
 import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 import type { ISearchCapability } from '@contracts/searchCapability';
@@ -804,6 +805,8 @@ const lazyShellCapability: IPlatformApi['shell'] = {openExternal: lazyAsync<IPla
     'openExternal',
 ])};
 
+const lazySystemCapability: ISystemCapability = { getMemoryInfo: () => null };
+
 const lazyHostCapability: IHostCapability = {
     getEnvironment: lazyAsync<IHostCapability['getEnvironment']>([
         'host',
@@ -835,6 +838,7 @@ export const lazyBrowserPlatformApi = {
     search: lazySearchCapability,
     djvu: lazyDjvuCapability,
     settings: lazySettingsCapability,
+    system: lazySystemCapability,
     updates: lazyUpdatesCapability,
     windowTabs: lazyWindowTabsCapability,
     shell: lazyShellCapability,

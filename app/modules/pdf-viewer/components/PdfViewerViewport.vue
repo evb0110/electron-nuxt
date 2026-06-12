@@ -29,10 +29,14 @@
             :spread-single="isSpreadSingle(page)"
             :buffered="isBufferedPage(page)"
             :rendered="isRenderedPage(page)"
+            :preview="getPagePreview(page)"
+            :navigation-held="isNavigationHeldPage(page)"
+            :navigation-hold-style="getNavigationHoldStyle(page)"
             :placeholder-style="getPagePlaceholderStyle(page)"
             :placed-image="pendingImagePlacement?.pageNumber === page ? pendingImagePlacement : null"
             :placed-image-busy="isPendingImagePlacementFinalizing"
             @page-container-mounted="emit('page-container-mounted', $event)"
+            @page-preview-drawn="emit('page-preview-drawn', $event)"
             @update-placed-image-rect="emit('update-placed-image-rect', $event)"
             @finalize-placed-image="emit('finalize-placed-image')"
             @cancel-placed-image="emit('cancel-placed-image')"
@@ -51,6 +55,7 @@ import type {
     StyleValue,
 } from 'vue';
 import PdfViewerPage from '@app/modules/pdf-viewer/components/PdfViewerPage.vue';
+import type { IPdfPagePreviewEntry } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
 import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
@@ -65,6 +70,9 @@ interface IProps {
     isSpreadSingle: (page: number) => boolean;
     isBufferedPage: (page: number) => boolean;
     isRenderedPage: (page: number) => boolean;
+    getPagePreview: (page: number) => IPdfPagePreviewEntry | null;
+    isNavigationHeldPage: (page: number) => boolean;
+    getNavigationHoldStyle: (page: number) => Record<string, string> | null;
     getPagePlaceholderStyle: (page: number) => Record<string, string> | null;
     topVirtualSpacerStyle?: Record<string, string> | null;
     bottomVirtualSpacerStyle?: Record<string, string> | null;
@@ -81,6 +89,9 @@ const {
     isSpreadSingle,
     isBufferedPage,
     isRenderedPage,
+    getPagePreview,
+    isNavigationHeldPage,
+    getNavigationHoldStyle,
     getPagePlaceholderStyle,
     topVirtualSpacerStyle = null,
     bottomVirtualSpacerStyle = null,
@@ -100,6 +111,7 @@ const emit = defineEmits<{
     contextmenu: [event: MouseEvent];
     selectstart: [event: Event];
     'page-container-mounted': [page: number];
+    'page-preview-drawn': [page: number];
     'update-placed-image-rect': [payload: IPdfImagePlacementRectUpdate];
     'finalize-placed-image': [];
     'cancel-placed-image': [];

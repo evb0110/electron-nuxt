@@ -12,6 +12,7 @@ import { pathToFileURL } from 'node:url';
 import { delay } from 'es-toolkit/promise';
 import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
@@ -61,7 +62,9 @@ interface IVisiblePageDiagnostics {
     buffered: boolean;
     hasSkeleton: boolean;
     hasCanvas: boolean;
+    hasPreview: boolean;
     canvasCount: number;
+    previewCount: number;
     textSpanCount: number;
     rectTop: number;
     rectBottom: number;
@@ -139,76 +142,6 @@ async function collectPdfRenderTrace(session: IElectronE2ESession) {
     return toPdfRenderTraceEntries(entries);
 }
 
-function isExecutionContextDestroyedError(error: unknown) {
-    return error instanceof Error
-        && /Execution context was destroyed|Cannot find context with specified id|Target closed|Session closed|Frame was detached/i.test(error.message);
-}
-
-async function waitForWorkspaceReady(
-    page: IElectronE2ESession['page'],
-    timeoutMs = 60_000,
-) {
-    await waitForWorkspaceToolbarSnapshot(page, {
-        hasPdf: true,
-        minTotalPages: 2,
-    }, { timeoutMs });
-    await page.waitForSelector('#pdf-viewer', { timeout: timeoutMs });
-}
-
-async function openPdfInApp(
-    page: IElectronE2ESession['page'],
-    pdfPath: string,
-    timeoutMs: number,
-) {
-    let lastError: unknown = null;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-            await page.evaluate(async (path: string) => {
-                const automationWindow = window as Window & {
-                    __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
-                    __openFileDirect?: (value: string) => Promise<boolean>;
-                    electronAPI?: {documents?: {recentFiles?: {add?: (value: string) => Promise<void>;};};};
-                };
-
-                const automationGrant = automationWindow.__allowRendererFileOpenForAutomation;
-                if (typeof automationGrant === 'function') {
-                    await automationGrant(path);
-                }
-
-                try {
-                    await automationWindow.electronAPI?.documents?.recentFiles?.add?.(path);
-                } catch {
-                    // Recent-file writes are not required for diagnostics.
-                }
-
-                const openFileDirect = automationWindow.__openFileDirect;
-                if (typeof openFileDirect !== 'function') {
-                    throw new Error('window.__openFileDirect is not available');
-                }
-                await openFileDirect(path);
-            }, pdfPath);
-            await waitForWorkspaceReady(page, timeoutMs);
-            return;
-        } catch (error) {
-            lastError = error;
-            if (!isExecutionContextDestroyedError(error)) {
-                throw error;
-            }
-
-            try {
-                await waitForWorkspaceReady(page, 10_000);
-                return;
-            } catch {
-                await delay(1_000);
-            }
-        }
-    }
-
-    throw lastError instanceof Error
-        ? lastError
-        : new Error(`Failed to open PDF in app: ${String(lastError)}`);
-}
-
 async function goToPageViaWorkspace(session: IElectronE2ESession, pageNumber: number) {
     const navigationResult = await callWorkspaceCommand(session.page, 'handleGoToPage', [pageNumber], {
         requiredMethods: ['getToolbarSnapshot'],
@@ -243,14 +176,18 @@ async function collectNavigationDiagnosticsSnapshot(session: IElectronE2ESession
         const visiblePages = Array.from(document.querySelectorAll<HTMLElement>('.page_container'))
             .map((container): IVisiblePageDiagnostics => {
                 const rect = container.getBoundingClientRect();
+                const canvasCount = container.querySelectorAll('.page_canvas canvas').length;
+                const previewCount = container.querySelectorAll('.page_preview canvas').length;
                 return {
                     page: Number(container.dataset.page) || 0,
                     className: container.className,
                     rendered: container.classList.contains('page_container--rendered'),
                     buffered: container.classList.contains('page_container--buffered'),
                     hasSkeleton: Boolean(container.querySelector('.pdf-page-skeleton')),
-                    hasCanvas: Boolean(container.querySelector('.page_canvas canvas')),
-                    canvasCount: container.querySelectorAll('.page_canvas canvas').length,
+                    hasCanvas: canvasCount + previewCount > 0,
+                    hasPreview: previewCount > 0,
+                    canvasCount,
+                    previewCount,
                     textSpanCount: container.querySelectorAll('.text-layer span, .textLayer span').length,
                     rectTop: rect.top,
                     rectBottom: rect.bottom,
@@ -273,6 +210,15 @@ async function collectNavigationDiagnosticsSnapshot(session: IElectronE2ESession
         ...snapshot,
         toolbarSnapshot,
     };
+}
+
+async function getToolbarTotalPages(session: IElectronE2ESession) {
+    const snapshot = await getWorkspaceToolbarSnapshot(session.page, {requireVisible: true});
+    const totalPages = Number(snapshot?.totalPages);
+    if (!Number.isFinite(totalPages) || totalPages < 2) {
+        throw new Error(`PDF navigation diagnostic requires at least 2 pages; got ${String(snapshot?.totalPages ?? null)}`);
+    }
+    return Math.trunc(totalPages);
 }
 
 async function configureHighZoom(session: IElectronE2ESession, options: { continuousScroll: boolean } = { continuousScroll: false }) {
@@ -333,9 +279,43 @@ async function configureSinglePagedFitHeightMode(session: IElectronE2ESession) {
 }
 
 async function waitForToolbarPage(session: IElectronE2ESession, pageNumber: number) {
-    await Promise.any([
-        waitForWorkspaceToolbarSnapshot(session.page, { currentPage: pageNumber }, { timeoutMs: 15_000 }),
-        session.page.waitForFunction((targetPage: number) => {
+    try {
+        await Promise.any([
+            waitForWorkspaceToolbarSnapshot(session.page, { currentPage: pageNumber }, { timeoutMs: 15_000 }),
+            session.page.waitForFunction((targetPage: number) => {
+                const isVisibleElement = (element: HTMLElement) => {
+                    const rect = element.getBoundingClientRect();
+                    const style = window.getComputedStyle(element);
+                    return rect.width > 0
+                        && rect.height > 0
+                        && style.display !== 'none'
+                        && style.visibility !== 'hidden';
+                };
+                return Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
+                    .some((element) => {
+                        return element.textContent?.trim() === String(targetPage)
+                            && isVisibleElement(element);
+                    });
+            }, { timeout: 15_000 }, pageNumber),
+        ]);
+    } catch (error) {
+        const snapshot = await collectNavigationDiagnosticsSnapshot(session).catch(() => null);
+        const waitErrors = error instanceof AggregateError
+            ? error.errors.map((entry: unknown) => entry instanceof Error ? entry.message : String(entry))
+            : [error instanceof Error ? error.message : String(error)];
+        throw new Error(`Timed out waiting for toolbar page ${pageNumber}: ${JSON.stringify({
+            currentPage: snapshot?.toolbarSnapshot?.currentPage ?? null,
+            pageControlsText: snapshot?.pageControlsText ?? null,
+            totalPages: snapshot?.toolbarSnapshot?.totalPages ?? null,
+            visibleRangeText: snapshot?.visibleRangeText ?? null,
+            waitErrors,
+        })}`);
+    }
+}
+
+async function waitForToolbarPageAtLeast(session: IElectronE2ESession, pageNumber: number) {
+    try {
+        await session.page.waitForFunction((targetPage: number) => {
             const isVisibleElement = (element: HTMLElement) => {
                 const rect = element.getBoundingClientRect();
                 const style = window.getComputedStyle(element);
@@ -344,13 +324,21 @@ async function waitForToolbarPage(session: IElectronE2ESession, pageNumber: numb
                     && style.display !== 'none'
                     && style.visibility !== 'hidden';
             };
-            return Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
-                .some((element) => {
-                    return element.textContent?.trim() === String(targetPage)
-                        && isVisibleElement(element);
-                });
-        }, { timeout: 15_000 }, pageNumber),
-    ]);
+            const visibleCurrentPageLabel = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
+                .find(isVisibleElement);
+            const currentPage = Number.parseInt(visibleCurrentPageLabel?.textContent?.trim() ?? '', 10);
+            return Number.isFinite(currentPage) && currentPage >= targetPage;
+        }, { timeout: 15_000 }, pageNumber);
+    } catch (error) {
+        const snapshot = await collectNavigationDiagnosticsSnapshot(session).catch(() => null);
+        throw new Error(`Timed out waiting for toolbar page >= ${pageNumber}: ${JSON.stringify({
+            currentPage: snapshot?.toolbarSnapshot?.currentPage ?? null,
+            pageControlsText: snapshot?.pageControlsText ?? null,
+            totalPages: snapshot?.toolbarSnapshot?.totalPages ?? null,
+            visibleRangeText: snapshot?.visibleRangeText ?? null,
+            waitError: error instanceof Error ? error.message : String(error),
+        })}`);
+    }
 }
 
 async function clickPageNavigationButton(session: IElectronE2ESession, label: string) {
@@ -527,7 +515,7 @@ async function navigateForwardWithNextButton(session: IElectronE2ESession, steps
         });
         await clickNextPage(session);
         if (Number.isFinite(currentPage)) {
-            await waitForToolbarPage(session, currentPage + 1);
+            await waitForToolbarPageAtLeast(session, currentPage + 1);
         }
     }
 }
@@ -558,7 +546,7 @@ async function sampleNavigation(
                 .filter(container => container.classList.contains('page_container--rendered'))
                 .map(pageNumber);
             const canvasPages = visiblePageContainers
-                .filter(container => Boolean(container.querySelector('.page_canvas canvas')))
+                .filter(container => Boolean(container.querySelector('.page_canvas canvas, .page_preview canvas')))
                 .map(pageNumber);
             const visibleCurrentPageLabel = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
                 .find((element) => {
@@ -599,10 +587,13 @@ async function runHighZoomNextPageDiagnostic(session: IElectronE2ESession) {
     let samples: INavigationSample[] = [];
     let navLog: IPdfNavLogEntry[] = [];
     let renderTrace: IPdfRenderTraceEntry[] = [];
+    const totalPages = await getToolbarTotalPages(session);
+    const startPage = Math.min(55, totalPages - 1);
+    const nextPage = startPage + 1;
     try {
-        await navigateToPageWithNextButton(session, 55);
+        await navigateToPageWithNextButton(session, startPage);
         await configureHighZoom(session);
-        await waitForPageCanvas(session, 55);
+        await waitForPageCanvas(session, startPage);
         await delay(500);
         await enablePdfNavLog(session);
         await clickNextPage(session);
@@ -621,7 +612,7 @@ async function runHighZoomNextPageDiagnostic(session: IElectronE2ESession) {
         }
         writeDiagnosticArtifact({
             pdfPath: TARGET_PDF_PATH,
-            scenario: 'page-55-next-to-56-zoom-344',
+            scenario: `page-${startPage}-next-to-${nextPage}-zoom-344`,
             samples,
             navLog,
             renderTrace,
@@ -641,11 +632,13 @@ async function runToolbarPageInputDiagnostic(session: IElectronE2ESession) {
     let samples: INavigationSample[] = [];
     let navLog: IPdfNavLogEntry[] = [];
     let renderTrace: IPdfRenderTraceEntry[] = [];
+    const totalPages = await getToolbarTotalPages(session);
+    const targetPage = Math.min(500, totalPages);
     try {
         await navigateForwardWithNextButton(session, 3);
         await configureHighZoom(session, { continuousScroll: true });
         await enablePdfNavLog(session);
-        await enterPageInToolbar(session, '500');
+        await enterPageInToolbar(session, String(targetPage));
         samples = await sampleNavigation(session);
         navLog = await collectPdfNavLog(session);
         renderTrace = await collectPdfRenderTrace(session);
@@ -661,7 +654,7 @@ async function runToolbarPageInputDiagnostic(session: IElectronE2ESession) {
         }
         writeDirectJumpDiagnosticArtifact({
             pdfPath: TARGET_PDF_PATH,
-            scenario: 'toolbar-enter-page-500-after-navigation-zoom-344',
+            scenario: `toolbar-enter-page-${targetPage}-after-navigation-zoom-344`,
             samples,
             navLog,
             renderTrace,
@@ -682,6 +675,9 @@ async function runRapidNextToLastPageDiagnostic(session: IElectronE2ESession) {
     let navLog: IPdfNavLogEntry[] = [];
     let renderTrace: IPdfRenderTraceEntry[] = [];
     let finalSnapshot: INavigationDiagnosticsSnapshot | null = null;
+    const totalPages = await getToolbarTotalPages(session);
+    const rapidTargetPage = Math.min(30, totalPages);
+    const rapidClickCount = Math.max(0, rapidTargetPage - 1);
     try {
         await delay(2_000);
         await goToPageViaWorkspace(session, 1);
@@ -691,10 +687,12 @@ async function runRapidNextToLastPageDiagnostic(session: IElectronE2ESession) {
         await delay(500);
         await enablePdfNavLog(session);
 
-        await rapidClickNextPages(session, 29);
-        await waitForToolbarPage(session, 30);
-        await clickPageNavigationButton(session, 'Last Page');
-        await waitForToolbarPage(session, 928);
+        await rapidClickNextPages(session, rapidClickCount);
+        await waitForToolbarPage(session, rapidTargetPage);
+        if (rapidTargetPage < totalPages) {
+            await clickPageNavigationButton(session, 'Last Page');
+            await waitForToolbarPage(session, totalPages);
+        }
 
         samples = await sampleNavigation(session, {
             count: 500,
@@ -719,7 +717,7 @@ async function runRapidNextToLastPageDiagnostic(session: IElectronE2ESession) {
         }
         writeRapidNextToLastDiagnosticArtifact({
             pdfPath: TARGET_PDF_PATH,
-            scenario: 'fit-height-rapid-next-1-to-30-then-last-page',
+            scenario: `fit-height-rapid-next-1-to-${rapidTargetPage}-then-page-${totalPages}`,
             samples,
             finalSnapshot,
             navLog,
@@ -733,10 +731,10 @@ async function runRapidNextToLastPageDiagnostic(session: IElectronE2ESession) {
 
     const lastSample = samples.at(-1);
     assert.deepEqual(lastSample?.skeletonPages, []);
-    assert.equal(finalSnapshot?.toolbarSnapshot?.currentPage, 928);
+    assert.equal(finalSnapshot?.toolbarSnapshot?.currentPage, totalPages);
     assert.equal(finalSnapshot?.toolbarSnapshot?.fitMode, 'height');
-    assert.equal(finalSnapshot?.visiblePages.some(page => page.page === 928 && page.hasSkeleton), false);
-    assert.equal(finalSnapshot?.visiblePages.some(page => page.page === 928 && page.hasCanvas), true);
+    assert.equal(finalSnapshot?.visiblePages.some(page => page.page === totalPages && page.hasSkeleton), false);
+    assert.equal(finalSnapshot?.visiblePages.some(page => page.page === totalPages && page.hasCanvas), true);
 }
 
 export async function runPdfSkeletonNavigationDiagnostics() {

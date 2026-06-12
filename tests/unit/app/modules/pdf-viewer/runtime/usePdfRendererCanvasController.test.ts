@@ -38,6 +38,7 @@ describe('usePdfRendererCanvasController', () => {
                 renderCanvas: vi.fn(),
                 cleanupCanvas: vi.fn(),
                 cleanupCanvasRenderResult: vi.fn(),
+                estimateRequestedPixels: vi.fn(),
                 applyContainerDimensions: vi.fn(),
                 mountCanvas: vi.fn(),
             },
@@ -61,6 +62,10 @@ describe('usePdfRendererCanvasController', () => {
             },
             userUnit: 1,
             totalScaleFactor: 1,
+            requestedPixels: 1,
+            grantedPixels: 1,
+            pixelScaleFactor: 1,
+            wasClamped: false,
             startRender: vi.fn(() => {
                 events.push('start replacement');
                 return nextTask;

@@ -73,6 +73,24 @@ async function invokeWithStartupTrace<T>(label: string, invoke: () => Promise<T>
     }
 }
 
+function readSystemMemoryInfo() {
+    if (typeof process.getSystemMemoryInfo !== 'function') {
+        return null;
+    }
+
+    const memoryInfo = process.getSystemMemoryInfo();
+    const total = Number(memoryInfo.total);
+    const free = Number(memoryInfo.free);
+    if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(free) || free < 0) {
+        return null;
+    }
+
+    return {
+        totalBytes: Math.round(total * 1024),
+        freeBytes: Math.round(free * 1024),
+    };
+}
+
 export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: typeof webUtils): IElectronAPI {
     const invokeCore = createTypedIpcInvoker<ICoreInvokeMap>(ipcRenderer);
     const invokeDocuments = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer);
@@ -151,6 +169,8 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
             onMenuOpenSettings: (callback): IMenuEventUnsubscribe =>
                 eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuOpenSettings, callback),
         },
+
+        system: { getMemoryInfo: readSystemMemoryInfo },
 
         updates: {
             getState: () => invokeCore(CORE_IPC_CHANNELS.updatesGetState),

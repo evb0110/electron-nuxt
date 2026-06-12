@@ -59,6 +59,28 @@
     }
 }
 
+.page_preview {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    z-index: 0;
+    background: var(--pdf-page-bg);
+    box-shadow: var(--pdf-page-shadow);
+    border-radius: 2px;
+    pointer-events: none;
+
+    > canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+}
+
+.pdfViewer .page_container--has-preview:not(.page_container--rendered) .page_canvas {
+    background: transparent;
+    box-shadow: none;
+}
+
 /* ── Text Layer (PDF.js) ───────────────────────────────────────────── */
 
 .pdfViewer .text-layer {
@@ -298,6 +320,13 @@
     visibility: hidden;
     pointer-events: none;
     transform: translateX(-200vw);
+}
+
+.pdfViewer .page_container--buffered.page_container--navigation-held {
+    visibility: visible;
+    pointer-events: none;
+    transform: none;
+    z-index: 5;
 }
 
 /* ── Drag Mode Cursor Overrides ────────────────────────────────────── */

@@ -4,6 +4,8 @@ import {
     it,
 } from 'vitest';
 import {
+    PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT,
+    PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY,
     PDF_PAGE_PROXY_CACHE_DEFAULT,
     PDF_PAGE_PROXY_CACHE_LOW_MEMORY,
     PDF_RENDER_CONCURRENCY_DEFAULT,
@@ -26,6 +28,7 @@ describe('resolvePerformanceProfile', () => {
             maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_LOW_MEMORY,
             thumbnailBaseConcurrency: PDF_THUMBNAIL_CONCURRENCY_LOW_PROFILE,
             settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
+            maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY,
         });
     });
 
@@ -41,6 +44,39 @@ describe('resolvePerformanceProfile', () => {
             maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_DEFAULT,
             thumbnailBaseConcurrency: PDF_THUMBNAIL_CONCURRENCY_DEFAULT,
             settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY,
+            maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT,
+        });
+    });
+
+    it('does not trust clamped 8 GB deviceMemory as real high memory when total RAM is available', () => {
+        expect(resolvePerformanceProfile({
+            deviceMemory: 8,
+            hardwareConcurrency: 8,
+            totalMemoryBytes: 8 * 1024 ** 3,
+        })).toMatchObject({
+            lowMemory: true,
+            lowCpu: false,
+            pdfBufferPages: 1,
+            concurrentPdfRenders: PDF_RENDER_CONCURRENCY_LOW_MEMORY,
+            maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_LOW_MEMORY,
+            settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
+            maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY,
+        });
+    });
+
+    it('uses the higher settled canvas budget on real 16 GB+ machines', () => {
+        expect(resolvePerformanceProfile({
+            deviceMemory: 8,
+            hardwareConcurrency: 8,
+            totalMemoryBytes: 32 * 1024 ** 3,
+        })).toMatchObject({
+            lowMemory: false,
+            lowCpu: false,
+            pdfBufferPages: 2,
+            concurrentPdfRenders: PDF_RENDER_CONCURRENCY_DEFAULT,
+            maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_DEFAULT,
+            settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY,
+            maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT,
         });
     });
 
@@ -55,6 +91,7 @@ describe('resolvePerformanceProfile', () => {
             concurrentPdfRenders: PDF_RENDER_CONCURRENCY_LOW_CPU,
             maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_DEFAULT,
             settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY,
+            maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT,
         });
     });
 
@@ -69,6 +106,7 @@ describe('resolvePerformanceProfile', () => {
             concurrentPdfRenders: PDF_RENDER_CONCURRENCY_LOW_MEMORY,
             maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_LOW_MEMORY,
             settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
+            maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY,
         });
     });
 });
