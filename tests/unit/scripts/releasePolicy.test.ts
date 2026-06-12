@@ -245,6 +245,12 @@ describe('release policy', () => {
                 'lint',
             ],
             [
+                '--dir',
+                'landing',
+                'run',
+                'check:vendor',
+            ],
+            [
                 'run',
                 'typecheck',
             ],
@@ -323,7 +329,7 @@ describe('release policy', () => {
             },
         });
 
-        expect(calls).toHaveLength(7);
+        expect(calls).toHaveLength(getLocalReleaseCheckCommands().length);
         expect(calls.every(call => call.command === 'pnpm')).toBe(true);
         expect(calls.every(call => call.env?.CI === 'true')).toBe(true);
         expect(calls.every(call => call.env?.FOO === 'bar')).toBe(true);
