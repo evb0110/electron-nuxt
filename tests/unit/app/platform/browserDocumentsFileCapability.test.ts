@@ -188,7 +188,7 @@ type TCreateCombinedPdfFromPaths = (paths: string[], options?: ICreateCombinedPd
 
 async function loadCreateCombinedPdfFromPaths(): Promise<TCreateCombinedPdfFromPaths> {
     const module = await import('@app/platform/browser-api/createBrowserDocumentsFileCapability');
-    return module.createCombinedPdfFromPaths;
+    return module.createBrowserCombinedPdfFromPaths;
 }
 
 async function loadBrowserDocumentsMenuCapability(): Promise<IBrowserDocumentsMenuTestCapability> {

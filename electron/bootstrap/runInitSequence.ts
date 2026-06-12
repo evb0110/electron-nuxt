@@ -30,6 +30,10 @@ interface IRegisterIpcHandlersOptions {
     claimPendingExternalOpenPaths?: (event: IpcMainInvokeEvent) => Promise<string[]>;
 }
 
+function shouldWaitForInitialRendererReady() {
+    return process.env.EVB_WAIT_RENDERER_READY === '1';
+}
+
 export interface IRunInitSequenceOptions {
     app: App;
     aboutIconPath: string;
@@ -41,7 +45,10 @@ export interface IRunInitSequenceOptions {
         removedDirectories: number;
         removedOcrDirectories: number;
     }>;
-    createWindow(options?: { waitForInitialRendererReady?: boolean }): Promise<BrowserWindow>;
+    createWindow(options?: {
+        showStartupPlaceholder?: boolean;
+        waitForInitialRendererReady?: boolean;
+    }): Promise<BrowserWindow>;
     devDockBadgeText: string;
     devDockIconPath: string;
     externalOpenManager: IExternalOpenManager;
@@ -300,7 +307,10 @@ async function bootMainWindow(options: IRunInitSequenceOptions) {
     externalOpenManager.markBootstrapReady();
     readyWindowIds.clear();
     logStartupPhase('Creating main window');
-    await createWindow({ waitForInitialRendererReady: true });
+    await createWindow({
+        showStartupPlaceholder: false,
+        waitForInitialRendererReady: shouldWaitForInitialRendererReady(),
+    });
     logStartupPhase('Main window creation requested');
 
     if (config.automation.noFocus && process.platform === 'darwin') {

@@ -8,8 +8,8 @@ import {
     buildOpenPdfImagePickerTypes,
 } from '@app/platform/browser-api/browserFileAccepts';
 import {
+    createBrowserCombinedPdfFromPaths,
     createBrowserDocumentsFileCapability,
-    createCombinedPdfFromPaths,
 } from '@app/platform/browser-api/createBrowserDocumentsFileCapability';
 import {
     configureBrowserFilePickerMessages,
@@ -90,7 +90,7 @@ export function createBrowserDocumentsCapability(
         openInputAccept: OPEN_PDF_IMAGE_ACCEPT,
         pickFiles,
         buildOpenPdfPickerTypes: buildOpenPdfImagePickerTypes,
-        createCombinedPdfFromPaths,
+        createCombinedPdfFromPaths: createBrowserCombinedPdfFromPaths,
         pickSaveTarget,
         saveBytesToPickerOrDownload,
         writeBytesToHandle,

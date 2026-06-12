@@ -12,7 +12,7 @@ import {
 import { uniq } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
-import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
+import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 
 type TShouldPrintPageMetricsDirectly = (
     metrics: Array<{
@@ -43,7 +43,6 @@ const documentsCapabilityMock = vi.hoisted(() => ({
 const toastAddMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@app/utils/pdfPrint', () => ({
-    buildBrowserPrintFrameMarkup: buildBrowserPrintFrameMarkupMock,
     buildPrintablePdfData: buildPrintablePdfDataMock,
     canPrintSourcePdfDirectly: (options: {
         pageNumbers?: number[];
@@ -54,6 +53,14 @@ vi.mock('@app/utils/pdfPrint', () => ({
         && options.orientation === 'auto'
         && (!options.pageNumbers || options.pageNumbers.length === 0)
     ),
+    renderPdfPagesForBrowserPrint: renderPdfPagesForBrowserPrintMock,
+    shouldPrintPageMetricsDirectly: shouldPrintPageMetricsDirectlyMock,
+    shouldPrintSourcePdfDirectly: shouldPrintSourcePdfDirectlyMock,
+    waitForPrintPaint: waitForPrintPaintMock,
+}));
+
+vi.mock('@app/utils/pdfPrintShared', () => ({
+    buildBrowserPrintFrameMarkup: buildBrowserPrintFrameMarkupMock,
     normalizePrintPageNumbers: (pageNumbers: number[] | undefined, totalPages: number) => {
         if (!pageNumbers?.length) {
             return range(1, totalPages + 1);
@@ -63,10 +70,6 @@ vi.mock('@app/utils/pdfPrint', () => ({
             .filter(pageNumber => Number.isInteger(pageNumber) && pageNumber >= 1 && pageNumber <= totalPages)
             .sort((left, right) => left - right);
     },
-    renderPdfPagesForBrowserPrint: renderPdfPagesForBrowserPrintMock,
-    shouldPrintPageMetricsDirectly: shouldPrintPageMetricsDirectlyMock,
-    shouldPrintSourcePdfDirectly: shouldPrintSourcePdfDirectlyMock,
-    waitForPrintPaint: waitForPrintPaintMock,
 }));
 
 vi.mock('@app/utils/platformDocuments', () => ({
@@ -176,6 +179,10 @@ function stubDocumentWithFrames(frames: Array<ReturnType<typeof createFakeFrame>
 }
 
 async function flushMicrotasks(iterations = 6) {
+    for (let index = 0; index < iterations; index += 1) {
+        await Promise.resolve();
+    }
+    await new Promise(resolve => setTimeout(resolve, 0));
     for (let index = 0; index < iterations; index += 1) {
         await Promise.resolve();
     }

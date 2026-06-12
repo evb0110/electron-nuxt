@@ -26,6 +26,10 @@ import {
 import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { getPdfPopupDict } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/getPdfPopupDict';
 
+function toPdfLibRef(ref: ReturnType<typeof parsePdfJsAnnotationRef>) {
+    return ref ? PDFRef.of(ref.objectNumber, ref.generationNumber) : null;
+}
+
 function getPdfDictAuthor(dict: PDFDict | null) {
     if (!dict) {
         return '';
@@ -41,7 +45,7 @@ function parseAnnotationRefFromStableKey(stableKey: string | null | undefined) {
     if (!match?.[1]) {
         return null;
     }
-    return parsePdfJsAnnotationRef(match[1]);
+    return toPdfLibRef(parsePdfJsAnnotationRef(match[1]));
 }
 
 function isNoteLikeAnnotationSubtype(
@@ -58,7 +62,7 @@ function isNoteLikeAnnotationSubtype(
 
 function resolveCommentPdfRef(comment: IAnnotationCommentSummary) {
     return (
-        parsePdfJsAnnotationRef(comment.annotationId ?? comment.id)
+        toPdfLibRef(parsePdfJsAnnotationRef(comment.annotationId ?? comment.id))
         ?? parseAnnotationRefFromStableKey(comment.stableKey)
     );
 }

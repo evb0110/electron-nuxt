@@ -7,17 +7,19 @@ import {
 } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import {
-    buildBrowserPrintFrameMarkup,
     buildPrintSpreadGroups,
     buildPrintablePdfData,
     canPrintSourcePdfDirectly,
-    parsePrintPageRangeInput,
     renderPdfDocumentPagesForBrowserPrint,
     renderPdfPagesForBrowserPrint,
     shouldPrintPageMetricsDirectly,
     shouldPrintSourcePdfDirectly,
 } from '@app/utils/pdfPrint';
-import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
+import {
+    buildBrowserPrintFrameMarkup,
+    parsePrintPageRangeInput,
+    type IBrowserPrintDocument,
+} from '@app/utils/pdfPrintShared';
 
 const pdfjsModule = vi.hoisted((): {
     GlobalWorkerOptions: { workerSrc?: string; };

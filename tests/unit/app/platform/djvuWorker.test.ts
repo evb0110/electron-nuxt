@@ -154,11 +154,14 @@ describe('createDjvuWorkerFromPath', () => {
             height: 200,
             dpi: 300,
         }]);
-        await expect(source.renderPageObjectUrl(1)).resolves.toBe('blob:native-preview');
+        await expect(source.renderPageObjectUrl(1, { subsample: 2 })).resolves.toEqual({
+            objectUrl: 'blob:native-preview',
+            renderedPx: 100,
+        });
 
         expect(mocks.loadDjvuJs).not.toHaveBeenCalled();
         expect(mocks.stat).not.toHaveBeenCalled();
         expect(mocks.read).not.toHaveBeenCalled();
-        expect(mocks.nativeRenderPagePreview).toHaveBeenCalledWith('/Users/test/book.djvu', 1);
+        expect(mocks.nativeRenderPagePreview).toHaveBeenCalledWith('/Users/test/book.djvu', 1, { subsample: 2 });
     });
 });

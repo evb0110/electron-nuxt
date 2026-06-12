@@ -1,5 +1,8 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IDjvuCapability } from '@contracts/electronApiDjvu';
+import type {
+    IDjvuCapability,
+    IDjvuPagePreviewOptions,
+} from '@contracts/electronApiDjvu';
 import type { IDocumentsCapability } from '@contracts/electronApiDocuments';
 import {
     browserDocumentStore,
@@ -13,6 +16,11 @@ import {
 const DJVU_READ_CHUNK_BYTES = 4 * 1024 * 1024;
 
 interface IDjvuWorkerReadOptions {signal?: AbortSignal;}
+
+interface IDjvuRenderedPageObjectUrl {
+    objectUrl: string;
+    renderedPx: number;
+}
 
 function toOwnedArrayBuffer(bytes: Uint8Array) {
     if (
@@ -173,14 +181,95 @@ function createPngObjectUrl(bytes: Uint8Array) {
     return URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/png' }));
 }
 
+function loadImageElement(url: string) {
+    return new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error('Failed to decode DjVu page preview'));
+        image.src = url;
+    });
+}
+
+function canvasToPngBlob(canvas: HTMLCanvasElement) {
+    return new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+            if (blob) {
+                resolve(blob);
+                return;
+            }
+            reject(new Error('Failed to encode scaled DjVu page preview'));
+        }, 'image/png');
+    });
+}
+
+async function scaleDjvuPageObjectUrl(
+    pageObject: {
+        url: string;
+        width: number;
+        height: number;
+    },
+    subsample: number | undefined,
+    revokeSourceUrl: (url: string) => void,
+): Promise<IDjvuRenderedPageObjectUrl> {
+    const normalizedSubsample = Math.max(1, Math.trunc(subsample ?? 1));
+    if (
+        normalizedSubsample <= 1
+        || typeof document === 'undefined'
+        || typeof Image === 'undefined'
+        || typeof URL === 'undefined'
+        || typeof URL.createObjectURL !== 'function'
+    ) {
+        return {
+            objectUrl: pageObject.url,
+            renderedPx: pageObject.width,
+        };
+    }
+
+    try {
+        const targetWidth = Math.max(1, Math.round(pageObject.width / normalizedSubsample));
+        const targetHeight = Math.max(1, Math.round(pageObject.height / normalizedSubsample));
+        const image = await loadImageElement(pageObject.url);
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const context = canvas.getContext('2d');
+        if (!context) {
+            return {
+                objectUrl: pageObject.url,
+                renderedPx: pageObject.width,
+            };
+        }
+
+        context.drawImage(image, 0, 0, targetWidth, targetHeight);
+        const blob = await canvasToPngBlob(canvas);
+        const scaledUrl = URL.createObjectURL(blob);
+        revokeSourceUrl(pageObject.url);
+        return {
+            objectUrl: scaledUrl,
+            renderedPx: targetWidth,
+        };
+    } catch {
+        return {
+            objectUrl: pageObject.url,
+            renderedPx: pageObject.width,
+        };
+    }
+}
+
 export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef) {
     const nativeDjvu = getDesktopDjvuPreviewCapability(djvuPath);
     if (nativeDjvu) {
         return {
             getPageSizes: () => nativeDjvu.getPageSizes(djvuPath),
-            async renderPageObjectUrl(pageNumber: number) {
-                const preview = await nativeDjvu.renderPagePreview(djvuPath, pageNumber);
-                return createPngObjectUrl(preview.bytes);
+            async renderPageObjectUrl(
+                pageNumber: number,
+                options?: IDjvuPagePreviewOptions,
+            ): Promise<IDjvuRenderedPageObjectUrl> {
+                const preview = await nativeDjvu.renderPagePreview(djvuPath, pageNumber, options);
+                return {
+                    objectUrl: createPngObjectUrl(preview.bytes),
+                    renderedPx: preview.width,
+                };
             },
             revokeObjectURL: (url: string) => URL.revokeObjectURL(url),
             terminate() {},
@@ -190,9 +279,16 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
     const worker = await createDjvuWorkerFromPath(djvuPath);
     return {
         getPageSizes: (): Promise<IDjvuPageSize[]> => worker.doc.getPagesSizes().run(),
-        async renderPageObjectUrl(pageNumber: number) {
+        async renderPageObjectUrl(
+            pageNumber: number,
+            options?: IDjvuPagePreviewOptions,
+        ): Promise<IDjvuRenderedPageObjectUrl> {
             const pageObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
-            return pageObject.url;
+            return scaleDjvuPageObjectUrl(
+                pageObject,
+                options?.subsample,
+                url => worker.revokeObjectURL(url),
+            );
         },
         revokeObjectURL: (url: string) => worker.revokeObjectURL(url),
         terminate: () => worker.terminate(),

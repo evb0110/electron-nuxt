@@ -5,9 +5,6 @@ import type {
     TSerializationWorkerRequestType,
     TSerializationWorkerResponse,
 } from '@app/modules/pdf-viewer/engine/pdfSerializationWorker.types';
-import { deleteEmbeddedAnnotation } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/deleteEmbeddedAnnotation';
-import { serializePdfEdits } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/serializePdfEdits';
-import { updateEmbeddedAnnotationText } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/updateEmbeddedAnnotationText';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/public';
 import {
@@ -139,10 +136,16 @@ async function runDirect(
     switch (request.type) {
         case 'save': {
             const { payload } = request;
+            const { serializePdfEdits } = await import(
+                '@app/modules/pdf-viewer/engine/pdf-serialization-operations/serializePdfEdits'
+            );
             return serializePdfEdits(payload.data, payload.payload);
         }
         case 'updateEmbeddedText': {
             const { payload } = request;
+            const { updateEmbeddedAnnotationText } = await import(
+                '@app/modules/pdf-viewer/engine/pdf-serialization-operations/updateEmbeddedAnnotationText'
+            );
             return updateEmbeddedAnnotationText(
                 payload.data,
                 payload.comment,
@@ -151,6 +154,9 @@ async function runDirect(
         }
         case 'deleteEmbeddedAnnotation': {
             const { payload } = request;
+            const { deleteEmbeddedAnnotation } = await import(
+                '@app/modules/pdf-viewer/engine/pdf-serialization-operations/deleteEmbeddedAnnotation'
+            );
             return deleteEmbeddedAnnotation(payload.data, payload.comment);
         }
         default:

@@ -37,8 +37,14 @@ interface ICanvasScale {
     scaleY: number;
 }
 
-export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
-    const { outputScale } = deps;
+export const usePdfCanvasRenderer = (deps: {
+    outputScale: number;
+    defaultMaxCanvasPixels?: number | undefined;
+}) => {
+    const {
+        outputScale,
+        defaultMaxCanvasPixels,
+    } = deps;
 
     function cleanupCanvas(canvas: HTMLCanvasElement) {
         canvas.width = 0;
@@ -60,12 +66,17 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
         return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0;
     }
 
-    function getMaxCanvasPixels(options?: IRenderCanvasOptions) {
-        return typeof options?.maxCanvasPixels === 'number'
-            && Number.isFinite(options.maxCanvasPixels)
-            && options.maxCanvasPixels > 0
-            ? Math.max(1, Math.round(options.maxCanvasPixels))
+    function normalizeMaxCanvasPixels(value: number | undefined) {
+        return typeof value === 'number'
+            && Number.isFinite(value)
+            && value > 0
+            ? Math.max(1, Math.round(value))
             : null;
+    }
+
+    function getMaxCanvasPixels(options?: IRenderCanvasOptions) {
+        return normalizeMaxCanvasPixels(options?.maxCanvasPixels)
+            ?? normalizeMaxCanvasPixels(defaultMaxCanvasPixels);
     }
 
     function calculateCanvasPixelSize(

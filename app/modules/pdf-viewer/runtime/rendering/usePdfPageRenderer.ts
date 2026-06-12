@@ -26,6 +26,7 @@ import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engin
 import { usePdfRendererSearchController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController';
 import { usePdfRendererPageRegistry } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererPageRegistry';
 import { createPdfRendererPageDom } from '@app/modules/pdf-viewer/runtime/rendering/pdf-renderer-page-dom/createPdfRendererPageDom';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { usePdfRendererCleanupController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererCleanupController';
 import { usePdfRendererCanvasController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererCanvasController';
 import { usePdfRendererAnnotationLayerController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController';
@@ -46,6 +47,7 @@ export interface IUsePdfPageRendererOptions {
     effectiveScale: MaybeRefOrGetter<number>;
 
     bufferPages?: MaybeRefOrGetter<number>;
+    renderConcurrency?: MaybeRefOrGetter<number>;
     showAnnotations?: MaybeRefOrGetter<boolean>;
     hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>>;
     canvasHiddenAnnotationIds?: MaybeRefOrGetter<Set<string>> | undefined;
@@ -75,6 +77,7 @@ export interface IUsePdfPageRendererOptions {
 }
 
 export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
+    const performanceProfile = getPerformanceProfile();
     const {
         pdfDocument,
         numPages,
@@ -92,7 +95,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         ? options.document.pageMetrics
         : ref<IPdfPageMetric[]>([]);
 
-    const bufferPages = options.bufferPages ?? 2;
+    const bufferPages = options.bufferPages ?? performanceProfile.pdfBufferPages;
+    const renderConcurrency = options.renderConcurrency ?? performanceProfile.concurrentPdfRenders;
     const showAnnotations = options.showAnnotations ?? true;
     const searchPageMatches =
         options.searchPageMatches ?? new Map<number, IPdfPageMatches>();
@@ -105,7 +109,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         options.outputScale ??
     (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
 
-    const canvasRenderer = usePdfCanvasRenderer({ outputScale });
+    const canvasRenderer = usePdfCanvasRenderer({
+        outputScale,
+        defaultMaxCanvasPixels: performanceProfile.settledMaxCanvasPixels,
+    });
     const textLayerRenderer = usePdfTextLayerRenderer({
         searchPageMatches,
         currentSearchMatch,
@@ -432,6 +439,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         numPages,
         isActive,
         bufferPages,
+        renderConcurrency,
         effectiveScale: options.effectiveScale,
         renderedPages,
         staleRenderedPages,

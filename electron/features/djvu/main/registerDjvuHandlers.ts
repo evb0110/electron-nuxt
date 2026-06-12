@@ -38,6 +38,7 @@ import {
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
 import type { TDjvuIpcMainRegistrar } from '@electron/features/djvu/ports';
 import { DJVU_CHANNELS } from '@electron/features/djvu/contract';
+import type { IDjvuPagePreviewOptions } from '@contracts/electronApiDjvu';
 
 const logger = createLogger('djvu-ipc');
 
@@ -139,6 +140,7 @@ async function handleDjvuRenderPagePreview(
     event: IpcMainInvokeEvent,
     djvuPath: string,
     pageNumber: number,
+    options?: IDjvuPagePreviewOptions,
 ) {
     const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, event.sender);
     if (!isAllowedDjvuViewingPath(normalizedDjvuPath, event.sender.id)) {
@@ -147,7 +149,7 @@ async function handleDjvuRenderPagePreview(
     if (!Number.isInteger(pageNumber) || pageNumber < 1) {
         throw new Error(`Invalid DjVu page number: ${pageNumber}`);
     }
-    return renderDjvuPagePreview(normalizedDjvuPath, pageNumber);
+    return renderDjvuPagePreview(normalizedDjvuPath, pageNumber, options);
 }
 
 async function handleDjvuCleanupTemp(

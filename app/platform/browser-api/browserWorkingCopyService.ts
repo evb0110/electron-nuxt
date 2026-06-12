@@ -13,11 +13,10 @@ import {
     isPdfFileName,
 } from '@app/platform/browser-api/browserFileName';
 import { buildBrowserByteLimitError } from '@app/platform/browser-api/browserPlatformHelpers';
-import { createCombinedPdfFromPaths } from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import type { IBrowserBatchOpenProgressOptions } from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import { containsPdfEncryptMarker } from '@app/platform/browser-api/browserPdfValidation';
 import { emitBrowserOpenDocumentDirectBatchProgress } from '@app/platform/browser-api/documentsMenuCapability';
-import { stripPdfEncryption } from '@app/utils/stripPdfEncryption';
+import { stripBrowserPdfEncryption } from '@app/platform/browser-api/stripBrowserPdfEncryption';
 
 const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
 const BROWSER_EAGER_DECRYPT_BYTES = 64 * 1024 * 1024;
@@ -106,7 +105,7 @@ export async function decryptBrowserWorkingCopy(workingPath: string) {
         }
 
         const bytes = await browserDocumentStore.read(workingPath);
-        const decrypted = await stripPdfEncryption(bytes);
+        const decrypted = await stripBrowserPdfEncryption(bytes);
         if (decrypted !== bytes) {
             await browserDocumentStore.write(workingPath, new Uint8Array(decrypted));
         }
@@ -184,6 +183,7 @@ export async function openDocumentPaths(
         } satisfies TOpenFileResult;
     }
 
+    const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/createCombinedPdfFromPaths');
     const combinedPdf = await createCombinedPdfFromPaths(
         normalizedPaths,
         progressOptions,

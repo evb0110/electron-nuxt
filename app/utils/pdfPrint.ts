@@ -4,10 +4,7 @@ import type {
     PDFPage,
     PageBoundingBox,
 } from 'pdf-lib';
-import {
-    compact,
-    uniq,
-} from 'es-toolkit/array';
+import { uniq } from 'es-toolkit/array';
 import {
     range,
     sumBy,
@@ -27,8 +24,15 @@ import type {
     PDFDocumentProxy,
     PDFPageProxy,
 } from 'pdfjs-dist';
-
-export type TPrintOrientation = 'auto' | 'portrait' | 'landscape';
+import {
+    BROWSER_PRINT_ROOT_SELECTOR,
+    normalizePrintPageNumbers,
+    type IBrowserPrintCanvas,
+    type IBrowserPrintDocument,
+    type IBrowserPrintRoot,
+    type IBrowserPrintStyleElement,
+    type TPrintOrientation,
+} from '@app/utils/pdfPrintShared';
 
 interface IPrintEmbeddedPage {
     pageNumber: number;
@@ -73,43 +77,6 @@ const STANDARD_SINGLE_PAGE_PRINT_SHEETS = [
     },
 ] as const;
 
-export const BROWSER_PRINT_ROOT_SELECTOR = '[data-browser-print-root]';
-
-interface IBrowserPrintRoot {
-    append: (...nodes: unknown[]) => unknown;
-    replaceChildren: (...nodes: unknown[]) => unknown;
-}
-
-interface IBrowserPrintPageContainer {
-    append: (...nodes: unknown[]) => unknown;
-    className: string;
-}
-
-interface IBrowserPrintStyleElement {textContent: string;}
-
-interface IBrowserPrintElementStyle {
-    height: string;
-    width: string;
-}
-
-interface IBrowserPrintCanvas {
-    getContext: (
-        contextId: '2d',
-        options?: CanvasRenderingContext2DSettings,
-    ) => CanvasRenderingContext2D | null;
-    height: number;
-    style: IBrowserPrintElementStyle;
-    width: number;
-}
-
-export interface IBrowserPrintDocument {
-    querySelector(selector: string): IBrowserPrintRoot | null;
-    createElement(tag: 'section' | 'canvas' | 'style'):
-        | IBrowserPrintPageContainer
-        | IBrowserPrintCanvas
-        | IBrowserPrintStyleElement;
-}
-
 function createBrowserPrintAbortError() {
     const error = new Error('Print preparation was canceled');
     error.name = 'AbortError';
@@ -134,77 +101,6 @@ function toPageBoundingBox(box: IPdfPageBox): PageBoundingBox {
         right: box.x + box.width,
         top: box.y + box.height,
     };
-}
-
-export function buildBrowserPrintFrameMarkup() {
-    return `<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>Printable PDF</title>
-    <style>
-        @page {
-            margin: 0;
-        }
-
-        html, body {
-            margin: 0;
-            width: 100%;
-            height: 100%;
-            background: #ffffff;
-        }
-
-        ${BROWSER_PRINT_ROOT_SELECTOR} {
-            display: block;
-            width: 100%;
-        }
-
-        .browser-print-page {
-            break-inside: avoid;
-            page-break-inside: avoid;
-            break-before: page;
-            page-break-before: always;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-sizing: border-box;
-            background: #ffffff;
-            overflow: hidden;
-            width: 100%;
-            height: 100%;
-        }
-
-        .browser-print-page:first-child {
-            break-before: auto;
-            page-break-before: auto;
-        }
-
-        .browser-print-page canvas {
-            display: block;
-            margin: 0 auto;
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
-            break-inside: avoid;
-            page-break-inside: avoid;
-        }
-
-        @media print {
-            html, body {
-                height: 100%;
-            }
-
-            ${BROWSER_PRINT_ROOT_SELECTOR} {
-                display: block;
-                width: 100%;
-            }
-        }
-    </style>
-</head>
-<body>
-    <main data-browser-print-root></main>
-</body>
-</html>`;
 }
 
 async function getPdfjsPrintLib() {
@@ -464,93 +360,6 @@ async function renderPdfPageNumbersForBrowserPrint(
             }
         }
     }
-}
-
-function normalizeTotalPages(value: number) {
-    if (!Number.isFinite(value) || value <= 0) {
-        return 0;
-    }
-
-    return Math.max(0, Math.floor(value));
-}
-
-function buildAllPageNumbers(totalPages: number) {
-    return range(1, totalPages + 1);
-}
-
-export function parsePrintPageRangeInput(input: string, totalPages: number): number[] | null {
-    const normalizedTotalPages = normalizeTotalPages(totalPages);
-    if (normalizedTotalPages <= 0) {
-        return null;
-    }
-
-    const normalizedInput = input
-        .trim()
-        .replace(/[–—]/g, '-')
-        .replace(/\.\./g, '-');
-
-    if (!normalizedInput) {
-        return null;
-    }
-
-    const pages = new Set<number>();
-    const parts = compact(normalizedInput
-        .split(',')
-        .map(part => part.trim()));
-
-    if (parts.length === 0) {
-        return null;
-    }
-
-    for (const part of parts) {
-        const compactPart = part.replace(/\s+/g, '');
-        const match = /^(\d+)(?:-(\d+))?$/.exec(compactPart);
-        if (!match) {
-            return null;
-        }
-
-        const first = Number.parseInt(match[1] ?? '', 10);
-        if (!Number.isFinite(first) || first < 1 || first > normalizedTotalPages) {
-            return null;
-        }
-
-        const secondToken = match[2];
-        if (!secondToken) {
-            pages.add(first);
-            continue;
-        }
-
-        const second = Number.parseInt(secondToken, 10);
-        if (!Number.isFinite(second) || second < 1 || second > normalizedTotalPages) {
-            return null;
-        }
-
-        const start = Math.min(first, second);
-        const end = Math.max(first, second);
-        for (let page = start; page <= end; page += 1) {
-            pages.add(page);
-        }
-    }
-
-    return uniq([...pages]).sort((left, right) => left - right);
-}
-
-export function normalizePrintPageNumbers(
-    pageNumbers: number[] | undefined,
-    totalPages: number,
-) {
-    const normalizedTotalPages = normalizeTotalPages(totalPages);
-    if (normalizedTotalPages <= 0) {
-        return [];
-    }
-
-    if (!pageNumbers || pageNumbers.length === 0) {
-        return buildAllPageNumbers(normalizedTotalPages);
-    }
-
-    return uniq(pageNumbers)
-        .filter(page => Number.isInteger(page) && page >= 1 && page <= normalizedTotalPages)
-        .sort((left, right) => left - right);
 }
 
 export function buildPrintSpreadGroups(

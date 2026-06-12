@@ -47,7 +47,7 @@ const REQUIRED_SYMBOLS_BY_WORKER: Partial<Record<TWorkerBundleId, string[]>> = {
         'readImageDpi',
         'pixelsToPdfPoints',
         'readTiffFrameDpi',
-        'METERS_PER_INCH',
+        '.0254',
     ],
     'pdf-conformance': ['analyzePdfConformanceFileDirect'],
     search: [

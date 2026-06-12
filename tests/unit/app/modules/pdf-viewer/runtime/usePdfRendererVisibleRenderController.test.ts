@@ -36,6 +36,7 @@ function createControllerHarness(options?: {
         numPages: ref(20),
         isActive: true,
         bufferPages: 1,
+        renderConcurrency: 3,
         effectiveScale: 1,
         renderedPages: new Set<number>(),
         staleRenderedPages: new Set<number>(),

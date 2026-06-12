@@ -9,6 +9,7 @@ import { join } from 'path';
 import { encode } from 'fast-png';
 import type {
     IDjvuPagePreview,
+    IDjvuPagePreviewOptions,
     IDjvuPageSize,
 } from '@contracts/electronApiDjvu';
 import { getDjvuResolution } from '@electron/djvu/metadata';
@@ -34,6 +35,7 @@ const DJVU_PAGE_SIZE_MAX_STDOUT_BYTES = (() => {
     }
     return parsed;
 })();
+const DJVU_PREVIEW_SUBSAMPLE_MAX = 12;
 
 function parsePositiveInteger(value: string | undefined) {
     if (!value) {
@@ -41,6 +43,22 @@ function parsePositiveInteger(value: string | undefined) {
     }
     const parsed = Number.parseInt(value, 10);
     return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function normalizePreviewSubsample(options: IDjvuPagePreviewOptions | undefined) {
+    const subsample = options?.subsample;
+    if (subsample === undefined) {
+        return undefined;
+    }
+    if (
+        !Number.isFinite(subsample)
+        || !Number.isInteger(subsample)
+        || subsample < 1
+        || subsample > DJVU_PREVIEW_SUBSAMPLE_MAX
+    ) {
+        throw new Error(`Invalid DjVu preview subsample value (expected 1-${DJVU_PREVIEW_SUBSAMPLE_MAX})`);
+    }
+    return subsample;
 }
 
 function parseSizeLine(line: string): Omit<IDjvuPageSize, 'dpi'> | null {
@@ -98,10 +116,12 @@ export async function getDjvuPageSizesForViewing(djvuPath: string, expectedPageC
 export async function renderDjvuPagePreview(
     djvuPath: string,
     pageNumber: number,
+    options?: IDjvuPagePreviewOptions,
 ): Promise<IDjvuPagePreview> {
     if (!Number.isInteger(pageNumber) || pageNumber < 1) {
         throw new Error(`Invalid DjVu page number: ${pageNumber}`);
     }
+    const subsample = normalizePreviewSubsample(options);
 
     const tempDir = await mkdtemp(join(tmpdir(), 'djvu-preview-'));
     const ppmPath = join(tempDir, `page-${pageNumber}-${randomUUID()}.ppm`);
@@ -112,7 +132,10 @@ export async function renderDjvuPagePreview(
             ppmPath,
             pageNumber,
             `djvu-preview-page-${pageNumber}-${randomUUID()}`,
-            { format: 'ppm' },
+            {
+                format: 'ppm',
+                ...(subsample && subsample > 1 ? { subsample } : {}),
+            },
         );
         if (!result.success) {
             throw new Error(result.error ?? `Failed to render DjVu page ${pageNumber}`);

@@ -88,6 +88,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { formatPageIndicatorWithOptions } from '@app/utils/pdfPageLabels';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { buildThumbnailRenderQueue } from '@app/modules/pdf-viewer/thumbnails/buildThumbnailRenderQueue';
 import { resolveThumbnailRenderConcurrency } from '@app/modules/pdf-viewer/thumbnails/resolveThumbnailRenderConcurrency';
 import { usePageDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
@@ -138,7 +139,7 @@ interface IProps {
 }
 
 const THUMBNAIL_WIDTH_CHANGE_THRESHOLD = 1;
-const THUMBNAIL_RENDER_CONCURRENCY = 2;
+const THUMBNAIL_RENDER_CONCURRENCY = getPerformanceProfile().thumbnailBaseConcurrency;
 const THUMBNAIL_NAVIGATION_CONCURRENCY_COOLDOWN_MS = 250;
 const IMMEDIATE_RENDER_RADIUS = 2;
 const PREFETCH_RENDER_RADIUS = 4;

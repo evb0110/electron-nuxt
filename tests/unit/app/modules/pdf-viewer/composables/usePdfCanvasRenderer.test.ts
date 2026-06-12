@@ -59,6 +59,84 @@ describe('usePdfCanvasRenderer', () => {
         expect(result?.annotationCanvasMap).toBeInstanceOf(Map);
     });
 
+    it('applies the settled-render default canvas pixel budget', async () => {
+        const canvas = {
+            width: 0,
+            height: 0,
+            style: {} as CSSStyleDeclaration,
+            getContext: vi.fn(() => ({})),
+            remove: vi.fn(),
+        };
+        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
+
+        const renderTask = {
+            cancel: vi.fn(),
+            promise: Promise.resolve(),
+        };
+        const pdfPage = {
+            pageNumber: 1,
+            getViewport: vi.fn(() => ({
+                width: 200,
+                height: 100,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 200,
+                    pageHeight: 100,
+                },
+            })),
+            render: vi.fn(() => renderTask),
+        } as const;
+
+        const renderer = usePdfCanvasRenderer({
+            outputScale: 2,
+            defaultMaxCanvasPixels: 20_000,
+        });
+        await renderer.renderCanvas(pdfPage as never, 1);
+
+        expect(canvas.width).toBe(200);
+        expect(canvas.height).toBe(100);
+        expect(canvas.style.width).toBe('200px');
+        expect(canvas.style.height).toBe('100px');
+    });
+
+    it('lets explicit render options override the settled default canvas budget', async () => {
+        const canvas = {
+            width: 0,
+            height: 0,
+            style: {} as CSSStyleDeclaration,
+            getContext: vi.fn(() => ({})),
+            remove: vi.fn(),
+        };
+        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
+
+        const renderTask = {
+            cancel: vi.fn(),
+            promise: Promise.resolve(),
+        };
+        const pdfPage = {
+            pageNumber: 1,
+            getViewport: vi.fn(() => ({
+                width: 200,
+                height: 100,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 200,
+                    pageHeight: 100,
+                },
+            })),
+            render: vi.fn(() => renderTask),
+        } as const;
+
+        const renderer = usePdfCanvasRenderer({
+            outputScale: 2,
+            defaultMaxCanvasPixels: 80_000,
+        });
+        await renderer.renderCanvas(pdfPage as never, 1, { maxCanvasPixels: 20_000 });
+
+        expect(canvas.width).toBe(200);
+        expect(canvas.height).toBe(100);
+    });
+
     it('replaces the existing page canvas without clearing sibling overlay layers', () => {
         const renderer = usePdfCanvasRenderer({ outputScale: 1 });
         const nextCanvas = {} as HTMLCanvasElement;

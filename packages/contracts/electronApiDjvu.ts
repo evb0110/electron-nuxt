@@ -40,6 +40,8 @@ export interface IDjvuPagePreview {
     height: number;
 }
 
+export interface IDjvuPagePreviewOptions {subsample?: number;}
+
 export interface IDjvuConvertOptions {
     subsample?: number;
     preserveBookmarks?: boolean;
@@ -78,7 +80,11 @@ export interface IDjvuAPI {
     cancel: (jobId: string) => Promise<{ canceled: boolean }>;
     getInfo: (djvuPath: TDocumentRef) => Promise<IDjvuInfo>;
     getPageSizes: (djvuPath: TDocumentRef) => Promise<IDjvuPageSize[]>;
-    renderPagePreview: (djvuPath: TDocumentRef, pageNumber: number) => Promise<IDjvuPagePreview>;
+    renderPagePreview: (
+        djvuPath: TDocumentRef,
+        pageNumber: number,
+        options?: IDjvuPagePreviewOptions,
+    ) => Promise<IDjvuPagePreview>;
     estimateSizes: (djvuPath: TDocumentRef) => Promise<IDjvuSizeEstimate[]>;
     cleanupTemp: (tempPdfPath: TDocumentRef) => Promise<void>;
     onProgress: (callback: (progress: IDjvuProgress) => void) => () => void;

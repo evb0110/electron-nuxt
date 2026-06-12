@@ -359,6 +359,17 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         return true;
     }
 
+    function cleanupInactiveDocumentCaches() {
+        if (options.isAnySaving?.value) {
+            return;
+        }
+        const document = pdfDocument.value;
+        if (!document || typeof document.cleanup !== 'function') {
+            return;
+        }
+        void document.cleanup().catch(() => {});
+    }
+
     const {
         buildResizeAnchorContext,
         beginResizeTransition,
@@ -543,6 +554,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         cancelPendingSearchScroll?.();
         cancelInFlightPageRenders?.();
         cleanupRenderedPages();
+        cleanupInactiveDocumentCaches();
         resetZoomRerenderQueueState('inactive-tab');
         cleanupResizeLifecycle();
         highlight.clearSelectionCache();

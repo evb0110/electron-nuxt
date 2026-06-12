@@ -50,7 +50,11 @@ export interface IDjvuInvokeMap {
         result: Awaited<ReturnType<IDjvuCapability['getPageSizes']>>;
     };
     [DJVU_CHANNELS.renderPagePreview]: {
-        args: [djvuPath: string, pageNumber: number];
+        args: [
+            djvuPath: string,
+            pageNumber: number,
+            options?: Parameters<IDjvuCapability['renderPagePreview']>[2],
+        ];
         result: Awaited<ReturnType<IDjvuCapability['renderPagePreview']>>;
     };
     [DJVU_CHANNELS.estimateSizes]: {

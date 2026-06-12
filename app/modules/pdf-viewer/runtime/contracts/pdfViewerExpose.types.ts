@@ -17,7 +17,7 @@ import type {
     IScrollSnapshot,
 } from '@app/types/pdf';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
+import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 
 export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 export type TAgentTextMarkupKind = 'highlight' | 'underline' | 'strikethrough' | 'squiggly';

@@ -1,4 +1,7 @@
-import { PDFRef } from 'pdf-lib';
+export interface IPdfAnnotationRef {
+    objectNumber: number;
+    generationNumber: number;
+}
 
 export function parsePdfJsAnnotationRef(annotationId: string | null | undefined) {
     if (!annotationId) {
@@ -20,11 +23,14 @@ export function parsePdfJsAnnotationRef(annotationId: string | null | undefined)
         return null;
     }
 
-    return PDFRef.of(objectNumber, generationNumber);
+    return {
+        objectNumber,
+        generationNumber,
+    };
 }
 
 export function formatPdfJsAnnotationRef(
-    ref: Pick<PDFRef, 'objectNumber' | 'generationNumber'>,
+    ref: IPdfAnnotationRef,
 ) {
     return ref.generationNumber === 0
         ? `${ref.objectNumber}R`
