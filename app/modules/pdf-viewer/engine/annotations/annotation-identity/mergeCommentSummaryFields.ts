@@ -40,7 +40,7 @@ function summarySortIndex(summary: Pick<IAnnotationCommentSummary, 'sortIndex'>)
     return typeof summary.sortIndex === 'number' ? summary.sortIndex : null;
 }
 
-function mergeSortIndex(
+export function mergeSortIndex(
     left: Pick<IAnnotationCommentSummary, 'sortIndex'>,
     right: Pick<IAnnotationCommentSummary, 'sortIndex'>,
 ) {
@@ -176,7 +176,7 @@ function preferredMarkerRectSide(
     return preferenceDelta > 0 ? 'right' : 'left';
 }
 
-function pickPreferredMarkerRect(
+export function pickPreferredMarkerRect(
     left: Pick<IAnnotationCommentSummary, 'markerRect' | 'source' | 'modifiedAt'>,
     right: Pick<IAnnotationCommentSummary, 'markerRect' | 'source' | 'modifiedAt'>,
 ) {
@@ -220,7 +220,7 @@ function getNoNoteEditorTextMarkupPreviewText(summary: IAnnotationCommentSummary
     return summary.previewText?.trim() ? summary.previewText : null;
 }
 
-export function mergeCommentSummaries(
+export function mergeCommentSummaryFields(
     existing: IAnnotationCommentSummary,
     incoming: IAnnotationCommentSummary,
 ): IAnnotationCommentSummary {

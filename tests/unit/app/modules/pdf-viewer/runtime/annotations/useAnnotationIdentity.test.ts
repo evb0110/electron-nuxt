@@ -15,12 +15,12 @@ vi.stubGlobal('DOMMatrix', class {
     d = 1;
 });
 
-const { areTextMarkupCommentsLikelySame } = await import('@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/areTextMarkupCommentsLikelySame');
-const { commentsAreSameLogicalAnnotation } = await import('@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/commentsAreSameLogicalAnnotation');
-const { likelyEditorPdfMirror } = await import('@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/likelyEditorPdfMirror');
-const { mergeCommentSummaries } = await import('@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/mergeCommentSummaries');
-const { mergeDuplicateCommentSummary } = await import('@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/mergeDuplicateCommentSummary');
-const { selectPreferredAnnotationComment } = await import('@app/modules/pdf-viewer/engine/annotation-comment-matching/selectPreferredAnnotationComment');
+const { areTextMarkupCommentsLikelySame } = await import('@app/modules/pdf-viewer/engine/annotations/annotation-identity/areTextMarkupCommentsLikelySame');
+const { commentsAreSameLogicalAnnotation } = await import('@app/modules/pdf-viewer/engine/annotations/annotation-identity/commentsAreSameLogicalAnnotation');
+const { likelyEditorPdfMirror } = await import('@app/modules/pdf-viewer/engine/annotations/annotation-identity/likelyEditorPdfMirror');
+const { mergeCommentSummaries } = await import('@app/modules/pdf-viewer/engine/annotations/annotation-identity/mergeCommentSummaries');
+const { mergeDuplicateCommentSummary } = await import('@app/modules/pdf-viewer/engine/annotations/annotation-identity/mergeDuplicateCommentSummary');
+const { selectPreferredAnnotationComment } = await import('@app/modules/pdf-viewer/engine/annotations/annotation-identity/selectPreferredAnnotationComment');
 const { useAnnotationIdentity } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationIdentity');
 
 function makeRect(

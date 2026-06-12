@@ -1,7 +1,7 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics';
+import { resolveAnnotationCommentTextMarkupColor } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor';
 
 function normalizeTextMarkupSubtype(subtype: string | null | undefined) {
     return (subtype ?? '').trim().toLowerCase();
@@ -19,11 +19,13 @@ export function resolveCommentWithRenderedTextMarkupColorAtPoint(
     if (normalizeTextMarkupSubtype(comment.subtype) === 'highlight' && comment.color?.trim()) {
         return comment;
     }
-    const diagnostics = resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics(
+    const diagnostics = resolveAnnotationCommentTextMarkupColor(
         container,
         comment,
-        clientX,
-        clientY,
+        {atPoint: {
+            pageX: clientX,
+            pageY: clientY,
+        }},
     );
     BrowserLogger.debug('annotations', 'Resolved text markup context-menu color', () => ({
         annotationId: diagnostics.annotationId,

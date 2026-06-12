@@ -1,4 +1,4 @@
-import type { IMarkerRectEditorMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-matcher/markerRectEditorMatch';
+import type { IMarkerRectEditorMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/markerRectEditorMatch';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { markerRectCenterDistance } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/markerRectCenterDistance';

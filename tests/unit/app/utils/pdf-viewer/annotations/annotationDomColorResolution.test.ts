@@ -10,7 +10,6 @@ import {
 } from 'vitest';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { resolveAnnotationCommentTextMarkupColor } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor';
-import { resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics';
 
 interface IAnnotationDomColorTestRect {
     height: number;
@@ -104,6 +103,22 @@ function createViewerFixture() {
         ownerDocument: document,
         page,
     };
+}
+
+function resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics(
+    container: HTMLElement,
+    comment: IAnnotationCommentSummary,
+    clientX: number,
+    clientY: number,
+) {
+    return resolveAnnotationCommentTextMarkupColor(
+        container,
+        comment,
+        {atPoint: {
+            pageX: clientX,
+            pageY: clientY,
+        }},
+    );
 }
 
 beforeEach(() => {

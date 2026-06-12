@@ -17,7 +17,7 @@ import type {
 } from '@app/types/annotations';
 import { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
 import { isSelectionMarkupTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionMarkupTool';
-import { findEditorByMarkerRect as findEditorByMarkerRectHelper } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-matcher/findEditorByMarkerRect';
+import { findEditorByMarkerRect as findEditorByMarkerRectHelper } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/findEditorByMarkerRect';
 import { resolveCommentForDelete as resolveCommentForDeleteHelper } from '@app/modules/pdf-viewer/engine/annotations/annotation-delete-resolver/resolveCommentForDelete';
 import { resolveStablePdfDeleteFallback as resolveStablePdfDeleteFallbackHelper } from '@app/modules/pdf-viewer/engine/annotations/annotation-delete-resolver/resolveStablePdfDeleteFallback';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
@@ -35,7 +35,7 @@ import { findEditorForComment as findEditorForCommentHelper } from '@app/modules
 import { findEditorFromTarget as findEditorFromTargetHelper } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findEditorFromTarget';
 import { findPdfAnnotationSummaryFromTarget } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findPdfAnnotationSummaryFromTarget';
 import type { IEditorTargetMatch } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/editorTargetMatch';
-import { getCommentCandidateIds } from '@app/modules/pdf-viewer/engine/annotation-comment-identity/getCommentCandidateIds';
+import { getCommentCandidateIds } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/getCommentCandidateIds';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import {
     getEditorById,

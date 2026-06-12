@@ -1,0 +1,97 @@
+import {
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import { createDeferredWorkspaceExposeProxy } from '@app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy';
+import { requiredWorkspaceExposeMethods } from '@app/modules/workspace-shell/expose/requiredWorkspaceExposeMethods';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import { cast } from '@tests/helpers/cast';
+
+function createWorkspace(overrides: Partial<IWorkspaceExpose> = {}) {
+    const workspace: Record<string, unknown> = {hasPdf: true};
+    for (const method of requiredWorkspaceExposeMethods) {
+        workspace[method] = vi.fn(async () => true);
+    }
+    return cast<IWorkspaceExpose>({
+        ...workspace,
+        ...overrides,
+    });
+}
+
+function createDeps(workspace: IWorkspaceExpose | null) {
+    const log = vi.fn();
+    const enqueueDocumentOpen = vi.fn(async (_intent, run: () => Promise<unknown>) => run());
+    return cast<Parameters<typeof createDeferredWorkspaceExposeProxy>[0]>({
+        enqueueDocumentOpen,
+        getMounted: () => workspace,
+        log,
+        withLoadedWorkspace: vi.fn(async (_action, run) => (
+            workspace ? run(workspace) : null
+        )),
+        withWorkspace: vi.fn(async (_action, run) => (
+            workspace ? await run(workspace) !== false : false
+        )),
+    });
+}
+
+describe('createDeferredWorkspaceExposeProxy', () => {
+    it('forwards mount-wait methods and returns their result', async () => {
+        const workspace = createWorkspace({handleSave: vi.fn(async () => true)});
+        const deps = createDeps(workspace);
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        await expect(proxy.handleSave()).resolves.toBe(true);
+
+        expect(deps.withLoadedWorkspace).toHaveBeenCalledWith('handleSave', expect.any(Function));
+        expect(workspace.handleSave).toHaveBeenCalledOnce();
+    });
+
+    it('returns safe defaults when mount-wait methods have no workspace', async () => {
+        const deps = createDeps(null);
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        await expect(proxy.handleSave()).resolves.toBe(false);
+    });
+
+    it('queues document-open methods and invokes the inner workspace call', async () => {
+        const workspace = createWorkspace({handleOpenFileWithResult: vi.fn(async () => true)});
+        const deps = createDeps(workspace);
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        await expect(proxy.handleOpenFileWithResult(cast({
+            kind: 'pdf',
+            path: '/tmp/a.pdf',
+        }))).resolves.toBe(true);
+
+        expect(deps.enqueueDocumentOpen).toHaveBeenCalledWith(
+            expect.objectContaining({action: 'handleOpenFileWithResult'}),
+            expect.any(Function),
+        );
+        expect(workspace.handleOpenFileWithResult).toHaveBeenCalledOnce();
+    });
+
+    it('logs and returns false for direct method failures', async () => {
+        const error = new Error('boom');
+        const handleCombineImages = vi.fn(async () => {
+            throw error;
+        });
+        const workspace = createWorkspace({handleCombineImages});
+        const deps = createDeps(workspace);
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        await expect(proxy.handleCombineImages()).resolves.toBe(false);
+
+        expect(deps.log).toHaveBeenCalledWith('handleCombineImages', error);
+    });
+
+    it('provides every workspace expose method', () => {
+        const deps = createDeps(null);
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        for (const method of requiredWorkspaceExposeMethods) {
+            expect(proxy[method], method).toEqual(expect.any(Function));
+        }
+    });
+});

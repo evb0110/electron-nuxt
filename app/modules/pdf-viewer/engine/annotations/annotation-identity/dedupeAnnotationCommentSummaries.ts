@@ -1,9 +1,9 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
-import { commentMergePriority } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/commentMergePriority';
-import { commentsAreSameLogicalAnnotation } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/commentsAreSameLogicalAnnotation';
-import { mergeDuplicateCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/mergeDuplicateCommentSummary';
-import { normalizeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/normalizeSummaryStableKey';
+import { commentMergePriority } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/commentMergePriority';
+import { commentsAreSameLogicalAnnotation } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/commentsAreSameLogicalAnnotation';
+import { mergeDuplicateCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/mergeDuplicateCommentSummary';
+import { normalizeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/normalizeSummaryStableKey';
 
 export function dedupeAnnotationCommentSummaries(comments: IAnnotationCommentSummary[]) {
     const sorted = comments

@@ -1,5 +1,5 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { annotationCommentEditScore } from '@app/modules/pdf-viewer/engine/annotation-comment-matching/annotationCommentEditScore';
+import { annotationCommentEditScore } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/annotationCommentEditScore';
 
 function hasStablePdfAnnotationKey(comment: IAnnotationCommentSummary) {
     return /^nm:.+$/u.test(comment.stableKey)

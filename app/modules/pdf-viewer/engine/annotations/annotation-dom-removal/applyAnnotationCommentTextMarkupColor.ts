@@ -1,132 +1,19 @@
 import type {
     IHighlightVisualCandidate,
-    ITextMarkupElementCandidate,
+    ITextMarkupCandidateContext,
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/textMarkupDomRemovalTypes';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
 } from '@app/types/annotations';
-import { markerRectIoU } from '@app/modules/pdf-viewer/engine/annotation-geometry/markerRectIoU';
-import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
-import { markerRectCenterDistance } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/markerRectCenterDistance';
 import { refreshHighlightCompositeOverlay } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay';
-import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { recolorCanvasTextMarkupPixelsInRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-text-markup-canvas-pixels/recolorCanvasTextMarkupPixelsInRect';
+import { collectTextMarkupElementCandidates } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/collectTextMarkupElementCandidates';
+import { scoreTextMarkupVisualCandidate } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/scoreTextMarkupVisualCandidate';
 
-const MIN_HIGHLIGHT_VISUAL_IOU = 0.2;
-
-const MAX_HIGHLIGHT_VISUAL_CENTER_DISTANCE = 0.025;
-
-const TEXT_MARKUP_AXIS_TOLERANCE = 0.018;
-
-const MIN_TEXT_MARKUP_HORIZONTAL_OVERLAP_RATIO = 0.2;
-
-
-
-function getAnnotationId(element: HTMLElement) {
-    return element.dataset.annotationId ?? element.getAttribute('data-annotation-id');
-}
-
-function collectMatchingAnnotationElements(container: HTMLElement, annotationId: string) {
-    const normalizedTarget = normalizePdfJsAnnotationId(annotationId);
-    if (!normalizedTarget) {
-        return [];
-    }
-
-    return Array.from(container.querySelectorAll<HTMLElement>('[data-annotation-id]'))
-        .filter((element) => normalizePdfJsAnnotationId(getAnnotationId(element)) === normalizedTarget);
-}
-
-function appendUniqueElement(elements: HTMLElement[], element: HTMLElement) {
-    if (!elements.includes(element)) {
-        elements.push(element);
-    }
-}
-
-function findPageContainers(
-    container: HTMLElement,
-    comment: IAnnotationCommentSummary,
-    annotationElements: HTMLElement[],
-) {
-    const pageContainers = new Set<HTMLElement>();
-
-    annotationElements.forEach((element) => {
-        const pageContainer = element.closest<HTMLElement>('.page_container');
-        if (pageContainer) {
-            pageContainers.add(pageContainer);
-        }
-    });
-
-    if (Number.isFinite(comment.pageNumber) && comment.pageNumber > 0) {
-        const pageNumber = Math.floor(comment.pageNumber);
-        const pageContainer = container.querySelector<HTMLElement>(
-            `.page_container[data-page="${pageNumber}"]`,
-        );
-        if (pageContainer) {
-            pageContainers.add(pageContainer);
-        }
-    }
-
-    return [...pageContainers];
-}
-
-function isTextMarkupElement(element: HTMLElement) {
-    const className = String(element.className).toLowerCase();
-    return className.includes('highlight')
-        || className.includes('underline')
-        || className.includes('strikeout')
-        || className.includes('squiggly');
-}
-
-function rectFromElement(
-    pageContainer: HTMLElement,
-    element: Element & { getBoundingClientRect: () => DOMRect; },
-): IAnnotationMarkerRect | null {
-    const pageRect = pageContainer.getBoundingClientRect();
-    const elementRect = element.getBoundingClientRect();
-    if (
-        pageRect.width <= 0
-        || pageRect.height <= 0
-        || elementRect.width <= 0
-        || elementRect.height <= 0
-    ) {
-        return null;
-    }
-
-    return normalizeMarkerRect({
-        left: (elementRect.left - pageRect.left) / pageRect.width,
-        top: (elementRect.top - pageRect.top) / pageRect.height,
-        width: elementRect.width / pageRect.width,
-        height: elementRect.height / pageRect.height,
-    });
-}
-
-function getTargetRects(
-    pageContainer: HTMLElement,
-    comment: IAnnotationCommentSummary,
-    annotationElements: HTMLElement[],
-) {
-    const targetRects: IAnnotationMarkerRect[] = [];
-    const normalizedCommentRect = normalizeMarkerRect(comment.markerRect);
-    if (normalizedCommentRect) {
-        targetRects.push(normalizedCommentRect);
-    }
-
-    annotationElements.forEach((element) => {
-        const pageForElement = element.closest<HTMLElement>('.page_container');
-        if (pageForElement !== pageContainer) {
-            return;
-        }
-        const elementRect = rectFromElement(pageContainer, element);
-        if (elementRect) {
-            targetRects.push(elementRect);
-        }
-    });
-
-    return targetRects;
-}
+interface IScoredHighlightVisualCandidate extends IHighlightVisualCandidate {matched: boolean;}
 
 function getDrawLayerTextMarkupSvgs(pageContainer: HTMLElement) {
     return Array.from(pageContainer.querySelectorAll<SVGElement>(
@@ -143,58 +30,25 @@ function getDrawLayerTextMarkupSvgs(pageContainer: HTMLElement) {
     )).filter(svg => !svg.classList.contains('pdf-highlight-composite-overlay'));
 }
 
-function intervalOverlap(leftStart: number, leftEnd: number, rightStart: number, rightEnd: number) {
-    return Math.max(0, Math.min(leftEnd, rightEnd) - Math.max(leftStart, rightStart));
-}
-
-function rectHasTextMarkupAxisOverlap(
-    candidateRect: IAnnotationMarkerRect,
-    targetRect: IAnnotationMarkerRect,
-) {
-    const targetLeft = targetRect.left - TEXT_MARKUP_AXIS_TOLERANCE;
-    const targetRight = targetRect.left + targetRect.width + TEXT_MARKUP_AXIS_TOLERANCE;
-    const targetTop = targetRect.top - TEXT_MARKUP_AXIS_TOLERANCE;
-    const targetBottom = targetRect.top + targetRect.height + TEXT_MARKUP_AXIS_TOLERANCE;
-    const candidateCenterX = candidateRect.left + candidateRect.width / 2;
-    const candidateCenterY = candidateRect.top + candidateRect.height / 2;
-    if (
-        candidateCenterX < targetLeft
-        || candidateCenterX > targetRight
-        || candidateCenterY < targetTop
-        || candidateCenterY > targetBottom
-    ) {
-        return false;
-    }
-
-    const horizontalOverlap = intervalOverlap(
-        candidateRect.left,
-        candidateRect.left + candidateRect.width,
-        targetLeft,
-        targetRight,
-    );
-    return horizontalOverlap / Math.max(candidateRect.width, Number.EPSILON)
-        >= MIN_TEXT_MARKUP_HORIZONTAL_OVERLAP_RATIO;
-}
-
 function toHighlightVisualCandidate(
+    context: ITextMarkupCandidateContext,
     pageContainer: HTMLElement,
     svg: SVGElement,
     targetRects: IAnnotationMarkerRect[],
-): IHighlightVisualCandidate | null {
-    const svgRect = rectFromElement(pageContainer, svg);
+): IScoredHighlightVisualCandidate | null {
+    const svgRect = context.getRectForElement(pageContainer, svg);
     if (!svgRect) {
         return null;
     }
 
-    let best: IHighlightVisualCandidate | null = null;
+    let best: IScoredHighlightVisualCandidate | null = null;
     targetRects.forEach((targetRect) => {
-        const iou = markerRectIoU(svgRect, targetRect);
-        const distance = markerRectCenterDistance(svgRect, targetRect);
-        const axisOverlap = rectHasTextMarkupAxisOverlap(svgRect, targetRect);
-        const candidate: IHighlightVisualCandidate = {
-            axisOverlap,
-            distance,
-            iou,
+        const score = scoreTextMarkupVisualCandidate(svgRect, targetRect);
+        const candidate: IScoredHighlightVisualCandidate = {
+            axisOverlap: score.axisOverlap,
+            distance: score.distance,
+            iou: score.iou,
+            matched: score.matched,
             svg,
         };
         if (
@@ -217,24 +71,19 @@ function toHighlightVisualCandidate(
     return best;
 }
 
-function isMatchedHighlightVisual(candidate: IHighlightVisualCandidate) {
-    return candidate.iou >= MIN_HIGHLIGHT_VISUAL_IOU
-        || candidate.distance <= MAX_HIGHLIGHT_VISUAL_CENTER_DISTANCE
-        || candidate.axisOverlap;
-}
-
 function collectMatchingHighlightVisuals(
+    context: ITextMarkupCandidateContext,
     pageContainer: HTMLElement,
     targetRects: IAnnotationMarkerRect[],
 ) {
-    const candidates: IHighlightVisualCandidate[] = [];
+    const candidates: IScoredHighlightVisualCandidate[] = [];
     if (targetRects.length === 0) {
         return candidates;
     }
 
     for (const svg of getDrawLayerTextMarkupSvgs(pageContainer)) {
-        const candidate = toHighlightVisualCandidate(pageContainer, svg, targetRects);
-        if (!candidate || !isMatchedHighlightVisual(candidate)) {
+        const candidate = toHighlightVisualCandidate(context, pageContainer, svg, targetRects);
+        if (!candidate || !candidate.matched) {
             continue;
         }
         candidates.push(candidate);
@@ -420,12 +269,13 @@ function setSvgPaintColor(svg: SVGElement, color: string, subtype: string) {
 }
 
 function recolorMatchingHighlightVisuals(
+    context: ITextMarkupCandidateContext,
     pageContainer: HTMLElement,
     targetRects: IAnnotationMarkerRect[],
     color: string,
     subtype: string,
 ) {
-    const candidates = collectMatchingHighlightVisuals(pageContainer, targetRects);
+    const candidates = collectMatchingHighlightVisuals(context, pageContainer, targetRects);
     if (candidates.length === 0) {
         return 0;
     }
@@ -441,53 +291,6 @@ function recolorMatchingHighlightVisuals(
 
 function normalizeTextMarkupSubtype(subtype: string | null | undefined) {
     return (subtype ?? '').trim().toLowerCase();
-}
-
-function collectGeometryMatchedTextMarkupElements(
-    container: HTMLElement,
-    comment: IAnnotationCommentSummary,
-): HTMLElement[] {
-    const commentRect = normalizeMarkerRect(comment.markerRect);
-    if (!commentRect) {
-        return [];
-    }
-
-    const matchedCandidates: ITextMarkupElementCandidate[] = [];
-
-    findPageContainers(container, comment, []).forEach((pageContainer) => {
-        const candidates = Array.from(pageContainer.querySelectorAll<HTMLElement>('[data-annotation-id]'))
-            .filter(isTextMarkupElement);
-        candidates.forEach((element) => {
-            const elementRect = rectFromElement(pageContainer, element);
-            if (!elementRect) {
-                return;
-            }
-            const iou = markerRectIoU(elementRect, commentRect);
-            const distance = markerRectCenterDistance(elementRect, commentRect);
-            const axisOverlap = rectHasTextMarkupAxisOverlap(elementRect, commentRect);
-            const candidate = {
-                axisOverlap,
-                distance,
-                element,
-                iou,
-            };
-            if (
-                candidate.iou >= MIN_HIGHLIGHT_VISUAL_IOU
-                || candidate.distance <= MAX_HIGHLIGHT_VISUAL_CENTER_DISTANCE
-                || candidate.axisOverlap
-            ) {
-                matchedCandidates.push(candidate);
-            }
-        });
-    });
-
-    return matchedCandidates
-        .sort((left, right) => (
-            right.iou - left.iou
-            || Number(right.axisOverlap) - Number(left.axisOverlap)
-            || left.distance - right.distance
-        ))
-        .map(candidate => candidate.element);
 }
 
 function applyAnnotationLayerTextMarkupColor(
@@ -634,10 +437,7 @@ export function applyAnnotationCommentTextMarkupColor(
         return false;
     }
 
-    const annotationId = comment.annotationId;
-    const annotationElements = annotationId ? collectMatchingAnnotationElements(container, annotationId) : [];
-    collectGeometryMatchedTextMarkupElements(container, comment)
-        .forEach(element => appendUniqueElement(annotationElements, element));
+    const candidates = collectTextMarkupElementCandidates(container, comment);
     const subtype = normalizeTextMarkupSubtype(comment.subtype);
     let updated = false;
     const forceVisible = opts.forceVisible !== false;
@@ -648,7 +448,7 @@ export function applyAnnotationCommentTextMarkupColor(
     let recoloredVisualCount = 0;
     let recoloredCanvasCount = 0;
 
-    annotationElements.forEach((element) => {
+    candidates.annotationElements.forEach((element) => {
         if (applyAnnotationLayerTextMarkupColor(element, subtype, normalizedColor, {
             forceVisible: forceAnnotationLayerVisible,
             suppressNativeTextMarkupDecoration,
@@ -658,12 +458,11 @@ export function applyAnnotationCommentTextMarkupColor(
         }
     });
 
-    const pageContainers = findPageContainers(container, comment, annotationElements);
-    pageContainers.forEach((pageContainer) => {
-        const targetRects = getTargetRects(pageContainer, comment, annotationElements);
+    candidates.pageContexts.forEach((pageContext) => {
         const matchedVisualCount = recolorMatchingHighlightVisuals(
-            pageContainer,
-            targetRects,
+            candidates,
+            pageContext.pageContainer,
+            pageContext.targetRects,
             normalizedColor,
             subtype,
         );
@@ -671,13 +470,13 @@ export function applyAnnotationCommentTextMarkupColor(
             recoloredVisualCount += matchedVisualCount;
             updated = true;
         }
-        pageContainer
+        pageContext.pageContainer
             .querySelectorAll<HTMLCanvasElement>('canvas')
             .forEach((canvas) => {
-                targetRects.forEach((targetRect) => {
+                pageContext.targetRects.forEach((targetRect) => {
                     if (recolorCanvasTextMarkupPixelsInRect(
                         canvas,
-                        pageContainer,
+                        pageContext.pageContainer,
                         targetRect,
                         normalizedColor,
                         subtype,
@@ -696,8 +495,8 @@ export function applyAnnotationCommentTextMarkupColor(
         subtype,
         color: normalizedColor,
         forceVisible: forceAnnotationLayerVisible,
-        annotationElementCount: annotationElements.length,
-        pageCount: pageContainers.length,
+        annotationElementCount: candidates.annotationElements.length,
+        pageCount: candidates.pageContexts.length,
         recoloredElementCount,
         recoloredVisualCount,
         recoloredCanvasCount,

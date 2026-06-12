@@ -2,7 +2,7 @@ import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { markerRectIoU } from '@app/modules/pdf-viewer/engine/annotation-geometry/markerRectIoU';
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
-import { commentsShareStableIdentifier } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/commentsShareStableIdentifier';
+import { commentsShareStableIdentifier } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/commentsShareStableIdentifier';
 
 function isTextLikeNoteSubtype(subtype: IAnnotationCommentSummary['subtype']) {
     const normalized = (subtype ?? '').trim().toLowerCase();

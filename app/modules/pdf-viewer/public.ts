@@ -23,12 +23,12 @@ export {
     collectLivePdfJsAnnotationChangeFingerprint,
     collectLivePdfJsAnnotationChangeIds,
 } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
-export { annotationCommentsMatch } from '@app/modules/pdf-viewer/engine/annotation-comment-matching/annotationCommentsMatch';
-export { selectPreferredAnnotationComment } from '@app/modules/pdf-viewer/engine/annotation-comment-matching/selectPreferredAnnotationComment';
+export { annotationCommentsMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/annotationCommentsMatch';
+export { selectPreferredAnnotationComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/selectPreferredAnnotationComment';
 export { mergeAnnotationCommentSaveSnapshot } from '@app/modules/pdf-viewer/engine/annotation-comment-save-snapshot/mergeAnnotationCommentSaveSnapshot';
 export { escapeCssAttr } from '@app/modules/pdf-viewer/engine/annotation-css-utils/escapeCssAttr';
 export { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
-export { commentsShareStableIdentifier } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/commentsShareStableIdentifier';
+export { commentsShareStableIdentifier } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/commentsShareStableIdentifier';
 export { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isAuthoringAnnotationTool';
 export { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
 export { isShapeTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isShapeTool';

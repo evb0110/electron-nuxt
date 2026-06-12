@@ -1,6 +1,6 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { areTextMarkupCommentsLikelySame } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/areTextMarkupCommentsLikelySame';
-import { likelyEditorPdfMirror } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity-matching/likelyEditorPdfMirror';
+import { areTextMarkupCommentsLikelySame } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/areTextMarkupCommentsLikelySame';
+import { likelyEditorPdfMirror } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/likelyEditorPdfMirror';
 
 export function commentsAreSameLogicalAnnotation(
     left: IAnnotationCommentSummary,

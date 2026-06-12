@@ -1,4 +1,4 @@
-import type { IMarkerRectEditorMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-matcher/markerRectEditorMatch';
+import type { IMarkerRectEditorMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/markerRectEditorMatch';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import {
     clamp,
@@ -6,8 +6,8 @@ import {
 } from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
-import { isBetterMarkerRectMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-matcher/isBetterMarkerRectMatch';
-import { scoreMarkerRectEditor } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-matcher/scoreMarkerRectEditor';
+import { isBetterMarkerRectMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/isBetterMarkerRectMatch';
+import { scoreMarkerRectEditor } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/scoreMarkerRectEditor';
 
 
 type TExactMarkerTextMatch = Omit<IMarkerRectEditorMatch, 'textScore'>;
