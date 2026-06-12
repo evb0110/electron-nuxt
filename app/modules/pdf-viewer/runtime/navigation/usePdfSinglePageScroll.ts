@@ -763,6 +763,19 @@ export const usePdfSinglePageScroll = (
         wheelAccumulator.value = createWheelPageAccumulatorState();
     }
 
+    function resolveWheelActivePage(container: HTMLElement) {
+        if (!continuousScroll.value) {
+            const pagedTargetPage = pagedNavigationTargetPage.value;
+            if (pagedTargetPage !== null) {
+                return clamp(pagedTargetPage, 1, numPages.value);
+            }
+
+            return clamp(currentPage.value, 1, numPages.value);
+        }
+
+        return getMostVisiblePage(container, numPages.value);
+    }
+
     function resolvePageRowRange(pageNumber: number) {
         return getPageRowBoundsForViewMode({
             pageNumber,
@@ -1489,17 +1502,17 @@ export const usePdfSinglePageScroll = (
             isLoading.value,
             numPages.value,
         ) || !container) {
-            return;
+            return false;
         }
 
         const delta = normalizePageWheelDelta(event.deltaY, event.deltaMode, container);
         if (Math.abs(delta) < WHEEL_DELTA_EPSILON) {
-            return;
+            return false;
         }
 
         event.preventDefault();
         const direction = resolveWheelDirection(delta);
-        const activePage = getMostVisiblePage(container, numPages.value);
+        const activePage = resolveWheelActivePage(container);
         const bounds = getPageScrollBounds(activePage);
 
         if (
@@ -1517,7 +1530,7 @@ export const usePdfSinglePageScroll = (
             // Record interior progress so the eventual edge-flip is not
             // gated by the same-direction cooldown.
             interiorScrollSinceLastFlip = true;
-            return;
+            return true;
         }
 
         // Cooldown gate: when a same-direction flip just happened and the user
@@ -1533,7 +1546,7 @@ export const usePdfSinglePageScroll = (
             interiorScrollSinceLastFlip,
         )) {
             clearWheelAccumulator();
-            return;
+            return true;
         }
 
         const accumulationResult = accumulateWheelForPageFlips({
@@ -1545,7 +1558,7 @@ export const usePdfSinglePageScroll = (
         });
         wheelAccumulator.value = accumulationResult.state;
         if (accumulationResult.stepsToFlip === 0) {
-            return;
+            return true;
         }
 
         const targetPage = resolveWheelTargetPage(
@@ -1556,7 +1569,7 @@ export const usePdfSinglePageScroll = (
         );
         if (targetPage === activePage) {
             clearWheelAccumulator();
-            return;
+            return true;
         }
 
         // Anchor selection:
@@ -1574,6 +1587,7 @@ export const usePdfSinglePageScroll = (
         lastWheelFlipAtMs = event.timeStamp;
         lastWheelFlipDirection = direction;
         interiorScrollSinceLastFlip = false;
+        return true;
     }
 
     function handleScroll() {

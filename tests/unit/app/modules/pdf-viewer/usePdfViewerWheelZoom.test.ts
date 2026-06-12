@@ -102,11 +102,14 @@ describe('usePdfViewerWheelZoom', () => {
         const zoomVirtualizationFreeze = ref(null);
         const singlePageScroll = {
             suppressSnapFor: vi.fn(),
-            handleWheel: vi.fn(),
+            handleWheel: vi.fn(() => false),
             handleScroll: vi.fn(),
             cancelProgrammaticNavigation: vi.fn(),
         };
         const cancelPendingSearchScroll = vi.fn();
+        const markUserViewportInteraction = vi.fn(() => {
+            singlePageScroll.cancelProgrammaticNavigation();
+        });
         const emit = vi.fn();
 
         const scope = effectScope();
@@ -130,6 +133,7 @@ describe('usePdfViewerWheelZoom', () => {
             zoomVirtualizationFreeze,
             singlePageScroll,
             cancelPendingSearchScroll,
+            markUserViewportInteraction,
             isSnipActive: () => false,
             emit: emit as never,
         }));
@@ -145,6 +149,7 @@ describe('usePdfViewerWheelZoom', () => {
             zoomVirtualizationFreeze,
             singlePageScroll,
             cancelPendingSearchScroll,
+            markUserViewportInteraction,
             emit,
             wheelZoom,
         };
@@ -206,7 +211,7 @@ describe('usePdfViewerWheelZoom', () => {
         }
     });
 
-    it('cancels bookmark navigation ownership before routing a plain wheel scroll', () => {
+    it('marks unhandled plain wheel packets as interrupting viewport interactions', () => {
         const setup = setupWheelZoom();
 
         try {
@@ -221,6 +226,29 @@ describe('usePdfViewerWheelZoom', () => {
             expect(setup.cancelPendingSearchScroll).toHaveBeenCalledOnce();
             expect(setup.singlePageScroll.cancelProgrammaticNavigation).toHaveBeenCalledOnce();
             expect(setup.singlePageScroll.handleWheel).toHaveBeenCalledWith(event);
+            expect(setup.markUserViewportInteraction).toHaveBeenCalledOnce();
+        } finally {
+            setup.scope.stop();
+        }
+    });
+
+    it('preserves programmatic navigation ownership for consumed single-page wheel packets', () => {
+        const setup = setupWheelZoom();
+        setup.singlePageScroll.handleWheel.mockReturnValue(true);
+
+        try {
+            const event = createWheelEvent({
+                deltaY: 120,
+                clientX: 120,
+                clientY: 160,
+            });
+
+            setup.wheelZoom.handleViewerWheel(event);
+
+            expect(setup.cancelPendingSearchScroll).toHaveBeenCalledOnce();
+            expect(setup.singlePageScroll.handleWheel).toHaveBeenCalledWith(event);
+            expect(setup.singlePageScroll.cancelProgrammaticNavigation).not.toHaveBeenCalled();
+            expect(setup.markUserViewportInteraction).not.toHaveBeenCalled();
         } finally {
             setup.scope.stop();
         }
