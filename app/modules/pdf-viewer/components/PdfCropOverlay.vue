@@ -24,9 +24,9 @@
 import type {
     IRegionSelectionOverlayBaseProps,
     IRegionSelectionOverlayEmits,
-} from '@app/composables/pdf/usePdfRegionSelectionOverlay';
-import { useEmittedPdfRegionSelectionOverlay } from '@app/composables/pdf/useEmittedPdfRegionSelectionOverlay';
-import { regionRectStyle } from '@app/utils/pdf-viewer/region-selection/regionRectStyle';
+} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSelectionOverlay';
+import { useEmittedPdfRegionSelectionOverlay } from '@app/modules/pdf-viewer/runtime/composables/pdf/useEmittedPdfRegionSelectionOverlay';
+import { regionRectStyle } from '@app/modules/pdf-viewer/engine/region-selection/regionRectStyle';
 
 const props = defineProps<IRegionSelectionOverlayBaseProps>();
 const emit = defineEmits<IRegionSelectionOverlayEmits>();

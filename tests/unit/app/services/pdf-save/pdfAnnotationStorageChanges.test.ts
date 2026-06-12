@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { collectLivePdfJsAnnotationChangeIds } from '@app/services/pdf-save/pdfAnnotationStorageChanges';
+import { collectLivePdfJsAnnotationChangeIds } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 
 describe('collectLivePdfJsAnnotationChangeIds', () => {
     it('ignores editor-only annotations that were deleted before PDF.js materialization', () => {

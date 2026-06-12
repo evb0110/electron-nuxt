@@ -637,7 +637,7 @@ describe('useAnnotationToolState', () => {
     });
 
     it('clips overlapping multi-line markup boxes into non-overlapping fragment bands', async () => {
-        const { normalizeTextMarkupBoxesByLine } = await import('@app/utils/pdf-viewer/text-markup-visual-model/normalizeTextMarkupBoxesByLine');
+        const { normalizeTextMarkupBoxesByLine } = await import('@app/modules/pdf-viewer/engine/text-markup-visual-model/normalizeTextMarkupBoxesByLine');
         const boxes = [
             {
                 x: 0.10,

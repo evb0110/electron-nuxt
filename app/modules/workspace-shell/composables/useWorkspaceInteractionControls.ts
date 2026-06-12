@@ -12,7 +12,7 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { ISettingsData } from '@contracts/shared';
-import type { TDocumentOperationKind } from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
+import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type {
     IAnnotationSettings,
     TAnnotationTool,

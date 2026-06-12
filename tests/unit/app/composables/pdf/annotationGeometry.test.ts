@@ -3,8 +3,8 @@ import {
     expect,
     it,
 } from 'vitest';
-import { rectIntersectionArea } from '@app/utils/pdf-viewer/annotation-geometry/rectIntersectionArea';
-import { toMarkerRectFromEditorRect } from '@app/utils/pdf-viewer/annotation-geometry/toMarkerRectFromEditorRect';
+import { rectIntersectionArea } from '@app/modules/pdf-viewer/engine/annotation-geometry/rectIntersectionArea';
+import { toMarkerRectFromEditorRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromEditorRect';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 
 function makeDomRect(left: number, top: number, width: number, height: number) {

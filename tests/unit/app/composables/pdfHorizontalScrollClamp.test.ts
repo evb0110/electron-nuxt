@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { resolvePageBoundedHorizontalScroll } from '@app/utils/pdf-viewer/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
+import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
 
 describe('resolvePageBoundedHorizontalScroll', () => {
     it('locks horizontal scroll to the active page when the page fits the viewport', () => {

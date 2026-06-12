@@ -20,7 +20,7 @@ import type {
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import type { IAnnotationNoteWindowState } from '@app/utils/pdf-viewer/annotations/annotationNoteWindowTypes';
+import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
 
 interface ICreateWorkspaceExposeDeps extends
     IWorkspaceFilePort,

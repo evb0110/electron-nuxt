@@ -3,12 +3,12 @@ import type {
     Ref,
 } from 'vue';
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
-import { toShapeAnnotationCommentSummary } from '@app/utils/pdf-viewer/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
+import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
 import { usePdfShapeHistory } from '@app/modules/pdf-viewer/tools/usePdfShapeHistory';
 import type { IPdfAppAnnotationHistoryCommand } from '@app/modules/pdf-viewer/tools/usePdfShapeHistory';
 import { usePdfSelectedShapeCommands } from '@app/modules/pdf-viewer/tools/usePdfSelectedShapeCommands';
 import { usePdfShapeContext } from '@app/modules/pdf-viewer/tools/usePdfShapeContext';
-import { isSelectionInteractionTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isSelectionInteractionTool';
+import { isSelectionInteractionTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionInteractionTool';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,

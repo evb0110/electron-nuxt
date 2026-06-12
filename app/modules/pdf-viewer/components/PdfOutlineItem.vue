@@ -130,14 +130,14 @@ import type {
     IBookmarkItem,
     IBookmarkMenuPayload,
 } from '@app/types/pdfOutline';
-import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { IBookmarkDestinationTarget } from '@app/utils/pdfOutlineHelpers';
 import {
     resolveBookmarkDestinationTarget,
     resolveImmediateBookmarkDestinationTarget,
     shouldEmitResolvedBookmarkDestinationTarget,
 } from '@app/utils/pdfOutlineHelpers';
-import { usePdfOutlineItemState } from '@app/composables/pdf/usePdfOutlineItemState';
+import { usePdfOutlineItemState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineItemState';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 

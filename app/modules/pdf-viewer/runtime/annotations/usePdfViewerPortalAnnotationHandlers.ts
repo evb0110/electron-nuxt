@@ -2,9 +2,9 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
 } from '@app/types/annotations';
-import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annotationContextMenuPayload';
+import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
-import { syncCommentMarkerAnchorEditor } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
+import { syncCommentMarkerAnchorEditor } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
 
 interface IUsePdfViewerPortalAnnotationHandlersOptions {
     activeCommentStableKey: { value: string | null };

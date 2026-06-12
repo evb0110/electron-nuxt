@@ -3,14 +3,14 @@ import {
     expect,
     it,
 } from 'vitest';
-import { buildPageLayoutMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/buildPageLayoutMetrics';
-import { getLeadingSpacerHeight } from '@app/utils/pdf-viewer/pdf-page-layout/getLeadingSpacerHeight';
-import { getLeadingSpacerHeightForPage } from '@app/utils/pdf-viewer/pdf-page-layout/getLeadingSpacerHeightForPage';
-import { getTrailingSpacerHeight } from '@app/utils/pdf-viewer/pdf-page-layout/getTrailingSpacerHeight';
-import { getTrailingSpacerHeightForPage } from '@app/utils/pdf-viewer/pdf-page-layout/getTrailingSpacerHeightForPage';
-import { normalizePageMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/normalizePageMetrics';
-import { resolveDocumentBaseMetric } from '@app/utils/pdf-viewer/pdf-page-layout/resolveDocumentBaseMetric';
-import { resolveSpreadBaseWidth } from '@app/utils/pdf-viewer/pdf-page-layout/resolveSpreadBaseWidth';
+import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
+import { getLeadingSpacerHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeight';
+import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
+import { getTrailingSpacerHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeight';
+import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
+import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
+import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
+import { resolveSpreadBaseWidth } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveSpreadBaseWidth';
 import type { IPdfPageMetric } from '@app/types/pdf';
 
 describe('pdfPageLayout', () => {

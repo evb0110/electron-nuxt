@@ -2,8 +2,10 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import { useBookmarkState } from '@app/composables/pdf/useBookmarkState';
-import { usePageLabelState } from '@app/composables/pdf/usePageLabelState';
+import {
+    useBookmarkState,
+    usePageLabelState,
+} from '@app/modules/pdf-viewer/public';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
 import { useWorkspaceUndoTimeline } from '@app/modules/workspace-shell/composables/useWorkspaceUndoTimeline';

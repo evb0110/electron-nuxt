@@ -8,7 +8,7 @@ import type {
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdf';
-import type { IPdfPageLayoutMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/pdfPageLayoutMetrics';
+import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 interface IPageRange {

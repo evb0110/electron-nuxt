@@ -106,7 +106,7 @@ describe('handleNativeNoteTextSave', () => {
             ]));
             await appendFile(tempPath, '\n% native incremental update');
         });
-        const { handleNativeNoteTextSave } = await import('@electron/features/documents/main/handleNativeNoteTextSave');
+        const { handleNativeNoteTextSave } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
         const result = await handleNativeNoteTextSave(event, requestedWorkingPath, [{
             objectNumber: 42,
@@ -175,7 +175,7 @@ describe('handleNativeNoteTextSave', () => {
             ]));
             await appendFile(tempPath, '\n% native note changes');
         });
-        const { handleNativeNoteChangesSave } = await import('@electron/features/documents/main/handleNativeNoteTextSave');
+        const { handleNativeNoteChangesSave } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
         const freeTextNotes = [{
             pageIndex: 0,
@@ -309,7 +309,7 @@ describe('handleNativeNoteTextSave', () => {
             ]));
             await appendFile(tempPath, '\n% native metadata changes');
         });
-        const { handleNativePdfMutationsSave } = await import('@electron/features/documents/main/handleNativeNoteTextSave');
+        const { handleNativePdfMutationsSave } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
         const result = await handleNativePdfMutationsSave(
             event,
@@ -422,7 +422,7 @@ describe('handleNativeNoteTextSave', () => {
         const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
         const blockedLatestMutation = deferred<undefined>();
         const blockingMutation = enqueueWorkingCopyMutation(latestWorkingPath, () => blockedLatestMutation.promise);
-        const { handleNativeNoteTextSave } = await import('@electron/features/documents/main/handleNativeNoteTextSave');
+        const { handleNativeNoteTextSave } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
         const savePromise = handleNativeNoteTextSave(event, requestedWorkingPath, [{
             objectNumber: 42,
@@ -457,7 +457,7 @@ describe('handleNativeNoteTextSave', () => {
         mocks.runNativeToolCommand.mockImplementation(async () => {
             await appendFile(tempPath, '\n% native incremental update');
         });
-        const { handleNativeNoteTextSave } = await import('@electron/features/documents/main/handleNativeNoteTextSave');
+        const { handleNativeNoteTextSave } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
         const result = await handleNativeNoteTextSave(event, requestedWorkingPath, [{
             objectNumber: 42,
@@ -487,7 +487,7 @@ describe('handleNativeNoteTextSave', () => {
             await blockedMutation.promise;
             writeFileSync(workingPath, 'changed-before-native');
         });
-        const { handleNativePdfMutationsApplyToWorkingCopy } = await import('@electron/features/documents/main/handleNativeNoteTextSave');
+        const { handleNativePdfMutationsApplyToWorkingCopy } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
         const savePromise = handleNativePdfMutationsApplyToWorkingCopy(
             event,
@@ -525,7 +525,7 @@ describe('handleNativeNoteTextSave', () => {
     });
 
     it('rejects working-copy native mutations without a base expectation', async () => {
-        const { handleNativePdfMutationsApplyToWorkingCopy } = await import('@electron/features/documents/main/handleNativeNoteTextSave');
+        const { handleNativePdfMutationsApplyToWorkingCopy } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
         await expect(handleNativePdfMutationsApplyToWorkingCopy(
             event,

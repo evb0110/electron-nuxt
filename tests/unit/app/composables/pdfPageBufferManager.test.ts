@@ -3,8 +3,8 @@ import {
     expect,
     it,
 } from 'vitest';
-import { getPageContainer } from '@app/utils/pdf-viewer/pdf-page-buffer-manager/getPageContainer';
-import { setupPagePlaceholderSizes } from '@app/utils/pdf-viewer/pdf-page-buffer-manager/setupPagePlaceholderSizes';
+import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
+import { setupPagePlaceholderSizes } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/setupPagePlaceholderSizes';
 import { cast } from '@tests/helpers/cast';
 
 function createPageContainerRoot(pageNumbers: number[]) {

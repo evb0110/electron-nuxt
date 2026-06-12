@@ -6,11 +6,11 @@ import {
 } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type { IMarkerViewModel } from '@app/utils/pdf-viewer/annotations/types';
-import { clusterDetachedComments } from '@app/utils/pdf-viewer/annotations/annotation-marker-geometry/clusterDetachedComments';
-import { resolveDetachedMarkerPlacement } from '@app/utils/pdf-viewer/annotations/annotation-marker-geometry/resolveDetachedMarkerPlacement';
-import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
-import type { IDetachedMarkerOccupied } from '@app/utils/pdf-viewer/annotations/annotation-marker-geometry/annotationMarkerGeometryTypes';
+import type { IMarkerViewModel } from '@app/modules/pdf-viewer/engine/annotations/types';
+import { clusterDetachedComments } from '@app/modules/pdf-viewer/engine/annotations/annotation-marker-geometry/clusterDetachedComments';
+import { resolveDetachedMarkerPlacement } from '@app/modules/pdf-viewer/engine/annotations/annotation-marker-geometry/resolveDetachedMarkerPlacement';
+import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
+import type { IDetachedMarkerOccupied } from '@app/modules/pdf-viewer/engine/annotations/annotation-marker-geometry/annotationMarkerGeometryTypes';
 import { FOCUS_PULSE_MS } from '@app/constants/timeouts';
 
 interface IUseAnnotationMarkerViewModelOptions {

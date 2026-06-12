@@ -12,20 +12,20 @@ import {
     buildNativeFreeTextNotesForSave,
     isReplayableEditorOnlyFreeTextNote,
     toNativeFreeTextNote,
-} from '@app/services/pdf-save/nativeFreeTextNotes';
-import { buildNativeNoteTextUpdatesForSave } from '@app/services/pdf-save/nativeNoteTextUpdates';
-import { buildNativeAnnotationDeletesForSave } from '@app/services/pdf-save/buildNativeAnnotationDeletesForSave';
+} from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
+import { buildNativeNoteTextUpdatesForSave } from '@app/modules/pdf-viewer/runtime/save/nativeNoteTextUpdates';
+import { buildNativeAnnotationDeletesForSave } from '@app/modules/pdf-viewer/runtime/save/buildNativeAnnotationDeletesForSave';
 import {
     buildNativeShapesMutationForSave,
     isNativeShapeEligible,
     toNativeShapeAnnotation,
-} from '@app/services/pdf-save/nativeShapeMutations';
+} from '@app/modules/pdf-viewer/runtime/save/nativeShapeMutations';
 import {
     buildNativeMarkupMutationForSave,
     toNativeMarkupHint,
-} from '@app/services/pdf-save/nativeMarkupMutations';
-import { buildNativePdfMutationPlanForSave } from '@app/services/pdf-save/buildNativePdfMutationPlanForSave';
-import type { INativePdfMutationPlanInput } from '@app/services/pdf-save/nativePdfMutationPlanTypes';
+} from '@app/modules/pdf-viewer/runtime/save/nativeMarkupMutations';
+import { buildNativePdfMutationPlanForSave } from '@app/modules/pdf-viewer/runtime/save/buildNativePdfMutationPlanForSave';
+import type { INativePdfMutationPlanInput } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationPlanTypes';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {

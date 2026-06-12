@@ -1,11 +1,11 @@
 import type { PDFPageProxy } from 'pdfjs-dist';
-import type { usePdfCanvasRenderer } from '@app/composables/pdf/usePdfCanvasRenderer';
+import type { usePdfCanvasRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer';
 import {
     PDF_PAGE_LOAD_TIMEOUT_MS,
     PDF_PAGE_RENDER_TIMEOUT_MS,
 } from '@app/constants/timeouts';
-import type { IPageRenderStallPayload } from '@app/utils/pdf-viewer/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
-import { withPageStageTimeout } from '@app/utils/pdf-viewer/pdf-page-render-timeout/withPageStageTimeout';
+import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
+import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 

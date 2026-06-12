@@ -12,8 +12,8 @@ import {
     PDFRef,
 } from 'pdf-lib';
 import type { IShapeAnnotation } from '@app/types/annotations';
-import { serializePdfEdits } from '@app/utils/pdf-viewer/pdf-serialization-operations/serializePdfEdits';
-import { readManagedShapeStableKey } from '@app/utils/pdf-viewer/pdf-serialization-refs/readManagedShapeStableKey';
+import { serializePdfEdits } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/serializePdfEdits';
+import { readManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/readManagedShapeStableKey';
 
 async function createPdfWithEmbeddedShapes() {
     const doc = await PDFDocument.create();

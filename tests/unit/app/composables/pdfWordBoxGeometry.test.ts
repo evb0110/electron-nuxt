@@ -9,8 +9,8 @@ import type { IOcrWord } from '@contracts/shared';
 
 vi.mock('@app/constants/storageKeys', () => ({STORAGE_KEYS: {OCR_DEBUG_BOXES: 'pdfOcrDebugBoxes'}}));
 
-const { isOcrDebugEnabled } = await import('@app/utils/pdf-viewer/ocr/pdf-word-box-geometry/isOcrDebugEnabled');
-const { transformWordBox } = await import('@app/utils/pdf-viewer/ocr/pdf-word-box-geometry/transformWordBox');
+const { isOcrDebugEnabled } = await import('@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/isOcrDebugEnabled');
+const { transformWordBox } = await import('@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox');
 
 describe('transformWordBox', () => {
     const baseWord: IOcrWord = {

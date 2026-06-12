@@ -7,7 +7,7 @@ import type {
     AnnotationEditorUIManager,
     PDFDocumentProxy,
 } from 'pdfjs-dist';
-import { usePdfViewerScrollSnapshot } from '@app/composables/pdf/usePdfViewerScrollSnapshot';
+import { usePdfViewerScrollSnapshot } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfViewerScrollSnapshot';
 import { usePdfViewerFitWidthController } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewerFitWidthController';
 import { usePdfViewerSavePrintController } from '@app/modules/pdf-viewer/runtime/usePdfViewerSavePrintController';
 import type {
@@ -16,7 +16,7 @@ import type {
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdf';
-import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 
 interface IPageRange {
     start: number;

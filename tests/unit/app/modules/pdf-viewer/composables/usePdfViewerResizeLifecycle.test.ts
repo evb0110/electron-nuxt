@@ -21,9 +21,9 @@ vi.mock('@vueuse/core', async () => {
     };
 });
 
-vi.mock('@app/utils/pdf-viewer/pdf-page-render-pipeline/captureScrollSnapshot', () => ({captureScrollSnapshot: captureScrollSnapshotMock}));
+vi.mock('@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/captureScrollSnapshot', () => ({captureScrollSnapshot: captureScrollSnapshotMock}));
 
-vi.mock('@app/utils/pdf-viewer/pdf-page-render-pipeline/restoreScrollFromSnapshot', () => ({restoreScrollFromSnapshot: vi.fn()}));
+vi.mock('@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/restoreScrollFromSnapshot', () => ({restoreScrollFromSnapshot: vi.fn()}));
 
 const { usePdfViewerResizeLifecycle } = await import(
     '@app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle'

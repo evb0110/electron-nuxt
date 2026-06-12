@@ -4,8 +4,8 @@ import {
     useResizeObserver,
 } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { captureScrollSnapshot } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/captureScrollSnapshot';
-import { restoreScrollFromSnapshot } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/restoreScrollFromSnapshot';
+import { captureScrollSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/captureScrollSnapshot';
+import { restoreScrollFromSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/restoreScrollFromSnapshot';
 import type {
     ICurrentPageSyncOptions,
     IResizeAnchorContext,

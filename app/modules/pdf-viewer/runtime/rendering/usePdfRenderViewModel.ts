@@ -3,7 +3,7 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import type { IMarkerViewModel } from '@app/utils/pdf-viewer/annotations/types';
+import type { IMarkerViewModel } from '@app/modules/pdf-viewer/engine/annotations/types';
 import { usePdfViewerDelayedSkeleton } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerDelayedSkeleton';
 import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerLoadingState';
 import { PDF_VIEWER_PAGE_SKELETON_DELAY_MS } from '@app/constants/timeouts';

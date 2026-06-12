@@ -6,6 +6,8 @@ import {
 } from 'es-toolkit/array';
 import { run } from './shared.mjs';
 
+const RELEASE_VERIFY_DIFF_BUFFER_BYTES = 128 * 1024 * 1024;
+
 export function getLocalReleaseVerifyCommands() {
     return [
         {
@@ -37,18 +39,20 @@ function splitGitOutput(output) {
 }
 
 export function getReleaseVerifyMutationSnapshot({runCommand = run} = {}) {
+    const diffOptions = {maxBuffer: RELEASE_VERIFY_DIFF_BUFFER_BYTES};
+
     return {
         stagedDiff: runCommand('git', [
             'diff',
             '--cached',
             '--binary',
             '--no-ext-diff',
-        ]),
+        ], diffOptions),
         trackedDiff: runCommand('git', [
             'diff',
             '--binary',
             '--no-ext-diff',
-        ]),
+        ], diffOptions),
         untrackedFiles: splitGitOutput(runCommand('git', [
             'ls-files',
             '--others',

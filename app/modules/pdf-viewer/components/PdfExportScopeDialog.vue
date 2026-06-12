@@ -97,7 +97,7 @@
 
 import { parsePageRangeInput } from '@app/utils/pdfPageLabels';
 import { expandPageRange } from '@app/utils/pdfPageSelection';
-import { usePdfPageScopeSelection } from '@app/composables/pdf/usePdfPageScopeSelection';
+import { usePdfPageScopeSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
 
 type TExportMode = 'images' | 'multipage-tiff';
 

@@ -31,21 +31,21 @@ import {
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
-import { mergeAnnotationCommentSaveSnapshot } from '@app/utils/pdf-viewer/annotation-comment-save-snapshot/mergeAnnotationCommentSaveSnapshot';
-import { getErrorMessage } from '@app/utils/error';
-import { buildPdfAnnotationSavePlan } from '@app/services/pdf-save/buildPdfAnnotationSavePlan';
-import { collectLivePdfJsAnnotationChangeIds } from '@app/services/pdf-save/pdfAnnotationStorageChanges';
-import { toPdfDateString } from '@app/utils/pdfDate';
 import {
     buildNativePdfMutationPlanForSave,
-    type INativePdfMutationPlan,
-} from '@app/services/pdf-save/buildNativePdfMutationPlanForSave';
-import { isReplayableEditorOnlyFreeTextNote } from '@app/services/pdf-save/nativeFreeTextNotes';
-import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
-import {
-    runWithoutDocumentOperationLease,
-    type TDocumentOperationKind,
-} from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
+    buildPdfAnnotationSavePlan,
+    collectLivePdfJsAnnotationChangeIds,
+    isReplayableEditorOnlyFreeTextNote,
+    mergeAnnotationCommentSaveSnapshot,
+} from '@app/modules/pdf-viewer/public';
+import { getErrorMessage } from '@app/utils/error';
+import { toPdfDateString } from '@app/utils/pdfDate';
+import type {
+    IMarkupSubtypeHint,
+    INativePdfMutationPlan,
+} from '@app/modules/pdf-viewer/public';
+import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
+import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
 
 const SLOW_SAVE_PHASE_WARN_MS = 5_000;
 const SLOW_SAVE_TOTAL_WARN_MS = 10_000;

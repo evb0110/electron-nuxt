@@ -64,11 +64,11 @@ pdf-lib performs a full re-serialize when saving. Annotations that PDF.js added 
 
 | File | Responsibility |
 |------|---------------|
-| `app/composables/pdf/usePdfSerialization.ts` | Orchestrates the save pipeline order |
-| `app/utils/pdf-viewer/pdf-serialization-operations/serializePdfEdits.ts` | Runs FreeText rect rewriting before embedded text updates |
-| `app/utils/pdf-viewer/serialization/pdf-serialization-free-text/applyFreeTextNoteRects.ts` | Blank AP stream + rect rewrite during save |
-| `app/utils/pdf-viewer/serialization/pdf-serialization-free-text/applyNewFreeTextNoteAnnotations.ts` | Replays newly-created FreeText note markers |
-| `app/utils/pdf-viewer/serialization/pdf-serialization-embedded-notes/applyEmbeddedNoteTextUpdates.ts` | Applies note text updates during full serialization |
-| `app/utils/pdf-viewer/pdf-serialization-comments/updateAnnotationTextByRef.ts` | Writes note text to FreeText `/Contents` for targeted updates |
-| `app/composables/pdf/annotations/useAnnotationSync.ts` | ZWS stripping when selecting text source |
-| `app/composables/pdf/useAnnotationNoteWindows.ts` | ZWS stripping in stale-empty-sync guard |
+| `app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts` | Orchestrates the save pipeline order |
+| `app/modules/pdf-viewer/engine/pdf-serialization-operations/serializePdfEdits.ts` | Runs FreeText rect rewriting before embedded text updates |
+| `app/modules/pdf-viewer/engine/serialization/pdf-serialization-free-text/applyFreeTextNoteRects.ts` | Blank AP stream + rect rewrite during save |
+| `app/modules/pdf-viewer/engine/serialization/pdf-serialization-free-text/applyNewFreeTextNoteAnnotations.ts` | Replays newly-created FreeText note markers |
+| `app/modules/pdf-viewer/engine/serialization/pdf-serialization-embedded-notes/applyEmbeddedNoteTextUpdates.ts` | Applies note text updates during full serialization |
+| `app/modules/pdf-viewer/engine/pdf-serialization-comments/updateAnnotationTextByRef.ts` | Writes note text to FreeText `/Contents` for targeted updates |
+| `app/modules/pdf-viewer/runtime/composables/pdf/annotations/useAnnotationSync.ts` | ZWS stripping when selecting text source |
+| `app/modules/pdf-viewer/runtime/composables/pdf/useAnnotationNoteWindows.ts` | ZWS stripping in stale-empty-sync guard |

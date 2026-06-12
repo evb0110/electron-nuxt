@@ -1,10 +1,10 @@
 import type { PDFPageProxy } from 'pdfjs-dist';
-import type { usePdfTextLayerRenderer } from '@app/composables/pdf/usePdfTextLayerRenderer';
+import type { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
 import { PDF_PAGE_TEXT_LAYER_TIMEOUT_MS } from '@app/constants/timeouts';
-import { isPageRenderTimeoutError } from '@app/utils/pdf-viewer/pdf-page-render-timeout/isPageRenderTimeoutError';
-import type { IPageRenderStallPayload } from '@app/utils/pdf-viewer/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
-import { withPageStageTimeout } from '@app/utils/pdf-viewer/pdf-page-render-timeout/withPageStageTimeout';
-import { clearPdfSelectionForLayerTeardown } from '@app/utils/pdf-viewer/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
+import { isPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/isPageRenderTimeoutError';
+import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
+import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
+import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 
 interface ITextLayerRenderContext {
     container: HTMLElement;

@@ -13,7 +13,7 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import { shouldIgnoreEditorEvent } from '@app/utils/pdf-viewer/annotations/annotation-editor-event-guards/shouldIgnoreEditorEvent';
+import { shouldIgnoreEditorEvent } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-event-guards/shouldIgnoreEditorEvent';
 import { updateEditorDefaultParams } from '@app/services/pdfjs/annotationEditorAdapter';
 import type {
     IAnnotationCommentSummary,

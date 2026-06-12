@@ -3,10 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import { findShapeAtPoint } from '@app/utils/pdf-viewer/pdf-shape-overlay-interactions/findShapeAtPoint';
-import { getNormalizedSvgPointerCoords } from '@app/utils/pdf-viewer/pdf-shape-overlay-interactions/getNormalizedSvgPointerCoords';
-import { hasPointerMovedPastThreshold } from '@app/utils/pdf-viewer/pdf-shape-overlay-interactions/hasPointerMovedPastThreshold';
-import { resolveSvgPointerTarget } from '@app/utils/pdf-viewer/pdf-shape-overlay-interactions/resolveSvgPointerTarget';
+import { findShapeAtPoint } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/findShapeAtPoint';
+import { getNormalizedSvgPointerCoords } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/getNormalizedSvgPointerCoords';
+import { hasPointerMovedPastThreshold } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/hasPointerMovedPastThreshold';
+import { resolveSvgPointerTarget } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/resolveSvgPointerTarget';
 import type { IShapeAnnotation } from '@app/types/annotations';
 
 function createRect(left: number, top: number, width: number, height: number) {

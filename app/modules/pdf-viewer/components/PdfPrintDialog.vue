@@ -163,7 +163,7 @@
 import type { TPdfViewMode } from '@contracts/shared';
 import type { TPrintOrientation } from '@app/utils/pdfPrint';
 import { parsePrintPageRangeInput } from '@app/utils/pdfPrint';
-import { usePdfPageScopeSelection } from '@app/composables/pdf/usePdfPageScopeSelection';
+import { usePdfPageScopeSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
 
 const open = defineModel<boolean>('open', { required: true });
 

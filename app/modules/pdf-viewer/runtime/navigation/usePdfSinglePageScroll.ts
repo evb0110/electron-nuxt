@@ -14,20 +14,20 @@ import { runGuardedTask } from '@app/utils/asyncGuard';
 import { stepBySpread } from '@app/utils/pdfViewMode';
 import { logPdfNav } from '@app/utils/logPdfNav';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import { getPageContainerByNumber } from '@app/utils/pdf-viewer/pdf-scroll-visibility/getPageContainerByNumber';
-import { getPageScrollBounds as getPageScrollBoundsForContainer } from '@app/utils/pdf-viewer/pdf-scroll-visibility/getPageScrollBounds';
-import { getPageRowBoundsForViewMode } from '@app/utils/pdf-viewer/pdf-page-layout/getPageRowBoundsForViewMode';
-import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
+import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
+import { getPageScrollBounds as getPageScrollBoundsForContainer } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageScrollBounds';
+import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type {
     IWheelPageAccumulatorState,
     TPageSnapAnchor,
     TWheelDirection,
-} from '@app/utils/pdf-viewer/single-page-wheel/singlePageWheelTypes';
-import { createWheelPageAccumulatorState } from '@app/utils/pdf-viewer/single-page-wheel/createWheelPageAccumulatorState';
-import { normalizePageWheelDelta } from '@app/utils/pdf-viewer/single-page-wheel/normalizePageWheelDelta';
-import { resolveSnapAnchorForWheelDirection } from '@app/utils/pdf-viewer/single-page-wheel/resolveSnapAnchorForWheelDirection';
-import { accumulateWheelForPageFlips } from '@app/utils/pdf-viewer/single-page-wheel/accumulateWheelForPageFlips';
-import { resolveWheelPageFlipStepDelta } from '@app/utils/pdf-viewer/single-page-wheel/resolveWheelPageFlipStepDelta';
+} from '@app/utils/document-viewer/single-page-wheel/singlePageWheelTypes';
+import { createWheelPageAccumulatorState } from '@app/utils/document-viewer/single-page-wheel/createWheelPageAccumulatorState';
+import { normalizePageWheelDelta } from '@app/utils/document-viewer/single-page-wheel/normalizePageWheelDelta';
+import { resolveSnapAnchorForWheelDirection } from '@app/utils/document-viewer/single-page-wheel/resolveSnapAnchorForWheelDirection';
+import { accumulateWheelForPageFlips } from '@app/utils/document-viewer/single-page-wheel/accumulateWheelForPageFlips';
+import { resolveWheelPageFlipStepDelta } from '@app/utils/document-viewer/single-page-wheel/resolveWheelPageFlipStepDelta';
 import {
     createPdfNavigationMachineState,
     isPdfNavigationTxnCurrent,

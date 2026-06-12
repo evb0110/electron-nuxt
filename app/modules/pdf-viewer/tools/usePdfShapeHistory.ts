@@ -1,5 +1,5 @@
 import type { IShapeAnnotation } from '@app/types/annotations';
-import { cloneShape } from '@app/utils/pdf-viewer/shapes/cloneShape';
+import { cloneShape } from '@app/modules/pdf-viewer/engine/shapes/cloneShape';
 
 export interface IPdfAppAnnotationHistoryCommand {
     cmd: () => void;

@@ -56,7 +56,7 @@ import {
     handleNativeNoteChangesSave,
     handleNativeNoteTextSave,
     handleNativePdfMutationsSave,
-} from '@electron/features/documents/main/handleNativeNoteTextSave';
+} from '@electron/features/documents/main/nativePdfMutationSaveHandlers';
 import { beginSerializedPdfSaveToOriginal } from '@electron/features/documents/main/serializedPdfPersistence';
 import {
     clearRecentFiles,

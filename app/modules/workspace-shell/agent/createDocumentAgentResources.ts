@@ -3,8 +3,8 @@ import type {
     IAnnotationCommentSummary,
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
-import type { IAnnotationNoteWindowState } from '@app/utils/pdf-viewer/annotations/annotationNoteWindowTypes';
-import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
+import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
+import { normalizeMarkerRect } from '@app/modules/pdf-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
 
 interface ICreateDocumentAgentResourcesOptions {

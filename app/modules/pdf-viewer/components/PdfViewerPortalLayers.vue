@@ -27,7 +27,7 @@ import type {
     IAnnotationMarkerRect,
     ILinkAnnotation,
 } from '@app/types/annotations';
-import type { IMarkerViewModel } from '@app/utils/pdf-viewer/annotations/types';
+import type { IMarkerViewModel } from '@app/modules/pdf-viewer/engine/annotations/types';
 
 interface IProps {
     viewerContainer: HTMLElement | null;

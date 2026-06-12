@@ -1,5 +1,5 @@
 import type { TPdfViewMode } from '@contracts/shared';
-import { getPageRowBoundsForViewMode } from '@app/utils/pdf-viewer/pdf-page-layout/getPageRowBoundsForViewMode';
+import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 
 interface IShouldShowPdfNavigationSkeletonOptions {
     pageNumber: number;

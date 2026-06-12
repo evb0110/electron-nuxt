@@ -27,11 +27,11 @@ import type {
     IPdfjsEditorConstructorLike,
 } from '@app/types/pdfjs';
 import type { PDFDocumentProxy } from '@app/types/pdf';
-import { detectEditorSubtype } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/detectEditorSubtype';
-import { getCommentText } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/getCommentText';
-import { errorToLogText } from '@app/utils/pdf-viewer/annotation-css-utils/errorToLogText';
-import { toCssColor } from '@app/utils/pdf-viewer/annotation-css-utils/toCssColor';
-import { shouldIgnoreEditorEvent } from '@app/utils/pdf-viewer/annotations/annotation-editor-event-guards/shouldIgnoreEditorEvent';
+import { detectEditorSubtype } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/detectEditorSubtype';
+import { getCommentText } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/getCommentText';
+import { errorToLogText } from '@app/modules/pdf-viewer/engine/annotation-css-utils/errorToLogText';
+import { toCssColor } from '@app/modules/pdf-viewer/engine/annotation-css-utils/toCssColor';
+import { shouldIgnoreEditorEvent } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-event-guards/shouldIgnoreEditorEvent';
 import {
     addUndoableEditorToLayer,
     asPdfjsEditor,

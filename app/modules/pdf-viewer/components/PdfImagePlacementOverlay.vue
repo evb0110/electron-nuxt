@@ -78,17 +78,17 @@ import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
 } from '@app/types/pdfImagePlacement';
-import { getImagePlacementResizeCursorStyle } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/getImagePlacementResizeCursorStyle';
-import { getImagePlacementResizeHandleViewportPosition } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/getImagePlacementResizeHandleViewportPosition';
-import { getImagePlacementRotateHandleViewportPosition } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/getImagePlacementRotateHandleViewportPosition';
-import { moveImagePlacementRect } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/moveImagePlacementRect';
+import { getImagePlacementResizeCursorStyle } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementResizeCursorStyle';
+import { getImagePlacementResizeHandleViewportPosition } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementResizeHandleViewportPosition';
+import { getImagePlacementRotateHandleViewportPosition } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementRotateHandleViewportPosition';
+import { moveImagePlacementRect } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/moveImagePlacementRect';
 import type {
     IImagePlacementContainerRect,
     IImagePlacementRectPx,
     TImagePlacementResizeHandle,
-} from '@app/utils/pdf-viewer/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
-import { resizeImagePlacementRect } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/resizeImagePlacementRect';
-import { rotateImagePlacementRect } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/rotateImagePlacementRect';
+} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
+import { resizeImagePlacementRect } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/resizeImagePlacementRect';
+import { rotateImagePlacementRect } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/rotateImagePlacementRect';
 
 const {
     placement,

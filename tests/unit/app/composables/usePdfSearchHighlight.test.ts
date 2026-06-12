@@ -7,7 +7,7 @@ import type {
     IPdfPageMatches,
     IPdfSearchMatch,
 } from '@app/types/pdf';
-import { buildVisualMatchesWithCurrent } from '@app/utils/pdf-viewer/search/buildVisualMatchesWithCurrent';
+import { buildVisualMatchesWithCurrent } from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
 
 describe('usePdfSearchHighlight', () => {
     it('remaps stale backend offsets to the rendered text layer', () => {

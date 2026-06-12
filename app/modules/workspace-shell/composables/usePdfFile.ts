@@ -2,7 +2,7 @@ import { clamp } from 'es-toolkit/math';
 import { uniq } from 'es-toolkit/array';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
-import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
+import { useOcrTextContent } from '@app/modules/pdf-viewer/public';
 import type {
     IPdfConformanceProfile,
     IPdfPersistResult,

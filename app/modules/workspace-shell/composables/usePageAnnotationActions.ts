@@ -19,7 +19,11 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
-import { getShapeRect } from '@app/utils/pdf-viewer/pdf-shape-resize/getShapeRect';
+import {
+    getShapeRect,
+    resolveAnnotationCommentTextMarkupColor,
+    normalizeMarkerRect,
+} from '@app/modules/pdf-viewer/public';
 import {
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
@@ -29,11 +33,9 @@ import { getAnnotationPageNumber } from '@app/modules/workspace-shell/annotation
 import { isFreshEditorNoteCreationForUndo } from '@app/modules/workspace-shell/annotations/isFreshEditorNoteCreationForUndo';
 import { isUndoableFreshEmptyEditorNote } from '@app/modules/workspace-shell/annotations/isUndoableFreshEmptyEditorNote';
 import { withOpenedAnnotationNoteCreationTimestamp } from '@app/modules/workspace-shell/annotations/withOpenedAnnotationNoteCreationTimestamp';
-import { resolveAnnotationCommentTextMarkupColor } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor';
 import { pickPageAnnotationImageFile } from '@app/modules/workspace-shell/annotations/pickPageAnnotationImageFile';
 import { readPageAnnotationImageFileFromClipboard } from '@app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard';
 import { resolveShapeAnnotationDefaultSettings } from '@app/modules/workspace-shell/annotations/resolveShapeAnnotationDefaultSettings';
-import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
 
 type TPdfViewerForAnnotationActions = Pick<IPdfViewerExpose,
     'cancelCommentPlacement'

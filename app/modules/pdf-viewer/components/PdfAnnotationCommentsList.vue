@@ -144,7 +144,7 @@ import {
     matchesCommentQuery,
     splitByQueryMatches,
 } from '@app/utils/pdfAnnotationComments';
-import { isNoteEligibleComment } from '@app/utils/pdf-viewer/annotations/annotation-rules/isNoteEligibleComment';
+import { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
 import {
     annotationKindLabelFromSubtype,
     isTextMarkupSubtype,

@@ -5,7 +5,7 @@ import type {
 } from 'vue';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IPdfjsL10n } from '@app/types/pdfjs';
-import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { usePdfPageRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
 import type {
     IPageRenderStallPayload,

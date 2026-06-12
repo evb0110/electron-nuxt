@@ -9,7 +9,7 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { isShapeTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isShapeTool';
+import { isShapeTool } from '@app/modules/pdf-viewer/public';
 
 interface IPdfViewerForAnnotationTools {
     cancelCommentPlacement: () => void;

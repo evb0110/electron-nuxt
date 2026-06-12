@@ -16,17 +16,17 @@ import type {
     TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
-import { isAuthoringAnnotationTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isAuthoringAnnotationTool';
-import { isSelectionMarkupTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isSelectionMarkupTool';
-import { shouldForceTextMarkup } from '@app/utils/pdf-viewer/annotations/annotation-rules/shouldForceTextMarkup';
-import { toolToMarkupSubtype } from '@app/utils/pdf-viewer/annotations/annotation-rules/toolToMarkupSubtype';
+import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
+import { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isAuthoringAnnotationTool';
+import { isSelectionMarkupTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionMarkupTool';
+import { shouldForceTextMarkup } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/shouldForceTextMarkup';
+import { toolToMarkupSubtype } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/toolToMarkupSubtype';
 import type {
     IPdfjsEditor,
     IPdfjsHighlightBox,
 } from '@app/types/pdfjs';
-import { errorToLogText } from '@app/utils/pdf-viewer/annotation-css-utils/errorToLogText';
-import { toCssColor } from '@app/utils/pdf-viewer/annotation-css-utils/toCssColor';
+import { errorToLogText } from '@app/modules/pdf-viewer/engine/annotation-css-utils/errorToLogText';
+import { toCssColor } from '@app/modules/pdf-viewer/engine/annotation-css-utils/toCssColor';
 import {
     clearSelectedEditorState,
     getActiveEditor,
@@ -38,11 +38,11 @@ import {
     parsePdfJsAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
 import { createPdfHighlightEditorClassPatch } from '@app/services/pdfjs/createPdfHighlightEditorClassPatch';
-import { createAnnotationMarkupSubtypeDrawLayer } from '@app/utils/pdf-viewer/annotations/annotation-markup-subtype-draw-layer/createAnnotationMarkupSubtypeDrawLayer';
-import { findClosestHighlightDrawLayerSvg } from '@app/utils/pdf-viewer/annotations/annotation-markup-subtype-draw-layer/findClosestHighlightDrawLayerSvg';
-import { resolveEditorHighlightClipPathId } from '@app/utils/pdf-viewer/annotations/annotation-markup-subtype-draw-layer/resolveEditorHighlightClipPathId';
-import { createAnnotationEditorPresentation } from '@app/utils/pdf-viewer/annotations/annotation-editor-presentation/createAnnotationEditorPresentation';
-import { toOpaqueHighlightDisplayColor } from '@app/utils/pdf-viewer/text-markup-color/toOpaqueHighlightDisplayColor';
+import { createAnnotationMarkupSubtypeDrawLayer } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/createAnnotationMarkupSubtypeDrawLayer';
+import { findClosestHighlightDrawLayerSvg } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/findClosestHighlightDrawLayerSvg';
+import { resolveEditorHighlightClipPathId } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/resolveEditorHighlightClipPathId';
+import { createAnnotationEditorPresentation } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-presentation/createAnnotationEditorPresentation';
+import { toOpaqueHighlightDisplayColor } from '@app/modules/pdf-viewer/engine/text-markup-color/toOpaqueHighlightDisplayColor';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { BrowserLogger } from '@app/utils/browserLogger';
 

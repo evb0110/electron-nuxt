@@ -3,14 +3,14 @@ import {
     expect,
     it,
 } from 'vitest';
-import { computeInitialImagePlacementDimensions } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/computeInitialImagePlacementDimensions';
-import { getImagePlacementResizeCursor } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/getImagePlacementResizeCursor';
-import { getImagePlacementResizeCursorStyle } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/getImagePlacementResizeCursorStyle';
-import { getShortestImagePlacementAngleDelta } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/getShortestImagePlacementAngleDelta';
-import { moveImagePlacementRect } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/moveImagePlacementRect';
-import { resizeImagePlacementRect } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/resizeImagePlacementRect';
-import { rotateImagePlacementRect } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/rotateImagePlacementRect';
-import { snapImagePlacementRotationDegrees } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/snapImagePlacementRotationDegrees';
+import { computeInitialImagePlacementDimensions } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/computeInitialImagePlacementDimensions';
+import { getImagePlacementResizeCursor } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementResizeCursor';
+import { getImagePlacementResizeCursorStyle } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementResizeCursorStyle';
+import { getShortestImagePlacementAngleDelta } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getShortestImagePlacementAngleDelta';
+import { moveImagePlacementRect } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/moveImagePlacementRect';
+import { resizeImagePlacementRect } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/resizeImagePlacementRect';
+import { rotateImagePlacementRect } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/rotateImagePlacementRect';
+import { snapImagePlacementRotationDegrees } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/snapImagePlacementRotationDegrees';
 
 function toRadians(degrees: number) {
     return (degrees * Math.PI) / 180;

@@ -64,9 +64,9 @@ import {
 } from '@vueuse/core';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { NOTE_WINDOW } from '@app/constants/pdfLayout';
-import type { IAnnotationNoteWindowBounds } from '@app/utils/pdf-viewer/annotation-note-window-bounds/annotationNoteWindowBounds';
-import { clampAnnotationNoteWindowPosition } from '@app/utils/pdf-viewer/annotation-note-window-bounds/clampAnnotationNoteWindowPosition';
-import { clampAnnotationNoteWindowSize } from '@app/utils/pdf-viewer/annotation-note-window-bounds/clampAnnotationNoteWindowSize';
+import type { IAnnotationNoteWindowBounds } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/annotationNoteWindowBounds';
+import { clampAnnotationNoteWindowPosition } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowPosition';
+import { clampAnnotationNoteWindowSize } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowSize';
 
 interface IAnnotationNotePosition {
     x: number;

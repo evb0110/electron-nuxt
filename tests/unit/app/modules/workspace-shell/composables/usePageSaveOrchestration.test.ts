@@ -48,7 +48,7 @@ vi.mock('@app/utils/platformDocuments', () => ({getDocumentsCapability: () => ({
 vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ({acknowledgeResultFile: platformMocks.acknowledgeResultFile})}));
 vi.mock('@app/utils/getSearchCapability', () => ({getSearchCapability: () => ({warmIndex: platformMocks.warmIndex})}));
 
-vi.mock('@app/composables/pdf/usePdfSerialization', () => ({usePdfSerialization: () => ({
+vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization', () => ({usePdfSerialization: () => ({
     getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
     serializePdfForSave: vi.fn(async (data: Uint8Array) => data),
     rewriteMarkupSubtypes: vi.fn(),

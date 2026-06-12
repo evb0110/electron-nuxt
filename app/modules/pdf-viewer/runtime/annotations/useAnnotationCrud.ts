@@ -15,27 +15,27 @@ import type {
     IAnnotationCommentSummary,
     TAnnotationTool,
 } from '@app/types/annotations';
-import { isNoteEligibleComment } from '@app/utils/pdf-viewer/annotations/annotation-rules/isNoteEligibleComment';
-import { isSelectionMarkupTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isSelectionMarkupTool';
-import { findEditorByMarkerRect as findEditorByMarkerRectHelper } from '@app/utils/pdf-viewer/annotations/annotation-editor-matcher/findEditorByMarkerRect';
-import { resolveCommentForDelete as resolveCommentForDeleteHelper } from '@app/utils/pdf-viewer/annotations/annotation-delete-resolver/resolveCommentForDelete';
-import { resolveStablePdfDeleteFallback as resolveStablePdfDeleteFallbackHelper } from '@app/utils/pdf-viewer/annotations/annotation-delete-resolver/resolveStablePdfDeleteFallback';
+import { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
+import { isSelectionMarkupTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionMarkupTool';
+import { findEditorByMarkerRect as findEditorByMarkerRectHelper } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-matcher/findEditorByMarkerRect';
+import { resolveCommentForDelete as resolveCommentForDeleteHelper } from '@app/modules/pdf-viewer/engine/annotations/annotation-delete-resolver/resolveCommentForDelete';
+import { resolveStablePdfDeleteFallback as resolveStablePdfDeleteFallbackHelper } from '@app/modules/pdf-viewer/engine/annotations/annotation-delete-resolver/resolveStablePdfDeleteFallback';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import type { PDFDocumentProxy } from '@app/types/pdf';
-import { detectEditorSubtype } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/detectEditorSubtype';
-import { getCommentText } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/getCommentText';
-import { hasEditorCommentPayload } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/hasEditorCommentPayload';
-import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annotationContextMenuPayload';
-import { errorToLogText } from '@app/utils/pdf-viewer/annotation-css-utils/errorToLogText';
-import { escapeCssAttr } from '@app/utils/pdf-viewer/annotation-css-utils/escapeCssAttr';
-import { removeAnnotationCommentDom } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/removeAnnotationCommentDom';
-import { findAnnotationSummaryFromPoint as findAnnotationSummaryFromPointHelper } from '@app/utils/pdf-viewer/annotation-comment-crud-helpers/findAnnotationSummaryFromPoint';
-import { findEditorByAnnotationElementId as findEditorByAnnotationElementIdHelper } from '@app/utils/pdf-viewer/annotation-comment-crud-helpers/findEditorByAnnotationElementId';
-import { findEditorForComment as findEditorForCommentHelper } from '@app/utils/pdf-viewer/annotation-comment-crud-helpers/findEditorForComment';
-import { findEditorFromTarget as findEditorFromTargetHelper } from '@app/utils/pdf-viewer/annotation-comment-crud-helpers/findEditorFromTarget';
-import { findPdfAnnotationSummaryFromTarget } from '@app/utils/pdf-viewer/annotation-comment-crud-helpers/findPdfAnnotationSummaryFromTarget';
-import type { IEditorTargetMatch } from '@app/utils/pdf-viewer/annotation-comment-crud-helpers/editorTargetMatch';
-import { getCommentCandidateIds } from '@app/utils/pdf-viewer/annotation-comment-identity/getCommentCandidateIds';
+import { detectEditorSubtype } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/detectEditorSubtype';
+import { getCommentText } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/getCommentText';
+import { hasEditorCommentPayload } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/hasEditorCommentPayload';
+import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
+import { errorToLogText } from '@app/modules/pdf-viewer/engine/annotation-css-utils/errorToLogText';
+import { escapeCssAttr } from '@app/modules/pdf-viewer/engine/annotation-css-utils/escapeCssAttr';
+import { removeAnnotationCommentDom } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/removeAnnotationCommentDom';
+import { findAnnotationSummaryFromPoint as findAnnotationSummaryFromPointHelper } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findAnnotationSummaryFromPoint';
+import { findEditorByAnnotationElementId as findEditorByAnnotationElementIdHelper } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findEditorByAnnotationElementId';
+import { findEditorForComment as findEditorForCommentHelper } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findEditorForComment';
+import { findEditorFromTarget as findEditorFromTargetHelper } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findEditorFromTarget';
+import { findPdfAnnotationSummaryFromTarget } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findPdfAnnotationSummaryFromTarget';
+import type { IEditorTargetMatch } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/editorTargetMatch';
+import { getCommentCandidateIds } from '@app/modules/pdf-viewer/engine/annotation-comment-identity/getCommentCandidateIds';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import {
     getEditorById,

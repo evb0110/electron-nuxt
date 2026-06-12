@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { buildPdfAnnotationSavePlan } from '@app/services/pdf-save/buildPdfAnnotationSavePlan';
+import { buildPdfAnnotationSavePlan } from '@app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan';
 
 describe('buildPdfAnnotationSavePlan', () => {
     it('replays embedded annotation operations from source bytes when live PDF.js ids are covered', () => {

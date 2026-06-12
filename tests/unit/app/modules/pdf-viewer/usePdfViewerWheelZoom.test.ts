@@ -16,8 +16,8 @@ import {
 const captureScrollSnapshot = vi.fn();
 const restoreScrollFromSnapshot = vi.fn();
 
-vi.mock('@app/utils/pdf-viewer/pdf-page-render-pipeline/captureScrollSnapshot', () => ({captureScrollSnapshot: (...args: unknown[]) => captureScrollSnapshot(...args)}));
-vi.mock('@app/utils/pdf-viewer/pdf-page-render-pipeline/restoreScrollFromSnapshot', () => ({restoreScrollFromSnapshot: (...args: unknown[]) => restoreScrollFromSnapshot(...args)}));
+vi.mock('@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/captureScrollSnapshot', () => ({captureScrollSnapshot: (...args: unknown[]) => captureScrollSnapshot(...args)}));
+vi.mock('@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/restoreScrollFromSnapshot', () => ({restoreScrollFromSnapshot: (...args: unknown[]) => restoreScrollFromSnapshot(...args)}));
 
 vi.mock('@app/utils/browserLogger', () => {
     return { BrowserLogger: {

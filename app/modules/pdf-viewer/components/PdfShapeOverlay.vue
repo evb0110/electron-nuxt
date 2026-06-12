@@ -331,9 +331,9 @@ import type {
     TDrawableShapeType,
     TShapeResizeHandle,
 } from '@app/types/annotations';
-import { usePdfShapeOverlayInteractions } from '@app/utils/pdf-viewer/pdf-shape-overlay-interactions/usePdfShapeOverlayInteractions';
-import { getShapeRect } from '@app/utils/pdf-viewer/pdf-shape-resize/getShapeRect';
-import { getShapeStrokePointSets } from '@app/utils/pdf-viewer/pdf-shape-strokes/getShapeStrokePointSets';
+import { usePdfShapeOverlayInteractions } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/usePdfShapeOverlayInteractions';
+import { getShapeRect } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/getShapeRect';
+import { getShapeStrokePointSets } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getShapeStrokePointSets';
 
 interface IProps {
     shapes: IShapeAnnotation[];

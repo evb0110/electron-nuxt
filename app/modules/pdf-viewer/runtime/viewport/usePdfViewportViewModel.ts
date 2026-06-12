@@ -2,8 +2,8 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import { getCurrentSpreadRenderedBoundsFromMetrics } from '@app/utils/pdf-viewer/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromMetrics';
-import { resolveHorizontalScrollClampForActiveSpread as resolveActiveSpreadHorizontalScrollClamp } from '@app/utils/pdf-viewer/pdf-horizontal-scroll-clamp/resolveHorizontalScrollClampForActiveSpread';
+import { getCurrentSpreadRenderedBoundsFromMetrics } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromMetrics';
+import { resolveHorizontalScrollClampForActiveSpread as resolveActiveSpreadHorizontalScrollClamp } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolveHorizontalScrollClampForActiveSpread';
 import { usePdfViewerVirtualization } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import type {

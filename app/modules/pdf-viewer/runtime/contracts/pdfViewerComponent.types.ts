@@ -1,4 +1,4 @@
-import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annotationContextMenuPayload';
+import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,

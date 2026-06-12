@@ -78,7 +78,7 @@ flowchart LR
 - `app/components/settings/SettingsAgentPanel.vue`
   Desktop settings panel with separate in-app assistant visibility and external MCP status/setup controls.
 
-- `app/components/agent/AgentAssistantPanel.vue`
+- `app/modules/agent-panel/components/AgentAssistantPanel.vue`
   Desktop assistant panel with Codex install/update, ChatGPT sign-in, workspace/document empty states, and chat composer.
 
 - `scripts/evb-mcp-proxy.mjs`

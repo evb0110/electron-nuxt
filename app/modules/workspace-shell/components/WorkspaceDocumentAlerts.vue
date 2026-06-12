@@ -30,7 +30,10 @@
 </template>
 
 <script setup lang="ts">
-const DjvuBanner = defineAsyncComponent(() => import('@app/components/djvu/DjvuBanner.vue'));
+const DjvuBanner = defineAsyncComponent(
+    () => import('@app/modules/djvu-viewer/public')
+        .then(componentModule => componentModule.DjvuBanner),
+);
 
 defineProps<{
     pdfError: unknown;

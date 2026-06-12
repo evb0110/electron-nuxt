@@ -2,7 +2,7 @@ import type {
     AnnotationEditorUIManager,
     PDFDocumentProxy,
 } from 'pdfjs-dist';
-import { savePdfDocumentWithCommittedEditors } from '@app/utils/pdf-viewer/pdf-save-document/savePdfDocumentWithCommittedEditors';
+import { savePdfDocumentWithCommittedEditors } from '@app/modules/pdf-viewer/engine/pdf-save-document/savePdfDocumentWithCommittedEditors';
 import { renderPdfDocumentPagesForBrowserPrint } from '@app/utils/pdfPrint';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
 

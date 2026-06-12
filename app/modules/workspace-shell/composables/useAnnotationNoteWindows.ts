@@ -5,16 +5,18 @@ import {
 } from '@vueuse/core';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { ANNOTATION_NOTE_SAVE_DEBOUNCE_MS } from '@app/constants/timeouts';
-import { annotationCommentsMatch } from '@app/utils/pdf-viewer/annotation-comment-matching/annotationCommentsMatch';
-import { selectPreferredAnnotationComment } from '@app/utils/pdf-viewer/annotation-comment-matching/selectPreferredAnnotationComment';
+import {
+    annotationCommentsMatch,
+    selectPreferredAnnotationComment,
+    isNoteEligibleComment,
+    markerRectCenterDistance,
+    commentsShareStableIdentifier,
+    normalizeMarkerRect,
+} from '@app/modules/pdf-viewer/public';
 import type {
     IAnnotationNotePosition,
     IAnnotationNoteWindowState,
-} from '@app/utils/pdf-viewer/annotations/annotationNoteWindowTypes';
-import { isNoteEligibleComment } from '@app/utils/pdf-viewer/annotations/annotation-rules/isNoteEligibleComment';
-import { markerRectCenterDistance } from '@app/utils/pdf-viewer/annotations/annotation-rules/markerRectCenterDistance';
-import { commentsShareStableIdentifier } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/commentsShareStableIdentifier';
-import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
+} from '@app/types/annotationNoteWindow';
 import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';

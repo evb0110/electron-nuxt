@@ -24,6 +24,7 @@ The PDF viewer feature namespace is `app/modules/pdf-viewer/`.
 | Path | Ownership |
 | --- | --- |
 | `public.ts` | Cross-module exports and DOM helper exports |
+| `engine/` | Viewer-owned DOM, annotation, serialization, render, and save helpers that used to live in the shared utility layer |
 | `runtime/` | Controller composition, load/reload, viewport, navigation, zoom, rendering lifecycle, save/print bridges, and public API assembly |
 | `runtime/rendering/` | Authoritative page rendering runtime and renderer controllers |
 | `annotations/` | Viewer annotation comment/color feature models |
@@ -33,9 +34,10 @@ Shared PDF services, serialization helpers, and generic document/workspace
 features stay outside this namespace unless they are truly viewer-owned.
 Reusable pure PDF geometry, serialization, conformance, TIFF, and outline logic
 belongs in `packages/pdf-core` and should be consumed through the `@pdf-core`
-package root. `app/utils/pdf-viewer` is for app/viewer integration helpers that
-depend on Vue state, DOM conventions, PDF.js runtime shape, or viewer-specific
-serialization policy.
+package root. Shared non-PDF viewport helpers belong under
+`app/utils/document-viewer`; viewer-specific integration helpers that depend on
+Vue state, DOM conventions, PDF.js runtime shape, or serialization policy belong
+under `app/modules/pdf-viewer/engine`.
 
 ## DOM Contracts
 

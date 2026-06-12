@@ -10,7 +10,7 @@ import {
 import type { TPdfViewMode } from '@contracts/shared';
 import { usePdfViewerVirtualization } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import { expandVirtualWindowForAnchor } from '@app/modules/pdf-viewer/runtime/viewport/expandVirtualWindowForAnchor';
-import { getPageRowBoundsForViewMode } from '@app/utils/pdf-viewer/pdf-page-layout/getPageRowBoundsForViewMode';
+import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import type { IPdfPageMetric } from '@app/types/pdf';
 
 describe('expandVirtualWindowForAnchor', () => {

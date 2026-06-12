@@ -5,7 +5,7 @@ import type {
     IAnnotationCommentSummary,
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
-import type { IAnnotationNoteWindowState } from '@app/utils/pdf-viewer/annotations/annotationNoteWindowTypes';
+import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
 import type {
     IRecentFile,
     TFitMode,

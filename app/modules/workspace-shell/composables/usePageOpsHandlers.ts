@@ -3,8 +3,8 @@ import { difference } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
 import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentRef } from '@contracts/documentRef';
-import { usePageOperations } from '@app/composables/pdf/usePageOperations';
-import type { TDocumentOperationKind } from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
+import { usePageOperations } from '@app/modules/pdf-viewer/public';
+import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 
 interface IPdfViewerForPageOps {invalidatePages: (pages: number[]) => void;}
 

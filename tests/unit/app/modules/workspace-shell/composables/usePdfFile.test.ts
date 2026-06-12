@@ -60,7 +60,7 @@ vi.mock('@app/utils/platform', () => ({
     ) => electronApiAvailable || desktopRuntime || routePath === '/electron' || routePath?.startsWith('/electron/') === true,
 }));
 
-vi.mock('@app/composables/pdf/useOcrTextContent', () => ({useOcrTextContent: () => ({clearCache: vi.fn()})}));
+vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent', () => ({useOcrTextContent: () => ({clearCache: vi.fn()})}));
 
 const mockT = vi.fn((key: string) => key);
 vi.stubGlobal('useI18n', () => ({ t: mockT }));
