@@ -15,24 +15,33 @@ import { fileURLToPath } from 'node:url';
 const landingRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const repoPackages = join(landingRoot, '..', 'packages');
 
-const manifest = [{
-    src: join(repoPackages, 'contracts/release.ts'),
-    dest: join(landingRoot, 'vendor/contracts/release.ts'),
-}];
-
-for (const pkg of [
+const vendoredPackages = [
     'i18n-core',
     'release-selection',
-]) {
-    const sourceDir = join(repoPackages, pkg);
-    for (const file of readdirSync(sourceDir)) {
-        if (file.endsWith('.ts')) {
-            manifest.push({
-                src: join(sourceDir, file),
-                dest: join(landingRoot, 'vendor', pkg, file),
-            });
+];
+
+function createVendorManifest({
+    landingRoot: landingRootPath = landingRoot,
+    repoPackages: repoPackagesPath = repoPackages,
+} = {}) {
+    const manifest = [{
+        src: join(repoPackagesPath, 'contracts/release.ts'),
+        dest: join(landingRootPath, 'vendor/contracts/release.ts'),
+    }];
+
+    for (const pkg of vendoredPackages) {
+        const sourceDir = join(repoPackagesPath, pkg);
+        for (const file of readdirSync(sourceDir)) {
+            if (file.endsWith('.ts')) {
+                manifest.push({
+                    src: join(sourceDir, file),
+                    dest: join(landingRootPath, 'vendor', pkg, file),
+                });
+            }
         }
     }
+
+    return manifest;
 }
 
 export function transformVendoredSource(source) {
@@ -49,7 +58,48 @@ function formatDriftError(drifted) {
     ].join('\n');
 }
 
-export function syncVendor({check = false} = {}) {
+function formatMissingSourcesMessage() {
+    return 'landing/vendor source packages are unavailable; using vendored files for this self-contained build';
+}
+
+function assertVendoredFilesExist({landingRoot: landingRootPath = landingRoot} = {}) {
+    const missing = [
+        join(landingRootPath, 'vendor/contracts/release.ts'),
+        ...vendoredPackages.map(pkg => join(landingRootPath, 'vendor', pkg, 'index.ts')),
+    ].filter(file => !existsSync(file));
+
+    if (missing.length > 0) {
+        throw new Error([
+            'landing/vendor is incomplete:',
+            ...missing.map(file => `  ${file}`),
+            'Run `pnpm sync:vendor` from landing/ and commit the result.',
+        ].join('\n'));
+    }
+}
+
+export function syncVendor({
+    check = false,
+    landingRoot: landingRootPath = landingRoot,
+    repoPackages: repoPackagesPath = repoPackages,
+} = {}) {
+    if (!existsSync(repoPackagesPath)) {
+        if (!check) {
+            throw new Error(`Cannot sync landing/vendor because ${repoPackagesPath} does not exist`);
+        }
+
+        assertVendoredFilesExist({landingRoot: landingRootPath});
+
+        return {
+            count: 0,
+            drifted: [],
+            skipped: formatMissingSourcesMessage(),
+        };
+    }
+
+    const manifest = createVendorManifest({
+        landingRoot: landingRootPath,
+        repoPackages: repoPackagesPath,
+    });
     const drifted = [];
 
     for (const {
@@ -86,9 +136,13 @@ if (isDirectCliRun) {
 
     try {
         const result = syncVendor({check});
-        console.log(check
-            ? 'landing/vendor is in sync with ../packages'
-            : `Synced ${result.count} files into landing/vendor`);
+        if (result.skipped) {
+            console.log(result.skipped);
+        } else {
+            console.log(check
+                ? 'landing/vendor is in sync with ../packages'
+                : `Synced ${result.count} files into landing/vendor`);
+        }
     } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));
         process.exit(1);
