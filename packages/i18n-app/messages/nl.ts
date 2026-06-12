@@ -822,6 +822,7 @@ export default {
         'languageSpanish': 'Spaans',
         'languageItalian': 'Italiaans',
         'languagePortuguese': 'Portugees',
+        'languagePortugueseBr': 'Portugees (Brazilië)',
         'languageDutch': 'Nederlands',
         'uiScale': 'Interfacegrootte',
         'uiScaleDescription': 'Auto past zich aan op Windows-beeldschermen die boven 100% zijn geschaald. Kies een vooraf ingesteld profiel om te overschrijven.',

@@ -390,6 +390,7 @@ export default defineNuxtConfig({
             'circle-flags:es',
             'circle-flags:it',
             'circle-flags:pt',
+            'circle-flags:br',
             'circle-flags:nl',
             'ph:export',
             'ph:file-arrow-down',

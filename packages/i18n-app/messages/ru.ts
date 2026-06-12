@@ -848,6 +848,7 @@ export default {
         'languageSpanish': 'Испанский',
         'languageItalian': 'Итальянский',
         'languagePortuguese': 'Португальский',
+        'languagePortugueseBr': 'Португальский (Бразилия)',
         'languageDutch': 'Нидерландский',
         'uiScale': 'Размер интерфейса',
         'uiScaleDescription': 'Авто подстраивается на дисплеях Windows с масштабом выше 100%. Выберите вариант, чтобы переопределить.',

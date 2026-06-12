@@ -51,6 +51,12 @@ export const LOCALE_DEFINITIONS = [
         language: 'pt',
     },
     {
+        code: 'pt-BR',
+        file: 'pt-BR.ts',
+        name: 'Português (Brasil)',
+        language: 'pt-BR',
+    },
+    {
         code: 'nl',
         file: 'nl.ts',
         name: 'Nederlands',
