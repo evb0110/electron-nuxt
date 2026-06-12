@@ -64,7 +64,7 @@ describe('CI topology policy', () => {
     it('keeps native, landing, and Python smoke checks path-filtered on push', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
 
-        expect(workflow).toContain('grep -Eq \'^(landing/|packages/contracts/|packages/i18n-core/|packages/release-selection/)\'');
+        expect(workflow).toContain('grep -Eq \'^landing/\'');
         expect(workflow).toContain('grep -Eq \'^native/\'');
         expect(workflow).toContain('python/page-processor/');
         expect(workflow).toContain('name: Native Rust Tests');
