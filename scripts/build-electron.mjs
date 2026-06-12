@@ -2,6 +2,7 @@ import {
     mkdir,
     copyFile,
     rm,
+    writeFile,
 } from 'node:fs/promises';
 import esbuild from 'esbuild';
 
@@ -14,15 +15,12 @@ const builds = [
         outfile: 'dist-electron/main.cjs',
         banner: {js: 'const __importMetaUrl = require("node:url").pathToFileURL(__filename).href;'},
         define: {'import.meta.url': '__importMetaUrl'},
-        external: [
-            'electron',
-            'electron-updater',
-        ],
+        external: ['electron'],
     },
     {
         entryPoints: ['electron/preload.ts'],
         format: 'cjs',
-        outfile: 'dist-electron/preload.js',
+        outfile: 'dist-electron/preload.cjs',
         external: ['electron'],
     },
     ...WORKER_BUNDLES.map(bundle => ({
@@ -46,3 +44,7 @@ await Promise.all(builds.map(build => esbuild.build({
 })));
 
 await copyFile('node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs', 'dist-electron/pdf.worker.mjs');
+// Pin dist-electron/*.js to ESM semantics regardless of loader heuristics.
+// worker_threads resolves module type from the nearest package.json; the
+// asar-unpacked copy of this directory has no other package.json above it.
+await writeFile('dist-electron/package.json', `${JSON.stringify({ type: 'module' }, null, 4)}\n`);

@@ -110,6 +110,11 @@ jobs:
         shell: bash
         run: bash scripts/verify-packaged-native-tools.sh win x64
 
+      - name: Verify packaged app contents
+        if: steps.package.outcome == 'success'
+        shell: bash
+        run: node scripts/release/assert-packaged-app-contents.mjs
+
       - name: Rename legacy artifacts
         if: steps.package.outcome == 'success'
         shell: bash
@@ -137,7 +142,7 @@ jobs:
         if: steps.artifact_status.outputs.ready == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: dist-win7-legacy-x64
+          name: legacy-win7-x64
           path: |
             release/*win7-legacy*.exe
           if-no-files-found: error

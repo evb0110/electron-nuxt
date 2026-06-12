@@ -20,6 +20,7 @@ const forbiddenPathPatterns = [
     /\.(?:test|spec)\.[cm]?[jt]sx?$/u,
     /\.map$/u,
     /(?:^|[/\\])(?:README|CHANGELOG)(?:\.[^/\\]+)?$/iu,
+    /(?:^|[/\\])favicon-dev[.-][^/\\]*$/u,
 ];
 
 function isForbiddenArtifact(relativePath) {

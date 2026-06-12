@@ -294,7 +294,7 @@ function attachRendererDiagnostics(window: BrowserWindow) {
 
 export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     const createStart = Date.now();
-    const preloadPath = join(__dirname, 'preload.js');
+    const preloadPath = join(__dirname, 'preload.cjs');
     logger.debug(`__dirname: ${__dirname}`);
     logger.debug(`preload path: ${preloadPath}`);
 

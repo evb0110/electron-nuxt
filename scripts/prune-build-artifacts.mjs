@@ -21,6 +21,8 @@ const removableDirectoryNames = new Set([
 const removableFilePatterns = [
     /\.map$/u,
     /\.(?:test|spec)\.[cm]?[jt]sx?$/u,
+    // Dev-only favicons referenced exclusively behind isDev in nuxt.config.ts.
+    /^favicon-dev[.-]/u,
 ];
 
 const removablePathSegmentPatterns = [

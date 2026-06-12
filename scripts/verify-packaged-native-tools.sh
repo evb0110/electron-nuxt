@@ -130,6 +130,7 @@ run_macos_packaged_tool_smoke() {
   echo "Smoke testing packaged tool: $tool_path $*"
   local exit_code=0
   local attempt=1
+  local max_attempts=8
   while true; do
     : >"$output_file"
     if env \
@@ -142,13 +143,13 @@ run_macos_packaged_tool_smoke() {
       exit_code=$?
     fi
 
-    if [ "$exit_code" -ne 137 ] || [ "$attempt" -ge 2 ]; then
+    if [ "$exit_code" -ne 137 ] || [ "$attempt" -ge "$max_attempts" ]; then
       break
     fi
 
-    echo "Packaged tool was killed by macOS immediately after signing; verifying signature and retrying once: $tool_path"
+    echo "Packaged tool was killed by macOS immediately after signing; verifying signature and retrying: $tool_path"
     codesign --verify --strict --verbose=2 "$tool_path"
-    sleep 1
+    sleep 5
     attempt=$((attempt + 1))
   done
 

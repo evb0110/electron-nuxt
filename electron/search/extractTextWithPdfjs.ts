@@ -2,16 +2,45 @@ import {
     readFile,
     stat,
 } from 'fs/promises';
+import { existsSync } from 'fs';
+import { createRequire } from 'module';
+import { dirname } from 'path';
+import {
+    fileURLToPath,
+    pathToFileURL,
+} from 'url';
 // Must set up DOM stubs before importing pdfjs — the legacy build still
 // references DOMMatrix at module evaluation time (canvas rendering code).
 import '@electron/search/domPolyfill';
 // Must use the legacy build — the default build uses DOMMatrix and other
 // browser-only APIs that don't exist in Node.js worker threads.
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import {
+    getDocument,
+    GlobalWorkerOptions,
+} from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
+import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
 import { collapseRepeatedPdfSearchPageText } from '@contracts/search';
 import type { IPageText } from '@electron/search/pageText';
+
+function resolvePdfjsFakeWorkerSrc() {
+    // pdfjs's Node fallback dynamically imports workerSrc; the default
+    // "./pdf.worker.mjs" resolves relative to the importing bundle, which
+    // breaks for asar-unpacked workers. Resolve an absolute path instead.
+    const bundleDir = dirname(fileURLToPath(import.meta.url));
+    const siblingWorkerPath = resolveUnpackedWorkerPath(bundleDir, 'pdf.worker.mjs');
+    if (existsSync(siblingWorkerPath)) {
+        return pathToFileURL(siblingWorkerPath).href;
+    }
+
+    // Source-context execution (unit tests, tsx) has no sibling copy; fall
+    // back to the package's own worker module.
+    const requireFromHere = createRequire(import.meta.url);
+    return pathToFileURL(requireFromHere.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs')).href;
+}
+
+GlobalWorkerOptions.workerSrc = resolvePdfjsFakeWorkerSrc();
 
 const log = createLogger('pdfjsTextExtractor');
 const PDFJS_MAX_INPUT_BYTES = (() => {

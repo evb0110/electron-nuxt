@@ -260,6 +260,10 @@ jobs:
         shell: bash
         run: bash scripts/verify-packaged-native-tools.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
 
+      - name: Verify packaged app contents
+        shell: bash
+        run: node scripts/release/assert-packaged-app-contents.mjs
+
       - name: Verify packaged startup
         if: runner.os == 'macOS'
         shell: bash

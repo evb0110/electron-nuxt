@@ -58,10 +58,28 @@ const REQUIRED_SYMBOLS_BY_WORKER: Partial<Record<TWorkerBundleId, string[]>> = {
     ],
 };
 
-const BUNDLE_CHECKS: IBundleCheck[] = WORKER_BUNDLES.map(bundle => ({
-    file: bundle.fileName,
-    requiredSymbols: REQUIRED_SYMBOLS_BY_WORKER[bundle.id] ?? [],
-}));
+const MAIN_BUNDLE_CHECK: IBundleCheck = {
+    file: 'main.cjs',
+    requiredSymbols: [
+        'MacUpdater',
+        'NsisUpdater',
+        'AppImageUpdater',
+    ],
+};
+
+const PRELOAD_BUNDLE_CHECK: IBundleCheck = {
+    file: 'preload.cjs',
+    requiredSymbols: [],
+};
+
+const BUNDLE_CHECKS: IBundleCheck[] = [
+    MAIN_BUNDLE_CHECK,
+    PRELOAD_BUNDLE_CHECK,
+    ...WORKER_BUNDLES.map(bundle => ({
+        file: bundle.fileName,
+        requiredSymbols: REQUIRED_SYMBOLS_BY_WORKER[bundle.id] ?? [],
+    })),
+];
 
 let latestSourceMtimeMs = 0;
 

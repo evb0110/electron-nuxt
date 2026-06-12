@@ -62,6 +62,22 @@ describe('dependency graph', () => {
         expect(graph.nodes.map((node: { file: string }) => node.file)).toEqual(['landing/app/app.ts']);
     });
 
+    it('treats external scoped packages that share internal alias prefixes as external', async () => {
+        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        await mkdir(join(projectRoot, 'scripts/release'), { recursive: true });
+        await writeFile(
+            join(projectRoot, 'scripts/release/assert-packaged-app-contents.mjs'),
+            'import asar from \'@electron/asar\';\nexport const read = asar.listPackage;\n',
+        );
+
+        const graph = await buildDependencyGraph({
+            projectRoot,
+            roots: ['scripts'],
+        });
+
+        expect(graph.unresolvedInternalImports).toEqual([]);
+    });
+
     it('reports strongly connected import components as dependency cycles', async () => {
         const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
         await mkdir(join(projectRoot, 'app'), { recursive: true });
