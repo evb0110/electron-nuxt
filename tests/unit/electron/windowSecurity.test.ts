@@ -17,12 +17,21 @@ function createWindowMock() {
     }};
 }
 
+function createLoggerMock() {
+    return {
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+    };
+}
+
 describe('createWindowSecurity', () => {
     it('tracks the current trusted renderer URL instead of a startup snapshot', () => {
         let trustedUrl = 'evb-viewer://app/electron';
         const security = createWindowSecurity({
             getTrustedRendererUrl: () => trustedUrl,
-            logger: { warn: vi.fn() },
+            logger: createLoggerMock(),
         });
 
         expect(security.isTrustedRendererUrl('evb-viewer://app/electron/settings')).toBe(true);
@@ -36,7 +45,7 @@ describe('createWindowSecurity', () => {
     it('rejects same-origin renderer URLs outside the configured app route', () => {
         const security = createWindowSecurity({
             getTrustedRendererUrl: () => 'http://127.0.0.1:41001/electron',
-            logger: { warn: vi.fn() },
+            logger: createLoggerMock(),
         });
 
         expect(security.isTrustedRendererUrl('http://127.0.0.1:41001/electron')).toBe(true);
@@ -46,7 +55,7 @@ describe('createWindowSecurity', () => {
     });
 
     it('blocks unsupported protocols before delegating to shell.openExternal', () => {
-        const logger = { warn: vi.fn() };
+        const logger = createLoggerMock();
         const security = createWindowSecurity({
             getTrustedRendererUrl: () => 'evb-viewer://app/electron',
             logger,

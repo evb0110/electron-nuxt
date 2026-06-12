@@ -45,14 +45,14 @@ const mocks = vi.hoisted(() => {
         }
     }
 
-    type TSpawnCall = {
+    interface ISpawnCall {
         command: string;
         args: string[];
         proc: MockProcess;
-    };
+    }
     type TSpawnMode = 'success' | 'fail-ranges' | 'hang-ranges';
 
-    const spawnCalls: TSpawnCall[] = [];
+    const spawnCalls: ISpawnCall[] = [];
     let spawnMode: TSpawnMode = 'success';
     let nextPid = 1000;
 

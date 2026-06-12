@@ -177,9 +177,7 @@ export function applyFreeTextNoteRects(doc: PDFDocument, comments: IAnnotationCo
                     : null;
             popupDict?.set(rectName, toPdfRectArray(doc, pdfRect));
 
-            if (!blankApRef) {
-                blankApRef = doc.context.register(doc.context.formXObject([], {}));
-            }
+            blankApRef ??= doc.context.register(doc.context.formXObject([], {}));
             dict.set(apName, doc.context.obj({ N: blankApRef }));
             modified = true;
         }

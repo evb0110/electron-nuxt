@@ -21,9 +21,7 @@ export function resolveTabLifecycleStates(options: {
     const warmCount = TAB_POLICY_WARM_COUNTS[options.policy];
     const tabIds = new Set(options.tabs.map(tab => tab.id));
     const visibleTabIds = new Set(
-        options.panes
-            .map(pane => pane.activeTabId)
-            .filter((tabId): tabId is string => Boolean(tabId)),
+        options.panes.flatMap(pane => pane.activeTabId ? [pane.activeTabId] : []),
     );
     const recentWarmTabIds = options.activationOrder
         .filter(tabId => tabIds.has(tabId) && !visibleTabIds.has(tabId))

@@ -12,6 +12,7 @@ import {
     parseElectronRunCommandResponse,
     type TElectronRunCommand,
 } from '@scripts/electron-run/electronRunProtocol';
+import { isJsonRecord } from '@scripts/electron-run/isJsonRecord';
 import {
     getCurrentSessionName,
     sessionDir,
@@ -28,12 +29,6 @@ import type {
     ISessionInfo,
     ISessionStartingInfo,
 } from '@scripts/electron-run/electronRunSessionTypes';
-
-type TJsonRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is TJsonRecord {
-    return typeof value === 'object' && value !== null;
-}
 
 function isPositiveInt(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value > 0;
@@ -52,7 +47,7 @@ function parseJsonFile(path: string) {
 }
 
 function isSessionInfo(value: unknown): value is ISessionInfo {
-    if (!isRecord(value)) {
+    if (!isJsonRecord(value)) {
         return false;
     }
     if (
@@ -79,7 +74,7 @@ function normalizeSessionInfo(raw: ISessionInfo): ISessionInfo {
 }
 
 function isSessionStartingInfo(value: unknown): value is ISessionStartingInfo {
-    if (!isRecord(value)) {
+    if (!isJsonRecord(value)) {
         return false;
     }
     return isPositiveInt(value.pid) && isPositiveInt(value.startedAt);

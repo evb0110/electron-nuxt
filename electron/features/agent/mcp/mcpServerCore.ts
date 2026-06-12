@@ -16,7 +16,7 @@ import {
     createErrorResponse,
     createResultResponse,
     getJsonRpcId,
-    type TJsonRpcResponse,
+    type IJsonRpcResponse,
 } from '@electron/features/agent/mcp/mcpJsonRpc';
 import {
     AGENT_CAPABILITY_TEMPLATES,
@@ -471,12 +471,13 @@ function selectDocumentsFromSnapshot(snapshot: IAgentWorkspaceSnapshot, tabId?: 
 }
 
 function isAgentDocumentTab(tab: IAgentTabSnapshot) {
-    return tab.kind !== 'empty' && Boolean(
-        tab.fileName
-        || tab.originalPath
-        || tab.hasPdf
-        || tab.isDjvu,
-    );
+    return tab.kind !== 'empty'
+        && (
+            Boolean(tab.fileName)
+            || Boolean(tab.originalPath)
+            || tab.hasPdf === true
+            || tab.isDjvu === true
+        );
 }
 
 function createOpenDocumentsResponse(snapshot: IAgentWorkspaceSnapshot) {
@@ -622,9 +623,11 @@ async function runAgentActionTool(params: unknown, options: IProcessMcpRequestOp
             uri: `evb://document/${encodeURIComponent(tab.tabId)}/${resourceKind}`,
         }, options);
         const content = Array.isArray(resource.contents) ? resource.contents[0] : null;
-        return isRecord(content) && typeof content.text === 'string'
-            ? JSON.parse(content.text)
-            : resource;
+        if (isRecord(content) && typeof content.text === 'string') {
+            const parsed: unknown = JSON.parse(content.text);
+            return parsed;
+        }
+        return resource;
     }
 
     if (id === 'view.activate_tab') {
@@ -943,9 +946,8 @@ async function readMcpResource(
             tab,
             options: {pages: [page]},
         }, windowId);
-        const pageResult = Array.isArray(result.pages)
-            ? result.pages.find(candidate => isRecord(candidate) && candidate.page === page)
-            : null;
+        const pages: unknown[] = Array.isArray(result.pages) ? result.pages : [];
+        const pageResult = pages.find(candidate => isRecord(candidate) && candidate.page === page);
         const text = isRecord(pageResult) && typeof pageResult.text === 'string'
             ? pageResult.text
             : '';
@@ -1059,7 +1061,7 @@ function getMcpPrompt(params: unknown) {
 export async function processMcpRequest(
     rawRequest: unknown,
     options: IProcessMcpRequestOptions,
-): Promise<TJsonRpcResponse | null> {
+): Promise<IJsonRpcResponse | null> {
     if (!isRecord(rawRequest)) {
         return createErrorResponse(null, -32600, 'Invalid JSON-RPC request.');
     }

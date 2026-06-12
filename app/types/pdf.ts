@@ -35,6 +35,11 @@ export interface IPdfPageMetric {
     height: number;
 }
 
+export interface IPageRange {
+    start: number;
+    end: number;
+}
+
 export interface IScrollSnapshot {
     width: number;
     height: number;

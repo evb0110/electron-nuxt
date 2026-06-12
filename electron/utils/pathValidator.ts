@@ -205,7 +205,7 @@ function resolveAllowedReadPathSync(filePath: string) {
     }
 
     const resolvedPath = resolveExistingTempPath(absolutePath, tempBaseDirs);
-    return resolvedPath || null;
+    return resolvedPath && resolvedPath.length > 0 ? resolvedPath : null;
 }
 
 export function resolveAllowedReadPath(filePath: string) {

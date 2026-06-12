@@ -102,15 +102,22 @@ function createEvent(senderId: number) {
 
 function getResourceAcquiredMessages(worker: { postMessage: ReturnType<typeof vi.fn> }) {
     return worker.postMessage.mock.calls
-        .map(([message]) => message)
-        .filter((message): message is {
-            type: 'resource-acquired';
-            requestId: string;
-        } => {
-            return typeof message === 'object'
+        .flatMap(([message]) => {
+            if (
+                typeof message === 'object'
                 && message !== null
                 && 'type' in message
-                && message.type === 'resource-acquired';
+                && message.type === 'resource-acquired'
+                && 'requestId' in message
+                && typeof message.requestId === 'string'
+            ) {
+                return [{
+                    type: message.type,
+                    requestId: message.requestId,
+                }];
+            }
+
+            return [];
         });
 }
 

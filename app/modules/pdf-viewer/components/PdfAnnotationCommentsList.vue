@@ -261,11 +261,17 @@ function shapeStyleLabel(comment: IAnnotationCommentSummary) {
 }
 
 function shapeStyleAriaLabel(comment: IAnnotationCommentSummary) {
-    const parts = [
-        comment.color ? `${t('annotations.stroke')} ${comment.color}` : null,
-        hasShapeFill(comment) ? `${t('annotationProperties.fill')} ${comment.fillColor}` : null,
-        formatShapeStrokeWidth(comment) ? shapeStyleLabel(comment) : null,
-    ].filter((part): part is string => Boolean(part));
+    const parts: string[] = [];
+    if (comment.color) {
+        parts.push(`${t('annotations.stroke')} ${comment.color}`);
+    }
+    if (hasShapeFill(comment)) {
+        parts.push(`${t('annotationProperties.fill')} ${comment.fillColor}`);
+    }
+    const strokeWidth = formatShapeStrokeWidth(comment);
+    if (strokeWidth) {
+        parts.push(shapeStyleLabel(comment));
+    }
 
     return parts.join(', ');
 }
@@ -390,7 +396,14 @@ function inlineChipAriaLabel(comment: IAnnotationCommentSummary) {
 }
 
 function authorLabel(comment: IAnnotationCommentSummary) {
-    return comment.author || authorName.value || t('annotations.unknownAuthor');
+    const commentAuthor = comment.author?.trim();
+    if (commentAuthor) {
+        return commentAuthor;
+    }
+    const configuredAuthor = authorName.value?.trim();
+    return configuredAuthor && configuredAuthor.length > 0
+        ? configuredAuthor
+        : t('annotations.unknownAuthor');
 }
 
 function pageLabel(comment: IAnnotationCommentSummary) {

@@ -1,20 +1,14 @@
+import type { IMarkerRectEditorMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-matcher/markerRectEditorMatch';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import {
     clamp,
     range,
 } from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
 import { isBetterMarkerRectMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-matcher/isBetterMarkerRectMatch';
 import { scoreMarkerRectEditor } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-matcher/scoreMarkerRectEditor';
 
-interface IMarkerRectEditorMatch {
-    editor: IPdfjsEditor;
-    pageIndex: number;
-    distance: number;
-    textScore: number;
-}
 
 type TExactMarkerTextMatch = Omit<IMarkerRectEditorMatch, 'textScore'>;
 

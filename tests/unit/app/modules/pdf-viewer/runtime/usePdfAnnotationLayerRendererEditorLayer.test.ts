@@ -60,7 +60,7 @@ class MockAnnotationLayer {
             if (!params.div || !annotation.id) {
                 return;
             }
-            cast<{ append: (element: IFakeAnnotationElement) => void }>(params.div)
+            cast<{ append: (element: IFakeEditorLayerAnnotationElement) => void }>(params.div)
                 .append(createAnnotationElement(annotation.id));
         });
         return;
@@ -152,7 +152,7 @@ interface IViewportLike {
     rawDims?: Record<string, unknown>;
 }
 
-interface IFakeAnnotationElement {
+interface IFakeEditorLayerAnnotationElement {
     dataset: { annotationId?: string; };
     style: Record<string, string>;
     setAttribute: (name: string, value: string) => void;
@@ -160,8 +160,8 @@ interface IFakeAnnotationElement {
 }
 
 interface IFakeAnnotationLayerDiv extends IFakeDivElement {
-    append: (element: IFakeAnnotationElement) => void;
-    querySelectorAll: (selector: string) => IFakeAnnotationElement[];
+    append: (element: IFakeEditorLayerAnnotationElement) => void;
+    querySelectorAll: (selector: string) => IFakeEditorLayerAnnotationElement[];
 }
 
 function createDiv(): HTMLDivElement {
@@ -176,9 +176,9 @@ function createDiv(): HTMLDivElement {
     return cast<HTMLDivElement>(fakeDiv);
 }
 
-function createAnnotationElement(annotationId: string): IFakeAnnotationElement {
+function createAnnotationElement(annotationId: string): IFakeEditorLayerAnnotationElement {
     const attributes = new Map<string, string>();
-    const element: IFakeAnnotationElement = {
+    const element: IFakeEditorLayerAnnotationElement = {
         dataset: { annotationId },
         style: {},
         setAttribute: (name, value) => {
@@ -190,7 +190,7 @@ function createAnnotationElement(annotationId: string): IFakeAnnotationElement {
 }
 
 function createAnnotationLayerDiv(): HTMLDivElement {
-    const appended: IFakeAnnotationElement[] = [];
+    const appended: IFakeEditorLayerAnnotationElement[] = [];
     const fakeDiv: IFakeAnnotationLayerDiv = {
         innerHTML: '',
         dir: 'ltr',
@@ -387,7 +387,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             1,
         );
 
-        const hiddenElement = annotationLayerDiv.querySelectorAll('[data-annotation-id="12R"]')[0] as IFakeAnnotationElement | undefined;
+        const hiddenElement = annotationLayerDiv.querySelectorAll('[data-annotation-id="12R"]')[0] as IFakeEditorLayerAnnotationElement | undefined;
         expect(hiddenElement).toBeUndefined();
     });
 

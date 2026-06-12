@@ -1,12 +1,9 @@
+import type { IPoint2D } from '@app/types/point2D';
 import type {
     IImagePlacementRectPx,
     TImagePlacementResizeHandle,
 } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
 
-interface IPoint2D {
-    x: number;
-    y: number;
-}
 
 const IMAGE_PLACEMENT_HANDLE_VECTORS: Record<TImagePlacementResizeHandle, IPoint2D> = {
     n: {

@@ -15,14 +15,15 @@ import { fileURLToPath } from 'node:url';
 const landingRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const repoPackages = join(landingRoot, '..', 'packages');
 
-const manifest = [
-    {
-        src: join(repoPackages, 'contracts/release.ts'),
-        dest: join(landingRoot, 'vendor/contracts/release.ts'),
-    },
-];
+const manifest = [{
+    src: join(repoPackages, 'contracts/release.ts'),
+    dest: join(landingRoot, 'vendor/contracts/release.ts'),
+}];
 
-for (const pkg of ['i18n-core', 'release-selection']) {
+for (const pkg of [
+    'i18n-core',
+    'release-selection',
+]) {
     const sourceDir = join(repoPackages, pkg);
     for (const file of readdirSync(sourceDir)) {
         if (file.endsWith('.ts')) {
@@ -51,7 +52,9 @@ function formatDriftError(drifted) {
 export function syncVendor({check = false} = {}) {
     const drifted = [];
 
-    for (const { src, dest } of manifest) {
+    for (const {
+        src, dest, 
+    } of manifest) {
         const source = transformVendoredSource(readFileSync(src, 'utf8'));
 
         if (check) {

@@ -1,79 +1,11 @@
 import type { Page } from 'puppeteer-core';
+import type { IEvbTestApi } from '@app/types/evbTestApi';
+import type {
+    IWorkspaceExpose,
+    IWorkspaceToolbarSnapshot,
+} from '@app/types/workspaceExpose';
 
-export interface IWorkspaceToolbarSnapshot {
-    canExportDocx: boolean;
-    canRedo: boolean;
-    canRepairSave: boolean;
-    canSave: boolean;
-    canUndo: boolean;
-    continuousScroll: boolean;
-    currentPage: number;
-    dragMode: boolean;
-    effectiveZoom: number;
-    fitMode: 'width' | 'height';
-    hasOpenError: boolean;
-    hasPdf: boolean;
-    isAnySaving: boolean;
-    isCapturingRegion: boolean;
-    isCropSelecting: boolean;
-    isDjvuMode: boolean;
-    isExportingDocx: boolean;
-    isFitHeightActive: boolean;
-    isFitWidthActive: boolean;
-    isHistoryBusy: boolean;
-    isOpeningDocument: boolean;
-    isPlacingPageNote: boolean;
-    isPreparingCurrentPagePrint: boolean;
-    isPreparingPrint: boolean;
-    isSaving: boolean;
-    isSavingAs: boolean;
-    showSidebar: boolean;
-    totalPages: number;
-    viewMode: 'single' | 'facing' | 'facing-first-single';
-    zoom: number;
-    zoomMode: 'custom' | 'fit-width' | 'fit-height';
-    [key: string]: unknown;
-}
-
-export interface IWorkspaceExpose extends Record<string, unknown> { getToolbarSnapshot?: () => IWorkspaceToolbarSnapshot; }
-
-interface IEvbTestCommandResult<TResult = unknown> {
-    called: boolean;
-    value: TResult | null;
-}
-
-interface IEvbTestWorkspaceSummary {
-    automationStateKeys: string[];
-    exposedKeys: string[];
-    isActive: boolean;
-    tabId: string;
-    toolbarSnapshot: IWorkspaceToolbarSnapshot | null;
-}
-
-interface IEvbTestWorkspaceDebugState {
-    activeTabId: string | null;
-    activeToolbarSnapshot: IWorkspaceToolbarSnapshot | null;
-    activeWorkspaceState: Record<string, unknown>;
-    workspaceCount: number;
-    workspaces: IEvbTestWorkspaceSummary[];
-}
-
-interface IEvbTestApi {
-    callActiveWorkspaceCommand: <TResult = unknown>(
-        commandName: string,
-        args?: unknown[],
-    ) => Promise<IEvbTestCommandResult<TResult>>;
-    collectWorkspaceDebugState: () => IEvbTestWorkspaceDebugState;
-    getActiveTabId: () => string | null;
-    getActiveToolbarSnapshot: () => IWorkspaceToolbarSnapshot | null;
-    getActiveWorkspaceHandle: () => IWorkspaceExpose | null;
-    openFile: (path: string) => Promise<boolean>;
-    openFiles: (paths: string[]) => Promise<void>;
-    readActiveWorkspaceStateValues: <TValues extends Record<string, unknown> = Record<string, unknown>>(
-        propertyNames: string[],
-    ) => TValues;
-    waitForActiveDocumentOpenSettled: () => Promise<boolean>;
-}
+export type { IWorkspaceExpose };
 
 export interface IFindWorkspaceExposeOptions {
     includeAllElements?: boolean;

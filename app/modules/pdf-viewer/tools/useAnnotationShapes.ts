@@ -292,7 +292,7 @@ export const useAnnotationShapes = () => {
 
     function normalizeStyleColor(value: string | undefined, fallback: string) {
         const color = value?.trim();
-        return color ? color : fallback;
+        return color && color.length > 0 ? color : fallback;
     }
 
     function normalizeGeometryPoint(point: IShapePoint): IShapePoint {
@@ -328,7 +328,9 @@ export const useAnnotationShapes = () => {
         }
 
         const normalized = fillColor?.trim();
-        return normalized || resolveDrawingFillColor(tool, settings);
+        return normalized && normalized.length > 0
+            ? normalized
+            : resolveDrawingFillColor(tool, settings);
     }
 
     function applyGeometryStyle(

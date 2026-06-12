@@ -107,7 +107,8 @@ function isExpectedResponseSender<TResponse>(
 }
 
 function normalizeResponseError(response: { error?: string }) {
-    return response.error?.trim() || 'Agent renderer request failed.';
+    const message = response.error?.trim();
+    return message && message.length > 0 ? message : 'Agent renderer request failed.';
 }
 
 function isValidSnapshotResponse(response: unknown): response is IAgentWorkspaceSnapshotResponse {

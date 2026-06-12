@@ -84,6 +84,7 @@ describe('useDocumentWorkspaceSplitRestore', () => {
                 cachedPresent = false;
                 return payload;
             }),
+            clear: vi.fn(),
             set: vi.fn(),
         };
         const restoreSplitPayload = vi.fn(async () => {
@@ -99,7 +100,11 @@ describe('useDocumentWorkspaceSplitRestore', () => {
                 pendingDocumentOpen: computed(() => false),
                 isTabTransitionBusy: computed(() => false),
                 workspaceSplitCache,
-                workspaceRestoreTracker: { has: vi.fn(() => false) },
+                workspaceRestoreTracker: {
+                    has: vi.fn(() => false),
+                    start: vi.fn(),
+                    finish: vi.fn(),
+                },
                 hasPdf: ref(false),
                 currentPage: ref(1),
                 totalPages: ref(0),

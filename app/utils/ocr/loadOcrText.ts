@@ -51,9 +51,13 @@ export async function loadOcrText(workingCopyPath: TDocumentRef) {
             return null;
         }
 
-        const legacyTexts = (index.pages ?? [])
-            .map((page) => page?.text?.trim())
-            .filter((text): text is string => Boolean(text));
+        const legacyTexts: string[] = [];
+        for (const page of index.pages ?? []) {
+            const text = page?.text?.trim();
+            if (text) {
+                legacyTexts.push(text);
+            }
+        }
 
         const merged = legacyTexts.join('\n\n');
         return merged.length > 0 ? merged : null;

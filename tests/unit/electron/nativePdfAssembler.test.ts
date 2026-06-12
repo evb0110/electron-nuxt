@@ -15,7 +15,7 @@ interface IMockNativeWriteProgress {
     estimatedRemainingMs: number | null;
 }
 
-type TMockNativeWriteOptions = {onProgress?: (progress: IMockNativeWriteProgress) => void};
+interface IMockNativeWriteOptions {onProgress?: (progress: IMockNativeWriteProgress) => void}
 
 const mocks = vi.hoisted(() => {
     const atomicReplace = vi.fn(async (_sourcePath: string, _targetPath: string) => undefined);
@@ -42,7 +42,7 @@ const mocks = vi.hoisted(() => {
     const nativeWrite = vi.fn(async (
         inputPaths: string[],
         _outputPath: string,
-        options?: TMockNativeWriteOptions,
+        options?: IMockNativeWriteOptions,
     ) => {
         options?.onProgress?.({
             processed: inputPaths.length,

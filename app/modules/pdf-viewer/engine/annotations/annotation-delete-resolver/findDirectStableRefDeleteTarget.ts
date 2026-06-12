@@ -37,24 +37,28 @@ export function findDirectStableRefDeleteTarget(
         return null;
     }
 
-    return candidates
-        .map((candidate) => {
-            const candidateText = candidate.text.trim().toLowerCase();
-            if (candidateText.length === 0 || candidateText !== targetText || !(candidate.annotationId || candidate.uid)) {
-                return null;
-            }
-            const iou = markerRectIoU(comment.markerRect, candidate.markerRect);
-            const distance = markerRectCenterDistance(comment.markerRect, candidate.markerRect);
-            if (!hasSupportedDeleteGeometry(comment, candidate, iou, distance)) {
-                return null;
-            }
-            return {
+    const matches: Array<{
+        candidate: IAnnotationCommentSummary;
+        iou: number;
+        distance: number;
+    }> = [];
+    for (const candidate of candidates) {
+        const candidateText = candidate.text.trim().toLowerCase();
+        if (candidateText.length === 0 || candidateText !== targetText || !(candidate.annotationId || candidate.uid)) {
+            continue;
+        }
+        const iou = markerRectIoU(comment.markerRect, candidate.markerRect);
+        const distance = markerRectCenterDistance(comment.markerRect, candidate.markerRect);
+        if (hasSupportedDeleteGeometry(comment, candidate, iou, distance)) {
+            matches.push({
                 candidate,
                 iou,
                 distance,
-            };
-        })
-        .filter((match): match is NonNullable<typeof match> => Boolean(match))
+            });
+        }
+    }
+
+    return matches
         .sort((l, r) => {
             if (l.iou !== r.iou) {
                 return r.iou - l.iou;

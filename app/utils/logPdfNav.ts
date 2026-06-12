@@ -5,17 +5,17 @@ const PDF_NAV_LOG_CONSOLE_STORAGE_KEY = 'evb-viewer:pdf-nav-log-console';
 const PDF_NAV_LOG_SECTION = 'pdf-nav';
 const PDF_NAV_LOG_BUFFER_LIMIT = 5_000;
 
-type TPdfNavLogEntry = {
+export interface IPdfNavLogEntry {
     message: string;
     args: unknown[];
     loggedAtMs: number;
-};
+}
 
 type TPdfNavLogWindow = Window & {
     __pdfNavLog?: boolean;
     __pdfNavLogConsole?: boolean;
-    __pdfNavLogBuffer?: TPdfNavLogEntry[];
-    __getPdfNavLog?: () => TPdfNavLogEntry[];
+    __pdfNavLogBuffer?: IPdfNavLogEntry[];
+    __getPdfNavLog?: () => IPdfNavLogEntry[];
     __clearPdfNavLog?: () => void;
 };
 

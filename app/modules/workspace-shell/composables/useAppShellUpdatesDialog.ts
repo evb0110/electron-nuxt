@@ -2,15 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-
-interface IUpdateDialogState {
-    open: boolean;
-    kind: 'status' | 'ready';
-    phase: 'checking' | 'downloading' | 'no-update' | 'error' | 'unsupported';
-    version: string | null;
-    percent: number | null;
-    message: string | null;
-}
+import type { IUpdateDialogState } from '@app/composables/useAppUpdates';
 
 interface IUseAppShellUpdatesDialogOptions {
     updatesDialog: Ref<IUpdateDialogState>;

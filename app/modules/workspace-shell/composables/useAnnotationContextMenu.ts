@@ -1,17 +1,6 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type { IAnnotationContextMenuState } from '@app/types/pdfContextMenu';
 import { usePositionedMenu } from '@app/composables/usePositionedMenu';
-
-interface IAnnotationContextMenuState {
-    visible: boolean;
-    x: number;
-    y: number;
-    comment: IAnnotationCommentSummary | null;
-    hasSelection: boolean;
-    selectionText: string;
-    pageNumber: number | null;
-    pageX: number | null;
-    pageY: number | null;
-}
 
 interface IContextMenuDeleteLabels {
     annotation: string;
@@ -39,7 +28,8 @@ function resolveMarkupDeleteLabel(comment: IAnnotationCommentSummary, labels: IC
     if (comment.text.trim().length > 0 || !MARKUP_DELETE_SUBTYPES.has(normalizeCommentSubtype(comment))) {
         return null;
     }
-    return formatDeleteLabel(comment.kindLabel?.trim() || labels.annotation, labels);
+    const kindLabel = comment.kindLabel?.trim();
+    return formatDeleteLabel(kindLabel && kindLabel.length > 0 ? kindLabel : labels.annotation, labels);
 }
 
 function resolveDefaultDeleteTargetLabel(comment: IAnnotationCommentSummary, labels: IContextMenuDeleteLabels) {

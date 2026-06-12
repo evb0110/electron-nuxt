@@ -1,6 +1,5 @@
+import type { ILogger } from '@electron/utils/createLogger';
 import { randomUUID } from 'node:crypto';
-
-interface ILogger {info(message: string): void;}
 
 export function createStartupTrace(logger: ILogger) {
     const startupStartedAt = Date.now();

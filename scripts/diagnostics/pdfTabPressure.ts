@@ -10,7 +10,7 @@ import { sumBy } from 'es-toolkit/math';
 import { sendCommand } from '@scripts/electron-run/sendCommand';
 import { setCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
 
-interface IOptions {
+interface IPdfTabPressureOptions {
     fixture: string;
     fixtures: string[];
     tabs: number;
@@ -46,10 +46,10 @@ interface IDomPressureSnapshot {
     textSpans: number;
     annotationLayerNodes: number;
     djvuImages: number;
-    hosts: IWorkspacePressureSnapshot[];
+    hosts: IDiagnosticWorkspacePressureSnapshot[];
 }
 
-interface IWorkspacePressureSnapshot {
+interface IDiagnosticWorkspacePressureSnapshot {
     index: number;
     active: boolean;
     visible: boolean;
@@ -99,8 +99,8 @@ function parsePositiveNumber(value: string | undefined, fallback: number | null)
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function readOptions(argv = process.argv.slice(2)): IOptions {
-    const options: IOptions = {
+function readOptions(argv = process.argv.slice(2)): IPdfTabPressureOptions {
+    const options: IPdfTabPressureOptions = {
         fixture: DEFAULT_FIXTURE,
         fixtures: [],
         tabs: 4,
@@ -303,7 +303,7 @@ function buildSnapshotWarnings(dom: IDomPressureSnapshot) {
 
 function buildSnapshotFailures(
     dom: IDomPressureSnapshot,
-    options: Pick<IOptions, 'maxInactiveCanvases' | 'maxInactiveRenderedPages' | 'maxInactiveDjvuImages' | 'maxInactiveCanvasPixels'>,
+    options: Pick<IPdfTabPressureOptions, 'maxInactiveCanvases' | 'maxInactiveRenderedPages' | 'maxInactiveDjvuImages' | 'maxInactiveCanvasPixels'>,
 ) {
     const failures: string[] = [];
     const inactiveHosts = dom.hosts.filter(host => !host.active);
@@ -354,7 +354,7 @@ async function collectHeapSample(sampleHeap: boolean): Promise<IHeapSample | nul
 
 async function collectSnapshot(
     label: string,
-    options: Pick<IOptions,
+    options: Pick<IPdfTabPressureOptions,
         | 'collectGc'
         | 'sampleHeap'
         | 'maxInactiveCanvases'
@@ -390,15 +390,15 @@ function buildHeapFailures(snapshots: IDiagnosticSnapshot[], maxHeapGrowthMb: nu
         return [];
     }
 
-    const samples = snapshots
-        .map(snapshot => ({
-            label: snapshot.label,
-            used: snapshot.heap?.usedJSHeapSize,
-        }))
-        .filter((sample): sample is {
-            label: string;
-            used: number;
-        } => typeof sample.used === 'number');
+    const samples = snapshots.flatMap((snapshot) => {
+        const used = snapshot.heap?.usedJSHeapSize;
+        return typeof used === 'number'
+            ? [{
+                label: snapshot.label,
+                used,
+            }]
+            : [];
+    });
     const baseline = samples[0];
     const last = samples.at(-1);
 
@@ -412,7 +412,7 @@ function buildHeapFailures(snapshots: IDiagnosticSnapshot[], maxHeapGrowthMb: nu
         : [];
 }
 
-async function runDiagnostics(options: IOptions) {
+async function runDiagnostics(options: IPdfTabPressureOptions) {
     setCurrentSessionName(options.session);
     const fixtures = (options.fixtures.length > 0 ? options.fixtures : [options.fixture]).map(fixture => resolve(fixture));
     const snapshots: IDiagnosticSnapshot[] = [];

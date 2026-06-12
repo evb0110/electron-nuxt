@@ -112,7 +112,8 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
     }
 
     function normalizeAgentBookmarkEntry(input: Record<string, unknown>, actionId: string): IPdfBookmarkEntry {
-        const title = getAgentRawStringInput(input, 'title')?.trim() || t('bookmarks.untitled');
+        const rawTitle = getAgentRawStringInput(input, 'title')?.trim();
+        const title = rawTitle && rawTitle.length > 0 ? rawTitle : t('bookmarks.untitled');
         const namedDest = getAgentRawStringInput(input, 'namedDest')
             ?? getAgentRawStringInput(input, 'dest')
             ?? null;
@@ -223,7 +224,8 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         const bookmarkUpdates = isAgentRecord(input.bookmark) ? input.bookmark : input;
         const updated = {...location.bookmark};
         if (hasAgentInputKey(bookmarkUpdates, 'title')) {
-            updated.title = getAgentRawStringInput(bookmarkUpdates, 'title')?.trim() || t('bookmarks.untitled');
+            const rawTitle = getAgentRawStringInput(bookmarkUpdates, 'title')?.trim();
+            updated.title = rawTitle && rawTitle.length > 0 ? rawTitle : t('bookmarks.untitled');
         }
         if (
             hasAgentInputKey(bookmarkUpdates, 'page')

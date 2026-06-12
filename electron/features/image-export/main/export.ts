@@ -83,7 +83,7 @@ interface IPreparedSourcePdf {
     cleanup: () => Promise<void>;
 }
 
-interface IPageRange {
+interface IExportPageRange {
     firstPage: number;
     lastPage: number;
 }
@@ -428,7 +428,7 @@ function parsePdfImagesListDpi(output: string) {
 async function detectExportDpi(
     pdfPath: string,
     pdfimagesBinary: string | undefined,
-    pageRange: IPageRange,
+    pageRange: IExportPageRange,
     signal?: AbortSignal,
 ) {
     if (!pdfimagesBinary) {
@@ -500,7 +500,7 @@ function emitExportProgress(options: IExportPdfOptions, progress: IImageExportPr
 async function renderPdfToTempPages(
     pdfPath: string,
     format: TImageExportFormat,
-    pageRange: IPageRange,
+    pageRange: IExportPageRange,
     signal?: AbortSignal,
 ): Promise<IRenderedPageFile[]> {
     const tempDir = await mkdtemp(join(tmpdir(), 'pdfExport-'));

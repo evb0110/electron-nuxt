@@ -6,16 +6,16 @@ const PDF_RENDER_TRACE_SECTION = 'pdf-render-trace';
 const PDF_RENDER_TRACE_BUFFER_LIMIT = 5_000;
 
 type TPdfRenderTracePayload = Record<string, unknown> | (() => Record<string, unknown>);
-type TPdfRenderTraceEntry = {
+export interface IPdfRenderTraceEntry {
     event: string;
     payload: Record<string, unknown>;
-};
+}
 
 type TPdfRenderTraceWindow = Window & {
     __pdfRenderTrace?: boolean;
     __pdfRenderTraceConsole?: boolean;
-    __pdfRenderTraceBuffer?: TPdfRenderTraceEntry[];
-    __getPdfRenderTrace?: () => TPdfRenderTraceEntry[];
+    __pdfRenderTraceBuffer?: IPdfRenderTraceEntry[];
+    __getPdfRenderTrace?: () => IPdfRenderTraceEntry[];
     __clearPdfRenderTrace?: () => void;
 };
 
@@ -75,7 +75,7 @@ function getTraceWindow() {
     return traceWindow;
 }
 
-function pushTraceEntry(entry: TPdfRenderTraceEntry) {
+function pushTraceEntry(entry: IPdfRenderTraceEntry) {
     const traceWindow = getTraceWindow();
     if (!traceWindow) {
         return;

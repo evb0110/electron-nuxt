@@ -56,27 +56,31 @@ export function buildNativeMarkupMutationForSave(opts: {
     if (!opts.annotationWorkDirty) {
         return null;
     }
-    const overrides = Array.from(opts.markupSubtypeOverrides?.entries() ?? [])
-        .filter((entry): entry is [string, TMarkupSubtype] =>
-            typeof entry[0] === 'string'
-            && entry[0].trim().length > 0
-            && isNativeMarkupSubtype(entry[1]))
-        .map(([
-            id,
-            subtype,
-        ]) => [
-            id.trim(),
-            subtype,
-        ] as const);
+    const overrides: Array<readonly [string, TMarkupSubtype]> = [];
+    for (const [
+        id,
+        subtype,
+    ] of opts.markupSubtypeOverrides?.entries() ?? []) {
+        if (id.trim().length > 0 && isNativeMarkupSubtype(subtype)) {
+            overrides.push([
+                id.trim(),
+                subtype,
+            ]);
+        }
+    }
     const liveHints = opts.markupSubtypeHints
-        .map(toNativeMarkupHint)
-        .filter((hint): hint is IPdfNativeMarkupSubtypeHint => hint !== null);
+        .flatMap((hint) => {
+            const nativeHint = toNativeMarkupHint(hint);
+            return nativeHint ? [nativeHint] : [];
+        });
     const editedCommentHints = collectMarkupSubtypeHints(opts.annotationCommentsSnapshot)
         // Full rewrites need all preservation hints; incremental native markup should touch
         // only hints that represent a user-visible markup edit.
         .filter(hint => hint.color !== null || hint.source === 'editor')
-        .map(toNativeMarkupHint)
-        .filter((hint): hint is IPdfNativeMarkupSubtypeHint => hint !== null);
+        .flatMap((hint) => {
+            const nativeHint = toNativeMarkupHint(hint);
+            return nativeHint ? [nativeHint] : [];
+        });
     if (overrides.length + liveHints.length + editedCommentHints.length === 0) {
         return null;
     }

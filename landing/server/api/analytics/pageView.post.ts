@@ -5,25 +5,39 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
-export default defineEventHandler(async (event) => {
-    const config = useRuntimeConfig(event);
-    const db = getDb(config.databaseUrl || process.env.DATABASE_URL);
+interface IPageViewBody {
+    path: string
+    referrer: string | null
+}
 
-    const body = await readBody(event);
-
+function validatePageViewBody(value: unknown): IPageViewBody {
     if (
-        !isRecord(body)
-        || typeof body.path !== 'string'
-        || !body.path
-        || (body.referrer !== undefined && body.referrer !== null && typeof body.referrer !== 'string')
+        !isRecord(value)
+        || typeof value.path !== 'string'
+        || !value.path
+        || (value.referrer !== undefined && value.referrer !== null && typeof value.referrer !== 'string')
     ) {
         throw createError({
             statusCode: 400,
-            statusMessage: 'Missing path', 
+            statusMessage: 'Missing path',
         });
     }
 
-    const { geo, visitorHash, userAgent } = await getAnalyticsRequestContext(event);
+    return {
+        path: value.path,
+        referrer: typeof value.referrer === 'string' ? value.referrer : null,
+    };
+}
+
+export default defineEventHandler(async (event) => {
+    const config = useRuntimeConfig(event);
+    const db = getDb(config.databaseUrl ?? process.env.DATABASE_URL);
+
+    const body = await readValidatedBody(event, validatePageViewBody);
+
+    const {
+        geo, visitorHash, userAgent,
+    } = await getAnalyticsRequestContext(event);
 
     await db.insert(landingPageView).values({
         path: body.path.slice(0, 255),

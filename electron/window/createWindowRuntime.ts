@@ -1,8 +1,7 @@
+import type { ILogger } from '@electron/utils/createLogger';
 import { session } from 'electron';
 import { setupContentSecurityPolicy } from '@electron/security/csp';
 import { getErrorMessage } from '@electron/utils/error';
-
-interface ILogger {warn(message: string): void;}
 
 interface ICreateWindowRuntimeOptions {
     isDev: boolean;

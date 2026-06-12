@@ -1,3 +1,5 @@
+import type { IHighlightRect } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/highlightCompositeSource';
+
 /**
  * Per-page compositing overlay for **true text highlights** (PDF `Highlight`
  * subtype). It replaces PDF.js' native per-SVG `mix-blend-mode: multiply`
@@ -26,13 +28,6 @@
  * load-bearing. Do not revert to native multiply stacking without also bringing
  * back the same-colour darkening seam.
  */
-interface IHighlightRect {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-}
-
 const HIGHLIGHT_PATH_TOKEN_PATTERN = /[a-zA-Z]|-?\d*\.?\d+(?:[eE][-+]?\d+)?/g;
 
 const HIGHLIGHT_PATH_CORNER_EPSILON = 1e-6;

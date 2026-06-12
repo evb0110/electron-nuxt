@@ -5,30 +5,48 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
-export default defineEventHandler(async (event) => {
-    const config = useRuntimeConfig(event);
-    const db = getDb(config.databaseUrl || process.env.DATABASE_URL);
+interface IDownloadBody {
+    platform: string
+    arch: string
+    version: string
+    fileName: string
+}
 
-    const body = await readBody(event);
-
+function validateDownloadBody(value: unknown): IDownloadBody {
     if (
-        !isRecord(body)
-        || typeof body.platform !== 'string'
-        || typeof body.arch !== 'string'
-        || typeof body.version !== 'string'
-        || typeof body.fileName !== 'string'
-        || !body.platform
-        || !body.arch
-        || !body.version
-        || !body.fileName
+        !isRecord(value)
+        || typeof value.platform !== 'string'
+        || typeof value.arch !== 'string'
+        || typeof value.version !== 'string'
+        || typeof value.fileName !== 'string'
+        || !value.platform
+        || !value.arch
+        || !value.version
+        || !value.fileName
     ) {
         throw createError({
             statusCode: 400,
-            statusMessage: 'Missing required fields', 
+            statusMessage: 'Missing required fields',
         });
     }
 
-    const { geo, visitorHash, userAgent } = await getAnalyticsRequestContext(event);
+    return {
+        platform: value.platform,
+        arch: value.arch,
+        version: value.version,
+        fileName: value.fileName,
+    };
+}
+
+export default defineEventHandler(async (event) => {
+    const config = useRuntimeConfig(event);
+    const db = getDb(config.databaseUrl ?? process.env.DATABASE_URL);
+
+    const body = await readValidatedBody(event, validateDownloadBody);
+
+    const {
+        geo, visitorHash, userAgent,
+    } = await getAnalyticsRequestContext(event);
 
     await db.insert(landingDownload).values({
         platform: body.platform.slice(0, 20),

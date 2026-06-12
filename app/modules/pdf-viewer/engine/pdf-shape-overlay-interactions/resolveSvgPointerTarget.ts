@@ -1,4 +1,6 @@
 
+import type { IPointerEventLike } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/pdfShapeOverlayInteractionTypes';
+
 
 interface IRectLike {
     left: number;
@@ -12,13 +14,6 @@ interface IClosestElementLike { closest: (selector: string) => unknown; }
 interface IRectElementLike extends IClosestElementLike {
     getBoundingClientRect: () => IRectLike;
     setPointerCapture?: (pointerId: number) => void;
-}
-
-interface IPointerEventLike {
-    currentTarget: EventTarget | null;
-    target: EventTarget | null;
-    clientX: number;
-    clientY: number;
 }
 
 function isRectElementLike(value: unknown): value is IRectElementLike {

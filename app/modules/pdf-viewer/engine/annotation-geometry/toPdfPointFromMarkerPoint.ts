@@ -1,12 +1,7 @@
+import type { IPageRectBounds } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRectBounds';
 import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
 import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
 
-interface IPageRectBounds {
-    xMin: number;
-    yMin: number;
-    width: number;
-    height: number;
-}
 
 function getPageRectBounds(pageView: number[] | null | undefined): IPageRectBounds | null {
     if (!pageView || pageView.length < 4) {

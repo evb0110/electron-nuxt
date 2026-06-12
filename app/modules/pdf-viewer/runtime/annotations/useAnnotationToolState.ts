@@ -222,12 +222,10 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
     }
 
     function isMarkupEditorCandidate(editor: IPdfjsEditor, pageIndex: number) {
-        return Boolean(
-            elementHasClass(editor.div, 'highlightEditor')
-            || editor.__evbMarkupBoxes?.length
-            || resolveEditorMarkupSubtypeOverride(editor, pageIndex)
-            || resolveEditorSubtypeFromPresentation(editor),
-        );
+        return elementHasClass(editor.div, 'highlightEditor')
+            || Boolean(editor.__evbMarkupBoxes?.length)
+            || Boolean(resolveEditorMarkupSubtypeOverride(editor, pageIndex))
+            || Boolean(resolveEditorSubtypeFromPresentation(editor));
     }
 
     function resolveEditorPageMarkupIndex(editor: IPdfjsEditor, pageIndex: number, identity: string) {

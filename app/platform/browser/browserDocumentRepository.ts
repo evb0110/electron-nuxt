@@ -31,7 +31,6 @@ import {
 import type {
     IBrowserDocumentEntry,
     IBrowserPersistedDocumentRecord,
-    IChunkKeyRecord,
     ICreateStoredDocumentOptions,
     IRegisterFileOptions,
     IWriteDocumentOptions,
@@ -899,13 +898,11 @@ export class BrowserDocumentStore {
             return;
         }
 
-        if (!this.maintenancePromise) {
-            this.maintenancePromise = this.sweepPersistedOrphans()
-                .finally(() => {
-                    this.maintenancePromise = null;
-                    this.maintenanceComplete = true;
-                });
-        }
+        this.maintenancePromise ??= this.sweepPersistedOrphans()
+            .finally(() => {
+                this.maintenancePromise = null;
+                this.maintenanceComplete = true;
+            });
 
         await this.maintenancePromise;
     }
@@ -991,9 +988,10 @@ export class BrowserDocumentStore {
         ]));
         const rawChunkKeys = await loadAllChunkKeys();
         const chunkKeys = Array.isArray(rawChunkKeys)
-            ? rawChunkKeys
-                .map((key) => typeof key === 'string' ? parseChunkKey(key) : null)
-                .filter((key): key is IChunkKeyRecord => key !== null)
+            ? rawChunkKeys.flatMap((key) => {
+                const parsedKey = typeof key === 'string' ? parseChunkKey(key) : null;
+                return parsedKey ? [parsedKey] : [];
+            })
             : [];
         const chunkIndicesByRef = collectChunkIndicesByRef(chunkKeys);
         const brokenChunkRefs = records

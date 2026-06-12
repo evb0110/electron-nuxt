@@ -11,27 +11,19 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
+import type { IOcrPopupAgentExpose } from '@app/types/ocrAgent';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+
+export type {
+    IAgentOcrRunOptions,
+    IOcrPopupAgentExpose,
+    TAgentOcrPageRange,
+} from '@app/types/ocrAgent';
 
 export type TWorkspaceAgentSidebarTab = 'annotations' | 'bookmarks' | 'thumbnails' | 'search';
 export type TWorkspaceAgentFitMode = 'width' | 'height';
 export type TWorkspaceAgentRotateAngle = 90 | 180 | 270;
 export type TWorkspaceAgentTranslate = (key: 'bookmarks.untitled') => string;
-
-export type TAgentOcrPageRange = 'all' | 'current' | 'custom';
-
-export interface IAgentOcrRunOptions {
-    pageRange?: TAgentOcrPageRange;
-    customRange?: string;
-    languages?: string[];
-    open?: boolean;
-}
-
-export interface IOcrPopupAgentExpose {
-    runOcrForAgent: (options?: IAgentOcrRunOptions) => Promise<Record<string, unknown>>;
-    cancelOcrForAgent: () => Record<string, unknown>;
-    getAgentOcrSnapshot: () => Record<string, unknown>;
-}
 
 export interface IUseDocumentWorkspaceAgentOptions {
     annotationComments: Ref<IAnnotationCommentSummary[]>;

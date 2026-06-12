@@ -3,10 +3,19 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import { isRecord } from '@contracts/runtimeGuards';
 
 export function normalizeNonEmptyStringPaths(paths: readonly unknown[]): string[] {
-    return paths
-        .filter((path): path is string => typeof path === 'string')
-        .map((path) => path.trim())
-        .filter((path) => path.length > 0);
+    const normalizedPaths: string[] = [];
+    for (const path of paths) {
+        if (typeof path !== 'string') {
+            continue;
+        }
+
+        const trimmedPath = path.trim();
+        if (trimmedPath.length > 0) {
+            normalizedPaths.push(trimmedPath);
+        }
+    }
+
+    return normalizedPaths;
 }
 
 export interface IRecentFile {

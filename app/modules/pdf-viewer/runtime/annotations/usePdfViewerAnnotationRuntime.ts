@@ -29,14 +29,11 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type {
+    IPageRange,
     PDFDocumentProxy,
     TPdfSource,
 } from '@app/types/pdf';
 
-interface IPageRange {
-    start: number;
-    end: number;
-}
 
 interface IUsePdfViewerAnnotationRuntimeOptions {
     viewerContainer: Ref<HTMLElement | null>;

@@ -3,14 +3,10 @@ import type { TOpenDjvuFile } from '@app/composables/useDjvu';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { clamp } from 'es-toolkit/math';
+import type { IOpenBatchProgressState } from '@app/modules/workspace-shell/composables/openBatchProgressState';
 import { hasDocumentHintUpdate } from '@app/modules/workspace-shell/tabs/hasDocumentHintUpdate';
 import { isEmptyTabDocumentUpdate } from '@app/modules/workspace-shell/tabs/isEmptyTabDocumentUpdate';
 import { resolveWorkspaceTabUpdate } from '@app/modules/workspace-shell/state/resolveWorkspaceTabUpdate';
-
-interface IOpenBatchProgressState {
-    processed: number;
-    total: number;
-}
 
 interface IWorkspaceUiSyncDeps {
     pendingDjvu: Ref<TDocumentRef | null>;

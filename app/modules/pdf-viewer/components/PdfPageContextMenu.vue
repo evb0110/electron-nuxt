@@ -106,11 +106,7 @@
 
 <script setup lang="ts">
 import PdfContextMenuBase from '@app/modules/pdf-viewer/components/PdfContextMenuBase.vue';
-
-interface IPageContextMenuState {
-    visible: boolean;
-    pages: number[];
-}
+import type { IPageContextMenuState } from '@app/types/pdfContextMenu';
 
 const {
     isDjvuMode = false,

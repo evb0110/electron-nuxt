@@ -17,11 +17,19 @@ import {
     getWorkspaceToolbarSnapshot,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import type { IWorkspaceToolbarSnapshot } from '@tests/e2e/electron/helpers/workspaceExpose';
+import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+import type { IPdfNavLogEntry } from '@app/utils/logPdfNav';
+import type { IPdfRenderTraceEntry } from '@app/utils/pdfRenderTrace';
+import {
+    toPdfNavLogEntries,
+    toPdfRenderTraceEntries,
+} from '@scripts/diagnostics/pdfTraceEntryGuards';
 
-const TARGET_PDF_PATH = process.env.EVB_E2E_NAVIGATION_PDF_PATH
-    || process.env.EVB_DIAGNOSTIC_PDF_PATH
-    || resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'navigation-source.pdf');
+const TARGET_PDF_PATH = [
+    process.env.EVB_E2E_NAVIGATION_PDF_PATH,
+    process.env.EVB_DIAGNOSTIC_PDF_PATH,
+].find(value => typeof value === 'string' && value.length > 0)
+    ?? resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'navigation-source.pdf');
 const DIAGNOSTIC_OUTPUT_PATH = resolve(
     process.cwd(),
     '.devkit',
@@ -38,24 +46,13 @@ const RAPID_NEXT_TO_LAST_DIAGNOSTIC_OUTPUT_PATH = resolve(
     'girgas-rapid-next-to-last-skeleton-diagnostics.json',
 );
 
-type TPdfNavLogEntry = {
-    message: string;
-    args: unknown[];
-    loggedAtMs: number;
-};
-
-type TPdfRenderTraceEntry = {
-    event: string;
-    payload: Record<string, unknown>;
-};
-
-type TNavigationSample = {
+interface INavigationSample {
     sampledAtMs: number;
     currentPageText: string | null;
     skeletonPages: number[];
     renderedPages: number[];
     canvasPages: number[];
-};
+}
 
 interface IVisiblePageDiagnostics {
     page: number;
@@ -78,6 +75,13 @@ interface INavigationDiagnosticsSnapshot {
     toolbarSnapshot: IWorkspaceToolbarSnapshot | null;
     visiblePages: IVisiblePageDiagnostics[];
 }
+
+interface INavigationZoomToolbarSnapshot {
+    continuousScroll?: boolean;
+    effectiveZoom?: number;
+}
+
+interface INavigationEffectiveZoomSnapshot {effectiveZoom?: number;}
 
 function writeDiagnosticArtifact(payload: unknown) {
     mkdirSync(dirname(DIAGNOSTIC_OUTPUT_PATH), { recursive: true });
@@ -118,17 +122,21 @@ async function enablePdfNavLog(session: IElectronE2ESession) {
 }
 
 async function collectPdfNavLog(session: IElectronE2ESession) {
-    return session.page.evaluate(() => {
-        const logWindow = window as Window & { __getPdfNavLog?: () => TPdfNavLogEntry[]; };
-        return logWindow.__getPdfNavLog?.() ?? [];
+    const entries: unknown = await session.page.evaluate(() => {
+        const logWindow = window as Window & { __getPdfNavLog?: () => unknown[]; };
+        const logEntries = logWindow.__getPdfNavLog?.();
+        return Array.isArray(logEntries) ? Array.from(logEntries as readonly unknown[]) : [];
     });
+    return toPdfNavLogEntries(entries);
 }
 
 async function collectPdfRenderTrace(session: IElectronE2ESession) {
-    return session.page.evaluate(() => {
-        const traceWindow = window as Window & { __getPdfRenderTrace?: () => TPdfRenderTraceEntry[]; };
-        return traceWindow.__getPdfRenderTrace?.() ?? [];
+    const entries: unknown = await session.page.evaluate(() => {
+        const traceWindow = window as Window & { __getPdfRenderTrace?: () => unknown[]; };
+        const traceEntries = traceWindow.__getPdfRenderTrace?.();
+        return Array.isArray(traceEntries) ? Array.from(traceEntries as readonly unknown[]) : [];
     });
+    return toPdfRenderTraceEntries(entries);
 }
 
 function isExecutionContextDestroyedError(error: unknown) {
@@ -213,7 +221,7 @@ async function goToPageViaWorkspace(session: IElectronE2ESession, pageNumber: nu
 }
 
 async function collectNavigationDiagnosticsSnapshot(session: IElectronE2ESession) {
-    const snapshot = await session.page.evaluate((): Omit<INavigationDiagnosticsSnapshot, 'toolbarSnapshot'> => {
+    const rawSnapshot: unknown = await session.page.evaluate(() => {
         const isVisibleElement = (element: HTMLElement) => {
             const rect = element.getBoundingClientRect();
             const style = window.getComputedStyle(element);
@@ -258,7 +266,9 @@ async function collectNavigationDiagnosticsSnapshot(session: IElectronE2ESession
             visiblePages,
         };
     });
-    const toolbarSnapshot = await getWorkspaceToolbarSnapshot(session.page, {requireVisible: true});
+    const snapshot = rawSnapshot as Omit<INavigationDiagnosticsSnapshot, 'toolbarSnapshot'>;
+    const rawToolbarSnapshot: unknown = await getWorkspaceToolbarSnapshot(session.page, {requireVisible: true});
+    const toolbarSnapshot = rawToolbarSnapshot as IWorkspaceToolbarSnapshot | null;
     return {
         ...snapshot,
         toolbarSnapshot,
@@ -267,7 +277,7 @@ async function collectNavigationDiagnosticsSnapshot(session: IElectronE2ESession
 
 async function configureHighZoom(session: IElectronE2ESession, options: { continuousScroll: boolean } = { continuousScroll: false }) {
     await session.page.waitForFunction(() => Boolean(document.querySelector('#pdf-viewer')), { timeout: 20_000 });
-    const initialSnapshot = await getWorkspaceToolbarSnapshot(session.page, {requiredMethods: ['handleZoomIn']});
+    const initialSnapshot = await getWorkspaceToolbarSnapshot(session.page, {requiredMethods: ['handleZoomIn']}) as INavigationZoomToolbarSnapshot | null;
 
     if (!initialSnapshot) {
         throw new Error('Unable to configure workspace zoom/page state');
@@ -288,7 +298,7 @@ async function configureHighZoom(session: IElectronE2ESession, options: { contin
         'handleZoomIn',
     ]});
     for (let index = 0; index < 30; index += 1) {
-        const snapshot = await getWorkspaceToolbarSnapshot(session.page, {requiredMethods: ['handleZoomIn']});
+        const snapshot = await getWorkspaceToolbarSnapshot(session.page, {requiredMethods: ['handleZoomIn']}) as INavigationEffectiveZoomSnapshot | null;
         if ((snapshot?.effectiveZoom ?? 0) >= 3.4) {
             break;
         }
@@ -302,7 +312,7 @@ async function configureSinglePagedFitHeightMode(session: IElectronE2ESession) {
     const initialSnapshot = await getWorkspaceToolbarSnapshot(session.page, {requiredMethods: [
         'handleFitHeight',
         'handleViewModeSingle',
-    ]});
+    ]}) as { continuousScroll?: boolean } | null;
 
     if (!initialSnapshot) {
         throw new Error('Unable to configure single-page paged fit-height mode');
@@ -529,12 +539,12 @@ async function sampleNavigation(
         delayMs?: number;
     } = {},
 ) {
-    const samples: TNavigationSample[] = [];
+    const samples: INavigationSample[] = [];
     const startedAt = Date.now();
     const count = options.count ?? 180;
     const delayMs = options.delayMs ?? 10;
     for (let index = 0; index < count; index += 1) {
-        samples.push(await session.page.evaluate((startedAtMs: number): TNavigationSample => {
+        samples.push(await session.page.evaluate((startedAtMs: number): INavigationSample => {
             const pageContainers = Array.from(document.querySelectorAll<HTMLElement>('.page_container'));
             const visiblePageContainers = pageContainers.filter((container) => {
                 const rect = container.getBoundingClientRect();
@@ -586,9 +596,9 @@ function assertTargetPdfExists() {
 }
 
 async function runHighZoomNextPageDiagnostic(session: IElectronE2ESession) {
-    let samples: TNavigationSample[] = [];
-    let navLog: TPdfNavLogEntry[] = [];
-    let renderTrace: TPdfRenderTraceEntry[] = [];
+    let samples: INavigationSample[] = [];
+    let navLog: IPdfNavLogEntry[] = [];
+    let renderTrace: IPdfRenderTraceEntry[] = [];
     try {
         await navigateToPageWithNextButton(session, 55);
         await configureHighZoom(session);
@@ -628,9 +638,9 @@ async function runHighZoomNextPageDiagnostic(session: IElectronE2ESession) {
 }
 
 async function runToolbarPageInputDiagnostic(session: IElectronE2ESession) {
-    let samples: TNavigationSample[] = [];
-    let navLog: TPdfNavLogEntry[] = [];
-    let renderTrace: TPdfRenderTraceEntry[] = [];
+    let samples: INavigationSample[] = [];
+    let navLog: IPdfNavLogEntry[] = [];
+    let renderTrace: IPdfRenderTraceEntry[] = [];
     try {
         await navigateForwardWithNextButton(session, 3);
         await configureHighZoom(session, { continuousScroll: true });
@@ -668,9 +678,9 @@ async function runToolbarPageInputDiagnostic(session: IElectronE2ESession) {
 }
 
 async function runRapidNextToLastPageDiagnostic(session: IElectronE2ESession) {
-    let samples: TNavigationSample[] = [];
-    let navLog: TPdfNavLogEntry[] = [];
-    let renderTrace: TPdfRenderTraceEntry[] = [];
+    let samples: INavigationSample[] = [];
+    let navLog: IPdfNavLogEntry[] = [];
+    let renderTrace: IPdfRenderTraceEntry[] = [];
     let finalSnapshot: INavigationDiagnosticsSnapshot | null = null;
     try {
         await delay(2_000);

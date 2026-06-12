@@ -1,3 +1,4 @@
+import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 import {
     describe,
     expect,
@@ -14,7 +15,6 @@ import { tmpdir } from 'os';
 import { EventEmitter } from 'node:events';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 
-type TRegisteredHandler = (event: unknown, ...args: unknown[]) => unknown;
 
 const mocks = vi.hoisted(() => ({
     allowOpenPath: vi.fn(),

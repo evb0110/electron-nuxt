@@ -4,13 +4,13 @@ import type { IRecentFile } from '@contracts/shared';
 import type { TTabUpdate } from '@app/types/tabs';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
-type TOpenDocumentTarget = TDocumentRef | TOpenFileResult | IRecentFile;
+type TPendingTabDocumentHintTarget = TDocumentRef | TOpenFileResult | IRecentFile;
 
-function isOpenFileResult(target: TOpenDocumentTarget): target is TOpenFileResult {
+function isOpenFileResult(target: TPendingTabDocumentHintTarget): target is TOpenFileResult {
     return typeof target === 'object' && 'kind' in target;
 }
 
-function isRecentFile(target: TOpenDocumentTarget): target is IRecentFile {
+function isRecentFile(target: TPendingTabDocumentHintTarget): target is IRecentFile {
     return typeof target === 'object' && 'fileName' in target && 'timestamp' in target;
 }
 
@@ -18,7 +18,7 @@ function isDjvuDocumentPath(path: TDocumentRef | null | undefined, fileName: str
     return /\.djvu?$/iu.test(fileName ?? path ?? '');
 }
 
-export function buildPendingTabDocumentHint(target: TOpenDocumentTarget): TTabUpdate {
+export function buildPendingTabDocumentHint(target: TPendingTabDocumentHintTarget): TTabUpdate {
     if (typeof target === 'string') {
         const fileName = getDocumentRefBaseName(target);
         return {

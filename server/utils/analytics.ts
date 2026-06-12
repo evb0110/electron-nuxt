@@ -34,6 +34,16 @@ function normalizeAllowedHosts(value: unknown) {
     return compact(value.map(entry => typeof entry === 'string' ? entry.trim().toLowerCase() : ''));
 }
 
+function firstNonEmptyString(values: Array<string | undefined>) {
+    for (const value of values) {
+        if (typeof value === 'string' && value.length > 0) {
+            return value;
+        }
+    }
+
+    return '';
+}
+
 export function extractGeo(event: H3Event): IGeoData {
     return {
         country: getHeader(event, 'x-vercel-ip-country') ?? null,
@@ -63,17 +73,19 @@ export function isAnalyticsWriteAllowed(event: H3Event) {
     void event;
     const env = getRuntimeEnv();
 
-    const writeEnabled = env.NUXT_ANALYTICS_WRITE_ENABLED
-        || env.ANALYTICS_WRITE_ENABLED
-        || '';
+    const writeEnabled = firstNonEmptyString([
+        env.NUXT_ANALYTICS_WRITE_ENABLED,
+        env.ANALYTICS_WRITE_ENABLED,
+    ]);
     if (!isTruthyFlag(writeEnabled)) {
         return false;
     }
 
     const allowedHosts = normalizeAllowedHosts(
-        env.NUXT_ANALYTICS_ALLOWED_HOSTS
-        || env.ANALYTICS_ALLOWED_HOSTS
-        || '',
+        firstNonEmptyString([
+            env.NUXT_ANALYTICS_ALLOWED_HOSTS,
+            env.ANALYTICS_ALLOWED_HOSTS,
+        ]),
     );
     if (allowedHosts.length === 0) {
         return true;

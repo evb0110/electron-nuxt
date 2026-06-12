@@ -40,7 +40,7 @@ class FakeMessagePort {
     }
 }
 
-type TNativeMutationInvokePayload = {placedImages: Array<{bytes: unknown}>};
+interface INativeMutationInvokePayload {placedImages: Array<{bytes: unknown}>}
 
 interface IWorkingCopyExpectationInvokePayload {
     byteLength: number;
@@ -478,7 +478,7 @@ describe('createDocumentsPreloadFileClient', () => {
         const invoke = vi.fn<(
             channel: string,
             path: string,
-            mutations: TNativeMutationInvokePayload,
+            mutations: INativeMutationInvokePayload,
             modifiedAt: string,
             expectedBase: IWorkingCopyExpectationInvokePayload,
         ) => Promise<unknown>>(async () => ({

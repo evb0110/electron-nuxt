@@ -124,9 +124,7 @@ export const useDjvu = () => {
                     if (activeViewingJobId.value && progress.jobId !== activeViewingJobId.value) {
                         return;
                     }
-                    if (!activeViewingJobId.value) {
-                        activeViewingJobId.value = progress.jobId;
-                    }
+                    activeViewingJobId.value ??= progress.jobId;
                     if (isLoadingPages.value) {
                         loadingProgress.value = {
                             current: progress.current ?? 0,

@@ -1,18 +1,11 @@
+import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type { IPageRange } from '@app/types/pdf';
 import { uniq } from 'es-toolkit/array';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { shouldRefreshManagedShapePage } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/shouldRefreshManagedShapePage';
 
-interface IPageRange {
-    start: number;
-    end: number;
-}
 
-interface IRenderVisiblePagesOptions {
-    preserveRenderedPages?: boolean;
-    forceRerender?: boolean;
-    bufferOverride?: number;
-}
 
 interface IRerenderRenderedManagedEmbeddedShapePagesOptions {
     shapes: Array<Pick<IShapeAnnotation, 'annotationId' | 'pageIndex' | 'source'>>;

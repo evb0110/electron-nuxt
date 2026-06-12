@@ -367,9 +367,9 @@ export function parseTsvOutput(tsvContent: string): IOcrWord[] {
 }
 
 function getTsvLineKey(parts: string[]) {
-    const blockNum = parts[2] || '0';
-    const parNum = parts[3] || '0';
-    const lineNum = parts[4] || '0';
+    const blockNum = parts[2]?.length ? parts[2] : '0';
+    const parNum = parts[3]?.length ? parts[3] : '0';
+    const lineNum = parts[4]?.length ? parts[4] : '0';
     return `${blockNum}-${parNum}-${lineNum}`;
 }
 
@@ -424,7 +424,7 @@ function* iterateTsvRows(tsvContent: string): Generator<{
 
         yield {
             parts,
-            text: (parts[11] || '').trim(),
+            text: (parts[11] ?? '').trim(),
         };
     }
 }

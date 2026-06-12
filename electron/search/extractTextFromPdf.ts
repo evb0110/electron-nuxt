@@ -8,6 +8,7 @@ import {
 } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
 import { collapseRepeatedPdfSearchPageText } from '@contracts/search';
+import type { IPageText } from '@electron/search/pageText';
 
 const log = createLogger('pdfTextExtractor');
 const PDFTOTEXT_TIMEOUT_MS = (() => {
@@ -24,11 +25,6 @@ const PDFTOTEXT_MAX_STDOUT_BYTES = (() => {
     }
     return parsed * 1024 * 1024;
 })();
-
-interface IPageText {
-    pageNumber: number;
-    text: string;
-}
 
 interface IExtractTextOptions {
     pageCount?: number;

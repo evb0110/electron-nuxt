@@ -1,4 +1,4 @@
-import type { ISearchExcerpt } from '@electron/search/protocol';
+import type { IPdfSearchExcerpt } from '@contracts/search';
 import { EXCERPT_CONTEXT_CHARS } from '@electron/config/constants';
 
 export interface ISearchMatchOptions {
@@ -16,7 +16,7 @@ export function buildExcerpt(
     text: string,
     startOffset: number,
     endOffset: number,
-): ISearchExcerpt {
+): IPdfSearchExcerpt {
     const excerptStart = Math.max(0, startOffset - EXCERPT_CONTEXT_CHARS);
     const excerptEnd = Math.min(text.length, endOffset + EXCERPT_CONTEXT_CHARS);
 

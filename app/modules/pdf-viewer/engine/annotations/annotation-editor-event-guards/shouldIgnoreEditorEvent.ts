@@ -19,9 +19,9 @@ function isFormFieldElement(element: HTMLElement) {
 function isInsideIgnoredEditorRegion(element: HTMLElement) {
     return Boolean(
         element.closest(TEXT_LAYER_SELECTOR)
-        || element.closest(COMMENT_POPUP_SELECTOR)
-        || element.closest(NOTE_WINDOW_SELECTOR)
-        || element.closest(CONTENT_EDITABLE_SELECTOR),
+        ?? element.closest(COMMENT_POPUP_SELECTOR)
+        ?? element.closest(NOTE_WINDOW_SELECTOR)
+        ?? element.closest(CONTENT_EDITABLE_SELECTOR),
     );
 }
 

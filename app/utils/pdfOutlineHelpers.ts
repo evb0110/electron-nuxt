@@ -138,9 +138,10 @@ export function parseOutlineItems(value: unknown): IOutlineItemRaw[] {
         return [];
     }
 
-    return value
-        .map(normalizeOutlineItem)
-        .filter((item): item is IOutlineItemRaw => item !== null);
+    return value.flatMap((item) => {
+        const normalized = normalizeOutlineItem(item);
+        return normalized ? [normalized] : [];
+    });
 }
 
 export function convertOutlineColorToHex(color: ArrayLike<number> | null | undefined) {

@@ -14,9 +14,9 @@ import { isKnownWorkingCopyOriginalPath } from '@electron/file-access/workingCop
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
 
 const logger = createLogger('documents-dialogs');
-type TOpenPathOwner = number | Electron.WebContents;
 const MAX_WINDOW_TITLE_LENGTH = 512;
 
 function normalizeWindowTitle(title: unknown) {

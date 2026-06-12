@@ -31,14 +31,14 @@ import {
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
 
-interface IDjvuConvertOptions {
+interface IDjvuConversionOptions {
     subsample?: number;
     pages?: string;
     pageCount?: number;
     onProgress?: (percent: number) => void;
 }
 
-interface IDjvuConvertResult {
+interface IDjvuConversionResult {
     success: boolean;
     outputPath: string;
     fileSize: number;
@@ -117,8 +117,8 @@ async function _convertDjvuToPdfWithRanges(
     inputPath: string,
     outputPath: string,
     jobId: string,
-    options: IDjvuConvertOptions,
-): Promise<IDjvuConvertResult> {
+    options: IDjvuConversionOptions,
+): Promise<IDjvuConversionResult> {
     const totalPages = options.pageCount ?? 0;
     const workerCount = getRangeWorkerCount(totalPages);
     if (workerCount < 2) {
@@ -173,7 +173,12 @@ async function _convertDjvuToPdfWithRanges(
         }, workerCount);
 
         const conversionErrors = await Promise.all(chunks.map(convertChunkWithLimit));
-        firstError = firstError ?? conversionErrors.find((error): error is string => error !== null) ?? null;
+        for (const conversionError of conversionErrors) {
+            if (conversionError !== null) {
+                firstError = firstError ?? conversionError;
+                break;
+            }
+        }
 
         if (firstError) {
             await cleanupPartialOutput(outputPath);
@@ -226,9 +231,9 @@ async function _convertDjvuToPdfSingleProcess(
     inputPath: string,
     outputPath: string,
     jobId: string,
-    options: IDjvuConvertOptions,
+    options: IDjvuConversionOptions,
     totalPages: number,
-): Promise<IDjvuConvertResult> {
+): Promise<IDjvuConversionResult> {
     const args = buildPdfArgs(inputPath, outputPath, options.subsample, options.pages);
     const pageProgressSeen = new Set<number>();
     const result = await runProcess(
@@ -293,8 +298,8 @@ export async function convertDjvuToPdfFile(
     inputPath: string,
     outputPath: string,
     jobId: string,
-    options: IDjvuConvertOptions = {},
-): Promise<IDjvuConvertResult> {
+    options: IDjvuConversionOptions = {},
+): Promise<IDjvuConversionResult> {
     const totalPages = options.pageCount ?? 0;
     if (_shouldUseParallelRangeConversion(options)) {
         const parallelResult = await _convertDjvuToPdfWithRanges(
@@ -457,7 +462,7 @@ export async function convertDjvuPageToImage(
         subsample?: number;
         format?: TImageFormat 
     } = {},
-): Promise<IDjvuConvertResult> {
+): Promise<IDjvuConversionResult> {
     const { ddjvu } = getDjvuToolPaths();
     const format = options.format ?? 'ppm';
 
@@ -726,7 +731,7 @@ function shouldSkipSingleProcessFallback(error: string | undefined) {
     return error.includes('DjVu conversion canceled') || error.includes('timed out after');
 }
 
-function _shouldUseParallelRangeConversion(options: IDjvuConvertOptions) {
+function _shouldUseParallelRangeConversion(options: IDjvuConversionOptions) {
     const totalPages = options.pageCount ?? 0;
     if (options.pages) {
         return false;

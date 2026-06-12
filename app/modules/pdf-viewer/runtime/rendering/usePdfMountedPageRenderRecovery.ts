@@ -1,13 +1,10 @@
+import type { IPageRange } from '@app/types/pdf';
 import type {
     MaybeRefOrGetter,
     Ref,
 } from 'vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
-interface IPageRange {
-    start: number;
-    end: number;
-}
 
 interface IUsePdfMountedPageRenderRecoveryOptions {
     isActive: MaybeRefOrGetter<boolean>;

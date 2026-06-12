@@ -67,8 +67,10 @@ export function buildNativeFreeTextNotesForSave(
     }
     const candidates = opts.annotationCommentsSnapshot
         .filter(isReplayableEditorOnlyFreeTextNote)
-        .map(toNativeFreeTextNote)
-        .filter((note): note is IPdfNativeFreeTextNote => note !== null);
+        .flatMap((comment) => {
+            const note = toNativeFreeTextNote(comment);
+            return note ? [note] : [];
+        });
     if (candidates.length === 0) {
         return skip('no-replayable-editor-free-text-notes');
     }

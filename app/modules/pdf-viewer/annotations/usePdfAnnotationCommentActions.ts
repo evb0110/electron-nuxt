@@ -2,7 +2,7 @@ import type { Ref } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
 import type { usePdfShapeTool } from '@app/modules/pdf-viewer/tools/public';
-import type { IPageRange } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/pageRange';
+import type { IPageRange } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 type TPdfAnnotationCommentModel = ReturnType<typeof usePdfAnnotationCommentModel>;

@@ -9,10 +9,10 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import type {
-    ISearchExcerpt,
     ISearchMatch,
     ISearchResponse,
 } from '@electron/search/protocol';
+import type { IPdfSearchExcerpt } from '@contracts/search';
 import {
     EXCERPT_CONTEXT_CHARS,
     SEARCH_RESULT_LIMIT,
@@ -187,7 +187,7 @@ async function isNativeSearchIndexFresh(pdfPath: string, expectedPageCount?: num
     };
 }
 
-function parseNativeSearchExcerpt(value: unknown): ISearchExcerpt | null {
+function parseNativeSearchExcerpt(value: unknown): IPdfSearchExcerpt | null {
     if (!isRecord(value)) {
         return null;
     }

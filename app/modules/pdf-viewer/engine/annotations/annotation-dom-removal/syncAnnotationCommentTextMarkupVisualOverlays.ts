@@ -1,4 +1,8 @@
 import type {
+    IEditedTextMarkupVisualOptions,
+    ITextMarkupElementCandidate,
+} from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/textMarkupDomRemovalTypes';
+import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
     TMarkupSubtype,
@@ -39,14 +43,7 @@ const EDITED_TEXT_MARKUP_STROKE_WIDTHS: Record<Exclude<TMarkupSubtype, 'Highligh
 
 const DEFAULT_EDITED_HIGHLIGHT_OVERLAY_OPACITY = 0.35;
 
-interface IEditedTextMarkupVisualOptions { highlightOpacity?: number | null | undefined; }
 
-interface ITextMarkupElementCandidate {
-    axisOverlap: boolean;
-    distance: number;
-    element: HTMLElement;
-    iou: number;
-}
 
 function getAnnotationId(element: HTMLElement) {
     return element.dataset.annotationId ?? element.getAttribute('data-annotation-id');

@@ -1,3 +1,4 @@
+import type { ILogger } from '@electron/utils/createLogger';
 import { extname } from 'path';
 import { fileURLToPath } from 'url';
 import { uniq } from 'es-toolkit/array';
@@ -28,13 +29,6 @@ const EXTERNAL_OPEN_PENDING_MAX_PATHS = (() => {
     }
     return Math.min(parsed, 4_096);
 })();
-
-interface ILogger {
-    info(message: string): void;
-    warn(message: string): void;
-    debug(message: string): void;
-    error(message: string): void;
-}
 
 interface IExternalOpenManagerSink {
     queueOpenRequest(paths: string[]): void;
@@ -473,9 +467,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         }
 
         const now = Date.now();
-        if (batchWindowStartTime === null) {
-            batchWindowStartTime = now;
-        }
+        batchWindowStartTime ??= now;
 
         if (now - batchWindowStartTime >= EXTERNAL_OPEN_MAX_BATCH_WAIT_MS) {
             flushPendingFiles();

@@ -25,7 +25,7 @@ const CODEX_COMMAND_TIMEOUT_MS = 15_000;
 const CODEX_INSTALL_TIMEOUT_MS = 5 * 60_000;
 const SHELL_DETECTION_TIMEOUT_MS = 5_000;
 
-interface ICommandResult {
+interface ICodexCliCommandResult {
     ok: boolean;
     stdout: string;
     stderr: string;
@@ -97,7 +97,7 @@ function buildCodexPathCandidates() {
         '/usr/local/bin/codex',
         '/usr/bin/codex',
     ];
-    return uniqueStrings(candidates.filter((candidate): candidate is string => typeof candidate === 'string'));
+    return uniqueStrings(candidates.flatMap(candidate => typeof candidate === 'string' ? [candidate] : []));
 }
 
 async function isExecutable(path: string) {
@@ -126,7 +126,7 @@ function runCommand(
         onStdout?: (chunk: string) => void;
         onStderr?: (chunk: string) => void;
     } = {},
-): Promise<ICommandResult> {
+): Promise<ICodexCliCommandResult> {
     return new Promise((resolve) => {
         const child = spawn(command, args, {
             env: {
@@ -197,7 +197,7 @@ async function findCodexInLoginShell() {
         return null;
     }
 
-    const shellPath = process.env.SHELL || '/bin/zsh';
+    const shellPath = process.env.SHELL?.length ? process.env.SHELL : '/bin/zsh';
     if (!existsSync(shellPath)) {
         return null;
     }

@@ -259,7 +259,7 @@ describe('usePdfSerialization FreeText note comments', () => {
         const doc = await PDFDocument.load(saved, { updateMetadata: false });
         const noteContents = getPageAnnotRefs(doc)
             .map(ref => getAnnotDict(doc, ref))
-            .filter((dict): dict is PDFDict => dict instanceof PDFDict)
+            .flatMap(dict => dict instanceof PDFDict ? [dict] : [])
             .filter(dict => dict.get(PDFName.of('Subtype'))?.toString() === '/FreeText')
             .map(dict => getPdfTextValue(dict.get(PDFName.of('Contents'))));
 

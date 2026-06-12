@@ -226,7 +226,10 @@ interface IContinuousScrollBoundsState {
 let continuousScrollWindowCache: IContinuousScrollWindowCacheEntry | null = null;
 
 function getContinuousScrollViewportHeight() {
-    return Math.max(0, containerHeight.value || viewerContainer.value?.clientHeight || 0);
+    const measuredHeight = containerHeight.value > 0
+        ? containerHeight.value
+        : viewerContainer.value?.clientHeight ?? 0;
+    return Math.max(0, measuredHeight);
 }
 
 function clampPageRangeStart(pageNumber: number) {

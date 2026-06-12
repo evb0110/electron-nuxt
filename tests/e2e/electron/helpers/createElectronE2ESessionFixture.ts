@@ -84,7 +84,7 @@ export function createElectronE2ESessionFixture(options: IElectronE2ESessionFixt
             }
 
             try {
-                previousSession.browser.disconnect();
+                await previousSession.browser.disconnect();
                 await stopSingleSession(previousSession.name, {keepNuxt: restartOptions.keepNuxt ?? false});
                 session = null;
                 sessionName = restartOptions.sessionName

@@ -1,20 +1,11 @@
+import type {
+    IGeometryResolution,
+    IPageCandidateLogEntry,
+} from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/pdfPagePointResolverTypes';
 
 
 const MAX_PAGE_CANDIDATE_LOG_ENTRIES = 14;
 
-interface IPageCandidateLogEntry {
-    pageNumber: number | null;
-    inside: boolean;
-    distanceSquared: number;
-    rect: {
-        left: number;
-        top: number;
-        right: number;
-        bottom: number;
-        width: number;
-        height: number;
-    };
-}
 
 interface IPageGeometryCandidate {
     element: HTMLElement;
@@ -23,11 +14,6 @@ interface IPageGeometryCandidate {
     distanceSquared: number;
 }
 
-interface IGeometryResolution {
-    pageContainer: HTMLElement | null;
-    source: 'inside' | 'nearest' | 'none';
-    candidates: IPageCandidateLogEntry[] | null;
-}
 
 function roundForLog(value: number, digits = 3) {
     if (!Number.isFinite(value)) {

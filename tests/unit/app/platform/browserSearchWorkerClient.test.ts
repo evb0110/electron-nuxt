@@ -153,7 +153,7 @@ describe('browserSearchWorkerClient', () => {
             'extractDocumentText',
             { pdfPath: '/tmp/pending.pdf' },
         );
-        await cancelBrowserSearchWorkerRequest(workerRequest.requestId);
+        cancelBrowserSearchWorkerRequest(workerRequest.requestId);
         await expect(workerRequest.promise).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
 
         const postMessages = FakeWorker.lastInstance?.postMessageCalls ?? [];
@@ -167,7 +167,7 @@ describe('browserSearchWorkerClient', () => {
         const {runBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
 
         await runBrowserSearchWorkerRequest('extractDocumentText', {pdfPath: '/tmp/test.pdf'});
-        await vi.runAllTicks();
+        vi.runAllTicks();
         const terminateCallsBeforeIdleTtl = terminateSpy.mock.calls.length;
 
         await vi.advanceTimersByTimeAsync(15_000);

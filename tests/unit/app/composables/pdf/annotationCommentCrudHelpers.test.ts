@@ -11,7 +11,7 @@ import {
 import { findAnnotationSummaryFromPoint } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findAnnotationSummaryFromPoint';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
-interface IRect {
+interface IAnnotationCrudTestRect {
     height: number;
     left: number;
     top: number;
@@ -20,7 +20,7 @@ interface IRect {
 
 function createElement(
     className: string,
-    rect: IRect,
+    rect: IAnnotationCrudTestRect,
 ) {
     const element = document.createElement('div');
     element.className = className;

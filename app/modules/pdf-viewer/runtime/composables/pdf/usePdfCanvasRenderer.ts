@@ -1,3 +1,4 @@
+import type { ICancelableRenderTask } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -17,10 +18,6 @@ interface ICanvasRenderResult {
     totalScaleFactor: number;
 }
 
-interface ICancelableRenderTask {
-    cancel: () => void;
-    promise: Promise<unknown>;
-}
 
 interface IPreparedCanvasRender extends ICanvasRenderResult { startRender: () => ICancelableRenderTask; }
 

@@ -15,7 +15,10 @@ const localePath = useLocalePath();
 const { t } = useI18n();
 
 const brandTitle = computed(() => {
-    const [mark = '', ...nameParts] = t('app.title').split(' ');
+    const [
+        mark = '',
+        ...nameParts
+    ] = t('app.title').split(' ');
     return {
         mark,
         name: nameParts.join(' '),

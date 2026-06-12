@@ -36,7 +36,7 @@ export interface IDocumentTransitionDeps {
     pageLabelsDirty: Ref<boolean>;
     pdfViewerRef: Ref<{
         clearShapes: () => void;
-        cancelCommentPlacement: () => void 
+        cancelCommentPlacement: () => void;
     } | null>;
     resetAnnotationTracking: () => void;
     resetSearchCache: () => void;
@@ -45,6 +45,20 @@ export interface IDocumentTransitionDeps {
     closePageContextMenu: () => void;
     closeAllAnnotationNotes: (opts?: { saveIfDirty?: boolean }) => Promise<boolean>;
     loadRecentFiles: () => void;
+}
+
+interface IDestroyablePdfDocument { destroy?: () => Promise<void> }
+
+type TBookmarkSidebarSnapshot = readonly [boolean, TPdfSidebarTab];
+type TDjvuSourceSnapshot = readonly [boolean, TDocumentRef | null];
+
+function isDestroyablePdfDocument(value: unknown): value is IDestroyablePdfDocument {
+    if (!value || typeof value !== 'object') {
+        return false;
+    }
+
+    const { destroy } = value as { destroy?: unknown };
+    return destroy === undefined || typeof destroy === 'function';
 }
 
 export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
@@ -83,7 +97,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         loadRecentFiles,
     } = deps;
 
-    watch(pdfError, (err) => {
+    watch(pdfError, (err: unknown) => {
         if (err) {
             BrowserLogger.error('pdf', 'PDF Error', err);
         }
@@ -94,17 +108,17 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             showSidebar.value,
             sidebarTab.value,
         ] as const,
-        ([
-            isOpen,
-            tab,
-        ]) => {
+        (snapshot: TBookmarkSidebarSnapshot) => {
+            const isOpen = snapshot[0];
+            const tab = snapshot[1];
+
             if (!isOpen || tab !== 'bookmarks') {
                 bookmarkEditMode.value = false;
             }
         },
     );
 
-    watch(dragMode, (enabled) => {
+    watch(dragMode, (enabled: boolean) => {
         if (enabled) {
             window.getSelection()?.removeAllRanges();
             if (annotationTool.value !== 'none') {
@@ -115,7 +129,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         }
     });
 
-    watch(pdfSrc, (newSrc, oldSrc) => {
+    watch(pdfSrc, (newSrc: TPdfSource | null, oldSrc: TPdfSource | null) => {
         if (newSrc && newSrc !== oldSrc) {
             const isReload = Boolean(oldSrc);
             currentPage.value = 1;
@@ -131,7 +145,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             closePageContextMenu();
         }
         if (!newSrc) {
-            const previousDocument = pdfDocument.value as { destroy?: () => Promise<void> } | null;
+            const previousDocument = isDestroyablePdfDocument(pdfDocument.value) ? pdfDocument.value : null;
             currentPage.value = 1;
             totalPages.value = 0;
             pdfDocument.value = null;
@@ -171,7 +185,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
 
     });
 
-    watch(workingCopyPath, (nextPath, previousPath) => {
+    watch(workingCopyPath, (nextPath: TDocumentRef | null, previousPath: TDocumentRef | null) => {
         if (nextPath === previousPath) {
             return;
         }
@@ -191,16 +205,12 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             isDjvuMode.value,
             djvuSourcePath.value,
         ] as const,
-        (
-            [
-                nextIsDjvuMode,
-                nextDjvuSourcePath,
-            ],
-            [
-                previousIsDjvuMode,
-                previousDjvuSourcePath,
-            ],
-        ) => {
+        (nextSnapshot: TDjvuSourceSnapshot, previousSnapshot: TDjvuSourceSnapshot) => {
+            const nextIsDjvuMode = nextSnapshot[0];
+            const nextDjvuSourcePath = nextSnapshot[1];
+            const previousIsDjvuMode = previousSnapshot[0];
+            const previousDjvuSourcePath = previousSnapshot[1];
+
             if (
                 nextIsDjvuMode
                 && nextDjvuSourcePath
@@ -214,7 +224,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         },
     );
 
-    watch(annotationComments, (comments) => {
+    watch(annotationComments, (comments: IAnnotationCommentSummary[]) => {
         if (
             annotationActiveCommentStableKey.value
             && !comments.some(comment => comment.stableKey === annotationActiveCommentStableKey.value)

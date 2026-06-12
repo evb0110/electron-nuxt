@@ -19,24 +19,6 @@ import {
     vi,
 } from 'vitest';
 
-interface IUtifFrame {
-    width?: number;
-    height?: number;
-    t273?: number[];
-    [key: string]: unknown;
-}
-
-interface IUtifModule {
-    decode(input: Uint8Array | ArrayBuffer): IUtifFrame[];
-    decodeImage(input: Uint8Array | ArrayBuffer, frame: IUtifFrame): void;
-    toRGBA8(frame: IUtifFrame): Uint8Array;
-    encodeImage(
-        rgba: Uint8Array | ArrayBuffer,
-        width: number,
-        height: number,
-    ): ArrayBuffer;
-}
-
 const mocks = vi.hoisted(() => ({
     runCommand: vi.fn(),
     stat: vi.fn(),
@@ -100,7 +82,7 @@ const {
     splitTiffPageDescriptorsForClassicLimit,
 } = await import('@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal');
 
-const UTIF = utifModule as IUtifModule;
+const UTIF = utifModule;
 
 function expectSinglePixelPng(bytes: Uint8Array, rgb: [number, number, number]) {
     const decoded = decodePng(bytes);

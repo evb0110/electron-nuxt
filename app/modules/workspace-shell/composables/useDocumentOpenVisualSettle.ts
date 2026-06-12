@@ -24,11 +24,9 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
     let resolveDocumentOpenVisualSettlePromise: (() => void) | null = null;
 
     function ensureDocumentOpenVisualSettlePromise() {
-        if (!documentOpenVisualSettlePromise) {
-            documentOpenVisualSettlePromise = new Promise<void>((resolve) => {
-                resolveDocumentOpenVisualSettlePromise = resolve;
-            });
-        }
+        documentOpenVisualSettlePromise ??= new Promise<void>((resolve) => {
+            resolveDocumentOpenVisualSettlePromise = resolve;
+        });
 
         return documentOpenVisualSettlePromise;
     }

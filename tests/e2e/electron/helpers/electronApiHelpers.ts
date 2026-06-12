@@ -1,4 +1,5 @@
 import type { Page } from 'puppeteer-core';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import {
     callWorkspaceCommand,
@@ -10,7 +11,7 @@ export async function createWorkingCopyFromPath(page: Page, sourcePath: string, 
         source,
         original,
     }) => {
-        const api = (window as Window & {electronAPI?: {documents?: {createWorkingCopyFromPath?: (sourcePath: string, originalPath?: string) => Promise<string>;};};}).electronAPI;
+        const api = (window as IE2EWindow & {electronAPI?: {documents?: {createWorkingCopyFromPath?: (sourcePath: string, originalPath?: string) => Promise<string>;};};}).electronAPI;
 
         const createWorkingCopy = api?.documents?.createWorkingCopyFromPath;
         if (typeof createWorkingCopy !== 'function') {
@@ -38,7 +39,7 @@ export async function runOcrSearchablePdf(page: Page, sourcePdfPath: string, req
         sourcePath,
         id,
     }) => {
-        const api = (window as Window & {electronAPI?: {ocr?: {
+        const api = (window as IE2EWindow & {electronAPI?: {ocr?: {
             onProgress?: (callback: (progress: {requestId: string;}) => void) => () => void;
             onComplete?: (callback: (result: {
                 requestId: string;
@@ -146,7 +147,7 @@ export async function acknowledgeOcrResult(page: Page, requestId: string, pdfPat
         id,
         path,
     }) => {
-        const api = (window as Window & {electronAPI?: {ocr?: {acknowledgeResultFile?: (requestId: string, pdfPath?: string) => Promise<{
+        const api = (window as IE2EWindow & {electronAPI?: {ocr?: {acknowledgeResultFile?: (requestId: string, pdfPath?: string) => Promise<{
             cleaned: boolean;
             error?: string 
         }>;};};}).electronAPI;
@@ -202,7 +203,7 @@ export async function rotatePages(page: Page, workingCopyPath: string, pages: nu
         targetPages,
         targetAngle,
     }) => {
-        const api = (window as Window & {electronAPI?: {pageOps?: {rotate?: (workingCopyPath: string, pages: number[], angle: 90 | 180 | 270) => Promise<{ success: boolean }>;};};}).electronAPI;
+        const api = (window as IE2EWindow & {electronAPI?: {pageOps?: {rotate?: (workingCopyPath: string, pages: number[], angle: 90 | 180 | 270) => Promise<{ success: boolean }>;};};}).electronAPI;
 
         const rotate = api?.pageOps?.rotate;
         if (!rotate) {
@@ -221,7 +222,7 @@ export async function reorderPages(page: Page, workingCopyPath: string, newOrder
         workingPath,
         order,
     }) => {
-        const api = (window as Window & {electronAPI?: {pageOps?: {reorder?: (workingCopyPath: string, newOrder: number[]) => Promise<{
+        const api = (window as IE2EWindow & {electronAPI?: {pageOps?: {reorder?: (workingCopyPath: string, newOrder: number[]) => Promise<{
             success: boolean;
             pageCount?: number 
         }>;};};}).electronAPI;
@@ -243,7 +244,7 @@ export async function deletePages(page: Page, workingCopyPath: string, pages: nu
         targetPages,
         pageCount,
     }) => {
-        const api = (window as Window & {electronAPI?: {pageOps?: {delete?: (workingCopyPath: string, pages: number[], totalPages: number) => Promise<{
+        const api = (window as IE2EWindow & {electronAPI?: {pageOps?: {delete?: (workingCopyPath: string, pages: number[], totalPages: number) => Promise<{
             success: boolean;
             pageCount?: number 
         }>;};};}).electronAPI;
@@ -262,7 +263,7 @@ export async function deletePages(page: Page, workingCopyPath: string, pages: nu
 
 export async function openDjvuForViewing(page: Page, djvuPath: string) {
     return evaluateInPage(page, async (sourcePath: string) => {
-        const api = (window as Window & {electronAPI?: {djvu?: {openForViewing?: (path: string) => Promise<{
+        const api = (window as IE2EWindow & {electronAPI?: {djvu?: {openForViewing?: (path: string) => Promise<{
             success: boolean;
             pdfPath?: string;
             pageCount?: number;

@@ -27,18 +27,18 @@ export type {
     TSearchDirection,
 };
 
-type TResolvedSearchOptions = {
+interface IResolvedSearchOptions {
     matchCase: boolean;
     wholeWord: boolean;
     useRegex: boolean;
-};
+}
 
 export const usePdfSearch = () => {
     const { t } = useTypedI18n();
     const analytics = useAnalytics();
     const searchQuery = ref('');
     const submittedSearchQuery = ref('');
-    const searchOptions = ref<TResolvedSearchOptions>({
+    const searchOptions = ref<IResolvedSearchOptions>({
         matchCase: false,
         wholeWord: false,
         useRegex: false,
@@ -114,7 +114,7 @@ export const usePdfSearch = () => {
     function normalizeSearchResponse(
         response: IPdfSearchResponse,
         query: string,
-        options: TResolvedSearchOptions,
+        options: IResolvedSearchOptions,
         searchId: string,
     ) {
         const mergedResults = response.results.map((result, idx): IPdfSearchMatch => {
@@ -188,7 +188,7 @@ export const usePdfSearch = () => {
     function applySearchResponse(
         response: IPdfSearchResponse,
         query: string,
-        options: TResolvedSearchOptions,
+        options: IResolvedSearchOptions,
         searchId: string,
     ) {
         const normalizedResponse = normalizeSearchResponse(response, query, options, searchId);
@@ -216,7 +216,7 @@ export const usePdfSearch = () => {
         query: string;
         pdfPath: string;
         pageCount?: number;
-        options: TResolvedSearchOptions;
+        options: IResolvedSearchOptions;
         requestedAt: number;
     }) => {
         const resolver = scheduledResolve;
@@ -278,7 +278,7 @@ export const usePdfSearch = () => {
         query: string,
         pdfPath: string,
         pageCount?: number,
-        options: TResolvedSearchOptions = searchOptions.value,
+        options: IResolvedSearchOptions = searchOptions.value,
         requestedAt = Date.now(),
     ) {
         if (!query.trim()) {

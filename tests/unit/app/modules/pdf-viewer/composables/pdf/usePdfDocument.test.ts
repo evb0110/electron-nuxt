@@ -470,7 +470,7 @@ describe('usePdfDocument range loading', () => {
         const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined;
         expect(getDocumentArg?.range).toBeInstanceOf(MockPdfDataRangeTransport);
 
-        await getDocumentArg?.range?.requestDataRange?.(1024 * 1024, (1024 * 1024) + 512);
+        getDocumentArg?.range?.requestDataRange?.(1024 * 1024, (1024 * 1024) + 512);
 
         await expect(loadPromise).resolves.toBeNull();
         expect(documentState.isLoading.value).toBe(false);
@@ -536,7 +536,7 @@ describe('usePdfDocument range loading', () => {
         expect(range).toBeInstanceOf(MockPdfDataRangeTransport);
         range?.onDataRange.mockClear();
 
-        await range?.requestDataRange?.(requestedStart, requestedEnd);
+        range?.requestDataRange?.(requestedStart, requestedEnd);
         await vi.waitFor(() => {
             expect(range?.onDataRange).toHaveBeenCalledTimes(1);
         });

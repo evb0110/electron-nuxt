@@ -15,7 +15,7 @@ import type { ISettingsCapability } from '@contracts/settingsCapability';
 import { isRecord } from '@contracts/runtimeGuards';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 
-type TBrowserPlatformModule = { browserPlatformApi: IPlatformApi; };
+interface IBrowserPlatformModule { browserPlatformApi: IPlatformApi; }
 type TPropertyPath = Array<string | symbol>;
 type TUnsubscribe = () => void;
 type TCallableBrowserMember = (...args: unknown[]) => unknown;
@@ -26,7 +26,7 @@ let browserPlatformApiPromise: Promise<IPlatformApi> | null = null;
 
 function loadBrowserPlatformApi() {
     browserPlatformApiPromise ??= import('@app/platform/browserPlatformApi').then(
-        (module: TBrowserPlatformModule) => module.browserPlatformApi,
+        (module: IBrowserPlatformModule) => module.browserPlatformApi,
     );
     return browserPlatformApiPromise;
 }

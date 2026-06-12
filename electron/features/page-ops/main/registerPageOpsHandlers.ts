@@ -11,7 +11,10 @@ import {
 import type { ICropMargins } from '@contracts/shared';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { PAGE_OPS_CHANNELS } from '@electron/features/page-ops/contract';
-import { DOCUMENTS_EVENT_CHANNELS } from '@electron/features/documents/contract';
+import {
+    DOCUMENTS_EVENT_CHANNELS,
+    type TOpenBatchProgressPayload,
+} from '@electron/features/documents/contract';
 import { te } from '@electron/te';
 import { PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS } from '@electron/image/pdfCombineShared';
 import {
@@ -45,10 +48,7 @@ import {
     clearWorkingCopyOcrArtifacts,
     enqueueWorkingCopyMutation,
 } from '@electron/file-access/workingCopyMutationQueue';
-import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConversion';
 import type { TPageOpsIpcMainRegistrar } from '@electron/features/page-ops/ports';
-
-type TOpenBatchProgressPayload = ICreatePdfFromInputPathsProgress & {requestId: string;};
 
 function sendOpenBatchProgress(
     event: Electron.IpcMainInvokeEvent,

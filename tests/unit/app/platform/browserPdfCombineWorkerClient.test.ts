@@ -136,7 +136,7 @@ describe('browserPdfCombineWorkerClient', () => {
         } = await import('@app/platform/browser-api/browserPdfCombineWorkerClient');
 
         await runBrowserPdfCombineWorkerRequest('combinePdfs', {inputs: [cloneCombineWorkerInput('first.pdf', new Uint8Array([1]))]});
-        await vi.runAllTicks();
+        vi.runAllTicks();
         expect(terminateSpy).not.toHaveBeenCalled();
 
         await vi.advanceTimersByTimeAsync(15_000);

@@ -67,7 +67,7 @@ function scoreDeleteCandidateSource(
     let score = 0;
     if (comment.hasNote === candidate.hasNote) score += 0.5;
     if (candidate.source === comment.source) score += 0.5;
-    if (comment.source === 'editor' && candidate.source === 'pdf' && Boolean(candidate.annotationId || candidate.uid)) {
+    if (comment.source === 'editor' && candidate.source === 'pdf' && (Boolean(candidate.annotationId) || Boolean(candidate.uid))) {
         score += 0.75;
     }
     return score;
@@ -81,7 +81,7 @@ function scoreDeleteCandidateRef(
     let score = 0;
     if (!comment.annotationId && candidate.annotationId) score += 2.1;
     if (!comment.uid && candidate.uid) score += 1.4;
-    if (textExact && Boolean(candidate.annotationId || candidate.uid)) score += 0.9;
+    if (textExact && (Boolean(candidate.annotationId) || Boolean(candidate.uid))) score += 0.9;
     return score;
 }
 

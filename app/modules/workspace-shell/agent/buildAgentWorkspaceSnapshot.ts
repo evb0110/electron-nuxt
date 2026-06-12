@@ -190,12 +190,13 @@ function buildAgentTabSnapshot(
 }
 
 function isAgentDocumentTab(tab: IAgentTabSnapshot) {
-    return tab.kind !== 'empty' && Boolean(
-        tab.fileName
-        || tab.originalPath
-        || tab.hasPdf
-        || tab.isDjvu,
-    );
+    return tab.kind !== 'empty'
+        && (
+            Boolean(tab.fileName)
+            || Boolean(tab.originalPath)
+            || tab.hasPdf === true
+            || tab.isDjvu === true
+        );
 }
 
 function createDocumentReference(tab: IAgentTabSnapshot): IAgentDocumentReference {

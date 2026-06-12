@@ -20,11 +20,12 @@ import {
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
-const DEFAULT_TARGET_PDF_PATH = process.env.EVB_DIAGNOSTIC_PDF_PATH
-    || resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'navigation-source.pdf');
+const DEFAULT_TARGET_PDF_PATH = process.env.EVB_DIAGNOSTIC_PDF_PATH?.length
+    ? process.env.EVB_DIAGNOSTIC_PDF_PATH
+    : resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'navigation-source.pdf');
 const DEFAULT_OUT_PATH = '.devkit/pdf-navigation-blink-trace.json';
 
-export interface IOptions {
+export interface IPdfNavigationBlinkTraceOptions {
     clicks: number;
     clickDelayMs: number;
     out: string;
@@ -54,8 +55,8 @@ export interface IFrameAnalysisSummary {
     skeletonAfterCanvasPages: number[];
 }
 
-export function readOptions(argv = process.argv.slice(2)): IOptions {
-    const options: IOptions = {
+export function readOptions(argv = process.argv.slice(2)): IPdfNavigationBlinkTraceOptions {
+    const options: IPdfNavigationBlinkTraceOptions = {
         clicks: 12,
         clickDelayMs: 20,
         out: DEFAULT_OUT_PATH,
@@ -103,7 +104,7 @@ export function readOptions(argv = process.argv.slice(2)): IOptions {
     return options;
 }
 
-export function resolveVideoDirectory(options: Pick<IOptions, 'out' | 'videoDir'>, cwd = process.cwd()) {
+export function resolveVideoDirectory(options: Pick<IPdfNavigationBlinkTraceOptions, 'out' | 'videoDir'>, cwd = process.cwd()) {
     if (options.videoDir) {
         return resolve(cwd, options.videoDir);
     }
@@ -378,7 +379,7 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
             for (const mutation of mutations) {
                 const target = mutation.target instanceof HTMLElement ? mutation.target : null;
                 const pageContainer = target?.closest?.('.page_container') as HTMLElement | null;
-                const important = pageContainer
+                const important = pageContainer !== null
                     || Array.from(mutation.addedNodes).some(node => node instanceof HTMLElement && (
                         node.matches('.page_container, .pdf-page-skeleton, canvas')
                         || Boolean(node.querySelector?.('.page_container, .pdf-page-skeleton, canvas'))
@@ -465,7 +466,7 @@ async function configureFitHeightPagedMode(page: Awaited<ReturnType<typeof start
     const initialSnapshot = await getWorkspaceToolbarSnapshot(page, {requiredMethods: [
         'handleFitHeight',
         'handleViewModeSingle',
-    ]});
+    ]}) as { continuousScroll?: boolean } | null;
 
     if (!initialSnapshot) {
         throw new Error('Unable to configure fit-height paged mode');

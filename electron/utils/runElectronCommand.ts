@@ -3,7 +3,7 @@ import {
     type IRunCommandOptions,
 } from '@electron/native-tools/runNativeCommand';
 
-interface IRunCommandResult {
+export interface IRunCommandResult {
     stdout: string;
     stderr: string;
     exitCode: number;

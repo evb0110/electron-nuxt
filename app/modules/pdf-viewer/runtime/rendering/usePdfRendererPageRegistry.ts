@@ -1,9 +1,6 @@
+import type { ICancelableRenderTask } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
-interface ICancelableRenderTask {
-    cancel: () => void;
-    promise: Promise<unknown>;
-}
 
 export function usePdfRendererPageRegistry() {
     const renderedPages = new Set<number>();

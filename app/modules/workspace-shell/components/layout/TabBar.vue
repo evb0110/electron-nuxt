@@ -91,6 +91,7 @@ import type { TPaneDirection } from '@app/types/editorPanes';
 import { getDocumentRefDisplayLabel } from '@app/utils/documentRef';
 import type {
     ITabContextAvailability,
+    TDirectionalTabContextCommand,
     TTabContextCommand,
 } from '@app/types/tabContextMenu';
 import type { IWindowTabTargetWindow } from '@contracts/windowTabs';
@@ -106,7 +107,6 @@ const DIRECTION_ORDER = [
 ] as const satisfies readonly TPaneDirection[];
 type TDirectionalAvailabilityKind = 'split' | 'splitEmpty' | 'focus' | 'move' | 'copy';
 type TStaticCommandKind = Exclude<TTabContextCommand['kind'], 'split' | 'split-empty' | 'focus' | 'move' | 'copy'>;
-type TDirectionalTabContextCommand = Extract<TTabContextCommand, { direction: TPaneDirection }>;
 
 interface IContextMenuAction {
     key: string;

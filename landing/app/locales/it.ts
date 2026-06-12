@@ -84,9 +84,7 @@ export default {
                 windowsX64: 'For most Intel/AMD PCs',
                 win7Legacy: 'For older Windows 7 systems',
             },
-            legacy: {
-                win7Label: 'Windows 7 x64 legacy',
-            },
+            legacy: {win7Label: 'Windows 7 x64 legacy'},
         },
         features: {
             pdfDjvu: {

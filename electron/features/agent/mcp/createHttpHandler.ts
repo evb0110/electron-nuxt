@@ -10,7 +10,7 @@ import {
 } from '@electron/features/agent/mcp/mcpServerCore';
 import {
     createErrorResponse,
-    type TJsonRpcResponse,
+    type IJsonRpcResponse,
 } from '@electron/features/agent/mcp/mcpJsonRpc';
 
 const MAX_JSON_RPC_BODY_BYTES = 1024 * 1024;
@@ -84,9 +84,15 @@ export function createHttpHandler(
             const body = await readRequestBody(request);
             const parsed: unknown = JSON.parse(body);
             if (Array.isArray(parsed)) {
-                const responses = (await Promise.all(
+                const processedResponses = await Promise.all(
                     parsed.map(item => processMcpRequest(item, options)),
-                )).filter((item): item is TJsonRpcResponse => item !== null);
+                );
+                const responses: IJsonRpcResponse[] = [];
+                for (const item of processedResponses) {
+                    if (item !== null) {
+                        responses.push(item);
+                    }
+                }
 
                 if (responses.length === 0) {
                     writeNoContent(response);
@@ -107,4 +113,3 @@ export function createHttpHandler(
         }
     };
 }
-

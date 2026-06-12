@@ -60,8 +60,10 @@ function parseSizeLine(line: string): Omit<IDjvuPageSize, 'dpi'> | null {
 export function parseDjvuPageSizeOutput(stdout: string, dpi: number): IDjvuPageSize[] {
     return stdout
         .split(/\r?\n/u)
-        .map(line => parseSizeLine(line))
-        .filter((size): size is Omit<IDjvuPageSize, 'dpi'> => size !== null)
+        .flatMap((line) => {
+            const size = parseSizeLine(line);
+            return size ? [size] : [];
+        })
         .map(size => ({
             ...size,
             dpi,

@@ -8,9 +8,9 @@ import {
     isUpdatesCapabilitySupported,
 } from '@app/utils/platformUpdates';
 
-type TStatusDialogPhase = Exclude<TAppUpdatePhase, 'idle' | 'downloaded'>;
+export type TStatusDialogPhase = Exclude<TAppUpdatePhase, 'idle' | 'downloaded'>;
 
-interface IUpdateDialogState {
+export interface IUpdateDialogState {
     open: boolean;
     kind: 'status' | 'ready';
     phase: TStatusDialogPhase;
@@ -165,7 +165,7 @@ async function deferUpdate() {
 }
 
 async function skipUpdateVersion() {
-    const version = dialog.value.version || status.value.version;
+    const version = dialog.value.version?.length ? dialog.value.version : status.value.version;
     if (!version) {
         closeDialog();
         return;
@@ -195,7 +195,7 @@ const isUpdateSupported = computed(() => {
     return isUpdatesCapabilitySupported(status.value);
 });
 
-const dialogVersion = computed(() => dialog.value.version || status.value.version);
+const dialogVersion = computed(() => dialog.value.version?.length ? dialog.value.version : status.value.version);
 
 function browserUnsupportedStatus(): IAppUpdateStatus {
     return {

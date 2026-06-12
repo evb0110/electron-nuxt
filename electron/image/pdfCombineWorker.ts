@@ -23,7 +23,7 @@ async function createCombinedPdf(
     onProgress?: (progress: ICreateCombinedPdfProgress) => void,
 ) {
     return createCombinedPdfShared(inputPaths, {
-        onProgress,
+        ...(onProgress ? { onProgress } : {}),
         unsupportedFileError: (sourcePath) => `Unsupported file type for worker combine: ${sourcePath}`,
     });
 }
@@ -33,8 +33,13 @@ function resolveWorkerInputPaths(): string[] {
     if (!Array.isArray(currentWorkerData?.inputPaths)) {
         return [];
     }
-    return currentWorkerData.inputPaths
-        .filter((path): path is string => typeof path === 'string');
+    const inputPaths: string[] = [];
+    for (const path of currentWorkerData.inputPaths) {
+        if (typeof path === 'string') {
+            inputPaths.push(path);
+        }
+    }
+    return inputPaths;
 }
 
 function toTransferableBuffer(data: Uint8Array) {

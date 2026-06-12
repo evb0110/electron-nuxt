@@ -3,25 +3,16 @@ import type {
     Ref,
 } from 'vue';
 import type {
+    IPageRange,
     TFitMode,
     TPdfSource,
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdf';
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import type { IResizeTransitionSignal } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
-interface IPageRange {
-    start: number;
-    end: number;
-}
-
-interface IResizeTransitionSignal {
-    active: boolean;
-    source: string;
-    token: number;
-    anchorPage: number | null;
-}
 
 interface IUsePdfViewerViewportLifecycleOptions {
     src: ComputedRef<TPdfSource | null>;

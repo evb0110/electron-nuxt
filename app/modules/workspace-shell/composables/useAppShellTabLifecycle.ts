@@ -6,17 +6,10 @@ import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHas
 import type { IEditorPaneState } from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-
-interface IWorkspaceSplitCacheLike {
-    has: (tabId: string) => boolean;
-    clear: (tabId: string) => void;
-}
-
-interface IWorkspaceRestoreTrackerLike {
-    has: (tabId: string) => boolean;
-    start: (tabId: string) => void;
-    finish: (tabId: string) => void;
-}
+import type {
+    IWorkspaceRestoreTrackerLike,
+    IWorkspaceSplitCacheLike,
+} from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 
 interface IUseAppShellTabLifecycleOptions {
     panes: Ref<IEditorPaneState[]>;
@@ -232,7 +225,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
     }
 
     function pickBestTabCandidate(tabIds: Array<string | null | undefined>) {
-        const uniqueTabIds = uniq(tabIds.filter((tabId): tabId is string => Boolean(tabId)));
+        const uniqueTabIds = uniq(tabIds.flatMap(tabId => tabId ? [tabId] : []));
 
         let bestTabId: string | null = null;
         let bestScore = -1;

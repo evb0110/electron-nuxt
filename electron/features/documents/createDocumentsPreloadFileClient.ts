@@ -135,7 +135,8 @@ function assertPdfNoteTextUpdates(
         throw new TypeError(`${label} must be ${emptyDescription} with at most ${PDF_NOTE_TEXT_MAX_UPDATES} updates`);
     }
 
-    return value.map((update, index) => {
+    const updates: unknown[] = value;
+    return updates.map((update, index) => {
         if (!isRecord(update)) {
             throw new TypeError(`${label}[${index}] must be an object`);
         }
@@ -256,7 +257,8 @@ function assertPdfNativeFreeTextNotes(value: unknown, label: string) {
         throw new TypeError(`${label} must be an array with at most ${PDF_NATIVE_NOTE_MAX_CHANGES} notes`);
     }
 
-    return value.map((note, index): IPdfNativeFreeTextNote => {
+    const notes: unknown[] = value;
+    return notes.map((note, index): IPdfNativeFreeTextNote => {
         if (!isRecord(note)) {
             throw new TypeError(`${label}[${index}] must be an object`);
         }
@@ -294,7 +296,8 @@ function assertPdfNativeAnnotationDeletes(value: unknown, label: string) {
         throw new TypeError(`${label} must be an array with at most ${PDF_NATIVE_NOTE_MAX_CHANGES} deletes`);
     }
 
-    return value.map((item, index): IPdfNativeAnnotationDelete => {
+    const deletes: unknown[] = value;
+    return deletes.map((item, index): IPdfNativeAnnotationDelete => {
         if (!isRecord(item)) {
             throw new TypeError(`${label}[${index}] must be an object`);
         }
@@ -307,9 +310,7 @@ function assertPdfNativeAnnotationDeletes(value: unknown, label: string) {
             && Number.isSafeInteger(item.generationNumber)
             && item.generationNumber >= 0
             && item.generationNumber <= 65_535;
-        const createdAt = item.createdAt === undefined || item.createdAt === null
-            ? null
-            : item.createdAt;
+        const createdAt = item.createdAt ?? null;
         if (
             typeof item.pageIndex !== 'number'
             || !Number.isSafeInteger(item.pageIndex)
@@ -404,9 +405,10 @@ function assertPdfNativePageLabelsMutation(value: unknown, label: string) {
     if (!Array.isArray(value.ranges) || value.ranges.length > PDF_NATIVE_PAGE_LABEL_MAX_RANGES) {
         throw new TypeError(`${label}.ranges must be an array with at most ${PDF_NATIVE_PAGE_LABEL_MAX_RANGES} ranges`);
     }
+    const ranges: unknown[] = value.ranges;
     return {
         totalPages,
-        ranges: value.ranges.map((range, index) =>
+        ranges: ranges.map((range, index) =>
             assertPdfNativePageLabelRange(range, `${label}.ranges[${index}]`)),
     };
 }
@@ -435,7 +437,8 @@ function assertPdfNativeBookmarkItems(
     if (state.depth > PDF_NATIVE_BOOKMARK_MAX_DEPTH) {
         throw new TypeError(`${label} exceeds the maximum bookmark depth`);
     }
-    return value.map((item, index): IPdfBookmarkEntry => {
+    const bookmarkItems: unknown[] = value;
+    return bookmarkItems.map((item, index): IPdfBookmarkEntry => {
         state.count += 1;
         if (state.count > PDF_NATIVE_BOOKMARK_MAX_ITEMS) {
             throw new TypeError(`bookmark mutations must include at most ${PDF_NATIVE_BOOKMARK_MAX_ITEMS} items`);
@@ -516,11 +519,12 @@ function assertPdfNativeShapePoints(value: unknown, label: string, state: {count
     if (!Array.isArray(value)) {
         throw new TypeError(`${label} must be an array`);
     }
-    state.count += value.length;
+    const points: unknown[] = value;
+    state.count += points.length;
     if (state.count > PDF_NATIVE_SHAPE_MAX_POINTS) {
         throw new TypeError(`shape mutations must include at most ${PDF_NATIVE_SHAPE_MAX_POINTS} points`);
     }
-    return value.map((point, index) => assertPdfNativeShapePoint(point, `${label}[${index}]`));
+    return points.map((point, index) => assertPdfNativeShapePoint(point, `${label}[${index}]`));
 }
 
 function assertPdfNativeShapeStrokes(value: unknown, label: string, state: {count: number}) {
@@ -530,7 +534,8 @@ function assertPdfNativeShapeStrokes(value: unknown, label: string, state: {coun
     if (!Array.isArray(value)) {
         throw new TypeError(`${label} must be an array`);
     }
-    return value.map((points, index) => assertPdfNativeShapePoints(points, `${label}[${index}]`, state) ?? []);
+    const strokes: unknown[] = value;
+    return strokes.map((points, index) => assertPdfNativeShapePoints(points, `${label}[${index}]`, state) ?? []);
 }
 
 function assertNativeShapeEnum(
@@ -612,7 +617,8 @@ function assertStringArray(value: unknown, label: string, maxItems: number) {
     if (!Array.isArray(value) || value.length > maxItems) {
         throw new TypeError(`${label} must be an array with at most ${maxItems} items`);
     }
-    return value.map((item, index) => {
+    const items: unknown[] = value;
+    return items.map((item, index) => {
         if (typeof item !== 'string' || item.length > PDF_NATIVE_SHAPE_MAX_TEXT_LENGTH) {
             throw new TypeError(`${label}[${index}] must be a string`);
         }
@@ -649,10 +655,11 @@ function assertPdfNativeMarkupOverride(value: unknown, label: string) {
     if (!Array.isArray(value) || value.length !== 2) {
         throw new TypeError(`${label} must be an [annotationId, subtype] tuple`);
     }
+    const tuple: unknown[] = value;
     const [
         annotationId,
         subtype,
-    ] = value;
+    ] = tuple;
     if (
         typeof annotationId !== 'string'
         || annotationId.trim().length === 0
@@ -696,9 +703,11 @@ function assertPdfNativeMarkupMutation(value: unknown, label: string) {
     if (!Array.isArray(value.hints) || value.hints.length > PDF_NATIVE_MARKUP_MAX_ITEMS) {
         throw new TypeError(`${label}.hints must be an array with at most ${PDF_NATIVE_MARKUP_MAX_ITEMS} items`);
     }
-    const overrides = value.overrides.map((override, index) =>
+    const overrideItems: unknown[] = value.overrides;
+    const hintItems: unknown[] = value.hints;
+    const overrides = overrideItems.map((override, index) =>
         assertPdfNativeMarkupOverride(override, `${label}.overrides[${index}]`));
-    const hints = value.hints.map((hint, index) =>
+    const hints = hintItems.map((hint, index) =>
         assertPdfNativeMarkupHint(hint, `${label}.hints[${index}]`));
     if (overrides.length + hints.length === 0) {
         throw new TypeError(`${label} must include at least one text-markup rewrite`);
@@ -724,9 +733,7 @@ function assertPdfNativePlacedImage(value: unknown, label: string): IPdfNativePl
     if (width <= 0 || height <= 0 || x + width > 1 || y + height > 1) {
         throw new TypeError(`${label} must fit inside the normalized page bounds`);
     }
-    const rotationDegrees = value.rotationDegrees === undefined || value.rotationDegrees === null
-        ? null
-        : value.rotationDegrees;
+    const rotationDegrees = value.rotationDegrees ?? null;
     if (
         rotationDegrees !== null
         && (typeof rotationDegrees !== 'number' || !Number.isFinite(rotationDegrees))
@@ -758,7 +765,8 @@ function assertPdfNativePlacedImages(value: unknown, label: string) {
     if (!Array.isArray(value) || value.length > PDF_NATIVE_PLACED_IMAGE_MAX_ITEMS) {
         throw new TypeError(`${label} must be an array with at most ${PDF_NATIVE_PLACED_IMAGE_MAX_ITEMS} images`);
     }
-    return value.map((image, index) => assertPdfNativePlacedImage(image, `${label}[${index}]`));
+    const images: unknown[] = value;
+    return images.map((image, index) => assertPdfNativePlacedImage(image, `${label}[${index}]`));
 }
 
 function assertPdfNativeWorkingCopyExpectation(value: unknown, label: string): IPdfNativeWorkingCopyExpectation {

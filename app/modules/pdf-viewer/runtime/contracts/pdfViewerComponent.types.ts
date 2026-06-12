@@ -45,7 +45,7 @@ export interface IPdfViewerProps {
     authorName?: string | null | undefined;
 }
 
-export type TPdfViewerEmit = {
+export interface IPdfViewerEmit {
     (e: 'update:zoom', value: number): void;
     (e: 'update:zoomMode', mode: TZoomMode): void;
     (e: 'update:fitMode', mode: TFitMode): void;
@@ -76,4 +76,4 @@ export type TPdfViewerEmit = {
     (e: 'image-placement-finalize', payload: IPdfPlacedImageFinalizePayload): void;
     (e: 'initial-visual-pending'): void;
     (e: 'initial-visual-ready', payload: {pageNumber: number;}): void;
-};
+}

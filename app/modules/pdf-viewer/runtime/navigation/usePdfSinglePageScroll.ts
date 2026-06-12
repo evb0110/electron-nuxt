@@ -16,6 +16,7 @@ import { logPdfNav } from '@app/utils/logPdfNav';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import { getPageScrollBounds as getPageScrollBoundsForContainer } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageScrollBounds';
+import type { IPageScrollBounds } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/pdfScrollVisibilityTypes';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type {
@@ -52,11 +53,6 @@ const CONTINUOUS_NAVIGATION_REAPPLY_EPSILON = 0.5;
 // happened since the last flip (so reaching the edge of a tall page still
 // flips on the next wheel tick).
 const SAME_DIRECTION_FLIP_COOLDOWN_MS = 180;
-
-interface IPageScrollBounds {
-    min: number;
-    max: number;
-}
 
 interface IPageRowGeometry {
     top: number;

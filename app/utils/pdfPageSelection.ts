@@ -9,7 +9,7 @@ export interface IPageThumbnailClickModifiers {
 }
 
 export function shouldSelectPageFromThumbnailClick(modifiers: IPageThumbnailClickModifiers) {
-    return Boolean(modifiers.shiftKey || modifiers.metaKey || modifiers.ctrlKey);
+    return modifiers.shiftKey === true || modifiers.metaKey === true || modifiers.ctrlKey === true;
 }
 
 export function resolveThumbnailContextMenuPages(

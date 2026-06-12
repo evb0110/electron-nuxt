@@ -84,9 +84,17 @@ export function getOptionalNumberArray(
     key: PropertyKey,
 ): number[] | null {
     const candidate = getOptionalArray(value, key);
-    if (!candidate || !candidate.every((item): item is number => typeof item === 'number' && Number.isFinite(item))) {
+    if (!candidate) {
         return null;
     }
 
-    return candidate;
+    const numbers: number[] = [];
+    for (const item of candidate) {
+        if (typeof item !== 'number' || !Number.isFinite(item)) {
+            return null;
+        }
+        numbers.push(item);
+    }
+
+    return numbers;
 }

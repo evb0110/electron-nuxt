@@ -72,14 +72,14 @@ import PdfRegionSnipOverlay from '@app/modules/pdf-viewer/components/PdfRegionSn
 import PdfCropOverlay from '@app/modules/pdf-viewer/components/PdfCropOverlay.vue';
 import type {
     IPdfViewerProps,
-    TPdfViewerEmit,
+    IPdfViewerEmit,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 import { usePdfViewerFeatureController } from '@app/modules/pdf-viewer/runtime/usePdfViewerFeatureController';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
 const props = defineProps<IPdfViewerProps>();
-const emit = defineEmits<TPdfViewerEmit>();
+const emit = defineEmits<IPdfViewerEmit>();
 const controller = usePdfViewerFeatureController(props, emit);
 const {
     t,

@@ -12,7 +12,7 @@ import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { resolveAnnotationCommentTextMarkupColor } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor';
 import { resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics';
 
-interface IRect {
+interface IAnnotationDomColorTestRect {
     height: number;
     left: number;
     top: number;
@@ -23,7 +23,7 @@ const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
 function withRect<T extends Element>(
     element: T,
-    rect: IRect,
+    rect: IAnnotationDomColorTestRect,
 ) {
     Object.defineProperty(element, 'getBoundingClientRect', {
         configurable: true,
@@ -41,16 +41,16 @@ function withRect<T extends Element>(
 
 function createElement(
     className: string,
-    rect: IRect,
+    rect: IAnnotationDomColorTestRect,
 ): HTMLElement;
 function createElement(
     className: string,
-    rect: IRect,
+    rect: IAnnotationDomColorTestRect,
     tagName: 'svg' | 'path',
 ): SVGElement;
 function createElement(
     className: string,
-    rect: IRect,
+    rect: IAnnotationDomColorTestRect,
     tagName: 'div' | 'svg' | 'path' = 'div',
 ): HTMLElement | SVGElement {
     const element = tagName === 'svg' || tagName === 'path'

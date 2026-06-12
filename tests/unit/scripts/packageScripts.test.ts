@@ -5,8 +5,9 @@ import {
     expect,
     it,
 } from 'vitest';
+import type { PackageJson } from 'type-fest';
 
-interface IPackageJson { scripts: Record<string, string> }
+type TPackageJsonWithScripts = PackageJson & { scripts: Record<string, string> };
 
 const removedScriptNames = [
     'test:smoke',
@@ -17,14 +18,27 @@ const removedScriptNames = [
     ].join(':'),
 ];
 
-async function readPackageJson() {
-    return JSON.parse(
+async function readPackageJson(): Promise<TPackageJsonWithScripts> {
+    const packageJson = JSON.parse(
         await readFile(path.join(process.cwd(), 'package.json'), 'utf8'),
-    ) as IPackageJson;
+    ) as PackageJson;
+    if (!packageJson.scripts) {
+        throw new Error('Missing package scripts');
+    }
+
+    return packageJson as TPackageJsonWithScripts;
 }
 
-function scriptCommands(packageJson: IPackageJson, scriptName: string) {
-    const script = packageJson.scripts[scriptName];
+function getPackageScripts(packageJson: PackageJson) {
+    const scripts = packageJson.scripts;
+    if (!scripts) {
+        throw new Error('Missing package scripts');
+    }
+    return scripts;
+}
+
+function scriptCommands(packageJson: PackageJson, scriptName: string) {
+    const script = getPackageScripts(packageJson)[scriptName];
     if (script === undefined) {
         throw new Error(`Missing package script: ${scriptName}`);
     }
@@ -34,15 +48,14 @@ function scriptCommands(packageJson: IPackageJson, scriptName: string) {
         .filter(Boolean);
 }
 
-function scriptRunTargets(packageJson: IPackageJson, scriptName: string) {
-    const script = packageJson.scripts[scriptName];
+function scriptRunTargets(packageJson: PackageJson, scriptName: string) {
+    const script = getPackageScripts(packageJson)[scriptName];
     if (script === undefined) {
         throw new Error(`Missing package script: ${scriptName}`);
     }
 
     return Array.from(script.matchAll(/(?:^|\s)pnpm\s+run\s+([^\s&]+)/gu))
-        .map(match => match[1])
-        .filter((target): target is string => target !== undefined);
+        .flatMap(match => match[1] !== undefined ? [match[1]] : []);
 }
 
 describe('package scripts', () => {
@@ -76,7 +89,7 @@ describe('package scripts', () => {
             'check:dependency-lockstep',
             'check:naming',
         ]));
-        expect(packageJson.scripts.lint).not.toContain('|| true');
+        expect(getPackageScripts(packageJson).lint).not.toContain('|| true');
     });
 
     it('keeps focused release and diagnostic test scripts mapped to first-class commands', async () => {

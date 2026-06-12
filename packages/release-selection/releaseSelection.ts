@@ -256,7 +256,7 @@ export function recommendInstaller(assets: IReleaseInstaller[], profile: IUserAg
         'asc',
     ]);
 
-    return sorted[0] || null;
+    return sorted[0] ?? null;
 }
 
 function isCompatibleArchitecture(assetArch: TReleaseArch, profileArch: TReleaseArch) {
@@ -386,7 +386,7 @@ export function formatArch(arch: TReleaseArch) {
 }
 
 export function formatExtension(extension: string) {
-    return EXTENSION_LABEL[extension] || extension.toUpperCase();
+    return EXTENSION_LABEL[extension] ?? extension.toUpperCase();
 }
 
 export function formatInstallerLabel(asset: IReleaseInstaller) {
@@ -449,13 +449,19 @@ export function selectPreferredInstallers(assets: IReleaseInstaller[]): IRelease
     const formatOrder = PREFERRED_EXTENSION_ORDER[first.platform] || PREFERRED_EXTENSION_ORDER.unknown;
     const assetsByArch = groupBy(assets, effectiveArch);
 
-    return Object.values(assetsByArch)
-        .map(archAssets => orderBy(
+    const preferredInstallers: IReleaseInstaller[] = [];
+    for (const archAssets of Object.values(assetsByArch)) {
+        const preferred = orderBy(
             archAssets,
             [asset => extensionRank(asset.extension, formatOrder)],
             ['asc'],
-        )[0])
-        .filter((asset): asset is IReleaseInstaller => Boolean(asset));
+        )[0];
+        if (preferred) {
+            preferredInstallers.push(preferred);
+        }
+    }
+
+    return preferredInstallers;
 }
 
 export function compareInstallersForSelect(left: IReleaseInstaller, right: IReleaseInstaller) {

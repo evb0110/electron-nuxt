@@ -957,7 +957,7 @@ const {
 const workspaceToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => ({
     hasPdf: toolbarHasPdf.value,
     isOpeningDocument: pendingDocumentOpen.value,
-    hasOpenError: Boolean(pdfError.value || djvuError.value),
+    hasOpenError: Boolean(pdfError.value) || Boolean(djvuError.value),
     isPreparingPrint: isPreparingPrint.value,
     isPreparingCurrentPagePrint: isPreparingCurrentPagePrint.value,
     canSave: canSave.value,
@@ -1269,7 +1269,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleExportMultiPageTiff,
     hasPdf,
     isOpeningDocument: isOpeningDocumentForToolbar,
-    hasOpenError: computed(() => Boolean(pdfError.value || djvuError.value)),
+    hasOpenError: computed(() => Boolean(pdfError.value) || Boolean(djvuError.value)),
     isPreparingPrint,
     isPreparingCurrentPagePrint,
     canSave,

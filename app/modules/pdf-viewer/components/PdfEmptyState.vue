@@ -320,8 +320,8 @@
 </template>
 
 <script setup lang="ts">
-import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type { IRecentFile } from '@contracts/shared';
 import { formatRelativeTime } from '@app/utils/formatters';
 import {
     displayProcessedCount,
@@ -336,12 +336,6 @@ import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import SettingsPage from '@app/components/settings/SettingsPage.vue';
 import type { TStartSection } from '@app/types/startSection';
 import { getDocumentKindFromPath } from '@app/utils/supportedDocumentPaths';
-
-interface IRecentFile {
-    originalPath: TDocumentRef;
-    fileName: string;
-    timestamp: number;
-}
 
 interface IOpenBatchProgress {
     processed: number;

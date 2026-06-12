@@ -74,10 +74,14 @@ function normalizePayloadValue(
     }
 
     if (Array.isArray(value)) {
-        return value
-            .slice(0, MAX_ARRAY_ITEMS)
-            .map(item => normalizePayloadValue(item, depth + 1))
-            .filter((item): item is TAnalyticsPayloadValue => item !== undefined);
+        const normalizedItems: TAnalyticsPayloadValue[] = [];
+        for (const item of value.slice(0, MAX_ARRAY_ITEMS)) {
+            const normalizedItem = normalizePayloadValue(item, depth + 1);
+            if (normalizedItem !== undefined) {
+                normalizedItems.push(normalizedItem);
+            }
+        }
+        return normalizedItems;
     }
 
     if (!isPlainObject(value)) {
@@ -382,12 +386,10 @@ export const useAnalytics = () => {
             return;
         }
 
-        if (!analyticsBrowserState.flushTimer) {
-            analyticsBrowserState.flushTimer = window.setTimeout(() => {
-                analyticsBrowserState.flushTimer = null;
-                void flushAnalyticsQueue(enabledFlag);
-            }, FLUSH_DELAY_MS);
-        }
+        analyticsBrowserState.flushTimer ??= window.setTimeout(() => {
+            analyticsBrowserState.flushTimer = null;
+            void flushAnalyticsQueue(enabledFlag);
+        }, FLUSH_DELAY_MS);
     }
 
     return {

@@ -123,9 +123,10 @@ export function createTextMarkupLiveVisualPlan(options: {
         return null;
     }
 
-    const paths = normalizeTextMarkupBoxesByLine(boxes)
-        .map(box => createTextMarkupLivePath(subtype, box, editorRect, pageDimensions))
-        .filter((path): path is ITextMarkupLivePath => Boolean(path));
+    const paths = normalizeTextMarkupBoxesByLine(boxes).flatMap((box) => {
+        const path = createTextMarkupLivePath(subtype, box, editorRect, pageDimensions);
+        return path ? [path] : [];
+    });
     if (paths.length === 0) {
         return null;
     }

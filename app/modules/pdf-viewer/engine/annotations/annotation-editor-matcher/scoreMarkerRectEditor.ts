@@ -1,15 +1,10 @@
+import type { IMarkerRectEditorMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-matcher/markerRectEditorMatch';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { markerRectCenterDistance } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/markerRectCenterDistance';
 import { getCommentText } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/getCommentText';
 import { toMarkerRectFromEditor } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/toMarkerRectFromEditor';
 
-interface IMarkerRectEditorMatch {
-    editor: IPdfjsEditor;
-    pageIndex: number;
-    distance: number;
-    textScore: number;
-}
 
 export function scoreMarkerRectEditor(
     comment: IAnnotationCommentSummary,

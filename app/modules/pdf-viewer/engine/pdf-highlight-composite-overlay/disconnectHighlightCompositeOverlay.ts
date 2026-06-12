@@ -1,3 +1,5 @@
+import type { IHighlightCompositeHost } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/highlightCompositeSource';
+
 const OVERLAY_CLASS = 'pdf-highlight-composite-overlay';
 
 const ORIGINAL_HIDDEN_CLASS = 'pdf-highlight-composite-source';
@@ -7,11 +9,6 @@ const PRESERVE_SNAPSHOT_CLASS = 'pdf-layer-preserve-snapshot';
 const OBSERVER_KEY = '__evbHighlightCompositeObserver';
 
 const SCHEDULED_KEY = '__evbHighlightCompositeScheduled';
-
-type THighlightCompositeHost = HTMLElement & {
-    [OBSERVER_KEY]?: MutationObserver | undefined;
-    [SCHEDULED_KEY]?: boolean | undefined;
-};
 
 function queryAll<T extends Element>(
     root: ParentNode | null | undefined,
@@ -35,7 +32,7 @@ function removeCompositeOverlay(host: HTMLElement) {
 }
 
 export function disconnectHighlightCompositeOverlay(pageContainer: HTMLElement) {
-    const host = pageContainer.querySelector<THighlightCompositeHost>('.page_canvas, .canvasWrapper');
+    const host = pageContainer.querySelector<IHighlightCompositeHost>('.page_canvas, .canvasWrapper');
     host?.[OBSERVER_KEY]?.disconnect();
     if (host) {
         host[OBSERVER_KEY] = undefined;

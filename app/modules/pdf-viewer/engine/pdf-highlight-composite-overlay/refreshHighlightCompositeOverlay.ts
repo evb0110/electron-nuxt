@@ -1,7 +1,12 @@
 import { composeHighlightFragments } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/composeHighlightFragments';
 import { extractRectsFromHighlightPath } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/extractRectsFromHighlightPath';
 import { isRectangularHighlightPathData } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/isRectangularHighlightPathData';
-import type { THighlightCompositeSource } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/highlightCompositeSource';
+import type {
+    IHighlightCompositeHost,
+    IHighlightPaintFragment,
+    IHighlightRect,
+    THighlightCompositeSource,
+} from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/highlightCompositeSource';
 import { shouldCompositeHighlightClassList } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/shouldCompositeHighlightClassList';
 import { shouldCompositeHighlightSources } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/shouldCompositeHighlightSources';
 
@@ -33,18 +38,6 @@ import { shouldCompositeHighlightSources } from '@app/modules/pdf-viewer/engine/
  * load-bearing. Do not revert to native multiply stacking without also bringing
  * back the same-colour darkening seam.
  */
-interface IHighlightRect {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-}
-
-interface IHighlightPaintFragment extends IHighlightRect {
-    fill: string;
-    opacity: string;
-}
-
 interface IMeasuredHighlightCompositeSource extends THighlightCompositeSource { svg: SVGElement; }
 
 const OVERLAY_CLASS = 'pdf-highlight-composite-overlay';
@@ -53,16 +46,7 @@ const ORIGINAL_HIDDEN_CLASS = 'pdf-highlight-composite-source';
 
 const PRESERVE_SNAPSHOT_CLASS = 'pdf-layer-preserve-snapshot';
 
-const OBSERVER_KEY = '__evbHighlightCompositeObserver';
-
-const SCHEDULED_KEY = '__evbHighlightCompositeScheduled';
-
 const EPSILON = 0.5;
-
-type THighlightCompositeHost = HTMLElement & {
-    [OBSERVER_KEY]?: MutationObserver | undefined;
-    [SCHEDULED_KEY]?: boolean | undefined;
-};
 
 function queryAll<T extends Element>(
     root: ParentNode | null | undefined,
@@ -108,8 +92,13 @@ function subRectsFromSvg(hostRect: DOMRect, svg: SVGElement): IHighlightRect[] |
 }
 
 function getSvgPaint(svg: SVGElement) {
-    const fill = svg.getAttribute('fill') || getComputedStyle(svg).fill;
-    const opacity = svg.getAttribute('fill-opacity') || getComputedStyle(svg).fillOpacity || '1';
+    const computedStyle = getComputedStyle(svg);
+    const fillAttribute = svg.getAttribute('fill');
+    const opacityAttribute = svg.getAttribute('fill-opacity');
+    const fill = fillAttribute && fillAttribute.length > 0 ? fillAttribute : computedStyle.fill;
+    const opacity = opacityAttribute && opacityAttribute.length > 0
+        ? opacityAttribute
+        : computedStyle.fillOpacity || '1';
     return {
         fill: fill && fill !== 'none' ? fill : '#ffff66',
         opacity,
@@ -235,7 +224,7 @@ function buildCompositePlan(host: HTMLElement) {
  * by the MutationObserver installed via {@link observeHighlightCompositeOverlay}.
  */
 export function refreshHighlightCompositeOverlay(pageContainer: HTMLElement) {
-    const host = pageContainer.querySelector<THighlightCompositeHost>('.page_canvas, .canvasWrapper');
+    const host = pageContainer.querySelector<IHighlightCompositeHost>('.page_canvas, .canvasWrapper');
     if (!host) {
         return;
     }

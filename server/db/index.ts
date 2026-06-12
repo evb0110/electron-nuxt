@@ -9,14 +9,25 @@ import * as schema from '@server/db/viewerAnalyticsEvent';
 
 let dbInstance: NeonHttpDatabase<typeof schema> | null = null;
 
+function firstNonEmptyString(values: Array<string | undefined>) {
+    for (const value of values) {
+        if (typeof value === 'string' && value.length > 0) {
+            return value;
+        }
+    }
+
+    return '';
+}
+
 function resolveDatabaseUrl(event?: H3Event) {
     void event;
     const env = getRuntimeEnv();
 
-    return env.NUXT_ANALYTICS_DATABASE_URL
-        || env.ANALYTICS_DATABASE_URL
-        || env.DATABASE_URL
-        || '';
+    return firstNonEmptyString([
+        env.NUXT_ANALYTICS_DATABASE_URL,
+        env.ANALYTICS_DATABASE_URL,
+        env.DATABASE_URL,
+    ]);
 }
 
 export function getAnalyticsDb(event?: H3Event): NeonHttpDatabase<typeof schema> {

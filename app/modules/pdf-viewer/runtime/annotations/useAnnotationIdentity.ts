@@ -41,18 +41,22 @@ function getSelectedMarkupPreviewText(summary: IAnnotationCommentSummary) {
     if (!isTextMarkupSubtype(summary.subtype)) {
         return '';
     }
-    return summary.displayText?.trim()
-        || summary.previewText?.trim()
-        || '';
+    const displayText = summary.displayText?.trim();
+    if (displayText) {
+        return displayText;
+    }
+    return summary.previewText?.trim() ?? '';
 }
 
 function getSelectedMarkupPreviewTextFromMemory(entry: ISummaryMemoryEntry) {
     if (!isTextMarkupSubtype(entry.subtype)) {
         return '';
     }
-    return entry.displayText?.trim()
-        || entry.previewText?.trim()
-        || '';
+    const displayText = entry.displayText?.trim();
+    if (displayText) {
+        return displayText;
+    }
+    return entry.previewText?.trim() ?? '';
 }
 
 function normalizePreviewForMatching(text: string) {
@@ -244,10 +248,12 @@ export const useAnnotationIdentity = (
             });
             return;
         }
+        const displayText = summary.displayText?.trim();
+        const previewText = summary.previewText?.trim();
         const payload: ISummaryMemoryEntry = {
             text: summary.text,
-            displayText: summary.displayText?.trim() || null,
-            previewText: summary.previewText?.trim() || null,
+            displayText: displayText && displayText.length > 0 ? displayText : null,
+            previewText: previewText && previewText.length > 0 ? previewText : null,
             pageIndex: summary.pageIndex,
             createdAt: summary.createdAt ?? null,
             modifiedAt: summary.modifiedAt ?? null,

@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 
 const NativeWebAssembly = WebAssembly;
+const wasmGlobalMockBase = {Memory: NativeWebAssembly.Memory};
 
 function createFetchMock() {
     return vi.fn(async () => ({
@@ -99,7 +100,10 @@ describe('tryCombineImageInputsWithWasm', () => {
         ])});
         const instantiateMock = vi.fn(async () => ({instance: {exports: wasmMock.exports}}));
         vi.stubGlobal('fetch', fetchMock);
-        vi.stubGlobal('WebAssembly', {instantiate: instantiateMock});
+        vi.stubGlobal('WebAssembly', {
+            ...wasmGlobalMockBase,
+            instantiate: instantiateMock,
+        });
         const { tryCombineImageInputsWithWasm } = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
         const result = await tryCombineImageInputsWithWasm([{
@@ -151,7 +155,10 @@ describe('tryCombineImageInputsWithWasm', () => {
     it('falls back when the WASM export rejects the image payload', async () => {
         const wasmMock = createWasmExportsMock({buildResultCode: -1});
         vi.stubGlobal('fetch', createFetchMock());
-        vi.stubGlobal('WebAssembly', {instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}}))});
+        vi.stubGlobal('WebAssembly', {
+            ...wasmGlobalMockBase,
+            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+        });
         const { tryCombineImageInputsWithWasm } = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
         const result = await tryCombineImageInputsWithWasm([{

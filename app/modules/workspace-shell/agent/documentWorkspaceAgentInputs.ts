@@ -80,10 +80,17 @@ export function getAgentStringArrayInput(input: Record<string, unknown> | undefi
     if (!Array.isArray(value)) {
         return undefined;
     }
-    const strings = value
-        .filter((item): item is string => typeof item === 'string')
-        .map(item => item.trim())
-        .filter(Boolean);
+    const strings: string[] = [];
+    for (const item of value) {
+        if (typeof item !== 'string') {
+            continue;
+        }
+
+        const trimmedItem = item.trim();
+        if (trimmedItem) {
+            strings.push(trimmedItem);
+        }
+    }
     return strings.length > 0 ? Array.from(new Set(strings)) : undefined;
 }
 
@@ -92,7 +99,12 @@ export function getAgentNumberArrayInput(input: Record<string, unknown> | undefi
     if (!Array.isArray(value)) {
         return undefined;
     }
-    const numbers = value.filter((item): item is number => typeof item === 'number' && Number.isFinite(item));
+    const numbers: number[] = [];
+    for (const item of value) {
+        if (typeof item === 'number' && Number.isFinite(item)) {
+            numbers.push(item);
+        }
+    }
     return numbers.length === value.length ? numbers : undefined;
 }
 
@@ -148,9 +160,10 @@ export function getAgentPointArrayInput(input: Record<string, unknown>, key: str
     if (!Array.isArray(value)) {
         return undefined;
     }
-    const points = value
-        .map(getAgentPointInput)
-        .filter((point): point is IShapePoint => point !== null);
+    const points = value.flatMap((item) => {
+        const point = getAgentPointInput(item);
+        return point ? [point] : [];
+    });
     return points.length > 0 ? points : undefined;
 }
 
@@ -163,7 +176,7 @@ export function getAgentStrokeArrayInput(input: Record<string, unknown>, key: st
         .filter(Array.isArray)
         .map(points => points
             .map(getAgentPointInput)
-            .filter((point): point is IShapePoint => point !== null))
+            .flatMap(point => point ? [point] : []))
         .filter(points => points.length > 0);
     return strokes.length > 0 ? strokes : undefined;
 }

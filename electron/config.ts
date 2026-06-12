@@ -119,7 +119,9 @@ export const config = {
     },
 
     updates: {
-        metadataUrl: process.env.EVB_UPDATES_METADATA_URL || 'https://evb-viewer.vercel.app/api/releases/latest',
+        metadataUrl: process.env.EVB_UPDATES_METADATA_URL?.length
+            ? process.env.EVB_UPDATES_METADATA_URL
+            : 'https://evb-viewer.vercel.app/api/releases/latest',
         pollIntervalMs: parsePositiveInt(process.env.EVB_UPDATES_POLL_INTERVAL_MS, 6 * 60 * 60 * 1000),
         initialDelayMs: parsePositiveInt(process.env.EVB_UPDATES_INITIAL_DELAY_MS, 2 * 60 * 1000),
     },

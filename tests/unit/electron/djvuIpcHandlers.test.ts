@@ -1,3 +1,4 @@
+import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 import {
     mkdtempSync,
     realpathSync,
@@ -15,7 +16,6 @@ import {
     vi,
 } from 'vitest';
 
-type TRegisteredHandler = (...args: unknown[]) => unknown;
 
 const mocks = vi.hoisted(() => ({
     handlers: new Map<string, TRegisteredHandler>(),

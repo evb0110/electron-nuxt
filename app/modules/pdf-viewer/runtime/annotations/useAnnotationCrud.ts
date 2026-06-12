@@ -420,12 +420,10 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
             ? (editor.parentPageIndex as number)
             : resolvedComment.pageIndex;
         const pendingKey = identity.getEditorPendingKey(editor, editorPageIndex);
-        const hadExplicitNote = Boolean(
-            resolvedComment.hasNote
+        const hadExplicitNote = resolvedComment.hasNote === true
             || commentSync.pendingCommentEditorKeys.has(pendingKey)
             || hasEditorCommentPayload(editor)
-            || previousTrimmed.length > 0,
-        );
+            || previousTrimmed.length > 0;
         if (text === previousText) {
             return true;
         }
@@ -767,9 +765,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
             }
         }
 
-        if (!editor) {
-            editor = findSingleFreeTextDeleteFallback(uiManager, deleteState.deleteTarget);
-        }
+        editor ??= findSingleFreeTextDeleteFallback(uiManager, deleteState.deleteTarget);
 
         const deletedViaSelectionFallback = deleteViaSelectedCommentFallback(uiManager, attemptedCommentSelection, Boolean(editor));
 
@@ -827,8 +823,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
             normalizedSummary.annotationId,
             normalizedSummary.uid,
             normalizedSummary.id,
-        ]
-            .filter((id): id is string => typeof id === 'string' && id.length > 0);
+        ].flatMap(id => typeof id === 'string' && id.length > 0 ? [id] : []);
         const uniqueCandidateIds = uniq(candidateIds);
 
         const cached = annotationCommentsCache.value.find(

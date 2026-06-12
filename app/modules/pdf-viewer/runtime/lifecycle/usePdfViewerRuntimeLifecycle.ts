@@ -10,6 +10,7 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type {
+    IPageRange,
     IScrollSnapshot,
     PDFDocumentProxy,
     PDFPageProxy,
@@ -20,7 +21,7 @@ import type {
 } from '@app/types/pdf';
 import type { usePdfDocument } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-import type { useAnnotationOrchestrator } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationOrchestrator';
+import type { TAnnotationOrchestrator } from '@app/modules/pdf-viewer/runtime/annotations/annotationOrchestrator';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { usePdfViewerDocumentLifecycle } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerDocumentLifecycle';
 import { usePdfViewerCurrentPageSync } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
@@ -32,14 +33,13 @@ import { usePdfViewerZoomRerenderQueue } from '@app/modules/pdf-viewer/runtime/c
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { usePdfViewerActivationRestore } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerActivationRestore';
 import { usePdfViewerAnnotationRuntimeBridge } from '@app/modules/pdf-viewer/runtime/annotations/usePdfViewerAnnotationRuntimeBridge';
+import type {
+    IResizeTransitionSignal,
+    IZoomViewportAnchor,
+} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 
 type TPdfDocumentResult = ReturnType<typeof usePdfDocument>;
-type TAnnotationOrchestrator = ReturnType<typeof useAnnotationOrchestrator>;
 
-interface IPageRange {
-    start: number;
-    end: number;
-}
 
 export interface IUsePdfViewerRuntimeLifecycleOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -153,21 +153,6 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
         (e: 'annotation-comments', comments: IAnnotationCommentSummary[]): void;
         (e: 'annotation-modified'): void;
     };
-}
-
-interface IResizeTransitionSignal {
-    active: boolean;
-    source: string;
-    token: number;
-    anchorPage: number | null;
-}
-
-interface IZoomViewportAnchor {
-    id?: number;
-    sessionId?: number;
-    x: number;
-    y: number;
-    capturedAtMs: number;
 }
 
 export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecycleOptions) => {

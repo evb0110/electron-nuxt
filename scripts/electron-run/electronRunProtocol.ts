@@ -1,10 +1,5 @@
 import type { MergeExclusive } from 'type-fest';
-
-type TJsonRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is TJsonRecord {
-    return typeof value === 'object' && value !== null;
-}
+import { isJsonRecord } from '@scripts/electron-run/isJsonRecord';
 
 export const ELECTRON_RUN_COMMANDS = [
     'ping',
@@ -55,7 +50,7 @@ export function isElectronRunCommand(value: unknown): value is TElectronRunComma
 }
 
 export function parseElectronRunCommandRequest(value: unknown) {
-    if (!isRecord(value)) {
+    if (!isJsonRecord(value)) {
         return null;
     }
     if (!isElectronRunCommand(value.command)) {
@@ -71,7 +66,7 @@ export function parseElectronRunCommandRequest(value: unknown) {
 }
 
 export function parseElectronRunCommandResponse(value: unknown) {
-    if (!isRecord(value) || typeof value.success !== 'boolean') {
+    if (!isJsonRecord(value) || typeof value.success !== 'boolean') {
         return null;
     }
     if (value.success) {

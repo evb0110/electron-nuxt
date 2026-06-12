@@ -124,7 +124,7 @@ export function buildNativePdfMutationPlanForSave(
         bookmarkItems: opts.bookmarkItems,
         untitledBookmarkLabel: opts.untitledBookmarkLabel,
     });
-    const hasMetadataMutations = Boolean(pageLabels || bookmarks);
+    const hasMetadataMutations = Boolean(pageLabels) || Boolean(bookmarks);
     if ((opts.pageLabelsDirty || opts.bookmarksDirty) && !hasMetadataMutations) {
         return skip('metadata-payload-unavailable');
     }

@@ -55,8 +55,13 @@ function normalizeRequestedPageNumbers(pageNumbers: unknown): number[] | undefin
         return undefined;
     }
 
-    const normalized = uniq(pageNumbers)
-        .filter(page => typeof page === 'number' && Number.isInteger(page) && page > 0)
+    const numericPageNumbers: number[] = [];
+    for (const page of pageNumbers) {
+        if (typeof page === 'number' && Number.isInteger(page) && page > 0) {
+            numericPageNumbers.push(page);
+        }
+    }
+    const normalized = uniq(numericPageNumbers)
         .sort((left, right) => left - right);
 
     if (normalized.length === 0) {

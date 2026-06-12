@@ -9,7 +9,7 @@ import type {
     IAnnotationSettings,
     ITextMarkupAnnotationProperties,
 } from '@app/types/annotations';
-import type { useAnnotationOrchestrator } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationOrchestrator';
+import type { TAnnotationOrchestrator } from '@app/modules/pdf-viewer/runtime/annotations/annotationOrchestrator';
 import type { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { applyAnnotationCommentTextMarkupColor } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor';
@@ -18,7 +18,6 @@ import { getStoredAnnotationEditor } from '@app/services/pdfjs/annotationEditorM
 import { toOpaqueHighlightDisplayColor } from '@app/modules/pdf-viewer/engine/text-markup-color/toOpaqueHighlightDisplayColor';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
-type TAnnotationOrchestrator = ReturnType<typeof useAnnotationOrchestrator>;
 type TAnnotationCommentModel = ReturnType<typeof usePdfAnnotationCommentModel>;
 
 interface IUsePdfAnnotationColorCommandsOptions {

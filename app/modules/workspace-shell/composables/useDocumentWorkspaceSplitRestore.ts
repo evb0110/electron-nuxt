@@ -5,18 +5,15 @@ import type {
 import type { TSplitPayload } from '@contracts/windowTabs';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot';
+import type {
+    IWorkspaceRestoreTrackerLike,
+    IWorkspaceSplitCacheLike,
+} from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 
-interface IWorkspaceSplitCacheLike {
-    has(tabId: string): boolean;
-    peek(tabId: string): {
-        id: string;
-        payload: TSplitPayload;
-    } | null;
-    consume(tabId: string, entryId?: string | null): TSplitPayload | null;
-    set(tabId: string, payload: TSplitPayload): string | null;
+interface IPageTransitionHistoryEntry {
+    at: number;
+    page: number;
 }
-
-interface IWorkspaceRestoreTrackerLike {has(tabId: string): boolean;}
 
 interface IUseDocumentWorkspaceSplitRestoreOptions {
     tabId: string;
@@ -41,11 +38,11 @@ interface IUseDocumentWorkspaceSplitRestoreOptions {
     captureSplitPayload: () => Promise<TSplitPayload>;
     restoreSplitPayload: (payload: TSplitPayload) => Promise<void>;
     isRestoringSplitPayload: Ref<boolean>;
-    currentPageTransitionHistory: Ref<Array<{
-        page: number;
-        at: number;
-    }>>;
+    currentPageTransitionHistory: Ref<IPageTransitionHistoryEntry[]>;
 }
+
+type TSplitRestoreSignalSnapshot = readonly [boolean, boolean, boolean, boolean, boolean];
+type TWorkspaceViewControlSnapshot = readonly [unknown, unknown, boolean, number];
 
 function shouldRestoreCachedSplitPayload(options: IUseDocumentWorkspaceSplitRestoreOptions) {
     return options.workspaceSplitCache.has(options.tabId)
@@ -240,13 +237,13 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
             isExternallyRestoring,
             options.pendingDocumentOpen,
         ],
-        ([
-            hasQueued,
-            hasLoadedPdf,
-            isRestoring,
-            isExternalRestoreInProgress,
-            pendingDocumentOpen,
-        ]) => {
+        (snapshot: TSplitRestoreSignalSnapshot) => {
+            const hasQueued = snapshot[0];
+            const hasLoadedPdf = snapshot[1];
+            const isRestoring = snapshot[2];
+            const isExternalRestoreInProgress = snapshot[3];
+            const pendingDocumentOpen = snapshot[4];
+
             if (!hasQueued || hasLoadedPdf || isRestoring || isExternalRestoreInProgress || pendingDocumentOpen) {
                 return;
             }
@@ -260,7 +257,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
         void cacheSplitPayloadForRemount();
     });
 
-    watch(options.showSidebar, (next, previous) => {
+    watch(options.showSidebar, (next: boolean, previous: boolean) => {
         if (next === previous) {
             return;
         }
@@ -277,7 +274,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
         });
     });
 
-    watch(options.currentPage, (next, previous) => {
+    watch(options.currentPage, (next: number, previous: number) => {
         if (next === previous) {
             return;
         }
@@ -305,7 +302,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
             },
         ].filter((entry) => now - entry.at <= 2000).slice(-8);
 
-        const history = options.currentPageTransitionHistory.value;
+        const history: IPageTransitionHistoryEntry[] = options.currentPageTransitionHistory.value;
         if (history.length >= 3) {
             const last = history[history.length - 1]!;
             const mid = history[history.length - 2]!;
@@ -336,17 +333,16 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
             options.continuousScroll.value,
             options.zoom.value,
         ] as const,
-        ([
-            nextFit,
-            nextViewMode,
-            nextContinuous,
-            nextZoom,
-        ], [
-            prevFit,
-            prevViewMode,
-            prevContinuous,
-            prevZoom,
-        ]) => {
+        (nextSnapshot: TWorkspaceViewControlSnapshot, previousSnapshot: TWorkspaceViewControlSnapshot) => {
+            const nextFit = nextSnapshot[0];
+            const nextViewMode = nextSnapshot[1];
+            const nextContinuous = nextSnapshot[2];
+            const nextZoom = nextSnapshot[3];
+            const prevFit = previousSnapshot[0];
+            const prevViewMode = previousSnapshot[1];
+            const prevContinuous = previousSnapshot[2];
+            const prevZoom = previousSnapshot[3];
+
             if (
                 nextFit === prevFit
                 && nextViewMode === prevViewMode

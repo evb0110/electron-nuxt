@@ -5,18 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-
-interface IRegisteredEvent {
-    sender: {
-        id: number;
-        isDestroyed: () => boolean;
-        getURL: () => string;
-        mainFrame: unknown;
-    };
-    senderFrame?: {url: string;} | null;
-}
-
-type TRegisteredHandler = (event: IRegisteredEvent, ...args: unknown[]) => unknown;
+import type {
+    IRegisteredEvent,
+    TRegisteredHandler,
+} from '@tests/unit/electron/helpers/ipcRegistryHarness';
 
 const ipcRegistrySecurityImportTimeoutMs = 10_000;
 

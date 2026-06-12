@@ -11,7 +11,7 @@ import type {
     TFitMode,
     TZoomMode,
 } from '@app/types/pdf';
-import type { TPdfViewerEmit } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
+import type { IPdfViewerEmit } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 
 export interface IPdfViewerEventAdapter {
     updateZoom(value: number): void;
@@ -46,7 +46,7 @@ export interface IPdfViewerEventAdapter {
     initialVisualReady(payload: {pageNumber: number;}): void;
 }
 
-export function createPdfViewerEventAdapter(emit: TPdfViewerEmit): IPdfViewerEventAdapter {
+export function createPdfViewerEventAdapter(emit: IPdfViewerEmit): IPdfViewerEventAdapter {
     return {
         updateZoom: value => emit('update:zoom', value),
         updateZoomMode: mode => emit('update:zoomMode', mode),

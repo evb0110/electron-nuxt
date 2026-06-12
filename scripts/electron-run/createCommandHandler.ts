@@ -42,6 +42,26 @@ const FALSY_BOOLEAN_TOKENS = [
 ] as const;
 type TTruthyBooleanToken = typeof TRUTHY_BOOLEAN_TOKENS[number];
 type TFalsyBooleanToken = typeof FALSY_BOOLEAN_TOKENS[number];
+type TRunCommandFunction = (
+    page: Page,
+    screenshot: (name: string) => Promise<string>,
+    sleep: (ms: number) => Promise<void>,
+    wait: (ms: number) => Promise<void>,
+) => Promise<unknown>;
+
+interface IElectronRunClickCaptureWindow extends Window {
+    __electronRunClickCaptureListener?: EventListener;
+    __electronRunLastClickEvent?: unknown;
+}
+
+interface IElectronRunOpenPdfTrigger {
+    token?: string;
+    status?: 'pending' | 'resolved' | 'rejected';
+    error?: string | null;
+}
+
+interface IElectronRunOpenPdfWindow extends Window {__electronRunOpenPdfTrigger?: IElectronRunOpenPdfTrigger;}
+
 const DEVTOOLS_SECTION_VALUES = [
     'summary',
     'console',
@@ -280,10 +300,10 @@ async function handleRunCommand(context: ICommandContext, args: unknown[]) {
     const asyncFn = new Function(
         'page', 'screenshot', 'sleep', 'wait',
         `return (async () => { ${code} })()`,
-    );
+    ) as TRunCommandFunction;
     const sleepFn = createSleepFn();
 
-    return Promise.race([
+    return Promise.race<unknown>([
         asyncFn(context.sessionState.page, (name: string) => context.takeScreenshot(name, false), sleepFn, sleepFn),
         commandTimeout('run'),
     ]);
@@ -321,11 +341,6 @@ async function handleClickCommand(context: ICommandContext, args: unknown[]) {
     }
 
     await page.evaluate(() => {
-        interface IElectronRunClickCaptureWindow extends Window {
-            __electronRunClickCaptureListener?: EventListener;
-            __electronRunLastClickEvent?: unknown;
-        }
-
         const automationWindow = window as IElectronRunClickCaptureWindow;
         automationWindow.__electronRunLastClickEvent = null;
         const previousListener = automationWindow.__electronRunClickCaptureListener;
@@ -390,8 +405,6 @@ async function handleClickCommand(context: ICommandContext, args: unknown[]) {
         clicked: selector,
         target: targetInfo,
         event: await page.evaluate(() => {
-            interface IElectronRunClickCaptureWindow extends Window {__electronRunLastClickEvent?: unknown;}
-
             const automationWindow = window as IElectronRunClickCaptureWindow;
             return automationWindow.__electronRunLastClickEvent ?? null;
         }),
@@ -583,14 +596,6 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
             return scoreViewer(viewer) > scoreViewer(best) ? viewer : best;
         }, null);
 
-        interface IElectronRunOpenPdfTrigger {
-            token?: string;
-            status?: 'pending' | 'resolved' | 'rejected';
-            error?: string | null;
-        }
-
-        interface IElectronRunOpenPdfWindow extends Window {__electronRunOpenPdfTrigger?: IElectronRunOpenPdfTrigger;}
-
         const automationWindow = window as IElectronRunOpenPdfWindow;
         const trigger = automationWindow.__electronRunOpenPdfTrigger;
         const openTrigger = (
@@ -647,12 +652,6 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
 
     const beforeState = await readViewerState();
     const triggerToken = await page.evaluate((path: string, triggerTimeoutMs: number) => {
-        interface IElectronRunOpenPdfTrigger {
-            token?: string;
-            status?: 'pending' | 'resolved' | 'rejected';
-            error?: string | null;
-        }
-
         type TElectronRunOpenPdfWindow = Window & {
             __allowRendererFileOpenForAutomation?: (path: string) => Promise<boolean>;
             __electronRunOpenPdfTrigger?: IElectronRunOpenPdfTrigger;
@@ -714,7 +713,8 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
         lastState = await readViewerState(triggerToken);
 
         if (lastState.openTrigger?.status === 'rejected') {
-            throw new Error(lastState.openTrigger.error || 'openPdf failed');
+            const triggerError = lastState.openTrigger.error;
+            throw new Error(triggerError && triggerError.length > 0 ? triggerError : 'openPdf failed');
         }
 
         if (findRequestedReadyViewer(lastState)) {

@@ -5,3 +5,8 @@ export interface IRgbColor {
     g: number;
     r: number;
 }
+
+export interface IAnnotationSwatchRgb {
+    color: string;
+    rgb: IRgbColor;
+}

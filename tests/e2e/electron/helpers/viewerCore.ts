@@ -1,4 +1,5 @@
 import type { Page } from 'puppeteer-core';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
 import { delay } from 'es-toolkit/promise';
 import {
     evaluateInPage,
@@ -95,8 +96,8 @@ async function waitForRendererBindings(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
             lastState = await evaluateInPage(page, () => {
                 const nuxtRoot = document.querySelector('#__nuxt');
                 return {
-                    electronAPI: typeof (window as Window & { electronAPI?: unknown }).electronAPI,
-                    openFileDirect: typeof (window as Window & { __openFileDirect?: unknown }).__openFileDirect,
+                    electronAPI: typeof (window as IE2EWindow & { electronAPI?: unknown }).electronAPI,
+                    openFileDirect: typeof (window as IE2EWindow & { __openFileDirect?: unknown }).__openFileDirect,
                     nuxtRootChildren: nuxtRoot?.children.length ?? 0,
                     url: window.location.href,
                 };
@@ -241,19 +242,19 @@ async function openPathInApp(
             if (!openTriggered) {
                 const openResult = await runWithExecutionContextRetry(page, async () => {
                     return evaluateInPage(page, async (path: string) => {
-                        const automationGrant = (window as Window & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
+                        const automationGrant = (window as IE2EWindow & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
                         if (typeof automationGrant === 'function') {
                             await automationGrant(path);
                         }
 
-                        const documents = (window as Window & IAutomationFileOpenGrantApi).electronAPI?.documents;
+                        const documents = (window as IE2EWindow & IAutomationFileOpenGrantApi).electronAPI?.documents;
                         try {
                             await documents?.recentFiles?.add?.(path);
                         } catch {
                             // Direct-open also exists in browser-like automation contexts where recent files are unavailable.
                         }
 
-                        const openFileDirect = (window as Window & { __openFileDirect?: (value: string) => Promise<boolean> }).__openFileDirect;
+                        const openFileDirect = (window as IE2EWindow & { __openFileDirect?: (value: string) => Promise<boolean> }).__openFileDirect;
                         if (typeof openFileDirect !== 'function') {
                             return false;
                         }
@@ -302,7 +303,7 @@ export async function setTabMemoryPolicyForE2E(
     await waitForRendererBindings(page, timeoutMs);
     await runWithExecutionContextRetry(page, async () => {
         await evaluateInPage(page, async (policy: 'conservative' | 'aggressive') => {
-            const setter = (window as Window & {__setTabMemoryPolicyForE2E?: (policy: 'conservative' | 'aggressive') => void;}).__setTabMemoryPolicyForE2E;
+            const setter = (window as IE2EWindow & {__setTabMemoryPolicyForE2E?: (policy: 'conservative' | 'aggressive') => void;}).__setTabMemoryPolicyForE2E;
             if (typeof setter !== 'function') {
                 throw new Error('Tab memory policy automation hook is not available');
             }
@@ -436,8 +437,8 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
                     }
                     return Boolean(
                         element.classList.contains('toolbar-icon-button')
-                        || element.querySelector('.i-ph-dots-three')
-                        || element.querySelector('.iconify.i-ph-dots-three'),
+                        || Boolean(element.querySelector('.i-ph-dots-three'))
+                        || Boolean(element.querySelector('.iconify.i-ph-dots-three')),
                     );
                 });
 
@@ -1074,7 +1075,7 @@ export async function resizeSidebarBy(page: Page, deltaX: number, steps = 12) {
 export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     const workspaceSave = await callWorkspaceCommand(page, 'handleSave');
     const saved = workspaceSave.called || await page.evaluate(async () => {
-        const save = (window as Window & { __handleSave?: () => Promise<unknown> }).__handleSave;
+        const save = (window as IE2EWindow & { __handleSave?: () => Promise<unknown> }).__handleSave;
         if (typeof save !== 'function') {
             return false;
         }

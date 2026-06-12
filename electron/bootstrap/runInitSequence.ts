@@ -1,3 +1,4 @@
+import type { ILogger } from '@electron/utils/createLogger';
 import type {
     App,
     BrowserWindow,
@@ -9,12 +10,6 @@ import { config } from '@electron/config';
 import { getErrorMessage } from '@electron/utils/error';
 import type { IAppUpdateStatus } from '@contracts/electronApiUpdates';
 import { PACKAGED_STARTUP_READY_MARKER } from '@scripts/releaseVerificationHelpers';
-
-interface ILogger {
-    info(message: string): void;
-    warn(message: string): void;
-    error(message: string): void;
-}
 
 interface IShutdownCoordinator {
     isQuittingAfterCleanup(): boolean;
@@ -146,7 +141,7 @@ function bootAboutPanel(options: IRunInitSequenceOptions) {
     options.app.setAboutPanelOptions({
         applicationName: 'EVB Viewer',
         applicationVersion: appVersion,
-        version: appVersion.startsWith('0.') ? 'Beta' : undefined,
+        ...(appVersion.startsWith('0.') ? { version: 'Beta' } : {}),
         copyright: 'Copyright \u00A9 2026 Eugene Barsky',
         iconPath: options.aboutIconPath,
         authors: ['Eugene Barsky'],

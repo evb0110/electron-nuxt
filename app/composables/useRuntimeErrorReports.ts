@@ -42,7 +42,10 @@ export const useRuntimeErrorReports = () => {
             return;
         }
 
-        const key = options.dedupeKey?.trim() || createReportKey(options.source, options.title, detail);
+        const dedupeKey = options.dedupeKey?.trim();
+        const key = dedupeKey && dedupeKey.length > 0
+            ? dedupeKey
+            : createReportKey(options.source, options.title, detail);
         const existing = reports.value.find(report => report.id === key);
         if (existing) {
             existing.count += 1;

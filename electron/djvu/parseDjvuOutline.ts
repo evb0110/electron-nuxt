@@ -36,7 +36,10 @@ export function parseDjvuOutline(sexpression: string): IPdfBookmarkEntry[] {
         return [];
     }
 
-    return root.slice(1).map(parseBookmarkNode).filter((b): b is IPdfBookmarkEntry => b !== null);
+    return root.slice(1).flatMap((node) => {
+        const bookmark = parseBookmarkNode(node);
+        return bookmark ? [bookmark] : [];
+    });
 }
 
 type TSexpToken = string | TSexpToken[];
@@ -195,9 +198,10 @@ function parseBookmarkNode(node: TSexpToken): IPdfBookmarkEntry | null {
     }
 
     // Remaining elements are child bookmarks
-    const children = node.slice(2)
-        .map(parseBookmarkNode)
-        .filter((b): b is IPdfBookmarkEntry => b !== null);
+    const children = node.slice(2).flatMap((childNode) => {
+        const bookmark = parseBookmarkNode(childNode);
+        return bookmark ? [bookmark] : [];
+    });
 
     return {
         title,

@@ -9,7 +9,7 @@ import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import type {
-    IOcrProgress,
+    IOcrUiProgress,
     IOcrResults,
     IOcrSettings,
 } from '@app/utils/ocr/ocrTypes';
@@ -50,7 +50,7 @@ export const useOcr = () => {
         customRange: '',
         selectedLanguages: ['eng'],
     });
-    const progress = ref<IOcrProgress>({
+    const progress = ref<IOcrUiProgress>({
         isRunning: false,
         phase: 'preparing',
         currentPage: 0,
@@ -330,7 +330,9 @@ export const useOcr = () => {
         } else if (response.success) {
             throw new Error(t('errors.ocr.noPdfData'));
         } else if (!response.success) {
-            error.value = error.value || t('errors.ocr.createSearchablePdf');
+            if (error.value === null || error.value.length === 0) {
+                error.value = t('errors.ocr.createSearchablePdf');
+            }
         }
     }
 

@@ -1,14 +1,10 @@
+import type { ILogger } from '@electron/utils/createLogger';
 import type { BrowserWindow } from 'electron';
 import {
     deleteWindowRendererReadyState,
     setWindowRendererReadyCallback,
 } from '@electron/window/rendererReady';
 import { unregisterAppWindow } from '@electron/window/registry';
-
-interface ILogger {
-    debug(msg: string): void;
-    error(msg: string): void;
-}
 
 interface IAttachShowLifecycleOptions {
     blockShowUntilRendererReady?: boolean;

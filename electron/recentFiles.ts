@@ -14,7 +14,10 @@ import {
     uniqBy,
 } from 'es-toolkit/array';
 import type { IRecentFile } from '@contracts/shared';
-import { isErrnoException } from '@contracts/runtimeGuards';
+import {
+    isErrnoException,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import {
     CACHE_TTL_MS,
     MAX_RECENT_FILES,
@@ -80,16 +83,25 @@ function normalizeRecentFilesData(raw: unknown): IRecentFilesData {
         version?: unknown;
         files?: unknown;
     };
-    const files = Array.isArray(parsed.files)
-        ? parsed.files.filter((candidate): candidate is IRecentFile => (
-            Boolean(candidate)
-            && typeof candidate === 'object'
-            && typeof (candidate as IRecentFile).originalPath === 'string'
-            && typeof (candidate as IRecentFile).fileName === 'string'
-            && typeof (candidate as IRecentFile).timestamp === 'number'
-            && typeof (candidate as IRecentFile).fileSize === 'number'
-        ))
-        : [];
+    const files: IRecentFile[] = [];
+    if (Array.isArray(parsed.files)) {
+        for (const candidate of parsed.files) {
+            if (
+                isRecord(candidate)
+                && typeof candidate.originalPath === 'string'
+                && typeof candidate.fileName === 'string'
+                && typeof candidate.timestamp === 'number'
+                && typeof candidate.fileSize === 'number'
+            ) {
+                files.push({
+                    originalPath: candidate.originalPath,
+                    fileName: candidate.fileName,
+                    timestamp: candidate.timestamp,
+                    fileSize: candidate.fileSize,
+                });
+            }
+        }
+    }
 
     return {
         version: typeof parsed.version === 'number' ? parsed.version : 1,
@@ -114,20 +126,21 @@ function inspectPath(filePath: string): 'exists' | 'missing' | 'unreadable' {
 function filterExistingFiles(files: IRecentFile[]): IFilteredRecentFiles {
     let removedMissingCount = 0;
     let unreadableCount = 0;
-    const checks = uniqBy(files, file => file.originalPath).map((file) => {
+    const checks: IRecentFile[] = [];
+    for (const file of uniqBy(files, item => item.originalPath)) {
         const status = inspectPath(file.originalPath);
         if (status === 'missing') {
             removedMissingCount += 1;
-            return null;
+            continue;
         }
         if (status === 'unreadable') {
             unreadableCount += 1;
         }
-        return file;
-    });
+        checks.push(file);
+    }
 
     return {
-        files: checks.filter((file): file is IRecentFile => file !== null),
+        files: checks,
         removedMissingCount,
         unreadableCount,
     };

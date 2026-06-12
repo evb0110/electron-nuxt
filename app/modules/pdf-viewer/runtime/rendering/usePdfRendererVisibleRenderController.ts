@@ -1,23 +1,17 @@
+import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import type {
     MaybeRefOrGetter,
     Ref,
 } from 'vue';
 import { chunk } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
-import type { IPageRange } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/pageRange';
+import type { IPageRange } from '@app/types/pdf';
 import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
 import { CONCURRENT_RENDERS } from '@app/constants/pdfLayout';
 import { shouldRenderPageWithPreservedState } from '@app/modules/pdf-viewer/engine/pdf-page-render-preservation/shouldRenderPageWithPreservedState';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
-interface IRenderVisiblePagesOptions {
-    preserveRenderedPages?: boolean;
-    bufferOverride?: number;
-    forceRerender?: boolean;
-    maxCanvasPixelsOverride?: number;
-    preserveInFlightRequiredPages?: boolean;
-}
 
 interface IVisibleRenderBounds {
     renderStart: number;

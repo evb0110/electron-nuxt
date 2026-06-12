@@ -46,7 +46,7 @@ import { runGuardedTask } from '@app/utils/asyncGuard';
 import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 
 type TEditorParamType = Parameters<TAnnotationEditorUIManager['updateParams']>[0];
-type TEditorParamValue = Parameters<TAnnotationEditorUIManager['updateParams']>[1];
+type TEditorParamValue = unknown;
 type TUiManagerCommandParams = Parameters<TAnnotationEditorUIManager['addCommands']>[0] & {
     __evbSkipAppHistory?: unknown;
     type?: unknown;
@@ -459,11 +459,8 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                 type === AnnotationEditorParamsType.HIGHLIGHT_FREE
                 && markupSubtype.shouldForceTextMarkup(annotationTool.value)
             ) {
-                // pdfjs-dist leaves updateParams values untyped, so this boundary cannot be stronger locally.
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
                 resolvedValue = toEditorParamValue(false);
             } else {
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
                 resolvedValue = toEditorParamValue(incomingValue);
             }
             const result = originalUpdateParams(type, resolvedValue);
@@ -546,9 +543,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                         : Math.max(0, currentPage.value - 1);
                     const resolvedEditorSubtype = editorSubtype ?? detectEditorSubtype(normalizedEditor);
                     let knownSubtype = markupSubtype.resolveEditorMarkupSubtypeOverride(normalizedEditor, pageIndex);
-                    if (!knownSubtype) {
-                        knownSubtype = markupSubtype.resolveEditorSubtypeFromPresentation(normalizedEditor);
-                    }
+                    knownSubtype ??= markupSubtype.resolveEditorSubtypeFromPresentation(normalizedEditor);
                     const toolSubtype = markupSubtype.toolToMarkupSubtype[annotationTool.value] ?? null;
                     if (!knownSubtype && toolSubtype && shouldInferMarkupSubtypeFromActiveTool(normalizedEditor, resolvedEditorSubtype, toolSubtype)) {
                         // The active tool is authoritative for underline/strike/squiggly creation;

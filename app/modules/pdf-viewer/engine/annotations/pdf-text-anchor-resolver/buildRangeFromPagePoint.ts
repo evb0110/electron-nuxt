@@ -14,7 +14,8 @@ export function buildRangeFromPagePoint(target: IPagePointTarget) {
 
     const textNode = Array
         .from(nearest.span.childNodes)
-        .find((node): node is Text => node.nodeType === Node.TEXT_NODE && (node.textContent?.length ?? 0) > 0)
+        .flatMap(node => node instanceof Text && (node.textContent?.length ?? 0) > 0 ? [node] : [])
+        .at(0)
         ?? null;
     if (!textNode) {
         return null;

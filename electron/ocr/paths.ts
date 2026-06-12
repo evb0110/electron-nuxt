@@ -330,7 +330,7 @@ function validatePopplerRuntime(paths: IOcrToolPaths, errors: string[]) {
     const dataDirFound = !!paths.popplerDataDir && existsSync(paths.popplerDataDir);
     const fontConfigDirFound = !!paths.popplerFontConfigDir && existsSync(paths.popplerFontConfigDir);
     if (process.platform === 'win32' && !dataDirFound) {
-        errors.push(`Poppler data directory not found: ${paths.popplerDataDir || '(unset)'} (expected <resources>/poppler/<platform>/share/poppler)`);
+        errors.push(`Poppler data directory not found: ${paths.popplerDataDir?.length ? paths.popplerDataDir : '(unset)'} (expected <resources>/poppler/<platform>/share/poppler)`);
     }
     const result: {
         dataDirFound: boolean;

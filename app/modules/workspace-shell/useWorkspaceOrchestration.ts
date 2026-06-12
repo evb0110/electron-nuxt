@@ -721,16 +721,21 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         }
 
         const metrics = viewer.getPageMetricsSnapshot?.() ?? [];
-        const sampledMetrics = samplePages
-            .map(pageNumber => metrics[pageNumber - 1] ?? null)
-            .filter((metric): metric is NonNullable<typeof metric> => (
+        const sampledMetrics = samplePages.flatMap((pageNumber) => {
+            const metric = metrics[pageNumber - 1] ?? null;
+            if (
                 typeof metric?.width === 'number'
                 && Number.isFinite(metric.width)
                 && metric.width > 0
                 && typeof metric.height === 'number'
                 && Number.isFinite(metric.height)
                 && metric.height > 0
-            ));
+            ) {
+                return [metric];
+            }
+
+            return [];
+        });
 
         return sampledMetrics.length > 0 ? sampledMetrics : null;
     }

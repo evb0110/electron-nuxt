@@ -63,17 +63,11 @@ import {
     useResizeObserver,
 } from '@vueuse/core';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type { IAnnotationNotePosition } from '@app/types/annotationNoteWindow';
 import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import type { IAnnotationNoteWindowBounds } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/annotationNoteWindowBounds';
 import { clampAnnotationNoteWindowPosition } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowPosition';
 import { clampAnnotationNoteWindowSize } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowSize';
-
-interface IAnnotationNotePosition {
-    x: number;
-    y: number;
-    width?: number;
-    height?: number;
-}
 
 interface IProps {
     comment: IAnnotationCommentSummary;
@@ -144,7 +138,16 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
 const { settings } = useSettings();
 
 const title = computed(() => t('noteWindow.popUpNote', { page: comment.pageNumber }));
-const authorText = computed(() => comment.author?.trim() || settings.value.authorName?.trim() || t('noteWindow.unknownAuthor'));
+const authorText = computed(() => {
+    const commentAuthor = comment.author?.trim();
+    if (commentAuthor) {
+        return commentAuthor;
+    }
+    const settingsAuthor = settings.value.authorName?.trim();
+    return settingsAuthor && settingsAuthor.length > 0
+        ? settingsAuthor
+        : t('noteWindow.unknownAuthor');
+});
 const timestampText = computed(() => {
     const timestamp = comment.modifiedAt ?? comment.createdAt ?? null;
     if (!timestamp) {

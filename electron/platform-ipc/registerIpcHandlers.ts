@@ -203,7 +203,8 @@ function isTrustedWebContentsSender(
         return false;
     }
 
-    const rawSenderUrl = senderFrame?.url || sender.getURL();
+    const senderFrameUrl = senderFrame?.url;
+    const rawSenderUrl = senderFrameUrl && senderFrameUrl.length > 0 ? senderFrameUrl : sender.getURL();
     const trustedUrl = getTrustedRendererUrl();
     if (!trustedUrl || !rawSenderUrl) {
         logger.warn(`[ipc] rejected ${channel}: missing trusted URL or sender URL`);

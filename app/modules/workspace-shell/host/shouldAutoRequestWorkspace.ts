@@ -1,4 +1,4 @@
-interface IWorkspaceHostSignals {
+export interface IWorkspaceHostSignals {
     hasQueuedSplitRestore: boolean;
     hasDocumentHint: boolean;
     isActive: boolean;

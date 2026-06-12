@@ -20,7 +20,7 @@ import { refreshHighlightCompositeOverlay } from '@app/modules/pdf-viewer/engine
 
 vi.mock('@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay', () => ({ refreshHighlightCompositeOverlay: vi.fn() }));
 
-interface ITestRect {
+interface IAnnotationDomRemovalTestRect {
     left: number;
     top: number;
     width: number;
@@ -43,7 +43,7 @@ const svgTags = new Set([
 
 interface ITestCanvas extends HTMLCanvasElement { putImageDataCalls: number; }
 
-function createDomRect(rect: ITestRect): DOMRect {
+function createDomRect(rect: IAnnotationDomRemovalTestRect): DOMRect {
     const {
         left,
         top,
@@ -72,7 +72,7 @@ function createDomRect(rect: ITestRect): DOMRect {
     };
 }
 
-function setTestRect<T extends Element>(element: T, rect: ITestRect) {
+function setTestRect<T extends Element>(element: T, rect: IAnnotationDomRemovalTestRect) {
     Object.defineProperty(element, 'getBoundingClientRect', {
         configurable: true,
         value: () => createDomRect(rect),
@@ -80,7 +80,7 @@ function setTestRect<T extends Element>(element: T, rect: ITestRect) {
     return element;
 }
 
-function createTestElement(tagOrClassName: string, rect: ITestRect): HTMLElement {
+function createTestElement(tagOrClassName: string, rect: IAnnotationDomRemovalTestRect): HTMLElement {
     const normalized = tagOrClassName.trim();
     const tagName = normalized.split(/\s+/u)[0] ?? 'div';
     const element = (
@@ -101,7 +101,7 @@ function createTestElement(tagOrClassName: string, rect: ITestRect): HTMLElement
     return setTestRect(element, rect) as HTMLElement;
 }
 
-function createTestCanvas(rect: ITestRect, pixelData: Uint8ClampedArray) {
+function createTestCanvas(rect: IAnnotationDomRemovalTestRect, pixelData: Uint8ClampedArray) {
     const canvas = createTestElement('canvas', rect) as ITestCanvas;
     canvas.width = rect.width;
     canvas.height = rect.height;

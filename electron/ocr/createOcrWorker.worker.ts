@@ -47,7 +47,7 @@ export function createOcrWorker(): Worker {
 
     log.debug(`Creating OCR worker: ${workerPath}`);
     log.debug(
-        `Tool paths: tesseract=${paths.tesseract}, pdftoppm=${paths.pdftoppm}, qpdf=${paths.qpdf}, popplerData=${paths.popplerDataDir || 'none'}, fontConfig=${paths.popplerFontConfigDir || 'none'}`,
+        `Tool paths: tesseract=${paths.tesseract}, pdftoppm=${paths.pdftoppm}, qpdf=${paths.qpdf}, popplerData=${paths.popplerDataDir?.length ? paths.popplerDataDir : 'none'}, fontConfig=${paths.popplerFontConfigDir?.length ? paths.popplerFontConfigDir : 'none'}`,
     );
 
     return new Worker(workerPath, {workerData: {

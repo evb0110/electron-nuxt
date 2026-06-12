@@ -348,7 +348,7 @@ export async function startDiagnosticFrameCapture(
     } catch (error) {
         mode = 'screenshot-fallback';
         fallbackReason = error instanceof Error ? error.message : String(error);
-        fallbackCapture = await startScreenshotFallbackCapture(page, {
+        fallbackCapture = startScreenshotFallbackCapture(page, {
             frames,
             framesDir,
             intervalMs: options.screenshotIntervalMs,

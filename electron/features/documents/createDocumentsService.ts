@@ -78,62 +78,76 @@ import type { IDocumentsService } from '@electron/features/documents/documentsSe
 const logger = createLogger('documents-service');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 
+type TDocumentsServiceArgs<TMethod extends keyof IDocumentsService> =
+    IDocumentsService[TMethod] extends (...args: infer TArgs) => unknown ? TArgs : never;
+
 export function createDocumentsService(): IDocumentsService {
-    return {
+    const service: IDocumentsService = {
         openDocumentDialog: handleOpenPdfDialog,
         openPdfDialog: handleOpenPdfDialog,
-        openCombineDialog: (event) => handleOpenCombineDialog(event),
-        openFolderDialog: (event) => handleOpenFolderDialog(event),
-        openImageDialog: (event) => handleOpenImageDialog(event),
+        openCombineDialog: (...args: TDocumentsServiceArgs<'openCombineDialog'>) => handleOpenCombineDialog(...args),
+        openFolderDialog: (...args: TDocumentsServiceArgs<'openFolderDialog'>) => handleOpenFolderDialog(...args),
+        openImageDialog: (...args: TDocumentsServiceArgs<'openImageDialog'>) => handleOpenImageDialog(...args),
         openDocumentDirect: handleOpenPdfDirect,
         openPdfDirect: handleOpenPdfDirect,
         openDocumentDirectBatch: handleOpenPdfDirectBatch,
         openPdfDirectBatch: handleOpenPdfDirectBatch,
-        createWorkingCopyFromData: (event, fileName, data, originalPath) =>
-            handleCreateWorkingCopyFromData(event, fileName, data, originalPath),
-        createWorkingCopyFromPath: (event, sourcePath, originalPath) =>
-            handleCreateWorkingCopyFromPath(event, sourcePath, originalPath),
-        savePdfAs: (event, workingPath) => handleSavePdfAs(event, workingPath),
-        savePdfDataAs: (event, workingPath, data) => handleSavePdfDataAs(event, workingPath, data),
-        beginSavePdfDataAs: (event, workingPath, totalBytes) =>
-            handleBeginSavePdfDataAs(event, workingPath, totalBytes),
-        savePdfDialog: (event, suggestedName) => handleSavePdfDialog(event, suggestedName),
-        saveDocxAs: (event, workingPath) => handleSaveDocxAs(event, workingPath),
-        readFile: (event, filePath) => handleFileRead(event, filePath),
-        statFile: (event, filePath) => handleFileStat(event, filePath),
-        readFileRange: (event, filePath, offset, length) => handleFileReadRange(event, filePath, offset, length),
-        readTextFile: (event, filePath) => handleFileReadText(event, filePath),
-        fileExists: (event, filePath) => handleFileExists(event, filePath),
-        analyzePdfConformance: (event, filePath) => handleAnalyzePdfConformance(event, filePath),
-        validatePdfData: (event, data, fileName) => handleValidatePdfData(event, data, fileName),
-        validatePdfPath: (event, filePath) => handleValidatePdfPath(event, filePath),
-        openPdfInDefaultAppData: (event, data, fileName) => handleOpenPdfInDefaultAppData(event, data, fileName),
-        openPdfInDefaultAppPath: (event, filePath, fileName) => handleOpenPdfInDefaultAppPath(event, filePath, fileName),
-        printPdfData: (event, data, fileName) => handlePrintPdfData(event, data, fileName),
-        printPdfPath: (event, filePath, fileName, pageNumbers) => handlePrintPdfPath(event, filePath, fileName, pageNumbers),
-        writeFile: (event, filePath, data) => handleFileWrite(event, filePath, data),
-        replaceWorkingCopyFromPath: (event, workingCopyPath, sourcePath) =>
-            handleReplaceWorkingCopyFromPath(event, workingCopyPath, sourcePath),
-        writeDocxFile: (event, filePath, data) => handleFileWriteDocx(event, filePath, data),
-        saveFile: (event, workingPath) => handleFileSave(event, workingPath),
-        savePdfData: (event, workingPath, data) => handleSerializedPdfSave(event, workingPath, data),
-        savePdfNoteTextUpdates: (event, workingPath, updates, modifiedAt) =>
-            handleNativeNoteTextSave(event, workingPath, updates, modifiedAt),
-        savePdfNoteChanges: (event, workingPath, changes, modifiedAt) =>
-            handleNativeNoteChangesSave(event, workingPath, changes, modifiedAt),
-        savePdfNativeMutations: (event, workingPath, mutations, modifiedAt) =>
-            handleNativePdfMutationsSave(event, workingPath, mutations, modifiedAt),
-        applyPdfNativeMutationsToWorkingCopy: (event, workingPath, mutations, modifiedAt, expectedBase) =>
-            handleNativePdfMutationsApplyToWorkingCopy(event, workingPath, mutations, modifiedAt, expectedBase),
-        beginSavePdfData: (event, workingPath, totalBytes) =>
-            beginSerializedPdfSaveToOriginal(event, workingPath, totalBytes),
-        cleanupFile: (event, workingPath) => {
+        createWorkingCopyFromData: (...args: TDocumentsServiceArgs<'createWorkingCopyFromData'>) =>
+            handleCreateWorkingCopyFromData(...args),
+        createWorkingCopyFromPath: (...args: TDocumentsServiceArgs<'createWorkingCopyFromPath'>) =>
+            handleCreateWorkingCopyFromPath(...args),
+        savePdfAs: (...args: TDocumentsServiceArgs<'savePdfAs'>) => handleSavePdfAs(...args),
+        savePdfDataAs: (...args: TDocumentsServiceArgs<'savePdfDataAs'>) => handleSavePdfDataAs(...args),
+        beginSavePdfDataAs: (...args: TDocumentsServiceArgs<'beginSavePdfDataAs'>) =>
+            handleBeginSavePdfDataAs(...args),
+        savePdfDialog: (...args: TDocumentsServiceArgs<'savePdfDialog'>) => handleSavePdfDialog(...args),
+        saveDocxAs: (...args: TDocumentsServiceArgs<'saveDocxAs'>) => handleSaveDocxAs(...args),
+        readFile: (...args: TDocumentsServiceArgs<'readFile'>) => handleFileRead(...args),
+        statFile: (...args: TDocumentsServiceArgs<'statFile'>) => handleFileStat(...args),
+        readFileRange: (...args: TDocumentsServiceArgs<'readFileRange'>) => handleFileReadRange(...args),
+        readTextFile: (...args: TDocumentsServiceArgs<'readTextFile'>) => handleFileReadText(...args),
+        fileExists: (...args: TDocumentsServiceArgs<'fileExists'>) => handleFileExists(...args),
+        analyzePdfConformance: (...args: TDocumentsServiceArgs<'analyzePdfConformance'>) =>
+            handleAnalyzePdfConformance(...args),
+        validatePdfData: (...args: TDocumentsServiceArgs<'validatePdfData'>) => handleValidatePdfData(...args),
+        validatePdfPath: (...args: TDocumentsServiceArgs<'validatePdfPath'>) => handleValidatePdfPath(...args),
+        openPdfInDefaultAppData: (...args: TDocumentsServiceArgs<'openPdfInDefaultAppData'>) =>
+            handleOpenPdfInDefaultAppData(...args),
+        openPdfInDefaultAppPath: (...args: TDocumentsServiceArgs<'openPdfInDefaultAppPath'>) =>
+            handleOpenPdfInDefaultAppPath(...args),
+        printPdfData: (...args: TDocumentsServiceArgs<'printPdfData'>) => handlePrintPdfData(...args),
+        printPdfPath: (...args: TDocumentsServiceArgs<'printPdfPath'>) => handlePrintPdfPath(...args),
+        writeFile: (...args: TDocumentsServiceArgs<'writeFile'>) => handleFileWrite(...args),
+        replaceWorkingCopyFromPath: (...args: TDocumentsServiceArgs<'replaceWorkingCopyFromPath'>) =>
+            handleReplaceWorkingCopyFromPath(...args),
+        writeDocxFile: (...args: TDocumentsServiceArgs<'writeDocxFile'>) => handleFileWriteDocx(...args),
+        saveFile: (...args: TDocumentsServiceArgs<'saveFile'>) => handleFileSave(...args),
+        savePdfData: (...args: TDocumentsServiceArgs<'savePdfData'>) => handleSerializedPdfSave(...args),
+        savePdfNoteTextUpdates: (...args: TDocumentsServiceArgs<'savePdfNoteTextUpdates'>) =>
+            handleNativeNoteTextSave(...args),
+        savePdfNoteChanges: (...args: TDocumentsServiceArgs<'savePdfNoteChanges'>) =>
+            handleNativeNoteChangesSave(...args),
+        savePdfNativeMutations: (...args: TDocumentsServiceArgs<'savePdfNativeMutations'>) =>
+            handleNativePdfMutationsSave(...args),
+        applyPdfNativeMutationsToWorkingCopy: (...args: TDocumentsServiceArgs<'applyPdfNativeMutationsToWorkingCopy'>) =>
+            handleNativePdfMutationsApplyToWorkingCopy(...args),
+        beginSavePdfData: (...args: TDocumentsServiceArgs<'beginSavePdfData'>) =>
+            beginSerializedPdfSaveToOriginal(...args),
+        cleanupFile: (...args: TDocumentsServiceArgs<'cleanupFile'>) => {
+            const [
+                event,
+                workingPath,
+            ] = args;
             cleanupWorkingCopy(workingPath, event.sender.id);
         },
-        cleanupOcrTemp: (event, filePath) => handleCleanupOcrTemp(event, filePath),
-        setWindowTitle: (event, title) => handleSetWindowTitle(event, title),
-        showItemInFolder: (event, filePath) => handleShowItemInFolder(event, filePath),
-        setMenuDocumentState: (event, state) => {
+        cleanupOcrTemp: (...args: TDocumentsServiceArgs<'cleanupOcrTemp'>) => handleCleanupOcrTemp(...args),
+        setWindowTitle: (...args: TDocumentsServiceArgs<'setWindowTitle'>) => handleSetWindowTitle(...args),
+        showItemInFolder: (...args: TDocumentsServiceArgs<'showItemInFolder'>) => handleShowItemInFolder(...args),
+        setMenuDocumentState: (...args: TDocumentsServiceArgs<'setMenuDocumentState'>) => {
+            const [
+                event,
+                state,
+            ] = args;
             const window = BrowserWindow.fromWebContents(event.sender);
             if (!window) {
                 return;
@@ -141,7 +155,11 @@ export function createDocumentsService(): IDocumentsService {
 
             setMenuDocumentState(window.id, state);
         },
-        setMenuTabCount: (event, tabCount) => {
+        setMenuTabCount: (...args: TDocumentsServiceArgs<'setMenuTabCount'>) => {
+            const [
+                event,
+                tabCount,
+            ] = args;
             const window = BrowserWindow.fromWebContents(event.sender);
             if (!window) {
                 return;
@@ -149,7 +167,8 @@ export function createDocumentsService(): IDocumentsService {
 
             setMenuTabCount(window.id, tabCount);
         },
-        getRecentFiles: async (event) => {
+        getRecentFiles: async (...args: TDocumentsServiceArgs<'getRecentFiles'>) => {
+            const [event] = args;
             const startedAt = Date.now();
             const files = await getRecentFiles();
             // Grant reveal-in-folder capability for each recent path to the
@@ -161,7 +180,11 @@ export function createDocumentsService(): IDocumentsService {
             }
             return files;
         },
-        removeRecentFile: async (_event, originalPath) => {
+        removeRecentFile: async (...args: TDocumentsServiceArgs<'removeRecentFile'>) => {
+            const [
+                ,
+                originalPath,
+            ] = args;
             await removeRecentFile(originalPath);
             removeAllowedOpenPath(originalPath);
             updateRecentFilesMenu();
@@ -173,4 +196,6 @@ export function createDocumentsService(): IDocumentsService {
             updateRecentFilesMenu();
         },
     };
+
+    return service;
 }

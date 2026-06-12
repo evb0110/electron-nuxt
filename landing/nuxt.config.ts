@@ -14,6 +14,7 @@ const defineNuxtConfig = defineNuxtConfigBase as <T extends Record<string, unkno
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
     modules: [
+        '@nuxt/eslint',
         '@nuxt/ui',
         '@nuxtjs/i18n',
         '@nuxtjs/sitemap',
@@ -22,6 +23,22 @@ export default defineNuxtConfig({
     devtools: { enabled: true },
 
     devServer: { port: 3777 },
+
+    typescript: { tsConfig: { compilerOptions: {
+        strict: true,
+        exactOptionalPropertyTypes: true,
+        noImplicitReturns: true,
+        noFallthroughCasesInSwitch: true,
+        noUncheckedIndexedAccess: true,
+        noImplicitOverride: true,
+        useUnknownInCatchVariables: true,
+        strictBuiltinIteratorReturn: true,
+        verbatimModuleSyntax: true,
+        moduleDetection: 'force',
+        isolatedModules: true,
+        forceConsistentCasingInFileNames: true,
+        skipLibCheck: true,
+    } } },
 
     css: ['~/assets/css/main.css'],
 
@@ -51,9 +68,18 @@ export default defineNuxtConfig({
             LOCALE_CODES
                 .filter(code => code !== DEFAULT_LOCALE)
                 .flatMap(code => [
-                    [`/${code}`, { isr: 600 }],
-                    [`/${code}/features`, { prerender: true }],
-                    [`/${code}/docs`, { prerender: true }],
+                    [
+                        `/${code}`,
+                        { isr: 600 },
+                    ],
+                    [
+                        `/${code}/features`,
+                        { prerender: true },
+                    ],
+                    [
+                        `/${code}/docs`,
+                        { prerender: true },
+                    ],
                 ]),
         ),
         '/robots.txt': { prerender: true },
@@ -62,8 +88,15 @@ export default defineNuxtConfig({
     sitemap: {
         autoI18n: true,
         xslColumns: [
-            { label: 'URL', width: '65%' },
-            { label: 'Last Modified', select: 'sitemap:lastmod', width: '35%' },
+            {
+                label: 'URL',
+                width: '65%', 
+            },
+            {
+                label: 'Last Modified',
+                select: 'sitemap:lastmod',
+                width: '35%', 
+            },
         ],
     },
 

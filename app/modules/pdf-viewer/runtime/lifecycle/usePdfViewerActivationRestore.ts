@@ -5,15 +5,12 @@ import type {
 } from 'vue';
 import { delay } from 'es-toolkit/promise';
 import type {
+    IPageRange,
     PDFDocumentProxy,
     TPdfViewMode,
 } from '@app/types/pdf';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 
-interface IPageRange {
-    start: number;
-    end: number;
-}
 
 interface IUsePdfViewerActivationRestoreOptions {
     viewerContainer: Ref<HTMLElement | null>;

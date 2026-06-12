@@ -1,4 +1,5 @@
 import type { IOcrWord } from '@contracts/shared';
+export type { IRunCommandResult } from '@electron/utils/runElectronCommand';
 
 export interface IWorkerPaths {
     tesseractBinary: string;
@@ -127,40 +128,3 @@ export type TOcrWorkerOutboundMessage =
     | IOcrWorkerLogMessage
     | IOcrWorkerResourceAcquireMessage
     | IOcrWorkerResourceReleaseMessage;
-
-export type TRotation = 0 | 90 | 180 | 270;
-
-
-export interface IOcrIndexV2Manifest {
-    version: 2;
-    createdAt: number;
-    source: { pdfPath: string };
-    pageCount: number;
-    pageBox: 'crop';
-    ocr: {
-        engine: 'tesseract';
-        languages: string[];
-        renderDpi: number;
-    };
-    pages: Record<number, { path: string }>;
-}
-
-export interface IOcrIndexV2Page {
-    pageNumber: number;
-    rotation: TRotation;
-    render: {
-        dpi: number;
-        imagePx: {
-            w: number;
-            h: number;
-        };
-    };
-    text: string;
-    words: IOcrWord[];
-}
-
-export interface IRunCommandResult {
-    stdout: string;
-    stderr: string;
-    exitCode: number;
-}

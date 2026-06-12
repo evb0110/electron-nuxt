@@ -20,6 +20,7 @@ import type {
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
+import type { IOpenBatchProgressState } from '@app/modules/workspace-shell/composables/openBatchProgressState';
 import {
     bucketFileSize,
     getLowercaseExtension,
@@ -43,14 +44,6 @@ import { createFailedPdfPersistResult } from '@app/services/pdf-file/createFaile
 import { createPdfPersistResult } from '@app/services/pdf-file/createPdfPersistResult';
 import { savePdfBytesAs } from '@app/services/pdf-file/savePdfBytesAs';
 import { savePdfBytesToWorkingCopy } from '@app/services/pdf-file/savePdfBytesToWorkingCopy';
-
-interface IOpenBatchProgressState {
-    processed: number;
-    total: number;
-    percent: number;
-    elapsedMs: number;
-    estimatedRemainingMs: number | null;
-}
 
 interface IConformanceProfileRequest {
     path: TDocumentRef;
@@ -349,7 +342,8 @@ export const usePdfFile = () => {
     function classifyOpenError(e: unknown, path: TDocumentRef | null) {
         const rawMessage = e instanceof Error ? e.message : '';
         if (rawMessage && /ENOENT|could not be found|no such file|chunk missing|does not exist/i.test(rawMessage)) {
-            const name = (path && getDocumentRefBaseName(path)) || (path ? String(path) : '');
+            const baseName = path ? getDocumentRefBaseName(path) : '';
+            const name = baseName && baseName.length > 0 ? baseName : path ? String(path) : '';
             return t('errors.file.openNotFound', { name });
         }
         return rawMessage || t('errors.file.open');

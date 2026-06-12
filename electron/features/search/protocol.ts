@@ -1,26 +1,11 @@
 import type { TaggedUnion } from 'type-fest';
+import type {
+    IPdfSearchResponse,
+    IPdfSearchResult,
+} from '@contracts/search';
 
-export interface ISearchExcerpt {
-    prefix: boolean;
-    suffix: boolean;
-    before: string;
-    match: string;
-    after: string;
-}
-
-export interface ISearchMatch {
-    pageNumber: number;
-    pageMatchIndex: number;
-    matchIndex: number;
-    startOffset: number;
-    endOffset: number;
-    excerpt: ISearchExcerpt;
-}
-
-export interface ISearchResponse {
-    results: ISearchMatch[];
-    truncated: boolean;
-}
+export interface ISearchMatch extends IPdfSearchResult {}
+export interface ISearchResponse extends IPdfSearchResponse {}
 
 export interface ISearchWorkerRequest {
     requestId: string;
@@ -33,13 +18,13 @@ export interface ISearchWorkerRequest {
     useRegex?: boolean;
 }
 
-type TSearchWorkerInboundByType = {
+interface ISearchWorkerInboundByType {
     search: {payload: ISearchWorkerRequest;};
     cancel: {requestId: string;};
     'reset-cache': Record<never, never>;
-};
+}
 
-type TSearchWorkerOutboundByType = {
+interface ISearchWorkerOutboundByType {
     progress: {
         requestId: string;
         processed: number;
@@ -56,6 +41,14 @@ type TSearchWorkerOutboundByType = {
         requestId: string;
         error: string;
     };
+}
+
+type TSearchWorkerInboundByType = {
+    [K in keyof ISearchWorkerInboundByType]: ISearchWorkerInboundByType[K];
+};
+
+type TSearchWorkerOutboundByType = {
+    [K in keyof ISearchWorkerOutboundByType]: ISearchWorkerOutboundByType[K];
 };
 
 export type TSearchWorkerInboundMessage = TaggedUnion<'type', TSearchWorkerInboundByType>;

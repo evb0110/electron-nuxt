@@ -32,6 +32,47 @@ const WASM_IMAGE_EXTENSIONS = new Set([
 
 let wasmExportsPromise: Promise<IPdfImageCombineWasmExports | null> | null = null;
 
+function isWasmNumberFunction(value: WebAssembly.ExportValue | undefined): value is (...args: number[]) => number {
+    return typeof value === 'function';
+}
+
+function getPdfImageCombineWasmExports(exports: WebAssembly.Exports): IPdfImageCombineWasmExports | null {
+    const {
+        memory,
+        evb_pdf_image_combine_alloc: alloc,
+        evb_pdf_image_combine_free: free,
+        evb_pdf_image_combine_build_pdf: buildPdf,
+        evb_pdf_image_combine_output_ptr: outputPtr,
+        evb_pdf_image_combine_output_len: outputLen,
+        evb_pdf_image_combine_error_ptr: errorPtr,
+        evb_pdf_image_combine_error_len: errorLen,
+    } = exports;
+
+    if (
+        !(memory instanceof WebAssembly.Memory)
+        || !isWasmNumberFunction(alloc)
+        || !isWasmNumberFunction(free)
+        || !isWasmNumberFunction(buildPdf)
+        || !isWasmNumberFunction(outputPtr)
+        || !isWasmNumberFunction(outputLen)
+        || !isWasmNumberFunction(errorPtr)
+        || !isWasmNumberFunction(errorLen)
+    ) {
+        return null;
+    }
+
+    return {
+        memory,
+        evb_pdf_image_combine_alloc: alloc,
+        evb_pdf_image_combine_free: free,
+        evb_pdf_image_combine_build_pdf: buildPdf,
+        evb_pdf_image_combine_output_ptr: outputPtr,
+        evb_pdf_image_combine_output_len: outputLen,
+        evb_pdf_image_combine_error_ptr: errorPtr,
+        evb_pdf_image_combine_error_len: errorLen,
+    };
+}
+
 function canUsePdfImageCombineWasm(inputs: IBrowserPdfCombineInput[]) {
     return inputs.length > 0
         && typeof WebAssembly !== 'undefined'
@@ -60,7 +101,7 @@ async function loadPdfImageCombineWasm() {
             const instance = 'instance' in instantiated
                 ? instantiated.instance
                 : instantiated;
-            return instance.exports as unknown as IPdfImageCombineWasmExports;
+            return getPdfImageCombineWasmExports(instance.exports);
         } catch {
             return null;
         }

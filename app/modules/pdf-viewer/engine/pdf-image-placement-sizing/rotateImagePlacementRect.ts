@@ -1,3 +1,4 @@
+import type { IPoint2D } from '@app/types/point2D';
 import { getShortestImagePlacementAngleDelta } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getShortestImagePlacementAngleDelta';
 import { normalizeImagePlacementRotationDegrees } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/normalizeImagePlacementRotationDegrees';
 import type { IImagePlacementRectPx } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
@@ -15,10 +16,6 @@ interface IImagePlacementPointerRotateOptions {
     snapStepDegrees?: number;
 }
 
-interface IPoint2D {
-    x: number;
-    y: number;
-}
 
 const DEFAULT_ROTATION_SNAP_STEP_DEGREES = 15;
 

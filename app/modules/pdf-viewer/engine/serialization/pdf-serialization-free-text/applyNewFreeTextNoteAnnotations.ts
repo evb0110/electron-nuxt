@@ -119,7 +119,19 @@ function createBlankAppearanceRef(doc: PDFDocument) {
 }
 
 function getReplayableNewFreeTextNoteName(comment: IAnnotationCommentSummary) {
-    const rawKey = comment.stableKey || comment.uid || comment.id || comment.annotationId;
+    const rawKeyCandidates = [
+        comment.stableKey,
+        comment.uid,
+        comment.id,
+        comment.annotationId,
+    ];
+    let rawKey = '';
+    for (const candidate of rawKeyCandidates) {
+        if (typeof candidate === 'string' && candidate.length > 0) {
+            rawKey = candidate;
+            break;
+        }
+    }
     if (!rawKey) {
         return null;
     }
@@ -375,9 +387,7 @@ export function applyNewFreeTextNoteAnnotations(doc: PDFDocument, comments: IAnn
                 return;
             }
 
-            if (!blankApRef) {
-                blankApRef = createBlankAppearanceRef(doc);
-            }
+            blankApRef ??= createBlankAppearanceRef(doc);
 
             const baseNoteName = getReplayableNewFreeTextNoteName(comment);
             const lookup = findExistingReplayableNewFreeTextNote(
@@ -401,7 +411,7 @@ export function applyNewFreeTextNoteAnnotations(doc: PDFDocument, comments: IAnn
             annotDict.set(PDFName.of('Rect'), toPdfRectArray(doc, pdfRect));
             annotDict.set(PDFName.of('Contents'), PDFHexString.fromText(comment.text ?? ''));
             annotDict.set(PDFName.of('M'), PDFString.of(modifiedAt));
-            annotDict.set(PDFName.of('T'), PDFHexString.fromText(comment.author || ''));
+            annotDict.set(PDFName.of('T'), PDFHexString.fromText(comment.author ?? ''));
             annotDict.set(PDFName.of('AP'), doc.context.obj({ N: blankApRef }));
             if (noteName) {
                 annotDict.set(PDFName.of('NM'), PDFHexString.fromText(noteName));
@@ -422,7 +432,7 @@ export function applyNewFreeTextNoteAnnotations(doc: PDFDocument, comments: IAnn
             popupDict.set(PDFName.of('Rect'), toPdfRectArray(doc, pdfRect));
             popupDict.set(PDFName.of('Contents'), PDFHexString.fromText(comment.text ?? ''));
             popupDict.set(PDFName.of('M'), PDFString.of(modifiedAt));
-            popupDict.set(PDFName.of('T'), PDFHexString.fromText(comment.author || ''));
+            popupDict.set(PDFName.of('T'), PDFHexString.fromText(comment.author ?? ''));
             const popupRef = existingPopupRef ?? doc.context.register(popupDict);
             annotDict.set(PDFName.of('Popup'), popupRef);
 

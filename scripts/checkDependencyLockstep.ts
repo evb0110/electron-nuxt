@@ -1,12 +1,7 @@
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
-
-interface IPackageJson {
-    dependencies?: Record<string, string>;
-    devDependencies?: Record<string, string>;
-    pnpm?: {overrides?: Record<string, string>;};
-}
+import type { PackageJson } from 'type-fest';
 
 interface ISemver {
     major: number;
@@ -27,7 +22,7 @@ export interface IPnpmLockfileIndex {
 
 export interface IDependencyLockstepInput {
     lockfile: IPnpmLockfileIndex;
-    packageJson: IPackageJson;
+    packageJson: PackageJson;
 }
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '..');
@@ -50,22 +45,33 @@ function asStringRecord(value: unknown) {
         return {};
     }
 
-    const entries = Object.entries(value)
-        .filter((entry): entry is [string, string] => typeof entry[1] === 'string');
+    const entries: Array<[string, string]> = [];
+    for (const [
+        key,
+        entryValue,
+    ] of Object.entries(value)) {
+        if (typeof entryValue === 'string') {
+            entries.push([
+                key,
+                entryValue,
+            ]);
+        }
+    }
 
     return Object.fromEntries(entries);
 }
 
-function getDependencies(packageJson: IPackageJson) {
+function getDependencies(packageJson: PackageJson) {
     return asStringRecord(packageJson.dependencies);
 }
 
-function getDevDependencies(packageJson: IPackageJson) {
+function getDevDependencies(packageJson: PackageJson) {
     return asStringRecord(packageJson.devDependencies);
 }
 
-function getOverrides(packageJson: IPackageJson) {
-    return asStringRecord(packageJson.pnpm?.overrides);
+function getOverrides(packageJson: PackageJson) {
+    const pnpmConfig = isRecord(packageJson.pnpm) ? packageJson.pnpm : {};
+    return asStringRecord(pnpmConfig.overrides);
 }
 
 function isExactVersion(value: string) {
@@ -476,7 +482,7 @@ function getOverrideTargetPackageName(overrideKey: string) {
     return versionIndex <= 0 ? target : target.slice(0, versionIndex);
 }
 
-function collectDeclaredDependencies(packageJson: IPackageJson) {
+function collectDeclaredDependencies(packageJson: PackageJson) {
     return {
         ...getDependencies(packageJson),
         ...getDevDependencies(packageJson),
@@ -494,7 +500,7 @@ function formatVersions(versions: Set<string> | undefined) {
         : [...versions].sort().join(', ');
 }
 
-function assertVueLockstep(packageJson: IPackageJson, errors: string[]) {
+function assertVueLockstep(packageJson: PackageJson, errors: string[]) {
     const dependencies = getDependencies(packageJson);
     const declaredDependencies = collectDeclaredDependencies(packageJson);
     const overrides = getOverrides(packageJson);
@@ -540,7 +546,7 @@ function assertVueLockstep(packageJson: IPackageJson, errors: string[]) {
     }
 }
 
-function assertIntlifyLockstep(packageJson: IPackageJson, errors: string[]) {
+function assertIntlifyLockstep(packageJson: PackageJson, errors: string[]) {
     const dependencies = getDependencies(packageJson);
     const declaredDependencies = collectDeclaredDependencies(packageJson);
     const intlifyVersion = dependencies['@intlify/core'];
@@ -578,7 +584,7 @@ function assertIntlifyLockstep(packageJson: IPackageJson, errors: string[]) {
     }
 }
 
-function assertOverrideGraph(packageJson: IPackageJson, lockfile: IPnpmLockfileIndex, errors: string[]) {
+function assertOverrideGraph(packageJson: PackageJson, lockfile: IPnpmLockfileIndex, errors: string[]) {
     const overrides = getOverrides(packageJson);
     const packageOverrideEntries = sortedEntries(overrides);
     const lockfileOverrideEntries = sortedEntries(lockfile.overrides);
@@ -625,7 +631,11 @@ export function checkDependencyLockstep(input: IDependencyLockstepInput) {
 }
 
 async function readPackageJson(packageJsonPath: string) {
-    return JSON.parse(await readFile(packageJsonPath, 'utf8')) as IPackageJson;
+    const parsed: unknown = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+    if (!isRecord(parsed)) {
+        return {};
+    }
+    return parsed as PackageJson;
 }
 
 async function main() {

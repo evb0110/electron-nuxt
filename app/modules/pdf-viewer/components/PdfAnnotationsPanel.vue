@@ -95,6 +95,8 @@ interface IProps {
     activeCommentStableKey?: string | null;
 }
 
+interface IPdfAnnotationToolbarExpose {getButtonEl(toolId: TAnnotationTool): HTMLElement | null;}
+
 const { settings: appSettings } = useSettings();
 const { t } = useTypedI18n();
 
@@ -106,7 +108,7 @@ const commentsStatus = computed(() => props.commentsStatus);
 const activeCommentStableKey = computed(() => props.activeCommentStableKey ?? undefined);
 const showStyleEditor = computed(() => isAuthoringAnnotationTool(props.tool));
 const stylePopoverOpen = ref(false);
-const toolbarRef = ref<InstanceType<typeof PdfAnnotationToolbar> | null>(null);
+const toolbarRef = ref<IPdfAnnotationToolbarExpose | null>(null);
 const stylePopoverReference = computed(() => toolbarRef.value?.getButtonEl(props.tool) ?? null);
 const stylePopoverContent = {
     align: 'start' as const,

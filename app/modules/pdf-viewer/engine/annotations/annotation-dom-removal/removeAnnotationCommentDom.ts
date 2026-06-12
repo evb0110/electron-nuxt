@@ -1,3 +1,4 @@
+import type { IHighlightVisualCandidate } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/textMarkupDomRemovalTypes';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
@@ -17,12 +18,6 @@ const TEXT_MARKUP_AXIS_TOLERANCE = 0.018;
 
 const MIN_TEXT_MARKUP_HORIZONTAL_OVERLAP_RATIO = 0.2;
 
-interface IHighlightVisualCandidate {
-    axisOverlap: boolean;
-    distance: number;
-    iou: number;
-    svg: SVGElement;
-}
 
 function getAnnotationId(element: HTMLElement) {
     return element.dataset.annotationId ?? element.getAttribute('data-annotation-id');

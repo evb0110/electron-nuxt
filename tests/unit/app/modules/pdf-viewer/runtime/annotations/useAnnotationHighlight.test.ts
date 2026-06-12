@@ -16,7 +16,7 @@ import { useAnnotationHighlight } from '@app/modules/pdf-viewer/runtime/annotati
 
 vi.mock('pdfjs-dist', () => ({AnnotationEditorType: {FREETEXT: 3}}));
 
-interface IRect {
+interface IAnnotationHighlightTestRect {
     left: number;
     top: number;
     width: number;
@@ -25,7 +25,7 @@ interface IRect {
 
 function withRect<T extends HTMLElement>(
     element: T,
-    rect: IRect,
+    rect: IAnnotationHighlightTestRect,
 ) {
     Object.defineProperty(element, 'getBoundingClientRect', {
         configurable: true,
@@ -44,7 +44,7 @@ function withRect<T extends HTMLElement>(
     return element;
 }
 
-function createPageContainer(page: number, rect: IRect) {
+function createPageContainer(page: number, rect: IAnnotationHighlightTestRect) {
     const element = withRect(document.createElement('div'), rect);
     element.className = 'page_container';
     element.dataset.page = String(page);

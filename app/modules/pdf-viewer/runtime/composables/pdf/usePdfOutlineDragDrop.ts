@@ -129,9 +129,10 @@ function moveBookmarkNodes(
         item.id,
         item,
     ]));
-    const draggedItems = draggedRootIds
-        .map(id => draggedById.get(id) ?? null)
-        .filter((item): item is IBookmarkItem => item !== null);
+    const draggedItems = draggedRootIds.flatMap((id) => {
+        const item = draggedById.get(id) ?? null;
+        return item ? [item] : [];
+    });
 
     if (draggedItems.length === 0) {
         return {

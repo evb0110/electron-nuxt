@@ -9,20 +9,10 @@ import type { Ref } from 'vue';
 import { findShapeAtPoint } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/findShapeAtPoint';
 import { getNormalizedSvgPointerCoords } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/getNormalizedSvgPointerCoords';
 import { hasPointerMovedPastThreshold } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/hasPointerMovedPastThreshold';
-
-interface IPointerEventLike {
-    currentTarget: EventTarget | null;
-    target: EventTarget | null;
-    clientX: number;
-    clientY: number;
-}
-
-interface IShapeBounds {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-}
+import type {
+    IPointerEventLike,
+    IShapeOverlayBounds,
+} from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/pdfShapeOverlayInteractionTypes';
 
 interface IPdfShapeOverlayInteractionProps {
     shapes: IShapeAnnotation[];
@@ -46,7 +36,7 @@ interface IUsePdfShapeOverlayInteractionsOptions {
     svgHeight: Ref<number>;
     props: IPdfShapeOverlayInteractionProps;
     selectedShape: Ref<IShapeAnnotation | null>;
-    selectedShapeBounds: Ref<IShapeBounds | null>;
+    selectedShapeBounds: Ref<IShapeOverlayBounds | null>;
     emit: {
         startDrawing: (payload: IShapePoint) => void;
         continueDrawing: (payload: IShapePoint) => void;
@@ -108,7 +98,7 @@ export const usePdfShapeOverlayInteractions = (options: IUsePdfShapeOverlayInter
         };
     }
 
-    function boundsContainCoords(bounds: IShapeBounds, coords: IShapePoint) {
+    function boundsContainCoords(bounds: IShapeOverlayBounds, coords: IShapePoint) {
         const padX = 12 / Math.max(svgWidth.value, 1);
         const padY = 12 / Math.max(svgHeight.value, 1);
         return (
