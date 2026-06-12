@@ -5,7 +5,7 @@ import fr from '@evb/i18n-app/messages/fr';
 import it from '@evb/i18n-app/messages/it';
 import nl from '@evb/i18n-app/messages/nl';
 import pt from '@evb/i18n-app/messages/pt';
-import ptBr from '@evb/i18n-app/messages/pt-BR';
+import ptBr from '@evb/i18n-app/messages/ptBr';
 import ru from '@evb/i18n-app/messages/ru';
 import {
     DEFAULT_LOCALE,

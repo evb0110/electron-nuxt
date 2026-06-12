@@ -394,7 +394,6 @@ export default {
         es: 'Español',
         it: 'Italiano',
         pt: 'Português',
-        'pt-BR': 'Português (Brasil)',
         nl: 'Nederlands',
     },
 } as const;

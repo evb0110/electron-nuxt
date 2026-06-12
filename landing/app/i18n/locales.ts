@@ -1,4 +1,3 @@
- 
 import de from '../locales/de';
 import en from '../locales/en';
 import es from '../locales/es';
@@ -6,7 +5,7 @@ import fr from '../locales/fr';
 import it from '../locales/it';
 import nl from '../locales/nl';
 import pt from '../locales/pt';
-import ptBr from '../locales/pt-BR';
+import ptBr from '../locales/ptBr';
 import ru from '../locales/ru';
 import type { EN_MESSAGE_SCHEMA } from './enMessageSchema';
 import {
