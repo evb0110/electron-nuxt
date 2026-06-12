@@ -1,6 +1,6 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { annotationCommentsMatch } from '@app/modules/pdf-viewer/engine/annotation-comment-matching/annotationCommentsMatch';
-import { selectPreferredAnnotationComment } from '@app/modules/pdf-viewer/engine/annotation-comment-matching/selectPreferredAnnotationComment';
+import { annotationCommentsMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/annotationCommentsMatch';
+import { selectPreferredAnnotationComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/selectPreferredAnnotationComment';
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 import {
     normalizePdfJsAnnotationId,

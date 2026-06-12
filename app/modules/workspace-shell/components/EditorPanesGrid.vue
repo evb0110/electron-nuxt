@@ -26,7 +26,6 @@
                     <DeferredDocumentWorkspaceHost
                         v-if="shouldMountHost(tab.id)"
                         v-show="tab.id === paneForLeaf!.activeTabId"
-                        :ref="workspaceRefHandler(tab.id)"
                         :tab-id="tab.id"
                         :document-path="tab.originalPath"
                         :has-document-hint="tabHasDocumentHint(tab)"
@@ -46,6 +45,8 @@
                         @open-settings="handleOpenSettings"
                         @open-combine="handleOpenCombine"
                         @toggle-fullscreen="handleToggleFullscreen"
+                        @expose-ready="handleWorkspaceExposeReady(tab.id, $event)"
+                        @expose-released="handleWorkspaceExposeReleased(tab.id)"
                     />
                 </template>
             </div>
@@ -177,6 +178,7 @@ import type {
     ITabLifecycleState,
     ITabViewSessionState,
 } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 
 defineOptions({name: 'EditorPanesGrid'});
 
@@ -226,7 +228,6 @@ const emit = defineEmits<{
 }>();
 
 const splitContainerRef = ref<HTMLElement | null>(null);
-const workspaceRefHandlersByTabId = new Map<string, (el: unknown) => void>();
 const hasMultiplePanes = computed(() => panes.length > 1);
 const leafNode = computed(() => (node.type === 'leaf' ? node : null));
 const splitNode = computed<IEditorLayoutSplitNode | null>(() => (node.type === 'split' ? node : null));
@@ -303,19 +304,6 @@ function nodeContainsTab(node: TEditorLayoutNode, tabId: string | null): boolean
     }
 
     return nodeContainsTab(node.first, tabId) || nodeContainsTab(node.second, tabId);
-}
-
-function workspaceRefHandler(tabId: string) {
-    const existing = workspaceRefHandlersByTabId.get(tabId);
-    if (existing) {
-        return existing;
-    }
-
-    const handler = (el: unknown) => {
-        emit('set-workspace-ref', tabId, el);
-    };
-    workspaceRefHandlersByTabId.set(tabId, handler);
-    return handler;
 }
 
 function currentLeafPaneId() {
@@ -422,6 +410,14 @@ function handleSetWorkspaceRef(tabId: string, el: unknown) {
     emit('set-workspace-ref', tabId, el);
 }
 
+function handleWorkspaceExposeReady(tabId: string, expose: IWorkspaceExpose) {
+    emit('set-workspace-ref', tabId, expose);
+}
+
+function handleWorkspaceExposeReleased(tabId: string) {
+    emit('set-workspace-ref', tabId, null);
+}
+
 function handleUpdateTab(tabId: string, updates: TTabUpdate) {
     emit('update-tab', tabId, updates);
 }
@@ -524,17 +520,7 @@ useEventListener(resizeWindowTarget, 'pointercancel', (event: PointerEvent) => {
 
 onUnmounted(() => {
     clearResizeListeners();
-    workspaceRefHandlersByTabId.clear();
 });
-
-watch(() => tabs, (tabs) => {
-    const activeTabIds = new Set(tabs.map(tab => tab.id));
-    for (const tabId of workspaceRefHandlersByTabId.keys()) {
-        if (!activeTabIds.has(tabId)) {
-            workspaceRefHandlersByTabId.delete(tabId);
-        }
-    }
-}, {deep: false});
 </script>
 
 <style scoped>

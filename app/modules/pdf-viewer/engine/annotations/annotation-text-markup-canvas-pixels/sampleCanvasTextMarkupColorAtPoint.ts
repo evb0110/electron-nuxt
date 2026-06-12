@@ -1,30 +1,5 @@
 import { rgbToHex } from '@app/modules/pdf-viewer/engine/text-markup-color/rgbToHex';
-
-function colorDistanceScoreFromPoint(
-    dx: number,
-    dy: number,
-    r: number,
-    g: number,
-    b: number,
-    alpha: number,
-) {
-    if (alpha < 32) {
-        return null;
-    }
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    if (max > 245 && min > 245) {
-        return null;
-    }
-    if (max < 50) {
-        return null;
-    }
-    const saturation = max === 0 ? 0 : (max - min) / max;
-    if (saturation < 0.18) {
-        return null;
-    }
-    return (saturation * max) - Math.hypot(dx, dy) * 18;
-}
+import { textMarkupCanvasColor } from '@app/modules/pdf-viewer/engine/annotations/annotation-text-markup-canvas-pixels/textMarkupCanvasColor';
 
 export function sampleCanvasTextMarkupColorAtPoint(
     canvas: HTMLCanvasElement,
@@ -79,7 +54,7 @@ export function sampleCanvasTextMarkupColorAtPoint(
             const g = data.data[index + 1]!;
             const b = data.data[index + 2]!;
             const alpha = data.data[index + 3]!;
-            const score = colorDistanceScoreFromPoint(
+            const score = textMarkupCanvasColor.colorDistanceScoreFromPoint(
                 (left + x - centerX) / scaleX,
                 (top + y - centerY) / scaleY,
                 r,

@@ -14,8 +14,8 @@ import { applyAnnotationCommentTextMarkupVisualOverlay } from '@app/modules/pdf-
 import { drawEditedTextMarkupCanvasVisual } from '@app/modules/pdf-viewer/engine/annotations/annotation-edited-text-markup-canvas/drawEditedTextMarkupCanvasVisual';
 import { removeAnnotationCommentDom } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/removeAnnotationCommentDom';
 import { resolveAnnotationCommentTextMarkupColor } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor';
-import { resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics';
 import { resolveCommentWithRenderedTextMarkupColorAtPoint } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveCommentWithRenderedTextMarkupColorAtPoint';
+import { syncAnnotationCommentTextMarkupVisualOverlays } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/syncAnnotationCommentTextMarkupVisualOverlays';
 import { refreshHighlightCompositeOverlay } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay';
 
 vi.mock('@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay', () => ({ refreshHighlightCompositeOverlay: vi.fn() }));
@@ -192,6 +192,7 @@ function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnn
         author: overrides.author ?? null,
         modifiedAt: overrides.modifiedAt ?? null,
         color: overrides.color ?? null,
+        colorEdited: overrides.colorEdited,
         uid: overrides.uid ?? null,
         annotationId: 'annotationId' in overrides ? (overrides.annotationId ?? null) : '12R0',
         source: overrides.source ?? 'pdf',
@@ -203,6 +204,22 @@ function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnn
             height: 0.05,
         },
     };
+}
+
+function resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics(
+    container: HTMLElement,
+    comment: IAnnotationCommentSummary,
+    clientX: number,
+    clientY: number,
+) {
+    return resolveAnnotationCommentTextMarkupColor(
+        container,
+        comment,
+        {atPoint: {
+            pageX: clientX,
+            pageY: clientY,
+        }},
+    );
 }
 
 describe('removeAnnotationCommentDom', () => {
@@ -1194,6 +1211,115 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
         expect(didUpdate).toBe(true);
         expect(rect?.getAttribute('fill')).toBe('#22c55e');
         expect(rect?.getAttribute('fill-opacity')).toBe('0.35');
+    });
+
+    it('syncs edited overlays and removes visuals outside the current edited set', () => {
+        const container = createTestElement('viewer', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const page = createTestElement('page_container', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        connectPage(container, page);
+        const firstComment = createComment({
+            annotationId: '12R0',
+            color: '#22c55e',
+            colorEdited: true,
+            id: '12R0',
+            stableKey: 'ann:0:12R',
+            subtype: 'Underline',
+        });
+        const secondComment = createComment({
+            annotationId: '13R0',
+            color: '#ef4444',
+            colorEdited: true,
+            id: '13R0',
+            markerRect: {
+                left: 0.2,
+                top: 0.3,
+                width: 0.2,
+                height: 0.05,
+            },
+            stableKey: 'ann:0:13R',
+            subtype: 'Underline',
+        });
+
+        syncAnnotationCommentTextMarkupVisualOverlays(
+            toHTMLElement(container),
+            [
+                firstComment,
+                secondComment,
+            ],
+            { resolveColor: comment => comment.color },
+        );
+        syncAnnotationCommentTextMarkupVisualOverlays(
+            toHTMLElement(container),
+            [firstComment],
+            { resolveColor: comment => comment.color },
+        );
+
+        const overlay = page.querySelector('svg[data-evb-edited-text-markup-overlay="true"]');
+        const visuals = overlay?.querySelectorAll('.pdf-edited-text-markup-overlay__visual');
+        expect(visuals).toHaveLength(1);
+        expect(overlay?.querySelector('[data-annotation-id="12R0"]')).toBeTruthy();
+        expect(overlay?.querySelector('[data-annotation-id="13R0"]')).toBeNull();
+    });
+
+    it('keeps a current synced highlight overlay when a live editor covers the same rect', () => {
+        const container = createTestElement('viewer', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const page = createTestElement('page_container', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        connectPage(container, page);
+        const comment = createComment({
+            annotationId: '12R0',
+            color: '#22c55e',
+            colorEdited: true,
+            subtype: 'Highlight',
+        });
+        syncAnnotationCommentTextMarkupVisualOverlays(
+            toHTMLElement(container),
+            [comment],
+            { resolveColor: candidate => candidate.color },
+        );
+        const editorLayer = createTestElement('annotationEditorLayer', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const liveEditor = createTestElement('highlightEditor', {
+            left: 100,
+            top: 200,
+            width: 200,
+            height: 50,
+        });
+        editorLayer.append(liveEditor);
+        connectToPage(page, editorLayer);
+
+        const updateCount = syncAnnotationCommentTextMarkupVisualOverlays(
+            toHTMLElement(container),
+            [comment],
+            { resolveColor: candidate => candidate.color },
+        );
+
+        const overlay = page.querySelector('svg[data-evb-edited-text-markup-overlay="true"]');
+        expect(updateCount).toBe(0);
+        expect(overlay?.querySelector('[data-annotation-id="12R0"]')).toBeTruthy();
     });
 
     it('draws edited strikeout color into thumbnail canvases after suppressing stale PDF paint', () => {

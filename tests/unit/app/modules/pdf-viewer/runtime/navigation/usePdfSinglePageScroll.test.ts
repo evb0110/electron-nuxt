@@ -526,6 +526,61 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         expect(currentPage.value).toBe(1);
     });
 
+    it('keeps paged scrollToPage programmatic until the settle timer releases it', () => {
+        vi.useFakeTimers();
+        try {
+            const {singlePageScroll} = createSinglePageScrollHarness({mountedPageNumbers: [
+                1,
+                99,
+                100,
+            ]});
+
+            singlePageScroll.scrollToPage(2);
+
+            expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(true);
+
+            vi.advanceTimersByTime(600);
+
+            expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('walks search navigation state through navigating, settling, then idle', () => {
+        vi.useFakeTimers();
+        try {
+            const {singlePageScroll} = createSinglePageScrollHarness();
+
+            singlePageScroll.beginSearchNavigation(2, 500);
+
+            expect(singlePageScroll.searchNavigationState.value).toBe('navigating');
+            expect(singlePageScroll.searchNavigationTargetPage.value).toBe(2);
+            expect(singlePageScroll.isSearchNavigationLocked.value).toBe(true);
+            expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(true);
+
+            singlePageScroll.endSearchNavigation(80);
+
+            expect(singlePageScroll.searchNavigationState.value).toBe('settling');
+            expect(singlePageScroll.searchNavigationTargetPage.value).toBe(2);
+            expect(singlePageScroll.isSearchNavigationLocked.value).toBe(true);
+
+            vi.advanceTimersByTime(80);
+
+            expect(singlePageScroll.searchNavigationState.value).toBe('idle');
+            expect(singlePageScroll.searchNavigationTargetPage.value).toBeNull();
+            expect(singlePageScroll.isSearchNavigationLocked.value).toBe(false);
+            expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(true);
+
+            vi.advanceTimersByTime(421);
+            singlePageScroll.handleScroll();
+
+            expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('publishes a temporary continuous navigation anchor while jumping to an unmounted page', async () => {
         vi.useFakeTimers();
         try {

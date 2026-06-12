@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { annotationCommentEditScore } from '@app/modules/pdf-viewer/engine/annotation-comment-matching/annotationCommentEditScore';
+import { annotationCommentEditScore } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/annotationCommentEditScore';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {

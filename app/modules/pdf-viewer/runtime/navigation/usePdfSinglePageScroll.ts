@@ -29,12 +29,10 @@ import { normalizePageWheelDelta } from '@app/utils/document-viewer/single-page-
 import { resolveSnapAnchorForWheelDirection } from '@app/utils/document-viewer/single-page-wheel/resolveSnapAnchorForWheelDirection';
 import { accumulateWheelForPageFlips } from '@app/utils/document-viewer/single-page-wheel/accumulateWheelForPageFlips';
 import { resolveWheelPageFlipStepDelta } from '@app/utils/document-viewer/single-page-wheel/resolveWheelPageFlipStepDelta';
-import {
-    createPdfNavigationMachineState,
-    isPdfNavigationTxnCurrent,
-    reducePdfNavigationMachine,
-} from '@app/modules/pdf-viewer/runtime/navigation/navigationMachine';
 import type { TPdfNavigationEvent } from '@app/modules/pdf-viewer/runtime/navigation/navigationMachine';
+import { createPdfNavigationRuntime } from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationRuntime';
+import { createWheelFlipGate } from '@app/modules/pdf-viewer/runtime/navigation/createWheelFlipGate';
+import { createNavigationSettleEffects } from '@app/modules/pdf-viewer/runtime/navigation/createNavigationSettleEffects';
 
 const HORIZONTAL_INTENT_REJECT_RATIO = 2.5;
 const PAGE_SCROLL_EDGE_EPSILON = 1;
@@ -46,14 +44,6 @@ const CONTINUOUS_PROGRAMMATIC_RENDER_SETTLE_DELAYS_MS = [
 ] as const;
 const CONTINUOUS_NAVIGATION_TARGET_MAX_HOLD_MS = 6_000;
 const CONTINUOUS_NAVIGATION_REAPPLY_EPSILON = 0.5;
-// Minimum gap between consecutive same-direction page flips driven by the
-// wheel handler. Prevents trackpad inertia from blasting through pages — one
-// swipe gesture should advance one page, matching Adobe Acrobat / Preview.
-// Bypassed on direction reversal and when tall-page interior scrolling has
-// happened since the last flip (so reaching the edge of a tall page still
-// flips on the next wheel tick).
-const SAME_DIRECTION_FLIP_COOLDOWN_MS = 180;
-
 interface IPageRowGeometry {
     top: number;
     height: number;
@@ -110,23 +100,6 @@ function resolveNextTopWithinPageBounds(
     return direction > 0
         ? Math.min(bounds.max, container.scrollTop + delta)
         : Math.max(bounds.min, container.scrollTop + delta);
-}
-
-function isInSameDirectionFlipCooldown(
-    eventTimeMs: number,
-    direction: TWheelDirection,
-    lastFlipAtMs: number,
-    lastFlipDirection: TWheelDirection | 0,
-    hasInteriorScrollSinceLastFlip: boolean,
-) {
-    const sinceLastFlipMs = eventTimeMs - lastFlipAtMs;
-    return (
-        lastFlipAtMs > 0
-        && lastFlipDirection === direction
-        && !hasInteriorScrollSinceLastFlip
-        && sinceLastFlipMs >= 0
-        && sinceLastFlipMs < SAME_DIRECTION_FLIP_COOLDOWN_MS
-    );
 }
 
 function resolveWheelTargetPage(
@@ -234,52 +207,72 @@ export const usePdfSinglePageScroll = (
     const isSnapping = ref(false);
     const snapSuppressUntil = ref(0);
     const isProgrammaticNavigationActive = ref(false);
-    const searchNavigationTargetPage = ref<number | null>(null);
+    const navigationRuntime = createPdfNavigationRuntime();
+    const searchNavigationState = computed(() => (
+        navigationRuntime.source.value === 'search'
+            ? navigationRuntime.status.value
+            : 'idle'
+    ));
+    const searchNavigationTargetPage = computed(() => (
+        navigationRuntime.source.value === 'search'
+        && navigationRuntime.status.value !== 'idle'
+            ? navigationRuntime.targetPage.value
+            : null
+    ));
     const continuousNavigationTargetPage = ref<number | null>(null);
-    const searchNavigationState = ref<'idle' | 'navigating' | 'settling'>('idle');
     const isSearchNavigationLocked = computed(
         () => searchNavigationState.value !== 'idle',
     );
-    const pagedNavigationTargetPage = ref<number | null>(null);
-    let navigationMachineState = createPdfNavigationMachineState();
-    let pagedNavigationRunId = navigationMachineState.txn;
-    let searchNavigationRunId = navigationMachineState.txn;
-    let pagedNavigationSettleTimer: ReturnType<typeof setTimeout> | null = null;
-    let searchNavigationSettleTimer: ReturnType<typeof setTimeout> | null = null;
+    const pagedNavigationTargetPage = computed(() => (
+        navigationRuntime.source.value === 'paged'
+        && navigationRuntime.status.value !== 'idle'
+            ? navigationRuntime.targetPage.value
+            : null
+    ));
     let continuousNavigationRenderRunId = 0;
-    let continuousNavigationRenderTimers: Array<ReturnType<typeof setTimeout>> = [];
-    let continuousNavigationTargetClearTimer: ReturnType<typeof setTimeout> | null = null;
-    let continuousNavigationLayoutObserver: MutationObserver | null = null;
-    let continuousNavigationResizeObserver: ResizeObserver | null = null;
-    let continuousNavigationResizeObservedElements: HTMLElement[] = [];
-    let isContinuousNavigationLayoutReapplyQueued = false;
     let continuousNavigationTargetScrollOptions: IScrollToPageOptions | undefined;
     let isDisposed = false;
-
-    function clearPagedNavigationSettleTimer() {
-        if (pagedNavigationSettleTimer !== null) {
-            clearTimeout(pagedNavigationSettleTimer);
-            pagedNavigationSettleTimer = null;
-        }
-    }
+    const navigationEffects = createNavigationSettleEffects({
+        getLayoutObserverElements: resolveContinuousNavigationLayoutObserverElements,
+        hasLayoutMutation: hasContinuousNavigationLayoutMutation,
+        onLayoutReapply: ({
+            runId,
+            pageNumber,
+            reason,
+            scrollOptions,
+        }) => {
+            logPdfRenderTrace('single-page-continuous-navigation-layout-reapply', {
+                runId,
+                activeRunId: continuousNavigationRenderRunId,
+                targetPage: pageNumber,
+                activeTargetPage: continuousNavigationTargetPage.value,
+                reason,
+            });
+            reapplyContinuousNavigationTargetScroll(runId, pageNumber, scrollOptions);
+        },
+    });
 
     function clearPagedNavigationTarget() {
-        clearPagedNavigationSettleTimer();
-        pagedNavigationTargetPage.value = null;
+        navigationEffects.clearPagedSettle();
     }
 
     function dispatchNavigationMachine(event: TPdfNavigationEvent) {
-        navigationMachineState = reducePdfNavigationMachine(navigationMachineState, event);
-        pagedNavigationRunId = navigationMachineState.txn;
-        return navigationMachineState;
+        return navigationRuntime.dispatch(event);
     }
 
     function isNavigationRunCurrent(runId: number) {
-        return isPdfNavigationTxnCurrent(navigationMachineState, runId);
+        return navigationRuntime.isTxnCurrent(runId);
     }
 
     function isPagedNavigationRunCurrent(runId: number) {
         return isNavigationRunCurrent(runId);
+    }
+
+    function getActiveSearchNavigationRunId() {
+        return navigationRuntime.source.value === 'search'
+        && navigationRuntime.status.value !== 'idle'
+            ? navigationRuntime.txn.value
+            : null;
     }
 
     function markPagedNavigationScrollApplied(runId: number, targetPage: number) {
@@ -297,45 +290,16 @@ export const usePdfSinglePageScroll = (
         if (!isPagedNavigationRunCurrent(runId)) {
             return;
         }
+        const shouldReleaseProgrammaticNavigation = pagedNavigationTargetPage.value === targetPage;
         dispatchNavigationMachine({
             type: 'RENDER_SETTLED',
             txn: runId,
             page: targetPage,
         });
-        if (pagedNavigationTargetPage.value === targetPage) {
+        if (shouldReleaseProgrammaticNavigation) {
             clearPagedNavigationTarget();
             maybeReleaseProgrammaticNavigation();
         }
-    }
-
-    function clearSearchNavigationSettleTimer() {
-        if (searchNavigationSettleTimer !== null) {
-            clearTimeout(searchNavigationSettleTimer);
-            searchNavigationSettleTimer = null;
-        }
-    }
-
-    function clearContinuousNavigationRenderTimers() {
-        for (const timer of continuousNavigationRenderTimers) {
-            clearTimeout(timer);
-        }
-        continuousNavigationRenderTimers = [];
-    }
-
-    function clearContinuousNavigationTargetClearTimer() {
-        if (continuousNavigationTargetClearTimer !== null) {
-            clearTimeout(continuousNavigationTargetClearTimer);
-            continuousNavigationTargetClearTimer = null;
-        }
-    }
-
-    function clearContinuousNavigationLayoutObservers() {
-        continuousNavigationLayoutObserver?.disconnect();
-        continuousNavigationLayoutObserver = null;
-        continuousNavigationResizeObserver?.disconnect();
-        continuousNavigationResizeObserver = null;
-        continuousNavigationResizeObservedElements = [];
-        isContinuousNavigationLayoutReapplyQueued = false;
     }
 
     function clearContinuousNavigationTarget(runId?: number, pageNumber?: number) {
@@ -348,30 +312,31 @@ export const usePdfSinglePageScroll = (
         ) {
             return;
         }
-        clearContinuousNavigationTargetClearTimer();
+        navigationEffects.clearContinuousTargetFallback();
         continuousNavigationTargetPage.value = null;
         continuousNavigationTargetScrollOptions = undefined;
-        clearContinuousNavigationLayoutObservers();
+        navigationEffects.clearLayoutObservers();
     }
 
     function scheduleContinuousNavigationTargetFallbackClear(runId: number, pageNumber: number) {
-        clearContinuousNavigationTargetClearTimer();
-        continuousNavigationTargetClearTimer = setTimeout(() => {
-            continuousNavigationTargetClearTimer = null;
-            clearContinuousNavigationTarget(runId, pageNumber);
-        }, CONTINUOUS_NAVIGATION_TARGET_MAX_HOLD_MS);
+        navigationEffects.armContinuousTargetFallback(
+            CONTINUOUS_NAVIGATION_TARGET_MAX_HOLD_MS,
+            () => {
+                clearContinuousNavigationTarget(runId, pageNumber);
+            },
+        );
     }
 
     function cancelContinuousNavigationTarget() {
         if (
             continuousNavigationTargetPage.value === null
-            && continuousNavigationRenderTimers.length === 0
+            && !navigationEffects.hasContinuousRenderTimers()
         ) {
             return;
         }
 
         continuousNavigationRenderRunId += 1;
-        clearContinuousNavigationRenderTimers();
+        navigationEffects.clearContinuousRenderTimers();
         clearContinuousNavigationTarget();
     }
 
@@ -382,10 +347,8 @@ export const usePdfSinglePageScroll = (
     function cancelProgrammaticNavigation() {
         dispatchNavigationMachine({ type: 'CANCEL' });
         clearPagedNavigationTarget();
-        clearSearchNavigationSettleTimer();
+        navigationEffects.clearSearchSettle();
         cancelContinuousNavigationTarget();
-        searchNavigationState.value = 'idle';
-        searchNavigationTargetPage.value = null;
         snapSuppressUntil.value = 0;
         isProgrammaticNavigationActive.value = false;
         isSnapping.value = false;
@@ -404,71 +367,19 @@ export const usePdfSinglePageScroll = (
         return delay(0);
     }
 
-    function setContinuousNavigationResizeObserverElements(elements: HTMLElement[]) {
-        const observer = continuousNavigationResizeObserver;
-        if (!observer) {
-            return;
-        }
-
-        if (
-            elements.length === continuousNavigationResizeObservedElements.length
-            && elements.every((element, index) => (
-                element === continuousNavigationResizeObservedElements[index]
-            ))
-        ) {
-            return;
-        }
-
-        observer.disconnect();
-        for (const element of elements) {
-            observer.observe(element);
-        }
-        continuousNavigationResizeObservedElements = elements;
-    }
-
-    function refreshContinuousNavigationResizeObserverTarget(pageNumber: number) {
+    function resolveContinuousNavigationLayoutObserverElements(pageNumber: number) {
         const container = viewerContainer.value;
-        if (!container || !continuousNavigationResizeObserver) {
-            return;
+        if (!container) {
+            return [];
         }
 
         const targetPageElement = getPageContainerByNumber(container, pageNumber);
-        setContinuousNavigationResizeObserverElements(
-            targetPageElement
-                ? [
-                    container,
-                    targetPageElement,
-                ]
-                : [container],
-        );
-    }
-
-    /**
-     * Coalesces target-scroll repair so resize, mutation, and scroll restoration
-     * signals cannot recursively fight while one bookmark destination is active.
-     */
-    function scheduleContinuousNavigationLayoutReapply(
-        runId: number,
-        pageNumber: number,
-        reason: 'mutation' | 'resize' | 'scroll',
-        scrollOptions?: IScrollToPageOptions,
-    ) {
-        if (isContinuousNavigationLayoutReapplyQueued) {
-            return;
-        }
-
-        isContinuousNavigationLayoutReapplyQueued = true;
-        void nextTick(() => {
-            isContinuousNavigationLayoutReapplyQueued = false;
-            logPdfRenderTrace('single-page-continuous-navigation-layout-reapply', {
-                runId,
-                activeRunId: continuousNavigationRenderRunId,
-                targetPage: pageNumber,
-                activeTargetPage: continuousNavigationTargetPage.value,
-                reason,
-            });
-            reapplyContinuousNavigationTargetScroll(runId, pageNumber, scrollOptions);
-        });
+        return targetPageElement
+            ? [
+                container,
+                targetPageElement,
+            ]
+            : [container];
     }
 
     function resolveContinuousNavigationTargetTop(
@@ -522,52 +433,7 @@ export const usePdfSinglePageScroll = (
         pageNumber: number,
         scrollOptions?: IScrollToPageOptions,
     ) {
-        clearContinuousNavigationLayoutObservers();
-
-        const container = viewerContainer.value;
-        if (!container) {
-            return;
-        }
-
-        if (typeof ResizeObserver !== 'undefined') {
-            continuousNavigationResizeObserver = new ResizeObserver(() => {
-                scheduleContinuousNavigationLayoutReapply(
-                    runId,
-                    pageNumber,
-                    'resize',
-                    scrollOptions,
-                );
-            });
-            refreshContinuousNavigationResizeObserverTarget(pageNumber);
-        }
-
-        if (typeof MutationObserver === 'undefined') {
-            return;
-        }
-
-        continuousNavigationLayoutObserver = new MutationObserver((mutations) => {
-            if (!hasContinuousNavigationLayoutMutation(mutations, pageNumber)) {
-                return;
-            }
-
-            refreshContinuousNavigationResizeObserverTarget(pageNumber);
-            scheduleContinuousNavigationLayoutReapply(
-                runId,
-                pageNumber,
-                'mutation',
-                scrollOptions,
-            );
-        });
-        continuousNavigationLayoutObserver.observe(container, {
-            attributes: true,
-            attributeFilter: [
-                'class',
-                'data-page',
-                'style',
-            ],
-            childList: true,
-            subtree: true,
-        });
+        navigationEffects.attachLayoutObservers(runId, pageNumber, scrollOptions);
     }
 
     function getMutationElement(node: Node | null) {
@@ -665,18 +531,15 @@ export const usePdfSinglePageScroll = (
             anchor,
         });
         const runId = navigationState.txn;
-        pagedNavigationTargetPage.value = targetPage;
-        clearPagedNavigationSettleTimer();
         markProgrammaticNavigation(holdMs);
-        pagedNavigationSettleTimer = setTimeout(() => {
-            pagedNavigationSettleTimer = null;
+        navigationEffects.armPagedSettle(runId, targetPage, holdMs, () => {
             if (
                 pagedNavigationTargetPage.value === targetPage
                 && isPagedNavigationRunCurrent(runId)
             ) {
                 finishPagedNavigation(runId, targetPage);
             }
-        }, holdMs);
+        });
         return {
             runId,
             targetPage,
@@ -684,60 +547,54 @@ export const usePdfSinglePageScroll = (
     }
 
     function beginSearchNavigation(pageNumber: number, holdMs = 400) {
-        clearSearchNavigationSettleTimer();
+        navigationEffects.clearSearchSettle();
         const targetPage = numPages.value > 0
             ? Math.max(
                 1,
                 Math.min(pageNumber, numPages.value),
             )
             : pageNumber;
-        searchNavigationTargetPage.value = targetPage;
-        const navigationState = dispatchNavigationMachine({
+        dispatchNavigationMachine({
             type: 'NAVIGATE',
             source: 'search',
             targetPage,
         });
-        searchNavigationRunId = navigationState.txn;
-        searchNavigationState.value = 'navigating';
         markProgrammaticNavigation(Math.max(100, holdMs));
     }
 
     function endSearchNavigation(settleMs = 80) {
-        clearSearchNavigationSettleTimer();
+        navigationEffects.clearSearchSettle();
 
         if (settleMs <= 0) {
-            const runId = searchNavigationRunId;
-            searchNavigationState.value = 'idle';
-            searchNavigationTargetPage.value = null;
+            const runId = getActiveSearchNavigationRunId();
             snapSuppressUntil.value = 0;
             isProgrammaticNavigationActive.value = false;
-            if (isNavigationRunCurrent(runId)) {
+            if (runId !== null && isNavigationRunCurrent(runId)) {
                 dispatchNavigationMachine({ type: 'CANCEL' });
             }
             return;
         }
 
-        const runId = searchNavigationRunId;
-        searchNavigationState.value = 'settling';
+        const runId = getActiveSearchNavigationRunId();
+        const targetPage = searchNavigationTargetPage.value;
+        if (runId !== null && targetPage !== null && isNavigationRunCurrent(runId)) {
+            dispatchNavigationMachine({
+                type: 'SCROLL_APPLIED',
+                txn: runId,
+                page: targetPage,
+            });
+        }
         markProgrammaticNavigation(Math.max(80, settleMs + 40));
-        searchNavigationSettleTimer = setTimeout(() => {
-            searchNavigationSettleTimer = null;
-            searchNavigationState.value = 'idle';
-            searchNavigationTargetPage.value = null;
-            if (isNavigationRunCurrent(runId)) {
+        navigationEffects.armSearchSettle(settleMs, () => {
+            if (runId !== null && isNavigationRunCurrent(runId)) {
                 dispatchNavigationMachine({ type: 'CANCEL' });
             }
             maybeReleaseProgrammaticNavigation();
-        }, settleMs);
+        });
     }
 
     const wheelAccumulator = ref<IWheelPageAccumulatorState>(createWheelPageAccumulatorState());
-
-    // Cooldown tracking: throttles rapid same-direction wheel flips while
-    // still allowing immediate edge-flips after tall-page interior scrolling.
-    let lastWheelFlipAtMs = 0;
-    let lastWheelFlipDirection: TWheelDirection | 0 = 0;
-    let interiorScrollSinceLastFlip = false;
+    const wheelFlipGate = createWheelFlipGate();
 
     const debouncedRenderOnScroll = useDebounceFn(() => {
         if (isDisposed) {
@@ -863,7 +720,7 @@ export const usePdfSinglePageScroll = (
                     targetPage,
                     message,
                     runId,
-                    activeRunId: pagedNavigationRunId,
+                    activeRunId: navigationRuntime.txn.value,
                     isDisposed,
                     continuousScroll: continuousScroll.value,
                     isLoading: isLoading.value,
@@ -1013,8 +870,6 @@ export const usePdfSinglePageScroll = (
         message: string,
         scrollOptions?: IScrollToPageOptions,
     ) {
-        clearContinuousNavigationRenderTimers();
-
         logPdfRenderTrace('single-page-queue-continuous-navigation-render', {
             runId,
             delaysMs: [...CONTINUOUS_PROGRAMMATIC_RENDER_SETTLE_DELAYS_MS],
@@ -1026,10 +881,9 @@ export const usePdfSinglePageScroll = (
             },
         });
 
-        for (const delayMs of CONTINUOUS_PROGRAMMATIC_RENDER_SETTLE_DELAYS_MS) {
-            const timer = setTimeout(() => {
-                continuousNavigationRenderTimers = continuousNavigationRenderTimers
-                    .filter(activeTimer => activeTimer !== timer);
+        navigationEffects.armContinuousRender(
+            CONTINUOUS_PROGRAMMATIC_RENDER_SETTLE_DELAYS_MS,
+            (delayMs) => {
                 void runContinuousNavigationRenderPass(
                     runId,
                     pageNumber,
@@ -1037,9 +891,8 @@ export const usePdfSinglePageScroll = (
                     delayMs,
                     scrollOptions,
                 );
-            }, delayMs);
-            continuousNavigationRenderTimers.push(timer);
-        }
+            },
+        );
 
         return runId;
     }
@@ -1401,7 +1254,7 @@ export const usePdfSinglePageScroll = (
                     logPdfRenderTrace('single-page-snap-next-tick-skipped', {
                         targetPage,
                         runId,
-                        activeRunId: pagedNavigationRunId,
+                        activeRunId: navigationRuntime.txn.value,
                         isDisposed,
                         continuousScroll: continuousScroll.value,
                         currentPage: currentPage.value,
@@ -1525,7 +1378,7 @@ export const usePdfSinglePageScroll = (
             );
             // Record interior progress so the eventual edge-flip is not
             // gated by the same-direction cooldown.
-            interiorScrollSinceLastFlip = true;
+            wheelFlipGate.recordInteriorScroll();
             return true;
         }
 
@@ -1534,13 +1387,7 @@ export const usePdfSinglePageScroll = (
         // swallow this wheel packet to avoid trackpad inertia rapid-firing
         // through pages. preventDefault was already called above, so the
         // browser also won't perform a native scroll.
-        if (isInSameDirectionFlipCooldown(
-            event.timeStamp,
-            direction,
-            lastWheelFlipAtMs,
-            lastWheelFlipDirection,
-            interiorScrollSinceLastFlip,
-        )) {
+        if (wheelFlipGate.shouldBlockFlip(direction, event.timeStamp)) {
             clearWheelAccumulator();
             return true;
         }
@@ -1580,9 +1427,7 @@ export const usePdfSinglePageScroll = (
         const anchor = resolveWheelTargetAnchor(isTallPage(targetPage), direction);
         snapToPage(targetPage, anchor);
         suppressSnapFor(250);
-        lastWheelFlipAtMs = event.timeStamp;
-        lastWheelFlipDirection = direction;
-        interiorScrollSinceLastFlip = false;
+        wheelFlipGate.recordFlip(direction, event.timeStamp);
         return true;
     }
 
@@ -1640,7 +1485,7 @@ export const usePdfSinglePageScroll = (
                 )
             )
         ) {
-            scheduleContinuousNavigationLayoutReapply(
+            navigationEffects.scheduleLayoutReapply(
                 continuousNavigationRenderRunId,
                 continuousTargetPage,
                 'scroll',
@@ -1708,9 +1553,7 @@ export const usePdfSinglePageScroll = (
             markProgrammaticNavigation(ensurePageMetricsInRange ? 1_200 : 220);
             const targetPage = clamp(pageNumber, 1, numPages.value);
             const runId = ++continuousNavigationRenderRunId;
-            clearContinuousNavigationRenderTimers();
-            clearContinuousNavigationLayoutObservers();
-            clearContinuousNavigationTargetClearTimer();
+            navigationEffects.clearContinuous();
             continuousNavigationTargetPage.value = targetPage;
             continuousNavigationTargetScrollOptions = options;
 
@@ -1759,28 +1602,18 @@ export const usePdfSinglePageScroll = (
         dispatchNavigationMachine({ type: 'DOCUMENT_CHANGED' });
         clearWheelAccumulator();
         clearPagedNavigationTarget();
-        clearSearchNavigationSettleTimer();
-        clearContinuousNavigationRenderTimers();
-        clearContinuousNavigationTargetClearTimer();
-        clearContinuousNavigationLayoutObservers();
-        searchNavigationState.value = 'idle';
+        navigationEffects.clearSearchSettle();
+        navigationEffects.clearContinuous();
         isProgrammaticNavigationActive.value = false;
-        searchNavigationTargetPage.value = null;
         continuousNavigationTargetPage.value = null;
         continuousNavigationTargetScrollOptions = undefined;
         snapSuppressUntil.value = 0;
-        lastWheelFlipAtMs = 0;
-        lastWheelFlipDirection = 0;
-        interiorScrollSinceLastFlip = false;
+        wheelFlipGate.reset();
     }
 
     tryOnScopeDispose(() => {
         isDisposed = true;
-        clearPagedNavigationSettleTimer();
-        clearSearchNavigationSettleTimer();
-        clearContinuousNavigationRenderTimers();
-        clearContinuousNavigationTargetClearTimer();
-        clearContinuousNavigationLayoutObservers();
+        navigationEffects.disposeAll();
     });
 
     return {

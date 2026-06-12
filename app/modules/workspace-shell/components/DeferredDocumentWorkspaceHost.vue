@@ -8,7 +8,6 @@
             <component
                 :is="DocumentWorkspace"
                 :key="workspaceRenderKey"
-                ref="workspaceRef"
                 :tab-id="tabId"
                 :is-active="isActive && !isPlaceholderVisible"
                 :is-render-active="isRenderActive && !isPlaceholderVisible"
@@ -25,6 +24,8 @@
                 @open-settings="handleOpenSettings"
                 @open-combine="handleOpenCombine"
                 @toggle-fullscreen="handleToggleFullscreen"
+                @expose-ready="handleWorkspaceExposeReady"
+                @expose-released="handleWorkspaceExposeReleased"
             />
         </div>
 
@@ -107,7 +108,6 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
 import type { TTabUpdate } from '@app/types/tabs';
-import type { TSplitPayload } from '@contracts/windowTabs';
 import {
     useEventListener,
     useResizeObserver,
@@ -121,7 +121,6 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { getPlatformAPI } from '@app/utils/platform';
 import { getAsyncChunkLoadErrorMessage } from '@app/modules/workspace-shell/host/getAsyncChunkLoadErrorMessage';
 import { shouldRetryAsyncChunkLoad } from '@app/modules/workspace-shell/host/shouldRetryAsyncChunkLoad';
-import { isWorkspaceExpose } from '@app/modules/workspace-shell/expose/isWorkspaceExpose';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
@@ -135,6 +134,7 @@ import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/b
 import { hasDocumentHintUpdate } from '@app/modules/workspace-shell/tabs/hasDocumentHintUpdate';
 import { isEmptyTabDocumentUpdate } from '@app/modules/workspace-shell/tabs/isEmptyTabDocumentUpdate';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
+import { createDeferredWorkspaceExposeProxy } from '@app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy';
 import type { TStartSection } from '@app/types/startSection';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
@@ -176,6 +176,8 @@ const emit = defineEmits<{
     'open-settings': [];
     'open-combine': [];
     'toggle-fullscreen': [];
+    'expose-ready': [expose: IWorkspaceExpose];
+    'expose-released': [];
 }>();
 
 function handleUpdateTab(updates: TTabUpdate) {
@@ -214,6 +216,14 @@ function handleOpenCombine() {
 
 function handleToggleFullscreen() {
     emit('toggle-fullscreen');
+}
+
+function handleWorkspaceExposeReady(expose: IWorkspaceExpose) {
+    mountedWorkspace.value = expose;
+}
+
+function handleWorkspaceExposeReleased() {
+    mountedWorkspace.value = null;
 }
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 const LOADER_LOG_SECTION = 'loader';
@@ -283,7 +293,7 @@ const DocumentWorkspace = import.meta.client
     : null;
 
 const workspaceRequested = ref(false);
-const workspaceRef = ref<unknown>(null);
+const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
 let workspaceLoadPromise: Promise<IWorkspaceExpose | null> | null = null;
 let workspacePreloadPromise: Promise<boolean> | null = null;
 let isHostUnmounted = false;
@@ -307,9 +317,6 @@ const {
     clearRecentFiles,
 } = useRecentFiles();
 
-const mountedWorkspace = computed<IWorkspaceExpose | null>(() => (
-    isWorkspaceExpose(workspaceRef.value) ? workspaceRef.value : null
-));
 const hasMountedWorkspace = computed(() => mountedWorkspace.value !== null);
 const hasWorkspaceChunkLoadError = computed(() => workspaceChunkLoadError.value !== null);
 const workspaceRenderKey = computed(() => `${tabId}:${workspaceRenderNonce.value}`);
@@ -1177,6 +1184,7 @@ async function handleOpenFileFromUi() {
 
 onMounted(() => {
     isHostUnmounted = false;
+    emit('expose-ready', workspaceExpose);
     if (shouldPreloadWorkspaceOnHostMount({
         hasQueuedSplitRestore: hasQueuedSplitRestore.value,
         hasDocumentHint: hasDocumentHint === true,
@@ -1197,6 +1205,7 @@ onMounted(() => {
 
 onUnmounted(() => {
     isHostUnmounted = true;
+    emit('expose-released');
     workspaceLoadPromise = null;
     workspacePreloadPromise = null;
     cancelOpeningDocumentSkeletonFrameRefreshes();
@@ -1206,243 +1215,24 @@ onUnmounted(() => {
     chunkRetryTimers.clear();
 });
 
-const workspaceExpose: IWorkspaceExpose = {
-    handleSave: async () => {
-        return await withLoadedWorkspace('handleSave', workspace => workspace.handleSave()) === true;
+const workspaceExpose: IWorkspaceExpose = createDeferredWorkspaceExposeProxy({
+    enqueueDocumentOpen,
+    getMounted: () => mountedWorkspace.value,
+    log: (action, error) => {
+        BrowserLogger.error('workspace-host', `Action failed (${action})`, {
+            tabId: tabId,
+            error,
+        });
     },
-    handleRepairSave: async () => {
-        return await withLoadedWorkspace('handleRepairSave', workspace => workspace.handleRepairSave()) === true;
+    openPath,
+    overrides: {
+        getToolbarSnapshot: () => readWorkspaceToolbarSnapshot(),
+        handleOpenFileFromUi,
+        hasPdf,
     },
-    handleSaveAs: async () => {
-        return await withLoadedWorkspace('handleSaveAs', workspace => workspace.handleSaveAs()) === true;
-    },
-    handlePrint: async () => {
-        await withLoadedWorkspace('handlePrint', workspace => workspace.handlePrint());
-    },
-    handlePrintCurrentPage: async () => {
-        await withLoadedWorkspace('handlePrintCurrentPage', workspace => workspace.handlePrintCurrentPage());
-    },
-    handleUndo: () => {
-        void withLoadedWorkspace('handleUndo', workspace => workspace.handleUndo());
-    },
-    handleRedo: () => {
-        void withLoadedWorkspace('handleRedo', workspace => workspace.handleRedo());
-    },
-    handleOpenFileFromUi,
-    handleCombineImages: async () => {
-        const workspace = mountedWorkspace.value;
-        if (!workspace) {
-            return false;
-        }
-        try {
-            return await workspace.handleCombineImages();
-        } catch (error) {
-            BrowserLogger.error('workspace-host', 'Action failed (handleCombineImages)', {
-                tabId: tabId,
-                error,
-            });
-            return false;
-        }
-    },
-    handleOpenFileDirectWithPersist: async (path: string) => {
-        return enqueueDocumentOpen({
-            action: 'handleOpenFileDirectWithPersist',
-            target: buildPendingTabDocumentHint(path),
-        }, async () => openPath(path, 'handleOpenFileDirectWithPersist'));
-    },
-    handleOpenFileDirectBatchWithPersist: async (paths: string[]) => {
-        return enqueueDocumentOpen({
-            action: 'handleOpenFileDirectBatchWithPersist',
-            target: null,
-        }, async () => (
-            withWorkspace(
-                'handleOpenFileDirectBatchWithPersist',
-                workspace => workspace.handleOpenFileDirectBatchWithPersist(paths),
-            )
-        ));
-    },
-    handleOpenFileWithResult: async (result: TOpenFileResult) => {
-        return enqueueDocumentOpen({
-            action: 'handleOpenFileWithResult',
-            target: buildPendingTabDocumentHint(result),
-        }, async () => withWorkspace(
-            'handleOpenFileWithResult',
-            workspace => workspace.handleOpenFileWithResult(result),
-        ));
-    },
-    handleCloseFileFromUi: async (options) => {
-        return await withLoadedWorkspace('handleCloseFileFromUi', workspace => workspace.handleCloseFileFromUi(options)) ?? false;
-    },
-    openRecentFile: async (file: IRecentFile) => {
-        return enqueueDocumentOpen({
-            action: 'openRecentFile',
-            target: buildPendingTabDocumentHint(file),
-        }, async () => withWorkspace('openRecentFile', workspace => workspace.openRecentFile(file)));
-    },
-    handleExportDocx: async () => {
-        await withLoadedWorkspace('handleExportDocx', workspace => workspace.handleExportDocx());
-    },
-    handleExportImages: async () => {
-        await withLoadedWorkspace('handleExportImages', workspace => workspace.handleExportImages());
-    },
-    handleExportMultiPageTiff: async () => {
-        await withLoadedWorkspace('handleExportMultiPageTiff', workspace => workspace.handleExportMultiPageTiff());
-    },
-    hasPdf,
-    handleZoomIn: () => {
-        void withLoadedWorkspace('handleZoomIn', workspace => workspace.handleZoomIn());
-    },
-    handleZoomOut: () => {
-        void withLoadedWorkspace('handleZoomOut', workspace => workspace.handleZoomOut());
-    },
-    handleFitWidth: () => {
-        void withLoadedWorkspace('handleFitWidth', workspace => workspace.handleFitWidth());
-    },
-    handleFitHeight: () => {
-        void withLoadedWorkspace('handleFitHeight', workspace => workspace.handleFitHeight());
-    },
-    handleActualSize: () => {
-        void withLoadedWorkspace('handleActualSize', workspace => workspace.handleActualSize());
-    },
-    handleGoToPage: (page: number) => {
-        void withLoadedWorkspace('handleGoToPage', workspace => workspace.handleGoToPage(page));
-    },
-    handleToggleSidebar: () => {
-        void withLoadedWorkspace('handleToggleSidebar', workspace => workspace.handleToggleSidebar());
-    },
-    handleToggleContinuousScroll: () => {
-        void withLoadedWorkspace('handleToggleContinuousScroll', workspace => workspace.handleToggleContinuousScroll());
-    },
-    handleEnableDragMode: () => {
-        void withLoadedWorkspace('handleEnableDragMode', workspace => workspace.handleEnableDragMode());
-    },
-    handleDisableDragMode: () => {
-        void withLoadedWorkspace('handleDisableDragMode', workspace => workspace.handleDisableDragMode());
-    },
-    handleCaptureRegion: () => {
-        void withLoadedWorkspace('handleCaptureRegion', workspace => workspace.handleCaptureRegion());
-    },
-    handleQuickNote: () => {
-        void withLoadedWorkspace('handleQuickNote', workspace => workspace.handleQuickNote());
-    },
-    handleInsertImageFromFile: async () => {
-        await withLoadedWorkspace('handleInsertImageFromFile', workspace => workspace.handleInsertImageFromFile());
-    },
-    handlePasteImageFromClipboard: async () => {
-        await withLoadedWorkspace(
-            'handlePasteImageFromClipboard',
-            workspace => workspace.handlePasteImageFromClipboard(),
-        );
-    },
-    handleViewModeSingle: () => {
-        void withLoadedWorkspace('handleViewModeSingle', workspace => workspace.handleViewModeSingle());
-    },
-    handleViewModeFacing: () => {
-        void withLoadedWorkspace('handleViewModeFacing', workspace => workspace.handleViewModeFacing());
-    },
-    handleViewModeFacingFirstSingle: () => {
-        void withLoadedWorkspace('handleViewModeFacingFirstSingle', workspace => workspace.handleViewModeFacingFirstSingle());
-    },
-    handleDeletePages: () => {
-        void withLoadedWorkspace('handleDeletePages', workspace => workspace.handleDeletePages());
-    },
-    handleExtractPages: () => {
-        void withLoadedWorkspace('handleExtractPages', workspace => workspace.handleExtractPages());
-    },
-    handleRotateCw: () => {
-        void withLoadedWorkspace('handleRotateCw', workspace => workspace.handleRotateCw());
-    },
-    handleRotateCcw: () => {
-        void withLoadedWorkspace('handleRotateCcw', workspace => workspace.handleRotateCcw());
-    },
-    handleInsertPages: () => {
-        void withLoadedWorkspace('handleInsertPages', workspace => workspace.handleInsertPages());
-    },
-    handleConvertToPdf: () => {
-        void withLoadedWorkspace('handleConvertToPdf', workspace => workspace.handleConvertToPdf());
-    },
-    captureSplitPayload: () => {
-        const workspace = mountedWorkspace.value;
-        if (!workspace) {
-            return Promise.resolve({kind: 'empty'} satisfies TSplitPayload);
-        }
-        return workspace.captureSplitPayload();
-    },
-    restoreSplitPayload: async (payload: TSplitPayload) => {
-        if (!mountedWorkspace.value && payload.kind === 'empty') {
-            return;
-        }
-        const restorePayload = async () => {
-            await withWorkspace('restoreSplitPayload', async (workspace) => {
-                await workspace.restoreSplitPayload(payload);
-                return true;
-            });
-        };
-
-        if (payload.kind === 'empty') {
-            await restorePayload();
-            return;
-        }
-
-        await enqueueDocumentOpen({
-            action: 'restoreSplitPayload',
-            target: null,
-        }, restorePayload);
-    },
-    closeAllDropdowns: () => {
-        void withLoadedWorkspace('closeAllDropdowns', workspace => workspace.closeAllDropdowns());
-    },
-    waitForDocumentOpenSettled: async () => {
-        await withLoadedWorkspace('waitForDocumentOpenSettled', workspace => workspace.waitForDocumentOpenSettled());
-    },
-    runAgentAction: async (actionId, input, options) => {
-        return await withLoadedWorkspace(
-            'runAgentAction',
-            workspace => workspace.runAgentAction(actionId, input, options),
-        ) ?? {
-            ok: false,
-            actionId,
-            error: 'Workspace is not available.',
-        };
-    },
-    readAgentResource: async (uri) => {
-        return await withLoadedWorkspace(
-            'readAgentResource',
-            workspace => workspace.readAgentResource(uri),
-        ) ?? {
-            ok: false,
-            uri,
-            error: 'Workspace is not available.',
-        };
-    },
-    getAutomationStateSnapshot: () => mountedWorkspace.value?.getAutomationStateSnapshot() ?? {
-        annotationComments: [],
-        annotationCommentsStatus: 'loading',
-        annotationDirty: false,
-        originalPath: null,
-        sortedAnnotationNoteWindows: [],
-        workingCopyPath: null,
-    },
-    handleOcrComplete: async (payload) => {
-        await withLoadedWorkspace('handleOcrComplete', workspace => workspace.handleOcrComplete?.(payload));
-    },
-    scrollToPage: (page: number) => {
-        void withLoadedWorkspace('scrollToPage', workspace => workspace.scrollToPage?.(page));
-    },
-    getAllShapes: () => mountedWorkspace.value?.getAllShapes?.() ?? [],
-    getDeletedEmbeddedShapeAnnotationIds: () => mountedWorkspace.value?.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
-    getDeletedEmbeddedShapeStableKeys: () => mountedWorkspace.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
-    highlightSelection: async () => (
-        await withLoadedWorkspace('highlightSelection', workspace => workspace.highlightSelection?.()) ?? false
-    ),
-    commentAtPoint: async (pageNumber, pageX, pageY, options) => (
-        await withLoadedWorkspace(
-            'commentAtPoint',
-            workspace => workspace.commentAtPoint?.(pageNumber, pageX, pageY, options),
-        ) ?? false
-    ),
-    getToolbarSnapshot: () => readWorkspaceToolbarSnapshot(),
-};
+    withLoadedWorkspace,
+    withWorkspace,
+});
 
 defineExpose(workspaceExpose);
 </script>

@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
-import { annotationCommentsMatch } from '@app/modules/pdf-viewer/engine/annotation-comment-matching/annotationCommentsMatch';
-import { selectPreferredAnnotationComment } from '@app/modules/pdf-viewer/engine/annotation-comment-matching/selectPreferredAnnotationComment';
+import { annotationCommentsMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/annotationCommentsMatch';
+import { selectPreferredAnnotationComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/selectPreferredAnnotationComment';
 import { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
 import { markerRectCenterDistance } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/markerRectCenterDistance';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';

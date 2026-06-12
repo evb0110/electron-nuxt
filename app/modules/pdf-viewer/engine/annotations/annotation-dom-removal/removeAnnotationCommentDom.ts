@@ -1,37 +1,18 @@
-import type { IHighlightVisualCandidate } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/textMarkupDomRemovalTypes';
+import type {
+    IHighlightVisualCandidate,
+    ITextMarkupCandidateContext,
+} from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/textMarkupDomRemovalTypes';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
 } from '@app/types/annotations';
-import { markerRectIoU } from '@app/modules/pdf-viewer/engine/annotation-geometry/markerRectIoU';
-import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
-import { markerRectCenterDistance } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/markerRectCenterDistance';
 import { refreshHighlightCompositeOverlay } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
+import { collectTextMarkupElementCandidates } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/collectTextMarkupElementCandidates';
+import { scoreTextMarkupVisualCandidate } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/scoreTextMarkupVisualCandidate';
 
-const MIN_HIGHLIGHT_VISUAL_IOU = 0.2;
-
-const MAX_HIGHLIGHT_VISUAL_CENTER_DISTANCE = 0.025;
-
-const TEXT_MARKUP_AXIS_TOLERANCE = 0.018;
-
-const MIN_TEXT_MARKUP_HORIZONTAL_OVERLAP_RATIO = 0.2;
-
-
-function getAnnotationId(element: HTMLElement) {
-    return element.dataset.annotationId ?? element.getAttribute('data-annotation-id');
-}
-
-function collectMatchingAnnotationElements(container: HTMLElement, annotationId: string) {
-    const normalizedTarget = normalizePdfJsAnnotationId(annotationId);
-    if (!normalizedTarget) {
-        return [];
-    }
-
-    return Array.from(container.querySelectorAll<HTMLElement>('[data-annotation-id]'))
-        .filter((element) => normalizePdfJsAnnotationId(getAnnotationId(element)) === normalizedTarget);
-}
+interface IScoredHighlightVisualCandidate extends IHighlightVisualCandidate {matched: boolean;}
 
 function collectRelatedPopupElements(container: HTMLElement, annotationId: string) {
     const normalizedTarget = normalizePdfJsAnnotationId(annotationId);
@@ -58,33 +39,6 @@ function collectRelatedPopupElements(container: HTMLElement, annotationId: strin
     });
 }
 
-function findPageContainers(
-    container: HTMLElement,
-    comment: IAnnotationCommentSummary,
-    annotationElements: HTMLElement[],
-) {
-    const pageContainers = new Set<HTMLElement>();
-
-    annotationElements.forEach((element) => {
-        const pageContainer = element.closest<HTMLElement>('.page_container');
-        if (pageContainer) {
-            pageContainers.add(pageContainer);
-        }
-    });
-
-    if (Number.isFinite(comment.pageNumber) && comment.pageNumber > 0) {
-        const pageNumber = Math.floor(comment.pageNumber);
-        const pageContainer = container.querySelector<HTMLElement>(
-            `.page_container[data-page="${pageNumber}"]`,
-        );
-        if (pageContainer) {
-            pageContainers.add(pageContainer);
-        }
-    }
-
-    return [...pageContainers];
-}
-
 function isTextMarkupElement(element: HTMLElement) {
     const className = String(element.className).toLowerCase();
     return className.includes('highlight')
@@ -101,54 +55,6 @@ function shouldRemoveTextMarkupVisual(
         || annotationElements.some(isTextMarkupElement);
 }
 
-function rectFromElement(
-    pageContainer: HTMLElement,
-    element: Element & { getBoundingClientRect: () => DOMRect; },
-): IAnnotationMarkerRect | null {
-    const pageRect = pageContainer.getBoundingClientRect();
-    const elementRect = element.getBoundingClientRect();
-    if (
-        pageRect.width <= 0
-        || pageRect.height <= 0
-        || elementRect.width <= 0
-        || elementRect.height <= 0
-    ) {
-        return null;
-    }
-
-    return normalizeMarkerRect({
-        left: (elementRect.left - pageRect.left) / pageRect.width,
-        top: (elementRect.top - pageRect.top) / pageRect.height,
-        width: elementRect.width / pageRect.width,
-        height: elementRect.height / pageRect.height,
-    });
-}
-
-function getTargetRects(
-    pageContainer: HTMLElement,
-    comment: IAnnotationCommentSummary,
-    annotationElements: HTMLElement[],
-) {
-    const targetRects: IAnnotationMarkerRect[] = [];
-    const normalizedCommentRect = normalizeMarkerRect(comment.markerRect);
-    if (normalizedCommentRect) {
-        targetRects.push(normalizedCommentRect);
-    }
-
-    annotationElements.forEach((element) => {
-        const pageForElement = element.closest<HTMLElement>('.page_container');
-        if (pageForElement !== pageContainer) {
-            return;
-        }
-        const elementRect = rectFromElement(pageContainer, element);
-        if (elementRect) {
-            targetRects.push(elementRect);
-        }
-    });
-
-    return targetRects;
-}
-
 function getDrawLayerHighlightSvgs(pageContainer: HTMLElement) {
     return Array.from(pageContainer.querySelectorAll<SVGElement>(
         [
@@ -160,58 +66,25 @@ function getDrawLayerHighlightSvgs(pageContainer: HTMLElement) {
     )).filter(svg => !svg.classList.contains('pdf-highlight-composite-overlay'));
 }
 
-function intervalOverlap(leftStart: number, leftEnd: number, rightStart: number, rightEnd: number) {
-    return Math.max(0, Math.min(leftEnd, rightEnd) - Math.max(leftStart, rightStart));
-}
-
-function rectHasTextMarkupAxisOverlap(
-    candidateRect: IAnnotationMarkerRect,
-    targetRect: IAnnotationMarkerRect,
-) {
-    const targetLeft = targetRect.left - TEXT_MARKUP_AXIS_TOLERANCE;
-    const targetRight = targetRect.left + targetRect.width + TEXT_MARKUP_AXIS_TOLERANCE;
-    const targetTop = targetRect.top - TEXT_MARKUP_AXIS_TOLERANCE;
-    const targetBottom = targetRect.top + targetRect.height + TEXT_MARKUP_AXIS_TOLERANCE;
-    const candidateCenterX = candidateRect.left + candidateRect.width / 2;
-    const candidateCenterY = candidateRect.top + candidateRect.height / 2;
-    if (
-        candidateCenterX < targetLeft
-        || candidateCenterX > targetRight
-        || candidateCenterY < targetTop
-        || candidateCenterY > targetBottom
-    ) {
-        return false;
-    }
-
-    const horizontalOverlap = intervalOverlap(
-        candidateRect.left,
-        candidateRect.left + candidateRect.width,
-        targetLeft,
-        targetRight,
-    );
-    return horizontalOverlap / Math.max(candidateRect.width, Number.EPSILON)
-        >= MIN_TEXT_MARKUP_HORIZONTAL_OVERLAP_RATIO;
-}
-
 function toHighlightVisualCandidate(
+    context: ITextMarkupCandidateContext,
     pageContainer: HTMLElement,
     svg: SVGElement,
     targetRects: IAnnotationMarkerRect[],
-): IHighlightVisualCandidate | null {
-    const svgRect = rectFromElement(pageContainer, svg);
+): IScoredHighlightVisualCandidate | null {
+    const svgRect = context.getRectForElement(pageContainer, svg);
     if (!svgRect) {
         return null;
     }
 
-    let best: IHighlightVisualCandidate | null = null;
+    let best: IScoredHighlightVisualCandidate | null = null;
     targetRects.forEach((targetRect) => {
-        const iou = markerRectIoU(svgRect, targetRect);
-        const distance = markerRectCenterDistance(svgRect, targetRect);
-        const axisOverlap = rectHasTextMarkupAxisOverlap(svgRect, targetRect);
-        const candidate: IHighlightVisualCandidate = {
-            axisOverlap,
-            distance,
-            iou,
+        const score = scoreTextMarkupVisualCandidate(svgRect, targetRect);
+        const candidate: IScoredHighlightVisualCandidate = {
+            axisOverlap: score.axisOverlap,
+            distance: score.distance,
+            iou: score.iou,
+            matched: score.matched,
             svg,
         };
         if (
@@ -234,15 +107,9 @@ function toHighlightVisualCandidate(
     return best;
 }
 
-function isMatchedHighlightVisual(candidate: IHighlightVisualCandidate) {
-    return candidate.iou >= MIN_HIGHLIGHT_VISUAL_IOU
-        || candidate.distance <= MAX_HIGHLIGHT_VISUAL_CENTER_DISTANCE
-        || candidate.axisOverlap;
-}
-
 function pickBetterHighlightVisualCandidate(
-    current: IHighlightVisualCandidate | null,
-    candidate: IHighlightVisualCandidate,
+    current: IScoredHighlightVisualCandidate | null,
+    candidate: IScoredHighlightVisualCandidate,
 ) {
     if (!current) {
         return candidate;
@@ -257,6 +124,7 @@ function pickBetterHighlightVisualCandidate(
 }
 
 function removeBestMatchingHighlightVisual(
+    context: ITextMarkupCandidateContext,
     pageContainer: HTMLElement,
     targetRects: IAnnotationMarkerRect[],
 ) {
@@ -264,16 +132,16 @@ function removeBestMatchingHighlightVisual(
         return false;
     }
 
-    let bestCandidate: IHighlightVisualCandidate | null = null;
+    let bestCandidate: IScoredHighlightVisualCandidate | null = null;
     for (const svg of getDrawLayerHighlightSvgs(pageContainer)) {
-        const candidate = toHighlightVisualCandidate(pageContainer, svg, targetRects);
+        const candidate = toHighlightVisualCandidate(context, pageContainer, svg, targetRects);
         if (!candidate) {
             continue;
         }
         bestCandidate = pickBetterHighlightVisualCandidate(bestCandidate, candidate);
     }
 
-    if (!bestCandidate || !isMatchedHighlightVisual(bestCandidate)) {
+    if (!bestCandidate || !bestCandidate.matched) {
         return false;
     }
 
@@ -284,18 +152,18 @@ function removeBestMatchingHighlightVisual(
 }
 
 function removeTextMarkupVisuals(
-    container: HTMLElement,
     comment: IAnnotationCommentSummary,
-    annotationElements: HTMLElement[],
+    candidates: ITextMarkupCandidateContext,
 ) {
-    if (!shouldRemoveTextMarkupVisual(comment, annotationElements)) {
+    if (!shouldRemoveTextMarkupVisual(comment, candidates.annotationElements)) {
         return;
     }
 
-    findPageContainers(container, comment, annotationElements).forEach((pageContainer) => {
+    candidates.pageContexts.forEach((pageContext) => {
         removeBestMatchingHighlightVisual(
-            pageContainer,
-            getTargetRects(pageContainer, comment, annotationElements),
+            candidates,
+            pageContext.pageContainer,
+            pageContext.targetRects,
         );
     });
 }
@@ -305,10 +173,10 @@ export function removeAnnotationCommentDom(
     comment: IAnnotationCommentSummary,
 ) {
     const annotationId = comment.annotationId;
-    const annotationElements = annotationId ? collectMatchingAnnotationElements(container, annotationId) : [];
+    const candidates = collectTextMarkupElementCandidates(container, comment);
     const popupElements = annotationId ? collectRelatedPopupElements(container, annotationId) : [];
 
-    removeTextMarkupVisuals(container, comment, annotationElements);
-    annotationElements.forEach(element => element.remove());
+    removeTextMarkupVisuals(comment, candidates);
+    candidates.annotationElements.forEach(element => element.remove());
     popupElements.forEach(popup => popup.remove());
 }

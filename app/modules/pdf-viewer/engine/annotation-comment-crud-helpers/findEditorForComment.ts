@@ -5,8 +5,8 @@ import {
 } from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
-import { editorIdsLikelyMatch } from '@app/modules/pdf-viewer/engine/annotation-comment-identity/editorIdsLikelyMatch';
-import { getCommentCandidateIds } from '@app/modules/pdf-viewer/engine/annotation-comment-identity/getCommentCandidateIds';
+import { editorIdsLikelyMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/editorIdsLikelyMatch';
+import { getCommentCandidateIds } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/getCommentCandidateIds';
 import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
 
 function getPreferredPageScanOrder(pageIndex: number, numPages: number) {

@@ -499,6 +499,8 @@ const emit = defineEmits<{
     'open-settings': [];
     'open-combine': [];
     'toggle-fullscreen': [];
+    'expose-ready': [expose: IWorkspaceExpose];
+    'expose-released': [];
 }>();
 
 function handleStartSectionUpdate(section: TStartSection) {
@@ -1344,6 +1346,14 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     annotationDirty,
     sortedAnnotationNoteWindows,
     handleOcrComplete: payload => handleOcrComplete(payload as Parameters<typeof handleOcrComplete>[0]),
+});
+
+onMounted(() => {
+    emit('expose-ready', workspaceExpose);
+});
+
+onBeforeUnmount(() => {
+    emit('expose-released');
 });
 
 defineExpose(workspaceExpose);
