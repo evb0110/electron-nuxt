@@ -19,7 +19,11 @@ vi.mock('@app/utils/platformUpdates', () => ({
     isUpdatesCapabilitySupported: isUpdatesCapabilitySupportedMock,
 }));
 
-vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: { error: browserLoggerErrorMock } }));
+vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: {
+    diagnostic: vi.fn(),
+    diagnosticThrottled: vi.fn(),
+    error: browserLoggerErrorMock,
+} }));
 
 function createUpdatesCapability(overrides: Partial<IUpdatesCapability> = {}): IUpdatesCapability {
     const listeners = new Set<(status: IAppUpdateStatus) => void>();

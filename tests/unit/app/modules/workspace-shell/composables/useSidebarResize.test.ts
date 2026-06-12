@@ -15,7 +15,11 @@ import { cast } from '@tests/helpers/cast';
 const mocks = vi.hoisted(() => ({useEventListener: vi.fn()}));
 
 vi.mock('@vueuse/core', () => ({useEventListener: mocks.useEventListener}));
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: vi.fn()}}));
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
+    diagnostic: vi.fn(),
+    diagnosticThrottled: vi.fn(),
+    warn: vi.fn(),
+}}));
 
 describe('useSidebarResize', () => {
     beforeEach(() => {

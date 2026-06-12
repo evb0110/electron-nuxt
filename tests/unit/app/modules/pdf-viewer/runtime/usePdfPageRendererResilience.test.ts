@@ -17,6 +17,8 @@ import { cast } from '@tests/helpers/cast';
 const loggerError = vi.fn();
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
+    diagnostic: vi.fn(),
+    diagnosticThrottled: vi.fn(),
     error: loggerError,
     warn: vi.fn(),
     warnThrottled: vi.fn(),

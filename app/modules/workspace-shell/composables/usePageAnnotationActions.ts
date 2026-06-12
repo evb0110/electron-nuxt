@@ -1060,7 +1060,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 { preferTextAnchor: false },
             );
         } catch (error) {
-            BrowserLogger.warn('note-placement', 'Failed to create note from annotation context menu', error);
+            BrowserLogger.diagnostic('note-placement', 'Failed to create note from annotation context menu', error);
         } finally {
             isCreatingContextMenuFreeNote = false;
         }

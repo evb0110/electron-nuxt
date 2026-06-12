@@ -35,7 +35,7 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         const clampedWidth = clamp(nextWidth, SIDEBAR.MIN_WIDTH, SIDEBAR.MAX_WIDTH);
 
         if (Math.round(clampedWidth) !== Math.round(sidebarWidth.value)) {
-            BrowserLogger.warn('pdf-nav', `[sidebar-resize] width ${Math.round(sidebarWidth.value)}->${Math.round(clampedWidth)}`, {
+            BrowserLogger.diagnostic('pdf-nav', `[sidebar-resize] width ${Math.round(sidebarWidth.value)}->${Math.round(clampedWidth)}`, {
                 previousWidth: Math.round(sidebarWidth.value),
                 nextWidth: Math.round(clampedWidth),
                 deltaX: Math.round(deltaX),
@@ -65,7 +65,7 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         isPointerResizingSidebar.value = true;
         resizeStartX = event.clientX;
         resizeStartWidth = sidebarWidth.value;
-        BrowserLogger.warn('pdf-nav', '[sidebar-resize] start', {
+        BrowserLogger.diagnostic('pdf-nav', '[sidebar-resize] start', {
             pointerX: Math.round(event.clientX),
             startWidth: Math.round(resizeStartWidth),
         });
@@ -90,7 +90,7 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
     );
 
     watch(showSidebar, (isOpen) => {
-        BrowserLogger.warn('pdf-nav', `[sidebar-state] open=${isOpen}`, {
+        BrowserLogger.diagnostic('pdf-nav', `[sidebar-state] open=${isOpen}`, {
             isOpen,
             sidebarWidth: Math.round(sidebarWidth.value),
             lastOpenSidebarWidth: Math.round(lastOpenSidebarWidth.value),
@@ -114,7 +114,7 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         if (Math.round(next) === Math.round(previous)) {
             return;
         }
-        BrowserLogger.warn('pdf-nav', `[sidebar-width-ref] ${Math.round(previous)}->${Math.round(next)}`, {
+        BrowserLogger.diagnostic('pdf-nav', `[sidebar-width-ref] ${Math.round(previous)}->${Math.round(next)}`, {
             previous: Math.round(previous),
             next: Math.round(next),
             open: showSidebar.value,

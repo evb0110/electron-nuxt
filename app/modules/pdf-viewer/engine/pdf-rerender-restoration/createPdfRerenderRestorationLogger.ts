@@ -25,7 +25,7 @@ export function createPdfRerenderRestorationLogger(options: IRerenderRestoration
         containerAtCapture: HTMLElement | null,
     ) {
         if (snapshot) {
-            BrowserLogger.warnThrottled('pdf-nav', 'rerender-snapshot-captured', options.throttleMs, `[re-render-snapshot] captured version=${version}`, {
+            BrowserLogger.diagnosticThrottled('pdf-nav', 'rerender-snapshot-captured', options.throttleMs, `[re-render-snapshot] captured version=${version}`, {
                 version,
                 preserveExistingPages,
                 hasAnchorSnapshotOverride: Boolean(anchorSnapshot),
@@ -41,7 +41,7 @@ export function createPdfRerenderRestorationLogger(options: IRerenderRestoration
             return;
         }
 
-        BrowserLogger.warnThrottled('pdf-nav', 'rerender-snapshot-missing', options.throttleMs, `[re-render-snapshot] missing version=${version}`, {
+        BrowserLogger.diagnosticThrottled('pdf-nav', 'rerender-snapshot-missing', options.throttleMs, `[re-render-snapshot] missing version=${version}`, {
             version,
             preserveExistingPages,
             hasAnchorSnapshotOverride: Boolean(anchorSnapshot),
@@ -64,7 +64,7 @@ export function createPdfRerenderRestorationLogger(options: IRerenderRestoration
         },
         snapshotToRestore: IScrollSnapshot | null,
     ) {
-        BrowserLogger.warnThrottled('pdf-zoom-debug', `rerender-restore-${mode}`, options.throttleMs, `[rerender-restore] ${mode} source=${rerenderSource} version=${version}`, {
+        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', `rerender-restore-${mode}`, options.throttleMs, `[rerender-restore] ${mode} source=${rerenderSource} version=${version}`, {
             rerenderSource,
             version,
             beforeScrollTop: beforeScroll.scrollTop,
@@ -86,7 +86,7 @@ export function createPdfRerenderRestorationLogger(options: IRerenderRestoration
         snapshotToRestore: IScrollSnapshot | null,
         containerAfterRestore: HTMLElement | null,
     ) {
-        BrowserLogger.warnThrottled('pdf-nav', mode === 'preserve' ? 'rerender-snapshot-restored-preserve' : 'rerender-snapshot-restored', options.throttleMs, `[re-render-snapshot] restored${mode === 'preserve' ? '-preserve' : ''} version=${version}`, {
+        BrowserLogger.diagnosticThrottled('pdf-nav', mode === 'preserve' ? 'rerender-snapshot-restored-preserve' : 'rerender-snapshot-restored', options.throttleMs, `[re-render-snapshot] restored${mode === 'preserve' ? '-preserve' : ''} version=${version}`, {
             version,
             ...(mode === 'preserve' ? { preserveExistingPages } : {}),
             hasAnchorSnapshotOverride: Boolean(anchorSnapshot),

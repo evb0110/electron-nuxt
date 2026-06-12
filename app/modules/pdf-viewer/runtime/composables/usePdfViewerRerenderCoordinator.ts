@@ -217,7 +217,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             return true;
         }
 
-        BrowserLogger.warn('pdf-nav', `[${source}] skipped delayed scroll after user viewport interaction`, {
+        BrowserLogger.diagnostic('pdf-nav', `[${source}] skipped delayed scroll after user viewport interaction`, {
             runId,
             capturedEpoch,
             currentEpoch: getCurrentUserViewportInteractionEpoch(),
@@ -373,7 +373,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             await nextTick();
         }
 
-        BrowserLogger.warn('pdf-nav', `[${source}] could not snap fit-height page before render`, {
+        BrowserLogger.diagnostic('pdf-nav', `[${source}] could not snap fit-height page before render`, {
             runId,
             page,
             currentPage: currentPage.value,
@@ -407,7 +407,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         if (source !== 'zoom-change') {
             return;
         }
-        BrowserLogger.warn('pdf-zoom-debug', message, buildPayload());
+        BrowserLogger.diagnostic('pdf-zoom-debug', message, buildPayload());
     }
 
     async function reRenderVisiblePagesAndSyncCurrentPage(
@@ -421,7 +421,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             resizeAnchor: syncOptions.resizeAnchor ?? null,
             viewer: summarizeViewerMetricsForLog(viewerContainer.value),
         }));
-        BrowserLogger.warn(
+        BrowserLogger.diagnostic(
             'pdf-nav',
             `[re-render-sync] begin run=${runId} source=${source}`,
             buildRerenderSyncNavLogPayload(runId, source),
@@ -452,7 +452,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 activeRunId: reRenderSyncRunId,
                 viewer: summarizeViewerMetricsForLog(viewerContainer.value),
             }));
-            BrowserLogger.warn('pdf-nav', 'Skipped stale re-render current-page sync run', {
+            BrowserLogger.diagnostic('pdf-nav', 'Skipped stale re-render current-page sync run', {
                 staleRunId: runId,
                 activeRunId: reRenderSyncRunId,
                 source,
@@ -472,7 +472,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             viewer: summarizeViewerMetricsForLog(viewerContainer.value),
             visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
         }));
-        BrowserLogger.warn('pdf-nav', `[re-render-sync] end run=${runId} source=${source}`, {
+        BrowserLogger.diagnostic('pdf-nav', `[re-render-sync] end run=${runId} source=${source}`, {
             ...buildRerenderSyncNavLogPayload(runId, source),
             visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
         });
@@ -769,7 +769,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 preferredAnchorPage: currentPage.value,
                 trustPreferredAnchorPage: trustCurrentPageAnchor,
             });
-            BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-watch-schedule-rerender', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-watch] schedule zoom rerender', {
+            BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-watch-schedule-rerender', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-watch] schedule zoom rerender', {
                 previousZoom,
                 nextZoom,
                 consumedZoomViewportAnchor: zoomViewportAnchor,
