@@ -20,7 +20,7 @@ export function useViewportPagePin(options: { summarizeViewerStateForLog: () => 
         }
 
         viewportPagePin.value = null;
-        BrowserLogger.warn('pdf-nav', `[viewer-page-pin] cleared page=${existingPin.page} reason=${reason}`, {
+        BrowserLogger.diagnostic('pdf-nav', `[viewer-page-pin] cleared page=${existingPin.page} reason=${reason}`, {
             page: existingPin.page,
             pinReason: existingPin.reason,
             clearReason: reason,
@@ -70,7 +70,7 @@ export function useViewportPagePin(options: { summarizeViewerStateForLog: () => 
         viewportPagePinDurationMs.value = durationMs;
         startViewportPagePinTimer();
 
-        BrowserLogger.warn('pdf-nav', `[viewer-page-pin] pinned page=${normalizedPage} reason=${reason}`, {
+        BrowserLogger.diagnostic('pdf-nav', `[viewer-page-pin] pinned page=${normalizedPage} reason=${reason}`, {
             page: normalizedPage,
             durationMs,
             reason,

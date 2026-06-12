@@ -2,6 +2,7 @@ import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import type { IRendererLogEntry } from '@contracts/electronApiCommon';
 
 type TBrowserLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
+type TEmitLogLevel = Exclude<TBrowserLogLevel, 'silent'>;
 type TLazyValue = unknown | (() => unknown);
 
 const LOG_LEVELS: Record<TBrowserLogLevel, number> = {
@@ -32,14 +33,6 @@ function normalizeLogLevel(value: unknown): TBrowserLogLevel | null {
 }
 
 const DEFAULT_LOG_LEVEL: TBrowserLogLevel = 'warn';
-const DIAGNOSTIC_WARNING_SECTIONS = new Set([
-    'pdf-nav',
-    'pdf-thumbnails',
-    'note-placement',
-    'loader',
-    'pdf-zoom-debug',
-    'toolbar-transition',
-]);
 const THROTTLED_LOG_STATE = new Map<string, {
     lastAtMs: number;
     suppressedCount: number;
@@ -72,14 +65,13 @@ function shouldLog(level: TBrowserLogLevel) {
     return LOG_LEVELS[level] >= LOG_LEVELS[configuredLogLevel];
 }
 
-function shouldDemoteWarning(section: string) {
-    if (typeof window !== 'undefined') {
-        const forceWarningMode = (window as Window & {__diagnosticWarnAsWarn?: boolean;}).__diagnosticWarnAsWarn;
-        if (forceWarningMode === true) {
-            return false;
-        }
+function isDiagnosticWarnForced() {
+    if (typeof window === 'undefined') {
+        return false;
     }
-    return DIAGNOSTIC_WARNING_SECTIONS.has(section);
+
+    const forceWarningMode = (window as Window & {__diagnosticWarnAsWarn?: boolean;}).__diagnosticWarnAsWarn;
+    return forceWarningMode === true;
 }
 
 function serializeForRendererLog(value: unknown) {
@@ -215,85 +207,98 @@ function enrichThrottledPayload(
     };
 }
 
+function writeToConsole(level: TEmitLogLevel, line: string, resolved: unknown) {
+    if (level === 'error') {
+        if (resolved !== undefined) {
+            console.error(line, resolved);
+        } else {
+            console.error(line);
+        }
+        return;
+    }
+
+    if (level === 'warn') {
+        if (resolved !== undefined) {
+            console.warn(line, resolved);
+        } else {
+            console.warn(line);
+        }
+        return;
+    }
+
+    if (level === 'info') {
+        if (resolved !== undefined) {
+            console.info(line, resolved);
+        } else {
+            console.info(line);
+        }
+        return;
+    }
+
+    if (resolved !== undefined) {
+        console.log(line, resolved);
+    } else {
+        console.log(line);
+    }
+}
+
+function emitLog(
+    level: TEmitLogLevel,
+    section: string,
+    message: string,
+    data?: TLazyValue,
+) {
+    if (!shouldLog(level)) {
+        return;
+    }
+
+    const timestamp = new Date().toISOString();
+    const resolved = resolveLazyValue(data);
+    writeToConsole(level, `[${timestamp}] [${section}] ${message}`, resolved);
+
+    forwardToMain({
+        level,
+        section,
+        message,
+        timestamp,
+        data: serializeForRendererLog(resolved),
+    });
+}
+
+function emitThrottled(
+    level: TEmitLogLevel,
+    section: string,
+    key: string,
+    intervalMs: number,
+    message: string,
+    data?: TLazyValue,
+) {
+    const throttle = takeThrottledLogSuppressionCount(section, key, intervalMs);
+    if (!throttle.allowed) {
+        return;
+    }
+
+    const resolved = resolveLazyValue(data);
+    const enriched = enrichThrottledPayload(
+        resolved,
+        throttle.suppressedCount,
+        intervalMs,
+        key,
+    );
+    emitLog(level, section, message, enriched);
+}
+
 export const BrowserLogger = {
     debug: (section: string, message: string, data?: TLazyValue) => {
-        if (!shouldLog('debug')) {
-            return;
-        }
-
-        const timestamp = new Date().toISOString();
-        const prefix = `[${timestamp}] [${section}]`;
-
-        const resolved = resolveLazyValue(data);
-
-        if (resolved !== undefined) {
-            console.log(`${prefix} ${message}`, resolved);
-        } else {
-            console.log(`${prefix} ${message}`);
-        }
-
-        forwardToMain({
-            level: 'debug',
-            section,
-            message,
-            timestamp,
-            data: serializeForRendererLog(resolved),
-        });
+        emitLog('debug', section, message, data);
     },
 
     info: (section: string, message: string, data?: TLazyValue) => {
-        if (!shouldLog('info')) {
-            return;
-        }
-
-        const timestamp = new Date().toISOString();
-        const prefix = `[${timestamp}] [${section}]`;
-
-        const resolved = resolveLazyValue(data);
-
-        if (resolved !== undefined) {
-            console.info(`${prefix} ${message}`, resolved);
-        } else {
-            console.info(`${prefix} ${message}`);
-        }
-
-        forwardToMain({
-            level: 'info',
-            section,
-            message,
-            timestamp,
-            data: serializeForRendererLog(resolved),
-        });
+        emitLog('info', section, message, data);
     },
 
     warn: (section: string, message: string, data?: TLazyValue) => {
-        if (shouldDemoteWarning(section)) {
-            BrowserLogger.debug(section, message, data);
-            return;
-        }
-
-        if (!shouldLog('warn')) {
-            return;
-        }
-
-        const timestamp = new Date().toISOString();
-        const prefix = `[${timestamp}] [${section}]`;
-
-        const resolved = resolveLazyValue(data);
-
-        if (resolved !== undefined) {
-            console.warn(`${prefix} ${message}`, resolved);
-        } else {
-            console.warn(`${prefix} ${message}`);
-        }
-
-        forwardToMain({
-            level: 'warn',
-            section,
-            message,
-            timestamp,
-            data: serializeForRendererLog(resolved),
-        });
+        emitLog('warn', section, message, data);
     },
 
     warnThrottled: (
@@ -303,43 +308,31 @@ export const BrowserLogger = {
         message: string,
         data?: TLazyValue,
     ) => {
-        const throttle = takeThrottledLogSuppressionCount(section, key, intervalMs);
-        if (!throttle.allowed) {
-            return;
-        }
+        emitThrottled('warn', section, key, intervalMs, message, data);
+    },
 
-        const resolved = resolveLazyValue(data);
-        const enriched = enrichThrottledPayload(
-            resolved,
-            throttle.suppressedCount,
-            intervalMs,
+    diagnostic: (section: string, message: string, data?: TLazyValue) => {
+        emitLog(isDiagnosticWarnForced() ? 'warn' : 'debug', section, message, data);
+    },
+
+    diagnosticThrottled: (
+        section: string,
+        key: string,
+        intervalMs: number,
+        message: string,
+        data?: TLazyValue,
+    ) => {
+        emitThrottled(
+            isDiagnosticWarnForced() ? 'warn' : 'debug',
+            section,
             key,
+            intervalMs,
+            message,
+            data,
         );
-        BrowserLogger.warn(section, message, enriched);
     },
 
     error: (section: string, message: string, error?: TLazyValue) => {
-        if (!shouldLog('error')) {
-            return;
-        }
-
-        const timestamp = new Date().toISOString();
-        const prefix = `[${timestamp}] [${section}]`;
-
-        const resolved = resolveLazyValue(error);
-
-        if (resolved !== undefined) {
-            console.error(`${prefix} ${message}`, resolved);
-        } else {
-            console.error(`${prefix} ${message}`);
-        }
-
-        forwardToMain({
-            level: 'error',
-            section,
-            message,
-            timestamp,
-            data: serializeForRendererLog(resolved),
-        });
+        emitLog('error', section, message, error);
     },
 };

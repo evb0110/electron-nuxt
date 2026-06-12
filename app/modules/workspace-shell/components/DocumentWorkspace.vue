@@ -1049,7 +1049,7 @@ function handleViewerCurrentPageUpdate(page: number) {
     const previousPage = currentPage.value;
     const viewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
     if (!shouldAcceptViewerCurrentPageUpdate(page)) {
-        BrowserLogger.warn('pdf-nav', `[workspace-page-update] ignored stale viewer page ${previousPage}->${page}`, {
+        BrowserLogger.diagnostic('pdf-nav', `[workspace-page-update] ignored stale viewer page ${previousPage}->${page}`, {
             previousPage,
             ignoredPage: page,
             sidebarOpen: showSidebar.value,
@@ -1065,7 +1065,7 @@ function handleViewerCurrentPageUpdate(page: number) {
         });
         return;
     }
-    BrowserLogger.warn('pdf-nav', `[workspace-page-update] viewer->workspace ${previousPage}->${page}`, {
+    BrowserLogger.diagnostic('pdf-nav', `[workspace-page-update] viewer->workspace ${previousPage}->${page}`, {
         previousPage,
         nextPage: page,
         changed: page !== previousPage,

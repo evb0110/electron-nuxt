@@ -249,11 +249,11 @@ function attachRendererDiagnostics(window: BrowserWindow) {
     }
 
     webContents.on('did-start-loading', () => {
-        logger.info(`[renderer] did-start-loading (windowId=${windowId})`);
+        logger.debug(`[renderer] did-start-loading (windowId=${windowId})`);
     });
 
     webContents.on('did-stop-loading', () => {
-        logger.info(`[renderer] did-stop-loading (windowId=${windowId})`);
+        logger.debug(`[renderer] did-stop-loading (windowId=${windowId})`);
     });
 
     webContents.on('did-start-navigation', (
@@ -266,7 +266,7 @@ function attachRendererDiagnostics(window: BrowserWindow) {
             return;
         }
 
-        logger.info(`[renderer] did-start-navigation (windowId=${windowId}, inPlace=${String(isInPlace)}, url=${url})`);
+        logger.debug(`[renderer] did-start-navigation (windowId=${windowId}, inPlace=${String(isInPlace)}, url=${url})`);
     });
 
     webContents.on('did-navigate', (_event, url) => {

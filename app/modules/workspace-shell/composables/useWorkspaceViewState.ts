@@ -131,7 +131,7 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         const targetPage = normalizeNavigationPage(page);
         const wasAlreadyCurrentPage = deps.currentPage.value === targetPage;
         const hasExplicitScrollTarget = options !== undefined;
-        BrowserLogger.warn('pdf-nav', `[workspace-go-to-page] requested=${page}`, {
+        BrowserLogger.diagnostic('pdf-nav', `[workspace-go-to-page] requested=${page}`, {
             requestedPage: page,
             targetPage,
             wasAlreadyCurrentPage,

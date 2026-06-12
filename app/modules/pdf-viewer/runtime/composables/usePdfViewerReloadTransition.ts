@@ -20,7 +20,7 @@ export const usePdfViewerReloadTransition = (
         pendingEffectiveZoom.value = null;
         isVisualReloadTransitionActive.value = true;
 
-        BrowserLogger.warn('pdf-nav', `[viewer-reload-transition] begin token=${token} reason=${reason}`, {
+        BrowserLogger.diagnostic('pdf-nav', `[viewer-reload-transition] begin token=${token} reason=${reason}`, {
             token,
             reason,
             viewer: options.summarizeViewerStateForLog?.() ?? null,
@@ -40,7 +40,7 @@ export const usePdfViewerReloadTransition = (
         const deferredEffectiveZoom = pendingEffectiveZoom.value;
         pendingEffectiveZoom.value = null;
 
-        BrowserLogger.warn('pdf-nav', `[viewer-reload-transition] end token=${token} reason=${reason}`, {
+        BrowserLogger.diagnostic('pdf-nav', `[viewer-reload-transition] end token=${token} reason=${reason}`, {
             token,
             reason,
             deferredEffectiveZoom,

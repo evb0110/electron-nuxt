@@ -90,6 +90,6 @@ export function logPdfNav(message: string, ...args: unknown[]) {
     logWindow.__pdfNavLogBuffer = buffer;
 
     if (isPdfNavLogConsoleEnabled()) {
-        BrowserLogger.warn(PDF_NAV_LOG_SECTION, message, ...args);
+        BrowserLogger.diagnostic(PDF_NAV_LOG_SECTION, message, args.length > 0 ? args : undefined);
     }
 }

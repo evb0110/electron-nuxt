@@ -22,6 +22,7 @@ interface ILogMessage {
     source: string;
     message: string;
     timestamp: string;
+    level: TLogLevel;
 }
 
 export interface ILogger {
@@ -50,7 +51,9 @@ const LOG_LEVELS: Record<TLogLevel, number> = {
     ERROR: 40,
 };
 
-const FILE_LOG_LEVEL = normalizeLogLevel(process.env.ELECTRON_FILE_LOG_LEVEL) ?? 'DEBUG';
+const IS_PACKAGED_RUNTIME = !process.execPath.toLowerCase().includes('node_modules');
+const FILE_LOG_LEVEL = normalizeLogLevel(process.env.ELECTRON_FILE_LOG_LEVEL)
+    ?? (IS_PACKAGED_RUNTIME ? 'INFO' : 'DEBUG');
 const RENDER_LOG_LEVEL = normalizeLogLevel(process.env.ELECTRON_RENDER_LOG_LEVEL)
     ?? 'WARN';
 const LOG_FILE_MAX_BYTES = (() => {
@@ -339,6 +342,7 @@ export function createLogger(source: string, options: ILoggerOptions = {}): ILog
                 source,
                 message: `[${level}] ${msg}`,
                 timestamp: ts,
+                level,
             });
         }
     }

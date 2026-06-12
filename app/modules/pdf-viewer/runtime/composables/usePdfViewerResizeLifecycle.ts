@@ -175,7 +175,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             ...optionsOverride,
             preferredAnchorPage: anchorPage,
         }) ?? initialSnapshot;
-        BrowserLogger.warnThrottled('pdf-zoom-debug', 'anchor-build-captured', ZOOM_QUEUE_LOG_THROTTLE_MS, '[anchor-build] captured', {
+        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'anchor-build-captured', ZOOM_QUEUE_LOG_THROTTLE_MS, '[anchor-build] captured', {
             optionsOverride: optionsOverride ?? null,
             snapshotAnchorPage,
             mostVisiblePage,
@@ -235,7 +235,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 preferPageAnchor: true,
                 allowVerticalRatioFallback: true,
             });
-            BrowserLogger.warnThrottled(
+            BrowserLogger.diagnosticThrottled(
                 'pdf-zoom-debug',
                 'resize-anchor-immediate-restore',
                 ZOOM_QUEUE_LOG_THROTTLE_MS,
@@ -272,7 +272,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         const updated = computeFitWidthScale(viewerContainer.value);
         if (pdfDocument.value) {
             if (pendingResizeAnchor) {
-                BrowserLogger.warnThrottled('pdf-zoom-debug', 'resize-anchor-preserved', ZOOM_QUEUE_LOG_THROTTLE_MS, '[resize-anchor] preserved first anchor in resize burst', {
+                BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'resize-anchor-preserved', ZOOM_QUEUE_LOG_THROTTLE_MS, '[resize-anchor] preserved first anchor in resize burst', {
                     updated,
                     preservedAnchorPage: pendingResizeAnchor.page,
                     ignoredAnchorPage: resizeAnchor.page,
@@ -294,7 +294,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             if (updated) {
                 restoreResizeAnchorAfterLayout(anchoredResizeContext, 'resize-observer');
             }
-            BrowserLogger.warn('pdf-nav', 'Resize observer requested re-render'
+            BrowserLogger.diagnostic('pdf-nav', 'Resize observer requested re-render'
                 + ` anchorPage=${anchoredResizeContext.page}`
                 + ` anchorRange=${anchoredResizeContext.visibleRange.start}-${anchoredResizeContext.visibleRange.end}`
                 + ` token=${anchoredResizeContext.transitionToken}`, {

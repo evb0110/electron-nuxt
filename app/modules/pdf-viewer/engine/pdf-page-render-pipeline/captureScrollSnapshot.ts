@@ -419,7 +419,7 @@ export function captureScrollSnapshot(
 
     const anchor = getScrollSnapshotAnchor(container, options);
     const snapshot = createScrollSnapshot(container, scrollWidth, scrollHeight, anchor);
-    BrowserLogger.warnThrottled('pdf-zoom-debug', 'snapshot-capture', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-capture]', {
+    BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'snapshot-capture', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-capture]', {
         anchorViewportX: anchor.anchorViewportX,
         anchorViewportY: anchor.anchorViewportY,
         anchorContentX: anchor.anchorContentX,

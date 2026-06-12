@@ -53,6 +53,8 @@ vi.mock('@app/utils/platformDocuments', () => ({
 }));
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
+    diagnostic: vi.fn(),
+    diagnosticThrottled: vi.fn(),
     error: (...args: unknown[]) => loggerError(...args),
     warn: (...args: unknown[]) => loggerWarn(...args),
 }}));

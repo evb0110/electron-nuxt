@@ -127,7 +127,7 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
         const eventId = ++currentPageEmitEventId;
 
         if (shouldLog) {
-            BrowserLogger.warn(
+            BrowserLogger.diagnostic(
                 'pdf-nav',
                 `${buildSyncSummaryLine(source, previous, page, changed, fallbackToCurrent, samples)} eventId=${eventId}`,
                 {
@@ -183,7 +183,7 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
             }
             const sampledPage = getMostVisiblePage(container, numPages.value);
             samples.push(sampledPage);
-            BrowserLogger.warn(
+            BrowserLogger.diagnostic(
                 'pdf-nav',
                 `[sync-sample] source=${source} run=${syncRunId}`
                 + ` sample=${sampleIndex + 1}/${CURRENT_PAGE_SYNC_SAMPLE_COUNT}`
@@ -235,7 +235,7 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
 
         const source = options.source ?? 'default';
         if (options.resizeAnchor && isAnchoredCurrentPageSyncSource(source)) {
-            BrowserLogger.warn(
+            BrowserLogger.diagnostic(
                 'pdf-nav',
                 `[anchor] fixed current-page sync source=${source}`
                 + ` page=${options.resizeAnchor.page}`

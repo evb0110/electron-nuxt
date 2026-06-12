@@ -25,6 +25,8 @@ vi.mock('@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot', () =>
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     debug: mocks.loggerDebug,
+    diagnostic: vi.fn(),
+    diagnosticThrottled: vi.fn(),
     warn: mocks.loggerWarn,
 }}));
 

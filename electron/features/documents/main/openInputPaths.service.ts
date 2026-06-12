@@ -54,7 +54,7 @@ export async function openInputPaths(
 ): Promise<TOpenFileResult | null> {
     const normalizedPaths = normalizeNonEmptyStringPaths(paths)
         .map(path => normalizePossiblyEncodedExistingPath(path) ?? path);
-    logger.info(`openInputPaths normalized ${normalizedPaths.length} path(s): ${normalizedPaths.join(' | ')}`);
+    logger.debug(`openInputPaths normalized ${normalizedPaths.length} path(s): ${normalizedPaths.join(' | ')}`);
     if (normalizedPaths.length === 0) {
         return null;
     }
@@ -73,7 +73,7 @@ export async function openInputPaths(
     if (djvuPaths.length > 0 && normalizedPaths.length === 1 && djvuPaths.length === 1) {
         const djvuPath = djvuPaths[0]!;
         const trustedDjvuPath = requireOpenPath(djvuPath, owner);
-        logger.info(`openInputPaths resolved DjVu path: ${djvuPath}`);
+        logger.debug(`openInputPaths resolved DjVu path: ${djvuPath}`);
         await addRecentInputs([djvuPath], owner);
         return {
             kind: 'djvu',
@@ -84,7 +84,7 @@ export async function openInputPaths(
 
     if (normalizedPaths.length === 1 && isPdfPath(normalizedPaths[0]!)) {
         const originalPath = normalizedPaths[0]!;
-        logger.info(`openInputPaths creating working copy for PDF: ${originalPath}`);
+        logger.debug(`openInputPaths creating working copy for PDF: ${originalPath}`);
         const workingPath = await createWorkingCopy(requireOpenPath(originalPath, owner), getOwnerWebContentsId(owner));
         await addRecentInputs([originalPath], owner);
         return {

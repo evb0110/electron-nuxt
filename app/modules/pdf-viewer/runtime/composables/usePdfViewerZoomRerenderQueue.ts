@@ -78,7 +78,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
             return;
         }
         lastReportedZoomBusy = busy;
-        BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-busy', ZOOM_QUEUE_LOG_THROTTLE_MS, `[zoom-queue] busy=${busy}`, {
+        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-busy', ZOOM_QUEUE_LOG_THROTTLE_MS, `[zoom-queue] busy=${busy}`, {
             source,
             busy,
             frameScheduled: zoomRerenderFrameScheduled,
@@ -155,7 +155,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
                 stage,
                 syncOptions,
             };
-            BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-defer-resize', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] deferred resize rerender while zoom busy', {
+            BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-defer-resize', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] deferred resize rerender while zoom busy', {
                 stage,
                 source,
                 hasResizeAnchor: Boolean(syncOptions.resizeAnchor),
@@ -175,7 +175,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
         }
         const deferred = deferredResizeSyncAfterZoom;
         deferredResizeSyncAfterZoom = null;
-        BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-flush-deferred-resize', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] flush deferred resize rerender', {
+        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-flush-deferred-resize', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] flush deferred resize rerender', {
             source,
             stage: deferred.stage,
             syncSource: deferred.syncOptions.source ?? 'unknown',
@@ -191,7 +191,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
     }
 
     function clearPendingZoomSyncBecauseDocumentNotReady() {
-        BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-clear-pending-not-ready', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] clear pending because document not ready', {
+        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-clear-pending-not-ready', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] clear pending because document not ready', {
             hasDocument: Boolean(pdfDocument.value),
             isLoading: isLoading.value,
         });
@@ -205,7 +205,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
     }
 
     function logZoomQueueRun(nextSyncOptions: ICurrentPageSyncOptions) {
-        BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-run-next-sync-option', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] run next sync option', {
+        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-run-next-sync-option', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] run next sync option', {
             source: nextSyncOptions.source ?? 'unknown',
             hasResizeAnchor: Boolean(nextSyncOptions.resizeAnchor),
             anchorPage: nextSyncOptions.resizeAnchor?.page ?? null,
@@ -217,7 +217,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
     function finishZoomRerenderQueueProcessing() {
         zoomRerenderQueueProcessing = false;
         if (pendingZoomSyncOptions) {
-            BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-pending-remains', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] pending remains after processing; schedule again');
+            BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-pending-remains', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] pending remains after processing; schedule again');
             scheduleZoomRerender();
         }
         scheduleZoomSettleRerenderIfNeeded();
@@ -248,7 +248,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
 
     function processPendingZoomRerenderQueue() {
         if (zoomRerenderQueueProcessing) {
-            BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-skip-while-busy', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] skip process while busy');
+            BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-skip-while-busy', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] skip process while busy');
             return Promise.resolve();
         }
 
@@ -269,7 +269,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
         const shouldThrottleDuringGesture = lastZoomRerenderFrameAtMs > 0
             && elapsedSinceLastFrameMs < ZOOM_RERENDER_DURING_GESTURE_MIN_INTERVAL_MS;
         if (!shouldThrottleDuringGesture) {
-            BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-allow-during-gesture', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] allow frame while gesture active', {
+            BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-allow-during-gesture', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] allow frame while gesture active', {
                 throttleIntervalMs: ZOOM_RERENDER_DURING_GESTURE_MIN_INTERVAL_MS,
                 elapsedSinceLastFrameMs: lastZoomRerenderFrameAtMs > 0
                     ? elapsedSinceLastFrameMs
@@ -280,7 +280,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
 
         const deferScheduled = deferZoomRerenderWhileGestureActive();
         if (deferScheduled) {
-            BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-defer-while-gesture-active', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] defer while gesture active', {
+            BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-defer-while-gesture-active', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] defer while gesture active', {
                 throttleIntervalMs: ZOOM_RERENDER_DURING_GESTURE_MIN_INTERVAL_MS,
                 elapsedSinceLastFrameMs,
             });
@@ -291,19 +291,19 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
     function scheduleZoomRerenderFrame() {
         clearZoomRerenderDeferredTimer();
         if (zoomRerenderFrameScheduled) {
-            BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-frame-already-scheduled', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] frame already scheduled');
+            BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-frame-already-scheduled', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] frame already scheduled');
             return;
         }
 
         zoomRerenderFrameScheduled = true;
         reportZoomBusyStateIfChanged('frame-scheduled');
-        BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-schedule-frame', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] schedule frame');
+        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-schedule-frame', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] schedule frame');
         runGuardedTask(async () => {
             await waitForVisualFrames();
             zoomRerenderFrameScheduled = false;
             lastZoomRerenderFrameAtMs = Date.now();
             reportZoomBusyStateIfChanged('frame-fired');
-            BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-frame-fired', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] frame fired');
+            BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-frame-fired', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] frame fired');
             await processPendingZoomRerenderQueue();
         }, {
             scope: 'pdf-viewer',
@@ -324,7 +324,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
         clearZoomRerenderDeferredTimer();
         clearZoomSettleCheckTimer();
         zoomGestureLowResRerenderUsed = false;
-        BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-reset', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] reset', { reason });
+        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-reset', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] reset', { reason });
         reportZoomBusyStateIfChanged(`reset:${reason}`);
     }
 

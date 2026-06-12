@@ -56,16 +56,16 @@ const RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS = (() => {
     return Math.min(parsed, 2_048);
 })();
 const RENDERER_LOG_RATE_LIMIT_PER_SECOND = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_RATE_LIMIT_PER_SECOND ?? '20', 10);
+    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_RATE_LIMIT_PER_SECOND ?? '60', 10);
     if (!Number.isFinite(parsed) || parsed < 1) {
-        return 20;
+        return 60;
     }
     return Math.min(parsed, 5_000);
 })();
 const RENDERER_LOG_RATE_LIMIT_BURST = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_RATE_LIMIT_BURST ?? '40', 10);
+    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_RATE_LIMIT_BURST ?? '120', 10);
     if (!Number.isFinite(parsed) || parsed < 1) {
-        return 40;
+        return 120;
     }
     return Math.min(parsed, 10_000);
 })();

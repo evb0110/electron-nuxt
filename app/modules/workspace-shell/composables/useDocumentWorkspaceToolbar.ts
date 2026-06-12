@@ -68,7 +68,7 @@ export const useDocumentWorkspaceToolbar = (options: IUseDocumentWorkspaceToolba
         const beforeSidebar = options.showSidebar.value;
         const viewer = options.pdfViewerRef.value?.getViewerContainer?.() ?? null;
         const beforeViewerScrollTop = viewer ? Math.round(viewer.scrollTop) : null;
-        BrowserLogger.warn('pdf-nav', 'Toolbar sidebar toggle requested', {
+        BrowserLogger.diagnostic('pdf-nav', 'Toolbar sidebar toggle requested', {
             beforeSidebar,
             beforePage,
             sidebarTab: options.sidebarTab.value,
@@ -82,7 +82,7 @@ export const useDocumentWorkspaceToolbar = (options: IUseDocumentWorkspaceToolba
         });
         runToolbarAction(() => {
             options.showSidebar.value = !options.showSidebar.value;
-            BrowserLogger.warn('pdf-nav', 'Toolbar sidebar toggle applied', {
+            BrowserLogger.diagnostic('pdf-nav', 'Toolbar sidebar toggle applied', {
                 afterSidebar: options.showSidebar.value,
                 pageAfterToggleWrite: options.currentPage.value,
             });
