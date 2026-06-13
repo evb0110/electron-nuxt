@@ -1,5 +1,5 @@
 .toolbar-menu-panel {
-    padding: 0.3125rem;
+    padding: var(--app-space-sm);
     background: var(--app-toolbar-menu-popover-bg);
 }
 
@@ -10,15 +10,15 @@
 
 .toolbar-menu-divider {
     height: 1px;
-    margin: 0.25rem 0;
+    margin: var(--app-space-sm) 0;
     background-color: var(--app-toolbar-separator);
 }
 
 .toolbar-menu-section-header {
-    padding: 0.5rem 0.75rem 0.25rem;
+    padding: var(--app-space-3xl) var(--app-space-9xl) var(--app-space-sm);
     color: var(--ui-text-muted);
-    font-size: 0.6875rem;
-    font-weight: 600;
+    font-size: var(--app-text-size-micro);
+    font-weight: var(--app-font-weight-semibold);
     letter-spacing: 0.05em;
     text-transform: uppercase;
 }
@@ -26,21 +26,21 @@
 .toolbar-menu-item {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: var(--app-space-9xl);
     width: 100%;
-    padding: 0.5rem 0.75rem;
+    padding: var(--app-space-3xl) var(--app-space-9xl);
     border: 1px solid transparent;
-    border-radius: 0.375rem;
+    border-radius: var(--app-radius-md);
     background: transparent;
     color: var(--ui-text);
-    font-size: 0.875rem;
+    font-size: var(--app-text-size-body);
     text-align: left;
     cursor: pointer;
     transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
 }
 
 .toolbar-menu-item:disabled {
-    opacity: 0.4;
+    opacity: var(--app-toolbar-control-disabled-opacity);
 }
 
 .toolbar-menu-item:hover:not(:disabled) {
@@ -60,8 +60,8 @@
 }
 
 .toolbar-menu-icon {
-    width: 1.125rem;
-    height: 1.125rem;
+    width: var(--app-toolbar-icon-size);
+    height: var(--app-toolbar-icon-size);
     flex-shrink: 0;
     color: var(--ui-text-muted);
 }
@@ -77,7 +77,7 @@
 
 .toolbar-menu-shortcut {
     flex-shrink: 0;
-    margin-left: 1rem;
+    margin-left: var(--app-space-12xl);
     color: var(--ui-text-muted);
-    font-size: 0.75rem;
+    font-size: var(--app-text-size-kicker);
 }

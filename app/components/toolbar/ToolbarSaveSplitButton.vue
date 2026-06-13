@@ -127,7 +127,7 @@ function handleSaveAs() {
     display: inline-flex;
     align-items: center;
     height: var(--toolbar-control-height);
-    border-radius: 0.4375rem;
+    border-radius: var(--app-toolbar-button-radius);
     transition: background-color 0.1s ease, box-shadow 0.1s ease;
 }
 
@@ -146,14 +146,14 @@ function handleSaveAs() {
 
 .save-split-primary {
     width: 2rem;
-    padding: 0.32rem;
-    border-radius: 0.4375rem 0 0 0.4375rem;
+    padding: var(--app-toolbar-button-padding);
+    border-radius: var(--app-toolbar-button-radius) 0 0 var(--app-toolbar-button-radius);
 }
 
 .save-split-trigger {
     width: 1rem;
     padding-right: 0.0625rem;
-    border-radius: 0 0.4375rem 0.4375rem 0;
+    border-radius: 0 var(--app-toolbar-button-radius) var(--app-toolbar-button-radius) 0;
 }
 
 /* HOVER, both actions live → the control lights as one recessed gray pill. */
@@ -167,7 +167,7 @@ function handleSaveAs() {
 .save-split.is-primary-disabled:not(.is-open) .save-split-trigger:not(:disabled):hover {
     background: var(--app-toolbar-control-hover-bg);
     color: var(--app-toolbar-control-hover-fg);
-    border-radius: 0.4375rem;
+    border-radius: var(--app-toolbar-button-radius);
 }
 
 /*
@@ -190,7 +190,7 @@ function handleSaveAs() {
 .save-split.is-open.is-primary-disabled .save-split-trigger {
     background: var(--app-toolbar-control-active-bg);
     box-shadow: inset 0 0 0 1px var(--app-toolbar-control-active-border);
-    border-radius: 0.4375rem;
+    border-radius: var(--app-toolbar-button-radius);
 }
 
 .save-split-primary:focus-visible,
@@ -214,8 +214,8 @@ function handleSaveAs() {
 }
 
 .save-split-icon {
-    width: 1.25rem;
-    height: 1.25rem;
+    width: var(--app-tab-close-size);
+    height: var(--app-tab-close-size);
 }
 
 .save-split-chevron {

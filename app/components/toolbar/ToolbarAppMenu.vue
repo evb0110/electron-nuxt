@@ -270,7 +270,7 @@ function handleMenuCommand(command: TToolbarAppMenuCommand) {
 .app-menu-bar {
     display: inline-flex;
     align-items: center;
-    gap: 0.125rem;
+    gap: var(--app-toolbar-group-gap);
     height: var(--toolbar-control-height, 2.25rem);
 }
 
@@ -281,16 +281,16 @@ function handleMenuCommand(command: TToolbarAppMenuCommand) {
 .app-menu-trigger {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--app-space-sm);
     height: var(--toolbar-control-height, 2.25rem);
-    padding: 0 0.5rem 0 0.625rem;
+    padding: 0 var(--app-space-3xl) 0 var(--app-toolbar-control-padding-x);
     border: 1px solid transparent;
-    border-radius: 0.4375rem;
+    border-radius: var(--app-toolbar-button-radius);
     background: transparent;
     color: var(--app-toolbar-menu-trigger-fg);
     font: inherit;
-    font-size: 0.875rem;
-    font-weight: 500;
+    font-size: var(--app-text-size-body);
+    font-weight: var(--app-font-weight-medium);
     cursor: pointer;
     transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
 }
@@ -318,8 +318,8 @@ function handleMenuCommand(command: TToolbarAppMenuCommand) {
 }
 
 .app-menu-trigger-chevron {
-    width: 0.875rem;
-    height: 0.875rem;
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
     flex-shrink: 0;
     color: var(--ui-text-muted);
     transition: transform 150ms ease;

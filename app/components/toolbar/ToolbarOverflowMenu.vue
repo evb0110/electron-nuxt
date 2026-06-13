@@ -465,7 +465,7 @@ function shouldShowMenuCommand(command: TReaderCommandId, requiredCollapseTier =
     width: var(--toolbar-control-height, 2.25rem);
     height: var(--toolbar-control-height, 2.25rem);
     border: 1px solid transparent;
-    border-radius: 0.4375rem;
+    border-radius: var(--app-toolbar-button-radius);
     color: var(--app-toolbar-control-inactive-fg);
     transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease;
 }
@@ -502,15 +502,15 @@ function shouldShowMenuCommand(command: TReaderCommandId, requiredCollapseTier =
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 0.75rem;
-    height: 0.75rem;
-    padding: 0 0.125rem;
-    border-radius: 999px;
+    min-width: var(--app-space-9xl);
+    height: var(--app-space-9xl);
+    padding: 0 var(--app-space-3xs);
+    border-radius: var(--app-radius-full);
     border: 1px solid var(--ui-border);
     background: var(--ui-bg);
     color: var(--ui-text-muted);
     font-size: 0.5625rem;
-    line-height: 1;
+    line-height: var(--app-line-height-tight);
     font-weight: 700;
 }
 
@@ -519,8 +519,8 @@ function shouldShowMenuCommand(command: TReaderCommandId, requiredCollapseTier =
 }
 
 .overflow-menu-check {
-    width: 1rem;
-    height: 1rem;
+    width: var(--app-icon-size-md);
+    height: var(--app-icon-size-md);
     color: var(--ui-text);
     flex-shrink: 0;
 }

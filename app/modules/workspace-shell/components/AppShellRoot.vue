@@ -1101,7 +1101,7 @@ useAppShellLifecycle({
     border-radius: 999px;
     background: var(--ui-bg);
     backdrop-filter: blur(12px);
-    opacity: 0.65;
+    opacity: var(--app-opacity-subtle);
     transition: opacity 0.2s ease;
 }
 
@@ -1111,8 +1111,8 @@ useAppShellLifecycle({
 
 .browser-install-icon {
     flex: 0 0 auto;
-    width: 14px;
-    height: 14px;
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
     color: var(--ui-primary);
 }
 
@@ -1191,9 +1191,16 @@ useAppShellLifecycle({
 .editor-global-status-host {
     display: flex;
     flex-direction: column;
-    height: 1.9rem;
-    min-height: 1.9rem;
-    flex: 0 0 1.9rem;
+    height: var(--app-statusbar-height);
+    min-height: var(--app-statusbar-height);
+    flex: 0 0 var(--app-statusbar-height);
+}
+
+.editor-global-status-host:empty {
+    height: 0;
+    min-height: 0;
+    flex-basis: 0;
+    border-top: 0;
 }
 
 .app-shell-root.is-zen-mode .browser-install-hint,
