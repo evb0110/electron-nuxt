@@ -613,7 +613,7 @@ export default {
         'dropSubtitle': 'PDF, DjVu, PNG, JPG, TIFF, WebP, GIF',
         'openSubtitle': 'Escolha um PDF, DjVu ou arquivo de imagem para iniciar uma aba de trabalho.',
         'or': 'ou',
-        'openFileEllipsis': 'Abrir arquivo...',
+        'openFileEllipsis': 'Abrir arquivo',
         'clearHistory': 'Limpar histórico',
         'clearHistoryConfirmTitle': 'Limpar arquivos recentes?',
         'clearHistoryConfirmDescription': 'Isso remove todas as entradas dos arquivos recentes. Os documentos originais não serão excluídos.',
