@@ -11,6 +11,10 @@ interface IShouldShowPdfNavigationSkeletonOptions {
 }
 
 export function shouldShowPdfNavigationSkeleton(options: IShouldShowPdfNavigationSkeletonOptions) {
+    if (options.isPageRendered(options.pageNumber)) {
+        return false;
+    }
+
     if (options.shouldShowSkeleton(options.pageNumber)) {
         return true;
     }
@@ -18,7 +22,6 @@ export function shouldShowPdfNavigationSkeleton(options: IShouldShowPdfNavigatio
     if (
         options.navigationAnchorPage === null
         || options.totalPages <= 0
-        || options.isPageRendered(options.pageNumber)
     ) {
         return false;
     }

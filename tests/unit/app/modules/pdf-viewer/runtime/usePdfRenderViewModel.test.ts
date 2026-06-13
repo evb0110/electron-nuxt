@@ -24,6 +24,7 @@ function createHarness(options?: {
     hasMountedPageCanvas?: (page: number) => boolean;
     isPageBuffered?: (page: number) => boolean;
     isPageRendering?: (page: number) => boolean;
+    isPagePreviewDrawn?: (page: number) => boolean;
     pagedNavigationTargetPage?: Ref<number | null>;
     shouldShowSkeleton?: (page: number) => boolean;
     isNavigationHoldActiveForPage?: (page: number) => boolean;
@@ -57,6 +58,7 @@ function createHarness(options?: {
         isPageRendering: options?.isPageRendering ?? vi.fn(() => false),
         hasMountedPageCanvas: options?.hasMountedPageCanvas ?? vi.fn(() => false),
         shouldShowSkeleton: options?.shouldShowSkeleton ?? vi.fn(() => false),
+        isPagePreviewDrawn: options?.isPagePreviewDrawn,
         visibleRange,
         pagedNavigationTargetPage: options?.pagedNavigationTargetPage,
         currentPage: ref(1),
@@ -209,6 +211,34 @@ describe('usePdfRenderViewModel', () => {
 
             hasMountedCanvas.value = true;
             isRendering.value = true;
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
+
+            scope.stop();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('hides page skeletons only after a cached preview is drawn', () => {
+        vi.useFakeTimers();
+        try {
+            const isPreviewDrawn = ref(false);
+            const {
+                scope,
+                viewModel,
+            } = createHarness({
+                isPagePreviewDrawn: () => isPreviewDrawn.value,
+                shouldShowSkeleton: () => true,
+            });
+
+            if (!viewModel) {
+                throw new Error('Failed to create PDF render view model');
+            }
+
+            vi.advanceTimersByTime(PDF_VIEWER_PAGE_SKELETON_DELAY_MS);
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
+
+            isPreviewDrawn.value = true;
             expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
 
             scope.stop();

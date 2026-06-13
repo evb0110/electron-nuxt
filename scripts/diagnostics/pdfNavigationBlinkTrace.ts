@@ -28,6 +28,8 @@ const DEFAULT_TARGET_PDF_PATH = process.env.EVB_DIAGNOSTIC_PDF_PATH?.length
 const DEFAULT_OUT_PATH = '.devkit/pdf-navigation-blink-trace.json';
 const MAX_ASSERTED_TOOLBAR_BODY_LAG_MS = 750;
 const MAX_ASSERTED_BLANK_RUN_MS = 250;
+const MAX_ASSERTED_INTERMEDIATE_VISUAL_AFTER_CLICK_RUN_MS = 120;
+const POST_CLICK_INTERMEDIATE_VISUAL_GRACE_MS = 80;
 
 export interface IPdfNavigationBlinkTraceOptions {
     assert: boolean;
@@ -35,11 +37,13 @@ export interface IPdfNavigationBlinkTraceOptions {
     clickDelayMs: number;
     out: string;
     pdf: string;
+    preClickWaitMs: number;
     settleMs: number;
     startPage: number;
     video: boolean;
     videoDir: string | null;
     videoFps: number;
+    waitForStartCanvas: boolean;
 }
 
 interface ITraceSummary {
@@ -50,16 +54,24 @@ interface ITraceSummary {
     frameAnalysis: IFrameAnalysisSummary;
     firstBlankSample: unknown;
     firstCenteredBlankSample: unknown;
+    firstIntermediateVisualAfterClickSample: unknown;
     firstLatePostClickSwapSample: unknown;
+    firstNonFinalPagedCommitAfterFinalRequest: unknown;
+    firstNonFinalWorkspacePageAcceptAfterFinalRequest: unknown;
     firstSkeletonAfterVisualSample: unknown;
     firstSkeletonVisualOverlapSample: unknown;
     firstTargetCanvasRegressionSample: unknown;
     firstToolbarAheadOfBodySample: unknown;
+    finalRequestTraceAtMs: number | null;
+    intermediateVisualAfterClickSampleCount: number;
     lastClickAtMs: number | null;
     latePostClickSwapCount: number;
     maxBlankRunMs: number;
     maxCenteredBlankRunMs: number;
+    maxIntermediateVisualAfterClickRunMs: number;
     maxToolbarBodyLagMs: number;
+    nonFinalPagedCommitAfterFinalRequestCount: number;
+    nonFinalWorkspacePageAcceptAfterFinalRequestCount: number;
     postReadyUnstableSampleCount: number;
     skeletonAfterVisualSampleCount: number;
     skeletonSampleCount: number;
@@ -87,11 +99,18 @@ export function readOptions(argv = process.argv.slice(2)): IPdfNavigationBlinkTr
         clickDelayMs: 20,
         out: DEFAULT_OUT_PATH,
         pdf: DEFAULT_TARGET_PDF_PATH,
+        preClickWaitMs: 500,
         settleMs: 2_000,
         startPage: 1,
         video: false,
         videoDir: null,
         videoFps: 30,
+        waitForStartCanvas: true,
+    };
+
+    const readIntegerOption = (value: string | undefined, fallback: number, min: number) => {
+        const parsed = value === undefined ? Number.NaN : Number.parseInt(value, 10);
+        return Number.isFinite(parsed) ? Math.max(min, parsed) : fallback;
     };
 
     for (let index = 0; index < argv.length; index += 1) {
@@ -100,10 +119,10 @@ export function readOptions(argv = process.argv.slice(2)): IPdfNavigationBlinkTr
         if (arg === '--assert') {
             options.assert = true;
         } else if (arg === '--clicks' && next) {
-            options.clicks = Math.max(1, Number.parseInt(next, 10) || options.clicks);
+            options.clicks = readIntegerOption(next, options.clicks, 1);
             index += 1;
         } else if (arg === '--click-delay-ms' && next) {
-            options.clickDelayMs = Math.max(0, Number.parseInt(next, 10) || options.clickDelayMs);
+            options.clickDelayMs = readIntegerOption(next, options.clickDelayMs, 0);
             index += 1;
         } else if (arg === '--out' && next) {
             options.out = next;
@@ -111,12 +130,17 @@ export function readOptions(argv = process.argv.slice(2)): IPdfNavigationBlinkTr
         } else if (arg === '--pdf' && next) {
             options.pdf = next;
             index += 1;
+        } else if (arg === '--pre-click-wait-ms' && next) {
+            options.preClickWaitMs = readIntegerOption(next, options.preClickWaitMs, 0);
+            index += 1;
         } else if (arg === '--settle-ms' && next) {
-            options.settleMs = Math.max(0, Number.parseInt(next, 10) || options.settleMs);
+            options.settleMs = readIntegerOption(next, options.settleMs, 0);
             index += 1;
         } else if (arg === '--start-page' && next) {
-            options.startPage = Math.max(1, Number.parseInt(next, 10) || options.startPage);
+            options.startPage = readIntegerOption(next, options.startPage, 1);
             index += 1;
+        } else if (arg === '--skip-start-page-canvas-wait') {
+            options.waitForStartCanvas = false;
         } else if (arg === '--video') {
             options.video = true;
         } else if (arg === '--video-dir' && next) {
@@ -124,7 +148,7 @@ export function readOptions(argv = process.argv.slice(2)): IPdfNavigationBlinkTr
             options.videoDir = next;
             index += 1;
         } else if (arg === '--video-fps' && next) {
-            options.videoFps = Math.max(1, Number.parseInt(next, 10) || options.videoFps);
+            options.videoFps = readIntegerOption(next, options.videoFps, 1);
             index += 1;
         }
     }
@@ -247,8 +271,11 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
                 .filter(isVisibleElement)
                 .map((element) => {
                     const rect = element.getBoundingClientRect();
+                    const controls = element.closest<HTMLElement>('.page-controls');
+                    const secondary = controls?.querySelector<HTMLElement>('.page-controls-current-secondary') ?? null;
                     return {
                         text: element.textContent?.trim() ?? '',
+                        secondaryText: secondary?.textContent?.trim() ?? '',
                         top: Math.round(rect.top),
                         left: Math.round(rect.left),
                     };
@@ -262,6 +289,8 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
                     const canvases = Array.from(container.querySelectorAll<HTMLCanvasElement>('.page_canvas canvas'));
                     const previews = Array.from(container.querySelectorAll<HTMLCanvasElement>('.page_preview canvas'));
                     const pageCanvas = container.querySelector<HTMLElement>('.page_canvas');
+                    const rendered = container.classList.contains('page_container--rendered');
+                    const previewDrawn = container.classList.contains('page_container--preview-drawn');
                     const canvasSizes = canvases.map(canvas => ({
                         width: canvas.width,
                         height: canvas.height,
@@ -274,8 +303,8 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
                         clientWidth: Math.round(canvas.getBoundingClientRect().width),
                         clientHeight: Math.round(canvas.getBoundingClientRect().height),
                     }));
-                    const hasUsableCanvas = canvasSizes.some(size => size.width > 0 && size.height > 0 && size.clientWidth > 0 && size.clientHeight > 0);
-                    const hasUsablePreview = previewSizes.some(size => size.width > 0 && size.height > 0 && size.clientWidth > 0 && size.clientHeight > 0);
+                    const hasUsableCanvas = rendered && canvasSizes.some(size => size.width > 0 && size.height > 0 && size.clientWidth > 0 && size.clientHeight > 0);
+                    const hasUsablePreview = previewDrawn && previewSizes.some(size => size.width > 0 && size.height > 0 && size.clientWidth > 0 && size.clientHeight > 0);
                     const skeletonVisible = Boolean(
                         skeleton
                         && skeletonStyle
@@ -293,8 +322,9 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
                         bottom: Math.round(rect.bottom),
                         height: Math.round(rect.height),
                         className: container.className,
-                        rendered: container.classList.contains('page_container--rendered'),
+                        rendered,
                         buffered: container.classList.contains('page_container--buffered'),
+                        previewDrawn,
                         hasSkeleton: Boolean(skeleton),
                         skeletonVisible,
                         skeletonDisplay: skeletonStyle?.display ?? null,
@@ -327,6 +357,9 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
             const centerX = Math.round(viewerRect.left + viewerRect.width / 2);
             const centerY = Math.round(viewerRect.top + viewerRect.height / 2);
             const elementAtCenter = summarizeElement(document.elementFromPoint(centerX, centerY));
+            const elementsAtCenter = document.elementsFromPoint(centerX, centerY)
+                .slice(0, 12)
+                .map(summarizeElement);
             const visibleVisualPages = visiblePages
                 .filter(pageInfo => pageInfo.visualReady)
                 .map(pageInfo => pageInfo.page);
@@ -381,6 +414,7 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
                 centeredVisualPage,
                 bodySignature,
                 elementAtCenter,
+                elementsAtCenter,
             };
         }
 
@@ -682,6 +716,23 @@ function readFiniteNumber(value: unknown) {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function readRenderTraceAtMs(entry: { payload?: Record<string, unknown>; }) {
+    return readFiniteNumber(entry.payload?.traceAtMs);
+}
+
+function readRenderTracePage(
+    entry: { payload?: Record<string, unknown>; },
+    keys: string[],
+) {
+    for (const key of keys) {
+        const value = readFiniteNumber(entry.payload?.[key]);
+        if (value !== null) {
+            return value;
+        }
+    }
+    return null;
+}
+
 function readNumberArray(value: unknown) {
     return Array.isArray(value)
         ? value.filter((item): item is number => typeof item === 'number' && Number.isFinite(item))
@@ -695,8 +746,59 @@ function readVisiblePages(sample: Record<string, unknown>) {
 }
 
 function readToolbarPage(sample: Record<string, unknown>) {
+    const visibleToolbarPage = readVisibleToolbarPage(sample);
+    if (visibleToolbarPage !== null) {
+        return visibleToolbarPage;
+    }
+
     const snapshot = sample.toolbarSnapshot as {currentPage?: unknown} | null | undefined;
     return readFiniteNumber(snapshot?.currentPage);
+}
+
+function readVisibleToolbarPage(sample: Record<string, unknown>) {
+    const labels = Array.isArray(sample.visibleCurrentPageLabels)
+        ? sample.visibleCurrentPageLabels
+        : [];
+    for (const label of labels) {
+        if (label === null || typeof label !== 'object') {
+            continue;
+        }
+        const secondaryText = (label as {secondaryText?: unknown}).secondaryText;
+        if (typeof secondaryText === 'string') {
+            const page = readParenthesizedPositiveInteger(secondaryText)
+                ?? readStrictPositiveInteger(secondaryText);
+            if (page !== null) {
+                return page;
+            }
+        }
+        const text = (label as {text?: unknown}).text;
+        if (typeof text !== 'string') {
+            continue;
+        }
+        const page = readStrictPositiveInteger(text);
+        if (page !== null) {
+            return page;
+        }
+    }
+    return null;
+}
+
+function readStrictPositiveInteger(text: string) {
+    const trimmed = text.trim();
+    if (!/^\d+$/u.test(trimmed)) {
+        return null;
+    }
+    const page = Number.parseInt(trimmed, 10);
+    return Number.isFinite(page) && page > 0 ? page : null;
+}
+
+function readParenthesizedPositiveInteger(text: string) {
+    const match = /^\((\d+)\)$/u.exec(text.trim());
+    if (!match?.[1]) {
+        return null;
+    }
+    const page = Number.parseInt(match[1], 10);
+    return Number.isFinite(page) && page > 0 ? page : null;
 }
 
 function readCenteredVisualPage(sample: Record<string, unknown>) {
@@ -758,6 +860,14 @@ function sampleHasCenteredVisualForPage(sample: Record<string, unknown>, page: n
 function sampleHasCenteredCanvasForPage(sample: Record<string, unknown>, page: number) {
     return readCenteredVisualPage(sample) === page
         && sampleHasCanvasForPage(sample, page);
+}
+
+function sampleHasCenteredVisualReadyPage(sample: Record<string, unknown>) {
+    const centeredVisualPage = readCenteredVisualPage(sample);
+    return centeredVisualPage !== null
+        && sampleHasVisualForPage(sample, centeredVisualPage)
+        ? centeredVisualPage
+        : null;
 }
 
 function sampleHasCenteredBlank(sample: Record<string, unknown>) {
@@ -836,6 +946,136 @@ function getLastEventAtMs(
         }
     }
     return lastAtMs;
+}
+
+function getFinalRequestTraceAtMs(
+    renderTrace: Array<{
+        event?: string;
+        payload?: Record<string, unknown>;
+    }>,
+    finalTargetPage: number | null,
+) {
+    if (finalTargetPage === null) {
+        return null;
+    }
+
+    let lastTraceAtMs: number | null = null;
+    for (const entry of renderTrace) {
+        if (
+            entry.event !== 'workspace-go-to-page'
+            && entry.event !== 'workspace-programmatic-page-navigation-begin'
+        ) {
+            continue;
+        }
+        const page = readRenderTracePage(entry, [
+            'targetPage',
+            'page',
+        ]);
+        const traceAtMs = readRenderTraceAtMs(entry);
+        if (page === finalTargetPage && traceAtMs !== null) {
+            lastTraceAtMs = traceAtMs;
+        }
+    }
+    return lastTraceAtMs;
+}
+
+function getNonFinalRenderTraceEventsAfterFinalRequest(
+    renderTrace: Array<{
+        event?: string;
+        payload?: Record<string, unknown>;
+    }>,
+    options: {
+        event: string;
+        finalRequestTraceAtMs: number | null;
+        finalTargetPage: number | null;
+        pageKeys: string[];
+    },
+) {
+    if (options.finalRequestTraceAtMs === null || options.finalTargetPage === null) {
+        return [];
+    }
+    const finalRequestTraceAtMs = options.finalRequestTraceAtMs;
+    const finalTargetPage = options.finalTargetPage;
+
+    return renderTrace.filter((entry) => {
+        if (entry.event !== options.event) {
+            return false;
+        }
+        const traceAtMs = readRenderTraceAtMs(entry);
+        const page = readRenderTracePage(entry, options.pageKeys);
+        return traceAtMs !== null
+            && traceAtMs > finalRequestTraceAtMs
+            && page !== null
+            && page !== finalTargetPage;
+    });
+}
+
+function getIntermediateVisualAfterClickSummary(options: {
+    finalTargetPage: number | null;
+    lastClickAtMs: number | null;
+    samples: Array<Record<string, unknown>>;
+}) {
+    const {
+        finalTargetPage,
+        lastClickAtMs,
+        samples,
+    } = options;
+    if (finalTargetPage === null || lastClickAtMs === null) {
+        return {
+            firstSample: null,
+            maxRunMs: 0,
+            sampleCount: 0,
+        };
+    }
+
+    const minimumAtMs = lastClickAtMs + POST_CLICK_INTERMEDIATE_VISUAL_GRACE_MS;
+    let sampleCount = 0;
+    let firstSample: Record<string, unknown> | null = null;
+    let maxRunMs = 0;
+    let runPage: number | null = null;
+    let runStartAtMs: number | null = null;
+    let runLastAtMs: number | null = null;
+
+    function flushRun() {
+        if (runStartAtMs !== null && runLastAtMs !== null) {
+            maxRunMs = Math.max(maxRunMs, runLastAtMs - runStartAtMs);
+        }
+        runPage = null;
+        runStartAtMs = null;
+        runLastAtMs = null;
+    }
+
+    for (const sample of samples) {
+        const atMs = readFiniteNumber(sample.atMs);
+        if (atMs === null || atMs < minimumAtMs) {
+            continue;
+        }
+
+        const centeredVisualPage = sampleHasCenteredVisualReadyPage(sample);
+        const isIntermediateVisual = centeredVisualPage !== null
+            && centeredVisualPage !== finalTargetPage;
+
+        if (!isIntermediateVisual) {
+            flushRun();
+            continue;
+        }
+
+        sampleCount += 1;
+        firstSample ??= sample;
+        if (runPage !== centeredVisualPage) {
+            flushRun();
+            runPage = centeredVisualPage;
+            runStartAtMs = atMs;
+        }
+        runLastAtMs = atMs;
+    }
+    flushRun();
+
+    return {
+        firstSample,
+        maxRunMs,
+        sampleCount,
+    };
 }
 
 export function analyzeTraceFrames(samples: Array<Record<string, unknown>>): IFrameAnalysisSummary {
@@ -919,8 +1159,7 @@ export function summarizeTrace(payload: {
     }
 
     const toolbarPages = uniqueNumbers(samples.map(sample => {
-        const snapshot = sample.toolbarSnapshot as {currentPage?: unknown;} | null | undefined;
-        return snapshot?.currentPage;
+        return readToolbarPage(sample);
     }));
     const workspaceGoToPages = uniqueNumbers(payload.renderTrace
         .filter(entry => entry.event === 'workspace-go-to-page')
@@ -933,6 +1172,30 @@ export function summarizeTrace(payload: {
         'after-next-click',
         'toolbar-button-click',
     ]);
+    const finalRequestTraceAtMs = getFinalRequestTraceAtMs(payload.renderTrace, finalTargetPage);
+    const nonFinalPagedCommitsAfterFinalRequest = getNonFinalRenderTraceEventsAfterFinalRequest(
+        payload.renderTrace,
+        {
+            event: 'single-page-paged-target-committed',
+            finalRequestTraceAtMs,
+            finalTargetPage,
+            pageKeys: ['targetPage'],
+        },
+    );
+    const nonFinalWorkspacePageAcceptsAfterFinalRequest = getNonFinalRenderTraceEventsAfterFinalRequest(
+        payload.renderTrace,
+        {
+            event: 'workspace-viewer-current-page-update-accepted',
+            finalRequestTraceAtMs,
+            finalTargetPage,
+            pageKeys: ['page'],
+        },
+    );
+    const intermediateVisualAfterClick = getIntermediateVisualAfterClickSummary({
+        finalTargetPage,
+        lastClickAtMs,
+        samples,
+    });
     const bodyVisualReadySample = finalTargetPage === null
         ? null
         : samples.find(sample => sampleHasCenteredVisualForPage(sample, finalTargetPage)) ?? null;
@@ -1040,16 +1303,24 @@ export function summarizeTrace(payload: {
         frameAnalysis: analyzeTraceFrames(samples),
         firstBlankSample: blankSamples[0] ?? null,
         firstCenteredBlankSample: samples.find(sampleHasCenteredBlank) ?? null,
+        firstIntermediateVisualAfterClickSample: intermediateVisualAfterClick.firstSample,
         firstLatePostClickSwapSample,
+        firstNonFinalPagedCommitAfterFinalRequest: nonFinalPagedCommitsAfterFinalRequest[0] ?? null,
+        firstNonFinalWorkspacePageAcceptAfterFinalRequest: nonFinalWorkspacePageAcceptsAfterFinalRequest[0] ?? null,
         firstSkeletonAfterVisualSample: skeletonAfterVisualSamples[0] ?? null,
         firstSkeletonVisualOverlapSample: skeletonVisualOverlapSamples[0] ?? null,
         firstTargetCanvasRegressionSample: targetCanvasRegressionSamples[0] ?? null,
         firstToolbarAheadOfBodySample: toolbarAheadOfBodySamples[0] ?? null,
+        finalRequestTraceAtMs,
+        intermediateVisualAfterClickSampleCount: intermediateVisualAfterClick.sampleCount,
         lastClickAtMs,
         latePostClickSwapCount,
         maxBlankRunMs,
         maxCenteredBlankRunMs,
+        maxIntermediateVisualAfterClickRunMs: intermediateVisualAfterClick.maxRunMs,
         maxToolbarBodyLagMs,
+        nonFinalPagedCommitAfterFinalRequestCount: nonFinalPagedCommitsAfterFinalRequest.length,
+        nonFinalWorkspacePageAcceptAfterFinalRequestCount: nonFinalWorkspacePageAcceptsAfterFinalRequest.length,
         postReadyUnstableSampleCount: postReadyUnstableSamples.length,
         skeletonAfterVisualSampleCount: skeletonAfterVisualSamples.length,
         skeletonSampleCount: skeletonSamples.length,
@@ -1078,6 +1349,18 @@ function assertTraceSummary(summary: ITraceSummary) {
     }
     if (summary.latePostClickSwapCount > 0) {
         failures.push(`target visual signature changed after clicks stopped ${summary.latePostClickSwapCount} times`);
+    }
+    if (summary.nonFinalPagedCommitAfterFinalRequestCount > 0) {
+        failures.push(`non-final paged target committed after final request ${summary.nonFinalPagedCommitAfterFinalRequestCount} times`);
+    }
+    if (summary.nonFinalWorkspacePageAcceptAfterFinalRequestCount > 0) {
+        failures.push(`workspace accepted non-final viewer page after final request ${summary.nonFinalWorkspacePageAcceptAfterFinalRequestCount} times`);
+    }
+    if (summary.maxIntermediateVisualAfterClickRunMs > MAX_ASSERTED_INTERMEDIATE_VISUAL_AFTER_CLICK_RUN_MS) {
+        failures.push(
+            `intermediate centered visual page after clicks ran for ${summary.maxIntermediateVisualAfterClickRunMs}ms`
+            + ` exceeding ${MAX_ASSERTED_INTERMEDIATE_VISUAL_AFTER_CLICK_RUN_MS}ms`,
+        );
     }
     if (summary.maxToolbarBodyLagMs > MAX_ASSERTED_TOOLBAR_BODY_LAG_MS) {
         failures.push(`toolbar/body lag ${summary.maxToolbarBodyLagMs}ms exceeded ${MAX_ASSERTED_TOOLBAR_BODY_LAG_MS}ms`);
@@ -1123,14 +1406,16 @@ async function main() {
     const outPath = resolve(process.cwd(), options.out);
     const session = await startElectronE2ESession(`pdf-blink-trace-${Date.now()}`);
     try {
-        await openPdfInApp(session.page, options.pdf, 120_000);
         await enablePdfDiagnostics(session.page);
+        await openPdfInApp(session.page, options.pdf, 120_000);
         await installBlinkSampler(session.page);
         await goToPageViaWorkspace(session.page, options.startPage);
         await waitForToolbarPage(session.page, options.startPage);
         await configureFitHeightPagedMode(session.page);
-        await waitForPageCanvas(session.page, options.startPage);
-        await delay(500);
+        if (options.waitForStartCanvas) {
+            await waitForPageCanvas(session.page, options.startPage);
+        }
+        await delay(options.preClickWaitMs);
 
         const videoRecorder = options.video
             ? await startDiagnosticFrameCapture(session.page, {

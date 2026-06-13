@@ -53,6 +53,7 @@ interface IUsePdfRenderViewModelOptions {
     isPageRendering: (page: number) => boolean;
     hasMountedPageCanvas: (page: number) => boolean;
     shouldShowSkeleton: (page: number) => boolean;
+    isPagePreviewDrawn?: ((page: number) => boolean) | undefined;
     visibleRange: Ref<{
         start: number;
         end: number;
@@ -188,7 +189,7 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
             delayedSkeleton.markPageRendered(page);
             return false;
         }
-        if (hasPagePreview(page)) {
+        if (options.isPagePreviewDrawn?.(page) === true) {
             return false;
         }
         if (

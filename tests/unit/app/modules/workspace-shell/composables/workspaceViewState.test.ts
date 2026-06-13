@@ -245,4 +245,43 @@ describe('useWorkspaceViewState', () => {
 
         expect(scrollToPage).toHaveBeenCalledWith(3, scrollOptions);
     });
+
+    it('does not arm programmatic navigation for a duplicate page without an explicit target', () => {
+        const beginProgrammaticPageNavigation = vi.fn();
+        const scrollToPage = vi.fn();
+        const state = useWorkspaceViewState({
+            fitMode: ref('width'),
+            zoomMode: ref('fit-width'),
+            zoom: ref(1),
+            dragMode: ref(false),
+            showSidebar: ref(false),
+            sidebarTab: ref('thumbnails'),
+            annotationTool: ref('none'),
+            annotationPlacingPageNote: ref(false),
+            annotationEditorState: ref({
+                isEditing: false,
+                isEmpty: true,
+                hasSomethingToUndo: false,
+                hasSomethingToRedo: false,
+                hasSelectedEditor: false,
+            }),
+            hasLivePdfJsAnnotationChanges: ref(false),
+            appAnnotationUndoDepth: ref(0),
+            hasOpenAnnotationNotes: ref(false),
+            canUndoHistory: ref(false),
+            canRedoHistory: ref(false),
+            currentPage: ref(3),
+            totalPages: ref(10),
+            beginProgrammaticPageNavigation,
+            pdfViewerRef: ref({
+                scrollToPage,
+                cancelCommentPlacement: () => {},
+            }),
+        });
+
+        state.handleGoToPage(3);
+
+        expect(beginProgrammaticPageNavigation).not.toHaveBeenCalled();
+        expect(scrollToPage).not.toHaveBeenCalled();
+    });
 });
