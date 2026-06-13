@@ -181,15 +181,6 @@
                             />
                         </button>
                         <button
-                            v-if="shouldShowMenuCommand('actual-size', 3)"
-                            class="overflow-menu-item toolbar-menu-item"
-                            :disabled="!hasInteractiveDocument"
-                            @click="handleMenuCommand('actual-size')"
-                        >
-                            <UIcon name="i-ph-magnifying-glass" class="overflow-menu-icon toolbar-menu-icon" />
-                            <span class="overflow-menu-label toolbar-menu-label">{{ t('zoom.actualSize') }}</span>
-                        </button>
-                        <button
                             v-if="shouldShowMenuCommand('fit-width', 3)"
                             :class="['overflow-menu-item', 'toolbar-menu-item', { 'is-active': isFitWidthActive }]"
                             :disabled="!hasInteractiveDocument"
@@ -357,7 +348,6 @@ const emit = defineEmits<{
     (e: 'update:open', value: boolean): void
     (e: 'open-ocr'): void
     (e: 'toggle-sidebar'): void
-    (e: 'actual-size'): void
     (e: 'fit-width'): void
     (e: 'fit-height'): void
     (e: 'enable-drag'): void
@@ -377,7 +367,6 @@ const emit = defineEmits<{
 const emitMenuCommand = {
     'open-ocr': () => emit('open-ocr'),
     'toggle-sidebar': () => emit('toggle-sidebar'),
-    'actual-size': () => emit('actual-size'),
     'fit-width': () => emit('fit-width'),
     'fit-height': () => emit('fit-height'),
     'enable-drag': () => emit('enable-drag'),
@@ -428,7 +417,6 @@ const hasToolItems = computed(() => (
 const hasViewItems = computed(() => (
     shouldShowMenuCommand('toggle-sidebar')
     || shouldShowMenuCommand('view-mode', 2)
-    || shouldShowMenuCommand('actual-size', 3)
     || shouldShowMenuCommand('fit-width', 3)
     || shouldShowMenuCommand('fit-height', 3)
     || shouldShowMenuCommand('continuous-scroll', 2)

@@ -60,7 +60,6 @@
                 @rotate-ccw="handleRotateCcw"
                 @insert-pages="handleInsertPages"
                 @toggle-sidebar="handleToolbarToggleSidebar"
-                @actual-size="handleActualSize"
                 @fit-width="handleToolbarFitWidth"
                 @fit-height="handleToolbarFitHeight"
                 @toggle-continuous-scroll="handleToolbarToggleContinuousScroll"

@@ -21,7 +21,6 @@ export const workspacePdfToolbarCommands = [
     'rotate-ccw',
     'insert-pages',
     'toggle-sidebar',
-    'actual-size',
     'fit-width',
     'fit-height',
     'toggle-continuous-scroll',

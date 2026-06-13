@@ -48,7 +48,6 @@
         @rotate-ccw="handleRotateCcw"
         @insert-pages="handleInsertPages"
         @toggle-sidebar="handleToggleSidebar"
-        @actual-size="handleActualSize"
         @fit-width="handleFitWidth"
         @fit-height="handleFitHeight"
         @toggle-continuous-scroll="handleToggleContinuousScroll"
@@ -126,7 +125,6 @@ const emit = defineEmits<{
     'rotate-ccw': [];
     'insert-pages': [];
     'toggle-sidebar': [];
-    'actual-size': [];
     'fit-width': [];
     'fit-height': [];
     'toggle-continuous-scroll': [];
@@ -271,10 +269,6 @@ function handleInsertPages() {
 
 function handleToggleSidebar() {
     emit('toggle-sidebar');
-}
-
-function handleActualSize() {
-    emit('actual-size');
 }
 
 function handleFitWidth() {

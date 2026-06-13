@@ -131,16 +131,6 @@
             <div class="toolbar-separator" />
 
             <div v-if="!isCollapsed(2)" class="toolbar-button-group toolbar-button-group--fit">
-                <div v-if="isCommandInline('actual-size')" class="toolbar-group-item">
-                    <ToolbarButton
-                        icon="ph:magnifying-glass"
-                        :tooltip="t('zoom.actualSize')"
-                        :shortcut="shortcutLabels.actualSize"
-                        :disabled="!hasInteractiveDocument"
-                        grouped
-                        @click="handleToolbarCommand('actual-size')"
-                    />
-                </div>
                 <div v-if="isCommandInline('fit-width')" class="toolbar-group-item">
                     <ToolbarButton
                         icon="ph:arrows-out-line-horizontal"
@@ -348,7 +338,6 @@ const emit = defineEmits<{
     'undo': [];
     'redo': [];
     'toggle-sidebar': [];
-    'actual-size': [];
     'fit-width': [];
     'fit-height': [];
     'toggle-continuous-scroll': [];
@@ -371,7 +360,6 @@ type TToolbarCommand =
     | 'undo'
     | 'redo'
     | 'toggle-sidebar'
-    | 'actual-size'
     | 'fit-width'
     | 'fit-height'
     | 'toggle-continuous-scroll'
@@ -408,7 +396,6 @@ const toolbarCommandHandlers = {
     'undo': () => emit('undo'),
     'redo': () => emit('redo'),
     'toggle-sidebar': () => emit('toggle-sidebar'),
-    'actual-size': () => emit('actual-size'),
     'fit-width': () => emit('fit-width'),
     'fit-height': () => emit('fit-height'),
     'toggle-continuous-scroll': () => emit('toggle-continuous-scroll'),
