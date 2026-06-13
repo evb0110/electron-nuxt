@@ -179,6 +179,51 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }));
     });
 
+    it('uses a viewport-anchored source for gesture zoom rerenders', async () => {
+        const zoom = ref(1);
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({}));
+        const currentPage = ref(157);
+        const visibleRange = ref({
+            start: 156,
+            end: 158,
+        });
+        const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(157));
+        const enqueueZoomSync = vi.fn();
+
+        usePdfViewerRerenderCoordinator(createDeps({
+            pdfDocument,
+            numPages: ref(348),
+            currentPage,
+            visibleRange,
+            zoom: computed(() => zoom.value),
+            fitMode: computed(() => 'width' as const),
+            getVisibleRange: () => visibleRange.value,
+            buildResizeAnchorContext,
+            enqueueZoomSync,
+            consumeZoomViewportAnchor: vi.fn(() => ({
+                x: 80,
+                y: 120,
+                capturedAtMs: 1_000,
+            })),
+            getMostVisiblePage: vi.fn(() => 157),
+        }));
+
+        zoom.value = 1.43;
+        await nextTick();
+
+        expect(buildResizeAnchorContext).toHaveBeenCalledWith({
+            anchorViewportX: 80,
+            anchorViewportY: 120,
+            preferredAnchorPage: 157,
+            trustPreferredAnchorPage: false,
+        });
+        expect(enqueueZoomSync).toHaveBeenCalledWith(expect.objectContaining({
+            source: 'zoom-gesture-change',
+            stabilize: true,
+            resizeAnchor: expect.objectContaining({ page: 157 }),
+        }));
+    });
+
     it('does not rerender continuous fit-width when passive scrolling changes the current page', async () => {
         const currentPage = ref(1);
         const computeFitWidthScale = vi.fn(() => true);
@@ -685,7 +730,45 @@ describe('usePdfViewerRerenderCoordinator', () => {
         expect(syncCurrentPageFromViewport).not.toHaveBeenCalled();
     });
 
-    it('renders zoom-change frames through the low-resolution settle path', async () => {
+    it('renders gesture zoom frames through the low-resolution settle path', async () => {
+        const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+        const markLowResZoomRerenderUsed = vi.fn();
+
+        const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator(createDeps({
+            numPages: ref(348),
+            currentPage: ref(157),
+            visibleRange: ref({
+                start: 157,
+                end: 157,
+            }),
+            getVisibleRange: () => ({
+                start: 157,
+                end: 157,
+            }),
+            reRenderAllVisiblePages,
+            markLowResZoomRerenderUsed,
+            buildResizeAnchorContext: vi.fn(() => createResizeAnchor(157)),
+            getMostVisiblePage: vi.fn(() => 157),
+        }));
+
+        await reRenderVisiblePagesAndSyncCurrentPage({
+            source: 'zoom-gesture-change',
+            stabilize: true,
+            resizeAnchor: createResizeAnchor(157),
+        });
+
+        expect(markLowResZoomRerenderUsed).toHaveBeenCalled();
+        expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
+            expect.any(Function),
+            expect.objectContaining({
+                rerenderSource: 'zoom-gesture-change',
+                renderBufferOverride: 0,
+                maxCanvasPixelsOverride: 14_000_000,
+            }),
+        );
+    });
+
+    it('renders toolbar zoom-change frames without the low-resolution canvas cap', async () => {
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
         const markLowResZoomRerenderUsed = vi.fn();
 
@@ -712,15 +795,15 @@ describe('usePdfViewerRerenderCoordinator', () => {
             resizeAnchor: createResizeAnchor(157),
         });
 
-        expect(markLowResZoomRerenderUsed).toHaveBeenCalled();
+        expect(markLowResZoomRerenderUsed).not.toHaveBeenCalled();
         expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
             expect.any(Function),
             expect.objectContaining({
                 rerenderSource: 'zoom-change',
                 renderBufferOverride: 0,
-                maxCanvasPixelsOverride: 14_000_000,
             }),
         );
+        expect(reRenderAllVisiblePages.mock.calls[0]?.[1]).not.toHaveProperty('maxCanvasPixelsOverride');
     });
 
     it('disables horizontal snapshot restore and clamps horizontal scroll in fit-width mode', async () => {

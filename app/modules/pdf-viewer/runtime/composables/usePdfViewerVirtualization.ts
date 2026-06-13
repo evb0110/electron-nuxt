@@ -323,14 +323,6 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         if (!layout) {
             return null;
         }
-        const freeze = activeZoomVirtualizationFreeze.value;
-        if (freeze) {
-            if (freeze.topSpacerHeight <= 0) {
-                return null;
-            }
-            return {height: `${freeze.topSpacerHeight}px`};
-        }
-
         const spacerHeight = getLeadingSpacerHeightForPage(layout, virtualWindowStartPage.value);
         if (spacerHeight <= 0) {
             return null;
@@ -347,14 +339,6 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         if (!layout) {
             return null;
         }
-        const freeze = activeZoomVirtualizationFreeze.value;
-        if (freeze) {
-            if (freeze.bottomSpacerHeight <= 0) {
-                return null;
-            }
-            return {height: `${freeze.bottomSpacerHeight}px`};
-        }
-
         const spacerHeight = getTrailingSpacerHeightForPage(layout, virtualWindowEndPage.value);
         if (spacerHeight <= 0) {
             return null;

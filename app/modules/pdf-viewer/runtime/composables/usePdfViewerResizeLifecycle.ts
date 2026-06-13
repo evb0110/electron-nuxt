@@ -128,6 +128,23 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         return Math.trunc(page);
     }
 
+    function getSnapshotCaptureOptions(
+        optionsOverride: IBuildResizeAnchorContextOptions | undefined,
+        preferredAnchorPage: number | null,
+    ) {
+        if (!optionsOverride) {
+            return preferredAnchorPage === null
+                ? undefined
+                : { preferredAnchorPage };
+        }
+
+        return {
+            anchorViewportX: optionsOverride.anchorViewportX ?? null,
+            anchorViewportY: optionsOverride.anchorViewportY ?? null,
+            preferredAnchorPage,
+        };
+    }
+
     function buildResizeAnchorContext(optionsOverride?: IBuildResizeAnchorContextOptions) {
         if (isActive?.value === false) {
             return {
@@ -142,7 +159,13 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 viewerMetrics: summarizeViewerMetricsForLog(viewerContainer.value),
             } satisfies IResizeAnchorContext;
         }
-        const initialSnapshot = captureScrollSnapshot(viewerContainer.value, optionsOverride);
+        const preferredAnchorPage = optionsOverride?.trustPreferredAnchorPage
+            ? normalizePreferredAnchorPage(optionsOverride.preferredAnchorPage)
+            : null;
+        const initialSnapshot = captureScrollSnapshot(
+            viewerContainer.value,
+            getSnapshotCaptureOptions(optionsOverride, preferredAnchorPage),
+        );
         const snapshotAnchorPage =
             initialSnapshot
             && typeof initialSnapshot.anchorPage === 'number'
@@ -153,9 +176,6 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             viewerContainer.value,
             numPages.value,
         );
-        const preferredAnchorPage = optionsOverride?.trustPreferredAnchorPage
-            ? normalizePreferredAnchorPage(optionsOverride.preferredAnchorPage)
-            : null;
         const trustedPreferredAnchorPage =
             preferredAnchorPage !== null
             && (
@@ -171,10 +191,10 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             currentPage: currentPage.value,
             preferSnapshotAnchorPage: optionsOverride?.preferSnapshotAnchorPage,
         });
-        const snapshot = captureScrollSnapshot(viewerContainer.value, {
-            ...optionsOverride,
-            preferredAnchorPage: anchorPage,
-        }) ?? initialSnapshot;
+        const snapshot = captureScrollSnapshot(
+            viewerContainer.value,
+            getSnapshotCaptureOptions(optionsOverride, anchorPage),
+        ) ?? initialSnapshot;
         BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'anchor-build-captured', ZOOM_QUEUE_LOG_THROTTLE_MS, '[anchor-build] captured', {
             optionsOverride: optionsOverride ?? null,
             snapshotAnchorPage,

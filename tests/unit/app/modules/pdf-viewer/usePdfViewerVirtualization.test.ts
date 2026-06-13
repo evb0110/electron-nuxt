@@ -370,6 +370,7 @@ describe('usePdfViewerVirtualization', () => {
     });
 
     it('keeps a compatible zoom freeze while the navigation anchor is inside it', () => {
+        const effectiveScale = ref(1);
         const virtualization = usePdfViewerVirtualization({
             bufferPages: computed(() => 0),
             viewMode: computed(() => 'single'),
@@ -383,7 +384,7 @@ describe('usePdfViewerVirtualization', () => {
                 height: 100,
             }))),
             pageMetricsVersion: ref(0),
-            effectiveScale: ref(1),
+            effectiveScale,
             scaledMargin: ref(20),
             visibleRange: ref({
                 start: 30,
@@ -403,7 +404,14 @@ describe('usePdfViewerVirtualization', () => {
 
         expect(virtualization.virtualWindowStart.value).toBe(30);
         expect(virtualization.virtualWindowEnd.value).toBe(34);
-        expect(virtualization.topVirtualSpacerStyle.value).toEqual({height: '1234px'});
-        expect(virtualization.bottomVirtualSpacerStyle.value).toEqual({height: '5678px'});
+        expect(virtualization.topVirtualSpacerStyle.value).toEqual({height: '3460px'});
+        expect(virtualization.bottomVirtualSpacerStyle.value).toEqual({height: '3100px'});
+
+        effectiveScale.value = 2;
+
+        expect(virtualization.virtualWindowStart.value).toBe(30);
+        expect(virtualization.virtualWindowEnd.value).toBe(34);
+        expect(virtualization.topVirtualSpacerStyle.value).toEqual({height: '6360px'});
+        expect(virtualization.bottomVirtualSpacerStyle.value).toEqual({height: '5700px'});
     });
 });

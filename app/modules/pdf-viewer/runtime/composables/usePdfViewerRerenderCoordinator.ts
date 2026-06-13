@@ -24,6 +24,7 @@ import { shouldPreserveExistingRerenderContent } from '@app/modules/pdf-viewer/r
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
 const ZOOM_CHANGE_MAX_CANVAS_PIXELS = 14_000_000;
 const ZOOM_CHANGE_SETTLE_CLAMP_SCALE_THRESHOLD = 0.98;
+const ZOOM_GESTURE_CHANGE_SOURCE = 'zoom-gesture-change';
 const CURRENT_PAGE_FIT_RERENDER_SETTLE_MS = 80;
 const CURRENT_PAGE_FIT_CANCEL_SETTLE_MS = 150;
 const FIT_HEIGHT_PRE_RENDER_SNAP_MAX_TICKS = 4;
@@ -225,6 +226,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     function resolveRerenderBufferOverride(source: string) {
         if (
             source === 'zoom-change'
+            || source === ZOOM_GESTURE_CHANGE_SOURCE
             || source === 'zoom-settle'
             || source === 'fit-mode'
             || source === 'fit-height-current-page'
@@ -236,7 +238,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     }
 
     function resolveMaxCanvasPixelsOverride(source: string) {
-        if (source !== 'zoom-change') {
+        if (source !== ZOOM_GESTURE_CHANGE_SOURCE) {
             return undefined;
         }
         return ZOOM_CHANGE_MAX_CANVAS_PIXELS;
@@ -442,7 +444,10 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         message: string,
         buildPayload: () => Record<string, unknown>,
     ) {
-        if (source !== 'zoom-change') {
+        if (
+            source !== 'zoom-change'
+            && source !== ZOOM_GESTURE_CHANGE_SOURCE
+        ) {
             return;
         }
         BrowserLogger.diagnostic('pdf-zoom-debug', message, buildPayload());
@@ -807,6 +812,9 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             cancelInFlightPageRenders?.();
             const zoomViewportAnchor = consumeZoomViewportAnchor?.() ?? null;
             const trustCurrentPageAnchor = !zoomViewportAnchor && canTrustCurrentPageAsZoomAnchor();
+            const zoomRerenderSource = zoomViewportAnchor
+                ? ZOOM_GESTURE_CHANGE_SOURCE
+                : 'zoom-change';
             const zoomAnchor = buildResizeAnchorContext({
                 anchorViewportX: zoomViewportAnchor?.x ?? null,
                 anchorViewportY: zoomViewportAnchor?.y ?? null,
@@ -818,11 +826,12 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 nextZoom,
                 consumedZoomViewportAnchor: zoomViewportAnchor,
                 trustCurrentPageAnchor,
+                zoomRerenderSource,
                 builtZoomAnchor: zoomAnchor,
                 viewer: summarizeViewerMetricsForLog(viewerContainer.value),
             });
             enqueueZoomSync({
-                source: 'zoom-change',
+                source: zoomRerenderSource,
                 stabilize: true,
                 resizeAnchor: zoomAnchor,
             });
