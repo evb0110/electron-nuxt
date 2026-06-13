@@ -32,6 +32,8 @@ import { useMetadataSession } from '@app/modules/workspace-shell/composables/use
 import { useDocumentOperationLease } from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import { WORKSPACE_PAGE_NAVIGATION_LOCK_MS } from '@app/modules/workspace-shell/workspacePageNavigationLockMs';
 
 interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;
@@ -44,7 +46,6 @@ interface IWorkspaceOrchestrationDeps {
     };
 }
 
-const WORKSPACE_PAGE_NAVIGATION_LOCK_MS = 10_000;
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 
 export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => {
@@ -472,22 +473,37 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const programmaticPageNavigationTarget = ref<number | null>(null);
     let programmaticPageNavigationTimer: ReturnType<typeof setTimeout> | null = null;
 
-    function clearProgrammaticPageNavigationTarget() {
+    function clearProgrammaticPageNavigationTarget(reason = 'clear') {
         if (programmaticPageNavigationTimer !== null) {
             clearTimeout(programmaticPageNavigationTimer);
             programmaticPageNavigationTimer = null;
         }
+        logPdfRenderTrace('workspace-programmatic-page-navigation-cleared', {
+            reason,
+            targetPage: programmaticPageNavigationTarget.value,
+        });
         programmaticPageNavigationTarget.value = null;
     }
 
     function beginProgrammaticPageNavigation(page: number) {
+        const previousTargetPage = programmaticPageNavigationTarget.value;
         programmaticPageNavigationTarget.value = page;
         if (programmaticPageNavigationTimer !== null) {
             clearTimeout(programmaticPageNavigationTimer);
         }
+        logPdfRenderTrace('workspace-programmatic-page-navigation-begin', {
+            page,
+            previousTargetPage,
+            lockMs: WORKSPACE_PAGE_NAVIGATION_LOCK_MS,
+            currentPage: currentPage.value,
+        });
         programmaticPageNavigationTimer = setTimeout(() => {
             programmaticPageNavigationTimer = null;
             if (programmaticPageNavigationTarget.value === page) {
+                logPdfRenderTrace('workspace-programmatic-page-navigation-expired', {
+                    page,
+                    currentPage: currentPage.value,
+                });
                 programmaticPageNavigationTarget.value = null;
             }
         }, WORKSPACE_PAGE_NAVIGATION_LOCK_MS);
@@ -496,12 +512,30 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     function shouldAcceptViewerCurrentPageUpdate(page: number) {
         const targetPage = programmaticPageNavigationTarget.value;
         if (targetPage === null) {
+            logPdfRenderTrace('workspace-viewer-current-page-update-accepted', {
+                page,
+                targetPage,
+                currentPage: currentPage.value,
+                reason: 'no-programmatic-target',
+            });
             return true;
         }
         if (page !== targetPage) {
+            logPdfRenderTrace('workspace-viewer-current-page-update-rejected', {
+                page,
+                targetPage,
+                currentPage: currentPage.value,
+                reason: 'target-pending',
+            });
             return false;
         }
-        clearProgrammaticPageNavigationTarget();
+        logPdfRenderTrace('workspace-viewer-current-page-update-accepted', {
+            page,
+            targetPage,
+            currentPage: currentPage.value,
+            reason: 'target-caught-up',
+        });
+        clearProgrammaticPageNavigationTarget('target-caught-up');
         return true;
     }
 

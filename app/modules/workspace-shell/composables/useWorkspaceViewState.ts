@@ -151,11 +151,11 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
             hasExplicitScrollTarget,
             hasViewer: Boolean(deps.pdfViewerRef.value),
         });
-        deps.beginProgrammaticPageNavigation?.(targetPage);
         if (wasAlreadyCurrentPage && !hasExplicitScrollTarget) {
             logPdfRenderTrace('workspace-go-to-page-skip-scroll-duplicate', { targetPage });
             return;
         }
+        deps.beginProgrammaticPageNavigation?.(targetPage);
         deps.pdfViewerRef.value?.scrollToPage(targetPage, options);
     }
 

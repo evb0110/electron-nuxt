@@ -323,7 +323,6 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         );
     }
     let ensurePagePreviewRangeBridge: Parameters<typeof usePdfSinglePageNavigationController>[0]['ensurePagePreviewRange'] = () => {};
-    let hasPagePreviewBridge = (_pageNumber: number) => false;
     let getPagePreviewBridge: ReturnType<typeof usePdfRenderViewModel>['getPagePreview'] = () => null;
     const singlePageScroll = usePdfSinglePageNavigationController({
         viewerContainer,
@@ -636,10 +635,19 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
             ),
         );
     }
+    function hasDrawnPagePreview(pageNumber: number) {
+        const pageElement = viewerContainer.value?.querySelector<HTMLElement>(
+            `.page_container[data-page="${pageNumber}"]`,
+        );
+        return Boolean(
+            pageElement?.classList.contains('page_container--preview-drawn')
+            && pageElement.querySelector('.page_preview canvas[data-preview-id]'),
+        );
+    }
     function isPageVisuallyReady(pageNumber: number) {
         return (
             isPageRenderedForClass(pageNumber)
-            || hasPagePreviewBridge(pageNumber)
+            || hasDrawnPagePreview(pageNumber)
             || (
                 hasMountedPageCanvas(pageNumber)
                 && isPageRendering(pageNumber)
@@ -707,6 +715,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         isPageRendering,
         hasMountedPageCanvas,
         shouldShowSkeleton: shouldShowNavigationSkeleton,
+        isPagePreviewDrawn: hasDrawnPagePreview,
         visibleRange,
         pagedNavigationTargetPage: singlePageScroll.pagedNavigationTargetPage,
         currentPage: viewerCurrentPage,
@@ -725,7 +734,6 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         runGuardedTask,
     });
     ensurePagePreviewRangeBridge = renderViewModel.ensurePagePreviewRange;
-    hasPagePreviewBridge = renderViewModel.hasPagePreview;
     getPagePreviewBridge = renderViewModel.getPagePreview;
     const {
         visibleMarkersByPage,
@@ -756,7 +764,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         return getPagePreviewBridge(page);
     }
     function handlePagePreviewDrawn(page: number) {
-        void page;
+        singlePageScroll.releasePagedNavigationHoldForPage(page);
     }
     const {
         captureViewerScrollSnapshot,

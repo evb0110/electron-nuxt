@@ -18,6 +18,17 @@ describe('shouldShowPdfNavigationSkeleton', () => {
         })).toBe(true);
     });
 
+    it('does not let a stale skeleton decision cover visually ready content', () => {
+        expect(shouldShowPdfNavigationSkeleton({
+            pageNumber: 20,
+            navigationAnchorPage: 20,
+            totalPages: 100,
+            viewMode: 'single',
+            isPageRendered: vi.fn(() => true),
+            shouldShowSkeleton: vi.fn(() => true),
+        })).toBe(false);
+    });
+
     it('allows the active continuous navigation target while visibleRange catches up', () => {
         expect(shouldShowPdfNavigationSkeleton({
             pageNumber: 13,

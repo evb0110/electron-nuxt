@@ -46,6 +46,7 @@ const CONTINUOUS_NAVIGATION_TARGET_MAX_HOLD_MS = 6_000;
 const CONTINUOUS_NAVIGATION_REAPPLY_EPSILON = 0.5;
 const PAGED_NAVIGATION_HOLD_STALL_LOG_MS = 4_000;
 const PAGED_NAVIGATION_SETTLE_TIMEOUT_MS = 800;
+const PROGRAMMATIC_NAVIGATION_RELEASE_RETRY_MS = 40;
 
 interface IPageRowGeometry {
     top: number;
@@ -279,6 +280,7 @@ export const usePdfSinglePageScroll = (
     let pagedNavigationTargetScrollOptions: Pick<IScrollToPageOptions, 'pageYRatio'> | undefined;
     let isDisposed = false;
     let pagedNavigationHardHoldTimer: ReturnType<typeof setTimeout> | null = null;
+    let programmaticNavigationReleaseTimer: ReturnType<typeof setTimeout> | null = null;
     const navigationEffects = createNavigationSettleEffects({
         getLayoutObserverElements: resolveContinuousNavigationLayoutObserverElements,
         hasLayoutMutation: hasContinuousNavigationLayoutMutation,
@@ -308,6 +310,33 @@ export const usePdfSinglePageScroll = (
             clearTimeout(pagedNavigationHardHoldTimer);
             pagedNavigationHardHoldTimer = null;
         }
+    }
+
+    function clearProgrammaticNavigationReleaseTimer() {
+        if (!programmaticNavigationReleaseTimer) {
+            return;
+        }
+        clearTimeout(programmaticNavigationReleaseTimer);
+        programmaticNavigationReleaseTimer = null;
+    }
+
+    function scheduleProgrammaticNavigationRelease() {
+        clearProgrammaticNavigationReleaseTimer();
+        if (!isProgrammaticNavigationActive.value || isDisposed) {
+            return;
+        }
+
+        const remainingMs = snapSuppressUntil.value - Date.now();
+        const delayMs = remainingMs > 0
+            ? remainingMs
+            : PROGRAMMATIC_NAVIGATION_RELEASE_RETRY_MS;
+        programmaticNavigationReleaseTimer = setTimeout(() => {
+            programmaticNavigationReleaseTimer = null;
+            maybeReleaseProgrammaticNavigation();
+            if (isProgrammaticNavigationActive.value && !isDisposed) {
+                scheduleProgrammaticNavigationRelease();
+            }
+        }, delayMs);
     }
 
     function clearPagedNavigationHold(runId?: number) {
@@ -523,6 +552,7 @@ export const usePdfSinglePageScroll = (
         snapSuppressUntil.value = 0;
         isProgrammaticNavigationActive.value = false;
         isSnapping.value = false;
+        clearProgrammaticNavigationReleaseTimer();
     }
 
     function waitForContinuousRenderFrame() {
@@ -674,6 +704,7 @@ export const usePdfSinglePageScroll = (
         const now = Date.now();
         snapSuppressUntil.value = Math.max(snapSuppressUntil.value, now + ms);
         isProgrammaticNavigationActive.value = true;
+        scheduleProgrammaticNavigationRelease();
     }
 
     function maybeReleaseProgrammaticNavigation() {
@@ -682,6 +713,7 @@ export const usePdfSinglePageScroll = (
             && Date.now() >= snapSuppressUntil.value
         ) {
             isProgrammaticNavigationActive.value = false;
+            clearProgrammaticNavigationReleaseTimer();
         }
     }
 
@@ -740,6 +772,7 @@ export const usePdfSinglePageScroll = (
             const runId = getActiveSearchNavigationRunId();
             snapSuppressUntil.value = 0;
             isProgrammaticNavigationActive.value = false;
+            clearProgrammaticNavigationReleaseTimer();
             if (runId !== null && isNavigationRunCurrent(runId)) {
                 dispatchNavigationMachine({ type: 'CANCEL' });
             }
@@ -878,8 +911,22 @@ export const usePdfSinglePageScroll = (
 
     function isMountedPageVisuallyUsable(pageNumber: number) {
         const state = getMountedPageVisualState(pageNumber);
-        const isFreshlyRendered = options.isPageFreshlyRenderedForNavigation?.(pageNumber) ?? state.renderedClass;
-        return !state.buffered && state.hasCanvas && state.renderedClass && isFreshlyRendered;
+        return getMountedPageVisualReadiness(pageNumber, state).usable;
+    }
+
+    function getMountedPageVisualReadiness(
+        pageNumber: number,
+        state: IMountedPageVisualState,
+    ) {
+        const freshlyRendered = options.isPageFreshlyRenderedForNavigation?.(pageNumber) ?? state.renderedClass;
+        const hasUsableCanvas = state.hasCanvas && state.renderedClass && freshlyRendered;
+        const hasUsablePreview = state.hasPreviewCanvas && state.previewDrawnClass;
+        return {
+            freshlyRendered,
+            hasUsableCanvas,
+            hasUsablePreview,
+            usable: !state.buffered && (hasUsableCanvas || hasUsablePreview),
+        };
     }
 
     function getMountedPageRowVisualStates(range: {
@@ -892,11 +939,9 @@ export const usePdfSinglePageScroll = (
         }> = {};
         for (let pageNumber = range.start; pageNumber <= range.end; pageNumber += 1) {
             const visualState = getMountedPageVisualState(pageNumber);
-            const freshlyRendered = options.isPageFreshlyRenderedForNavigation?.(pageNumber) ?? visualState.renderedClass;
             states[pageNumber] = {
                 ...visualState,
-                freshlyRendered,
-                usable: !visualState.buffered && visualState.hasCanvas && visualState.renderedClass && freshlyRendered,
+                ...getMountedPageVisualReadiness(pageNumber, visualState),
             };
         }
         return states;
@@ -1977,6 +2022,7 @@ export const usePdfSinglePageScroll = (
         navigationEffects.clearSearchSettle();
         navigationEffects.clearContinuous();
         isProgrammaticNavigationActive.value = false;
+        clearProgrammaticNavigationReleaseTimer();
         continuousNavigationTargetPage.value = null;
         continuousNavigationTargetScrollOptions = undefined;
         snapSuppressUntil.value = 0;
@@ -1987,6 +2033,7 @@ export const usePdfSinglePageScroll = (
         isDisposed = true;
         pagedNavigationTargetScrollOptions = undefined;
         clearPagedNavigationHold();
+        clearProgrammaticNavigationReleaseTimer();
         navigationEffects.disposeAll();
     });
 

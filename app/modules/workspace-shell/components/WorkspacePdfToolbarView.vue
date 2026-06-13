@@ -350,10 +350,9 @@ const viewMode = computed({
 });
 const {
     currentPage,
-    handleGoToPage: handleBufferedGoToPage,
+    handleGoToPage: handleToolbarGoToPage,
 } = useWorkspaceToolbarPageModel({
     sourcePage: () => snapshot.currentPage,
-    updateCurrentPage: page => emit('update:currentPage', page),
     goToPage: page => emit('go-to-page', page),
 });
 
@@ -518,7 +517,7 @@ function handleSetViewMode(mode: TPdfViewMode) {
 }
 
 function handleGoToPage(page: number) {
-    handleBufferedGoToPage(page);
+    handleToolbarGoToPage(page);
 }
 
 function handleOpenOcr() {

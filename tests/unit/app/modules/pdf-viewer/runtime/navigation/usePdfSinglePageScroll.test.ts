@@ -595,6 +595,37 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         }
     });
 
+    it('commits paged navigation when the target row has a drawn preview before full canvas', async () => {
+        const {
+            currentPage,
+            emitCurrentPage,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            canvasReadyPageNumbers: [
+                1,
+                2,
+            ],
+            freshRenderedPageNumbers: [
+                1,
+                2,
+            ],
+            previewReadyPageNumbers: [3],
+            visuallyReadyPageNumbers: [
+                1,
+                2,
+            ],
+        });
+
+        singlePageScroll.scrollToPage(3);
+        await nextTick();
+        await Promise.resolve();
+        await nextTick();
+
+        expect(currentPage.value).toBe(3);
+        expect(emitCurrentPage).toHaveBeenCalledWith(3);
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
+    });
+
     it('walks search navigation state through navigating, settling, then idle', () => {
         vi.useFakeTimers();
         try {
@@ -1697,9 +1728,10 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         }
     });
 
-    it('does not commit paged navigation when only a low-resolution preview is ready', async () => {
+    it('commits paged navigation when a drawn preview is ready before full canvas', async () => {
         const {
             currentPage,
+            emitCurrentPage,
             singlePageScroll,
         } = createSinglePageScrollHarness({
             suppressPagedRowRender: () => true,
@@ -1710,10 +1742,62 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         singlePageScroll.scrollToPage(2);
         await nextTick();
 
+        expect(currentPage.value).toBe(2);
+        expect(emitCurrentPage).toHaveBeenCalledWith(2);
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
+        expect(singlePageScroll.isNavigationHeldPage(1)).toBe(false);
+        expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(false);
+    });
+
+    it('commits held paged navigation when the target preview is drawn after mounting', async () => {
+        const {
+            currentPage,
+            markPagePreviewReady,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            suppressPagedRowRender: () => true,
+            visuallyReadyPageNumbers: [1],
+        });
+
+        singlePageScroll.scrollToPage(2);
+        await nextTick();
+
         expect(currentPage.value).toBe(1);
         expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(2);
         expect(singlePageScroll.isNavigationHeldPage(1)).toBe(true);
-        expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(true);
+
+        markPagePreviewReady(2);
+        singlePageScroll.releasePagedNavigationHoldForPage(2);
+
+        expect(currentPage.value).toBe(2);
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
+        expect(singlePageScroll.isNavigationHeldPage(1)).toBe(false);
+    });
+
+    it('releases programmatic navigation after an early preview commit reaches the settle window', async () => {
+        vi.useFakeTimers();
+        try {
+            const {
+                currentPage,
+                singlePageScroll,
+            } = createSinglePageScrollHarness({
+                suppressPagedRowRender: () => true,
+                visuallyReadyPageNumbers: [1],
+                previewReadyPageNumbers: [2],
+            });
+
+            singlePageScroll.scrollToPage(2);
+            await nextTick();
+
+            expect(currentPage.value).toBe(2);
+            expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(true);
+
+            vi.advanceTimersByTime(800);
+
+            expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('does not commit paged navigation when the target canvas exists before render finalization', async () => {
