@@ -52,41 +52,27 @@
         </div>
     </div>
 
-    <Teleport to="body">
-        <div
-            v-if="contextMenu.visible"
-            ref="contextMenuRef"
-            class="tab-context-menu"
-            :style="contextMenuStyle"
-            @click.stop
-            @contextmenu.prevent
-        >
-            <template v-for="(section, sectionIndex) in menuSections" :key="section.key">
-                <div v-if="sectionIndex > 0" class="tab-context-menu-divider" />
-                <p v-if="section.title" class="tab-context-menu-section">{{ section.title }}</p>
-                <button
-                    v-for="action in section.actions"
-                    :key="action.key"
-                    type="button"
-                    class="tab-context-menu-action"
-                    @click="runContextCommand(action.command)"
-                >
-                    {{ action.label }}
-                </button>
-            </template>
-        </div>
-    </Teleport>
+    <UDropdownMenu
+        v-model:open="contextMenuOpen"
+        :items="contextMenuItems"
+        :content="contextMenuContentOptions"
+        :ui="contextMenuUi"
+        portal="body"
+    >
+        <button
+            type="button"
+            class="tab-context-menu-anchor"
+            :style="contextMenuAnchorStyle"
+            tabindex="-1"
+            aria-hidden="true"
+        />
+    </UDropdownMenu>
 </template>
 
 <script setup lang="ts">
-
-import {
-    onClickOutside,
-    useEventListener,
-} from '@vueuse/core';
+import { useEventListener } from '@vueuse/core';
 import type { ITab } from '@app/types/tabs';
 import { useTabDragReorder } from '@app/modules/workspace-shell/composables/useTabDragReorder';
-import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
 import type { TPaneDirection } from '@app/types/editorPanes';
 import { getDocumentRefDisplayLabel } from '@app/utils/documentRef';
 import type {
@@ -101,7 +87,6 @@ import {
 } from '@app/utils/platformWindowTabs';
 
 const { t } = useTypedI18n();
-const { clampToViewport } = useContextMenuPosition();
 const DIRECTION_ORDER = [
     'right',
     'left',
@@ -122,6 +107,16 @@ interface IContextMenuSection {
     title?: string;
     actions: IContextMenuAction[];
 }
+
+type TTabContextMenuItem =
+    | {
+        type: 'label' | 'separator';
+        label?: string;
+    }
+    | {
+        label: string;
+        onSelect: () => void;
+    };
 
 const {
     contextAvailability = undefined,
@@ -146,7 +141,6 @@ function handleNewTab() {
 }
 
 const tabBarRef = useTemplateRef<HTMLElement>('tabBarRef');
-const contextMenuRef = ref<HTMLElement | null>(null);
 const contextMenu = ref<{
     visible: boolean;
     x: number;
@@ -160,10 +154,34 @@ const contextMenu = ref<{
 });
 const windowTransferTargets = ref<IWindowTabTargetWindow[]>([]);
 const canUseNativeWindowTransfers = computed(() => canUseNativeWindowTabTransfers());
-const contextMenuStyle = computed(() => ({
+const contextMenuAnchorStyle = computed(() => ({
     left: `${contextMenu.value.x}px`,
     top: `${contextMenu.value.y}px`,
 }));
+const contextMenuOpen = computed({
+    get: () => contextMenu.value.visible,
+    set: (open: boolean) => {
+        if (!open) {
+            closeTabContextMenu();
+            return;
+        }
+        contextMenu.value.visible = true;
+    },
+});
+const contextMenuContentOptions = {
+    side: 'bottom' as const,
+    align: 'start' as const,
+    sideOffset: 0,
+    collisionPadding: 8,
+    positionStrategy: 'fixed' as const,
+    updatePositionStrategy: 'always' as const,
+};
+const contextMenuUi = {
+    content: 'tab-context-menu',
+    label: 'tab-context-menu-section',
+    separator: 'tab-context-menu-divider',
+    item: 'tab-context-menu-action',
+};
 const canCloseTabs = computed(() => contextAvailability?.canClose ?? true);
 
 function resolveTabTitle(tab: ITab) {
@@ -353,6 +371,28 @@ const menuSections = computed<IContextMenuSection[]>(() => {
     return sections;
 });
 
+const contextMenuItems = computed<TTabContextMenuItem[]>(() => {
+    const items: TTabContextMenuItem[] = [];
+    for (const section of menuSections.value) {
+        if (items.length > 0) {
+            items.push({ type: 'separator' });
+        }
+
+        if (section.title) {
+            items.push({
+                type: 'label',
+                label: section.title,
+            });
+        }
+
+        items.push(...section.actions.map(action => ({
+            label: action.label,
+            onSelect: () => runContextCommand(action.command),
+        })));
+    }
+    return items;
+});
+
 const {
     isDragging,
     dragIndex,
@@ -411,24 +451,6 @@ function closeTabContextMenu() {
     contextMenu.value.tabId = null;
 }
 
-function positionContextMenu(x: number, y: number) {
-    const menuElement = contextMenuRef.value;
-    if (!menuElement) {
-        contextMenu.value.x = x;
-        contextMenu.value.y = y;
-        return;
-    }
-
-    const clamped = clampToViewport(
-        x,
-        y,
-        menuElement.offsetWidth,
-        menuElement.offsetHeight,
-    );
-    contextMenu.value.x = clamped.x;
-    contextMenu.value.y = clamped.y;
-}
-
 async function loadWindowTransferTargets() {
     if (!canUseNativeWindowTransfers.value) {
         windowTransferTargets.value = [];
@@ -440,12 +462,6 @@ async function loadWindowTransferTargets() {
     } catch {
         windowTransferTargets.value = [];
     }
-
-    if (!contextMenu.value.visible) {
-        return;
-    }
-    await nextTick();
-    positionContextMenu(contextMenu.value.x, contextMenu.value.y);
 }
 
 function openTabContextMenu(event: MouseEvent, tabId: string) {
@@ -455,13 +471,6 @@ function openTabContextMenu(event: MouseEvent, tabId: string) {
     contextMenu.value.y = event.clientY;
 
     void loadWindowTransferTargets();
-
-    void nextTick(() => {
-        if (!contextMenu.value.visible) {
-            return;
-        }
-        positionContextMenu(event.clientX, event.clientY);
-    });
 }
 
 function runContextCommand(command: TTabContextCommand) {
@@ -492,13 +501,48 @@ useEventListener(window, 'keydown', (event) => {
     }
 });
 
-onClickOutside(contextMenuRef, () => {
-    if (!contextMenu.value.visible) {
-        return;
-    }
-    closeTabContextMenu();
-});
 </script>
+
+<style>
+.tab-context-menu {
+    min-width: 210px;
+    max-width: min(560px, calc(100vw - 16px));
+    padding: 0;
+    border: 1px solid var(--ui-border);
+    border-radius: 0.375rem;
+    overflow: hidden;
+    background: var(--ui-border);
+}
+
+.tab-context-menu-divider {
+    height: 1px;
+    margin: 0;
+    background: var(--ui-border);
+}
+
+.tab-context-menu-section {
+    margin: 0;
+    padding: 0.45rem 0.6rem 0.35rem;
+    background: var(--ui-bg-muted);
+    color: var(--ui-text-dimmed);
+    font-size: 0.64rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.tab-context-menu-action {
+    width: 100%;
+    min-width: 0;
+    min-height: 2rem;
+    padding: 0 0.6rem;
+    border-radius: 0;
+    background: var(--ui-bg);
+    color: var(--ui-text);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+}
+</style>
 
 <style scoped>
 .tab-bar {
@@ -683,65 +727,13 @@ onClickOutside(contextMenuRef, () => {
     opacity: 0.7;
 }
 
-.tab-context-menu {
+.tab-context-menu-anchor {
     position: fixed;
-    z-index: 1400;
-    min-width: 210px;
-    max-width: min(560px, calc(100vw - 16px));
-    display: grid;
-    gap: 1px;
-    border: 1px solid var(--ui-border);
-    border-radius: 0.375rem;
-    overflow: hidden;
-    background: var(--ui-border);
-}
-
-.tab-context-menu-divider {
+    width: 1px;
     height: 1px;
-    background: var(--ui-border);
-}
-
-.tab-context-menu-section {
-    margin: 0;
-    padding: 0.45rem 0.6rem 0.35rem;
-    background: var(--ui-bg-muted);
-    color: var(--ui-text-dimmed);
-    font-size: 0.64rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    font-weight: 600;
-}
-
-.tab-context-menu-action {
-    display: flex;
-    align-items: center;
-    width: 100%;
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    text-align: left;
-    border: none;
-    background: var(--ui-bg);
-    color: var(--ui-text);
-    min-height: 2rem;
-    padding: 0 0.6rem;
-    cursor: pointer;
-    font-size: 0.8125rem;
-}
-
-.tab-context-menu-action:hover {
-    background: color-mix(in oklab, var(--ui-bg) 93%, var(--ui-primary) 7%);
-}
-
-.tab-context-menu-action:disabled {
-    cursor: default;
-    color: var(--ui-text-dimmed);
-    background: var(--ui-bg);
-    opacity: 0.6;
-}
-
-.tab-context-menu-action:disabled:hover {
-    background: var(--ui-bg);
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    pointer-events: none;
 }
 </style>

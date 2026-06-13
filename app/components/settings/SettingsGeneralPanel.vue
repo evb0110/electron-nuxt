@@ -2,10 +2,11 @@
     <fieldset class="settings-section flex flex-col gap-2.5">
         <legend class="settings-section-title">{{ t('settings.general') }}</legend>
 
-        <div class="settings-field flex flex-col gap-1">
-            <label class="settings-field-label" for="settings-author">
-                {{ t('settings.author') }}
-            </label>
+        <UFormField
+            :label="t('settings.author')"
+            :help="t('settings.authorDescription')"
+            :ui="settingsFormFieldUi"
+        >
             <UInput
                 id="settings-author"
                 :model-value="settings.authorName"
@@ -13,59 +14,55 @@
                 icon="i-ph-user"
                 @update:model-value="updateAuthorName"
             />
-            <p class="settings-field-hint">{{ t('settings.authorDescription') }}</p>
-        </div>
+        </UFormField>
 
-        <div class="settings-field flex flex-col gap-1">
-            <label class="settings-field-label">{{ t('settings.theme') }}</label>
-            <div class="settings-segmented">
-                <button
-                    type="button"
-                    class="settings-seg-btn"
-                    :class="{ 'is-active': settings.theme === 'light' }"
-                    @click="emit('update:theme', 'light')"
-                >
-                    <UIcon name="i-ph-sun" class="settings-seg-icon" />
-                    {{ t('settings.themeLight') }}
-                </button>
-                <button
-                    type="button"
-                    class="settings-seg-btn"
-                    :class="{ 'is-active': settings.theme === 'dark' }"
-                    @click="emit('update:theme', 'dark')"
-                >
-                    <UIcon name="i-ph-moon" class="settings-seg-icon" />
-                    {{ t('settings.themeDark') }}
-                </button>
-            </div>
-        </div>
+        <URadioGroup
+            class="settings-field"
+            :model-value="settings.theme"
+            :legend="t('settings.theme')"
+            :items="themeOptions"
+            value-key="value"
+            variant="table"
+            orientation="horizontal"
+            indicator="hidden"
+            :ui="settingsRadioGroupUi"
+            @update:model-value="updateTheme"
+        >
+            <template #label="{ item }">
+                <span class="settings-radio-label">
+                    <UIcon :name="item.icon" class="settings-radio-icon" />
+                    <span>{{ item.label }}</span>
+                </span>
+            </template>
+        </URadioGroup>
 
-        <div class="settings-field flex flex-col gap-1">
-            <label class="settings-field-label">{{ t('settings.language') }}</label>
+        <UFormField
+            :label="t('settings.language')"
+            :ui="settingsFormFieldUi"
+        >
             <USelectMenu
                 :model-value="settings.locale"
                 :items="localeItems"
                 value-key="value"
                 :icon="selectedFlagIcon"
                 :search-input="false"
+                :ui="localeSelectUi"
                 @update:model-value="emit('update:locale', $event)"
             />
-        </div>
+        </UFormField>
 
         <div class="settings-field flex flex-col gap-1">
-            <label class="settings-field-label">{{ t('settings.uiScale') }}</label>
-            <div class="settings-segmented settings-segmented--five">
-                <button
-                    v-for="option in uiScaleOptions"
-                    :key="option.value"
-                    type="button"
-                    class="settings-seg-btn"
-                    :class="{ 'is-active': settings.uiScale === option.value }"
-                    @click="emit('update:ui-scale', option.value)"
-                >
-                    {{ option.label }}
-                </button>
-            </div>
+            <URadioGroup
+                :model-value="settings.uiScale"
+                :legend="t('settings.uiScale')"
+                :items="uiScaleOptions"
+                value-key="value"
+                variant="table"
+                orientation="horizontal"
+                indicator="hidden"
+                :ui="settingsRadioGroupUi"
+                @update:model-value="updateUiScale"
+            />
             <p class="settings-field-hint">{{ t('settings.uiScaleDescription') }}</p>
         </div>
     </fieldset>
@@ -99,6 +96,33 @@ const emit = defineEmits<{
 
 const { t } = useTypedI18n();
 
+const settingsFormFieldUi = {
+    label: 'settings-field-label',
+    help: 'settings-field-hint mt-1',
+};
+const settingsRadioGroupUi = {
+    fieldset: 'w-full',
+    legend: 'settings-field-label',
+    item: 'flex-1 cursor-pointer justify-center px-2 py-1.5',
+    label: 'w-full text-center text-xs font-medium',
+};
+const localeSelectUi = { content: 'max-h-[min(24rem,var(--reka-combobox-content-available-height,24rem))]' };
+const themeOptions = computed<Array<{
+    value: TAppTheme;
+    label: string;
+    icon: string;
+}>>(() => [
+    {
+        value: 'light',
+        label: t('settings.themeLight'),
+        icon: 'i-ph-sun',
+    },
+    {
+        value: 'dark',
+        label: t('settings.themeDark'),
+        icon: 'i-ph-moon',
+    },
+]);
 const uiScaleOptions = computed<Array<{
     value: TUiScalePreference;
     label: string;
@@ -129,59 +153,28 @@ function updateAuthorName(value: string | number) {
     emit('update:author-name', String(value));
 }
 
+function updateTheme(value: TAppTheme) {
+    emit('update:theme', value);
+}
+
+function updateUiScale(value: TUiScalePreference) {
+    emit('update:ui-scale', value);
+}
+
 </script>
 
 <style lang="scss" scoped>
 @use '@app/assets/css/settings-panel-shared';
 
-.settings-segmented {
-    display: flex;
-    gap: 2px;
-    padding: 3px;
-    border-radius: calc(var(--ui-radius) * 1.5);
-    background: var(--ui-bg-muted);
-}
-
-.settings-seg-btn {
-    flex: 1;
-    display: flex;
+.settings-radio-label {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.3rem;
-    border: 1px solid transparent;
-    border-radius: var(--ui-radius);
-    background: transparent;
-    color: var(--ui-text-muted);
-    height: 2rem;
-    padding: 0 0.75rem;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background-color $ease-standard, color $ease-standard, border-color $ease-standard;
+    gap: var(--app-space-md);
+    min-width: 0;
 }
 
-.settings-segmented--five .settings-seg-btn {
-    padding: 0 0.4rem;
-    font-size: 0.78rem;
-}
-
-.settings-seg-btn:hover:not(.is-active) {
-    color: var(--ui-text);
-}
-
-.settings-seg-btn.is-active {
-    background: var(--app-toolbar-control-active-bg);
-    border-color: var(--app-toolbar-control-active-border);
-    color: var(--ui-text);
-    font-weight: 600;
-}
-
-.settings-seg-btn.is-active:hover {
-    background: var(--app-toolbar-control-active-hover-bg);
-    border-color: var(--app-toolbar-control-active-hover-border);
-}
-
-.settings-seg-icon {
+.settings-radio-icon {
     width: 0.875rem;
     height: 0.875rem;
     flex-shrink: 0;

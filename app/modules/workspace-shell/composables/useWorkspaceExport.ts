@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { useTimeoutFn } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -47,14 +48,23 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     const exportScopeDialogMode = ref<TExportDialogMode>('images');
     const exportScopeDialogSelectedPages = ref<number[]>([]);
     let exportScopeDialogResolver: ((selection: number[] | undefined | null) => void) | null = null;
-    let exportOverlayResetTimer: ReturnType<typeof setTimeout> | null = null;
     let exportProgressCleanup: (() => void) | null = null;
 
-    function clearExportOverlayTimer() {
-        if (exportOverlayResetTimer !== null) {
-            clearTimeout(exportOverlayResetTimer);
-            exportOverlayResetTimer = null;
+    const {
+        start: startExportOverlayResetTimer,
+        stop: stopExportOverlayResetTimer,
+    } = useTimeoutFn((kind: TExportOverlayKind, pageCount: number) => {
+        if (
+            exportOverlay.value?.kind === kind
+            && exportOverlay.value.state === 'success'
+            && exportOverlay.value.pageCount === pageCount
+        ) {
+            exportOverlay.value = null;
         }
+    }, 2200, { immediate: false });
+
+    function clearExportOverlayTimer() {
+        stopExportOverlayResetTimer();
     }
 
     function setExportOverlay(status: IExportOverlayStatus | null) {
@@ -107,16 +117,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             pageCount,
             state: 'success',
         });
-        exportOverlayResetTimer = setTimeout(() => {
-            exportOverlayResetTimer = null;
-            if (
-                exportOverlay.value?.kind === kind
-                && exportOverlay.value.state === 'success'
-                && exportOverlay.value.pageCount === pageCount
-            ) {
-                exportOverlay.value = null;
-            }
-        }, 2200);
+        startExportOverlayResetTimer(kind, pageCount);
     }
 
     function normalizeExportSelectedPages(selectedPages: number[]) {

@@ -1,28 +1,49 @@
 <template>
-    <details class="settings-details flex flex-col">
-        <summary class="settings-section-title is-toggle">
-            {{ t('settings.shortcuts') }}
-        </summary>
-        <p class="settings-field-hint">
-            {{ description }}
-        </p>
-        <div class="flex flex-col">
-            <div
-                v-for="item in items"
-                :key="item.label"
-                class="settings-shortcut-row flex items-center justify-between gap-3"
+    <UCollapsible
+        v-model:open="shortcutsOpen"
+        :unmount-on-hide="false"
+        class="settings-details flex flex-col"
+    >
+        <template #default="{ open }">
+            <button
+                type="button"
+                class="settings-section-title is-toggle"
+                :aria-expanded="open ? 'true' : 'false'"
             >
-                <span class="settings-shortcut-label">{{ item.label }}</span>
-                <span class="settings-shortcut-keys flex shrink-0">
-                    <kbd
-                        v-for="(part, i) in item.keys"
-                        :key="i"
-                        class="settings-kbd"
-                    >{{ part }}</kbd>
-                </span>
+                <UIcon
+                    :name="open ? 'i-ph-caret-down' : 'i-ph-caret-right'"
+                    class="settings-toggle-icon"
+                />
+                <span>{{ t('settings.shortcuts') }}</span>
+            </button>
+        </template>
+
+        <template #content>
+            <div class="settings-shortcuts-content flex flex-col">
+                <p class="settings-field-hint">
+                    {{ description }}
+                </p>
+                <div class="flex flex-col">
+                    <div
+                        v-for="item in items"
+                        :key="item.label"
+                        class="settings-shortcut-row flex items-center justify-between gap-3"
+                    >
+                        <span class="settings-shortcut-label">{{ item.label }}</span>
+                        <span class="settings-shortcut-keys flex shrink-0">
+                            <UKbd
+                                v-for="(part, i) in item.keys"
+                                :key="i"
+                                class="settings-kbd"
+                                size="sm"
+                                variant="outline"
+                            >{{ part }}</UKbd>
+                        </span>
+                    </div>
+                </div>
             </div>
-        </div>
-    </details>
+        </template>
+    </UCollapsible>
 </template>
 
 <script setup lang="ts">
@@ -37,41 +58,30 @@ defineProps<{
 }>();
 
 const { t } = useTypedI18n();
+const shortcutsOpen = ref(false);
 </script>
 
 <style lang="scss" scoped>
 @use '@app/assets/css/settings-panel-shared';
 
-.settings-details[open] {
-    gap: 0.375rem;
-}
-
 .settings-section-title.is-toggle {
     cursor: pointer;
-    list-style: none;
     display: flex;
     align-items: center;
     gap: 0.375rem;
+    border: none;
+    background: transparent;
 }
 
-.settings-section-title.is-toggle::-webkit-details-marker {
-    display: none;
-}
-
-.settings-section-title.is-toggle::before {
-    content: "";
-    display: inline-block;
-    width: 0;
-    height: 0;
-    border-style: solid;
-    border-width: 0.3rem 0 0.3rem 0.4rem;
-    border-color: transparent transparent transparent var(--ui-text-dimmed);
-    transition: transform $ease-standard;
+.settings-toggle-icon {
+    width: 0.875rem;
+    height: 0.875rem;
     flex-shrink: 0;
+    color: var(--ui-text-dimmed);
 }
 
-.settings-details[open] > .settings-section-title.is-toggle::before {
-    transform: rotate(90deg);
+.settings-shortcuts-content {
+    gap: 0.375rem;
 }
 
 .settings-shortcut-row {
@@ -89,20 +99,7 @@ const { t } = useTypedI18n();
 }
 
 .settings-kbd {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 1.25rem;
-    height: 1.25rem;
-    padding: 0 0.25rem;
     font-family: var(--app-font-mono);
-    font-size: 0.6875rem;
-    font-weight: 500;
-    line-height: 1;
-    color: var(--ui-text-muted);
-    background: color-mix(in oklab, var(--ui-bg-muted) 55%, var(--ui-bg) 45%);
-    border: 1px solid var(--ui-border);
-    border-bottom-width: 2px;
-    border-radius: 0.25rem;
+    text-transform: none;
 }
 </style>

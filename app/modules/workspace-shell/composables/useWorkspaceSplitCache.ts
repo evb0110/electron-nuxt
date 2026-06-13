@@ -1,5 +1,6 @@
 import type { TSplitPayload } from '@contracts/windowTabs';
 import type { Ref } from 'vue';
+import { omit } from 'es-toolkit/object';
 import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot';
 
 interface IWorkspaceSplitCacheEntry {
@@ -66,11 +67,7 @@ function omitCacheEntry(
     entries: Record<string, IWorkspaceSplitCacheEntry>,
     tabId: string,
 ) {
-    const {
-        [tabId]: _removed,
-        ...rest
-    } = entries;
-    return rest;
+    return omit(entries, [tabId]);
 }
 
 function pruneCache(

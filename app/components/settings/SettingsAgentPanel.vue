@@ -16,16 +16,13 @@
                     <p class="settings-field-hint">{{ t('settings.assistantPanelDescription') }}</p>
                 </div>
 
-                <label class="settings-agent-switch-row">
-                    <span class="settings-agent-switch-label">{{ t('settings.assistantPanelToggle') }}</span>
-                    <input
-                        class="sr-only"
-                        type="checkbox"
-                        :checked="assistantPanelEnabled"
-                        @change="handleAssistantPanelToggle"
-                    >
-                    <span class="settings-agent-switch" aria-hidden="true" />
-                </label>
+                <USwitch
+                    :model-value="assistantPanelEnabled"
+                    :label="t('settings.assistantPanelToggle')"
+                    size="sm"
+                    :ui="assistantSwitchUi"
+                    @update:model-value="emit('update:assistantPanelEnabled', $event)"
+                />
             </div>
 
             <div
@@ -297,6 +294,12 @@ const emit = defineEmits<{
 const { t } = useTypedI18n();
 const { copy: copyClipboardText } = useClipboard();
 const setupGuideOpen = ref(false);
+const assistantSwitchUi = {
+    root: 'settings-agent-switch-row',
+    container: 'order-2',
+    wrapper: 'order-1 ms-0',
+    label: 'settings-agent-switch-label',
+};
 type TSetupSnippetId = 'codex' | 'claude' | 'cursor';
 const copiedSetupSnippet = ref<TSetupSnippetId | null>(null);
 const {
@@ -455,11 +458,6 @@ const codexLocationLabel = computed(() => {
     return props.status.codexPath ?? t('settings.agentMcpUnavailable');
 });
 
-function handleAssistantPanelToggle(event: Event) {
-    const target = event.target as HTMLInputElement | null;
-    emit('update:assistantPanelEnabled', target?.checked === true);
-}
-
 function translateAssistantCopy(copy: TSettingsAssistantCopy) {
     switch (copy.key) {
         case 'settings.assistantPanelNeedsUpdateHint':
@@ -613,7 +611,7 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
 }
 
 .settings-agent-switch-row {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 0.6rem;
     flex-shrink: 0;
@@ -624,43 +622,6 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     color: var(--ui-text-muted);
     font-size: 0.8125rem;
     font-weight: 500;
-}
-
-.settings-agent-switch {
-    position: relative;
-    width: 2.4rem;
-    height: 1.35rem;
-    border: 1px solid var(--ui-border);
-    border-radius: 999px;
-    background: var(--ui-bg-muted);
-    transition: background-color $ease-standard, border-color $ease-standard;
-}
-
-.settings-agent-switch::before {
-    content: '';
-    position: absolute;
-    top: 0.15rem;
-    left: 0.15rem;
-    width: 0.95rem;
-    height: 0.95rem;
-    border-radius: 50%;
-    background: var(--ui-bg);
-    box-shadow: var(--app-toolbar-control-active-shadow);
-    transition: transform $ease-standard;
-}
-
-.settings-agent-switch-row input:checked + .settings-agent-switch {
-    border-color: var(--ui-primary);
-    background: var(--ui-primary);
-}
-
-.settings-agent-switch-row input:checked + .settings-agent-switch::before {
-    transform: translateX(1.05rem);
-}
-
-.settings-agent-switch-row input:focus-visible + .settings-agent-switch {
-    outline: 2px solid var(--ui-primary);
-    outline-offset: 2px;
 }
 
 .settings-agent-details {

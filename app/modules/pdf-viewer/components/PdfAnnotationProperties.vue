@@ -39,53 +39,59 @@
                         :disabled="!hasFill"
                         @input="updateFillColor"
                     >
-                    <label class="annotation-properties-checkbox">
-                        <input
-                            type="checkbox"
-                            :checked="hasFill"
-                            @change="toggleFill"
-                        >
-                        {{ t('annotationProperties.fill') }}
-                    </label>
+                    <UCheckbox
+                        v-model="fillModel"
+                        class="annotation-properties-checkbox"
+                        color="neutral"
+                        size="xs"
+                        :label="t('annotationProperties.fill')"
+                    />
                 </div>
             </label>
 
             <label class="annotation-properties-field">
                 <span class="annotation-properties-label">{{ t('annotationProperties.stroke') }}</span>
-                <input
-                    type="range"
-                    :value="shape.strokeWidth"
-                    min="1"
-                    max="10"
-                    step="0.5"
+                <USlider
+                    v-model="strokeWidthModel"
                     class="annotation-properties-range"
-                    @input="updateStrokeWidth"
-                >
+                    color="neutral"
+                    size="xs"
+                    :ui="propertiesSliderUi"
+                    :aria-label="t('annotationProperties.stroke')"
+                    :min="1"
+                    :max="10"
+                    :step="0.5"
+                />
                 <span class="annotation-properties-value">{{ shape.strokeWidth }}px</span>
             </label>
 
             <label class="annotation-properties-field">
                 <span class="annotation-properties-label">{{ t('annotationProperties.opacity') }}</span>
-                <input
-                    type="range"
-                    :value="shape.opacity"
-                    min="0.1"
-                    max="1"
-                    step="0.1"
+                <USlider
+                    v-model="opacityModel"
                     class="annotation-properties-range"
-                    @input="updateOpacity"
-                >
+                    color="neutral"
+                    size="xs"
+                    :ui="propertiesSliderUi"
+                    :aria-label="t('annotationProperties.opacity')"
+                    :min="0.1"
+                    :max="1"
+                    :step="0.1"
+                />
                 <span class="annotation-properties-value">{{ Math.round(shape.opacity * 100) }}%</span>
             </label>
 
-            <button
+            <UButton
                 type="button"
                 class="annotation-properties-delete"
+                icon="i-ph-trash"
+                color="error"
+                variant="ghost"
+                size="sm"
+                block
+                :label="t('annotationProperties.delete')"
                 @click="deleteAnnotation"
-            >
-                <UIcon name="i-ph-trash" class="annotation-properties-delete-icon" />
-                <span>{{ t('annotationProperties.delete') }}</span>
-            </button>
+            />
         </div>
     </div>
 </template>
@@ -107,6 +113,12 @@ const {
     x,
     y,
 } = defineProps<IProps>();
+
+const propertiesSliderUi = {
+    track: 'annotation-properties-range-track',
+    range: 'annotation-properties-range-fill',
+    thumb: 'annotation-properties-range-thumb',
+};
 
 const emit = defineEmits<{
     (e: 'update', updates: Partial<IShapeAnnotation>): void;
@@ -159,8 +171,8 @@ function inputValue(event: Event) {
     return event.target instanceof HTMLInputElement ? event.target.value : '';
 }
 
-function numericInputValue(event: Event) {
-    return Number(inputValue(event));
+function sliderNumericValue(value: number | number[] | undefined) {
+    return Array.isArray(value) ? value[0] ?? 0 : value ?? 0;
 }
 
 function updateColor(event: Event) {
@@ -169,14 +181,6 @@ function updateColor(event: Event) {
 
 function updateFillColor(event: Event) {
     updateProperty('fillColor', inputValue(event));
-}
-
-function updateStrokeWidth(event: Event) {
-    updateProperty('strokeWidth', numericInputValue(event));
-}
-
-function updateOpacity(event: Event) {
-    updateProperty('opacity', numericInputValue(event));
 }
 
 function close() {
@@ -194,6 +198,36 @@ function toggleFill() {
         emit('update', { fillColor: shape?.color ?? DEFAULT_ANNOTATION_SETTINGS.shapeColor });
     }
 }
+
+const fillModel = computed({
+    get() {
+        return hasFill.value;
+    },
+    set(value: boolean | 'indeterminate') {
+        if (value === hasFill.value || value === 'indeterminate') {
+            return;
+        }
+        toggleFill();
+    },
+});
+
+const strokeWidthModel = computed({
+    get() {
+        return shape?.strokeWidth ?? 1;
+    },
+    set(value: number | number[] | undefined) {
+        updateProperty('strokeWidth', sliderNumericValue(value));
+    },
+});
+
+const opacityModel = computed({
+    get() {
+        return shape?.opacity ?? 1;
+    },
+    set(value: number | number[] | undefined) {
+        updateProperty('opacity', sliderNumericValue(value));
+    },
+});
 </script>
 
 <style scoped>
@@ -278,12 +312,6 @@ function toggleFill() {
     outline-offset: 2px;
 }
 
-.annotation-properties-delete-icon {
-    width: 0.875rem;
-    height: 0.875rem;
-    flex-shrink: 0;
-}
-
 .annotation-properties-field {
     display: grid;
     grid-template-columns: minmax(88px, auto) minmax(0, 1fr) auto;
@@ -323,35 +351,42 @@ function toggleFill() {
 }
 
 .annotation-properties-checkbox {
-    display: flex;
-    align-items: center;
-    gap: 4px;
     min-width: 0;
-    font-size: 11px;
+}
+
+.annotation-properties-checkbox :deep([data-slot="wrapper"]) {
+    min-width: 0;
+}
+
+.annotation-properties-checkbox :deep([data-slot="label"]) {
     color: var(--ui-text-muted);
-    cursor: pointer;
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.25;
 }
 
 .annotation-properties-range {
     flex: 1;
     min-width: 0;
-    width: 100%;
-    appearance: none;
+}
+
+.annotation-properties-range :deep(.annotation-properties-range-track) {
     height: 4px;
     border-radius: 2px;
     background: var(--ui-border);
-    outline: none;
-    cursor: pointer;
 }
 
-.annotation-properties-range::-webkit-slider-thumb {
-    appearance: none;
+.annotation-properties-range :deep(.annotation-properties-range-fill) {
+    background: var(--ui-text);
+}
+
+.annotation-properties-range :deep(.annotation-properties-range-thumb) {
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: var(--ui-text);
     border: 2px solid var(--app-sidebar-bg);
-    cursor: pointer;
+    background: var(--ui-text);
+    box-shadow: none;
 }
 
 .annotation-properties-value {

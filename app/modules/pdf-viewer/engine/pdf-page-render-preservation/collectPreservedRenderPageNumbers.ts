@@ -1,9 +1,11 @@
+import { union } from 'es-toolkit/array';
+
 export function collectPreservedRenderPageNumbers(options: {
     renderedPages: ReadonlySet<number>;
     pageCanvases: ReadonlyMap<number, unknown>;
 }) {
-    const pages = new Set<number>();
-    options.renderedPages.forEach(pageNumber => pages.add(pageNumber));
-    options.pageCanvases.forEach((_, pageNumber) => pages.add(pageNumber));
-    return pages;
+    return new Set(union(
+        [...options.renderedPages],
+        [...options.pageCanvases.keys()],
+    ));
 }
