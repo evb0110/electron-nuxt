@@ -2,7 +2,7 @@
     <div
         v-if="shouldRender"
         class="snip-overlay"
-        :class="{ 'is-active': props.active }"
+        :class="{ 'is-active': active }"
         @pointerdown="handlePointerDown"
         @pointermove="handlePointerMove"
         @pointerup="handlePointerUp"
@@ -11,7 +11,7 @@
         @wheel="handleWheel"
     >
         <div
-            v-if="props.selectionRect"
+            v-if="selectionRect"
             class="snip-selection"
             :style="selectionStyle"
         />
@@ -25,10 +25,10 @@
             class="snip-badge"
             :style="badgeStyle"
         >
-            {{ props.copiedLabel }}
+            {{ copiedLabel }}
         </div>
-        <div v-if="props.active && !props.selectionRect" class="snip-hint">
-            {{ props.hintLabel }}
+        <div v-if="active && !selectionRect" class="snip-hint">
+            {{ hintLabel }}
         </div>
     </div>
 </template>
@@ -55,7 +55,14 @@ interface IProps {
     copiedLabel: string;
 }
 
-const props = defineProps<IProps>();
+const {
+    active,
+    selectionRect,
+    hintLabel,
+    flashRect,
+    badgePosition,
+    copiedLabel,
+} = defineProps<IProps>();
 const emit = defineEmits<IRegionSelectionOverlayEmits>();
 
 const {
@@ -64,18 +71,28 @@ const {
     handlePointerUp,
     handleContextMenu,
     handleWheel,
-} = useEmittedPdfRegionSelectionOverlay(props, emit);
+} = useEmittedPdfRegionSelectionOverlay({
+    get active() {
+        return active;
+    },
+    get selectionRect() {
+        return selectionRect;
+    },
+    get hintLabel() {
+        return hintLabel;
+    },
+}, emit);
 
-const shouldRender = computed(() => props.active || Boolean(props.flashRect) || Boolean(props.badgePosition));
-const selectionStyle = computed(() => regionRectStyle(props.selectionRect));
-const flashStyle = computed(() => regionRectStyle(props.flashRect));
+const shouldRender = computed(() => active || Boolean(flashRect) || Boolean(badgePosition));
+const selectionStyle = computed(() => regionRectStyle(selectionRect));
+const flashStyle = computed(() => regionRectStyle(flashRect));
 const badgeStyle = computed<CSSProperties>(() => {
-    if (!props.badgePosition) {
+    if (!badgePosition) {
         return {};
     }
     return {
-        left: `${props.badgePosition.x}px`,
-        top: `${props.badgePosition.y}px`,
+        left: `${badgePosition.x}px`,
+        top: `${badgePosition.y}px`,
     };
 });
 
