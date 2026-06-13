@@ -28,7 +28,7 @@ export default {
             badge: 'Browser-App + Desktop-Builds',
             title: 'PDF, DjVu, Bilder',
             subtitle: 'Öffne lokale PDFs, DjVu-Dateien und Bilder im Browser. Nutze Desktop-Builds für OCR mit durchsuchbaren PDFs und größere Zusammenführungen.',
-            aiNote: 'EVB Assistant integriert deine ChatGPT/OpenAI-Subscription über Codex im Hintergrund. Technische Nutzer können außerdem einen lokalen MCP-Server bereitstellen.',
+            aiNote: 'EVB Assistant integriert dein ChatGPT/OpenAI-Abonnement über Codex im Hintergrund. Technische Nutzer können außerdem einen lokalen MCP-Server bereitstellen.',
             downloadFor: 'Für {platform} herunterladen',
             downloadForArch: 'Für {platform} ({arch}) herunterladen',
             downloadInstaller: '{installerLabel} herunterladen',
