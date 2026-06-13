@@ -295,6 +295,7 @@ async function main() {
 
         assertLocaleMetadataParity('landing', LOCALE_CODES, LOCALE_DEFINITIONS, errors);
         assertParity('landing', landingSchema, landingLocaleMessages, errors);
+        assertPlaceholderParity('landing', landingSchema, landingLocaleMessages, errors);
     }
 
     if (errors.length > 0) {

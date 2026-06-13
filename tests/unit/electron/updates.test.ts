@@ -241,6 +241,43 @@ describe('updates robustness', () => {
         });
     });
 
+    it('does not block shutdown indefinitely on an in-flight updater check', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        let resolveCheck: (() => void) | null = null;
+        mocks.autoUpdater.checkForUpdates.mockImplementation(() => {
+            mocks.autoUpdater.emit('checking-for-update');
+            return new Promise<void>((resolve) => {
+                resolveCheck = resolve;
+            });
+        });
+
+        const updates = await loadUpdatesModule();
+        updates.initializeUpdates(() => undefined);
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        await flushPromises();
+        expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1);
+
+        const shutdownPromise = updates.shutdownUpdates();
+        let settled = false;
+        void shutdownPromise.then(() => {
+            settled = true;
+        });
+
+        await vi.advanceTimersByTimeAsync(2_999);
+        await flushPromises();
+        expect(settled).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(shutdownPromise).resolves.toBeUndefined();
+
+        const completeCheck = resolveCheck as (() => void) | null;
+        if (completeCheck) {
+            completeCheck();
+        }
+        await flushPromises();
+    });
+
     it('does not let an older downloaded update mask a newer release forever', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.2.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {

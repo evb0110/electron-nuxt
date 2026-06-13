@@ -1,4 +1,7 @@
-import { BrowserWindow } from 'electron';
+import {
+    app,
+    BrowserWindow,
+} from 'electron';
 import { randomUUID } from 'node:crypto';
 import type {
     IpcMainInvokeEvent,
@@ -10,13 +13,12 @@ import {
     uniq,
 } from 'es-toolkit/array';
 import {
+    copyFile,
+    mkdtemp,
     rm,
     stat,
 } from 'fs/promises';
-import {
-    dirname,
-    join,
-} from 'path';
+import { join } from 'path';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import {
     cancelConversion,
@@ -34,7 +36,10 @@ import { embedBookmarksIntoPdfFile } from '@electron/djvu/embedBookmarksIntoPdfF
 import { consumeAllowedDjvuWritePath } from '@electron/djvu/exportPaths';
 import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
-import { atomicReplace } from '@electron/utils/atomicReplace';
+import {
+    atomicReplace,
+    makeSiblingTempPath,
+} from '@electron/utils/atomicReplace';
 import {
     createDjvuPdfBookmarkTask,
     DjvuPdfWorkerStartupError,
@@ -283,7 +288,17 @@ function clearActivePdfWorker(jobId: string, worker: Worker) {
 }
 
 async function replaceFileAtomically(sourcePath: string, targetPath: string) {
-    await atomicReplace(sourcePath, targetPath);
+    const stagedPath = makeSiblingTempPath(targetPath);
+    let replaced = false;
+    try {
+        await copyFile(sourcePath, stagedPath);
+        await atomicReplace(stagedPath, targetPath);
+        replaced = true;
+    } finally {
+        if (!replaced) {
+            await rm(stagedPath, { force: true }).catch(() => undefined);
+        }
+    }
 }
 
 async function embedPdfBookmarks(
@@ -368,8 +383,9 @@ export async function handleDjvuConvertToPdf(
     }
     const conversionId = randomUUID();
     const jobId = `djvu-convert-${conversionId}`;
-    const tempPdfPath = join(dirname(normalizedOutputPath), `.${conversionId}.convert.pdf`);
-    const tempBookmarkedPdfPath = join(dirname(normalizedOutputPath), `.${conversionId}.bookmarks.pdf`);
+    const tempDir = await mkdtemp(join(app.getPath('temp'), 'djvu-export-'));
+    const tempPdfPath = join(tempDir, `${conversionId}.convert.pdf`);
+    const tempBookmarkedPdfPath = join(tempDir, `${conversionId}.bookmarks.pdf`);
     logger.info(`[${jobId}] Converting DjVu to PDF: ${djvuPath} -> ${normalizedOutputPath}`);
     canceledJobIds.delete(jobId);
     activeJobIds.add(jobId);
@@ -461,8 +477,10 @@ export async function handleDjvuConvertToPdf(
         activeJobAbortControllerById.delete(jobId);
         activePdfWorkerByJobId.delete(jobId);
         try {
-            await rm(tempPdfPath, { force: true });
-            await rm(tempBookmarkedPdfPath, { force: true });
+            await rm(tempDir, {
+                force: true,
+                recursive: true,
+            });
         } catch {
             // Ignore cleanup errors
         }
@@ -503,25 +521,24 @@ export async function shutdownDjvuConversions() {
         ...activePdfWorkerByJobId.keys(),
     ]);
 
-    if (jobIds.length === 0) {
-        return;
-    }
-
-    logger.info(`Canceling ${jobIds.length} active/queued DjVu conversion job(s) during shutdown`);
     const workerTerminations: Array<Promise<unknown>> = [];
-    for (const jobId of jobIds) {
-        canceledJobIds.add(jobId);
-        removeQueuedConversionJob(jobId);
-        const activeAbortController = activeJobAbortControllerById.get(jobId);
-        activeAbortController?.abort(createAbortError('DjVu conversion canceled'));
-        await cancelConversion(jobId);
-        const activePdfWorker = activePdfWorkerByJobId.get(jobId);
-        if (activePdfWorker) {
-            activePdfWorkerByJobId.delete(jobId);
-            workerTerminations.push(activePdfWorker.terminate().catch(() => undefined));
+    if (jobIds.length > 0) {
+        logger.info(`Canceling ${jobIds.length} active/queued DjVu conversion job(s) during shutdown`);
+        for (const jobId of jobIds) {
+            canceledJobIds.add(jobId);
+            removeQueuedConversionJob(jobId);
+            const activeAbortController = activeJobAbortControllerById.get(jobId);
+            activeAbortController?.abort(createAbortError('DjVu conversion canceled'));
+            await cancelConversion(jobId);
+            const activePdfWorker = activePdfWorkerByJobId.get(jobId);
+            if (activePdfWorker) {
+                activePdfWorkerByJobId.delete(jobId);
+                workerTerminations.push(activePdfWorker.terminate().catch(() => undefined));
+            }
         }
     }
 
+    canceledJobIds.clear();
     queuedConversionJobIds.length = 0;
     queuedConversionResolvers.clear();
     activeJobIds.clear();

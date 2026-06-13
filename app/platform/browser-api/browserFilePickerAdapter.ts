@@ -211,8 +211,13 @@ export async function pickFiles(options: {
     return new Promise<IPickedBrowserFile[]>((resolve) => {
         const input = document.createElement('input');
         let settled = false;
+        let focusFallbackTimer: number | null = null;
 
         const cleanup = () => {
+            if (focusFallbackTimer !== null) {
+                window.clearTimeout(focusFallbackTimer);
+                focusFallbackTimer = null;
+            }
             input.remove();
             window.removeEventListener('focus', handleFocus);
         };
@@ -233,24 +238,28 @@ export async function pickFiles(options: {
         };
 
         const handleFocus = () => {
-            window.setTimeout(() => {
+            focusFallbackTimer = window.setTimeout(() => {
+                focusFallbackTimer = null;
                 if (!settled) {
                     finish([]);
                 }
-            }, 500);
+            }, 2_000);
         };
 
         input.type = 'file';
         input.accept = options.accept;
         input.multiple = options.multiple ?? false;
         input.style.display = 'none';
-        input.addEventListener(
-            'cancel',
-            () => {
-                finish([]);
-            },
-            { once: true },
-        );
+        const supportsCancelEvent = 'oncancel' in input;
+        if (supportsCancelEvent) {
+            input.addEventListener(
+                'cancel',
+                () => {
+                    finish([]);
+                },
+                { once: true },
+            );
+        }
         input.addEventListener(
             'change',
             () => {
@@ -260,7 +269,9 @@ export async function pickFiles(options: {
         );
 
         document.body.append(input);
-        window.addEventListener('focus', handleFocus, { once: true });
+        if (!supportsCancelEvent) {
+            window.addEventListener('focus', handleFocus, { once: true });
+        }
         input.click();
     });
 }
@@ -291,14 +302,27 @@ async function saveBlobToPickerOrDownload(
                 types: pickerTypes,
             });
 
-            const writable = await handle.createWritable();
+            await ensureFileHandleWritePermission(handle);
+            const writable = await runBrowserFileHandlePhase(
+                'opening file for writing',
+                BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
+                () => handle.createWritable(),
+            );
             try {
-                await writable.write(blob);
+                await runBrowserFileHandlePhase(
+                    'writing file bytes',
+                    BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
+                    () => writable.write(blob),
+                );
             } catch (error) {
                 await abortBrowserFileWritable(writable);
-                throw error;
+                throw normalizeBrowserFileHandleError(error);
             }
-            await writable.close();
+            await runBrowserFileHandlePhase(
+                'closing file writer',
+                BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
+                () => writable.close(),
+            );
             return {
                 canceled: false,
                 fileName: handle.name || suggestedName,

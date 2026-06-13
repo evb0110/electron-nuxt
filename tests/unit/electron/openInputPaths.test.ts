@@ -113,4 +113,15 @@ describe('openInputPaths', () => {
             force: true,
         });
     });
+
+    it('rejects oversized open batches before granting paths or creating temp files', async () => {
+        const { openInputPaths } = await import('@electron/features/documents/main/openInputPaths.service');
+        const paths = Array.from({length: 513}, (_, index) => `/tmp/input-${index}.png`);
+
+        await expect(openInputPaths(paths)).rejects.toThrow('errors.file.invalid');
+
+        expect(mocks.allowOpenPaths).not.toHaveBeenCalled();
+        expect(mocks.createPdfFileFromInputPaths).not.toHaveBeenCalled();
+        expect(mocks.mkdtemp).not.toHaveBeenCalled();
+    });
 });

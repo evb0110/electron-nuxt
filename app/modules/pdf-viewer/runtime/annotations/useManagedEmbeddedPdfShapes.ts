@@ -4,6 +4,10 @@ import { collectEmbeddedShapeAnnotationIds } from '@app/modules/pdf-viewer/engin
 import { refreshDeletedEmbeddedShapePage } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/refreshDeletedEmbeddedShapePage';
 import { rerenderRenderedManagedEmbeddedShapePages } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/rerenderRenderedManagedEmbeddedShapePages';
 import { shouldRefreshManagedShapePage } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/shouldRefreshManagedShapePage';
+import {
+    hasManagedShapeOverlayForPageContainer,
+    syncHiddenEmbeddedAnnotationDom as syncHiddenEmbeddedAnnotationDomForContainer,
+} from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
 import { resolveEmbeddedShapeImportLoadPolicy } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-import-policy/resolveEmbeddedShapeImportLoadPolicy';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
@@ -80,6 +84,9 @@ export function useManagedEmbeddedPdfShapes({
     let shouldAdoptSelfSaveMetadataOnNextImport = false;
     const pendingDeletedEmbeddedShapeRefreshPages = new Set<number>();
     let isDeletedEmbeddedShapeRefreshScheduled = false;
+    let isDeferredHiddenEmbeddedAnnotationDomSyncScheduled = false;
+    let isManagedOverlayReadinessRerenderScheduled = false;
+    let shouldRepeatManagedOverlayReadinessRerender = false;
 
     function adoptPersistedManagedShapesOnNextImport() {
         shouldAdoptSelfSaveMetadataOnNextImport = true;
@@ -92,10 +99,21 @@ export function useManagedEmbeddedPdfShapes({
     const managedEmbeddedAnnotationIds = computed(() =>
         collectEmbeddedShapeAnnotationIds(shapeComposable.getAllShapes()),
     );
+    const normalizedManagedEmbeddedAnnotationIds = computed(() => {
+        const ids = new Set<string>();
+        managedEmbeddedAnnotationIds.value.forEach((id) => {
+            const normalizedId = normalizePdfJsAnnotationId(id);
+            if (normalizedId) {
+                ids.add(normalizedId);
+            }
+        });
+        return ids;
+    });
     const visuallySuppressedAnnotationIds = ref<Set<string>>(new Set());
+    const managedOverlayReadyAnnotationIds = ref<Set<string>>(new Set());
 
-    const hiddenEmbeddedAnnotationIds = computed(() => {
-        const ids = new Set(managedEmbeddedAnnotationIds.value);
+    const forceHiddenEmbeddedAnnotationIds = computed(() => {
+        const ids = new Set<string>();
         shapeComposable.deletedEmbeddedAnnotationIds.value.forEach((id) => {
             const normalizedId = normalizePdfJsAnnotationId(id);
             if (normalizedId) {
@@ -106,6 +124,22 @@ export function useManagedEmbeddedPdfShapes({
             const normalizedId = normalizePdfJsAnnotationId(id);
             if (normalizedId) {
                 ids.add(normalizedId);
+            }
+        });
+        return ids;
+    });
+
+    const hiddenEmbeddedAnnotationIds = computed(() => {
+        const ids = new Set(normalizedManagedEmbeddedAnnotationIds.value);
+        forceHiddenEmbeddedAnnotationIds.value.forEach(id => ids.add(id));
+        return ids;
+    });
+
+    const renderHiddenEmbeddedAnnotationIds = computed(() => {
+        const ids = new Set(forceHiddenEmbeddedAnnotationIds.value);
+        managedOverlayReadyAnnotationIds.value.forEach((id) => {
+            if (normalizedManagedEmbeddedAnnotationIds.value.has(id)) {
+                ids.add(id);
             }
         });
         return ids;
@@ -152,21 +186,141 @@ export function useManagedEmbeddedPdfShapes({
         tracePdfAnnotationSaveEvent('managed-embedded-shapes:clear-visually-suppressed-ids');
     }
 
-    function syncHiddenEmbeddedAnnotationDom() {
+    function queueDeferredHiddenEmbeddedAnnotationDomSync() {
+        if (isDeferredHiddenEmbeddedAnnotationDomSyncScheduled) {
+            return;
+        }
+
+        isDeferredHiddenEmbeddedAnnotationDomSyncScheduled = true;
+        const runDeferredSync = () => {
+            isDeferredHiddenEmbeddedAnnotationDomSyncScheduled = false;
+            syncHiddenEmbeddedAnnotationDom({ retryDeferredManagedAnnotations: false });
+            hideManagedAnnotationEditors();
+        };
+
+        if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(runDeferredSync);
+            return;
+        }
+
+        void waitForNextTick().then(runDeferredSync);
+    }
+
+    function areSetsEqual(left: ReadonlySet<string>, right: ReadonlySet<string>) {
+        if (left.size !== right.size) {
+            return false;
+        }
+
+        for (const id of left) {
+            if (!right.has(id)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function collectManagedOverlayReadyAnnotationIds() {
+        const readyIds = new Set<string>();
+        const container = viewerContainer.value;
+        if (!container) {
+            return readyIds;
+        }
+
+        shapeComposable.getAllShapes().forEach((shape) => {
+            if (shape.source !== 'embedded' || !shape.annotationId) {
+                return;
+            }
+
+            const annotationId = normalizePdfJsAnnotationId(shape.annotationId);
+            const pageNumber = Number.isFinite(shape.pageIndex)
+                ? Math.floor(shape.pageIndex) + 1
+                : null;
+            if (!annotationId || !pageNumber || pageNumber < 1) {
+                return;
+            }
+
+            const pageContainer = container.querySelector<HTMLElement>(
+                `.page_container[data-page="${pageNumber}"]`,
+            );
+            if (hasManagedShapeOverlayForPageContainer(pageContainer)) {
+                readyIds.add(annotationId);
+            }
+        });
+
+        return readyIds;
+    }
+
+    function syncManagedOverlayReadiness(options?: { rerenderOnChange?: boolean }) {
+        const nextReadyIds = collectManagedOverlayReadyAnnotationIds();
+        if (areSetsEqual(managedOverlayReadyAnnotationIds.value, nextReadyIds)) {
+            return false;
+        }
+
+        const previousReadyIds = managedOverlayReadyAnnotationIds.value;
+        managedOverlayReadyAnnotationIds.value = nextReadyIds;
+        tracePdfAnnotationSaveEvent('managed-embedded-shapes:overlay-readiness-changed', () => ({
+            previousReadyIds: Array.from(previousReadyIds).slice(0, 30),
+            nextReadyIds: Array.from(nextReadyIds).slice(0, 30),
+            previousReadyCount: previousReadyIds.size,
+            nextReadyCount: nextReadyIds.size,
+            managedIdsCount: normalizedManagedEmbeddedAnnotationIds.value.size,
+        }));
+
+        if (options?.rerenderOnChange !== false) {
+            queueManagedOverlayReadinessRerender();
+        }
+        return true;
+    }
+
+    function queueManagedOverlayReadinessRerender() {
+        if (!hasRenderedViewerCanvas()) {
+            return;
+        }
+
+        if (isManagedOverlayReadinessRerenderScheduled) {
+            shouldRepeatManagedOverlayReadinessRerender = true;
+            return;
+        }
+
+        isManagedOverlayReadinessRerenderScheduled = true;
+        runGuardedTask(async () => {
+            try {
+                do {
+                    shouldRepeatManagedOverlayReadinessRerender = false;
+                    await waitForNextTick();
+                    syncManagedOverlayReadiness({ rerenderOnChange: false });
+                    await rerenderManagedEmbeddedShapesIfNeeded();
+                } while (shouldRepeatManagedOverlayReadinessRerender);
+            } finally {
+                isManagedOverlayReadinessRerenderScheduled = false;
+            }
+        }, {
+            scope: 'pdf-shapes',
+            message: 'Failed to refresh managed embedded shape pages after overlay readiness changed',
+        });
+    }
+
+    function syncHiddenEmbeddedAnnotationDom(options?: {
+        retryDeferredManagedAnnotations?: boolean;
+        rerenderOnReadinessChange?: boolean;
+    }) {
         const container = viewerContainer.value;
         if (!container) {
             return;
         }
 
-        const hiddenIds = hiddenEmbeddedAnnotationIds.value;
-        container.querySelectorAll<HTMLElement>('[data-annotation-id]').forEach((element) => {
-            const annotationId = normalizePdfJsAnnotationId(element.dataset.annotationId);
-            if (!annotationId || !hiddenIds.has(annotationId)) {
-                return;
-            }
-
-            element.remove();
+        syncManagedOverlayReadiness({ rerenderOnChange: options?.rerenderOnReadinessChange !== false });
+        const result = syncHiddenEmbeddedAnnotationDomForContainer({
+            container,
+            hiddenAnnotationIds: renderHiddenEmbeddedAnnotationIds.value,
+            managedAnnotationIds: normalizedManagedEmbeddedAnnotationIds.value,
         });
+        if (
+            options?.retryDeferredManagedAnnotations !== false
+            && result.deferredManagedAnnotationCount > 0
+        ) {
+            queueDeferredHiddenEmbeddedAnnotationDomSync();
+        }
     }
 
     function hasRenderedViewerCanvas() {
@@ -350,7 +504,7 @@ export function useManagedEmbeddedPdfShapes({
             logStaleEmbeddedShapeImport(token, path);
             return;
         }
-        syncHiddenEmbeddedAnnotationDom();
+        syncHiddenEmbeddedAnnotationDom({ rerenderOnReadinessChange: applyPlan.skipRerender });
 
         return applyPlan;
     }
@@ -651,7 +805,7 @@ export function useManagedEmbeddedPdfShapes({
         tracePdfAnnotationSaveEvent('managed-embedded-shapes:hidden-ids-changed', () => ({
             hiddenIds: Array.from(hiddenEmbeddedAnnotationIds.value).slice(0, 30),
             hiddenIdsCount: hiddenEmbeddedAnnotationIds.value.size,
-            managedIdsCount: managedEmbeddedAnnotationIds.value.size,
+            managedIdsCount: normalizedManagedEmbeddedAnnotationIds.value.size,
         }));
         const localToken = embeddedShapeImportToken;
         const path = workingCopyPath.value;
@@ -695,6 +849,7 @@ export function useManagedEmbeddedPdfShapes({
     return {
         managedEmbeddedAnnotationIds,
         hiddenEmbeddedAnnotationIds,
+        renderHiddenEmbeddedAnnotationIds,
         suppressAnnotationId,
         unsuppressAnnotationId,
         clearVisuallySuppressedAnnotationIds,

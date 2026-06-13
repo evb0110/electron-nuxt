@@ -38,6 +38,13 @@ export function getLocalReleaseCheckCommands() {
         {
             args: [
                 'run',
+                'check:resources:matrix',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
                 'check:architecture:all',
             ],
             command: 'pnpm',

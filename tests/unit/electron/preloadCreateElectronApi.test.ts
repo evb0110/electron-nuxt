@@ -44,7 +44,7 @@ describe('createElectronApi', () => {
     });
 
     it('awaits renderer file-open authorization before single-file direct open', async () => {
-        vi.stubGlobal('crypto', { randomUUID: () => 'token' });
+        vi.stubGlobal('crypto', { randomUUID: () => '00000000-0000-4000-8000-000000000001' });
         const invocations: string[] = [];
         const allowDeferred: { resolve?: () => void } = {};
         const ipcRenderer = {

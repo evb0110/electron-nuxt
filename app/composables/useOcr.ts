@@ -91,6 +91,22 @@ export const useOcr = () => {
         timeoutRunToken = null;
     }
 
+    function cancelActiveBackendRequest(reason: 'manual' | 'timeout') {
+        const requestIdToCancel = activeRequestId.value;
+        if (!requestIdToCancel) {
+            return;
+        }
+
+        BrowserLogger.info('ocr', reason === 'timeout' ? 'Cancelling timed-out OCR' : 'Cancelling OCR', { requestId: requestIdToCancel });
+        void getOcrCapability().cancel(requestIdToCancel).catch((cancelError) => {
+            const normalizedCancelError: unknown = cancelError;
+            BrowserLogger.debug('ocr', 'OCR cancel request failed', {
+                requestId: requestIdToCancel,
+                error: normalizedCancelError,
+            });
+        });
+    }
+
     const {
         start: startOcrTimeout,
         stop: stopOcrTimeout,
@@ -102,6 +118,7 @@ export const useOcr = () => {
         const rejectPending = pendingOcrReject;
         pendingOcrReject = null;
         timeoutRunToken = null;
+        cancelActiveBackendRequest('timeout');
         rejectPending?.(new Error(t('errors.ocr.timeout')));
     }, OCR_TIMEOUT_MS, { immediate: false });
 
@@ -455,17 +472,7 @@ export const useOcr = () => {
         pendingOcrReject = null;
         rejectPending?.(new OcrCanceledError());
 
-        const requestIdToCancel = activeRequestId.value;
-        if (requestIdToCancel) {
-            BrowserLogger.info('ocr', 'Cancelling OCR', { requestId: requestIdToCancel });
-            void getOcrCapability().cancel(requestIdToCancel).catch((cancelError) => {
-                const normalizedCancelError: unknown = cancelError;
-                BrowserLogger.debug('ocr', 'OCR cancel request failed', {
-                    requestId: requestIdToCancel,
-                    error: normalizedCancelError,
-                });
-            });
-        }
+        cancelActiveBackendRequest('manual');
         cleanupRunState();
     }
 

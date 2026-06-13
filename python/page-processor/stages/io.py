@@ -6,10 +6,38 @@ Provides consistent image loading and saving with proper error handling.
 
 import cv2
 import numpy as np
+import os
+import tempfile
 from pathlib import Path
 from typing import Optional, Tuple
 import json
 import sys
+
+
+def write_image_atomically(path: Path, image: np.ndarray, params: list[int]) -> None:
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode='wb',
+            dir=str(path.parent),
+            prefix=f'.{path.name}.',
+            suffix=path.suffix,
+            delete=False,
+        ) as tmp_file:
+            tmp_path = Path(tmp_file.name)
+
+        success = cv2.imwrite(str(tmp_path), image, params)
+        if not success:
+            raise ValueError(f"Failed to save image: {path}")
+
+        os.replace(tmp_path, path)
+        tmp_path = None
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def load_image(image_path: str) -> np.ndarray:
@@ -103,10 +131,7 @@ def save_image(
         # Default to lossless PNG
         params = [cv2.IMWRITE_PNG_COMPRESSION, 3]
 
-    success = cv2.imwrite(str(path), image, params)
-
-    if not success:
-        raise ValueError(f"Failed to save image: {output_path}")
+    write_image_atomically(path, image, params)
 
     return str(path.absolute())
 

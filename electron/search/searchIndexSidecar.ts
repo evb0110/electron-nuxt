@@ -23,6 +23,9 @@ export const COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER = 1;
 
 const MAX_UINT32 = 0xFFFFFFFF;
 const MAX_UINT16 = 0xFFFF;
+const MAX_COMPACT_SEARCH_INDEX_PAGE_RECORDS = 1_000_000;
+const MAX_COMPACT_SEARCH_INDEX_PAGE_TEXT_BYTES = 32 * 1024 * 1024;
+const MAX_COMPACT_SEARCH_INDEX_TOTAL_TEXT_BYTES = 1024 * 1024 * 1024;
 const log = createLogger('search-index-sidecar');
 
 export interface ICompactSearchIndexTextSource {
@@ -363,6 +366,20 @@ function coversExpectedPages(
     return pageCount >= expectedPageCount && pageRecordCount >= expectedPageCount;
 }
 
+function recordsFitLoadBudget(records: readonly ICompactSearchIndexPageRecord[]) {
+    let totalTextBytes = BigInt(0);
+    for (const record of records) {
+        if (record.byteLength > BigInt(MAX_COMPACT_SEARCH_INDEX_PAGE_TEXT_BYTES)) {
+            return false;
+        }
+        totalTextBytes += record.byteLength;
+        if (totalTextBytes > BigInt(MAX_COMPACT_SEARCH_INDEX_TOTAL_TEXT_BYTES)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 export function getCompactSearchIndexPath(pdfPath: string) {
     return `${pdfPath}.index.evb-search-v1.bin`;
 }
@@ -432,6 +449,7 @@ export async function loadCompactSearchIndex(
                 !metadata
                 || !coversExpectedPages(metadata.pageCount, metadata.pageRecordCount, expectedPageCount)
                 || !textSourcesMatch(metadata.textSource, requiredTextSource)
+                || metadata.pageRecordCount > MAX_COMPACT_SEARCH_INDEX_PAGE_RECORDS
             ) {
                 return null;
             }
@@ -452,7 +470,7 @@ export async function loadCompactSearchIndex(
             }
 
             const records = parsePageRecords(table, indexStat.size);
-            if (!records) {
+            if (!records || !recordsFitLoadBudget(records)) {
                 return null;
             }
 

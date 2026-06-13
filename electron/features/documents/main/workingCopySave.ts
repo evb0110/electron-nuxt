@@ -16,6 +16,16 @@ import { normalizeIpcWritePayload } from '@electron/features/documents/main/docu
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
+import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
+
+function createOriginalChangedValidationResult(): IPdfValidationResult {
+    return {
+        isValid: false,
+        tool: 'qpdf',
+        errors: ['Original file changed on disk; save skipped to avoid overwriting external edits'],
+        warnings: [],
+    };
+}
 
 function getValidatedOriginalPath(workingPath: string, senderWebContentsId: number) {
     const originalPath = getWorkingCopyOriginalPath(workingPath, senderWebContentsId)?.originalPath;
@@ -32,6 +42,8 @@ function getValidatedOriginalPath(workingPath: string, senderWebContentsId: numb
 
 async function replaceOriginalWithValidatedTemp(
     originalPath: string,
+    workingPath: string,
+    senderWebContentsId: number,
     writeTemp: (tempPath: string) => Promise<void>,
 ) {
     const tempPath = makeSiblingTempPath(originalPath);
@@ -41,6 +53,10 @@ async function replaceOriginalWithValidatedTemp(
         const validation = await validatePdfFile(tempPath);
         if (!validation.isValid) {
             return validation;
+        }
+
+        if (!await originalPathSaveBaseMatches(workingPath, originalPath, senderWebContentsId)) {
+            return createOriginalChangedValidationResult();
         }
 
         await atomicReplace(tempPath, originalPath);
@@ -72,6 +88,8 @@ export async function handleFileSave(
 
             return replaceOriginalWithValidatedTemp(
                 originalPath,
+                normalizedWorkingPath,
+                event.sender.id,
                 tempPath => copyFileCopyOnWrite(normalizedWorkingPath, tempPath),
             );
         });
@@ -108,6 +126,8 @@ export async function handleSerializedPdfSave(
 
             const queuedValidation = await replaceOriginalWithValidatedTemp(
                 originalPath,
+                normalizedWorkingPath,
+                event.sender.id,
                 tempPath => writeFile(tempPath, payload),
             );
             if (queuedValidation.isValid) {

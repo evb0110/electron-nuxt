@@ -33,8 +33,23 @@ import type { TOpenFileResult } from '@electron/features/documents/contract';
 import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
 
 const logger = createLogger('documents-open-service');
+const MAX_OPEN_INPUT_PATHS = 512;
 
 interface IOpenInputPathsOptions {onCombineProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;}
+
+export function assertOpenInputPathCount(paths: readonly unknown[]) {
+    if (paths.length > MAX_OPEN_INPUT_PATHS) {
+        throw new Error(te('errors.file.invalid'));
+    }
+}
+
+function formatPathListForLog(paths: string[]) {
+    const visiblePaths = paths.slice(0, 20);
+    const suffix = paths.length > visiblePaths.length
+        ? ` | ... (${paths.length - visiblePaths.length} more)`
+        : '';
+    return `${visiblePaths.join(' | ')}${suffix}`;
+}
 
 function toRecentDocumentPaths(paths: string[]) {
     return paths.filter(path => isPdfPath(path) || isDjvuPath(path));
@@ -54,10 +69,11 @@ export async function openInputPaths(
 ): Promise<TOpenFileResult | null> {
     const normalizedPaths = normalizeNonEmptyStringPaths(paths)
         .map(path => normalizePossiblyEncodedExistingPath(path) ?? path);
-    logger.debug(`openInputPaths normalized ${normalizedPaths.length} path(s): ${normalizedPaths.join(' | ')}`);
+    logger.debug(`openInputPaths normalized ${normalizedPaths.length} path(s): ${formatPathListForLog(normalizedPaths)}`);
     if (normalizedPaths.length === 0) {
         return null;
     }
+    assertOpenInputPathCount(normalizedPaths);
 
     if (normalizedPaths.some(path => !existsSync(path))) {
         throw new Error(te('errors.file.invalid'));

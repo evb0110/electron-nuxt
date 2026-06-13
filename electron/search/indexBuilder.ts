@@ -44,6 +44,7 @@ import {
     persistCompactSearchIndexBestEffort,
 } from '@electron/search/searchIndexSidecar';
 import { ensureNativeSearchIndexBestEffort } from '@electron/search/nativeSearchIndex';
+import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 
 export interface IPageIndex {
     pageNumber: number;
@@ -464,11 +465,14 @@ function parseSearchIndexPages(pages: unknown[]): IPageIndex[] | null {
     return sortBy(normalizedPages, ['pageNumber']);
 }
 
-function parseSearchIndexPayload(payload: unknown): IPdfSearchIndex | null {
+function parseSearchIndexPayload(payload: unknown, expectedPdfPath: string): IPdfSearchIndex | null {
     if (!isRecord(payload) || !Array.isArray(payload.pages)) {
         return null;
     }
     if (typeof payload.pdfPath !== 'string' || payload.pdfPath.length === 0) {
+        return null;
+    }
+    if (normalizePathForLookup(payload.pdfPath) !== normalizePathForLookup(expectedPdfPath)) {
         return null;
     }
 
@@ -937,7 +941,7 @@ export async function loadSearchIndex(pdfPath: string): Promise<IPdfSearchIndex 
 
     try {
         const content = await readFile(indexPath, 'utf-8');
-        const index = parseSearchIndexPayload(JSON.parse(content));
+        const index = parseSearchIndexPayload(JSON.parse(content), pdfPath);
         if (!index) {
             log.warn(`Invalid search index schema at ${indexPath}; ignoring cached index`);
             return null;

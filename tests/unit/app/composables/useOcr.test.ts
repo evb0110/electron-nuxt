@@ -71,6 +71,12 @@ async function waitForCondition(
 
 describe('useOcr', () => {
     beforeEach(() => {
+        vi.useRealTimers();
+        vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0);
+            return 1;
+        });
         vi.clearAllMocks();
         mockOcr.onProgress.mockReturnValue(vi.fn());
         mockOcr.onComplete.mockReturnValue(vi.fn());
@@ -181,6 +187,37 @@ describe('useOcr', () => {
             expect(ocr.error.value).toContain('OCR job idle timed out');
         } finally {
             scope.stop();
+        }
+    });
+
+    it('cancels the active backend job when OCR times out', async () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('crypto', { randomUUID: () => '00000000-0000-4000-8000-000000000001' });
+        mockOcr.onComplete.mockReturnValue(vi.fn());
+
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            const runPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+
+            await vi.waitFor(() => {
+                expect(mockOcr.createSearchablePdf).toHaveBeenCalledTimes(1);
+            });
+            const requestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
+
+            await vi.advanceTimersByTimeAsync(30 * 60 * 1000);
+            await runPromise;
+
+            expect(mockOcr.cancel).toHaveBeenCalledWith(requestId);
+            expect(ocr.progress.value.isRunning).toBe(false);
+            expect(ocr.error.value).not.toBeNull();
+        } finally {
+            scope.stop();
+            vi.useRealTimers();
         }
     });
 

@@ -37,6 +37,7 @@ interface IUseAgentWorkspaceSnapshotOptions {
 export function useAgentWorkspaceSnapshot(options: IUseAgentWorkspaceSnapshotOptions) {
     let unsubscribeWorkspaceSnapshotRequest: (() => void) | null = null;
     let unsubscribeCommandRequest: (() => void) | null = null;
+    let isDisposed = false;
 
     function createSnapshotResponse(request: IAgentWorkspaceSnapshotRequest): IAgentWorkspaceSnapshotResponse {
         return {
@@ -175,12 +176,23 @@ export function useAgentWorkspaceSnapshot(options: IUseAgentWorkspaceSnapshotOpt
     }
 
     onMounted(() => {
+        isDisposed = false;
         guardAsync(
             (async () => {
                 await waitForDesktopPlatformBridge({ shouldWait: options.shouldWaitForDesktopBridge() });
+                if (isDisposed) {
+                    return;
+                }
                 const platform = getPlatformAPI();
-                unsubscribeWorkspaceSnapshotRequest = platform.agent.onWorkspaceSnapshotRequest(submitSnapshot);
-                unsubscribeCommandRequest = platform.agent.onCommandRequest(submitCommandResult);
+                const unsubscribeSnapshot = platform.agent.onWorkspaceSnapshotRequest(submitSnapshot);
+                const unsubscribeCommand = platform.agent.onCommandRequest(submitCommandResult);
+                if (isDisposed) {
+                    unsubscribeSnapshot();
+                    unsubscribeCommand();
+                    return;
+                }
+                unsubscribeWorkspaceSnapshotRequest = unsubscribeSnapshot;
+                unsubscribeCommandRequest = unsubscribeCommand;
             })(),
             {
                 scope: 'agent',
@@ -190,6 +202,7 @@ export function useAgentWorkspaceSnapshot(options: IUseAgentWorkspaceSnapshotOpt
     });
 
     onUnmounted(() => {
+        isDisposed = true;
         unsubscribeWorkspaceSnapshotRequest?.();
         unsubscribeWorkspaceSnapshotRequest = null;
         unsubscribeCommandRequest?.();

@@ -55,7 +55,7 @@
     "test:release": "pnpm test",
     "test:coverage": "pnpm run test:coverage:run && pnpm run check:coverage-ratchet",
     "test:coverage:run": "vitest run --coverage --project unit",
-    "test:bundle-integrity": "vitest run --project bundle-integrity && pnpm run check:build-artifacts:hygiene",
+    "test:bundle-integrity": "pnpm run build:electron && vitest run --project bundle-integrity && pnpm run check:build-artifacts:hygiene",
     "test:unit": "vitest run --project unit",
     "test:rust": "cargo test --manifest-path native/pdf-image-combine/Cargo.toml --locked && cargo test --manifest-path native/pdf-page-ops/Cargo.toml --locked && cargo test --manifest-path native/pdf-search/Cargo.toml --locked",
     "test:python-page-processor": "python3 scripts/check-page-processor-smoke.py",

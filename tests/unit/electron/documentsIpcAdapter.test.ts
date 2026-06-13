@@ -24,6 +24,10 @@ const mocks = vi.hoisted(() => ({
     requireManagedWorkingCopyPath: vi.fn((..._args: unknown[]) => undefined),
 }));
 
+function makeUuid(index: number) {
+    return `00000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`;
+}
+
 vi.mock('@electron/features/documents/createDocumentsService', () => ({createDocumentsService: mocks.createDocumentsService}));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({
     allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args),
@@ -51,13 +55,13 @@ describe('documents ipc adapter', () => {
 
             expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenToken)?.(
                 {sender},
-                'token-1',
+                makeUuid(1),
             )).toBe(true);
             expect(handlers.get(DOCUMENTS_CHANNELS.allowRendererFileOpen)?.(
                 {sender},
                 {
                     filePath,
-                    token: 'token-1',
+                    token: makeUuid(1),
                 },
             )).toBe(true);
 
@@ -70,11 +74,11 @@ describe('documents ipc adapter', () => {
         }
     });
 
-    it('keeps renderer file-open grants for thousands-page combine batches', async () => {
+    it('caps renderer file-open grants per sender and rejects non-UUID tokens', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-documents-ipc-adapter-batch-test-'));
         const firstFilePath = join(tempRoot, 'document-page-0001.png');
         writeFileSync(firstFilePath, new Uint8Array([1]));
-        const tokenCount = 3_000;
+        const tokenCount = 128;
         mocks.allowOpenPath.mockImplementation((filePath: string) => filePath);
         const handlers = new Map<string, TRegisteredHandler>();
         const sender = new EventEmitter() as EventEmitter & { id: number; };
@@ -87,18 +91,27 @@ describe('documents ipc adapter', () => {
         try {
             registerDocumentsIpcAdapter(registrar as never);
 
+            expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenToken)?.(
+                {sender},
+                'token-0',
+            )).toBe(false);
+
             for (let index = 0; index < tokenCount; index += 1) {
                 expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenToken)?.(
                     {sender},
-                    `token-${index}`,
+                    makeUuid(index),
                 )).toBe(true);
             }
 
+            expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenToken)?.(
+                {sender},
+                makeUuid(tokenCount),
+            )).toBe(false);
             expect(handlers.get(DOCUMENTS_CHANNELS.allowRendererFileOpen)?.(
                 {sender},
                 {
                     filePath: firstFilePath,
-                    token: 'token-0',
+                    token: makeUuid(0),
                 },
             )).toBe(true);
 

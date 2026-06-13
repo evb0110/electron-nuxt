@@ -590,13 +590,26 @@ useEventListener(window, 'keydown', (event: KeyboardEvent) => {
 }, { capture: true });
 
 let unsubscribeZenModeChange: (() => void) | null = null;
+let isShellRootDisposed = false;
 
 onMounted(() => {
+    isShellRootDisposed = false;
     guardAsync(
         (async () => {
             await waitForDesktopPlatformBridge({ shouldWait: !isBrowserRuntime.value });
+            if (isShellRootDisposed) {
+                return;
+            }
             await getPlatformAPI().host.getZenModeState().then(applyZenModeState);
-            unsubscribeZenModeChange = getPlatformAPI().host.onZenModeChange(applyZenModeState);
+            if (isShellRootDisposed) {
+                return;
+            }
+            const unsubscribe = getPlatformAPI().host.onZenModeChange(applyZenModeState);
+            if (isShellRootDisposed) {
+                unsubscribe();
+                return;
+            }
+            unsubscribeZenModeChange = unsubscribe;
         })(),
         {
             scope: 'shell',
@@ -613,6 +626,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    isShellRootDisposed = true;
     unsubscribeZenModeChange?.();
     unsubscribeZenModeChange = null;
     if (import.meta.dev) {
@@ -959,6 +973,7 @@ function dismissBrowserInstallHint(reason: 'manual' | 'auto' = 'manual') {
     browserInstallHintStorageDismissed.value = true;
 }
 
+let windowTitleSyncGeneration = 0;
 watch(windowTitle, (nextTitle) => {
     if (!import.meta.client) {
         return;
@@ -974,8 +989,12 @@ watch(windowTitle, (nextTitle) => {
         return;
     }
 
+    const generation = ++windowTitleSyncGeneration;
     guardAsync((async () => {
         await waitForDesktopPlatformBridge({ shouldWait: true });
+        if (generation !== windowTitleSyncGeneration || nextTitle !== windowTitle.value) {
+            return;
+        }
         await getPlatformAPI().documents.setWindowTitle(nextTitle);
     })(), {
         scope: 'window-title',

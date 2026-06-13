@@ -44,9 +44,9 @@ GlobalWorkerOptions.workerSrc = resolvePdfjsFakeWorkerSrc();
 
 const log = createLogger('pdfjsTextExtractor');
 const PDFJS_MAX_INPUT_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PDFJS_MAX_INPUT_MB ?? '512', 10);
+    const parsed = Number.parseInt(process.env.EVB_PDFJS_MAX_INPUT_MB ?? '256', 10);
     if (!Number.isFinite(parsed) || parsed < 16) {
-        return 512 * 1024 * 1024;
+        return 256 * 1024 * 1024;
     }
     return parsed * 1024 * 1024;
 })();
@@ -114,7 +114,7 @@ export async function extractTextWithPdfjs(
         throw new Error(`PDF is too large for pdfjs text extraction (${fileStat.size} bytes)`);
     }
 
-    const data = new Uint8Array(await readFile(pdfPath));
+    const data = new Uint8Array(await readFile(pdfPath, signal ? {signal} : undefined));
     throwIfAborted(signal);
     const loadingTask = getDocument({data});
     const doc = await withAbortSignal(loadingTask.promise, signal, () => {

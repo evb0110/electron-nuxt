@@ -29,6 +29,7 @@ describe('useSettings', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        vi.useRealTimers();
         cookieStore.clear();
         stateStore.clear();
         installNuxtStateStubs();
@@ -119,5 +120,29 @@ describe('useSettings', () => {
         expect(isLoaded.value).toBe(true);
         expect(settings.value.theme).toBe('dark');
         expect(settings.value.locale).toBe('fr');
+    });
+
+    it('retries a failed settings save with the latest dirty payload', async () => {
+        vi.useFakeTimers();
+        mockSave
+            .mockRejectedValueOnce(new Error('temporary failure'))
+            .mockResolvedValue(undefined);
+
+        const { useSettings } = await import('@app/composables/useSettings');
+        const {
+            settings,
+            save,
+        } = useSettings();
+
+        settings.value.locale = 'fr';
+        await save();
+        expect(mockSave).toHaveBeenCalledTimes(1);
+
+        settings.value.locale = 'de';
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        expect(mockSave).toHaveBeenCalledTimes(2);
+        expect(mockSave).toHaveBeenLastCalledWith(expect.objectContaining({ locale: 'de' }));
+        vi.useRealTimers();
     });
 });

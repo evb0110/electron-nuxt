@@ -2,6 +2,7 @@ import type { PDFPageProxy } from 'pdfjs-dist';
 import type { PDFOperatorList } from 'pdfjs-dist/types/src/display/api';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { runCoordinatedPdfPageOperation } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 
 interface IHiddenAnnotationScanState {
     skippedIndices: Set<number>;
@@ -12,6 +13,11 @@ interface IHiddenAnnotationScanState {
 const BEGIN_ANNOTATION_OP = 80;
 
 const END_ANNOTATION_OP = 81;
+
+interface IHiddenAnnotationOperationsFilterOptions {
+    owner: string;
+    priority: number;
+}
 
 function normalizeAnnotationIdSet(annotationIds: Set<string>) {
     const normalizedIds = new Set<string>();
@@ -96,6 +102,7 @@ export async function createHiddenAnnotationOperationsFilter(
     pdfPage: PDFPageProxy,
     annotationMode: number,
     hiddenAnnotationIds?: Set<string>,
+    coordination?: IHiddenAnnotationOperationsFilterOptions,
 ) {
     if (!hiddenAnnotationIds || hiddenAnnotationIds.size === 0) {
         return undefined;
@@ -111,7 +118,15 @@ export async function createHiddenAnnotationOperationsFilter(
             return undefined;
         }
 
-        const operatorList = await pdfPage.getOperatorList({ annotationMode });
+        const operatorList = coordination
+            ? await runCoordinatedPdfPageOperation({
+                owner: coordination.owner,
+                pageNumber: pdfPage.pageNumber,
+                pdfPage,
+                priority: coordination.priority,
+                operation: () => pdfPage.getOperatorList({ annotationMode }),
+            })
+            : await pdfPage.getOperatorList({ annotationMode });
         const skippedIndices = collectHiddenAnnotationOperatorIndices(
             operatorList,
             normalizedHiddenAnnotationIds,
