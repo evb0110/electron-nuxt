@@ -145,13 +145,13 @@ function handleSaveAs() {
 }
 
 .save-split-primary {
-    width: 2rem;
+    width: var(--app-toolbar-save-primary-width);
     padding: var(--app-toolbar-button-padding);
     border-radius: var(--app-toolbar-button-radius) 0 0 var(--app-toolbar-button-radius);
 }
 
 .save-split-trigger {
-    width: 1rem;
+    width: var(--app-toolbar-save-trigger-width);
     padding-right: 0.0625rem;
     border-radius: 0 var(--app-toolbar-button-radius) var(--app-toolbar-button-radius) 0;
 }
@@ -219,8 +219,8 @@ function handleSaveAs() {
 }
 
 .save-split-chevron {
-    width: 0.6875rem;
-    height: 0.6875rem;
+    width: var(--app-toolbar-save-chevron-size);
+    height: var(--app-toolbar-save-chevron-size);
     transition: transform 0.15s ease;
 }
 
@@ -229,7 +229,7 @@ function handleSaveAs() {
 }
 
 .save-split-menu {
-    min-width: 11rem;
+    min-width: var(--app-toolbar-save-menu-min-width);
 }
 
 .toolbar-tooltip-label {

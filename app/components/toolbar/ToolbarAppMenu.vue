@@ -275,7 +275,7 @@ function handleMenuCommand(command: TToolbarAppMenuCommand) {
 }
 
 .app-menu {
-    min-width: 15rem;
+    min-width: var(--app-toolbar-app-menu-min-width);
 }
 
 .app-menu-trigger {

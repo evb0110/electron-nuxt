@@ -1093,12 +1093,12 @@ useAppShellLifecycle({
     z-index: 35;
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--app-install-hint-gap);
     width: fit-content;
     max-width: calc(100vw - 2rem);
-    padding: 0.25rem 0.25rem 0.25rem 0.5rem;
+    padding: var(--app-install-hint-padding);
     border: 1px solid var(--ui-border);
-    border-radius: 999px;
+    border-radius: var(--app-radius-full);
     background: var(--ui-bg);
     backdrop-filter: blur(12px);
     opacity: var(--app-opacity-subtle);
@@ -1119,10 +1119,10 @@ useAppShellLifecycle({
 .browser-install-link {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--app-install-hint-gap);
     min-width: 0;
     max-width: 100%;
-    padding: 0.125rem 0;
+    padding: var(--app-install-hint-link-padding);
     border: 0;
     background: transparent;
     color: var(--ui-text-muted);
@@ -1137,13 +1137,13 @@ useAppShellLifecycle({
 .browser-install-link-icon,
 .browser-install-dismiss-icon {
     flex: 0 0 auto;
-    width: 0.875rem;
-    height: 0.875rem;
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
 }
 
 .browser-install-divider {
     width: 1px;
-    height: 14px;
+    height: var(--app-install-hint-divider-height);
     background: var(--ui-border);
     flex: 0 0 auto;
 }
