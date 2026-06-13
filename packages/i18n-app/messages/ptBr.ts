@@ -525,6 +525,8 @@ export default {
         'removeFile': 'Remover arquivo',
         'moveUp': 'Mover para cima',
         'moveDown': 'Mover para baixo',
+        'dragToReorder': 'Arraste para reordenar',
+        'reorderAnnouncement': '{name} movido para a posição {position} de {total}',
         'progressTitle': 'Criando PDF',
         'progressDetail': '{processed} de {total}',
         'outputHint': 'O PDF combinado abre como um documento não salvo para que você possa revisá-lo antes de salvar.',
