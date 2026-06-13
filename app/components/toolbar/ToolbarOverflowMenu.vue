@@ -231,7 +231,7 @@ const hasViewItems = computed(() => (
 
 const hasShellItems = computed(() => shouldShowMenuCommand('settings'));
 
-const overflowMenuItems = computed<TToolbarOverflowMenuItem[]>(() => {
+const overflowMenuItems = computed(() => {
     const items: TToolbarOverflowMenuItem[] = [];
     appendMenuSection(items, t('menu.file'), buildDocumentItems());
     appendMenuSection(items, t('toolbar.annotations'), buildToolItems());

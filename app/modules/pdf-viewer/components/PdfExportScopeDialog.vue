@@ -62,12 +62,6 @@ import { expandPageRange } from '@app/utils/pdfPageSelection';
 import { usePdfPageScopeSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
 
 type TExportMode = 'images' | 'multipage-tiff';
-type TPdfExportScope = 'all' | 'current' | 'range' | 'selected';
-
-interface IPdfExportScopeOption {
-    value: TPdfExportScope;
-    label: string;
-}
 
 const open = defineModel<boolean>('open', { required: true });
 
@@ -126,8 +120,8 @@ const {
     resolveRangePages: () => rangePages.value,
 });
 
-const scopeOptions = computed<IPdfExportScopeOption[]>(() => {
-    const options: IPdfExportScopeOption[] = [
+const scopeOptions = computed(() => {
+    const options = [
         {
             value: 'all',
             label: t('export.scopeAll', { count: totalPages }),

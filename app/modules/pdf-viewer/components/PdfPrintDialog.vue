@@ -129,13 +129,6 @@ import {
 } from '@app/utils/pdfPrintShared';
 import { usePdfPageScopeSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
 
-type TPdfPrintScope = 'all' | 'current' | 'selected' | 'range';
-
-interface IPdfPrintScopeOption {
-    value: TPdfPrintScope;
-    label: string;
-}
-
 const open = defineModel<boolean>('open', { required: true });
 
 const {
@@ -189,8 +182,8 @@ const {
     resolveRangePages: () => rangePages.value,
 });
 
-const scopeOptions = computed<IPdfPrintScopeOption[]>(() => {
-    const options: IPdfPrintScopeOption[] = [
+const scopeOptions = computed(() => {
+    const options = [
         {
             value: 'all',
             label: t('print.scopeAll', { count: totalPages }),

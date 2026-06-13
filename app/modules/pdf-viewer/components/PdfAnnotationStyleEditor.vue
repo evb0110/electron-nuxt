@@ -251,7 +251,7 @@ const displayColorSwatches = computed(() => {
     ];
 });
 
-const activeDrawStyle = computed<TDrawStyle>(() => {
+const activeDrawStyle = computed(() => {
     const thickness = settings.inkThickness;
     const opacity = settings.inkOpacity;
 

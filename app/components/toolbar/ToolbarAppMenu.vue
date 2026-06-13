@@ -157,7 +157,7 @@ const menuOpen = computed({
     set: (open: boolean) => emit('update:open', open),
 });
 
-const appMenuItems = computed<TToolbarAppMenuItem[]>(() => {
+const appMenuItems = computed(() => {
     const items: TToolbarAppMenuItem[] = [
         {
             type: 'label',
