@@ -12,7 +12,6 @@
                 :has-overflow-items="hasOverflowItems"
                 :is-collapsed="isCollapsed"
             />
-            <div v-if="isCommandInline('app-menu') && $slots['app-menu']" class="toolbar-separator" />
             <ToolbarButton
                 v-if="isCommandInline('open-file')"
                 icon="ph:folder-open"
@@ -22,7 +21,6 @@
                 :loading="isOpeningDocument"
                 @click="handleToolbarCommand('open-file')"
             />
-            <div class="toolbar-separator" />
             <ToolbarButton
                 v-if="isCommandInline('toggle-sidebar')"
                 icon="ph:sidebar-simple"
@@ -33,9 +31,10 @@
                 @click="handleToolbarCommand('toggle-sidebar')"
             />
 
-            <div class="toolbar-separator" />
-
-            <template v-if="!isCollapsed(4)">
+            <div
+                v-if="!isCollapsed(4) && (isCommandInline('save') || isCommandInline('print') || isCommandInline('print-current-page'))"
+                class="toolbar-cluster"
+            >
                 <div class="toolbar-action toolbar-action--save">
                     <ToolbarSaveSplitButton
                         v-if="isCommandInline('save')"
@@ -73,11 +72,12 @@
                         <PrintCurrentPageIcon class="size-full" />
                     </ToolbarButton>
                 </div>
-            </template>
+            </div>
 
-            <div class="toolbar-separator" />
-
-            <template v-if="!isCollapsed(4)">
+            <div
+                v-if="!isCollapsed(4) && (isCommandInline('undo') || isCommandInline('redo'))"
+                class="toolbar-cluster"
+            >
                 <div class="toolbar-action toolbar-action--undo">
                     <ToolbarButton
                         v-if="isCommandInline('undo')"
@@ -98,10 +98,8 @@
                         @click="handleToolbarCommand('redo')"
                     />
                 </div>
-            </template>
+            </div>
         </div>
-
-        <div class="toolbar-separator" />
 
         <div class="toolbar-section toolbar-center">
             <div class="toolbar-inline-group">
@@ -115,8 +113,6 @@
                 />
             </div>
 
-            <div class="toolbar-separator" />
-
             <div class="toolbar-inline-group">
                 <slot
                     v-if="isCommandInline('zoom')"
@@ -127,8 +123,6 @@
                     :is-collapsed="isCollapsed"
                 />
             </div>
-
-            <div class="toolbar-separator" />
 
             <div v-if="!isCollapsed(2)" class="toolbar-button-group toolbar-button-group--fit">
                 <div v-if="isCommandInline('fit-width')" class="toolbar-group-item">
@@ -165,7 +159,7 @@
                 </div>
             </div>
 
-            <div class="toolbar-separator" />
+            <div v-if="!isCollapsed(3)" class="toolbar-separator" />
 
             <div v-if="!isCollapsed(3)" class="toolbar-button-group toolbar-button-group--interaction">
                 <div v-if="isCommandInline('quick-note')" class="toolbar-group-item toolbar-group-item--quick-note">
@@ -201,76 +195,85 @@
             </div>
         </div>
 
-        <div class="toolbar-separator" />
-
         <div class="toolbar-section toolbar-right">
-            <div class="toolbar-action toolbar-action--capture-region">
-                <ToolbarButton
-                    v-if="isCommandInline('capture-region') && !isCollapsed(3)"
-                    icon="ph:scan"
-                    :active="isCapturingRegion"
-                    :tooltip="t('toolbar.captureRegion')"
-                    :disabled="!hasInteractiveDocument || isDjvuMode"
-                    @click="handleToolbarCommand('capture-region')"
-                />
-            </div>
-            <div class="toolbar-action toolbar-action--crop">
-                <ToolbarButton
-                    v-if="isCommandInline('crop') && !isCollapsed(3)"
-                    icon="ph:crop"
-                    :active="isCropSelecting"
-                    :tooltip="t('toolbar.crop')"
-                    :disabled="!hasInteractiveDocument || isDjvuMode"
-                    @click="handleToolbarCommand('crop')"
-                />
-            </div>
-
-            <div class="toolbar-action toolbar-action--ocr">
-                <slot
-                    v-if="isCommandInline('ocr') && !isCollapsed(1)"
-                    name="ocr"
-                    :collapse-tier="collapseTier"
-                    :has-overflow-items="hasOverflowItems"
-                    :is-collapsed="isCollapsed"
-                />
+            <div
+                v-if="!isCollapsed(3) && (isCommandInline('capture-region') || isCommandInline('crop'))"
+                class="toolbar-cluster"
+            >
+                <div class="toolbar-action toolbar-action--capture-region">
+                    <ToolbarButton
+                        v-if="isCommandInline('capture-region')"
+                        icon="ph:scan"
+                        :active="isCapturingRegion"
+                        :tooltip="t('toolbar.captureRegion')"
+                        :disabled="!hasInteractiveDocument || isDjvuMode"
+                        @click="handleToolbarCommand('capture-region')"
+                    />
+                </div>
+                <div class="toolbar-action toolbar-action--crop">
+                    <ToolbarButton
+                        v-if="isCommandInline('crop')"
+                        icon="ph:crop"
+                        :active="isCropSelecting"
+                        :tooltip="t('toolbar.crop')"
+                        :disabled="!hasInteractiveDocument || isDjvuMode"
+                        @click="handleToolbarCommand('crop')"
+                    />
+                </div>
             </div>
 
-            <div class="toolbar-action toolbar-action--export-docx">
-                <ToolbarButton
-                    v-if="isCommandInline('export-docx') && !isCollapsed(1)"
-                    icon="ph:file-text"
-                    :tooltip="t('toolbar.exportDocx')"
-                    :shortcut="shortcutLabels.exportDocx"
-                    :disabled="!hasInteractiveDocument || !canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
-                    :loading="isExportingDocx"
-                    @click="handleToolbarCommand('export-docx')"
-                />
+            <div
+                v-if="!isCollapsed(1) && (isCommandInline('ocr') || isCommandInline('export-docx'))"
+                class="toolbar-cluster"
+            >
+                <div class="toolbar-action toolbar-action--ocr">
+                    <slot
+                        v-if="isCommandInline('ocr')"
+                        name="ocr"
+                        :collapse-tier="collapseTier"
+                        :has-overflow-items="hasOverflowItems"
+                        :is-collapsed="isCollapsed"
+                    />
+                </div>
+                <div class="toolbar-action toolbar-action--export-docx">
+                    <ToolbarButton
+                        v-if="isCommandInline('export-docx')"
+                        icon="ph:file-text"
+                        :tooltip="t('toolbar.exportDocx')"
+                        :shortcut="shortcutLabels.exportDocx"
+                        :disabled="!hasInteractiveDocument || !canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
+                        :loading="isExportingDocx"
+                        @click="handleToolbarCommand('export-docx')"
+                    />
+                </div>
             </div>
 
             <div v-if="!isCollapsed(1)" class="toolbar-separator" />
 
-            <slot
-                v-if="isCommandInline('overflow-menu')"
-                name="overflow-menu"
-                :collapse-tier="overflowMenuCollapseTier"
-                :has-overflow-items="hasOverflowItems"
-                :is-collapsed="isCollapsed"
-            />
-            <ToolbarButton
-                v-if="isCommandInline('fullscreen') && !isCollapsed(5)"
-                :icon="isFullscreen ? 'ph:corners-in' : 'ph:corners-out'"
-                :tooltip="t('toolbar.fullscreen')"
-                :active="isFullscreen"
-                :disabled="!hasInteractiveDocument || !fullscreenSupported"
-                @click="handleToolbarCommand('toggle-fullscreen')"
-            />
-            <AssistantToolbarToggle />
-            <ToolbarButton
-                v-if="isCommandInline('settings')"
-                icon="ph:gear"
-                :tooltip="t('toolbar.settings')"
-                @click="handleToolbarCommand('open-settings')"
-            />
+            <div class="toolbar-cluster">
+                <slot
+                    v-if="isCommandInline('overflow-menu')"
+                    name="overflow-menu"
+                    :collapse-tier="overflowMenuCollapseTier"
+                    :has-overflow-items="hasOverflowItems"
+                    :is-collapsed="isCollapsed"
+                />
+                <ToolbarButton
+                    v-if="isCommandInline('fullscreen') && !isCollapsed(5)"
+                    :icon="isFullscreen ? 'ph:corners-in' : 'ph:corners-out'"
+                    :tooltip="t('toolbar.fullscreen')"
+                    :active="isFullscreen"
+                    :disabled="!hasInteractiveDocument || !fullscreenSupported"
+                    @click="handleToolbarCommand('toggle-fullscreen')"
+                />
+                <AssistantToolbarToggle />
+                <ToolbarButton
+                    v-if="isCommandInline('settings')"
+                    icon="ph:gear"
+                    :tooltip="t('toolbar.settings')"
+                    @click="handleToolbarCommand('open-settings')"
+                />
+            </div>
         </div>
     </header>
 </template>
@@ -430,10 +433,8 @@ function handleToolbarCommand(command: TToolbarCommand) {
  *      ToolbarButton for icon buttons and native elements for displays/inputs.
  */
 .toolbar {
-    display: grid;
-    grid-template-columns: minmax(max-content, 1fr) max-content minmax(max-content, 1fr);
+    display: flex;
     align-items: center;
-    gap: 0.35rem;
     padding: 0.5rem 0.65rem;
     border-bottom: 1px solid var(--app-toolbar-border);
     background: var(--app-toolbar-bg);
@@ -446,37 +447,30 @@ function handleToolbarCommand(command: TToolbarCommand) {
 
     --toolbar-control-height: var(--app-toolbar-control-size, 2.25rem);
     --toolbar-icon-size: var(--app-toolbar-icon-size, 1.125rem);
+    --toolbar-micro-gap: var(--app-toolbar-group-gap);
+    --toolbar-cluster-gap: var(--app-toolbar-section-gap);
 }
 
 .toolbar-section {
     display: flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: var(--toolbar-cluster-gap);
     min-width: max-content;
 }
 
 .toolbar-left {
-    grid-column: 1;
-    justify-self: start;
     min-width: max-content;
 }
 
 .toolbar-center {
-    grid-column: 2;
+    margin-inline: auto;
     min-width: max-content;
-    justify-content: safe center;
-    gap: 0.4rem;
+    gap: var(--toolbar-cluster-gap);
     overflow: visible;
 }
 
 .toolbar-right {
-    grid-column: 3;
-    justify-self: end;
     min-width: max-content;
-}
-
-.toolbar > .toolbar-separator {
-    display: none;
 }
 
 .toolbar-action {
@@ -495,7 +489,6 @@ function handleToolbarCommand(command: TToolbarCommand) {
     height: 1.25rem;
     background: var(--app-toolbar-separator);
     flex-shrink: 0;
-    margin: 0 0.35rem;
 }
 
 .toolbar-separator:first-child,
@@ -507,7 +500,15 @@ function handleToolbarCommand(command: TToolbarCommand) {
 .toolbar-button-group {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: var(--toolbar-micro-gap);
+    flex-shrink: 0;
+    min-width: max-content;
+}
+
+.toolbar-cluster {
+    display: flex;
+    align-items: center;
+    gap: var(--toolbar-micro-gap);
     flex-shrink: 0;
     min-width: max-content;
 }
@@ -519,13 +520,12 @@ function handleToolbarCommand(command: TToolbarCommand) {
 .toolbar-inline-group {
     display: flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: var(--toolbar-micro-gap);
     flex-shrink: 0;
     min-width: max-content;
 }
 
 .toolbar--reader {
-    grid-template-columns: minmax(max-content, 1fr) max-content minmax(max-content, 1fr);
     gap: 0.5rem;
     padding: 0.5rem 0.625rem;
 }
