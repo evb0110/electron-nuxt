@@ -513,16 +513,16 @@ export default {
         'addMore': 'Добавить ещё',
         'listTitle': 'Порядок вывода',
         'fileCount': plural({
-            one: '{count} file queued',
-            other: '{count} files queued',
+            one: '{count} файл в очереди',
+            other: '{count} файлов в очереди',
         }),
         'clear': 'Очистить',
         'emptyTitle': 'Файлы не выбраны',
         'emptyDescription': 'Перетащите файлы слева или выберите их на компьютере.',
         'combineAction': 'Объединить в PDF',
         'combineCountAction': plural({
-            one: 'Combine {count} file',
-            other: 'Combine {count} files',
+            one: 'Объединить {count} файл',
+            other: 'Объединить {count} файлов',
         }),
         'combining': 'Объединение...',
         'removeFile': 'Удалить файл',
@@ -534,8 +534,8 @@ export default {
         'progressDetail': '{processed} из {total}',
         'outputHint': 'Объединённый PDF открывается как несохранённый документ, чтобы вы могли просмотреть его перед сохранением.',
         'unsupportedFiles': plural({
-            one: '{count} unsupported file was skipped.',
-            other: '{count} unsupported files were skipped.',
+            one: '{count} неподдерживаемый файл пропущен.',
+            other: '{count} неподдерживаемых файлов пропущено.',
         }),
     },
     'noteWindow': {
