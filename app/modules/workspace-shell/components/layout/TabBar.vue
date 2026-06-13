@@ -95,7 +95,10 @@ import type {
     TTabContextCommand,
 } from '@app/types/tabContextMenu';
 import type { IWindowTabTargetWindow } from '@contracts/windowTabs';
-import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
+import {
+    canUseNativeWindowTabTransfers,
+    getWindowTabsCapability,
+} from '@app/utils/platformWindowTabs';
 
 const { t } = useTypedI18n();
 const { clampToViewport } = useContextMenuPosition();
@@ -156,6 +159,7 @@ const contextMenu = ref<{
     tabId: null,
 });
 const windowTransferTargets = ref<IWindowTabTargetWindow[]>([]);
+const canUseNativeWindowTransfers = computed(() => canUseNativeWindowTabTransfers());
 const contextMenuStyle = computed(() => ({
     left: `${contextMenu.value.x}px`,
     top: `${contextMenu.value.y}px`,
@@ -186,8 +190,8 @@ function isStaticCommandEnabled(command: Exclude<TTabContextCommand, TDirectiona
     const staticAvailabilityByKind = {
         'new-tab': contextAvailability?.canCreate ?? true,
         'close-tab': contextAvailability?.canClose ?? true,
-        'move-to-new-window': contextAvailability?.canMoveToNewWindow ?? tabs.length > 1,
-        'move-to-window': true,
+        'move-to-new-window': canUseNativeWindowTransfers.value && (contextAvailability?.canMoveToNewWindow ?? tabs.length > 1),
+        'move-to-window': canUseNativeWindowTransfers.value,
     } satisfies Record<TStaticCommandKind, boolean>;
 
     return staticAvailabilityByKind[command.kind];
@@ -426,6 +430,11 @@ function positionContextMenu(x: number, y: number) {
 }
 
 async function loadWindowTransferTargets() {
+    if (!canUseNativeWindowTransfers.value) {
+        windowTransferTargets.value = [];
+        return;
+    }
+
     try {
         windowTransferTargets.value = await getWindowTabsCapability().listTargetWindows();
     } catch {
