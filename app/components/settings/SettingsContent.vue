@@ -1,57 +1,65 @@
 <template>
-    <div class="flex flex-col gap-4">
-        <SettingsGeneralPanel
-            :settings="settings"
-            :locale-items="localeItems"
-            :selected-flag-icon="selectedFlagIcon"
-            @update:author-name="updateSetting('authorName', $event)"
-            @update:theme="applyTheme"
-            @update:locale="applyLocale"
-            @update:ui-scale="updateSetting('uiScale', $event)"
-        />
+    <div class="settings-grid">
+        <section class="settings-card">
+            <SettingsGeneralPanel
+                :settings="settings"
+                :locale-items="localeItems"
+                :selected-flag-icon="selectedFlagIcon"
+                @update:author-name="updateSetting('authorName', $event)"
+                @update:theme="applyTheme"
+                @update:locale="applyLocale"
+                @update:ui-scale="updateSetting('uiScale', $event)"
+            />
+        </section>
 
-        <SettingsViewerDefaultsPanel
-            :settings="settings"
-            :zoom-preset-items="zoomPresetItems"
-            :view-mode-items="viewModeItems"
-            :scroll-mode-items="scrollModeItems"
-            :tab-memory-policy-items="tabMemoryPolicyItems"
-            :annotation-color-swatches="annotationColorSwatches"
-            @update:zoom-preset="applyZoomPreset"
-            @update:view-mode="applyViewMode"
-            @update:scroll-mode="applyScrollMode"
-            @update:tab-memory-policy="applyTabMemoryPolicy"
-            @update:annotation-color="updateSetting('defaultAnnotationColor', $event)"
-        />
+        <section class="settings-card">
+            <SettingsViewerDefaultsPanel
+                :settings="settings"
+                :zoom-preset-items="zoomPresetItems"
+                :view-mode-items="viewModeItems"
+                :scroll-mode-items="scrollModeItems"
+                :tab-memory-policy-items="tabMemoryPolicyItems"
+                :annotation-color-swatches="annotationColorSwatches"
+                @update:zoom-preset="applyZoomPreset"
+                @update:view-mode="applyViewMode"
+                @update:scroll-mode="applyScrollMode"
+                @update:tab-memory-policy="applyTabMemoryPolicy"
+                @update:annotation-color="updateSetting('defaultAnnotationColor', $event)"
+            />
+        </section>
 
-        <SettingsAgentPanel
-            v-if="isDesktopRuntime"
-            :assistant-panel-enabled="settings.assistantPanelEnabled"
-            :assistant-state="assistantState"
-            :assistant-device-code="assistantDeviceCode"
-            :is-assistant-busy="isAssistantBusy"
-            :status="agentMcpStatus"
-            :is-busy="isAgentMcpBusy"
-            @update:assistant-panel-enabled="updateAssistantPanelEnabled"
-            @refresh-assistant="refreshAssistantState"
-            @install-assistant="installAssistantCodex"
-            @start-assistant-login="startAssistantLogin"
-            @cancel-assistant-login="cancelAssistantLogin"
-            @set-enabled="setAgentMcpEnabled"
-            @refresh="refreshAgentMcpStatus"
-            @open-install="openAgentMcpInstall"
-        />
+        <section v-if="isDesktopRuntime" class="settings-card settings-card--span">
+            <SettingsAgentPanel
+                :assistant-panel-enabled="settings.assistantPanelEnabled"
+                :assistant-state="assistantState"
+                :assistant-device-code="assistantDeviceCode"
+                :is-assistant-busy="isAssistantBusy"
+                :status="agentMcpStatus"
+                :is-busy="isAgentMcpBusy"
+                @update:assistant-panel-enabled="updateAssistantPanelEnabled"
+                @refresh-assistant="refreshAssistantState"
+                @install-assistant="installAssistantCodex"
+                @start-assistant-login="startAssistantLogin"
+                @cancel-assistant-login="cancelAssistantLogin"
+                @set-enabled="setAgentMcpEnabled"
+                @refresh="refreshAgentMcpStatus"
+                @open-install="openAgentMcpInstall"
+            />
+        </section>
 
-        <SettingsShortcutsPanel
-            :description="shortcutsDescription"
-            :items="shortcutItems"
-        />
+        <section class="settings-card">
+            <SettingsShortcutsPanel
+                :description="shortcutsDescription"
+                :items="shortcutItems"
+            />
+        </section>
 
-        <SettingsUpdatesPanel
-            v-if="isUpdateSupported"
-            :is-check-in-progress="isCheckInProgress"
-            @check="handleCheckForUpdates"
-        />
+        <section v-if="isUpdateSupported" class="settings-card">
+            <SettingsUpdatesPanel
+                :is-check-in-progress="isCheckInProgress"
+                @check="handleCheckForUpdates"
+            />
+        </section>
     </div>
 </template>
 
@@ -557,3 +565,37 @@ onBeforeUnmount(() => {
     unsubscribeAssistantEvent = null;
 });
 </script>
+
+<style scoped>
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--app-space-12xl);
+    align-items: start;
+}
+
+.settings-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-10xl);
+    min-width: 0;
+    padding: var(--app-space-15xl);
+    border: 1px solid var(--app-start-card-border);
+    border-radius: var(--app-radius-surface);
+    background: var(--app-start-card-bg);
+}
+
+.settings-card :deep(.settings-section) {
+    min-inline-size: 0;
+}
+
+.settings-card--span {
+    grid-column: 1 / -1;
+}
+
+@container (max-width: 720px) {
+    .settings-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+</style>

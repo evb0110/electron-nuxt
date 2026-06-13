@@ -704,7 +704,7 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     gap: 0.75rem;
 }
 
-@media (width <= 42rem) {
+@container (max-width: 42rem) {
     .settings-agent-card-row,
     .settings-agent-auth,
     .settings-agent-install {
@@ -784,7 +784,7 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     align-self: flex-end;
 }
 
-@media (width <= 36rem) {
+@container (max-width: 36rem) {
     .settings-agent-card,
     .settings-agent-install {
         flex-direction: column;
