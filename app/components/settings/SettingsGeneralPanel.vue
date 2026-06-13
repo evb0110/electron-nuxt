@@ -106,12 +106,13 @@ const settingsRadioGroupUi = {
     item: 'flex-1 cursor-pointer justify-center px-2 py-1.5',
     label: 'w-full text-center text-xs font-medium',
 };
-const localeSelectUi = { content: 'max-h-[min(24rem,var(--reka-combobox-content-available-height,24rem))]' };
-const themeOptions = computed<Array<{
-    value: TAppTheme;
-    label: string;
-    icon: string;
-}>>(() => [
+const localeSelectContent = [
+    'max-h-[min(24rem,var(--reka-combobox-content-available-height,24rem))]',
+    'w-auto min-w-(--reka-combobox-trigger-width)',
+    'max-w-[min(24rem,var(--reka-combobox-content-available-width,24rem))]',
+].join(' ');
+const localeSelectUi = { content: localeSelectContent };
+const themeOptions = computed(() => [
     {
         value: 'light',
         label: t('settings.themeLight'),
@@ -123,10 +124,7 @@ const themeOptions = computed<Array<{
         icon: 'i-ph-moon',
     },
 ]);
-const uiScaleOptions = computed<Array<{
-    value: TUiScalePreference;
-    label: string;
-}>>(() => [
+const uiScaleOptions = computed(() => [
     {
         value: 'auto',
         label: t('settings.uiScaleAuto'),
