@@ -35,7 +35,7 @@ const { t } = useTypedI18n();
 
 <style scoped>
 .settings-page-content {
-    width: min(100%, 52rem);
+    width: min(100%, 64rem);
     margin: 0 auto;
 }
 </style>
