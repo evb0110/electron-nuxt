@@ -71,7 +71,6 @@
                 @rotate-ccw="handleFallbackRotateCcw"
                 @insert-pages="handleFallbackInsertPages"
                 @toggle-sidebar="handleFallbackToggleSidebar"
-                @actual-size="handleFallbackActualSize"
                 @fit-width="handleFallbackFitWidth"
                 @fit-height="handleFallbackFitHeight"
                 @toggle-continuous-scroll="handleFallbackToggleContinuousScroll"
@@ -499,10 +498,6 @@ function handleFallbackInsertPages() {
 
 function handleFallbackToggleSidebar() {
     runFallbackWorkspaceAction(workspace => workspace.handleToggleSidebar());
-}
-
-function handleFallbackActualSize() {
-    runFallbackWorkspaceAction(workspace => workspace.handleActualSize());
 }
 
 function handleFallbackFitWidth() {

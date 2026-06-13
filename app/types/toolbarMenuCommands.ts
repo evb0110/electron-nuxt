@@ -18,7 +18,6 @@ export type TToolbarAppMenuCommand =
 export type TToolbarOverflowMenuCommand =
     | 'open-ocr'
     | 'toggle-sidebar'
-    | 'actual-size'
     | 'fit-width'
     | 'fit-height'
     | 'enable-drag'
