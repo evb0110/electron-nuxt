@@ -111,7 +111,7 @@ export default {
         'captureCopied': 'Copiado',
         'crop': 'Recortar páginas',
         'cropHint': 'Arraste para selecionar a área de recorte. Esc para cancelar.',
-        'fullscreen': 'Tela inteira',
+        'fullscreen': 'Alternar Tela Inteira',
     },
     'notifications': {
         'docxSavedTitle': 'DOCX salvo',
@@ -815,7 +815,7 @@ export default {
     },
     'settings': {
         'title': 'Configurações',
-        'pageEyebrow': 'Workspace',
+        'pageEyebrow': 'Espaço de trabalho',
         'dialogDescription': 'Configure o visualizador, as configurações padrão de anotação, os atalhos e as atualizações.',
         'browserDialogDescription': 'Configure o visualizador do navegador, as configurações padrão de anotação e os atalhos disponíveis no aplicativo web.',
         'general': 'Geral',
@@ -1055,7 +1055,7 @@ export default {
         'units': 'Unidades',
         'unitPoints': 'pt',
         'unitMillimeters': 'mm',
-        'unitInches': 'pol',
+        'unitInches': 'in',
         'applyTo': 'Aplicar a',
         'scopeAll': 'Todas as páginas ({count})',
         'scopeCurrent': 'Página atual ({page})',
