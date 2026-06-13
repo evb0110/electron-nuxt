@@ -539,7 +539,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
 
             expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(true);
 
-            vi.advanceTimersByTime(600);
+            vi.advanceTimersByTime(800);
 
             expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
         } finally {
@@ -1209,6 +1209,61 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         expect(currentPage.value).toBe(3);
     });
 
+    it('does not accumulate a continuous pixel-wheel tail into a late same-direction page flip', () => {
+        const {
+            currentPage,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 140,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 260,
+                    offsetHeight: 100,
+                },
+            ],
+            clientHeight: 100,
+            scrollHeight: 360,
+            getMostVisiblePage: (viewer) => {
+                if (!viewer) {
+                    return 1;
+                }
+                if (viewer.scrollTop >= 240) {
+                    return 3;
+                }
+                if (viewer.scrollTop >= 120) {
+                    return 2;
+                }
+                return 1;
+            },
+        });
+
+        singlePageScroll.handleWheel(createWheelEvent(120, 10));
+        expect(currentPage.value).toBe(2);
+
+        for (const timeStamp of [
+            40,
+            80,
+            130,
+            190,
+            230,
+            270,
+            310,
+        ]) {
+            singlePageScroll.handleWheel(createWheelEvent(30, timeStamp));
+            expect(currentPage.value).toBe(2);
+        }
+
+        singlePageScroll.handleWheel(createWheelEvent(120, 530));
+        expect(currentPage.value).toBe(3);
+    });
+
     it('bypasses cooldown when wheel direction reverses', () => {
         const {
             currentPage,
@@ -1558,6 +1613,105 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         singlePageScroll.scrollToPage(2);
 
         expect(container.scrollTop).toBe(90);
+    });
+
+    it('marks the hold target row expired only on timeout and releases it when content arrives', () => {
+        vi.useFakeTimers();
+        try {
+            const {singlePageScroll} = createSinglePageScrollHarness({suppressPagedRowRender: () => true});
+
+            singlePageScroll.scrollToPage(2);
+
+            expect(singlePageScroll.isNavigationHeldPage(1)).toBe(true);
+            expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(true);
+            expect(singlePageScroll.isNavigationHoldActiveForPage(1)).toBe(false);
+            expect(singlePageScroll.isNavigationHoldExpiredPage(2)).toBe(false);
+
+            vi.advanceTimersByTime(699);
+            expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(true);
+
+            vi.advanceTimersByTime(1);
+            expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(false);
+            expect(singlePageScroll.isNavigationHeldPage(1)).toBe(true);
+            expect(singlePageScroll.isNavigationHoldExpiredPage(2)).toBe(true);
+            expect(singlePageScroll.isNavigationHoldExpiredPage(1)).toBe(false);
+
+            singlePageScroll.releasePagedNavigationHoldForPage(2);
+            expect(singlePageScroll.isNavigationHoldExpiredPage(2)).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps the visual hold after paged navigation settle fallback releases programmatic ownership', () => {
+        vi.useFakeTimers();
+        try {
+            const {singlePageScroll} = createSinglePageScrollHarness({suppressPagedRowRender: () => true});
+
+            singlePageScroll.scrollToPage(2);
+
+            vi.advanceTimersByTime(800);
+            expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
+            expect(singlePageScroll.isNavigationHeldPage(1)).toBe(true);
+
+            vi.advanceTimersByTime(3_200);
+            expect(singlePageScroll.isNavigationHeldPage(1)).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('clears an expired hold range when the next paged navigation starts', () => {
+        vi.useFakeTimers();
+        try {
+            const {singlePageScroll} = createSinglePageScrollHarness({suppressPagedRowRender: () => true});
+
+            singlePageScroll.scrollToPage(2);
+            vi.advanceTimersByTime(700);
+            expect(singlePageScroll.isNavigationHoldExpiredPage(2)).toBe(true);
+
+            singlePageScroll.scrollToPage(3);
+
+            expect(singlePageScroll.isNavigationHoldExpiredPage(2)).toBe(false);
+            expect(singlePageScroll.isNavigationHoldActiveForPage(3)).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('clears an expired hold range when programmatic navigation is cancelled', () => {
+        vi.useFakeTimers();
+        try {
+            const {singlePageScroll} = createSinglePageScrollHarness({suppressPagedRowRender: () => true});
+
+            singlePageScroll.scrollToPage(2);
+            vi.advanceTimersByTime(700);
+            expect(singlePageScroll.isNavigationHoldExpiredPage(2)).toBe(true);
+
+            singlePageScroll.cancelProgrammaticNavigation();
+
+            expect(singlePageScroll.isNavigationHoldExpiredPage(2)).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('releases an active hold without marking expiry when the target paints in time', () => {
+        vi.useFakeTimers();
+        try {
+            const {singlePageScroll} = createSinglePageScrollHarness({suppressPagedRowRender: () => true});
+
+            singlePageScroll.scrollToPage(2);
+            expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(true);
+
+            singlePageScroll.releasePagedNavigationHoldForPage(2);
+
+            expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(false);
+            vi.advanceTimersByTime(700);
+            expect(singlePageScroll.isNavigationHoldExpiredPage(2)).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('scrollToPage in single-page mode keeps tall pages centered (which clamps to top edge)', () => {

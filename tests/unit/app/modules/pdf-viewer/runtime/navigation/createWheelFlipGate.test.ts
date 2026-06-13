@@ -19,17 +19,32 @@ describe('createWheelFlipGate', () => {
         const gate = createWheelFlipGate();
 
         gate.recordFlip(1, 10);
+        gate.recordWheelPacket(20);
 
         expect(gate.shouldBlockFlip(-1, 40)).toBe(false);
+    });
+
+    it('blocks same-direction flips in the same pixel-wheel gesture when requested', () => {
+        const gate = createWheelFlipGate();
+
+        gate.recordFlip(1, 10);
+        gate.recordWheelPacket(160);
+
+        expect(gate.shouldBlockFlip(1, 260)).toBe(false);
+        expect(gate.shouldBlockFlip(1, 260, { requireGestureIdle: true })).toBe(true);
+
+        gate.recordWheelPacket(260);
+        expect(gate.shouldBlockFlip(1, 470, { requireGestureIdle: true })).toBe(false);
     });
 
     it('allows the next edge flip after interior page scrolling', () => {
         const gate = createWheelFlipGate();
 
         gate.recordFlip(1, 10);
+        gate.recordWheelPacket(40);
         gate.recordInteriorScroll();
 
-        expect(gate.shouldBlockFlip(1, 40)).toBe(false);
+        expect(gate.shouldBlockFlip(1, 260, { requireGestureIdle: true })).toBe(false);
     });
 
     it('clears cooldown state on reset', () => {

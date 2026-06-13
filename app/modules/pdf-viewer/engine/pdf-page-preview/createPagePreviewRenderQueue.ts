@@ -20,6 +20,10 @@ interface IQueuedPreviewRender {
     sequence: number;
 }
 
+export const PAGE_PREVIEW_TARGET_PRIORITY = 100;
+const MAX_IN_FLIGHT_PREFETCH_RENDERS = 1;
+const RENDER_DURATION_SAMPLE_LIMIT = 4;
+
 function normalizePositiveInteger(value: number, fallback: number) {
     return Number.isFinite(value) && value > 0
         ? Math.max(1, Math.trunc(value))
@@ -91,7 +95,9 @@ export function createPagePreviewRenderQueue(options: ICreatePagePreviewRenderQu
     const maxLongestSidePx = normalizePositiveInteger(options.maxLongestSidePx, 640);
     const concurrency = normalizePositiveInteger(options.concurrency, 1);
     const queued = new Map<number, IQueuedPreviewRender>();
+    const renderDurationSamplesMs: number[] = [];
     let activeCount = 0;
+    let activePrefetchCount = 0;
     let sequence = 0;
     let generation = 0;
 
@@ -102,16 +108,24 @@ export function createPagePreviewRenderQueue(options: ICreatePagePreviewRenderQu
     function reset() {
         generation += 1;
         queued.clear();
+        renderDurationSamplesMs.length = 0;
         options.cache.clear();
     }
 
+    function isPrefetchPriority(priority: number) {
+        return priority < PAGE_PREVIEW_TARGET_PRIORITY;
+    }
+
     function getNextQueuedRender() {
-        const renders = Array.from(queued.values()).sort((left, right) => {
-            if (right.priority !== left.priority) {
-                return right.priority - left.priority;
-            }
-            return left.sequence - right.sequence;
-        });
+        const canStartPrefetch = activePrefetchCount < MAX_IN_FLIGHT_PREFETCH_RENDERS;
+        const renders = Array.from(queued.values())
+            .filter(render => canStartPrefetch || !isPrefetchPriority(render.priority))
+            .sort((left, right) => {
+                if (right.priority !== left.priority) {
+                    return right.priority - left.priority;
+                }
+                return left.sequence - right.sequence;
+            });
         return renders[0] ?? null;
     }
 
@@ -124,11 +138,48 @@ export function createPagePreviewRenderQueue(options: ICreatePagePreviewRenderQu
 
             queued.delete(nextRender.pageNumber);
             activeCount += 1;
+            const isPrefetchRender = isPrefetchPriority(nextRender.priority);
+            if (isPrefetchRender) {
+                activePrefetchCount += 1;
+            }
             void runRender(nextRender).finally(() => {
                 activeCount -= 1;
+                if (isPrefetchRender) {
+                    activePrefetchCount -= 1;
+                }
                 drain();
             });
         }
+    }
+
+    function pruneQueuedPrefetches(shouldKeep: (pageNumber: number) => boolean) {
+        for (const [
+            pageNumber,
+            request,
+        ] of queued) {
+            if (isPrefetchPriority(request.priority) && !shouldKeep(pageNumber)) {
+                queued.delete(pageNumber);
+            }
+        }
+    }
+
+    function recordRenderDuration(durationMs: number) {
+        renderDurationSamplesMs.push(durationMs);
+        if (renderDurationSamplesMs.length > RENDER_DURATION_SAMPLE_LIMIT) {
+            renderDurationSamplesMs.shift();
+        }
+    }
+
+    function getAverageRenderDurationMs() {
+        if (renderDurationSamplesMs.length === 0) {
+            return null;
+        }
+
+        const totalMs = renderDurationSamplesMs.reduce(
+            (sum, sample) => sum + sample,
+            0,
+        );
+        return totalMs / renderDurationSamplesMs.length;
     }
 
     async function runRender(request: IQueuedPreviewRender) {
@@ -150,6 +201,7 @@ export function createPagePreviewRenderQueue(options: ICreatePagePreviewRenderQu
                 return;
             }
 
+            const renderStartedAtMs = performance.now();
             const preview = await renderPagePreviewSource(pdfPage, maxLongestSidePx);
             if (!preview) {
                 return;
@@ -160,6 +212,7 @@ export function createPagePreviewRenderQueue(options: ICreatePagePreviewRenderQu
                 return;
             }
 
+            recordRenderDuration(performance.now() - renderStartedAtMs);
             options.cache.set({
                 pageNumber: request.pageNumber,
                 source: preview.source,
@@ -216,7 +269,9 @@ export function createPagePreviewRenderQueue(options: ICreatePagePreviewRenderQu
     return {
         ensurePage,
         ensurePages,
+        getAverageRenderDurationMs,
         getGeneration,
+        pruneQueuedPrefetches,
         reset,
     };
 }

@@ -711,6 +711,8 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         continuousScroll,
         numPages,
         isPagedNavigationBurstActive: () => singlePageScroll.isPagedNavigationBurstActive(),
+        isNavigationHoldActiveForPage: pageNumber => singlePageScroll.isNavigationHoldActiveForPage(pageNumber),
+        isNavigationHoldExpiredPage: pageNumber => singlePageScroll.isNavigationHoldExpiredPage(pageNumber),
         markersByPage,
         linksByPage,
         renderVisiblePages,
