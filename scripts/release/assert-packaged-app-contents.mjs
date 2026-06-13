@@ -6,7 +6,7 @@ import {
     statSync,
 } from 'node:fs';
 import path from 'node:path';
-import asar from '@electron/asar';
+import { pathToFileURL } from 'node:url';
 
 const { WORKER_BUNDLES } = await import(
     new URL('../../packages/electron-worker-bundles/electronWorkerBundles.js', import.meta.url).href
@@ -14,7 +14,7 @@ const { WORKER_BUNDLES } = await import(
 
 const RELEASE_DIR = path.resolve(process.cwd(), process.argv[2] ?? 'release');
 
-const REQUIRED_ASAR_ENTRIES = [
+export const REQUIRED_ASAR_ENTRIES = [
     '/package.json',
     '/dist-electron/main.cjs',
     '/dist-electron/preload.cjs',
@@ -26,7 +26,7 @@ const REQUIRED_ASAR_ENTRIES = [
     '/nuxt-output/public/_nuxt',
 ];
 
-const FORBIDDEN_EXACT_ENTRIES = [
+export const FORBIDDEN_EXACT_ENTRIES = [
     '/nuxt-output/public/evb-viewer-seo.png',
     '/nuxt-output/public/evb-viewer-preview-cropped.png',
     '/nuxt-output/public/evb-viewer-og.png',
@@ -34,12 +34,12 @@ const FORBIDDEN_EXACT_ENTRIES = [
     '/nuxt-output/public/sitemap.xml',
 ];
 
-const FORBIDDEN_PREFIXES = [
+export const FORBIDDEN_PREFIXES = [
     '/node_modules',
     '/nuxt-output/public/mobile-reader-proof',
 ];
 
-const EXPECTED_UNPACKED_DIST_ELECTRON = [
+export const EXPECTED_UNPACKED_DIST_ELECTRON = [
     ...WORKER_BUNDLES.map(bundle => bundle.fileName),
     'package.json',
     'pdf.worker.mjs',
@@ -73,7 +73,16 @@ function findAsarArchives(rootDir) {
     return archives;
 }
 
-function collectEntryViolations(entries) {
+export function normalizeAsarEntry(entry) {
+    const normalizedEntry = entry.replaceAll('\\', '/');
+    return normalizedEntry.startsWith('/') ? normalizedEntry : `/${normalizedEntry}`;
+}
+
+export function normalizeAsarEntries(entries) {
+    return [...new Set(entries.map(normalizeAsarEntry))];
+}
+
+export function collectEntryViolations(entries) {
     const problems = [];
     const entrySet = new Set(entries);
 
@@ -104,7 +113,7 @@ function collectEntryViolations(entries) {
     return problems;
 }
 
-function collectUnpackedViolations(asarPath) {
+export function collectUnpackedViolations(asarPath) {
     const unpackedDistElectron = path.join(`${asarPath}.unpacked`, 'dist-electron');
     let actual;
     try {
@@ -141,7 +150,9 @@ function collectUnpackedViolations(asarPath) {
     return problems;
 }
 
-function main() {
+export async function main() {
+    const { default: asar } = await import('@electron/asar');
+
     statSync(RELEASE_DIR);
     const archives = findAsarArchives(RELEASE_DIR);
     if (archives.length === 0) {
@@ -150,7 +161,7 @@ function main() {
 
     const failures = [];
     for (const asarPath of archives) {
-        const entries = asar.listPackage(asarPath);
+        const entries = normalizeAsarEntries(asar.listPackage(asarPath));
         const problems = [
             ...collectEntryViolations(entries),
             ...collectUnpackedViolations(asarPath),
@@ -179,4 +190,6 @@ function main() {
     }
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    await main();
+}
