@@ -21,12 +21,14 @@ const {
     locale,
 } = useTypedI18n();
 const route = useRoute();
+const routeBaseName = useRouteBaseName();
 const runtimeConfig = useRuntimeConfig();
 
 const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
 const ogImage = computed(() => `${siteUrl.value}${SEO_IMAGE_PATH}`);
-const showSiteHeader = computed(() => route.path !== '/');
-const showSiteFooter = computed(() => route.path !== '/');
+const isHomeRoute = computed(() => route.path === '/' || routeBaseName(route) === 'index');
+const showSiteHeader = computed(() => !isHomeRoute.value);
+const showSiteFooter = computed(() => !isHomeRoute.value);
 
 const websiteSchema = computed(() => JSON.stringify({
     '@context': 'https://schema.org',
