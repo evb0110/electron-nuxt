@@ -71,9 +71,9 @@ function handleClick() {
     justify-content: center;
     width: var(--toolbar-control-height);
     height: var(--toolbar-control-height);
-    padding: 0.32rem;
+    padding: var(--app-toolbar-button-padding);
     border: 1px solid transparent;
-    border-radius: 0.4375rem;
+    border-radius: var(--app-toolbar-button-radius);
     background: transparent;
     color: var(--app-toolbar-control-inactive-fg);
     cursor: pointer;
