@@ -346,7 +346,7 @@ const workspaceLoadErrorDescription = computed(() => {
     return t('errors.workspace.loadDescriptionWithMessage', { message });
 });
 
-const hasPdf = computed<boolean>(() => {
+const hasPdf = computed(() => {
     const value = mountedWorkspace.value?.hasPdf;
     if (typeof value === 'boolean') {
         return value;

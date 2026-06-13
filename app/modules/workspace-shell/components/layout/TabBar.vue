@@ -242,7 +242,7 @@ function buildDirectionalActions(
     });
 }
 
-const primaryActions = computed<IContextMenuAction[]>(() => {
+const primaryActions = computed(() => {
     const actions: IContextMenuAction[] = [];
     if (isCommandEnabled({kind: 'new-tab'})) {
         actions.push({
@@ -261,7 +261,7 @@ const primaryActions = computed<IContextMenuAction[]>(() => {
     return actions;
 });
 
-const windowActions = computed<IContextMenuAction[]>(() => {
+const windowActions = computed(() => {
     const actions: IContextMenuAction[] = [];
     if (isCommandEnabled({kind: 'move-to-new-window'})) {
         actions.push({
@@ -318,7 +318,7 @@ const copyActions = computed(() => buildDirectionalActions('copy', {
     down: t('menu.copyTabDown'),
 }));
 
-const menuSections = computed<IContextMenuSection[]>(() => {
+const menuSections = computed(() => {
     const sections: IContextMenuSection[] = [];
     if (primaryActions.value.length > 0) {
         sections.push({
@@ -371,7 +371,7 @@ const menuSections = computed<IContextMenuSection[]>(() => {
     return sections;
 });
 
-const contextMenuItems = computed<TTabContextMenuItem[]>(() => {
+const contextMenuItems = computed(() => {
     const items: TTabContextMenuItem[] = [];
     for (const section of menuSections.value) {
         if (items.length > 0) {

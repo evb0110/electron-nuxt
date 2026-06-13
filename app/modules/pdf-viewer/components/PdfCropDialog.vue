@@ -135,16 +135,6 @@ interface ICropMarginField {
     modelValue: number;
 }
 
-interface ICropScopeOption {
-    value: TCropScope;
-    label: string;
-}
-
-interface ICropUnitOption {
-    value: TCropUnit;
-    label: string;
-}
-
 const open = defineModel<boolean>('open', { required: true });
 
 const {
@@ -242,7 +232,7 @@ const marginFields = computed<ICropMarginField[]>(() => [
     },
 ]);
 
-const unitOptions = computed<ICropUnitOption[]>(() => [
+const unitOptions = computed(() => [
     {
         value: 'pt',
         label: t('crop.unitPoints'),
@@ -257,8 +247,8 @@ const unitOptions = computed<ICropUnitOption[]>(() => [
     },
 ]);
 
-const scopeOptions = computed<ICropScopeOption[]>(() => {
-    const options: ICropScopeOption[] = [
+const scopeOptions = computed(() => {
+    const options = [
         {
             value: 'all',
             label: t('crop.scopeAll', { count: totalPages }),

@@ -53,14 +53,6 @@
 </template>
 
 <script setup lang="ts">
-interface ISaveMenuItem {
-    label: string;
-    icon: string;
-    disabled: boolean;
-    shortcut: string;
-    onSelect: () => void;
-}
-
 const {
     saveDisabled = false,
     saveAsDisabled = false,
@@ -105,7 +97,7 @@ const saveMenuUi = {
     itemTrailing: 'save-split-menu-trailing',
 };
 
-const saveMenuItems = computed<ISaveMenuItem[]>(() => [
+const saveMenuItems = computed(() => [
     {
         label: t('toolbar.save'),
         icon: 'ph:floppy-disk',

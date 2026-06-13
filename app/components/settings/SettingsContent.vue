@@ -247,18 +247,12 @@ const localeItems = computed(() => LOCALE_OPTION_DEFINITIONS.map(option => ({
     icon: option.icon,
 })));
 
-const zoomPresetItems = computed<Array<{
-    value: TDefaultZoomPreset;
-    label: string;
-}>>(() => ZOOM_PRESET_OPTION_DEFINITIONS.map(option => ({
+const zoomPresetItems = computed(() => ZOOM_PRESET_OPTION_DEFINITIONS.map(option => ({
     value: option.value,
     label: option.labelKey ? t(option.labelKey) : option.label ?? '',
 })));
 
-const viewModeItems = computed<Array<{
-    value: TPdfViewMode;
-    label: string;
-}>>(() => VIEW_MODE_OPTION_DEFINITIONS.map(option => ({
+const viewModeItems = computed(() => VIEW_MODE_OPTION_DEFINITIONS.map(option => ({
     value: option.value,
     label: t(option.labelKey),
 })));
@@ -274,10 +268,7 @@ const scrollModeItems = computed(() => [
     },
 ]);
 
-const tabMemoryPolicyItems = computed<Array<{
-    value: TTabMemoryPolicy;
-    label: string;
-}>>(() => TAB_MEMORY_POLICY_OPTION_DEFINITIONS.map(option => ({
+const tabMemoryPolicyItems = computed(() => TAB_MEMORY_POLICY_OPTION_DEFINITIONS.map(option => ({
     value: option.value,
     label: t(option.labelKey),
 })));
