@@ -360,7 +360,8 @@
     --app-combine-workbench-gap: var(--app-space-11xl);
     --app-combine-workbench-padding: var(--app-space-12xl);
     --app-combine-file-list-gap: var(--app-space-xl);
-    --app-combine-file-row-columns: var(--app-document-icon-width) var(--app-document-icon-width) minmax(0, 1fr) auto;
+    --app-combine-drag-handle-width: 1.25rem;
+    --app-combine-file-row-columns: var(--app-combine-drag-handle-width) var(--app-document-icon-width) var(--app-document-icon-width) minmax(0, 1fr) auto;
     --app-combine-file-row-gap: var(--app-space-7xl);
     --app-combine-file-row-min-height: 3.25rem;
     --app-combine-file-row-padding: var(--app-space-2xl) var(--app-space-4xl);
@@ -376,7 +377,7 @@
     --app-combine-compact-copy-gap: 0.05rem;
     --app-combine-compact-title-size: var(--app-text-size-ui);
     --app-combine-compact-text-size: var(--app-text-size-fine);
-    --app-combine-small-row-columns: 1.5rem 1.75rem minmax(0, 1fr);
+    --app-combine-small-row-columns: var(--app-combine-drag-handle-width) 1.5rem 1.75rem minmax(0, 1fr);
 
     /* File-type badge palette (for FileTypeIcon) */
     --app-file-icon-pdf-fill: oklch(98% 0.012 30);

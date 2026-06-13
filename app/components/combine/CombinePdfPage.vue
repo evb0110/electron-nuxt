@@ -108,12 +108,29 @@
                     :description="combineError"
                 />
 
-                <ol class="combine-file-list">
+                <p class="sr-only" role="status" aria-live="polite">{{ reorderAnnouncement }}</p>
+
+                <ol
+                    ref="listRef"
+                    class="combine-file-list"
+                    :class="{ 'is-reordering': isReordering }"
+                >
                     <li
                         v-for="(file, index) in files"
                         :key="file.id"
                         class="combine-file-row"
+                        :class="{ 'is-row-dragging': reorderDragIndex === index }"
+                        data-combine-row
                     >
+                        <AppTooltip :text="t('combinePdf.dragToReorder')" :delay-duration="600">
+                            <span
+                                class="combine-drag-handle"
+                                aria-hidden="true"
+                                @pointerdown="(event) => startReorder(event, index)"
+                            >
+                                <UIcon name="i-ph-dots-six-vertical" class="size-4" />
+                            </span>
+                        </AppTooltip>
                         <span class="combine-file-index">{{ index + 1 }}</span>
                         <FileTypeIcon :kind="file.kind" class="combine-file-icon" />
                         <span class="combine-file-copy">
@@ -193,6 +210,7 @@ import AppToolPageShell from '@app/components/AppToolPageShell.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import { formatBytes } from '@app/utils/formatters';
 import { getErrorMessage } from '@app/utils/error';
+import { moveArrayItem } from '@app/utils/moveArrayItem';
 import {
     combinePdfFiles as combinePdfInputFiles,
     type ICombinePdfProgress,
@@ -236,7 +254,9 @@ const {
 const { t } = useTypedI18n();
 const listTitleId = useId();
 const fileInputRef = ref<HTMLInputElement | null>(null);
+const listRef = ref<HTMLElement | null>(null);
 const files = ref<ICombineFile[]>([]);
+const reorderAnnouncement = ref('');
 const isDraggingOver = ref(false);
 const dragDepth = ref(0);
 const isCombining = ref(false);
@@ -306,20 +326,6 @@ function mergeCombineFiles(currentFiles: readonly ICombineFile[], fileList: File
     });
 }
 
-function reorderFile(filesToReorder: readonly ICombineFile[], index: number, targetIndex: number) {
-    const file = filesToReorder[index];
-    if (!file) {
-        return [...filesToReorder];
-    }
-
-    const withoutFile = filesToReorder.filter((_, fileIndex) => fileIndex !== index);
-    return [
-        ...withoutFile.slice(0, targetIndex),
-        file,
-        ...withoutFile.slice(targetIndex),
-    ];
-}
-
 function addFiles(fileList: FileList | File[]) {
     combineError.value = null;
     const merged = mergeCombineFiles(files.value, fileList);
@@ -379,13 +385,44 @@ function removeFile(index: number) {
     files.value = files.value.filter((_, fileIndex) => fileIndex !== index);
 }
 
+function announceReorder(position: number) {
+    const file = files.value[position];
+    if (!file) {
+        return;
+    }
+    reorderAnnouncement.value = t('combinePdf.reorderAnnouncement', {
+        name: file.name,
+        position: position + 1,
+        total: files.value.length,
+    });
+}
+
 function moveFile(index: number, delta: -1 | 1) {
     const targetIndex = index + delta;
     if (targetIndex < 0 || targetIndex >= files.value.length) {
         return;
     }
 
-    files.value = reorderFile(files.value, index, targetIndex);
+    files.value = moveArrayItem(files.value, index, targetIndex);
+    announceReorder(targetIndex);
+}
+
+function handleReorder(fromIndex: number, toIndex: number) {
+    files.value = moveArrayItem(files.value, fromIndex, toIndex);
+    announceReorder(toIndex);
+}
+
+const {
+    isDragging: isReordering,
+    dragIndex: reorderDragIndex,
+    onPointerDown: onReorderPointerDown,
+} = useListDragReorder(listRef, '[data-combine-row]', handleReorder);
+
+function startReorder(event: PointerEvent, index: number) {
+    if (isCombining.value) {
+        return;
+    }
+    onReorderPointerDown(event, index);
 }
 
 function buildOutputName() {
@@ -588,6 +625,37 @@ async function combineFiles() {
     background: var(--ui-bg);
 }
 
+.combine-drag-handle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ui-text-dimmed);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+
+.combine-drag-handle:hover {
+    color: var(--ui-text-muted);
+}
+
+.combine-drag-handle:active {
+    cursor: grabbing;
+}
+
+.combine-file-list.is-reordering {
+    cursor: grabbing;
+    user-select: none;
+}
+
+.combine-file-row.is-row-dragging {
+    position: relative;
+    z-index: 1;
+    border-color: var(--ui-primary);
+    background: var(--ui-bg-elevated);
+    box-shadow: var(--shadow-popup);
+}
+
 .combine-file-index {
     color: var(--ui-text-dimmed);
     font-variant-numeric: tabular-nums;
@@ -725,7 +793,7 @@ async function combineFiles() {
     }
 
     .combine-row-actions {
-        grid-column: 3;
+        grid-column: 4;
         justify-self: end;
     }
 }
