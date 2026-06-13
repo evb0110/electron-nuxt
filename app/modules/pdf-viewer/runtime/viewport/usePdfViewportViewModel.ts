@@ -31,6 +31,7 @@ interface IUsePdfViewportViewModelOptions {
         end: number;
     }>;
     navigationAnchorPage: ComputedRef<number | null>;
+    navigationHeldPageNumbers?: ComputedRef<number[]> | undefined;
     resizeTransitionAnchorPage: Ref<number | null>;
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
     scaleContainerStyle: ComputedRef<Record<string, string>>;
@@ -68,6 +69,7 @@ export function usePdfViewportViewModel(options: IUsePdfViewportViewModelOptions
         scaledMargin: options.scaledMargin,
         visibleRange: options.visibleRange,
         navigationAnchorPage: options.navigationAnchorPage,
+        navigationHeldPageNumbers: options.navigationHeldPageNumbers,
         resizeTransitionAnchorPage: options.resizeTransitionAnchorPage,
         zoomVirtualizationFreeze: options.zoomVirtualizationFreeze,
     });

@@ -13,7 +13,7 @@ import { useWorkspaceToolbarPageModel } from '@app/modules/workspace-shell/compo
 import { workspaceToolbarPageNavigationCommitDelayMs } from '@app/modules/workspace-shell/toolbar/workspaceToolbarPageNavigationCommitDelayMs';
 
 describe('useWorkspaceToolbarPageModel', () => {
-    it('advances rapid next-page clicks optimistically while committing only the settled target', () => {
+    it('advances rapid next-page clicks optimistically while routing only the settled target', () => {
         vi.useFakeTimers();
         try {
             const scope = effectScope();
@@ -48,9 +48,8 @@ describe('useWorkspaceToolbarPageModel', () => {
 
             vi.advanceTimersByTime(1);
             expect(goToPage).toHaveBeenCalledTimes(1);
-            expect(updateCurrentPage).toHaveBeenCalledTimes(1);
+            expect(updateCurrentPage).not.toHaveBeenCalled();
             expect(goToPage).toHaveBeenCalledWith(4);
-            expect(updateCurrentPage).toHaveBeenCalledWith(4);
 
             scope.stop();
         } finally {

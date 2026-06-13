@@ -251,6 +251,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         cancelInFlightRenders,
         renderAnnotationEditorLayerForPage,
         cleanupRenderedPages,
+        isPageFreshlyRenderedForNavigation,
         isPageRenderedForClass,
     } = usePdfViewerRenderingRuntime({
         viewerContainer,
@@ -277,9 +278,11 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         onRenderStall: relayPageRenderStall,
         onPageCanvasMounted: pageNumber => {
             handlePageCanvasMounted(pageNumber);
+        },
+        onPageRendered: pageNumber => {
+            handlePageRendered(pageNumber);
             singlePageScroll.releasePagedNavigationHoldForPage(pageNumber);
         },
-        onPageRendered: handlePageRendered,
         onAnnotationLayersRendered: pageNumber => applyEditedTextMarkupColorsForRenderedPage(pageNumber),
         onRenderedPageStateChanged: handleRenderedPageStateChanged,
         renderedPageStateVersion,
@@ -339,6 +342,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         ensurePageMetricsInRange: pdfDocumentResult.ensurePageMetricsInRange,
         suppressPagedRowRender: shouldSuppressPagedFitRowRender,
         ensurePagePreviewRange: (range, options) => ensurePagePreviewRangeBridge?.(range, options),
+        isPageFreshlyRenderedForNavigation,
         visibleRange,
         emitCurrentPage: viewerEvents.updateCurrentPage,
         requestedCurrentPage,
@@ -423,6 +427,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         scaledMargin,
         visibleRange,
         navigationAnchorPage,
+        navigationHeldPageNumbers: singlePageScroll.navigationHeldPageNumbers,
         resizeTransitionAnchorPage,
         zoomVirtualizationFreeze,
         scaleContainerStyle,
@@ -703,6 +708,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         hasMountedPageCanvas,
         shouldShowSkeleton: shouldShowNavigationSkeleton,
         visibleRange,
+        pagedNavigationTargetPage: singlePageScroll.pagedNavigationTargetPage,
         currentPage: viewerCurrentPage,
         zoom,
         zoomMode,
@@ -750,7 +756,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         return getPagePreviewBridge(page);
     }
     function handlePagePreviewDrawn(page: number) {
-        singlePageScroll.releasePagedNavigationHoldForPage(page);
+        void page;
     }
     const {
         captureViewerScrollSnapshot,

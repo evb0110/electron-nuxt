@@ -128,7 +128,7 @@ const shapeContext = inject<IShapeContextProvide | null>('shapeContext', null);
 
 const pageShapes = computed(() => shapeContext?.getShapesForPage(page - 1) ?? []);
 const showPreview = computed(() => Boolean(preview && !rendered));
-const showPageSkeleton = computed(() => showSkeleton && !isPreviewDrawn.value);
+const showPageSkeleton = computed(() => showSkeleton && !showPreview.value && !isPreviewDrawn.value);
 
 function drawPreview() {
     if (!showPreview.value || !preview || !previewCanvas.value) {

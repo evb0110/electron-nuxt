@@ -112,6 +112,7 @@ function createPagedHarness(options?: {
     viewMode?: TPdfViewMode;
     currentPage?: number;
     navigationAnchorPage?: number | null;
+    navigationHeldPageNumbers?: number[];
     bufferPages?: number;
     visibleRange?: {
         start: number;
@@ -142,6 +143,7 @@ function createPagedHarness(options?: {
             end: 10,
         }),
         navigationAnchorPage: ref(options?.navigationAnchorPage ?? null),
+        navigationHeldPageNumbers: computed(() => options?.navigationHeldPageNumbers ?? []),
         resizeTransitionAnchorPage: ref(null),
         zoomVirtualizationFreeze: ref(null),
     });
@@ -232,6 +234,29 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.isPageBuffered(10)).toBe(false);
         expect(virtualization.isPageBuffered(11)).toBe(false);
         expect(virtualization.isPageBuffered(12)).toBe(true);
+    });
+
+    it('keeps held paged rows mounted while a far navigation target is pending', () => {
+        const virtualization = createPagedHarness({
+            viewMode: 'single',
+            currentPage: 1,
+            navigationAnchorPage: 18,
+            navigationHeldPageNumbers: [1],
+            visibleRange: {
+                start: 1,
+                end: 1,
+            },
+        });
+
+        expect(virtualization.pagesToRender.value).toEqual([
+            1,
+            17,
+            18,
+            19,
+            20,
+        ]);
+        expect(virtualization.isPageBuffered(1)).toBe(true);
+        expect(virtualization.isPageBuffered(18)).toBe(false);
     });
 
     it('does not size skeleton placeholders from a wider document fallback while page metrics hydrate', () => {
