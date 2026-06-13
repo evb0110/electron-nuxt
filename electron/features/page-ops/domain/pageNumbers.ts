@@ -57,10 +57,13 @@ export function validatePageNumbers(
     }
 }
 
-export function validateReorderPermutation(newOrder: number[]) {
-    const maxPage = newOrder.length;
+export function validateReorderPermutation(newOrder: number[], totalPages = newOrder.length) {
+    if (newOrder.length !== totalPages) {
+        throw new Error(`reorderPages: expected ${totalPages} page(s), received ${newOrder.length}`);
+    }
+
     const pageSet = new Set(newOrder);
-    for (const pageNumber of range(1, maxPage + 1)) {
+    for (const pageNumber of range(1, totalPages + 1)) {
         if (!pageSet.has(pageNumber)) {
             throw new Error(`reorderPages: missing page ${pageNumber} in reorder payload`);
         }

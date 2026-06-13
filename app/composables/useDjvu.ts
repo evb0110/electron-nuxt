@@ -28,6 +28,12 @@ export type TOpenDjvuFile = (
     closeFile?: () => void | Promise<void>,
 ) => Promise<void>;
 
+function ensurePdfSuggestedName(name: string) {
+    const trimmedName = name.trim();
+    const safeName = trimmedName.length > 0 ? trimmedName : 'document';
+    return /\.pdf$/i.test(safeName) ? safeName : `${safeName}.pdf`;
+}
+
 export const useDjvu = () => {
     const { t } = useTypedI18n();
 
@@ -305,7 +311,8 @@ export const useDjvu = () => {
         loadPdfFromPath: (path: TDocumentRef) => Promise<void>,
         setOriginalPath?: (path: TDocumentRef | null) => void,
     ) {
-        if (!djvuSourcePath.value) {
+        const sourcePath = djvuSourcePath.value;
+        if (!sourcePath) {
             return;
         }
 
@@ -313,10 +320,12 @@ export const useDjvu = () => {
         const djvu = getDjvuCapability();
         const documents = getDocumentsCapability();
 
-        const suggestedName = (getDocumentRefBaseName(djvuSourcePath.value) ?? t('djvu.documentFallback'))
-            .replace(/\.djvu?$/i, '.pdf');
+        const sourceBaseName = getDocumentRefBaseName(sourcePath)?.trim();
+        const suggestedName = sourceBaseName
+            ? ensurePdfSuggestedName(sourceBaseName.replace(/\.djvu?$/i, ''))
+            : ensurePdfSuggestedName(t('djvu.documentFallback'));
         const savePath = await documents.savePdfDialog(suggestedName);
-        if (!savePath || generation !== conversionGeneration) {
+        if (!savePath || generation !== conversionGeneration || djvuSourcePath.value !== sourcePath) {
             return;
         }
 
@@ -337,7 +346,7 @@ export const useDjvu = () => {
         try {
             clearViewingError();
             const result = await djvu.convertToPdf(
-                djvuSourcePath.value,
+                sourcePath,
                 savePath,
                 {
                     subsample,
@@ -345,7 +354,7 @@ export const useDjvu = () => {
                 },
             );
 
-            if (generation !== conversionGeneration) {
+            if (generation !== conversionGeneration || djvuSourcePath.value !== sourcePath) {
                 return;
             }
 
@@ -365,7 +374,7 @@ export const useDjvu = () => {
             exitDjvuMode();
             activeViewingJobId.value = null;
 
-            if (generation !== conversionGeneration) {
+            if (generation !== conversionGeneration || djvuSourcePath.value !== sourcePath) {
                 return;
             }
 
@@ -378,7 +387,7 @@ export const useDjvu = () => {
             }
 
             const openResult = await documents.openDocumentDirect(result.pdfPath);
-            if (generation !== conversionGeneration) {
+            if (generation !== conversionGeneration || djvuSourcePath.value !== sourcePath) {
                 return;
             }
             if (openResult && openResult.kind === 'pdf') {
@@ -390,7 +399,7 @@ export const useDjvu = () => {
                 ? error.message
                 : t('errors.djvu.convert');
             BrowserLogger.error('djvu', 'Conversion crashed', {
-                path: djvuSourcePath.value,
+                path: sourcePath,
                 error,
             });
             viewingError.value = message;

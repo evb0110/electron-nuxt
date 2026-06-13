@@ -36,6 +36,10 @@ import { schedulePdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/e
 import { tracePdfAnnotationSaveDom } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveDom';
 import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
+import {
+    shouldHideHiddenEmbeddedAnnotation,
+    syncHiddenEmbeddedAnnotationDom as syncHiddenEmbeddedAnnotationDomForContainer,
+} from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getShellCapability } from '@app/utils/getShellCapability';
@@ -321,12 +325,16 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             : null;
     }
 
-    function isHiddenEditableAnnotationId(annotationId: string | null | undefined) {
-        const normalizedId = normalizePdfJsAnnotationId(annotationId);
-        return Boolean(
-            normalizedId
-            && getNormalizedHiddenAnnotationIds().has(normalizedId),
-        );
+    function isHiddenEditableAnnotationId(
+        annotationId: string | null | undefined,
+        pageContainer?: HTMLElement | null,
+    ) {
+        return shouldHideHiddenEmbeddedAnnotation({
+            annotationId,
+            hiddenAnnotationIds: getNormalizedHiddenAnnotationIds(),
+            managedAnnotationIds: getNormalizedManagedAnnotationIds(),
+            pageContainer,
+        });
     }
 
     function getEditorAnnotationElementId(editor: unknown) {
@@ -386,7 +394,13 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             const editors = Array.from(getEditors.call(annotationUiManager, targetPageNumber - 1) ?? []);
             editors.forEach((editor) => {
                 const annotationId = normalizePdfJsAnnotationId(getEditorAnnotationElementId(editor));
-                if (!annotationId || !isHiddenEditableAnnotationId(annotationId)) {
+                if (
+                    !annotationId
+                    || !isHiddenEditableAnnotationId(
+                        annotationId,
+                        annotationEditorLayerContainers.get(targetPageNumber) ?? null,
+                    )
+                ) {
                     return;
                 }
 
@@ -425,6 +439,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
 
     async function withHiddenAnnotationRenderGuards<T>(
         annotationUiManager: AnnotationEditorUIManager | null,
+        pageContainer: HTMLElement | null,
         render: () => Promise<T>,
     ) {
         if (!annotationUiManager) {
@@ -460,7 +475,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
 
             if (originalRenderAnnotationElement) {
                 mutableUiManager.renderAnnotationElement = (annotation: unknown) => {
-                    if (isHiddenEditableAnnotationId(getEditableAnnotationId(annotation))) {
+                    if (isHiddenEditableAnnotationId(getEditableAnnotationId(annotation), pageContainer)) {
                         return undefined;
                     }
 
@@ -474,7 +489,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                     annotationElementId: string,
                     canvas: HTMLCanvasElement,
                 ) => {
-                    if (isHiddenEditableAnnotationId(annotationId)) {
+                    if (isHiddenEditableAnnotationId(annotationId, pageContainer)) {
                         return undefined;
                     }
 
@@ -510,7 +525,10 @@ export const usePdfAnnotationLayerRenderer = (deps: {
 
     }
 
-    function applyHiddenEditableAnnotationFilter(annotationLayerInstance: TAnnotationLayer | null) {
+    function applyHiddenEditableAnnotationFilter(
+        annotationLayerInstance: TAnnotationLayer | null,
+        pageContainer: HTMLElement | null,
+    ) {
         if (!annotationLayerInstance) {
             return annotationLayerInstance;
         }
@@ -529,13 +547,16 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         if (getEditableAnnotations) {
             mutableAnnotationLayer.getEditableAnnotations = () => (
                 Array.from(getEditableAnnotations.call(annotationLayerInstance))
-                    .filter(editable => !isHiddenEditableAnnotationId(getEditableAnnotationId(editable)))
+                    .filter(editable => !isHiddenEditableAnnotationId(
+                        getEditableAnnotationId(editable),
+                        pageContainer,
+                    ))
             );
         }
 
         if (getEditableAnnotation) {
             mutableAnnotationLayer.getEditableAnnotation = (annotationId) => (
-                isHiddenEditableAnnotationId(annotationId)
+                isHiddenEditableAnnotationId(annotationId, pageContainer)
                     ? null
                     : getEditableAnnotation.call(annotationLayerInstance, annotationId)
             );
@@ -640,12 +661,10 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             return;
         }
 
-        annotationLayerDiv.querySelectorAll<HTMLElement>('[data-annotation-id]').forEach((element) => {
-            const annotationId = normalizePdfJsAnnotationId(element.dataset.annotationId);
-            if (!annotationId || !hiddenAnnotationIds.has(annotationId)) {
-                return;
-            }
-            element.remove();
+        syncHiddenEmbeddedAnnotationDomForContainer({
+            container: annotationLayerDiv,
+            hiddenAnnotationIds,
+            managedAnnotationIds: getNormalizedManagedAnnotationIds(),
         });
     }
 
@@ -714,11 +733,16 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 return null;
             }
             const hiddenAnnotationIds = getNormalizedHiddenAnnotationIds();
+            const managedAnnotationIds = getNormalizedManagedAnnotationIds();
             const visibleAnnotations = hiddenAnnotationIds.size === 0
                 ? annotations
                 : annotations.filter(annotation => {
-                    const annotationId = normalizePdfJsAnnotationId(getAnnotationId(annotation));
-                    return !annotationId || !hiddenAnnotationIds.has(annotationId);
+                    return !shouldHideHiddenEmbeddedAnnotation({
+                        annotationId: getAnnotationId(annotation),
+                        hiddenAnnotationIds,
+                        managedAnnotationIds,
+                        pageContainer,
+                    });
                 });
             const annotationStorage = deps.pdfDocument.value?.annotationStorage;
             const annotationUiManager = toValue(deps.annotationUiManager) ?? null;
@@ -816,7 +840,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                     visibleAnnotations: visibleAnnotations.length,
                 },
             );
-            await withHiddenAnnotationRenderGuards(annotationUiManager, async () => {
+            await withHiddenAnnotationRenderGuards(annotationUiManager, pageContainer, async () => {
                 await annotationLayerInstance.render({
                     annotations: visibleAnnotations,
                     viewport,
@@ -857,7 +881,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 { pageNumber },
             );
 
-            return applyHiddenEditableAnnotationFilter(annotationLayerInstance);
+            return applyHiddenEditableAnnotationFilter(annotationLayerInstance, pageContainer);
         } finally {
             schedulePdfLayerVisualSnapshotRelease(annotationLayerSnapshotRelease, { minFrames: 2 });
         }

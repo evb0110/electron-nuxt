@@ -8,6 +8,10 @@ import { refreshDeletedEmbeddedShapePage } from '@app/modules/pdf-viewer/engine/
 import { removeEmbeddedShapeAnnotationDom } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/removeEmbeddedShapeAnnotationDom';
 import { rerenderRenderedManagedEmbeddedShapePages } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/rerenderRenderedManagedEmbeddedShapePages';
 import { shouldRefreshManagedShapePage } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/shouldRefreshManagedShapePage';
+import {
+    resolveHiddenEmbeddedAnnotationIdsForPageContainer,
+    syncHiddenEmbeddedAnnotationDom,
+} from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
 
 interface IFakeEmbeddedShapeAnnotationElement {
     dataset: { annotationId?: string; };
@@ -60,6 +64,32 @@ function createFakeViewerContainer(annotationIds: string[]): HTMLElement & IFake
             return [];
         },
     } as HTMLElement & IFakeViewerContainer;
+}
+
+function createFakeHiddenAnnotationContainer(
+    annotationId: string,
+    options: { hasShapeOverlay: boolean },
+) {
+    const querySelector = (selector: string) => (
+        selector === '.pdf-shape-overlay.has-shapes' && options.hasShapeOverlay
+            ? Object.create(null)
+            : null
+    );
+    const pageContainer = Object.assign(Object.create(null) as HTMLElement, { querySelector });
+    const element = Object.assign(Object.create(null) as HTMLElement, {
+        closest: (selector: string) => selector === '.page_container' ? pageContainer : null,
+        dataset: { annotationId },
+        getAttribute: (name: string) => name === 'data-annotation-id' ? annotationId : null,
+        remove: vi.fn(),
+    });
+    const querySelectorAll = (selector: string) => selector === '[data-annotation-id]' ? [element] : [];
+    const container = Object.assign(Object.create(null) as HTMLElement, { querySelectorAll });
+
+    return {
+        container,
+        element,
+        pageContainer,
+    };
 }
 
 describe('refreshDeletedEmbeddedShapePage', () => {
@@ -120,6 +150,93 @@ describe('removeEmbeddedShapeAnnotationDom', () => {
         expect(viewerContainer.popups[0]?.remove).toHaveBeenCalledOnce();
         expect(viewerContainer.elements[1]?.remove).not.toHaveBeenCalled();
         expect(viewerContainer.popups[1]?.remove).not.toHaveBeenCalled();
+    });
+});
+
+describe('syncHiddenEmbeddedAnnotationDom', () => {
+    it('keeps managed embedded annotation DOM until the shape overlay is mounted', () => {
+        const {
+            container,
+            element,
+        } = createFakeHiddenAnnotationContainer('12R', { hasShapeOverlay: false });
+
+        const result = syncHiddenEmbeddedAnnotationDom({
+            container,
+            hiddenAnnotationIds: new Set(['12R0']),
+            managedAnnotationIds: new Set(['12R']),
+        });
+
+        expect(element.remove).not.toHaveBeenCalled();
+        expect(result).toEqual({
+            removedCount: 0,
+            deferredManagedAnnotationCount: 1,
+        });
+    });
+
+    it('removes managed embedded annotation DOM once the shape overlay is mounted', () => {
+        const {
+            container,
+            element,
+        } = createFakeHiddenAnnotationContainer('12R', { hasShapeOverlay: true });
+
+        const result = syncHiddenEmbeddedAnnotationDom({
+            container,
+            hiddenAnnotationIds: new Set(['12R0']),
+            managedAnnotationIds: new Set(['12R']),
+        });
+
+        expect(element.remove).toHaveBeenCalledOnce();
+        expect(result).toEqual({
+            removedCount: 1,
+            deferredManagedAnnotationCount: 0,
+        });
+    });
+
+    it('removes deleted embedded annotation DOM without waiting for a shape overlay', () => {
+        const {
+            container,
+            element,
+        } = createFakeHiddenAnnotationContainer('12R', { hasShapeOverlay: false });
+
+        const result = syncHiddenEmbeddedAnnotationDom({
+            container,
+            hiddenAnnotationIds: new Set(['12R0']),
+            managedAnnotationIds: new Set(),
+        });
+
+        expect(element.remove).toHaveBeenCalledOnce();
+        expect(result).toEqual({
+            removedCount: 1,
+            deferredManagedAnnotationCount: 0,
+        });
+    });
+});
+
+describe('resolveHiddenEmbeddedAnnotationIdsForPageContainer', () => {
+    it('keeps active managed embedded annotations visible until their page overlay is mounted', () => {
+        const { pageContainer } = createFakeHiddenAnnotationContainer('12R', { hasShapeOverlay: false });
+        const hiddenIds = resolveHiddenEmbeddedAnnotationIdsForPageContainer({
+            hiddenAnnotationIds: new Set([
+                '12R0',
+                'deleted-annotation',
+            ]),
+            managedAnnotationIds: new Set(['12R']),
+            pageContainer,
+        });
+
+        expect(hiddenIds.has('12R')).toBe(false);
+        expect(hiddenIds.has('deleted-annotation')).toBe(true);
+    });
+
+    it('hides managed embedded annotations once their page overlay is mounted', () => {
+        const { pageContainer } = createFakeHiddenAnnotationContainer('12R', { hasShapeOverlay: true });
+        const hiddenIds = resolveHiddenEmbeddedAnnotationIdsForPageContainer({
+            hiddenAnnotationIds: new Set(['12R0']),
+            managedAnnotationIds: new Set(['12R']),
+            pageContainer,
+        });
+
+        expect(hiddenIds.has('12R')).toBe(true);
     });
 });
 

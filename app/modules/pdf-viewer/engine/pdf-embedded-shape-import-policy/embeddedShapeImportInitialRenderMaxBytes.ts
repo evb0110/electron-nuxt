@@ -1,1 +1,1 @@
-export const embeddedShapeImportInitialRenderMaxBytes = 8 * 1024 * 1024;
+export const embeddedShapeImportInitialRenderMaxBytes = 64 * 1024 * 1024;

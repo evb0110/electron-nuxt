@@ -250,6 +250,59 @@ describe('pdfSerializationWorkerClient', () => {
         }
     });
 
+    it('settles sibling serialization requests when a timed-out worker is reset', async () => {
+        vi.useFakeTimers();
+        const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
+        const originalPostMessage = FakeWorker.prototype.postMessage;
+        FakeWorker.prototype.postMessage = function silentPostMessage(
+            message: unknown,
+            transfer,
+        ) {
+            this.postMessageCalls.push({
+                message,
+                transfer,
+            });
+        };
+
+        try {
+            const { serializePdfEditsOffThread } = await import('@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/serializePdfEditsOffThread');
+            const payload: IPdfSerializationSavePayload = {
+                markupSubtypeOverrides: [],
+                markupSubtypeHints: [],
+                rewriteShapeState: false,
+                shapes: [],
+                deletedShapeAnnotationIds: [],
+                deletedShapeStableKeys: [],
+                freeTextComments: [],
+                annotationComments: [],
+                pendingEmbeddedTextUpdates: [],
+                pendingEmbeddedAnnotationDeletes: [],
+                pageLabelsDirty: false,
+                pageLabelRanges: [],
+                totalPages: 0,
+                bookmarksDirty: false,
+                bookmarkItems: [],
+                untitledBookmarkLabel: '',
+                placedImage: null,
+            };
+
+            const firstData = new Uint8Array([1]);
+            const secondData = new Uint8Array([2]);
+            const first = serializePdfEditsOffThread(firstData, payload);
+            const second = serializePdfEditsOffThread(secondData, payload);
+
+            await vi.advanceTimersByTimeAsync(30_000);
+            await vi.runAllTimersAsync();
+
+            await expect(first).resolves.toEqual(firstData);
+            await expect(second).resolves.toEqual(secondData);
+            expect(terminateSpy).toHaveBeenCalled();
+            expect(serializePdfEditsMock).toHaveBeenCalled();
+        } finally {
+            FakeWorker.prototype.postMessage = originalPostMessage;
+        }
+    });
+
     it('rejects structured worker operation errors without direct fallback', async () => {
         const originalPostMessage = FakeWorker.prototype.postMessage;
         FakeWorker.prototype.postMessage = function failingOperationPostMessage(

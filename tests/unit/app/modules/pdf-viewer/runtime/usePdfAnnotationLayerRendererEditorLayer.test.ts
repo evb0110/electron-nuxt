@@ -145,6 +145,7 @@ interface IFakeDivElement {
     style: Record<string, string>;
     setAttribute: ReturnType<typeof vi.fn>;
     addEventListener: ReturnType<typeof vi.fn>;
+    closest?: (selector: string) => unknown;
 }
 
 interface IFakeContainerElement {querySelector: ReturnType<typeof vi.fn>;}
@@ -191,8 +192,15 @@ function createAnnotationElement(annotationId: string): IFakeEditorLayerAnnotati
     return element;
 }
 
-function createAnnotationLayerDiv(): HTMLDivElement {
+function createAnnotationLayerDiv(options?: { hasShapeOverlay?: boolean }): HTMLDivElement {
     const appended: IFakeEditorLayerAnnotationElement[] = [];
+    const querySelector = vi.fn((selector: string) => {
+        if (selector === '.pdf-shape-overlay.has-shapes' && options?.hasShapeOverlay) {
+            return {};
+        }
+        return null;
+    });
+    const pageContainer = { querySelector };
     const fakeDiv: IFakeAnnotationLayerDiv = {
         innerHTML: '',
         dir: 'ltr',
@@ -200,6 +208,7 @@ function createAnnotationLayerDiv(): HTMLDivElement {
         style: {},
         setAttribute: vi.fn(),
         addEventListener: vi.fn(),
+        closest: (selector: string) => selector === '.page_container' ? pageContainer : null,
         append: (element) => {
             appended.push(element);
         },
@@ -391,6 +400,96 @@ describe('usePdfAnnotationLayerRenderer', () => {
 
         const hiddenElement = annotationLayerDiv.querySelectorAll('[data-annotation-id="12R"]')[0] as IFakeEditorLayerAnnotationElement | undefined;
         expect(hiddenElement).toBeUndefined();
+    });
+
+    it('keeps managed embedded annotations visible until the shape overlay is mounted', async () => {
+        const renderer = usePdfAnnotationLayerRenderer({
+            numPages: ref(1),
+            currentPage: ref(1),
+            pdfDocument: ref(null),
+            showAnnotations: ref(true),
+            hiddenAnnotationIds: ref(new Set(['12R0'])),
+            managedAnnotationIds: ref(new Set(['12R'])),
+            annotationUiManager: mockUiManagerRef(createUiManager(false)),
+            annotationL10n: ref(null),
+        });
+
+        const annotationLayerDiv = createAnnotationLayerDiv({ hasShapeOverlay: false });
+        const pdfPage = cast<PDFPageProxy>({ getAnnotations: vi.fn(async () => [{ id: '12R' }]) });
+
+        await renderer.renderAnnotationLayer(
+            pdfPage,
+            annotationLayerDiv,
+            createViewport(),
+            1,
+        );
+
+        const managedElement = annotationLayerDiv.querySelectorAll('[data-annotation-id="12R"]')[0] as IFakeEditorLayerAnnotationElement | undefined;
+        expect(managedElement).toBeDefined();
+    });
+
+    it('suppresses managed embedded annotations once the shape overlay is mounted', async () => {
+        const renderer = usePdfAnnotationLayerRenderer({
+            numPages: ref(1),
+            currentPage: ref(1),
+            pdfDocument: ref(null),
+            showAnnotations: ref(true),
+            hiddenAnnotationIds: ref(new Set(['12R0'])),
+            managedAnnotationIds: ref(new Set(['12R'])),
+            annotationUiManager: mockUiManagerRef(createUiManager(false)),
+            annotationL10n: ref(null),
+        });
+
+        const annotationLayerDiv = createAnnotationLayerDiv({ hasShapeOverlay: true });
+        const pdfPage = cast<PDFPageProxy>({ getAnnotations: vi.fn(async () => [{ id: '12R' }]) });
+
+        await renderer.renderAnnotationLayer(
+            pdfPage,
+            annotationLayerDiv,
+            createViewport(),
+            1,
+        );
+
+        const managedElement = annotationLayerDiv.querySelectorAll('[data-annotation-id="12R"]')[0] as IFakeEditorLayerAnnotationElement | undefined;
+        expect(managedElement).toBeUndefined();
+    });
+
+    it('keeps managed embedded annotations in the PDF.js editor hydration source until the shape overlay is mounted', async () => {
+        const renderer = usePdfAnnotationLayerRenderer({
+            numPages: ref(1),
+            currentPage: ref(1),
+            pdfDocument: ref(null),
+            showAnnotations: ref(true),
+            hiddenAnnotationIds: ref(new Set([
+                '12R0',
+                '12R',
+            ])),
+            managedAnnotationIds: ref(new Set(['12R'])),
+            annotationUiManager: mockUiManagerRef(createUiManager(false)),
+            annotationL10n: ref(null),
+        });
+
+        const annotationLayerDiv = createAnnotationLayerDiv({ hasShapeOverlay: false });
+        const pdfPage = cast<PDFPageProxy>({ getAnnotations: vi.fn(async () => [
+            { id: '12R' },
+            { id: '42R' },
+        ]) });
+
+        const annotationLayer = await renderer.renderAnnotationLayer(
+            pdfPage,
+            annotationLayerDiv,
+            createViewport(),
+            1,
+        ) as {
+            getEditableAnnotations?: () => Array<{ data: { id: string; }; }>;
+            getEditableAnnotation?: (id: string) => unknown;
+        } | null;
+
+        expect(annotationLayer?.getEditableAnnotations?.().map(annotation => annotation.data.id)).toEqual([
+            '12R',
+            '42R',
+        ]);
+        expect(annotationLayer?.getEditableAnnotation?.('12R')).not.toBeNull();
     });
 
     it('suppresses hidden managed annotations from the PDF.js editor hydration source', async () => {

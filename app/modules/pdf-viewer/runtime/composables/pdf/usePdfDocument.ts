@@ -748,15 +748,33 @@ export const usePdfDocument = () => {
 
         let page = pdfPageCache.get(pageNumber);
         if (!page) {
+            logPdfRenderTrace('pdf-document-page-cache-miss', {
+                pageNumber,
+                version,
+                renderVersion,
+            });
             page = await document.getPage(pageNumber);
             if (version !== renderVersion || document !== pdfDocument.value) {
+                logPdfRenderTrace('pdf-document-page-cache-stale-cleanup', {
+                    pageNumber,
+                    version,
+                    renderVersion,
+                });
                 page.cleanup();
                 throw createStalePdfDocumentError(
                     'Rendering cancelled: PDF page request became stale',
                 );
             }
             rememberCachedPage(pageNumber, page);
+            logPdfRenderTrace('pdf-document-page-cache-store', {
+                pageNumber,
+                cacheSize: pdfPageCache.size,
+            });
         } else {
+            logPdfRenderTrace('pdf-document-page-cache-hit', {
+                pageNumber,
+                cacheSize: pdfPageCache.size,
+            });
             touchCachedPage(pageNumber, page);
         }
         return page;
@@ -768,11 +786,19 @@ export const usePdfDocument = () => {
             return;
         }
 
+        logPdfRenderTrace('pdf-document-page-cache-evict', {
+            pageNumber,
+            cacheSize: pdfPageCache.size,
+        });
         page.cleanup();
         pdfPageCache.delete(pageNumber);
     }
 
     function cleanupPageCache() {
+        logPdfRenderTrace('pdf-document-page-cache-cleanup-all', {
+            pageCount: pdfPageCache.size,
+            pages: Array.from(pdfPageCache.keys()).slice(0, 40),
+        });
         for (const [
             , page,
         ] of pdfPageCache) {

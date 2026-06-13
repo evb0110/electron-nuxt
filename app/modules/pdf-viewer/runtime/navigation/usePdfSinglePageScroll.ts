@@ -555,6 +555,18 @@ export const usePdfSinglePageScroll = (
         clearProgrammaticNavigationReleaseTimer();
     }
 
+    function scheduleSinglePageScrollFrame(callback: () => void) {
+        if (
+            typeof window !== 'undefined'
+            && typeof window.requestAnimationFrame === 'function'
+        ) {
+            window.requestAnimationFrame(callback);
+            return;
+        }
+
+        setTimeout(callback, 0);
+    }
+
     function waitForContinuousRenderFrame() {
         if (
             typeof window !== 'undefined'
@@ -1586,7 +1598,7 @@ export const usePdfSinglePageScroll = (
             emitCurrentPage(targetPage);
         }
 
-        requestAnimationFrame(() => {
+        scheduleSinglePageScrollFrame(() => {
             isSnapping.value = false;
         });
         return true;
@@ -1717,7 +1729,7 @@ export const usePdfSinglePageScroll = (
         if (currentPage.value !== previous) {
             emitCurrentPage(currentPage.value);
         }
-        requestAnimationFrame(() => {
+        scheduleSinglePageScrollFrame(() => {
             isSnapping.value = false;
         });
         return true;

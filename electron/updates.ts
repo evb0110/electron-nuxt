@@ -42,6 +42,7 @@ const METADATA_REQUEST_TIMEOUT_MS = 10_000;
 const MIN_POLL_INTERVAL_MS = 60_000;
 const MAX_JITTER_RATIO = 0.12;
 const UPDATE_PROGRESS_BROADCAST_THROTTLE_MS = 250;
+const UPDATER_SHUTDOWN_CHECK_WAIT_TIMEOUT_MS = 3_000;
 const GITHUB_RELEASE_DOWNLOAD_BASE_URL = 'https://github.com/evb0110/evb-viewer/releases/download';
 
 const defaultStatus: IAppUpdateStatus = {
@@ -58,6 +59,7 @@ let initialized = false;
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let currentCheckPromise: Promise<void> | null = null;
 let currentCheckOrigin: TAppUpdateCheckOrigin = 'auto';
+let isShuttingDown = false;
 let downloadedVersion: string | null = null;
 let pendingVersion: string | null = null;
 let codeSignatureCheckPromise: Promise<boolean> | null = null;
@@ -276,6 +278,9 @@ async function maybeClearSupersededDownloadedVersion() {
 }
 
 function scheduleNextPoll() {
+    if (isShuttingDown) {
+        return;
+    }
     if (!isUpdaterRuntimeSupported()) {
         return;
     }
@@ -294,12 +299,17 @@ function scheduleNextPoll() {
 
 function schedulePollTimer(delayMs: number, failureLogPrefix: string) {
     return setTimeout(() => {
+        if (isShuttingDown) {
+            return;
+        }
         void checkForUpdates('auto')
             .catch((error) => {
                 logger.error(`${failureLogPrefix}: ${getErrorMessage(error)}`);
             })
             .finally(() => {
-                scheduleNextPoll();
+                if (!isShuttingDown) {
+                    scheduleNextPoll();
+                }
             });
     }, delayMs);
 }
@@ -501,6 +511,9 @@ async function shouldRunUpdaterCheck() {
 
 async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
     try {
+        if (isShuttingDown) {
+            return;
+        }
         if (!isUpdaterRuntimeSupported()) {
             if (origin === 'manual') {
                 updateStatus({
@@ -618,6 +631,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
 }
 
 export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) {
+    isShuttingDown = false;
     emitStatus = onStatus;
     emitStatus(status);
 
@@ -668,6 +682,9 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
 }
 
 export async function triggerManualUpdateCheck() {
+    if (isShuttingDown) {
+        return { started: false };
+    }
     await checkForUpdates('manual');
     return { started: true };
 }
@@ -726,6 +743,7 @@ export async function skipUpdateVersion(version: string) {
 }
 
 export async function shutdownUpdates() {
+    isShuttingDown = true;
     if (pollTimer) {
         clearTimeout(pollTimer);
         pollTimer = null;
@@ -734,10 +752,21 @@ export async function shutdownUpdates() {
     lastProgressBroadcastAt = 0;
 
     if (currentCheckPromise) {
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
         try {
-            await currentCheckPromise;
+            await Promise.race([
+                currentCheckPromise,
+                new Promise<void>((resolve) => {
+                    timeoutHandle = setTimeout(resolve, UPDATER_SHUTDOWN_CHECK_WAIT_TIMEOUT_MS);
+                    timeoutHandle.unref?.();
+                }),
+            ]);
         } catch {
             // Ignore in-flight check failures during shutdown.
+        } finally {
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+            }
         }
     }
 

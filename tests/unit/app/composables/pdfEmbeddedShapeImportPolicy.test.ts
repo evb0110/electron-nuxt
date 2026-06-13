@@ -21,7 +21,7 @@ describe('resolveEmbeddedShapeImportLoadPolicy', () => {
         });
     });
 
-    it('defers large byte-backed embedded drawing imports until after the first page render', () => {
+    it('defers byte-backed embedded drawing imports above the in-memory threshold', () => {
         expect(resolveEmbeddedShapeImportLoadPolicy(
             new Uint8Array(embeddedShapeImportInitialRenderMaxBytes + 1),
             '/tmp/large-book.pdf',

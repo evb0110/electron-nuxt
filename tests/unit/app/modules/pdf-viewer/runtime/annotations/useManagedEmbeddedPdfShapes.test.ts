@@ -22,13 +22,24 @@ vi.mock('@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmb
     };
 });
 
-function createRenderedViewerContainer() {
+function createRenderedViewerContainer(options: { hasShapeOverlay?: boolean } = {}) {
+    const pageContainer = Object.create(null) as HTMLElement & { querySelector: (selector: string) => object | null; };
+    pageContainer.querySelector = (selector: string) => {
+        if (selector === '.pdf-shape-overlay.has-shapes' && options.hasShapeOverlay === true) {
+            return {};
+        }
+        return null;
+    };
     return Object.assign(Object.create(null), {
-        querySelector: (selector: string) => (
-            selector === '.page_container--rendered .page_canvas canvas'
-                ? {}
-                : null
-        ),
+        querySelector: (selector: string) => {
+            if (selector === '.page_container--rendered .page_canvas canvas') {
+                return {};
+            }
+            if (selector === '.page_container[data-page="1"]') {
+                return pageContainer;
+            }
+            return null;
+        },
         querySelectorAll: () => [],
     }) as HTMLElement;
 }
@@ -213,6 +224,71 @@ describe('useManagedEmbeddedPdfShapes', () => {
         await Promise.all(pendingTasks);
 
         expect(invalidatePages).not.toHaveBeenCalled();
+        expect(renderVisiblePages).toHaveBeenCalledWith(
+            {
+                start: 1,
+                end: 1,
+            },
+            {
+                preserveRenderedPages: true,
+                forceRerender: true,
+                bufferOverride: 0,
+            },
+        );
+    });
+
+    it('keeps managed annotations out of render suppression until their page overlay is ready', async () => {
+        const shapeComposable = useAnnotationShapes();
+        const importEmbeddedShapesMock = vi.mocked(importEmbeddedShapeAnnotations);
+        importEmbeddedShapesMock.mockReset();
+        importEmbeddedShapesMock.mockResolvedValueOnce([createEmbeddedInkShape({ annotationId: '12R0' })]);
+        const viewerContainer = ref<HTMLElement | null>(
+            createRenderedViewerContainer({ hasShapeOverlay: false }),
+        );
+        const pendingTasks: Array<Promise<unknown>> = [];
+        const renderVisiblePages = vi.fn(async () => {});
+        const managedShapes = useManagedEmbeddedPdfShapes({
+            viewerContainer,
+            workingCopyPath: ref('/tmp/work.pdf'),
+            sourcePdfData: ref<Uint8Array | null>(new Uint8Array([1])),
+            visibleRange: ref({
+                start: 1,
+                end: 1,
+            }),
+            bufferPages: ref(0),
+            shapeComposable,
+            suppressCommentAnnotationId: vi.fn(),
+            logger: {
+                debug: vi.fn(),
+                warn: vi.fn(),
+            },
+            runGuardedTask: (task) => {
+                pendingTasks.push(Promise.resolve(task()));
+            },
+            nextTick,
+            isPageRendered: pageNumber => pageNumber === 1,
+            invalidatePages: vi.fn(),
+            renderVisiblePages,
+            hideManagedAnnotationEditors: vi.fn(),
+            currentPage: ref(1),
+        });
+
+        await vi.waitFor(() => {
+            expect(importEmbeddedShapesMock).toHaveBeenCalledOnce();
+            expect(managedShapes.hiddenEmbeddedAnnotationIds.value.has('12R')).toBe(true);
+        });
+        await vi.waitFor(() => {
+            expect(renderVisiblePages).toHaveBeenCalled();
+        });
+        renderVisiblePages.mockClear();
+
+        expect(managedShapes.renderHiddenEmbeddedAnnotationIds.value.has('12R')).toBe(false);
+
+        viewerContainer.value = createRenderedViewerContainer({ hasShapeOverlay: true });
+        managedShapes.syncAfterPageRendered(1);
+
+        expect(managedShapes.renderHiddenEmbeddedAnnotationIds.value.has('12R')).toBe(true);
+        await Promise.all(pendingTasks);
         expect(renderVisiblePages).toHaveBeenCalledWith(
             {
                 start: 1,

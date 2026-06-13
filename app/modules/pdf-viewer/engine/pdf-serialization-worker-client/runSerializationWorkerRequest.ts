@@ -122,6 +122,7 @@ const serializationWorkerClient = new BrowserWorkerClient<
     IPendingBrowserWorkerRequest<Uint8Array | null>
 >({
     idleTtlMs: SERIALIZATION_WORKER_IDLE_TTL_MS,
+    requestTimeoutMs: SERIALIZATION_WORKER_REQUEST_TIMEOUT_MS,
     createWorker: () => new Worker(
         new URL('../pdfSerialization.worker.ts', import.meta.url),
         { type: 'module' },
@@ -198,45 +199,18 @@ export async function runSerializationWorkerRequest<K extends TSerializationWork
     return new Promise<Uint8Array | null>((resolve, reject) => {
         serializationWorkerClient.clearIdleTerminateTimer();
 
-        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-        const clearRequestTimeout = () => {
-            if (timeoutHandle !== null) {
-                clearTimeout(timeoutHandle);
-                timeoutHandle = null;
-            }
-        };
-
-        serializationWorkerClient.pendingRequests.set(request.id, {
-            resolve: (value) => {
-                clearRequestTimeout();
-                resolve(value);
-            },
-            reject: (reason) => {
-                clearRequestTimeout();
-                reject(reason);
-            },
-        });
-
-        timeoutHandle = setTimeout(() => {
-            timeoutHandle = null;
-            if (!serializationWorkerClient.pendingRequests.delete(request.id)) {
-                return;
-            }
-            if (serializationWorkerClient.isActiveWorker(worker)) {
-                serializationWorkerClient.resetWorker();
-            }
-            reject(new Error(
-                `PDF serialization worker did not reply within ${SERIALIZATION_WORKER_REQUEST_TIMEOUT_MS}ms (type=${request.type})`,
-            ));
-        }, SERIALIZATION_WORKER_REQUEST_TIMEOUT_MS);
+        serializationWorkerClient.registerPendingRequest(request.id, {
+            resolve,
+            reject,
+        }, () => new Error(
+            `PDF serialization worker did not reply within ${SERIALIZATION_WORKER_REQUEST_TIMEOUT_MS}ms (type=${request.type})`,
+        ));
 
         try {
             const workerRequest = buildWorkerRequestWithTransfers(typedRequest);
             worker.postMessage(workerRequest.request, workerRequest.transfer);
         } catch (error) {
-            clearRequestTimeout();
-            serializationWorkerClient.pendingRequests.delete(request.id);
-            reject(error instanceof Error ? error : new Error(String(error)));
+            serializationWorkerClient.resetWorker(error instanceof Error ? error : new Error(String(error)));
         }
     }).catch(async (error: unknown) => {
         if (isPdfSerializationWorkerOperationError(error)) {

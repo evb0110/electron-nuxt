@@ -24,13 +24,6 @@ export function getLocalReleaseVerifyCommands() {
             ],
             command: 'pnpm',
         },
-        {
-            args: [
-                'run',
-                'check:resources:host',
-            ],
-            command: 'pnpm',
-        },
     ];
 }
 

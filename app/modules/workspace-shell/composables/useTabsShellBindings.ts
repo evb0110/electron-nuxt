@@ -356,8 +356,10 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         handleTabKeyboardShortcut,
         {capture: true},
     );
+    let isDisposed = false;
 
     onMounted(() => {
+        isDisposed = false;
         const onMountedStart = performance.now();
         traceRendererStartup('tabs shell onMounted start');
         isStartupOpenClaimPending.value = true;
@@ -372,6 +374,9 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         void (async () => {
             const shouldWaitForDesktopBridge = shouldPreferDesktopPlatform(route.path);
             const bridgeReady = await waitForDesktopPlatformBridge({shouldWait: shouldWaitForDesktopBridge});
+            if (isDisposed) {
+                return;
+            }
             traceRendererStartup('tabs shell platform bridge resolved', {
                 bridgeReady,
                 routePath: route.path,
@@ -379,7 +384,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             });
 
             const platformApi = getPlatformAPI();
-            menuCleanups.push(...registerTabsMenuBindings(platformApi, {
+            const registeredMenuCleanups = registerTabsMenuBindings(platformApi, {
                 activeWorkspace,
                 activeTabId,
                 createTab,
@@ -397,20 +402,37 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 copyActiveTab,
                 handleWindowTabsAction,
                 toggleAssistant,
-            }));
+            });
+            if (isDisposed) {
+                registeredMenuCleanups.forEach(cleanup => cleanup());
+                return;
+            }
+            menuCleanups.push(...registeredMenuCleanups);
             traceRendererStartup('tabs shell menu bindings registered');
 
             const startupExternalPaths = await getWindowTabsCapability().claimPendingExternalOpenPaths();
+            if (isDisposed) {
+                return;
+            }
             dispatchStartupOpenClaimed(startupExternalPaths.length);
             if (startupExternalPaths.length > 0) {
                 traceRendererStartup('tabs shell claimed startup external paths', {pathCount: startupExternalPaths.length});
                 await beginOpenPathsInAppropriateTab(startupExternalPaths);
+                if (isDisposed) {
+                    return;
+                }
             }
             isStartupOpenClaimPending.value = false;
             await nextTick();
+            if (isDisposed) {
+                return;
+            }
             traceRendererStartup('tabs shell dispatching app:rendererReady');
             getWindowTabsCapability().notifyRendererReady();
         })().catch((error) => {
+            if (isDisposed) {
+                return;
+            }
             BrowserLogger.warn('tabs-shell', 'Startup externalOpen preparation failed before renderer ready', error);
             dispatchStartupOpenClaimed(0);
             isStartupOpenClaimPending.value = false;
@@ -421,6 +443,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     });
 
     onUnmounted(() => {
+        isDisposed = true;
         if (typeof window !== 'undefined' && (window as Window & { __openFileDirect?: unknown }).__openFileDirect === openPathInAppropriateTab) {
             delete (window as Window & { __openFileDirect?: (path: TDocumentRef) => Promise<boolean> }).__openFileDirect;
         }
@@ -432,6 +455,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             delete window.__evbTestApi;
         }
         menuCleanups.forEach(cleanup => cleanup());
+        menuCleanups.splice(0, menuCleanups.length);
         stopTabKeyboardShortcutListener();
     });
 };

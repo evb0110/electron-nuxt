@@ -75,6 +75,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('electron', () => ({
+    app: { isPackaged: false },
     BrowserWindow: {
         fromWebContents: () => null,
         getFocusedWindow: () => mocks.getFocusedWindow(),
@@ -288,6 +289,30 @@ describe('registerPageOpsHandlers', () => {
 
         await expect(first).resolves.toEqual({success: true});
         await expect(second).resolves.toEqual({success: true});
+    });
+
+    it('rechecks reorder permutations against the actual working-copy page count inside the queue', async () => {
+        mocks.getPdfPageCount.mockResolvedValueOnce(3);
+        const handler = getHandler('page-ops:reorder');
+
+        await expect(handler({sender: {id: 1}}, '/tmp/stale-reorder.pdf', [
+            1,
+            2,
+        ])).rejects.toThrow('expected 3 page(s), received 2');
+
+        expect(mocks.getPdfPageCount).toHaveBeenCalledWith('/tmp/stale-reorder.pdf');
+        expect(mocks.reorderPages).not.toHaveBeenCalled();
+    });
+
+    it('rejects insert-file batches above the shared open-input cap', async () => {
+        const handler = getHandler('page-ops:insert-file');
+        const sourcePaths = Array.from({length: 513}, (_, index) => `/tmp/source-${index}.png`);
+
+        await expect(handler({sender: {id: 1}}, '/tmp/pdf-work-1/work.pdf', 3, 1, sourcePaths))
+            .rejects.toThrow('errors.file.invalid');
+
+        expect(mocks.createPdfFromInputPaths).not.toHaveBeenCalled();
+        expect(mocks.runCommand).not.toHaveBeenCalled();
     });
 
     it('continues processing same-path queue after a mutation failure', async () => {
