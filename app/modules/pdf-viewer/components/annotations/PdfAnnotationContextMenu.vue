@@ -155,7 +155,17 @@ import { parseCssRgbColor } from '@app/modules/pdf-viewer/engine/text-markup-col
 import { rgbToHex } from '@app/modules/pdf-viewer/engine/text-markup-color/rgbToHex';
 import type { IAnnotationContextMenuState } from '@app/types/pdfContextMenu';
 
-const props = defineProps<{
+const {
+    menu,
+    style,
+    canCopy,
+    canCopySelection,
+    canCreateFree,
+    canInsertImage,
+    annotationLabel,
+    deleteLabel,
+    isImageComment = false,
+} = defineProps<{
     menu: IAnnotationContextMenuState;
     style: Record<string, string>;
     canCopy: boolean;
@@ -205,7 +215,7 @@ function getFallbackColorForSubtype(subtype: string | null | undefined) {
 }
 
 const canOpenNote = computed(() => {
-    const comment = props.menu.comment;
+    const comment = menu.comment;
     if (!comment) {
         return false;
     }
@@ -239,13 +249,13 @@ function normalizeColorInputValue(
 }
 
 const canEditColor = computed(() => {
-    const subtype = props.menu.comment?.subtype?.trim().toLowerCase() ?? '';
+    const subtype = menu.comment?.subtype?.trim().toLowerCase() ?? '';
     return EDITABLE_COLOR_SUBTYPES.has(subtype);
 });
 
 const editableColor = computed(() => normalizeColorInputValue(
-    props.menu.comment?.color,
-    props.menu.comment?.subtype,
+    menu.comment?.color,
+    menu.comment?.subtype,
 ));
 
 function normalizeColorValue(color: string | null | undefined) {

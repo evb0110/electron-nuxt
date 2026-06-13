@@ -100,16 +100,18 @@ interface IPdfAnnotationToolbarExpose {getButtonEl(toolId: TAnnotationTool): HTM
 const { settings: appSettings } = useSettings();
 const { t } = useTypedI18n();
 
-const props = defineProps<IProps>();
-const tool = computed(() => props.tool);
-const settings = computed(() => props.settings);
-const comments = computed(() => props.comments);
-const commentsStatus = computed(() => props.commentsStatus);
-const activeCommentStableKey = computed(() => props.activeCommentStableKey ?? undefined);
-const showStyleEditor = computed(() => isAuthoringAnnotationTool(props.tool));
+const {
+    tool,
+    settings,
+    comments,
+    commentsStatus,
+    activeCommentStableKey: rawActiveCommentStableKey = null,
+} = defineProps<IProps>();
+const activeCommentStableKey = computed(() => rawActiveCommentStableKey ?? undefined);
+const showStyleEditor = computed(() => isAuthoringAnnotationTool(tool));
 const stylePopoverOpen = ref(false);
 const toolbarRef = ref<IPdfAnnotationToolbarExpose | null>(null);
-const stylePopoverReference = computed(() => toolbarRef.value?.getButtonEl(props.tool) ?? null);
+const stylePopoverReference = computed(() => toolbarRef.value?.getButtonEl(tool) ?? null);
 const stylePopoverContent = {
     align: 'start' as const,
     side: 'bottom' as const,
@@ -127,7 +129,7 @@ const colorSettingKeys = new Set<keyof IAnnotationSettings>([
 ]);
 
 const toolLabel = computed(() => {
-    switch (props.tool) {
+    switch (tool) {
         case 'draw':
             return t('annotations.draw');
         case 'text':
@@ -156,7 +158,7 @@ const toolLabel = computed(() => {
 });
 const stylePopoverLabel = computed(() => `${toolLabel.value} ${t('annotations.style')}`);
 
-watch(() => props.tool, async () => {
+watch(() => tool, async () => {
     if (!showStyleEditor.value) {
         stylePopoverOpen.value = false;
         return;
@@ -166,7 +168,7 @@ watch(() => props.tool, async () => {
     stylePopoverOpen.value = true;
 });
 
-watch(() => props.commentsStatus, (status) => {
+watch(() => commentsStatus, (status) => {
     if (status === 'loading') {
         stylePopoverOpen.value = false;
     }
@@ -186,7 +188,7 @@ const emit = defineEmits<{
 }>();
 
 function setTool(nextTool: TAnnotationTool) {
-    emit('set-tool', nextTool === props.tool ? 'none' : nextTool);
+    emit('set-tool', nextTool === tool ? 'none' : nextTool);
 }
 
 function updateSetting(payload: {

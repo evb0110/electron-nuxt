@@ -263,7 +263,6 @@ import {
 import type {
     IAgentAssistantState,
     IAgentMcpIntegrationStatus,
-    TAgentMcpCodexRegistrationState,
 } from '@contracts/agent';
 import {
     getSettingsAssistantStatusModel,
@@ -271,7 +270,14 @@ import {
 } from '@app/modules/workspace-shell/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
-const props = defineProps<{
+const {
+    assistantPanelEnabled,
+    assistantState,
+    assistantDeviceCode,
+    isAssistantBusy,
+    status,
+    isBusy,
+} = defineProps<{
     assistantPanelEnabled: boolean;
     assistantState: IAgentAssistantState | null;
     assistantDeviceCode: string;
@@ -309,24 +315,24 @@ const {
     copiedSetupSnippet.value = null;
 }, 1800, { immediate: false });
 
-const needsRepair = computed(() => props.status?.enabled === true && (
-    !props.status.serverRunning
-    || !props.status.codexConfigured
-    || props.status.codexRegistrationState !== 'configured'
+const needsRepair = computed(() => status?.enabled === true && (
+    !status.serverRunning
+    || !status.codexConfigured
+    || status.codexRegistrationState !== 'configured'
 ));
 
 const primaryActionEnabled = computed(() => {
     if (needsRepair.value) {
         return true;
     }
-    return props.status?.enabled !== true;
+    return status?.enabled !== true;
 });
 
 const primaryActionLabel = computed(() => {
     if (needsRepair.value) {
         return t('settings.agentMcpRepair');
     }
-    return props.status?.enabled
+    return status?.enabled
         ? t('settings.agentMcpDisable')
         : t('settings.agentMcpEnable');
 });
@@ -335,32 +341,32 @@ const primaryActionIcon = computed(() => {
     if (needsRepair.value) {
         return 'i-ph-arrows-clockwise';
     }
-    return props.status?.enabled
+    return status?.enabled
         ? 'i-ph-warning-circle'
         : 'i-ph-check-circle';
 });
 
-const showInstallCodex = computed(() => props.status !== null && !props.status.codexInstalled);
-const assistantPanelStatusLabel = computed(() => props.assistantPanelEnabled
+const showInstallCodex = computed(() => status !== null && !status.codexInstalled);
+const assistantPanelStatusLabel = computed(() => assistantPanelEnabled
     ? t('settings.assistantPanelStatusEnabled')
     : t('settings.assistantPanelStatusDisabled'));
 const assistantSetup = computed(() => getSettingsAssistantStatusModel(
-    props.assistantState?.status ?? null,
-    props.assistantState !== null,
+    assistantState?.status ?? null,
+    assistantState !== null,
 ));
 const assistantSetupIconClass = computed(() => ({
     'is-ready': assistantSetup.value.tone === 'ready',
     'is-warning': assistantSetup.value.tone === 'warning',
 }));
 const assistantSetupLabel = computed(() => translateAssistantCopy(assistantSetup.value.label));
-const assistantSetupHint = computed(() => props.assistantState?.status.error
+const assistantSetupHint = computed(() => assistantState?.status.error
     ?? translateAssistantCopy(assistantSetup.value.hint));
 const assistantPrimaryActionLabel = computed(() => assistantSetup.value.primaryActionLabelKey
     ? t(assistantSetup.value.primaryActionLabelKey)
     : '');
-const mcpServerName = computed(() => props.status?.serverName ?? t('settings.agentMcpUnavailable'));
-const mcpServerUrl = computed(() => props.status?.serverUrl?.length
-    ? props.status.serverUrl
+const mcpServerName = computed(() => status?.serverName ?? t('settings.agentMcpUnavailable'));
+const mcpServerUrl = computed(() => status?.serverUrl?.length
+    ? status.serverUrl
     : t('settings.agentMcpUnavailable'));
 const codexCommand = computed(() => `codex mcp add ${mcpServerName.value} --url ${mcpServerUrl.value}`);
 const claudeCommand = computed(() => `claude mcp add --transport http --scope user ${mcpServerName.value} ${mcpServerUrl.value}`);
@@ -370,24 +376,24 @@ const cursorConfig = computed(() => JSON.stringify(
     2,
 ));
 
-const statusKind = computed<TAgentMcpCodexRegistrationState | 'disabled' | 'error' | 'starting'>(() => {
-    const status = props.status;
-    if (!status) {
+const statusKind = computed(() => {
+    const currentStatus = status;
+    if (!currentStatus) {
         return 'starting';
     }
-    if (status.error) {
+    if (currentStatus.error) {
         return 'error';
     }
-    if (!status.enabled) {
+    if (!currentStatus.enabled) {
         return 'disabled';
     }
-    if (!status.codexInstalled) {
+    if (!currentStatus.codexInstalled) {
         return 'unknown';
     }
-    if (status.serverRunning && status.codexConfigured && status.codexRegistrationState === 'configured') {
+    if (currentStatus.serverRunning && currentStatus.codexConfigured && currentStatus.codexRegistrationState === 'configured') {
         return 'configured';
     }
-    return status.codexRegistrationState;
+    return currentStatus.codexRegistrationState;
 });
 
 const statusLabel = computed(() => {
@@ -411,23 +417,23 @@ const statusLabel = computed(() => {
 });
 
 const statusHint = computed(() => {
-    const status = props.status;
-    if (!status) {
+    const currentStatus = status;
+    if (!currentStatus) {
         return t('settings.agentMcpDescription');
     }
-    if (status.error) {
-        return status.error;
+    if (currentStatus.error) {
+        return currentStatus.error;
     }
-    if (!status.enabled) {
+    if (!currentStatus.enabled) {
         return t('settings.agentMcpDescription');
     }
-    if (!status.codexInstalled) {
+    if (!currentStatus.codexInstalled) {
         return t('settings.agentMcpInstallHint');
     }
-    if (!status.serverRunning) {
+    if (!currentStatus.serverRunning) {
         return t('settings.agentMcpStatusServerStopped');
     }
-    if (!status.codexConfigured) {
+    if (!currentStatus.codexConfigured) {
         return t('settings.agentMcpStatusMismatchedHint');
     }
     return t('settings.agentMcpStatusReadyHint');
@@ -452,10 +458,10 @@ const statusClass = computed(() => ({
 }));
 
 const codexLocationLabel = computed(() => {
-    if (!props.status?.codexInstalled) {
+    if (!status?.codexInstalled) {
         return t('settings.agentMcpCodexMissing');
     }
-    return props.status.codexPath ?? t('settings.agentMcpUnavailable');
+    return status.codexPath ?? t('settings.agentMcpUnavailable');
 });
 
 function translateAssistantCopy(copy: TSettingsAssistantCopy) {
