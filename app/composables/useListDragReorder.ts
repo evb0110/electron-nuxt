@@ -1,13 +1,30 @@
 import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
 
-interface ISlot {
+export interface IListDragSlot {
     top: number;
     height: number;
     centerY: number;
 }
 
 const THRESHOLD = 5;
+
+export function clampListDragDeltaToDropSlots(
+    deltaY: number,
+    dragIndex: number,
+    slots: readonly IListDragSlot[],
+) {
+    const dragSlot = slots[dragIndex];
+    const firstSlot = slots[0];
+    const lastSlot = slots[slots.length - 1];
+    if (!dragSlot || !firstSlot || !lastSlot) {
+        return deltaY;
+    }
+
+    const minDelta = firstSlot.top - dragSlot.top;
+    const maxDelta = lastSlot.top - dragSlot.top;
+    return Math.min(Math.max(deltaY, minDelta), maxDelta);
+}
 
 export const useListDragReorder = (
     containerRef: Ref<HTMLElement | null>,
@@ -18,7 +35,7 @@ export const useListDragReorder = (
     const isDragging = ref(false);
     const dragIndex = ref(-1);
 
-    let slots: ISlot[] = [];
+    let slots: IListDragSlot[] = [];
     let rowStride = 0;
     let targetIndex = -1;
     let pointerStartY = 0;
@@ -109,10 +126,10 @@ export const useListDragReorder = (
     }
 
     function onPointerMove(e: PointerEvent) {
-        const deltaY = e.clientY - pointerStartY;
+        const rawDeltaY = e.clientY - pointerStartY;
 
         if (!isDragging.value) {
-            if (Math.abs(deltaY) < THRESHOLD) {
+            if (Math.abs(rawDeltaY) < THRESHOLD) {
                 return;
             }
             isDragging.value = true;
@@ -120,6 +137,7 @@ export const useListDragReorder = (
             document.body.style.cursor = 'grabbing';
         }
 
+        const deltaY = clampListDragDeltaToDropSlots(rawDeltaY, dragIndex.value, slots);
         const draggedEl = rowElements[dragIndex.value];
         if (draggedEl) {
             draggedEl.style.transition = '';
