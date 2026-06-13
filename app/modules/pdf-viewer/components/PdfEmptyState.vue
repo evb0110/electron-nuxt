@@ -1,5 +1,5 @@
 <template>
-    <div class="empty-state">
+    <div ref="rootRef" class="empty-state">
         <div
             v-if="openBatchProgress"
             class="batch-progress"
@@ -76,28 +76,17 @@
                         <span class="open-panel-copy">
                             <span>{{ t('emptyState.openSubtitle') }}</span>
                         </span>
-                        <button
+                        <UButton
                             :id="openPanelButtonId"
-                            type="button"
                             class="open-panel-cta"
-                            :aria-label="t('toolbar.openPdf')"
+                            color="primary"
+                            icon="i-ph-folder-open"
+                            :label="t('emptyState.openFileEllipsis')"
+                            :loading="openInProgress"
                             :disabled="openInProgress"
+                            :aria-label="t('toolbar.openPdf')"
                             @click="openFile"
-                        >
-                            <AppSpinner
-                                v-if="openInProgress"
-                                size="sm"
-                                tone="inherit"
-                                class="shrink-0"
-                            />
-                            <UIcon
-                                v-else
-                                name="i-ph-folder-open"
-                                class="open-panel-cta-icon"
-                                aria-hidden="true"
-                            />
-                            <span>{{ t('emptyState.openFileEllipsis') }}</span>
-                        </button>
+                        />
                     </section>
 
                     <section class="start-recent" :aria-labelledby="recentFilesHeadingId">
@@ -115,16 +104,16 @@
                                         :aria-label="t('emptyState.searchRecentFiles')"
                                     >
                                 </label>
-                                <button
-                                    type="button"
+                                <UButton
                                     class="recent-clear"
+                                    color="neutral"
+                                    variant="ghost"
+                                    icon="i-ph-trash"
                                     :disabled="recentFiles.length === 0"
                                     :aria-label="t('emptyState.clearRecentFiles')"
+                                    v-bind="recentClearLabelProps"
                                     @click="requestClearRecent"
-                                >
-                                    <UIcon name="i-ph-trash" />
-                                    <span class="recent-clear-label">{{ t('emptyState.clearHistory') }}</span>
-                                </button>
+                                />
                             </div>
                         </header>
 
@@ -324,6 +313,7 @@
 <script setup lang="ts">
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
+import { useElementSize } from '@vueuse/core';
 import { formatRelativeTime } from '@app/utils/formatters';
 import {
     displayProcessedCount,
@@ -381,6 +371,13 @@ const openPanelButtonId = useId();
 const recentSearch = ref('');
 const activeSection = ref<TStartSection>(startSection);
 const clearHistoryDialogOpen = ref(false);
+
+const rootRef = ref<HTMLElement | null>(null);
+const { width: rootWidth } = useElementSize(rootRef);
+const isRecentControlsCompact = computed(() => rootWidth.value > 0 && rootWidth.value <= 520);
+const recentClearLabelProps = computed(() => (
+    isRecentControlsCompact.value ? {} : { label: t('emptyState.clearHistory') }
+));
 
 const batchEtaText = computed(() => formatEtaDuration(openBatchProgress?.estimatedRemainingMs ?? null));
 const filteredRecentFiles = computed(() => {
@@ -689,39 +686,8 @@ watch(() => startSection, (section) => {
 }
 
 .open-panel-cta {
-    display: inline-flex;
-    align-items: center;
     flex: 0 0 auto;
-    gap: var(--app-start-cta-gap);
-    justify-content: center;
     min-width: var(--app-start-cta-min-width);
-    min-height: var(--app-control-height-sm);
-    padding: var(--app-start-cta-padding);
-    border: 0;
-    border-radius: var(--app-start-cta-radius);
-    background: var(--ui-primary);
-    color: var(--ui-primary-fg);
-    font-size: var(--app-text-size-body);
-    font-weight: var(--app-font-weight-medium);
-    line-height: var(--app-line-height-control);
-    opacity: 1;
-    transition: background-color 120ms ease, opacity 120ms ease;
-}
-
-.open-panel-cta:hover:not(:disabled),
-.open-panel-cta:active:not(:disabled) {
-    background: var(--ui-primary-hover);
-}
-
-.open-panel-cta:focus-visible {
-    outline: 2px solid var(--ui-primary);
-    outline-offset: 2px;
-}
-
-.open-panel-cta-icon {
-    width: var(--app-icon-size-md);
-    height: var(--app-icon-size-md);
-    flex: 0 0 auto;
 }
 
 .start-recent {
@@ -800,37 +766,6 @@ watch(() => startSection, (section) => {
 
 .recent-search input::placeholder {
     color: var(--ui-text-dimmed);
-}
-
-.recent-clear {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--app-space-xl);
-    height: var(--app-control-height-sm);
-    padding: 0 var(--app-start-clear-padding-x);
-    border: 1px solid var(--ui-border);
-    border-radius: var(--app-control-radius);
-    background: var(--ui-bg);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-meta);
-    cursor: pointer;
-    transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-}
-
-.recent-clear :deep(.iconify) {
-    width: var(--app-icon-size-sm);
-    height: var(--app-icon-size-sm);
-}
-
-.recent-clear:hover:not(:disabled) {
-    background: var(--app-start-row-hover-bg);
-    color: var(--ui-text);
-    border-color: color-mix(in oklab, var(--ui-border) 80%, var(--ui-text) 20%);
-}
-
-.recent-clear:disabled {
-    opacity: var(--app-opacity-disabled);
-    cursor: default;
 }
 
 .recent-table {
@@ -1227,11 +1162,6 @@ watch(() => startSection, (section) => {
 
     .recent-clear {
         flex: 0 0 auto;
-        padding: 0 var(--app-start-control-padding-x-compact);
-    }
-
-    .recent-clear-label {
-        display: none;
     }
 }
 </style>
