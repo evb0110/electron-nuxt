@@ -26,49 +26,41 @@
             </template>
         </AppTooltip>
 
-        <UPopover v-model:open="menuOpen" mode="click" :content="menuContentOptions">
+        <UDropdownMenu
+            v-model:open="menuOpen"
+            :items="saveMenuItems"
+            :content="menuContentOptions"
+            :ui="saveMenuUi"
+        >
             <button
                 type="button"
                 class="save-split-trigger"
                 :disabled="triggerDisabled"
-                aria-haspopup="true"
+                aria-haspopup="menu"
                 :aria-expanded="menuOpen"
                 :aria-label="t('toolbar.saveOptions')"
             >
                 <Icon name="ph:caret-down" class="save-split-chevron" aria-hidden="true" />
             </button>
 
-            <template #content>
-                <div
-                    class="save-split-menu toolbar-menu-panel"
-                    role="group"
-                    :aria-label="t('toolbar.saveOptions')"
-                >
-                    <button
-                        class="save-split-item toolbar-menu-item"
-                        :disabled="primaryDisabled"
-                        @click="handleMenuSave"
-                    >
-                        <Icon name="ph:floppy-disk" class="save-split-menu-icon toolbar-menu-icon" aria-hidden="true" />
-                        <span class="toolbar-menu-label">{{ t('toolbar.save') }}</span>
-                        <span v-if="saveShortcut" class="toolbar-menu-shortcut">{{ saveShortcut }}</span>
-                    </button>
-                    <button
-                        class="save-split-item toolbar-menu-item"
-                        :disabled="saveAsDisabled || isSavingAs"
-                        @click="handleSaveAs"
-                    >
-                        <Icon name="ph:floppy-disk-back" class="save-split-menu-icon toolbar-menu-icon" aria-hidden="true" />
-                        <span class="toolbar-menu-label">{{ t('toolbar.saveAs') }}</span>
-                        <span v-if="saveAsShortcut" class="toolbar-menu-shortcut">{{ saveAsShortcut }}</span>
-                    </button>
-                </div>
+            <template #item-trailing="{ item }">
+                <span v-if="getMenuShortcut(item)" class="toolbar-menu-shortcut">
+                    {{ getMenuShortcut(item) }}
+                </span>
             </template>
-        </UPopover>
+        </UDropdownMenu>
     </div>
 </template>
 
 <script setup lang="ts">
+interface ISaveMenuItem {
+    label: string;
+    icon: string;
+    disabled: boolean;
+    shortcut: string;
+    onSelect: () => void;
+}
+
 const {
     saveDisabled = false,
     saveAsDisabled = false,
@@ -105,6 +97,31 @@ const menuContentOptions = {
     collisionPadding: 8,
 };
 
+const saveMenuUi = {
+    content: 'save-split-menu toolbar-menu-panel',
+    item: 'save-split-item toolbar-menu-item',
+    itemLeadingIcon: 'save-split-menu-icon toolbar-menu-icon',
+    itemLabel: 'toolbar-menu-label',
+    itemTrailing: 'save-split-menu-trailing',
+};
+
+const saveMenuItems = computed<ISaveMenuItem[]>(() => [
+    {
+        label: t('toolbar.save'),
+        icon: 'ph:floppy-disk',
+        disabled: primaryDisabled.value,
+        shortcut: saveShortcut,
+        onSelect: handleMenuSave,
+    },
+    {
+        label: t('toolbar.saveAs'),
+        icon: 'ph:floppy-disk-back',
+        disabled: saveAsDisabled || isSavingAs,
+        shortcut: saveAsShortcut,
+        onSelect: handleSaveAs,
+    },
+]);
+
 function handleSave() {
     emit('save');
 }
@@ -118,11 +135,23 @@ function handleSaveAs() {
     menuOpen.value = false;
     emit('save-as');
 }
+
+function getMenuShortcut(item: unknown) {
+    return typeof item === 'object' && item != null && 'shortcut' in item
+        ? String(item.shortcut ?? '')
+        : '';
+}
 </script>
 
-<style lang="scss" scoped>
+<style lang="scss">
 @use '@app/assets/css/toolbar-menu-shared';
 
+.save-split-menu {
+    min-width: var(--app-toolbar-save-menu-min-width);
+}
+</style>
+
+<style lang="scss" scoped>
 .save-split {
     display: inline-flex;
     align-items: center;
@@ -226,10 +255,6 @@ function handleSaveAs() {
 
 .save-split.is-open .save-split-chevron {
     transform: rotate(180deg);
-}
-
-.save-split-menu {
-    min-width: var(--app-toolbar-save-menu-min-width);
 }
 
 .toolbar-tooltip-label {

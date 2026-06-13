@@ -1,4 +1,5 @@
 import type { MaybeRefOrGetter } from 'vue';
+import { useTimeoutFn } from '@vueuse/core';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { WORKSPACE_PAGE_NAVIGATION_LOCK_MS } from '@app/modules/workspace-shell/workspacePageNavigationLockMs';
 
@@ -11,7 +12,30 @@ export function useWorkspaceToolbarPageModel(options: IUseWorkspaceToolbarPageMo
     const optimisticPage = ref(toValue(options.sourcePage));
     let pendingNavigationPage: number | null = null;
     let pendingNavigationSourcePage: number | null = null;
-    let pendingNavigationReconcileTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const {
+        start: startPendingNavigationReconcileTimer,
+        stop: stopPendingNavigationReconcileTimer,
+    } = useTimeoutFn((page: number) => {
+        if (pendingNavigationPage !== page) {
+            return;
+        }
+
+        const sourcePage = toValue(options.sourcePage);
+        logPdfRenderTrace('workspace-toolbar-page-pending-reconcile-timeout', {
+            page,
+            pendingNavigationPage,
+            pendingNavigationSourcePage,
+            sourcePage,
+            timeoutMs: WORKSPACE_PAGE_NAVIGATION_LOCK_MS,
+        });
+        clearPendingNavigation('target-timeout');
+        optimisticPage.value = sourcePage;
+        logPdfRenderTrace('workspace-toolbar-page-source-sync', {
+            page: sourcePage,
+            reason: 'target-timeout',
+        });
+    }, WORKSPACE_PAGE_NAVIGATION_LOCK_MS, { immediate: false });
 
     watch(
         () => toValue(options.sourcePage),
@@ -67,35 +91,12 @@ export function useWorkspaceToolbarPageModel(options: IUseWorkspaceToolbarPageMo
     }
 
     function clearPendingNavigationReconcileTimer() {
-        if (pendingNavigationReconcileTimer !== null) {
-            clearTimeout(pendingNavigationReconcileTimer);
-            pendingNavigationReconcileTimer = null;
-        }
+        stopPendingNavigationReconcileTimer();
     }
 
     function schedulePendingNavigationReconcile(page: number) {
         clearPendingNavigationReconcileTimer();
-        pendingNavigationReconcileTimer = setTimeout(() => {
-            pendingNavigationReconcileTimer = null;
-            if (pendingNavigationPage !== page) {
-                return;
-            }
-
-            const sourcePage = toValue(options.sourcePage);
-            logPdfRenderTrace('workspace-toolbar-page-pending-reconcile-timeout', {
-                page,
-                pendingNavigationPage,
-                pendingNavigationSourcePage,
-                sourcePage,
-                timeoutMs: WORKSPACE_PAGE_NAVIGATION_LOCK_MS,
-            });
-            clearPendingNavigation('target-timeout');
-            optimisticPage.value = sourcePage;
-            logPdfRenderTrace('workspace-toolbar-page-source-sync', {
-                page: sourcePage,
-                reason: 'target-timeout',
-            });
-        }, WORKSPACE_PAGE_NAVIGATION_LOCK_MS);
+        startPendingNavigationReconcileTimer(page);
     }
 
     onScopeDispose(() => {

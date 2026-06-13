@@ -21,36 +21,44 @@
             </div>
 
             <div v-if="activeWidthControl" class="style-row style-row-width flex flex-col">
-                <label class="style-label" for="annotation-width-input">
+                <span class="style-label">
                     {{ activeWidthControl.label }} {{ activeWidthValue }}
-                </label>
+                </span>
                 <div class="style-width-control">
-                    <button
+                    <UButton
                         type="button"
                         class="style-step-button"
+                        icon="i-ph-minus"
+                        variant="ghost"
+                        color="neutral"
+                        size="sm"
+                        square
                         :aria-label="t('annotations.decreaseWidth')"
                         @click="nudgeWidth(-activeWidthControl.step)"
-                    >
-                        <UIcon name="i-ph-minus" class="style-step-icon" />
-                    </button>
-                    <input
-                        id="annotation-width-input"
+                    />
+                    <USlider
                         class="style-range"
-                        type="range"
+                        color="neutral"
+                        size="xs"
+                        :ui="widthSliderUi"
+                        :aria-label="activeWidthControl.label"
                         :min="activeWidthControl.min"
                         :max="activeWidthControl.max"
                         :step="activeWidthControl.step"
-                        :value="activeWidthValue"
-                        @input="handleWidthInputEvent"
+                        :model-value="activeWidthValue"
+                        @update:model-value="handleWidthInput"
                     />
-                    <button
+                    <UButton
                         type="button"
                         class="style-step-button"
+                        icon="i-ph-plus"
+                        variant="ghost"
+                        color="neutral"
+                        size="sm"
+                        square
                         :aria-label="t('annotations.increaseWidth')"
                         @click="nudgeWidth(activeWidthControl.step)"
-                    >
-                        <UIcon name="i-ph-plus" class="style-step-icon" />
-                    </button>
+                    />
                 </div>
             </div>
 
@@ -128,6 +136,11 @@ const emit = defineEmits<{
 
 const colorSwatches = ANNOTATION_COLOR_SWATCHES;
 const hasStyleControls = computed(() => isAuthoringAnnotationTool(tool));
+const widthSliderUi = {
+    track: 'style-range-track',
+    range: 'style-range-fill',
+    thumb: 'style-range-thumb',
+};
 
 const drawStylePresets = computed<IDrawStylePreset[]>(() => [
     {
@@ -294,20 +307,17 @@ function handleColorInput(color: string) {
     emit('color-selected');
 }
 
-function handleWidthInput(width: number) {
+function sliderNumericValue(value: number | number[] | undefined) {
+    return Array.isArray(value) ? value[0] ?? 0 : value ?? 0;
+}
+
+function handleWidthInput(width: number | number[] | undefined) {
     const control = activeWidthControl.value;
     if (!control) {
         return;
     }
 
-    updateSetting(control.key, width);
-}
-
-function handleWidthInputEvent(event: Event) {
-    if (!(event.target instanceof HTMLInputElement)) {
-        return;
-    }
-    handleWidthInput(Number(event.target.value));
+    updateSetting(control.key, sliderNumericValue(width));
 }
 
 function nudgeWidth(delta: number) {
@@ -399,23 +409,26 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .style-range {
-    width: 100%;
-    appearance: none;
+    flex: 1;
+    min-width: 0;
+}
+
+.style-range :deep(.style-range-track) {
     height: 4px;
     border-radius: 2px;
     background: var(--ui-border);
-    outline: none;
-    cursor: pointer;
 }
 
-.style-range::-webkit-slider-thumb {
-    appearance: none;
+.style-range :deep(.style-range-fill) {
+    background: var(--ui-text);
+}
+
+.style-range :deep(.style-range-thumb) {
     width: 14px;
     height: 14px;
-    border-radius: 50%;
-    background: var(--ui-text);
     border: 2px solid var(--app-sidebar-bg);
-    cursor: pointer;
+    background: var(--ui-text);
+    box-shadow: none;
 }
 
 .style-width-control {
@@ -425,9 +438,6 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .style-step-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     border: 1px solid var(--ui-border);
     border-radius: 0.4rem;
     background: var(--ui-bg);
@@ -436,11 +446,6 @@ function applyDrawStyle(style: TDrawStyle) {
     height: 1.75rem;
     padding: 0;
     cursor: pointer;
-}
-
-.style-step-icon {
-    width: 0.95rem;
-    height: 0.95rem;
 }
 
 .style-step-button:hover {

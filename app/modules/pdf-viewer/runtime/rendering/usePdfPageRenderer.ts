@@ -1,4 +1,4 @@
-import { Mutex } from 'es-toolkit';
+import { Mutex } from 'es-toolkit/promise';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
     IPdfPageMatches,

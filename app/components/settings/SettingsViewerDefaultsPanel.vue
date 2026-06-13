@@ -2,8 +2,10 @@
     <fieldset class="settings-section flex flex-col gap-2.5">
         <legend class="settings-section-title">{{ t('settings.viewerDefaults') }}</legend>
 
-        <div class="settings-field flex flex-col gap-1">
-            <label class="settings-field-label">{{ t('settings.defaultZoom') }}</label>
+        <UFormField
+            :label="t('settings.defaultZoom')"
+            :ui="settingsFormFieldUi"
+        >
             <USelectMenu
                 :model-value="settings.defaultZoomPreset"
                 :items="zoomPresetItems"
@@ -11,10 +13,12 @@
                 :search-input="false"
                 @update:model-value="emit('update:zoom-preset', $event)"
             />
-        </div>
+        </UFormField>
 
-        <div class="settings-field flex flex-col gap-1">
-            <label class="settings-field-label">{{ t('settings.defaultViewMode') }}</label>
+        <UFormField
+            :label="t('settings.defaultViewMode')"
+            :ui="settingsFormFieldUi"
+        >
             <USelectMenu
                 :model-value="settings.defaultViewMode"
                 :items="viewModeItems"
@@ -22,10 +26,12 @@
                 :search-input="false"
                 @update:model-value="emit('update:view-mode', $event)"
             />
-        </div>
+        </UFormField>
 
-        <div class="settings-field flex flex-col gap-1">
-            <label class="settings-field-label">{{ t('settings.defaultScrollMode') }}</label>
+        <UFormField
+            :label="t('settings.defaultScrollMode')"
+            :ui="settingsFormFieldUi"
+        >
             <USelectMenu
                 :model-value="settings.defaultContinuousScroll"
                 :items="scrollModeItems"
@@ -33,10 +39,12 @@
                 :search-input="false"
                 @update:model-value="emit('update:scroll-mode', $event)"
             />
-        </div>
+        </UFormField>
 
-        <div class="settings-field flex flex-col gap-1">
-            <label class="settings-field-label">{{ t('settings.defaultAnnotationColor') }}</label>
+        <UFormField
+            :label="t('settings.defaultAnnotationColor')"
+            :ui="settingsFormFieldUi"
+        >
             <div class="settings-swatch-track">
                 <button
                     v-for="swatch in annotationColorSwatches"
@@ -49,10 +57,12 @@
                     @click="emit('update:annotation-color', swatch)"
                 />
             </div>
-        </div>
+        </UFormField>
 
-        <div class="settings-field flex flex-col gap-1">
-            <label class="settings-field-label">{{ t('settings.tabMemoryPolicy') }}</label>
+        <UFormField
+            :label="t('settings.tabMemoryPolicy')"
+            :ui="settingsFormFieldUi"
+        >
             <USelectMenu
                 :model-value="settings.tabMemoryPolicy"
                 :items="tabMemoryPolicyItems"
@@ -60,7 +70,7 @@
                 :search-input="false"
                 @update:model-value="emit('update:tab-memory-policy', $event)"
             />
-        </div>
+        </UFormField>
     </fieldset>
 </template>
 
@@ -95,6 +105,8 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useTypedI18n();
+
+const settingsFormFieldUi = { label: 'settings-field-label' };
 
 </script>
 

@@ -2,7 +2,7 @@ import {
     useEventListener,
     useLocalStorage,
 } from '@vueuse/core';
-import { clamp } from 'es-toolkit/math';
+import { useClamp } from '@vueuse/math';
 
 const ASSISTANT_PANEL = {
     DEFAULT_WIDTH: 384,
@@ -14,14 +14,19 @@ const ASSISTANT_PANEL = {
 const ASSISTANT_PANEL_WIDTH_STORAGE_KEY = 'evb-viewer:assistant:panel-width';
 
 export const useAssistantPanelResize = () => {
-    const panelWidth = useLocalStorage(ASSISTANT_PANEL_WIDTH_STORAGE_KEY, ASSISTANT_PANEL.DEFAULT_WIDTH);
+    const persistedPanelWidth = useLocalStorage(ASSISTANT_PANEL_WIDTH_STORAGE_KEY, ASSISTANT_PANEL.DEFAULT_WIDTH);
+    const panelWidth = useClamp(
+        persistedPanelWidth,
+        ASSISTANT_PANEL.MIN_WIDTH,
+        ASSISTANT_PANEL.MAX_WIDTH,
+    );
     const isResizingPanel = ref(false);
 
     let resizeStartX = 0;
     let resizeStartWidth = 0;
 
     function applyClampedWidth(width: number) {
-        panelWidth.value = clamp(Math.round(width), ASSISTANT_PANEL.MIN_WIDTH, ASSISTANT_PANEL.MAX_WIDTH);
+        panelWidth.value = Math.round(width);
     }
 
     function handlePanelResize(event: PointerEvent) {
@@ -55,7 +60,7 @@ export const useAssistantPanelResize = () => {
 
     onMounted(() => {
         // Normalize any previously persisted value that falls outside the bounds.
-        applyClampedWidth(panelWidth.value);
+        applyClampedWidth(persistedPanelWidth.value);
     });
 
     return {

@@ -3,6 +3,7 @@ import type {
     TEditorLayoutNode,
 } from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
+import { uniq } from 'es-toolkit/array';
 import { collectLayoutPaneOrder } from '@app/modules/workspace-shell/window-tabs/collectLayoutPaneOrder';
 
 export function collectMergeTabOrder(
@@ -11,32 +12,13 @@ export function collectMergeTabOrder(
     tabs: ITab[],
 ) {
     const orderedPaneIds = collectLayoutPaneOrder(layout);
-    const seenTabIds = new Set<string>();
-    const orderedTabIds: string[] = [];
-
-    for (const paneId of orderedPaneIds) {
+    const orderedTabIds = orderedPaneIds.flatMap((paneId) => {
         const pane = panes.find(candidate => candidate.paneId === paneId);
-        if (!pane) {
-            continue;
-        }
+        return pane?.tabIds ?? [];
+    });
 
-        for (const tabId of pane.tabIds) {
-            if (seenTabIds.has(tabId)) {
-                continue;
-            }
-            seenTabIds.add(tabId);
-            orderedTabIds.push(tabId);
-        }
-    }
-
-    for (const tab of tabs) {
-        if (seenTabIds.has(tab.id)) {
-            continue;
-        }
-
-        seenTabIds.add(tab.id);
-        orderedTabIds.push(tab.id);
-    }
-
-    return orderedTabIds;
+    return uniq([
+        ...orderedTabIds,
+        ...tabs.map(tab => tab.id),
+    ]);
 }
