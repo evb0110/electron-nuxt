@@ -109,11 +109,14 @@ export function createPdfRerenderRestorationLogger(options: IRerenderRestoration
     ) {
         const containerBeforeRestore = options.container.value;
         const beforeScroll = getRoundedScrollPosition(containerBeforeRestore);
+        const isZoomChangeRestore =
+            context.rerenderSource === 'zoom-change'
+            || context.rerenderSource === 'zoom-gesture-change';
         restoreScrollFromSnapshot(options.container.value, context.snapshotToRestore, {
             restoreHorizontal: !context.disableHorizontalAnchorRestore,
             restoreVertical: !context.disableVerticalAnchorRestore,
             preferPageAnchor: !context.disablePageAnchorRestore,
-            allowVerticalRatioFallback: context.rerenderSource !== 'zoom-change',
+            allowVerticalRatioFallback: !isZoomChangeRestore,
         });
         const containerAfterRestore = options.container.value;
         const afterScroll = getRoundedScrollPosition(containerAfterRestore);

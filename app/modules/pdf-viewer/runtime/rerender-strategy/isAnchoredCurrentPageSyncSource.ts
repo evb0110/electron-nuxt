@@ -6,6 +6,7 @@ const RESIZE_RERENDER_SOURCES = new Set([
 const ANCHORED_CURRENT_PAGE_SYNC_SOURCES = new Set([
     ...RESIZE_RERENDER_SOURCES,
     'zoom-change',
+    'zoom-gesture-change',
     'zoom-settle',
     'fit-width-current-page',
 ]);

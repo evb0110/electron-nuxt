@@ -4,6 +4,7 @@ import { isResizeRerenderSource } from '@app/modules/pdf-viewer/runtime/rerender
 
 const PRESERVE_EXISTING_RENDER_SOURCES = new Set([
     'zoom-change',
+    'zoom-gesture-change',
     'zoom-settle',
     'fit-mode',
     'fit-width-current-page',
