@@ -607,7 +607,7 @@ export default {
         'dropSubtitle': 'PDF, DjVu, PNG, JPG, TIFF, WebP, GIF',
         'openSubtitle': 'Wählen Sie eine PDF-, DjVu- oder Bilddatei, um einen Arbeitsbereich-Tab zu starten.',
         'or': 'oder',
-        'openFileEllipsis': 'Datei öffnen...',
+        'openFileEllipsis': 'Datei öffnen',
         'clearHistory': 'Verlauf löschen',
         'clearHistoryConfirmTitle': 'Zuletzt verwendete Dateien löschen?',
         'clearHistoryConfirmDescription': 'Dadurch werden alle Einträge aus den zuletzt verwendeten Dateien entfernt. Die Originaldokumente werden nicht gelöscht.',

@@ -607,7 +607,7 @@ export default {
         'dropSubtitle': 'PDF, DjVu, PNG, JPG, TIFF, WebP, GIF',
         'openSubtitle': 'Kies een PDF-, DjVu- of afbeeldingsbestand om een werkruimtetab te starten.',
         'or': 'of',
-        'openFileEllipsis': 'Bestand openen...',
+        'openFileEllipsis': 'Bestand openen',
         'clearHistory': 'Geschiedenis wissen',
         'clearHistoryConfirmTitle': 'Recente bestanden wissen?',
         'clearHistoryConfirmDescription': 'Dit verwijdert alle vermeldingen uit Recente bestanden. De originele documenten worden niet verwijderd.',

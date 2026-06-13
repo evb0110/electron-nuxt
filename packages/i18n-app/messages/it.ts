@@ -607,7 +607,7 @@ export default {
         'dropSubtitle': 'PDF, DjVu, PNG, JPG, TIFF, WebP, GIF',
         'openSubtitle': 'Scegli un PDF, DjVu o file immagine per iniziare una scheda di lavoro.',
         'or': 'oppure',
-        'openFileEllipsis': 'Apri file...',
+        'openFileEllipsis': 'Apri file',
         'clearHistory': 'Cancella cronologia',
         'clearHistoryConfirmTitle': 'Cancellare i file recenti?',
         'clearHistoryConfirmDescription': 'Verranno rimosse tutte le voci dai file recenti. I documenti originali non saranno eliminati.',

@@ -607,7 +607,7 @@ export default {
         'dropSubtitle': 'PDF, DjVu, PNG, JPG, TIFF, WebP, GIF',
         'openSubtitle': 'Choose a PDF, DjVu, or image file to start a workspace tab.',
         'or': 'or',
-        'openFileEllipsis': 'Open File...',
+        'openFileEllipsis': 'Open File',
         'clearHistory': 'Clear History',
         'clearHistoryConfirmTitle': 'Clear recent files?',
         'clearHistoryConfirmDescription': 'This removes all entries from Recent Files. The original documents will not be deleted.',

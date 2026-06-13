@@ -619,7 +619,7 @@ export default {
         'dropSubtitle': 'PDF, DjVu, PNG, JPG, TIFF, WebP, GIF',
         'openSubtitle': 'Выберите PDF, DjVu или изображение, чтобы начать работу во вкладке.',
         'or': 'или',
-        'openFileEllipsis': 'Открыть файл...',
+        'openFileEllipsis': 'Открыть файл',
         'clearHistory': 'Очистить историю',
         'clearHistoryConfirmTitle': 'Очистить недавние файлы?',
         'clearHistoryConfirmDescription': 'Все записи будут удалены из списка недавних файлов. Исходные документы не будут удалены.',
