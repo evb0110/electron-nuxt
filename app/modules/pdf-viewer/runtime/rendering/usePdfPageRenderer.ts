@@ -433,7 +433,13 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         setupPagePlaceholderSizes(containerRoot, normalizedPageMetrics, scale);
     }
 
-    function shouldRenderPageWithinCanvasBudget(
+    /**
+     * Over-budget buffer pages render clamped instead of being skipped:
+     * skipping disabled neighbor prerendering at exactly the zoom levels where
+     * sharp-on-arrival matters most. The clamped canvas is near-sharp, and the
+     * caller marks the page stale so promotion rerenders it at full quality.
+     */
+    function resolveBufferPageCanvasClamp(
         pageNumber: number,
         context: {
             containerRoot: HTMLElement;
@@ -442,22 +448,29 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         },
     ) {
         if (!context.isBufferPage || context.renderOptions?.maxCanvasPixelsOverride !== undefined) {
-            return true;
+            return null;
         }
 
         const pageContainer = getMountedPageContainer(pageNumber, context.containerRoot);
         if (!pageContainer) {
-            return true;
+            return null;
         }
 
         const width = pageContainer.offsetWidth || pageContainer.clientWidth;
         const height = pageContainer.offsetHeight || pageContainer.clientHeight;
         if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-            return true;
+            return null;
         }
 
-        return canvasRenderer.estimateRequestedPixels(width, height)
-            <= performanceProfile.maxBufferCanvasPixels;
+        const requestedPixels = canvasRenderer.estimateRequestedPixels(width, height);
+        if (requestedPixels <= performanceProfile.maxBufferCanvasPixels) {
+            return null;
+        }
+
+        return {
+            maxCanvasPixels: performanceProfile.maxBufferCanvasPixels,
+            requestedPixels,
+        };
     }
 
     const { renderVisiblePages } = usePdfRendererVisibleRenderController({
@@ -490,7 +503,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         },
         renderSingleVisiblePage,
         scheduleMissingRenderTargetRetry,
-        shouldRenderPage: shouldRenderPageWithinCanvasBudget,
+        resolveBufferPageCanvasClamp,
         throttleMs: RERENDER_LOG_THROTTLE_MS,
     });
 

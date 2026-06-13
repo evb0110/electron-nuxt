@@ -11,7 +11,10 @@ import { logPdfNav } from '@app/utils/logPdfNav';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { createPagePreviewCache } from '@app/modules/pdf-viewer/engine/pdf-page-preview/createPagePreviewCache';
-import { createPagePreviewRenderQueue } from '@app/modules/pdf-viewer/engine/pdf-page-preview/createPagePreviewRenderQueue';
+import {
+    PAGE_PREVIEW_TARGET_PRIORITY,
+    createPagePreviewRenderQueue,
+} from '@app/modules/pdf-viewer/engine/pdf-page-preview/createPagePreviewRenderQueue';
 import type { IPdfPagePreviewEntry } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
 import type {
     IContentInsets,
@@ -61,6 +64,8 @@ interface IUsePdfRenderViewModelOptions {
     continuousScroll: ComputedRef<boolean>;
     numPages: Ref<number>;
     isPagedNavigationBurstActive?: (() => boolean) | undefined;
+    isNavigationHoldActiveForPage?: ((pageNumber: number) => boolean) | undefined;
+    isNavigationHoldExpiredPage?: ((pageNumber: number) => boolean) | undefined;
     markersByPage: Ref<Map<number, IMarkerViewModel[]>>;
     linksByPage: ComputedRef<Record<number, ILinkAnnotation[]>>;
     renderVisiblePages: (
@@ -87,8 +92,11 @@ const PREVIEW_CACHE_ENTRIES_DEFAULT = 24;
 const PREVIEW_CACHE_ENTRIES_LOW_MEMORY = 12;
 const PREVIEW_LONGEST_SIDE_PX_DEFAULT = 768;
 const PREVIEW_LONGEST_SIDE_PX_LOW_MEMORY = 512;
-const PREVIEW_PREFETCH_RADIUS_DEFAULT = 6;
+const PREVIEW_PREFETCH_RADIUS_DEFAULT = 3;
 const PREVIEW_PREFETCH_RADIUS_LOW_MEMORY = 3;
+const PREVIEW_PREFETCH_RADIUS_EXPANDED = 6;
+const PREVIEW_FAST_RENDER_THRESHOLD_MS = 80;
+const PREVIEW_REQUEST_PRIORITY_DEFAULT = 50;
 const PAGED_BUFFER_RENDER_QUIET_DELAY_MS = 220;
 
 export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
@@ -109,10 +117,13 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
             ? PREVIEW_LONGEST_SIDE_PX_LOW_MEMORY
             : PREVIEW_LONGEST_SIDE_PX_DEFAULT,
         concurrency: performanceProfile.lowCpu ? 1 : 2,
-        shouldSkipPage: pageNumber => (
-            options.isPageRenderedForClass(pageNumber)
-            || options.isPageRendering(pageNumber)
-        ),
+        /**
+         * Skip only pages that already show a full-res canvas. An in-flight
+         * full-res render must NOT skip the preview: at high zoom it takes
+         * hundreds of ms and can be cancelled, so the preview runs in parallel
+         * as cheap insurance and auto-hides when the real canvas mounts.
+         */
+        shouldSkipPage: pageNumber => options.isPageRenderedForClass(pageNumber),
         onPreviewReady: (pageNumber) => {
             logPdfRenderTrace('page-preview-ready', {
                 pageNumber,
@@ -178,6 +189,15 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
             delayedSkeleton.markPageRendered(page);
             return false;
         }
+        if (hasPagePreview(page)) {
+            return false;
+        }
+        if (
+            options.isNavigationHoldActiveForPage?.(page) === true
+            || options.isNavigationHoldExpiredPage?.(page) === true
+        ) {
+            return false;
+        }
         const showSkeleton = delayedSkeleton.shouldShowSkeleton(page);
         const isVisiblePage = page >= options.visibleRange.value.start && page <= options.visibleRange.value.end;
         if (showSkeleton && isVisiblePage) {
@@ -208,9 +228,20 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
         return options.suppressPagedBufferRender?.value === true;
     }
 
+    /**
+     * Scanned books decode the full embedded page image even for a small
+     * preview canvas, so previews can cost hundreds of ms. Widen the prefetch
+     * window only when measured renders prove this document is cheap.
+     */
     function getPreviewPrefetchRadius() {
-        return performanceProfile.lowMemory
-            ? PREVIEW_PREFETCH_RADIUS_LOW_MEMORY
+        if (performanceProfile.lowMemory) {
+            return PREVIEW_PREFETCH_RADIUS_LOW_MEMORY;
+        }
+
+        const averageRenderDurationMs = previewQueue.getAverageRenderDurationMs();
+        return averageRenderDurationMs !== null
+            && averageRenderDurationMs < PREVIEW_FAST_RENDER_THRESHOLD_MS
+            ? PREVIEW_PREFETCH_RADIUS_EXPANDED
             : PREVIEW_PREFETCH_RADIUS_DEFAULT;
     }
 
@@ -228,7 +259,7 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
             return [];
         }
 
-        const priority = requestOptions?.priority ?? 50;
+        const priority = requestOptions?.priority ?? PREVIEW_REQUEST_PRIORITY_DEFAULT;
         const direction = requestOptions?.direction ?? 0;
         const requests: Array<{
             pageNumber: number;
@@ -298,6 +329,14 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
             return;
         }
 
+        const priority = requestOptions?.priority ?? PREVIEW_REQUEST_PRIORITY_DEFAULT;
+        if (priority >= PAGE_PREVIEW_TARGET_PRIORITY) {
+            const radius = getPreviewPrefetchRadius();
+            previewQueue.pruneQueuedPrefetches(pageNumber => (
+                pageNumber >= range.start - radius
+                && pageNumber <= range.end + radius
+            ));
+        }
         previewQueue.ensurePages(createPreviewRequests(range, requestOptions));
     }
 

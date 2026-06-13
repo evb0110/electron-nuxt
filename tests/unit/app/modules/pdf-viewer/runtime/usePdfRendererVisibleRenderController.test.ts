@@ -109,65 +109,159 @@ describe('usePdfRendererVisibleRenderController', () => {
         expect(harness.ensurePageMetricsInRange).toHaveBeenCalledWith(12, 14);
     });
 
-    it('keeps visible pages while deferring buffer pages rejected by the render policy', async () => {
-        const pageElement = cast<HTMLElement>({
-            dataset: { page: '10' },
-            querySelector: vi.fn(() => null),
-        });
-        const containerRoot = cast<HTMLElement>({
-            querySelector: vi.fn((selector: string) => (
-                selector === '.page_container[data-page="10"]'
-                    ? pageElement
-                    : null
-            )),
-            querySelectorAll: vi.fn(() => []),
-        });
-        let visibleRenderRequestId = 7;
-        const renderSingleVisiblePage = vi.fn(async () => undefined);
-        const controller = usePdfRendererVisibleRenderController({
-            container: ref(containerRoot),
-            currentPage: ref(10),
-            numPages: ref(20),
-            isActive: true,
-            bufferPages: 1,
-            renderConcurrency: 3,
-            effectiveScale: 1,
-            renderedPages: new Set<number>(),
-            staleRenderedPages: new Set<number>(),
-            renderingPages: new Map<number, number>(),
-            renderingPageRequestIds: new Map<number, number>(),
-            getRenderVersion: () => 3,
-            getVisibleRenderRequestId: () => visibleRenderRequestId,
-            nextVisibleRenderRequestId: () => {
-                visibleRenderRequestId += 1;
-                return visibleRenderRequestId;
-            },
-            ensurePageMetricsInRange: vi.fn(async () => true),
-            setupPagePlaceholders: vi.fn(),
-            cleanupPage: vi.fn(),
-            cancelObsoleteInFlightRenders: vi.fn(),
-            renderSingleVisiblePage,
-            scheduleMissingRenderTargetRetry: vi.fn(),
-            shouldRenderPage: (_pageNumber, context) => !context.isBufferPage,
-            throttleMs: 0,
-        });
+    it('renders over-budget buffer pages clamped, forward neighbor first, and marks them stale', async () => {
+        const resolveBufferPageCanvasClamp = vi.fn(() => ({
+            maxCanvasPixels: 16_700_000,
+            requestedPixels: 35_000_000,
+        }));
+        const harness = createBufferClampHarness({ resolveBufferPageCanvasClamp });
 
-        await controller.renderVisiblePages({
+        await harness.controller.renderVisiblePages({
             start: 10,
             end: 10,
         });
 
-        expect(renderSingleVisiblePage).toHaveBeenCalledTimes(1);
-        expect(renderSingleVisiblePage).toHaveBeenCalledWith(
-            containerRoot,
+        const renderedPageOrder = harness.renderSingleVisiblePage.mock.calls.map(call => call[1]);
+        expect(renderedPageOrder).toEqual([
             10,
-            expect.any(Number),
-            expect.any(Number),
-            expect.any(Boolean),
-            expect.any(Number),
-            expect.any(Function),
-            new Set([10]),
-            undefined,
+            11,
+            9,
+        ]);
+        expect(resolveBufferPageCanvasClamp).toHaveBeenCalledTimes(2);
+        expect(harness.renderSingleVisiblePage.mock.calls[0]?.[8]).toBeUndefined();
+        expect(harness.renderSingleVisiblePage.mock.calls[1]?.[8])
+            .toEqual({ maxCanvasPixelsOverride: 16_700_000 });
+        expect(harness.renderSingleVisiblePage.mock.calls[2]?.[8])
+            .toEqual({ maxCanvasPixelsOverride: 16_700_000 });
+        expect(harness.staleRenderedPages).toEqual(new Set([
+            9,
+            11,
+        ]));
+        expect(harness.renderedPages).toEqual(new Set([
+            9,
+            10,
+            11,
+        ]));
+    });
+
+    it('renders within-budget buffer pages unclamped without stale marking', async () => {
+        const harness = createBufferClampHarness({ resolveBufferPageCanvasClamp: () => null });
+
+        await harness.controller.renderVisiblePages({
+            start: 10,
+            end: 10,
+        });
+
+        const renderedPageOrder = harness.renderSingleVisiblePage.mock.calls.map(call => call[1]);
+        expect(renderedPageOrder).toEqual([
+            10,
+            11,
+            9,
+        ]);
+        for (const call of harness.renderSingleVisiblePage.mock.calls) {
+            expect(call[8]).toBeUndefined();
+        }
+        expect(harness.staleRenderedPages.size).toBe(0);
+    });
+
+    it('passes explicit max-canvas overrides through untouched when the resolver declines', async () => {
+        const harness = createBufferClampHarness({resolveBufferPageCanvasClamp: (_pageNumber, context) => (
+            context.renderOptions?.maxCanvasPixelsOverride !== undefined
+                ? null
+                : {
+                    maxCanvasPixels: 8_400_000,
+                    requestedPixels: 20_000_000,
+                }
+        )});
+
+        await harness.controller.renderVisiblePages(
+            {
+                start: 10,
+                end: 10,
+            },
+            {
+                preserveRenderedPages: true,
+                maxCanvasPixelsOverride: 14_000_000,
+            },
         );
+
+        for (const call of harness.renderSingleVisiblePage.mock.calls) {
+            expect(call[8]).toEqual({
+                preserveRenderedPages: true,
+                maxCanvasPixelsOverride: 14_000_000,
+            });
+        }
+        expect(harness.staleRenderedPages.size).toBe(0);
     });
 });
+
+type TVisibleRenderControllerOptions = Parameters<typeof usePdfRendererVisibleRenderController>[0];
+
+function createBufferClampHarness(options: {resolveBufferPageCanvasClamp: NonNullable<TVisibleRenderControllerOptions['resolveBufferPageCanvasClamp']>;}) {
+    const pageElements = new Map<number, HTMLElement>(
+        [
+            9,
+            10,
+            11,
+        ].map(pageNumber => [
+            pageNumber,
+            cast<HTMLElement>({
+                dataset: { page: String(pageNumber) },
+                querySelector: vi.fn(() => null),
+            }),
+        ]),
+    );
+    const containerRoot = cast<HTMLElement>({
+        querySelector: vi.fn((selector: string) => {
+            const match = selector.match(/\.page_container\[data-page="(\d+)"\]/);
+            if (!match?.[1]) {
+                return null;
+            }
+            return pageElements.get(Number.parseInt(match[1], 10)) ?? null;
+        }),
+        querySelectorAll: vi.fn(() => []),
+    });
+    const renderedPages = new Set<number>();
+    const staleRenderedPages = new Set<number>();
+    const renderSingleVisiblePage = vi.fn<TVisibleRenderControllerOptions['renderSingleVisiblePage']>(
+        async (_containerRoot, pageNumber) => {
+            renderedPages.add(pageNumber);
+        },
+    );
+    let visibleRenderRequestId = 7;
+
+    const controller = usePdfRendererVisibleRenderController({
+        container: ref(containerRoot),
+        currentPage: ref(10),
+        numPages: ref(20),
+        isActive: true,
+        bufferPages: 1,
+        renderConcurrency: 3,
+        effectiveScale: 1,
+        renderedPages,
+        staleRenderedPages,
+        renderingPages: new Map<number, number>(),
+        renderingPageRequestIds: new Map<number, number>(),
+        getRenderVersion: () => 3,
+        getVisibleRenderRequestId: () => visibleRenderRequestId,
+        nextVisibleRenderRequestId: () => {
+            visibleRenderRequestId += 1;
+            return visibleRenderRequestId;
+        },
+        ensurePageMetricsInRange: vi.fn(async () => true),
+        setupPagePlaceholders: vi.fn(),
+        cleanupPage: vi.fn(),
+        cancelObsoleteInFlightRenders: vi.fn(),
+        renderSingleVisiblePage,
+        scheduleMissingRenderTargetRetry: vi.fn(),
+        resolveBufferPageCanvasClamp: options.resolveBufferPageCanvasClamp,
+        throttleMs: 0,
+    });
+
+    return {
+        controller,
+        renderSingleVisiblePage,
+        renderedPages,
+        staleRenderedPages,
+    };
+}
