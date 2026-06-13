@@ -20,13 +20,17 @@ import {
     installWorkspaceExposeProbe,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import type { IEvbTestApi } from '@app/types/evbTestApi';
 
 const DEFAULT_TARGET_PDF_PATH = process.env.EVB_DIAGNOSTIC_PDF_PATH?.length
     ? process.env.EVB_DIAGNOSTIC_PDF_PATH
-    : resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'navigation-source.pdf');
+    : resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'page-jump-source.pdf');
 const DEFAULT_OUT_PATH = '.devkit/pdf-navigation-blink-trace.json';
+const MAX_ASSERTED_TOOLBAR_BODY_LAG_MS = 750;
+const MAX_ASSERTED_BLANK_RUN_MS = 250;
 
 export interface IPdfNavigationBlinkTraceOptions {
+    assert: boolean;
     clicks: number;
     clickDelayMs: number;
     out: string;
@@ -39,15 +43,35 @@ export interface IPdfNavigationBlinkTraceOptions {
 }
 
 interface ITraceSummary {
+    bodyCanvasReadyAtMs: number | null;
+    bodyVisualReadyAtMs: number | null;
     blankSampleCount: number;
+    finalTargetPage: number | null;
     frameAnalysis: IFrameAnalysisSummary;
     firstBlankSample: unknown;
+    firstCenteredBlankSample: unknown;
+    firstLatePostClickSwapSample: unknown;
+    firstSkeletonAfterVisualSample: unknown;
+    firstSkeletonVisualOverlapSample: unknown;
+    firstTargetCanvasRegressionSample: unknown;
+    firstToolbarAheadOfBodySample: unknown;
+    lastClickAtMs: number | null;
+    latePostClickSwapCount: number;
     maxBlankRunMs: number;
+    maxCenteredBlankRunMs: number;
+    maxToolbarBodyLagMs: number;
+    postReadyUnstableSampleCount: number;
+    skeletonAfterVisualSampleCount: number;
     skeletonSampleCount: number;
+    skeletonVisualOverlapSampleCount: number;
+    targetCanvasRegressionSampleCount: number;
+    toolbarAheadOfBodySampleCount: number;
     toolbarPages: number[];
     workspaceGoToPages: number[];
     pagedTargets: number[];
 }
+
+interface IPdfBlinkDiagnosticWindow extends Window {__evbTestApi?: IEvbTestApi;}
 
 export interface IFrameAnalysisSummary {
     canvasObservedAtMs: number | null;
@@ -58,6 +82,7 @@ export interface IFrameAnalysisSummary {
 
 export function readOptions(argv = process.argv.slice(2)): IPdfNavigationBlinkTraceOptions {
     const options: IPdfNavigationBlinkTraceOptions = {
+        assert: false,
         clicks: 12,
         clickDelayMs: 20,
         out: DEFAULT_OUT_PATH,
@@ -72,7 +97,9 @@ export function readOptions(argv = process.argv.slice(2)): IPdfNavigationBlinkTr
     for (let index = 0; index < argv.length; index += 1) {
         const arg = argv[index];
         const next = argv[index + 1];
-        if (arg === '--clicks' && next) {
+        if (arg === '--assert') {
+            options.assert = true;
+        } else if (arg === '--clicks' && next) {
             options.clicks = Math.max(1, Number.parseInt(next, 10) || options.clicks);
             index += 1;
         } else if (arg === '--click-delay-ms' && next) {
@@ -231,9 +258,35 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
                     const rect = container.getBoundingClientRect();
                     const skeleton = container.querySelector<HTMLElement>('.pdf-page-skeleton');
                     const skeletonStyle = skeleton ? window.getComputedStyle(skeleton) : null;
+                    const skeletonRect = skeleton?.getBoundingClientRect() ?? null;
                     const canvases = Array.from(container.querySelectorAll<HTMLCanvasElement>('.page_canvas canvas'));
                     const previews = Array.from(container.querySelectorAll<HTMLCanvasElement>('.page_preview canvas'));
                     const pageCanvas = container.querySelector<HTMLElement>('.page_canvas');
+                    const canvasSizes = canvases.map(canvas => ({
+                        width: canvas.width,
+                        height: canvas.height,
+                        clientWidth: Math.round(canvas.getBoundingClientRect().width),
+                        clientHeight: Math.round(canvas.getBoundingClientRect().height),
+                    }));
+                    const previewSizes = previews.map(canvas => ({
+                        width: canvas.width,
+                        height: canvas.height,
+                        clientWidth: Math.round(canvas.getBoundingClientRect().width),
+                        clientHeight: Math.round(canvas.getBoundingClientRect().height),
+                    }));
+                    const hasUsableCanvas = canvasSizes.some(size => size.width > 0 && size.height > 0 && size.clientWidth > 0 && size.clientHeight > 0);
+                    const hasUsablePreview = previewSizes.some(size => size.width > 0 && size.height > 0 && size.clientWidth > 0 && size.clientHeight > 0);
+                    const skeletonVisible = Boolean(
+                        skeleton
+                        && skeletonStyle
+                        && skeletonRect
+                        && skeletonRect.width > 0
+                        && skeletonRect.height > 0
+                        && skeletonStyle.display !== 'none'
+                        && skeletonStyle.visibility !== 'hidden'
+                        && Number(skeletonStyle.opacity || '1') > 0,
+                    );
+                    const visualReady = hasUsableCanvas || hasUsablePreview;
                     return {
                         page: Number(container.dataset.page) || 0,
                         top: Math.round(rect.top),
@@ -243,33 +296,66 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
                         rendered: container.classList.contains('page_container--rendered'),
                         buffered: container.classList.contains('page_container--buffered'),
                         hasSkeleton: Boolean(skeleton),
+                        skeletonVisible,
                         skeletonDisplay: skeletonStyle?.display ?? null,
                         skeletonOpacity: skeletonStyle?.opacity ?? null,
                         hasCanvas: canvases.length > 0,
                         hasPreview: previews.length > 0,
+                        hasUsableCanvas,
+                        hasUsablePreview,
+                        visualReady,
                         canvasCount: canvases.length,
                         previewCount: previews.length,
-                        canvasSizes: canvases.map(canvas => ({
-                            width: canvas.width,
-                            height: canvas.height,
-                            clientWidth: Math.round(canvas.getBoundingClientRect().width),
-                            clientHeight: Math.round(canvas.getBoundingClientRect().height),
-                        })),
+                        canvasSizes,
+                        previewSizes,
                         pageCanvasChildren: pageCanvas?.children.length ?? 0,
                     };
                 })
                 .filter(pageInfo => pageInfo.bottom >= viewerRect.top && pageInfo.top <= viewerRect.bottom);
             const blankVisiblePages = visiblePages
-                .filter(pageInfo => !pageInfo.hasSkeleton && !pageInfo.hasCanvas && !pageInfo.hasPreview)
+                .filter(pageInfo => !pageInfo.skeletonVisible && !pageInfo.visualReady)
                 .map(pageInfo => pageInfo.page);
             const skeletonPages = visiblePages
-                .filter(pageInfo => pageInfo.hasSkeleton)
+                .filter(pageInfo => pageInfo.skeletonVisible)
                 .map(pageInfo => pageInfo.page);
             const canvasPages = visiblePages
-                .filter(pageInfo => pageInfo.hasCanvas || pageInfo.hasPreview)
+                .filter(pageInfo => pageInfo.hasUsableCanvas)
+                .map(pageInfo => pageInfo.page);
+            const previewPages = visiblePages
+                .filter(pageInfo => pageInfo.hasUsablePreview)
                 .map(pageInfo => pageInfo.page);
             const centerX = Math.round(viewerRect.left + viewerRect.width / 2);
             const centerY = Math.round(viewerRect.top + viewerRect.height / 2);
+            const elementAtCenter = summarizeElement(document.elementFromPoint(centerX, centerY));
+            const visibleVisualPages = visiblePages
+                .filter(pageInfo => pageInfo.visualReady)
+                .map(pageInfo => pageInfo.page);
+            const centeredElementPage = Number(elementAtCenter?.page ?? Number.NaN);
+            const centeredVisualPage = Number.isFinite(centeredElementPage)
+                && visibleVisualPages.includes(centeredElementPage)
+                ? centeredElementPage
+                : visiblePages.find(pageInfo => (
+                    pageInfo.visualReady
+                    && !pageInfo.buffered
+                    && pageInfo.top <= centerY
+                    && pageInfo.bottom >= centerY
+                ))?.page
+                    ?? visiblePages.find(pageInfo => (
+                        pageInfo.visualReady
+                        && pageInfo.top <= centerY
+                        && pageInfo.bottom >= centerY
+                    ))?.page
+                    ?? visiblePages.find(pageInfo => pageInfo.visualReady)?.page
+                    ?? null;
+            const bodySignature = visiblePages
+                .map(pageInfo => [
+                    pageInfo.page,
+                    pageInfo.rendered ? 'r' : '-',
+                    pageInfo.visualReady ? 'v' : '-',
+                    pageInfo.skeletonVisible ? 's' : '-',
+                    pageInfo.buffered ? 'b' : '-',
+                ].join(''))
+                .join('|');
             const workspaceExpose = traceWindow.__evbFindWorkspaceExpose?.({
                 requiredMethods: ['getToolbarSnapshot'],
                 requireVisible: true,
@@ -290,7 +376,11 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
                 blankVisiblePages,
                 skeletonPages,
                 canvasPages,
-                elementAtCenter: summarizeElement(document.elementFromPoint(centerX, centerY)),
+                previewPages,
+                visibleVisualPages,
+                centeredVisualPage,
+                bodySignature,
+                elementAtCenter,
             };
         }
 
@@ -366,6 +456,11 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
         }
 
         traceWindow.__startPdfBlinkTrace = () => {
+            traceWindow.__pdfBlinkTrace = {
+                events: [],
+                samples: [],
+                startedAtMs: performance.now(),
+            };
             traceWindow.__pdfBlinkTraceRunning = true;
             recordEvent('trace-start');
             window.requestAnimationFrame(tick);
@@ -396,32 +491,70 @@ async function recordTraceEvent(
     ]);
 }
 
+async function waitForActiveDocumentOpenSettled(page: Awaited<ReturnType<typeof startElectronE2ESession>>['page']) {
+    await installWorkspaceExposeProbe(page);
+    await page.evaluate(async () => {
+        const testApi = (window as IPdfBlinkDiagnosticWindow).__evbTestApi;
+        await testApi?.waitForActiveDocumentOpenSettled?.();
+    });
+}
+
+async function waitForFitHeightPagedMode(page: Awaited<ReturnType<typeof startElectronE2ESession>>['page']) {
+    await page.waitForFunction(() => {
+        const snapshot = (window as IPdfBlinkDiagnosticWindow).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
+        return snapshot?.continuousScroll === false
+            && snapshot.fitMode === 'height'
+            && snapshot.viewMode === 'single';
+    }, { timeout: 10_000 });
+}
+
 async function configureFitHeightPagedMode(page: Awaited<ReturnType<typeof startElectronE2ESession>>['page']) {
-    const initialSnapshot = await getWorkspaceToolbarSnapshot(page, {requiredMethods: [
-        'handleFitHeight',
-        'handleViewModeSingle',
-    ]}) as { continuousScroll?: boolean } | null;
+    await waitForActiveDocumentOpenSettled(page);
 
-    if (!initialSnapshot) {
-        throw new Error('Unable to configure fit-height paged mode');
-    }
+    let lastSnapshot: unknown = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+        const initialSnapshot = await getWorkspaceToolbarSnapshot(page, {requiredMethods: [
+            'handleFitHeight',
+            'handleViewModeSingle',
+        ]}) as { continuousScroll?: boolean } | null;
 
-    await callWorkspaceCommand(page, 'handleViewModeSingle', [], {requiredMethods: [
-        'getToolbarSnapshot',
-        'handleFitHeight',
-    ]});
-    if (initialSnapshot.continuousScroll === true) {
-        await callWorkspaceCommand(page, 'handleToggleContinuousScroll', [], {requiredMethods: [
+        if (!initialSnapshot) {
+            throw new Error('Unable to configure fit-height paged mode');
+        }
+
+        await callWorkspaceCommand(page, 'handleViewModeSingle', [], {requiredMethods: [
             'getToolbarSnapshot',
             'handleFitHeight',
         ]});
-    }
-    const fitHeightResult = await callWorkspaceCommand(page, 'handleFitHeight', [], {requiredMethods: ['getToolbarSnapshot']});
+        await delay(100);
+        const singleModeSnapshot = await getWorkspaceToolbarSnapshot(page, {requiredMethods: [
+            'handleFitHeight',
+            'handleToggleContinuousScroll',
+        ]}) as { continuousScroll?: boolean } | null;
+        if ((singleModeSnapshot?.continuousScroll ?? initialSnapshot.continuousScroll) === true) {
+            await callWorkspaceCommand(page, 'handleToggleContinuousScroll', [], {requiredMethods: [
+                'getToolbarSnapshot',
+                'handleFitHeight',
+                'handleToggleContinuousScroll',
+            ]});
+        }
+        const fitHeightResult = await callWorkspaceCommand(page, 'handleFitHeight', [], {requiredMethods: ['getToolbarSnapshot']});
 
-    if (!fitHeightResult.called) {
-        throw new Error('Unable to configure fit-height paged mode');
+        if (!fitHeightResult.called) {
+            throw new Error('Unable to configure fit-height paged mode');
+        }
+        await delay(300);
+        lastSnapshot = await getWorkspaceToolbarSnapshot(page, {requiredMethods: ['getToolbarSnapshot']});
+        try {
+            await waitForFitHeightPagedMode(page);
+            await delay(500);
+            return;
+        } catch {
+            await waitForActiveDocumentOpenSettled(page);
+        }
     }
-    await delay(500);
+
+    throw new Error(`Unable to settle into fit-height paged mode: ${JSON.stringify(lastSnapshot)}`);
 }
 
 async function goToPageViaWorkspace(
@@ -475,7 +608,7 @@ async function clickNextPage(page: Awaited<ReturnType<typeof startElectronE2ESes
             });
     }, { timeout: 30_000 });
 
-    const clicked = await page.evaluate(() => {
+    const clickable = await page.evaluate(() => {
         const isVisibleEnabled = (button: HTMLButtonElement) => {
             const rect = button.getBoundingClientRect();
             const style = window.getComputedStyle(button);
@@ -492,10 +625,12 @@ async function clickNextPage(page: Awaited<ReturnType<typeof startElectronE2ESes
                 return (label === 'Next Page' || label.startsWith('Next Page ('))
                     && isVisibleEnabled(candidate);
             });
-        button?.click();
+        const rect = button?.getBoundingClientRect() ?? null;
         return {
             clicked: Boolean(button),
             label: button?.getAttribute('aria-label') ?? null,
+            x: rect ? Math.round(rect.left + rect.width / 2) : null,
+            y: rect ? Math.round(rect.top + rect.height / 2) : null,
             pageText: Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
                 .filter(element => {
                     const rect = element.getBoundingClientRect();
@@ -509,11 +644,13 @@ async function clickNextPage(page: Awaited<ReturnType<typeof startElectronE2ESes
         };
     });
 
-    if (!clicked.clicked) {
-        throw new Error(`Unable to click Next Page: ${JSON.stringify(clicked)}`);
+    if (!clickable.clicked || clickable.x === null || clickable.y === null) {
+        throw new Error(`Unable to click Next Page: ${JSON.stringify(clickable)}`);
     }
 
-    return clicked;
+    await page.mouse.click(clickable.x, clickable.y);
+
+    return clickable;
 }
 
 async function collectPdfNavLog(page: Awaited<ReturnType<typeof startElectronE2ESession>>['page']) {
@@ -539,6 +676,166 @@ function uniqueNumbers(values: unknown[]) {
         }
     }
     return result;
+}
+
+function readFiniteNumber(value: unknown) {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function readNumberArray(value: unknown) {
+    return Array.isArray(value)
+        ? value.filter((item): item is number => typeof item === 'number' && Number.isFinite(item))
+        : [];
+}
+
+function readVisiblePages(sample: Record<string, unknown>) {
+    return Array.isArray(sample.visiblePages)
+        ? sample.visiblePages.filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object')
+        : [];
+}
+
+function readToolbarPage(sample: Record<string, unknown>) {
+    const snapshot = sample.toolbarSnapshot as {currentPage?: unknown} | null | undefined;
+    return readFiniteNumber(snapshot?.currentPage);
+}
+
+function readCenteredVisualPage(sample: Record<string, unknown>) {
+    const elementAtCenterPage = readElementAtCenterPage(sample);
+    if (elementAtCenterPage !== null && sampleHasVisualForPage(sample, elementAtCenterPage)) {
+        return elementAtCenterPage;
+    }
+    return readFiniteNumber(sample.centeredVisualPage);
+}
+
+function readBodySignature(sample: Record<string, unknown>) {
+    return typeof sample.bodySignature === 'string' ? sample.bodySignature : '';
+}
+
+function readElementAtCenterPage(sample: Record<string, unknown>) {
+    const elementAtCenter = sample.elementAtCenter as {page?: unknown} | null | undefined;
+    const page = elementAtCenter?.page;
+    if (typeof page === 'number') {
+        return Number.isFinite(page) ? page : null;
+    }
+    if (typeof page === 'string') {
+        const parsed = Number.parseInt(page, 10);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+}
+
+function readPageInfoForPage(sample: Record<string, unknown>, page: number) {
+    return readVisiblePages(sample).find(pageInfo => readFiniteNumber(pageInfo.page) === page) ?? null;
+}
+
+function readCenteredPageInfo(sample: Record<string, unknown>) {
+    const elementAtCenterPage = readElementAtCenterPage(sample);
+    if (elementAtCenterPage !== null) {
+        return readPageInfoForPage(sample, elementAtCenterPage);
+    }
+    return null;
+}
+
+function sampleHasVisualForPage(sample: Record<string, unknown>, page: number) {
+    return readVisiblePages(sample).some(pageInfo => (
+        readFiniteNumber(pageInfo.page) === page
+        && pageInfo.visualReady === true
+    ));
+}
+
+function sampleHasCanvasForPage(sample: Record<string, unknown>, page: number) {
+    return readVisiblePages(sample).some(pageInfo => (
+        readFiniteNumber(pageInfo.page) === page
+        && pageInfo.hasUsableCanvas === true
+    ));
+}
+
+function sampleHasCenteredVisualForPage(sample: Record<string, unknown>, page: number) {
+    return readCenteredVisualPage(sample) === page
+        && sampleHasVisualForPage(sample, page);
+}
+
+function sampleHasCenteredCanvasForPage(sample: Record<string, unknown>, page: number) {
+    return readCenteredVisualPage(sample) === page
+        && sampleHasCanvasForPage(sample, page);
+}
+
+function sampleHasCenteredBlank(sample: Record<string, unknown>) {
+    const centeredPageInfo = readCenteredPageInfo(sample);
+    if (centeredPageInfo) {
+        return centeredPageInfo.visualReady !== true && centeredPageInfo.skeletonVisible !== true;
+    }
+    return readCenteredVisualPage(sample) === null
+        && readNumberArray(sample.blankVisiblePages).length > 0;
+}
+
+function sampleHasCenteredSkeleton(sample: Record<string, unknown>) {
+    const centeredPageInfo = readCenteredPageInfo(sample);
+    return centeredPageInfo?.skeletonVisible === true;
+}
+
+function readTargetBodySignature(sample: Record<string, unknown>, targetPage: number | null) {
+    if (targetPage === null) {
+        return readBodySignature(sample);
+    }
+    const targetPageInfo = readPageInfoForPage(sample, targetPage);
+    const centeredPage = readCenteredVisualPage(sample) ?? readElementAtCenterPage(sample) ?? 'none';
+    if (!targetPageInfo) {
+        return `center:${centeredPage}|target:missing`;
+    }
+    return [
+        `center:${centeredPage}`,
+        `target:${targetPage}`,
+        targetPageInfo.rendered === true ? 'r' : '-',
+        targetPageInfo.visualReady === true ? 'v' : '-',
+        targetPageInfo.hasUsableCanvas === true ? 'c' : '-',
+        targetPageInfo.hasUsablePreview === true ? 'p' : '-',
+        targetPageInfo.skeletonVisible === true ? 's' : '-',
+        targetPageInfo.buffered === true ? 'b' : '-',
+    ].join('');
+}
+
+function sampleHasSkeletonVisualOverlap(sample: Record<string, unknown>) {
+    return readVisiblePages(sample).some(pageInfo => (
+        pageInfo.skeletonVisible === true
+        && pageInfo.visualReady === true
+    ));
+}
+
+function sampleHasSkeletonAfterVisual(
+    sample: Record<string, unknown>,
+    pagesSeenWithVisual: Set<number>,
+) {
+    return readVisiblePages(sample).some(pageInfo => {
+        const page = readFiniteNumber(pageInfo.page);
+        return page !== null
+            && pagesSeenWithVisual.has(page)
+            && pageInfo.skeletonVisible === true;
+    });
+}
+
+function getLastEventAtMs(
+    events: unknown[],
+    kinds: string[],
+) {
+    let lastAtMs: number | null = null;
+    for (const event of events) {
+        if (event === null || typeof event !== 'object') {
+            continue;
+        }
+        const entry = event as {
+            atMs?: unknown;
+            kind?: unknown;
+        };
+        if (typeof entry.kind !== 'string' || !kinds.includes(entry.kind)) {
+            continue;
+        }
+        const atMs = readFiniteNumber(entry.atMs);
+        if (atMs !== null) {
+            lastAtMs = atMs;
+        }
+    }
+    return lastAtMs;
 }
 
 export function analyzeTraceFrames(samples: Array<Record<string, unknown>>): IFrameAnalysisSummary {
@@ -574,7 +871,10 @@ export function analyzeTraceFrames(samples: Array<Record<string, unknown>>): IFr
 }
 
 export function summarizeTrace(payload: {
-    trace: {samples?: Array<Record<string, unknown>>;};
+    trace: {
+        events?: unknown[];
+        samples?: Array<Record<string, unknown>>;
+    };
     renderTrace: Array<{
         event?: string;
         payload?: Record<string, unknown>;
@@ -583,12 +883,17 @@ export function summarizeTrace(payload: {
     const samples = payload.trace.samples ?? [];
     const blankSamples = samples.filter(sample => Array.isArray(sample.blankVisiblePages) && sample.blankVisiblePages.length > 0);
     const skeletonSamples = samples.filter(sample => Array.isArray(sample.skeletonPages) && sample.skeletonPages.length > 0);
+    const skeletonVisualOverlapSamples = samples.filter(sampleHasSkeletonVisualOverlap);
     let maxBlankRunMs = 0;
+    let maxCenteredBlankRunMs = 0;
     let blankRunStartedAt: number | null = null;
     let lastBlankAt: number | null = null;
+    let centeredBlankRunStartedAt: number | null = null;
+    let lastCenteredBlankAt: number | null = null;
     for (const sample of samples) {
         const atMs = typeof sample.atMs === 'number' ? sample.atMs : 0;
         const isBlank = Array.isArray(sample.blankVisiblePages) && sample.blankVisiblePages.length > 0;
+        const isCenteredBlank = sampleHasCenteredBlank(sample);
         if (isBlank) {
             blankRunStartedAt ??= atMs;
             lastBlankAt = atMs;
@@ -597,9 +902,20 @@ export function summarizeTrace(payload: {
             blankRunStartedAt = null;
             lastBlankAt = null;
         }
+        if (isCenteredBlank) {
+            centeredBlankRunStartedAt ??= atMs;
+            lastCenteredBlankAt = atMs;
+        } else if (centeredBlankRunStartedAt !== null && lastCenteredBlankAt !== null) {
+            maxCenteredBlankRunMs = Math.max(maxCenteredBlankRunMs, lastCenteredBlankAt - centeredBlankRunStartedAt);
+            centeredBlankRunStartedAt = null;
+            lastCenteredBlankAt = null;
+        }
     }
     if (blankRunStartedAt !== null && lastBlankAt !== null) {
         maxBlankRunMs = Math.max(maxBlankRunMs, lastBlankAt - blankRunStartedAt);
+    }
+    if (centeredBlankRunStartedAt !== null && lastCenteredBlankAt !== null) {
+        maxCenteredBlankRunMs = Math.max(maxCenteredBlankRunMs, lastCenteredBlankAt - centeredBlankRunStartedAt);
     }
 
     const toolbarPages = uniqueNumbers(samples.map(sample => {
@@ -612,17 +928,173 @@ export function summarizeTrace(payload: {
     const pagedTargets = uniqueNumbers(payload.renderTrace
         .filter(entry => entry.event === 'single-page-set-paged-target')
         .map(entry => entry.payload?.targetPage));
+    const finalTargetPage = workspaceGoToPages.at(-1) ?? toolbarPages.at(-1) ?? pagedTargets.at(-1) ?? null;
+    const lastClickAtMs = getLastEventAtMs(payload.trace.events ?? [], [
+        'after-next-click',
+        'toolbar-button-click',
+    ]);
+    const bodyVisualReadySample = finalTargetPage === null
+        ? null
+        : samples.find(sample => sampleHasCenteredVisualForPage(sample, finalTargetPage)) ?? null;
+    const bodyVisualReadyAtMs = bodyVisualReadySample
+        ? readFiniteNumber(bodyVisualReadySample.atMs)
+        : null;
+    const bodyCanvasReadySample = finalTargetPage === null
+        ? null
+        : samples.find(sample => sampleHasCenteredCanvasForPage(sample, finalTargetPage)) ?? null;
+    const bodyCanvasReadyAtMs = bodyCanvasReadySample
+        ? readFiniteNumber(bodyCanvasReadySample.atMs)
+        : null;
+
+    const toolbarAheadOfBodySamples = samples.filter(sample => {
+        const toolbarPage = readToolbarPage(sample);
+        return toolbarPage !== null
+            && !sampleHasVisualForPage(sample, toolbarPage);
+    });
+
+    let maxToolbarBodyLagMs = 0;
+    let toolbarAheadStartedAt: number | null = null;
+    let lastToolbarAheadAt: number | null = null;
+    for (const sample of samples) {
+        const atMs = readFiniteNumber(sample.atMs) ?? 0;
+        const toolbarPage = readToolbarPage(sample);
+        const toolbarAhead = toolbarPage !== null && !sampleHasVisualForPage(sample, toolbarPage);
+        if (toolbarAhead) {
+            toolbarAheadStartedAt ??= atMs;
+            lastToolbarAheadAt = atMs;
+        } else if (toolbarAheadStartedAt !== null && lastToolbarAheadAt !== null) {
+            maxToolbarBodyLagMs = Math.max(maxToolbarBodyLagMs, lastToolbarAheadAt - toolbarAheadStartedAt);
+            toolbarAheadStartedAt = null;
+            lastToolbarAheadAt = null;
+        }
+    }
+    if (toolbarAheadStartedAt !== null && lastToolbarAheadAt !== null) {
+        maxToolbarBodyLagMs = Math.max(maxToolbarBodyLagMs, lastToolbarAheadAt - toolbarAheadStartedAt);
+    }
+
+    const pagesSeenWithVisual = new Set<number>();
+    const skeletonAfterVisualSamples: Array<Record<string, unknown>> = [];
+    for (const sample of samples) {
+        if (sampleHasSkeletonAfterVisual(sample, pagesSeenWithVisual)) {
+            skeletonAfterVisualSamples.push(sample);
+        }
+        for (const pageInfo of readVisiblePages(sample)) {
+            const page = readFiniteNumber(pageInfo.page);
+            if (page !== null && pageInfo.visualReady === true) {
+                pagesSeenWithVisual.add(page);
+            }
+        }
+    }
+
+    const postReadySamples = bodyVisualReadyAtMs === null
+        ? []
+        : samples.filter(sample => (readFiniteNumber(sample.atMs) ?? 0) > bodyVisualReadyAtMs + 100);
+    const postReadyUnstableSamples = postReadySamples.filter(sample => {
+        const centeredVisualPage = readCenteredVisualPage(sample);
+        const hasCenteredFinalTarget = finalTargetPage !== null && centeredVisualPage === finalTargetPage;
+        return (
+            (
+                !hasCenteredFinalTarget
+                && sampleHasCenteredBlank(sample)
+            )
+            || sampleHasCenteredSkeleton(sample)
+            || (
+                finalTargetPage !== null
+                && centeredVisualPage !== null
+                && centeredVisualPage !== finalTargetPage
+            )
+        );
+    });
+    const targetCanvasRegressionSamples = finalTargetPage === null || bodyCanvasReadyAtMs === null
+        ? []
+        : samples.filter(sample => {
+            const atMs = readFiniteNumber(sample.atMs) ?? 0;
+            return atMs > bodyCanvasReadyAtMs + 100
+                && readCenteredVisualPage(sample) === finalTargetPage
+                && !sampleHasCanvasForPage(sample, finalTargetPage);
+        });
+    let latePostClickSwapCount = 0;
+    let previousPostReadySignature: string | null = null;
+    let firstLatePostClickSwapSample: Record<string, unknown> | null = null;
+    for (const sample of postReadySamples) {
+        const signature = readTargetBodySignature(sample, finalTargetPage);
+        if (
+            previousPostReadySignature !== null
+            && signature.length > 0
+            && signature !== previousPostReadySignature
+            && (lastClickAtMs === null || (readFiniteNumber(sample.atMs) ?? 0) > lastClickAtMs)
+        ) {
+            latePostClickSwapCount += 1;
+            firstLatePostClickSwapSample ??= sample;
+        }
+        if (signature.length > 0) {
+            previousPostReadySignature = signature;
+        }
+    }
 
     return {
+        bodyCanvasReadyAtMs,
+        bodyVisualReadyAtMs,
         blankSampleCount: blankSamples.length,
+        finalTargetPage,
         frameAnalysis: analyzeTraceFrames(samples),
         firstBlankSample: blankSamples[0] ?? null,
+        firstCenteredBlankSample: samples.find(sampleHasCenteredBlank) ?? null,
+        firstLatePostClickSwapSample,
+        firstSkeletonAfterVisualSample: skeletonAfterVisualSamples[0] ?? null,
+        firstSkeletonVisualOverlapSample: skeletonVisualOverlapSamples[0] ?? null,
+        firstTargetCanvasRegressionSample: targetCanvasRegressionSamples[0] ?? null,
+        firstToolbarAheadOfBodySample: toolbarAheadOfBodySamples[0] ?? null,
+        lastClickAtMs,
+        latePostClickSwapCount,
         maxBlankRunMs,
+        maxCenteredBlankRunMs,
+        maxToolbarBodyLagMs,
+        postReadyUnstableSampleCount: postReadyUnstableSamples.length,
+        skeletonAfterVisualSampleCount: skeletonAfterVisualSamples.length,
         skeletonSampleCount: skeletonSamples.length,
+        skeletonVisualOverlapSampleCount: skeletonVisualOverlapSamples.length,
+        targetCanvasRegressionSampleCount: targetCanvasRegressionSamples.length,
+        toolbarAheadOfBodySampleCount: toolbarAheadOfBodySamples.length,
         toolbarPages,
         workspaceGoToPages,
         pagedTargets,
     };
+}
+
+function assertTraceSummary(summary: ITraceSummary) {
+    const failures: string[] = [];
+    if (summary.skeletonVisualOverlapSampleCount > 0) {
+        failures.push(`skeleton overlapped visual content in ${summary.skeletonVisualOverlapSampleCount} samples`);
+    }
+    if (summary.skeletonAfterVisualSampleCount > 0) {
+        failures.push(`skeleton appeared after visual readiness in ${summary.skeletonAfterVisualSampleCount} samples`);
+    }
+    if (summary.postReadyUnstableSampleCount > 0) {
+        failures.push(`body was unstable after final target became visual in ${summary.postReadyUnstableSampleCount} samples`);
+    }
+    if (summary.targetCanvasRegressionSampleCount > 0) {
+        failures.push(`target canvas regressed after readiness in ${summary.targetCanvasRegressionSampleCount} samples`);
+    }
+    if (summary.latePostClickSwapCount > 0) {
+        failures.push(`target visual signature changed after clicks stopped ${summary.latePostClickSwapCount} times`);
+    }
+    if (summary.maxToolbarBodyLagMs > MAX_ASSERTED_TOOLBAR_BODY_LAG_MS) {
+        failures.push(`toolbar/body lag ${summary.maxToolbarBodyLagMs}ms exceeded ${MAX_ASSERTED_TOOLBAR_BODY_LAG_MS}ms`);
+    }
+    if (summary.maxCenteredBlankRunMs > MAX_ASSERTED_BLANK_RUN_MS) {
+        failures.push(`centered blank visual run ${summary.maxCenteredBlankRunMs}ms exceeded ${MAX_ASSERTED_BLANK_RUN_MS}ms`);
+    }
+    if (summary.bodyVisualReadyAtMs === null) {
+        failures.push('final target was never observed with visual-ready body content');
+    }
+    if (summary.bodyCanvasReadyAtMs === null) {
+        failures.push('final target was never observed with centered canvas content');
+    }
+
+    if (failures.length > 0) {
+        throw new Error(`PDF navigation blink trace assertions failed:\n${failures.join('\n')}`);
+    }
 }
 
 function createVideoCapturePayload(videoCapture: IDiagnosticFrameCaptureResult | null) {
@@ -670,7 +1142,10 @@ async function main() {
             const traceWindow = window as Window & { __startPdfBlinkTrace?: () => void; };
             traceWindow.__startPdfBlinkTrace?.();
         });
-        await recordTraceEvent(session.page, 'scenario-start', options);
+        await recordTraceEvent(session.page, 'scenario-start', {
+            options,
+            wallTimeMs: Date.now(),
+        });
         for (let index = 0; index < options.clicks; index += 1) {
             await recordTraceEvent(session.page, 'before-next-click', { index });
             const clickResult = await clickNextPage(session.page);
@@ -680,6 +1155,10 @@ async function main() {
             });
             await delay(options.clickDelayMs);
         }
+        await recordTraceEvent(session.page, 'click-burst-end', {
+            clicks: options.clicks,
+            wallTimeMs: Date.now(),
+        });
         await delay(options.settleMs);
         const trace = await session.page.evaluate(() => {
             const traceWindow = window as Window & { __stopPdfBlinkTrace?: () => unknown; };
@@ -707,6 +1186,9 @@ async function main() {
         writeFileSync(outPath, `${JSON.stringify(payload, null, 2)}\n`);
         console.log(`Wrote ${outPath}`);
         console.log(JSON.stringify(payload.summary, null, 2));
+        if (options.assert) {
+            assertTraceSummary(payload.summary);
+        }
     } finally {
         await session.stop();
     }

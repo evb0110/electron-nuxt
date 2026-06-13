@@ -11,6 +11,7 @@ import {
     ref,
     shallowRef,
 } from 'vue';
+import type { Ref } from 'vue';
 import { usePdfRenderViewModel } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
 import { PDF_VIEWER_PAGE_SKELETON_DELAY_MS } from '@app/constants/timeouts';
 import type {
@@ -21,7 +22,9 @@ import { cast } from '@tests/helpers/cast';
 
 function createHarness(options?: {
     hasMountedPageCanvas?: (page: number) => boolean;
+    isPageBuffered?: (page: number) => boolean;
     isPageRendering?: (page: number) => boolean;
+    pagedNavigationTargetPage?: Ref<number | null>;
     shouldShowSkeleton?: (page: number) => boolean;
     isNavigationHoldActiveForPage?: (page: number) => boolean;
     isNavigationHoldExpiredPage?: (page: number) => boolean;
@@ -49,12 +52,13 @@ function createHarness(options?: {
         suppressPagedBufferRender,
         skeletonContentInsets: ref(null),
         pagesToRender: computed(() => mountedPages.value),
-        isPageBuffered: vi.fn(() => false),
+        isPageBuffered: options?.isPageBuffered ?? vi.fn(() => false),
         isPageRenderedForClass: vi.fn(() => false),
         isPageRendering: options?.isPageRendering ?? vi.fn(() => false),
         hasMountedPageCanvas: options?.hasMountedPageCanvas ?? vi.fn(() => false),
         shouldShowSkeleton: options?.shouldShowSkeleton ?? vi.fn(() => false),
         visibleRange,
+        pagedNavigationTargetPage: options?.pagedNavigationTargetPage,
         currentPage: ref(1),
         zoom: computed(() => 1),
         zoomMode: computed(() => 'fit-height' as const),
@@ -129,6 +133,55 @@ describe('usePdfRenderViewModel', () => {
 
         expect(runGuardedTask).not.toHaveBeenCalled();
         expect(renderVisiblePages).not.toHaveBeenCalled();
+
+        scope.stop();
+    });
+
+    it('renders only the latest paged navigation target row while held pages are mounted', async () => {
+        const pagedNavigationTargetPage = ref<number | null>(51);
+        const {
+            mountedPages,
+            renderVisiblePages,
+            scope,
+            visibleRange,
+        } = createHarness({
+            isPageBuffered: page => page !== 51,
+            pagedNavigationTargetPage,
+        });
+
+        mountedPages.value = [
+            1,
+            50,
+            51,
+            52,
+            53,
+        ];
+        visibleRange.value = {
+            start: 1,
+            end: 1,
+        };
+        await nextTick();
+        await nextTick();
+        await Promise.resolve();
+
+        expect(renderVisiblePages).toHaveBeenCalledWith(
+            {
+                start: 51,
+                end: 51,
+            },
+            expect.objectContaining({
+                bufferOverride: 0,
+                preserveInFlightRequiredPages: true,
+                preserveRenderedPages: true,
+            }),
+        );
+        expect(renderVisiblePages).not.toHaveBeenCalledWith(
+            {
+                start: 1,
+                end: 53,
+            },
+            expect.anything(),
+        );
 
         scope.stop();
     });

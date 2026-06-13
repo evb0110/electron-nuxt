@@ -25,6 +25,7 @@ import type {
     TZoomMode,
 } from '@app/types/pdf';
 import type { ILinkAnnotation } from '@app/types/annotations';
+import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 
 interface IUsePdfRenderViewModelOptions {
     src: ComputedRef<TPdfSource | null>;
@@ -56,6 +57,7 @@ interface IUsePdfRenderViewModelOptions {
         start: number;
         end: number;
     }>;
+    pagedNavigationTargetPage?: ComputedRef<number | null> | Ref<number | null> | undefined;
     currentPage: Ref<number>;
     zoom: ComputedRef<number>;
     zoomMode: ComputedRef<TZoomMode>;
@@ -73,10 +75,7 @@ interface IUsePdfRenderViewModelOptions {
             start: number;
             end: number;
         },
-        options: {
-            preserveRenderedPages: true;
-            bufferOverride: 0;
-        },
+        options: IRenderVisiblePagesOptions,
     ) => Promise<void>;
     runGuardedTask: (
         task: () => Promise<void>,
@@ -359,6 +358,30 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
         pagedBufferRenderQuietTimer = null;
     }
 
+    function getPendingPagedTargetRenderRange(mountedPages: number[]) {
+        if (options.continuousScroll.value) {
+            return null;
+        }
+
+        const targetPage = options.pagedNavigationTargetPage?.value ?? null;
+        if (targetPage === null) {
+            return null;
+        }
+
+        const targetRowPages = mountedPages.filter(pageNumber => !options.isPageBuffered(pageNumber));
+        if (!targetRowPages.includes(targetPage)) {
+            return {
+                start: targetPage,
+                end: targetPage,
+            };
+        }
+
+        return {
+            start: Math.min(...targetRowPages),
+            end: Math.max(...targetRowPages),
+        };
+    }
+
     function schedulePagedBufferRender() {
         const token = ++pagedBufferRenderToken;
         if (isPagedBufferRenderSuppressed()) {
@@ -411,16 +434,15 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
                 return;
             }
 
-            ensurePagePreviewRange(
-                {
-                    start: firstMountedPage,
-                    end: lastMountedPage,
-                },
-                {
-                    direction: 0,
-                    priority: 20,
-                },
-            );
+            const pendingTargetRange = getPendingPagedTargetRenderRange(mountedPages);
+            const previewRange = pendingTargetRange ?? {
+                start: firstMountedPage,
+                end: lastMountedPage,
+            };
+            ensurePagePreviewRange(previewRange, {
+                direction: 0,
+                priority: pendingTargetRange ? PAGE_PREVIEW_TARGET_PRIORITY : 20,
+            });
             if (options.isPagedNavigationBurstActive?.() === true) {
                 clearPagedBufferQuietTimer();
                 pagedBufferRenderQuietTimer = setTimeout(() => {
@@ -437,11 +459,17 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
                 return;
             }
 
+            const renderRange = pendingTargetRange ?? {
+                start: firstMountedPage,
+                end: lastMountedPage,
+            };
             logPdfRenderTrace('paged-buffer-render-run', {
                 token,
                 currentPage: options.currentPage.value,
                 firstMountedPage,
                 lastMountedPage,
+                renderRange,
+                pendingTargetPage: options.pagedNavigationTargetPage?.value ?? null,
                 visibleRange: {
                     start: options.visibleRange.value.start,
                     end: options.visibleRange.value.end,
@@ -450,13 +478,11 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
             });
             options.runGuardedTask(
                 () => options.renderVisiblePages(
-                    {
-                        start: firstMountedPage,
-                        end: lastMountedPage,
-                    },
+                    renderRange,
                     {
                         preserveRenderedPages: true,
                         bufferOverride: 0,
+                        preserveInFlightRequiredPages: true,
                     },
                 ),
                 {

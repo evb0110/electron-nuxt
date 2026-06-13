@@ -13,7 +13,8 @@ export function usePdfSinglePageNavigationController(options: IUsePdfSinglePageN
     const singlePageScroll = usePdfSinglePageScroll(options);
 
     const navigationAnchorPage = computed(() =>
-        singlePageScroll.searchNavigationTargetPage.value
+        singlePageScroll.pagedNavigationTargetPage.value
+        ?? singlePageScroll.searchNavigationTargetPage.value
         ?? singlePageScroll.continuousNavigationTargetPage.value,
     );
 

@@ -71,6 +71,7 @@
     "test:e2e:electron:smoke:no-build": "vitest run --project e2e-smoke --reporter verbose",
     "test:e2e:electron:watch": "vitest --project e2e-smoke --reporter verbose",
     "electron:run": "tsx scripts/electronRun.ts",
+    "diag:pdf-navigation-blink-trace": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/pdfNavigationBlinkTrace.ts",
     "diag:pdf-skeleton-navigation": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts",
     "diag:pdf-tabs": "pnpm exec tsx scripts/diagnostics/pdfTabPressure.ts",
     "diag:arnold-pdf-open": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/runArnoldPdfOpenDiagnostics.ts",

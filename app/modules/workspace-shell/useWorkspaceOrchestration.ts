@@ -44,7 +44,7 @@ interface IWorkspaceOrchestrationDeps {
     };
 }
 
-const WORKSPACE_PAGE_NAVIGATION_LOCK_MS = 2_000;
+const WORKSPACE_PAGE_NAVIGATION_LOCK_MS = 10_000;
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 
 export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => {

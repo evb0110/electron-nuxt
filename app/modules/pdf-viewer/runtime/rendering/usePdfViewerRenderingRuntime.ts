@@ -85,9 +85,14 @@ export function usePdfViewerRenderingRuntime(options: IUsePdfViewerRenderingRunt
         return options.renderedPageStateVersion.value >= 0 && rendering.isPageRendered(page);
     }
 
+    function isPageFreshlyRenderedForNavigation(page: number) {
+        return options.renderedPageStateVersion.value >= 0 && rendering.isPageFreshlyRendered(page);
+    }
+
     return {
         ...rendering,
         cleanupRenderedPages,
+        isPageFreshlyRenderedForNavigation,
         isPageRenderedForClass,
     };
 }
