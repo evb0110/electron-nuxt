@@ -458,7 +458,7 @@ function shouldShowMenuCommand(command: TReaderCommandId, requiredCollapseTier =
 @use '@app/assets/css/toolbar-menu-shared';
 
 .overflow-menu {
-    min-width: 14rem;
+    min-width: var(--app-toolbar-overflow-menu-min-width);
 }
 
 .toolbar-icon-button {
@@ -509,7 +509,7 @@ function shouldShowMenuCommand(command: TReaderCommandId, requiredCollapseTier =
     border: 1px solid var(--ui-border);
     background: var(--ui-bg);
     color: var(--ui-text-muted);
-    font-size: 0.5625rem;
+    font-size: var(--app-toolbar-overflow-badge-font-size);
     line-height: var(--app-line-height-tight);
     font-weight: 700;
 }
