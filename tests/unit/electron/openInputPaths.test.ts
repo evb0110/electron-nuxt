@@ -114,6 +114,49 @@ describe('openInputPaths', () => {
         });
     });
 
+    it('does not add source PDFs or DjVu files to recents for generated combined PDFs', async () => {
+        const owner = { id: 42 };
+        const { openInputPaths } = await import('@electron/features/documents/main/openInputPaths.service');
+
+        await expect(openInputPaths([
+            '/tmp/source-a.pdf',
+            '/tmp/source-b.djvu',
+        ], {}, owner as never)).resolves.toEqual({
+            kind: 'pdf',
+            workingPath: '/tmp/working/combined.pdf',
+            originalPath: '/tmp/combined.pdf',
+            isGenerated: true,
+        });
+
+        expect(mocks.addRecentInputs).not.toHaveBeenCalled();
+    });
+
+    it('keeps adding single PDF opens to recents', async () => {
+        const owner = { id: 42 };
+        const { openInputPaths } = await import('@electron/features/documents/main/openInputPaths.service');
+
+        await expect(openInputPaths(['/tmp/source.pdf'], {}, owner as never)).resolves.toEqual({
+            kind: 'pdf',
+            workingPath: '/tmp/working/original.pdf',
+            originalPath: '/tmp/source.pdf',
+        });
+
+        expect(mocks.addRecentInputs).toHaveBeenCalledWith(['/tmp/source.pdf'], owner);
+    });
+
+    it('keeps adding single DjVu opens to recents', async () => {
+        const owner = { id: 42 };
+        const { openInputPaths } = await import('@electron/features/documents/main/openInputPaths.service');
+
+        await expect(openInputPaths(['/tmp/source.djvu'], {}, owner as never)).resolves.toEqual({
+            kind: 'djvu',
+            workingPath: '',
+            originalPath: '/tmp/source.djvu',
+        });
+
+        expect(mocks.addRecentInputs).toHaveBeenCalledWith(['/tmp/source.djvu'], owner);
+    });
+
     it('rejects oversized open batches before granting paths or creating temp files', async () => {
         const { openInputPaths } = await import('@electron/features/documents/main/openInputPaths.service');
         const paths = Array.from({length: 513}, (_, index) => `/tmp/input-${index}.png`);

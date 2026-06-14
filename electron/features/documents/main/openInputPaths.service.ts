@@ -51,10 +51,6 @@ function formatPathListForLog(paths: string[]) {
     return `${visiblePaths.join(' | ')}${suffix}`;
 }
 
-function toRecentDocumentPaths(paths: string[]) {
-    return paths.filter(path => isPdfPath(path) || isDjvuPath(path));
-}
-
 function getOwnerWebContentsId(owner?: TOpenPathOwner) {
     if (typeof owner === 'number') {
         return owner;
@@ -133,11 +129,6 @@ export async function openInputPaths(
             recursive: true,
             force: true,
         }).catch(() => undefined);
-    }
-
-    const recentDocumentPaths = toRecentDocumentPaths(normalizedPaths);
-    if (recentDocumentPaths.length > 0) {
-        await addRecentInputs(recentDocumentPaths, owner);
     }
 
     return {
