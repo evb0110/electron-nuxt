@@ -55,6 +55,7 @@ export class BrowserWindow {
     on = noop;
     once = noop;
     setMenu = noop;
+    setMenuBarVisibility = noop;
     setTitle = noop;
     show = noop;
 }
