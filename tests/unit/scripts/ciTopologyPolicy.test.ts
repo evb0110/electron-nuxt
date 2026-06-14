@@ -99,6 +99,14 @@ describe('CI topology policy', () => {
         expect(verifyStep).not.toContain('WIN_CSC_LINK');
     });
 
+    it('keeps release quality gates from requiring pre-bundle host Linux resources', async () => {
+        const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
+        const qualityJob = workflowJob(releaseWorkflow, 'quality');
+
+        expect(qualityJob).toContain('EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN: \'1\'');
+        expect(qualityJob).toContain('run: pnpm run release:verify:checks');
+    });
+
     it('runs the heavier deterministic checks in the nightly lane', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const buildWorkflow = await readProjectFile('.github/workflows/build.yml');
