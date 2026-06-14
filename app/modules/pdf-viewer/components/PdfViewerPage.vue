@@ -88,6 +88,7 @@ interface IProps {
     spreadSingle?: boolean;
     buffered?: boolean;
     rendered?: boolean;
+    shapeOverlayVisualReady?: boolean;
     preview?: IPdfPagePreviewEntry | null;
     navigationHeld?: boolean;
     navigationHoldStyle?: Record<string, string> | null;
@@ -102,6 +103,7 @@ const {
     spreadSingle = false,
     buffered = false,
     rendered = false,
+    shapeOverlayVisualReady = false,
     preview = null,
     navigationHeld = false,
     navigationHoldStyle = null,
@@ -130,7 +132,9 @@ const shapeContext = inject<IShapeContextProvide | null>('shapeContext', null);
 const pageShapes = computed(() => shapeContext?.getShapesForPage(page - 1) ?? []);
 const showPreview = computed(() => Boolean(preview && !rendered));
 const showPageSkeleton = computed(() => showSkeleton && !showPreview.value && !isPreviewDrawn.value);
-const isPageVisualReadyForShapeOverlay = computed(() => rendered || isPreviewDrawn.value);
+const isPageVisualReadyForShapeOverlay = computed(() => (
+    shapeOverlayVisualReady || isPreviewDrawn.value
+));
 
 function drawPreview() {
     if (!showPreview.value || !preview || !previewCanvas.value) {

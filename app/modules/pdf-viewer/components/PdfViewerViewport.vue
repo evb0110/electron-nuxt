@@ -29,6 +29,7 @@
             :spread-single="isSpreadSingle(page)"
             :buffered="isBufferedPage(page)"
             :rendered="isRenderedPage(page)"
+            :shape-overlay-visual-ready="isShapeOverlayVisualReadyPage(page)"
             :preview="getPagePreview(page)"
             :navigation-held="isNavigationHeldPage(page)"
             :navigation-hold-style="getNavigationHoldStyle(page)"
@@ -70,6 +71,7 @@ interface IProps {
     isSpreadSingle: (page: number) => boolean;
     isBufferedPage: (page: number) => boolean;
     isRenderedPage: (page: number) => boolean;
+    isShapeOverlayVisualReadyPage: (page: number) => boolean;
     getPagePreview: (page: number) => IPdfPagePreviewEntry | null;
     isNavigationHeldPage: (page: number) => boolean;
     getNavigationHoldStyle: (page: number) => Record<string, string> | null;
@@ -89,6 +91,7 @@ const {
     isSpreadSingle,
     isBufferedPage,
     isRenderedPage,
+    isShapeOverlayVisualReadyPage,
     getPagePreview,
     isNavigationHeldPage,
     getNavigationHoldStyle,

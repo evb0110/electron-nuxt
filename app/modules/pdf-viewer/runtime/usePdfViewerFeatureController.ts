@@ -644,6 +644,12 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
             && pageElement.querySelector('.page_preview canvas[data-preview-id]'),
         );
     }
+    function isPageVisualReadyForShapeOverlay(pageNumber: number) {
+        return (
+            isPageFreshlyRenderedForNavigation(pageNumber)
+            && hasMountedPageCanvas(pageNumber)
+        );
+    }
     function isPageVisuallyReady(pageNumber: number) {
         return (
             isPageRenderedForClass(pageNumber)
@@ -837,6 +843,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         isSpreadSingle,
         isPageBuffered,
         isPageRenderedForClass,
+        isPageVisualReadyForShapeOverlay,
         getPagePreview,
         isNavigationHeldPage: singlePageScroll.isNavigationHeldPage,
         getNavigationHoldStyle: singlePageScroll.getNavigationHoldStyle,

@@ -13,6 +13,7 @@
             :is-spread-single="isSpreadSingle"
             :is-buffered-page="isPageBuffered"
             :is-rendered-page="isPageRenderedForClass"
+            :is-shape-overlay-visual-ready-page="isPageVisualReadyForShapeOverlay"
             :get-page-preview="getPagePreview"
             :is-navigation-held-page="isNavigationHeldPage"
             :get-navigation-hold-style="getNavigationHoldStyle"
@@ -98,6 +99,7 @@ const {
     isSpreadSingle,
     isPageBuffered,
     isPageRenderedForClass,
+    isPageVisualReadyForShapeOverlay,
     getPagePreview,
     isNavigationHeldPage,
     getNavigationHoldStyle,
