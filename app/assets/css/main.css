@@ -285,7 +285,7 @@
     --app-start-primary-grad-to: oklch(48% 0.18 252);
     --app-start-primary-shadow: 0 1px 2px color-mix(in srgb, var(--ui-primary) 35%, transparent), 0 4px 12px color-mix(in srgb, var(--ui-primary) 18%, transparent);
     --app-start-primary-fg: oklch(100% 0 0);
-    --app-start-shell-rail-width: 14.5rem;
+    --app-start-shell-rail-width: 15.5rem;
     --app-start-shell-gap: var(--app-space-16xl);
     --app-start-shell-padding: var(--app-space-10xl) clamp(var(--app-space-9xl), 2vw, var(--app-space-16xl)) var(--app-space-12xl);
     --app-start-rail-gap: var(--app-space-14xl);

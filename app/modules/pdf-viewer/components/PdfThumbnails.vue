@@ -123,6 +123,7 @@ import {
 import { usePdfThumbnailSelection } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
+import { resolveThumbnailRenderCoordination } from '@app/modules/pdf-viewer/thumbnails/resolveThumbnailRenderCoordination';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -1251,13 +1252,14 @@ async function renderPreparedThumbnail(
             ?? AnnotationMode?.ENABLE_FORMS
             ?? AnnotationMode?.ENABLE
             ?? 1;
+        const renderCoordination = resolveThumbnailRenderCoordination(pageNum, currentPage);
         const operationsFilter = await createHiddenAnnotationOperationsFilter(
             page,
             annotationMode,
             hiddenAnnotationIdSet.value,
             {
-                owner: 'thumbnail',
-                priority: 10,
+                owner: renderCoordination.owner,
+                priority: renderCoordination.priority,
             },
         );
         const hiddenIds = Array.from(hiddenAnnotationIdSet.value);
@@ -1272,15 +1274,17 @@ async function renderPreparedThumbnail(
             pixelHeight: metrics.pixelHeight,
             scaleX: metrics.scaleX,
             scaleY: metrics.scaleY,
+            renderOwner: renderCoordination.owner,
+            renderPriority: renderCoordination.priority,
         });
 
         let task: RenderTask | null = null;
         try {
             await runCoordinatedPdfPageRender({
-                owner: 'thumbnail',
+                owner: renderCoordination.owner,
                 pageNumber: pageNum,
                 pdfPage: page,
-                priority: 10,
+                priority: renderCoordination.priority,
                 shouldStart: () => (
                     runId === renderRunId
                     && isPdfDocumentUsable(pdfDocument)

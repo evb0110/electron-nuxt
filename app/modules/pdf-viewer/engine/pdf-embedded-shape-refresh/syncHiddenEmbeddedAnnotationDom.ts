@@ -41,10 +41,84 @@ function getElementAnnotationId(element: HTMLElement) {
     );
 }
 
-export function hasManagedShapeOverlayForPageContainer(
+function getOverlayCandidateAnnotationId(element: Element) {
+    const datasetAnnotationId = (
+        'dataset' in element
+        && typeof (element as {dataset?: {annotationId?: unknown}}).dataset?.annotationId === 'string'
+    )
+        ? (element as {dataset: {annotationId: string}}).dataset.annotationId
+        : undefined;
+    return normalizePdfJsAnnotationId(
+        datasetAnnotationId ?? element.getAttribute('data-annotation-id'),
+    );
+}
+
+function getElementStyle(element: Element) {
+    if (
+        typeof window === 'undefined'
+        || typeof window.getComputedStyle !== 'function'
+    ) {
+        return null;
+    }
+
+    try {
+        return window.getComputedStyle(element);
+    } catch {
+        return null;
+    }
+}
+
+function isStyleVisible(element: Element) {
+    const style = getElementStyle(element);
+    if (!style) {
+        return true;
+    }
+
+    return style.display !== 'none'
+        && style.visibility !== 'hidden'
+        && style.opacity !== '0';
+}
+
+function hasVisibleSvgGeometry(element: Element) {
+    const getBBox = (element as SVGGraphicsElement).getBBox;
+    if (typeof getBBox !== 'function') {
+        return true;
+    }
+
+    try {
+        const bbox = getBBox.call(element);
+        return bbox.width > 0 || bbox.height > 0;
+    } catch {
+        return false;
+    }
+}
+
+function isOverlayCandidatePaintReady(element: Element) {
+    const overlay = typeof element.closest === 'function'
+        ? element.closest('.pdf-shape-overlay.has-shapes')
+        : null;
+    if (overlay && !isStyleVisible(overlay)) {
+        return false;
+    }
+
+    return isStyleVisible(element) && hasVisibleSvgGeometry(element);
+}
+
+export function hasManagedShapeOverlayForAnnotation(
     pageContainer: HTMLElement | null | undefined,
+    annotationId: string | null | undefined,
 ) {
-    return Boolean(pageContainer?.querySelector('.pdf-shape-overlay.has-shapes'));
+    const normalizedAnnotationId = normalizePdfJsAnnotationId(annotationId);
+    if (!pageContainer || !normalizedAnnotationId) {
+        return false;
+    }
+
+    return Array.from(
+        pageContainer.querySelectorAll<Element>('.pdf-shape-overlay.has-shapes [data-annotation-id]'),
+    ).some(element => (
+        getOverlayCandidateAnnotationId(element) === normalizedAnnotationId
+        && isOverlayCandidatePaintReady(element)
+    ));
 }
 
 function getPageContainerForAnnotationElement(element: HTMLElement) {
@@ -82,16 +156,15 @@ export function resolveHiddenEmbeddedAnnotationIdsForPageContainer({
     }
 
     const normalizedManagedIds = toNormalizedAnnotationIdSet(managedAnnotationIds);
-    if (
-        normalizedManagedIds.size === 0
-        || hasManagedShapeOverlayForPageContainer(pageContainer)
-    ) {
+    if (normalizedManagedIds.size === 0) {
         return normalizedHiddenIds;
     }
 
     const visibleUntilOverlayIds = new Set(normalizedHiddenIds);
     normalizedManagedIds.forEach((annotationId) => {
-        visibleUntilOverlayIds.delete(annotationId);
+        if (!hasManagedShapeOverlayForAnnotation(pageContainer, annotationId)) {
+            visibleUntilOverlayIds.delete(annotationId);
+        }
     });
     return visibleUntilOverlayIds;
 }
@@ -123,7 +196,10 @@ export function syncHiddenEmbeddedAnnotationDom({
 
         if (
             normalizedManagedIds.has(annotationId)
-            && !hasManagedShapeOverlayForPageContainer(getPageContainerForAnnotationElement(element))
+            && !hasManagedShapeOverlayForAnnotation(
+                getPageContainerForAnnotationElement(element),
+                annotationId,
+            )
         ) {
             result.deferredManagedAnnotationCount += 1;
             return;
