@@ -10,6 +10,7 @@ describe('PDF viewer expose contract', () => {
         expect(new Set(requiredPdfViewerExposeMembers).size).toBe(requiredPdfViewerExposeMembers.length);
         expect(requiredPdfViewerExposeMembers).toEqual([
             'getViewerContainer',
+            'getPagePreview',
             'getCurrentPage',
             'scrollToPage',
             'cancelProgrammaticNavigation',

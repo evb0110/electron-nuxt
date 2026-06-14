@@ -35,6 +35,7 @@ interface INodeLike {
     style: Record<string, string>;
     classList: IClassList;
     dataset?: Record<string, string>;
+    getAttribute?: (name: string) => string | null;
     offsetTop?: number;
     offsetHeight?: number;
     innerHTML?: string;
@@ -42,6 +43,7 @@ interface INodeLike {
     dir?: string;
     appendChild?: (...args: unknown[]) => void;
     querySelector?: (selector: string) => unknown;
+    querySelectorAll?: (selector: string) => unknown[];
 }
 
 interface ICanvasLike extends INodeLike {
@@ -159,9 +161,18 @@ function createPageContainer(overrides?: {
     annotationLayerDiv?: INodeLike | null;
     annotationEditorLayerDiv?: INodeLike | null;
     hasShapeOverlay?: boolean;
+    shapeOverlayAnnotationIds?: string[];
 }) {
     const pageNumber = overrides?.pageNumber ?? 1;
     let mountedCanvas: unknown = null;
+    const overlayAnnotationIds = overrides?.shapeOverlayAnnotationIds
+        ?? (overrides?.hasShapeOverlay === true ? ['12R'] : []);
+    const overlayElements: INodeLike[] = overlayAnnotationIds.map(annotationId => ({
+        dataset: { annotationId },
+        style: {},
+        classList: createClassList(),
+        getAttribute: (name: string) => name === 'data-annotation-id' ? annotationId : null,
+    }));
     const canvasHost: INodeLike = {
         innerHTML: '',
         style: {},
@@ -217,7 +228,7 @@ function createPageContainer(overrides?: {
         ],
         [
             '.pdf-shape-overlay.has-shapes',
-            overrides?.hasShapeOverlay === true ? {} : null,
+            overlayElements.length > 0 ? {} : null,
         ],
     ]);
 
@@ -228,6 +239,11 @@ function createPageContainer(overrides?: {
         style: {},
         classList: createClassList(),
         querySelector: vi.fn((selector: string) => selectorMap.get(selector) ?? null),
+        querySelectorAll: vi.fn((selector: string) => (
+            selector === '.pdf-shape-overlay.has-shapes [data-annotation-id]'
+                ? overlayElements
+                : []
+        )),
     };
 
     return {
