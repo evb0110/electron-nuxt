@@ -527,8 +527,8 @@ watch(
     z-index: 55;
     width: min(380px, calc(100vw - 18px));
     height: min(360px, calc(100vh - 18px));
-    min-width: 260px;
-    min-height: 240px;
+    min-width: min(260px, calc(100vw - 18px));
+    min-height: min(240px, calc(100vh - 18px));
     border: 1px solid var(--note-border);
     background: var(--note-bg);
     box-shadow: var(--note-shadow);

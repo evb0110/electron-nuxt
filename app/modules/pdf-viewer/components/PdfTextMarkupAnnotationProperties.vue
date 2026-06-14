@@ -89,8 +89,9 @@ function close() {
     border: 1px solid var(--ui-border);
     border-radius: 8px;
     box-shadow: var(--app-pdf-popover-shadow);
-    min-width: 240px;
-    max-width: 320px;
+    width: min(20rem, calc(100vw - 1rem));
+    min-width: min(15rem, calc(100vw - 1rem));
+    max-width: calc(100vw - 1rem);
     font-size: 12px;
 }
 
@@ -108,6 +109,7 @@ function close() {
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: var(--ui-text-muted);
+    overflow-wrap: anywhere;
 }
 
 .annotation-properties-body {
