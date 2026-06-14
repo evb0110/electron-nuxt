@@ -192,15 +192,30 @@ function createAnnotationElement(annotationId: string): IFakeEditorLayerAnnotati
     return element;
 }
 
-function createAnnotationLayerDiv(options?: { hasShapeOverlay?: boolean }): HTMLDivElement {
+function createAnnotationLayerDiv(options?: {
+    hasShapeOverlay?: boolean;
+    shapeOverlayAnnotationIds?: string[];
+}): HTMLDivElement {
     const appended: IFakeEditorLayerAnnotationElement[] = [];
+    const overlayAnnotationIds = options?.shapeOverlayAnnotationIds
+        ?? (options?.hasShapeOverlay ? ['12R'] : []);
+    const overlayElements = overlayAnnotationIds.map(createAnnotationElement);
     const querySelector = vi.fn((selector: string) => {
-        if (selector === '.pdf-shape-overlay.has-shapes' && options?.hasShapeOverlay) {
+        if (selector === '.pdf-shape-overlay.has-shapes' && overlayElements.length > 0) {
             return {};
         }
         return null;
     });
-    const pageContainer = { querySelector };
+    const querySelectorAll = vi.fn((selector: string) => {
+        if (selector === '.pdf-shape-overlay.has-shapes [data-annotation-id]') {
+            return overlayElements;
+        }
+        return [];
+    });
+    const pageContainer = {
+        querySelector,
+        querySelectorAll,
+    };
     const fakeDiv: IFakeAnnotationLayerDiv = {
         innerHTML: '',
         dir: 'ltr',
