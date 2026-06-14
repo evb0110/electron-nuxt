@@ -55,6 +55,10 @@ interface INativePdfAssemblerResourceLimits {
     maxPages: number;
 }
 
+const IN_MEMORY_NATIVE_ASSEMBLER_MAX_PAGES = 500;
+const FILE_BACKED_NATIVE_ASSEMBLER_MAX_PAGES = 10_000;
+const PDF_COMBINE_MAX_PAGES_LIMIT = 10_000;
+
 function isNativePdfAssemblerDisabled() {
     return process.env.EVB_PDF_NATIVE_ASSEMBLER_DISABLE === '1'
         || (process.env.VITEST === 'true' && process.env.EVB_PDF_NATIVE_ASSEMBLER_ENABLE !== '1');
@@ -109,10 +113,10 @@ function emitProgress(
     });
 }
 
-function getResourceLimits(): INativePdfAssemblerResourceLimits {
+function getResourceLimits(defaultMaxPages = IN_MEMORY_NATIVE_ASSEMBLER_MAX_PAGES): INativePdfAssemblerResourceLimits {
     return {
         maxOutputBytes: parseIntegerEnv('EVB_PDF_COMBINE_MAX_OUTPUT_MB', 512, 1, 4096) * 1024 * 1024,
-        maxPages: parseIntegerEnv('EVB_PDF_COMBINE_MAX_PAGES', 500, 1, 10_000),
+        maxPages: parseIntegerEnv('EVB_PDF_COMBINE_MAX_PAGES', defaultMaxPages, 1, PDF_COMBINE_MAX_PAGES_LIMIT),
     };
 }
 
@@ -157,7 +161,10 @@ async function flushImageChunk(
         options,
         progress.processed + chunkProgress.processed,
     );
-    const ok = await tryWritePdfWithNativeImageCombiner(chunkInputPaths, chunkPath, {onProgress});
+    const ok = await tryWritePdfWithNativeImageCombiner(chunkInputPaths, chunkPath, {
+        maxPages: limits.maxPages,
+        onProgress,
+    });
     if (!ok) {
         return null;
     }
@@ -227,6 +234,7 @@ async function writePdfFromInputPathsNativeWithTempDir(
     inputPaths: string[],
     outputPath: string,
     tempDir: string,
+    limits: INativePdfAssemblerResourceLimits,
     options?: INativePdfAssemblerOptions,
 ): Promise<boolean> {
     try {
@@ -235,7 +243,6 @@ async function writePdfFromInputPathsNativeWithTempDir(
             total: inputPaths.length,
             startedAt: Date.now(),
         };
-        const limits = getResourceLimits();
         assertPageLimit(inputPaths.length, limits);
         const chunkPaths: string[] = [];
         const imageChunkPaths: string[] = [];
@@ -331,12 +338,14 @@ export async function tryWritePdfFromInputPathsNative(
 
     const tempDir = await mkdtemp(join(tmpdir(), 'pdf-native-assembler-'));
     const stagedOutputPath = makeSiblingTempPath(normalizedOutputPath);
+    const limits = getResourceLimits(FILE_BACKED_NATIVE_ASSEMBLER_MAX_PAGES);
 
     try {
         const wrote = await writePdfFromInputPathsNativeWithTempDir(
             inputPaths,
             stagedOutputPath,
             tempDir,
+            limits,
             options,
         );
         if (!wrote) {
@@ -364,18 +373,20 @@ export async function tryCreatePdfFromInputPathsNative(
 
     const tempDir = await mkdtemp(join(tmpdir(), 'pdf-native-assembler-'));
     const outputPath = join(tempDir, `${randomUUID()}.pdf`);
+    const limits = getResourceLimits();
 
     try {
         const ok = await writePdfFromInputPathsNativeWithTempDir(
             inputPaths,
             outputPath,
             tempDir,
+            limits,
             options,
         );
         if (!ok) {
             return null;
         }
-        return await readLimitedPdfOutput(outputPath, getResourceLimits());
+        return await readLimitedPdfOutput(outputPath, limits);
     } catch (error) {
         log.warn(`Native PDF assembler failed, falling back to JS combine: ${getErrorMessage(error)}`);
         return null;

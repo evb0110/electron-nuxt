@@ -15,7 +15,10 @@ interface IMockNativeWriteProgress {
     estimatedRemainingMs: number | null;
 }
 
-interface IMockNativeWriteOptions {onProgress?: (progress: IMockNativeWriteProgress) => void}
+interface IMockNativeWriteOptions {
+    maxPages?: number;
+    onProgress?: (progress: IMockNativeWriteProgress) => void;
+}
 
 const mocks = vi.hoisted(() => {
     const atomicReplace = vi.fn(async (_sourcePath: string, _targetPath: string) => undefined);
@@ -37,7 +40,7 @@ const mocks = vi.hoisted(() => {
     const stat = vi.fn(async () => ({size: 3}));
     const runQpdfCommand = vi.fn(async () => undefined);
     const assertNonEmptyPdfOutput = vi.fn(async () => undefined);
-    const getPdfPageCount = vi.fn(async (path: string) => path.includes('/image-chunk-') ? 3 : 1);
+    const getPdfPageCount = vi.fn(async (path: string): Promise<number> => path.includes('/image-chunk-') ? 3 : 1);
     const getDjvuPageCount = vi.fn(async () => 2);
     const nativeWrite = vi.fn(async (
         inputPaths: string[],
@@ -234,6 +237,50 @@ describe('tryCreatePdfFromInputPathsNative', () => {
             recursive: true,
             force: true,
         });
+    });
+
+    it('allows file-backed native assembly beyond the in-memory page cap', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        mocks.getPdfPageCount.mockImplementation(async (path: string) => {
+            if (path === '/tmp/large.pdf') {
+                return 501;
+            }
+            return path.includes('/image-chunk-') ? 3 : 1;
+        });
+
+        const ok = await tryWritePdfFromInputPathsNative([
+            '/tmp/large.pdf',
+            '/tmp/one.png',
+        ], '/tmp/final.pdf');
+
+        expect(ok).toBe(true);
+        expect(mocks.nativeWrite).toHaveBeenCalledWith(
+            ['/tmp/one.png'],
+            expect.stringMatching(/^\/tmp\/native-assembler\/image-chunk-\d+-.+\.pdf$/u),
+            expect.objectContaining({maxPages: 10_000}),
+        );
+        expect(mocks.runQpdfCommand).toHaveBeenCalledWith([
+            '--empty',
+            '--pages',
+            '/tmp/large.pdf',
+            expect.stringMatching(/^\/tmp\/native-assembler\/image-chunk-\d+-.+\.pdf$/u),
+            '--',
+            '/tmp/final.pdf.tmp',
+        ], expect.objectContaining({commandLabel: 'qpdf(native-pdf-assembler)'}));
+        expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/final.pdf.tmp', '/tmp/final.pdf');
+        expect(mocks.warn).not.toHaveBeenCalled();
+    });
+
+    it('keeps memory-returning native assembly capped at 500 pages by default', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        mocks.getPdfPageCount.mockResolvedValueOnce(501);
+
+        const result = await tryCreatePdfFromInputPathsNative(['/tmp/large.pdf']);
+
+        expect(result).toBeNull();
+        expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
+        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('Combined PDF is capped at 500 pages'));
     });
 
     it('copies a single native output chunk to the requested output path', async () => {
