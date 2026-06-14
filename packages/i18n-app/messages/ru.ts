@@ -46,6 +46,8 @@ export default {
         'workspacePlaceholder': 'Откройте документ для чата...',
         'send': 'Отправить',
         'stop': 'Стоп',
+        'copyMessage': 'Копировать сообщение',
+        'copyMessageCopied': 'Скопировано',
         'startingTurn': 'Запуск',
         'working': 'Работает',
         'interrupting': 'Остановка',
