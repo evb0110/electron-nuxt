@@ -69,6 +69,7 @@ import PdfPageSkeleton from '@app/modules/pdf-viewer/components/PdfPageSkeleton.
 import PdfImagePlacementOverlay from '@app/modules/pdf-viewer/components/PdfImagePlacementOverlay.vue';
 import PdfShapeOverlay from '@app/modules/pdf-viewer/components/PdfShapeOverlay.vue';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
+import { shouldShowShapeOverlay } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-visibility/shouldShowShapeOverlay';
 import { usePdfSkeletonContext } from '@app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets';
 import type { IPdfPagePreviewEntry } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
 import type { IShapeContextProvide } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
@@ -129,6 +130,7 @@ const shapeContext = inject<IShapeContextProvide | null>('shapeContext', null);
 const pageShapes = computed(() => shapeContext?.getShapesForPage(page - 1) ?? []);
 const showPreview = computed(() => Boolean(preview && !rendered));
 const showPageSkeleton = computed(() => showSkeleton && !showPreview.value && !isPreviewDrawn.value);
+const isPageVisualReadyForShapeOverlay = computed(() => rendered || isPreviewDrawn.value);
 
 function drawPreview() {
     if (!showPreview.value || !preview || !previewCanvas.value) {
@@ -163,9 +165,13 @@ const pageDrawingShape = computed(() => {
     return drawing;
 });
 const showShapeOverlay = computed(() => Boolean(
-    rendered
-    || pageShapes.value.length > 0
-    || pageDrawingShape.value,
+    shapeContext
+    && shouldShowShapeOverlay({
+        hasDrawingShape: Boolean(pageDrawingShape.value),
+        hasPageShapes: pageShapes.value.length > 0,
+        isPageVisualReady: isPageVisualReadyForShapeOverlay.value,
+        isShapeToolActive: shapeContext.isShapeToolActive.value,
+    }),
 ));
 
 function startDrawingShape(coords: IShapePoint) {

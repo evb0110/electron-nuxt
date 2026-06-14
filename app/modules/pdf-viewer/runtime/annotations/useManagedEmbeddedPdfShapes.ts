@@ -4,10 +4,7 @@ import { collectEmbeddedShapeAnnotationIds } from '@app/modules/pdf-viewer/engin
 import { refreshDeletedEmbeddedShapePage } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/refreshDeletedEmbeddedShapePage';
 import { rerenderRenderedManagedEmbeddedShapePages } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/rerenderRenderedManagedEmbeddedShapePages';
 import { shouldRefreshManagedShapePage } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/shouldRefreshManagedShapePage';
-import {
-    hasManagedShapeOverlayForAnnotation,
-    syncHiddenEmbeddedAnnotationDom as syncHiddenEmbeddedAnnotationDomForContainer,
-} from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
+import { syncHiddenEmbeddedAnnotationDom as syncHiddenEmbeddedAnnotationDomForContainer } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
 import { resolveEmbeddedShapeImportLoadPolicy } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-import-policy/resolveEmbeddedShapeImportLoadPolicy';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
@@ -85,8 +82,6 @@ export function useManagedEmbeddedPdfShapes({
     const pendingDeletedEmbeddedShapeRefreshPages = new Set<number>();
     let isDeletedEmbeddedShapeRefreshScheduled = false;
     let isDeferredHiddenEmbeddedAnnotationDomSyncScheduled = false;
-    let isManagedOverlayReadinessRerenderScheduled = false;
-    let shouldRepeatManagedOverlayReadinessRerender = false;
 
     function adoptPersistedManagedShapesOnNextImport() {
         shouldAdoptSelfSaveMetadataOnNextImport = true;
@@ -110,7 +105,6 @@ export function useManagedEmbeddedPdfShapes({
         return ids;
     });
     const visuallySuppressedAnnotationIds = ref<Set<string>>(new Set());
-    const managedOverlayReadyAnnotationIds = ref<Set<string>>(new Set());
 
     const forceHiddenEmbeddedAnnotationIds = computed(() => {
         const ids = new Set<string>();
@@ -136,13 +130,10 @@ export function useManagedEmbeddedPdfShapes({
     });
 
     const renderHiddenEmbeddedAnnotationIds = computed(() => {
-        const ids = new Set(forceHiddenEmbeddedAnnotationIds.value);
-        managedOverlayReadyAnnotationIds.value.forEach((id) => {
-            if (normalizedManagedEmbeddedAnnotationIds.value.has(id)) {
-                ids.add(id);
-            }
-        });
-        return ids;
+        // The SVG overlay is the app-rendered source of truth for managed shapes.
+        // Suppress their native PDF canvas paint immediately so PDF border widths
+        // cannot briefly appear zoom-scaled before the overlay is mounted.
+        return new Set(hiddenEmbeddedAnnotationIds.value);
     });
 
     function suppressAnnotationId(annotationId: string) {
@@ -206,110 +197,12 @@ export function useManagedEmbeddedPdfShapes({
         void waitForNextTick().then(runDeferredSync);
     }
 
-    function areSetsEqual(left: ReadonlySet<string>, right: ReadonlySet<string>) {
-        if (left.size !== right.size) {
-            return false;
-        }
-
-        for (const id of left) {
-            if (!right.has(id)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    function collectManagedOverlayReadyAnnotationIds() {
-        const readyIds = new Set<string>();
-        const container = viewerContainer.value;
-        if (!container) {
-            return readyIds;
-        }
-
-        shapeComposable.getAllShapes().forEach((shape) => {
-            if (shape.source !== 'embedded' || !shape.annotationId) {
-                return;
-            }
-
-            const annotationId = normalizePdfJsAnnotationId(shape.annotationId);
-            const pageNumber = Number.isFinite(shape.pageIndex)
-                ? Math.floor(shape.pageIndex) + 1
-                : null;
-            if (!annotationId || !pageNumber || pageNumber < 1) {
-                return;
-            }
-
-            const pageContainer = container.querySelector<HTMLElement>(
-                `.page_container[data-page="${pageNumber}"]`,
-            );
-            if (hasManagedShapeOverlayForAnnotation(pageContainer, annotationId)) {
-                readyIds.add(annotationId);
-            }
-        });
-
-        return readyIds;
-    }
-
-    function syncManagedOverlayReadiness(options?: { rerenderOnChange?: boolean }) {
-        const nextReadyIds = collectManagedOverlayReadyAnnotationIds();
-        if (areSetsEqual(managedOverlayReadyAnnotationIds.value, nextReadyIds)) {
-            return false;
-        }
-
-        const previousReadyIds = managedOverlayReadyAnnotationIds.value;
-        managedOverlayReadyAnnotationIds.value = nextReadyIds;
-        tracePdfAnnotationSaveEvent('managed-embedded-shapes:overlay-readiness-changed', () => ({
-            previousReadyIds: Array.from(previousReadyIds).slice(0, 30),
-            nextReadyIds: Array.from(nextReadyIds).slice(0, 30),
-            previousReadyCount: previousReadyIds.size,
-            nextReadyCount: nextReadyIds.size,
-            managedIdsCount: normalizedManagedEmbeddedAnnotationIds.value.size,
-        }));
-
-        if (options?.rerenderOnChange !== false) {
-            queueManagedOverlayReadinessRerender();
-        }
-        return true;
-    }
-
-    function queueManagedOverlayReadinessRerender() {
-        if (!hasRenderedViewerCanvas()) {
-            return;
-        }
-
-        if (isManagedOverlayReadinessRerenderScheduled) {
-            shouldRepeatManagedOverlayReadinessRerender = true;
-            return;
-        }
-
-        isManagedOverlayReadinessRerenderScheduled = true;
-        runGuardedTask(async () => {
-            try {
-                do {
-                    shouldRepeatManagedOverlayReadinessRerender = false;
-                    await waitForNextTick();
-                    syncManagedOverlayReadiness({ rerenderOnChange: false });
-                    await rerenderManagedEmbeddedShapesIfNeeded();
-                } while (shouldRepeatManagedOverlayReadinessRerender);
-            } finally {
-                isManagedOverlayReadinessRerenderScheduled = false;
-            }
-        }, {
-            scope: 'pdf-shapes',
-            message: 'Failed to refresh managed embedded shape pages after overlay readiness changed',
-        });
-    }
-
-    function syncHiddenEmbeddedAnnotationDom(options?: {
-        retryDeferredManagedAnnotations?: boolean;
-        rerenderOnReadinessChange?: boolean;
-    }) {
+    function syncHiddenEmbeddedAnnotationDom(options?: { retryDeferredManagedAnnotations?: boolean }) {
         const container = viewerContainer.value;
         if (!container) {
             return;
         }
 
-        syncManagedOverlayReadiness({ rerenderOnChange: options?.rerenderOnReadinessChange !== false });
         const result = syncHiddenEmbeddedAnnotationDomForContainer({
             container,
             hiddenAnnotationIds: renderHiddenEmbeddedAnnotationIds.value,
@@ -504,7 +397,7 @@ export function useManagedEmbeddedPdfShapes({
             logStaleEmbeddedShapeImport(token, path);
             return;
         }
-        syncHiddenEmbeddedAnnotationDom({ rerenderOnReadinessChange: applyPlan.skipRerender });
+        syncHiddenEmbeddedAnnotationDom();
 
         return applyPlan;
     }

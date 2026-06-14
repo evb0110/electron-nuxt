@@ -41,6 +41,7 @@ async function createPdfWithEmbeddedShapes() {
             0,
             1,
         ],
+        BS: { W: 99 },
     });
     const lineDict = doc.context.obj({
         Type: PDFName.of('Annot'),
@@ -184,6 +185,26 @@ function getRectNumbers(dict: PDFDict) {
     return values;
 }
 
+function getBorderWidth(dict: PDFDict) {
+    const border = dict.lookupMaybe(PDFName.of('Border'), PDFArray);
+    if (!(border instanceof PDFArray) || border.size() < 3) {
+        return null;
+    }
+
+    const width = border.get(2);
+    return width instanceof PDFNumber ? width.asNumber() : null;
+}
+
+function getBorderStyleWidth(dict: PDFDict) {
+    const borderStyle = dict.lookupMaybe(PDFName.of('BS'), PDFDict);
+    if (!(borderStyle instanceof PDFDict)) {
+        return null;
+    }
+
+    const width = borderStyle.lookupMaybe(PDFName.of('W'), PDFNumber);
+    return width instanceof PDFNumber ? width.asNumber() : null;
+}
+
 function getLineEndings(dict: PDFDict) {
     const lineEndings = dict.lookupMaybe(PDFName.of('LE'), PDFArray);
     if (!(lineEndings instanceof PDFArray)) {
@@ -320,6 +341,8 @@ describe('serializePdfEdits embedded shapes', () => {
             expect.closeTo(720, 6),
         ]);
         expect(squareDict.get(PDFName.of('IC'))).toBeTruthy();
+        expect(getBorderWidth(squareDict)).toBe(5);
+        expect(getBorderStyleWidth(squareDict)).toBe(5);
 
         expect(getRectNumbers(lineDict)).toEqual([
             expect.closeTo(87, 6),
@@ -331,8 +354,12 @@ describe('serializePdfEdits embedded shapes', () => {
             '/OpenArrow',
             '/ClosedArrow',
         ]);
+        expect(getBorderWidth(lineDict)).toBe(3);
+        expect(getBorderStyleWidth(lineDict)).toBe(3);
         expect(inkDict.get(PDFName.of('Subtype'))?.toString()).toBe('/Ink');
         expect(inkDict.lookupMaybe(PDFName.of('InkList'), PDFArray)).toBeInstanceOf(PDFArray);
+        expect(getBorderWidth(inkDict)).toBe(7);
+        expect(getBorderStyleWidth(inkDict)).toBe(7);
     });
 
     it('writes a stable key when updating an embedded annotation in place', async () => {
