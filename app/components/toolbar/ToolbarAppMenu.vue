@@ -281,7 +281,7 @@ function getMenuShortcut(item: unknown) {
 @use '@app/assets/css/toolbar-menu-shared';
 
 .app-menu {
-    min-width: min(var(--app-toolbar-app-menu-min-width), calc(100vw - 1rem));
+    min-width: min(var(--app-toolbar-app-menu-min-width), var(--app-floating-panel-viewport-width));
 }
 </style>
 
@@ -298,7 +298,7 @@ function getMenuShortcut(item: unknown) {
     align-items: center;
     gap: var(--app-space-sm);
     min-width: 0;
-    max-width: min(11rem, 32vw);
+    max-width: min(var(--app-toolbar-app-menu-trigger-max-width), var(--app-toolbar-app-menu-trigger-max-viewport-width));
     height: var(--toolbar-control-height, 2.25rem);
     padding: 0 var(--app-space-3xl) 0 var(--app-toolbar-control-padding-x);
     border: 1px solid transparent;

@@ -261,9 +261,9 @@ function placeNote() {
     flex-direction: column;
     gap: 0.55rem;
     position: relative;
-    z-index: 1400;
-    width: min(18rem, calc(100vw - 2rem));
-    max-width: calc(100vw - 2rem);
+    z-index: var(--app-pdf-annotation-style-popover-z-index);
+    width: min(var(--app-pdf-annotation-style-popover-width), var(--app-overlay-viewport-width));
+    max-width: var(--app-overlay-viewport-width);
     padding: 0.625rem;
     border: 1px solid var(--ui-border);
     border-radius: 0.625rem;

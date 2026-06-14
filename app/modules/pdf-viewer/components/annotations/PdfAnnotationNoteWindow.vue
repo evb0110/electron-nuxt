@@ -85,7 +85,7 @@ const {
     saving = false,
     error = null,
     position = null,
-    zIndex = 55,
+    zIndex = NOTE_WINDOW.DEFAULT_Z_INDEX,
     boundsRoot = null,
 } = defineProps<IProps>();
 
@@ -99,10 +99,17 @@ const emit = defineEmits<{
 
 const { t } = useTypedI18n();
 
+const NOTE_WINDOW_INITIAL_OFFSET_X = 14;
+const NOTE_WINDOW_INITIAL_OFFSET_Y = 72;
+const NOTE_WINDOW_FOCUS_GUARD_DURATION_MS = 1200;
+const NOTE_WINDOW_FOCUS_FAST_INTERVAL_MS = 16;
+const NOTE_WINDOW_FOCUS_FAST_DURATION_MS = 400;
+const NOTE_WINDOW_FOCUS_SLOW_INTERVAL_MS = 60;
+
 const noteInputRef = ref<HTMLTextAreaElement | null>(null);
 const noteWindowRef = ref<HTMLElement | null>(null);
-const offsetX = ref(14);
-const offsetY = ref(72);
+const offsetX = ref(NOTE_WINDOW_INITIAL_OFFSET_X);
+const offsetY = ref(NOTE_WINDOW_INITIAL_OFFSET_Y);
 const width = ref(NOTE_WINDOW.DEFAULT_WIDTH);
 const height = ref(NOTE_WINDOW.DEFAULT_HEIGHT);
 const dragStartX = ref(0);
@@ -230,17 +237,13 @@ function shouldReclaimFocus(activeElement: HTMLElement | null) {
     return true;
 }
 
-function startFocusGuard(durationMs = 1200) {
+function startFocusGuard(durationMs = NOTE_WINDOW_FOCUS_GUARD_DURATION_MS) {
     if (typeof window === 'undefined') {
         return;
     }
     clearFocusGuard();
     const token = ++focusGuardToken;
     const deadline = window.performance.now() + durationMs;
-    const FAST_INTERVAL = 16;
-    const FAST_DURATION = 400;
-    const SLOW_INTERVAL = 60;
-
     const reclaimFocusUntilDeadline = async () => {
         if (token !== focusGuardToken) {
             return;
@@ -263,7 +266,9 @@ function startFocusGuard(durationMs = 1200) {
             return;
         }
         const elapsed = durationMs - (deadline - now);
-        const interval = elapsed < FAST_DURATION ? FAST_INTERVAL : SLOW_INTERVAL;
+        const interval = elapsed < NOTE_WINDOW_FOCUS_FAST_DURATION_MS
+            ? NOTE_WINDOW_FOCUS_FAST_INTERVAL_MS
+            : NOTE_WINDOW_FOCUS_SLOW_INTERVAL_MS;
         focusGuardTimer = setTimeout(() => {
             void reclaimFocusUntilDeadline();
         }, interval);
@@ -524,11 +529,11 @@ watch(
     --note-shadow: var(--app-pdf-note-shadow);
 
     position: fixed;
-    z-index: 55;
-    width: min(380px, calc(100vw - 18px));
-    height: min(360px, calc(100vh - 18px));
-    min-width: min(260px, calc(100vw - 18px));
-    min-height: min(240px, calc(100vh - 18px));
+    z-index: var(--app-pdf-note-window-z-index);
+    width: min(var(--app-pdf-note-window-default-width), calc(100vw - var(--app-pdf-note-window-viewport-gutter)));
+    height: min(var(--app-pdf-note-window-default-height), calc(100vh - var(--app-pdf-note-window-viewport-gutter)));
+    min-width: min(var(--app-pdf-note-window-min-width), calc(100vw - var(--app-pdf-note-window-viewport-gutter)));
+    min-height: min(var(--app-pdf-note-window-min-height), calc(100vh - var(--app-pdf-note-window-viewport-gutter)));
     border: 1px solid var(--note-border);
     background: var(--note-bg);
     box-shadow: var(--note-shadow);

@@ -280,7 +280,7 @@ onClickOutside(pageControlsRef, () => {
     gap: 0;
     padding: 0;
     border: 1px solid var(--app-toolbar-group-border);
-    border-radius: 0.5625rem;
+    border-radius: var(--app-toolbar-segmented-radius);
     background: var(--app-toolbar-group-bg);
     overflow: hidden;
 }

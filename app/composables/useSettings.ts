@@ -15,6 +15,9 @@ import {
 import { getPlatformAPI } from '@app/utils/platform';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
 
+const SETTINGS_SAVE_RETRY_INITIAL_DELAY_MS = 1_000;
+const SETTINGS_SAVE_RETRY_MAX_DELAY_MS = 30_000;
+
 export const useSettings = () => {
     const settingsCookie = useCookie<string | Partial<ISettingsData> | null>(BROWSER_SETTINGS_COOKIE_KEY, {
         default: () => null,
@@ -98,7 +101,7 @@ export const useSettings = () => {
     let saveInFlight: Promise<void> | null = null;
     let saveDirty = false;
     let saveRetryTimer: ReturnType<typeof setTimeout> | null = null;
-    let saveRetryDelayMs = 1_000;
+    let saveRetryDelayMs = SETTINGS_SAVE_RETRY_INITIAL_DELAY_MS;
     let lastSavedSettings: ISettingsData | null = hasSettingsCookieSnapshot.value
         ? initialSettings
         : null;
@@ -119,7 +122,7 @@ export const useSettings = () => {
             saveRetryTimer = null;
             void save();
         }, saveRetryDelayMs);
-        saveRetryDelayMs = Math.min(saveRetryDelayMs * 2, 30_000);
+        saveRetryDelayMs = Math.min(saveRetryDelayMs * 2, SETTINGS_SAVE_RETRY_MAX_DELAY_MS);
     }
 
     async function runSaveQueue() {
@@ -133,7 +136,7 @@ export const useSettings = () => {
                 }
                 lastSavedSettings = payload;
                 syncSettingsCookies(payload);
-                saveRetryDelayMs = 1_000;
+                saveRetryDelayMs = SETTINGS_SAVE_RETRY_INITIAL_DELAY_MS;
             } catch (e) {
                 BrowserLogger.error('settings', 'Failed to save settings', e);
                 saveDirty = true;

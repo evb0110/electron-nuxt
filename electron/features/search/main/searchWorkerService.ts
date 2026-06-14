@@ -70,31 +70,43 @@ function buildSearchWorkerRequest(
 
 const log = createLogger('search-ipc');
 
+const DEFAULT_SEARCH_REQUEST_TIMEOUT_MS = 2 * 60 * 1000;
+const MIN_SEARCH_REQUEST_TIMEOUT_MS = 5_000;
+const DEFAULT_SEARCH_WORKER_MAX_ACTIVE = 2;
+const MAX_SEARCH_WORKER_ACTIVE = 256;
+const DEFAULT_SEARCH_WORKER_IDLE_TTL_MS = 30 * 1000;
+const MIN_SEARCH_WORKER_IDLE_TTL_MS = 10_000;
+const DEFAULT_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = 10_000;
+const MIN_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = 1_000;
+
 const SEARCH_REQUEST_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_REQUEST_TIMEOUT_MS ?? `${2 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 5_000) {
-        return 2 * 60 * 1000;
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_REQUEST_TIMEOUT_MS ?? `${DEFAULT_SEARCH_REQUEST_TIMEOUT_MS}`, 10);
+    if (!Number.isFinite(parsed) || parsed < MIN_SEARCH_REQUEST_TIMEOUT_MS) {
+        return DEFAULT_SEARCH_REQUEST_TIMEOUT_MS;
     }
     return parsed;
 })();
 const SEARCH_WORKER_MAX_ACTIVE = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_MAX_ACTIVE ?? '2', 10);
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_MAX_ACTIVE ?? `${DEFAULT_SEARCH_WORKER_MAX_ACTIVE}`, 10);
     if (!Number.isFinite(parsed)) {
-        return 2;
+        return DEFAULT_SEARCH_WORKER_MAX_ACTIVE;
     }
-    return clamp(parsed, 1, 256);
+    return clamp(parsed, 1, MAX_SEARCH_WORKER_ACTIVE);
 })();
 const SEARCH_WORKER_IDLE_TTL_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_IDLE_TTL_MS ?? `${30 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 10_000) {
-        return 30 * 1000;
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_IDLE_TTL_MS ?? `${DEFAULT_SEARCH_WORKER_IDLE_TTL_MS}`, 10);
+    if (!Number.isFinite(parsed) || parsed < MIN_SEARCH_WORKER_IDLE_TTL_MS) {
+        return DEFAULT_SEARCH_WORKER_IDLE_TTL_MS;
     }
     return parsed;
 })();
 const SEARCH_WORKER_TERMINATE_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS ?? '10_000', 10);
-    if (!Number.isFinite(parsed) || parsed < 1_000) {
-        return 10_000;
+    const parsed = Number.parseInt(
+        process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS ?? `${DEFAULT_SEARCH_WORKER_TERMINATE_TIMEOUT_MS}`,
+        10,
+    );
+    if (!Number.isFinite(parsed) || parsed < MIN_SEARCH_WORKER_TERMINATE_TIMEOUT_MS) {
+        return DEFAULT_SEARCH_WORKER_TERMINATE_TIMEOUT_MS;
     }
     return parsed;
 })();

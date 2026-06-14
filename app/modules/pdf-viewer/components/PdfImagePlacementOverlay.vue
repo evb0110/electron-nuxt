@@ -528,16 +528,31 @@ onBeforeUnmount(() => {
 }
 
 :global(.pdf-image-placement-virtual-cursor) {
+    --pdf-image-placement-virtual-cursor-size: 24px;
+
     position: fixed;
     pointer-events: none;
-    z-index: 2147483647;
-    width: 24px;
-    height: 24px;
-    transform: translate(-12px, -12px);
+    z-index: var(--app-z-pdf-image-placement-virtual-cursor);
+    width: var(--pdf-image-placement-virtual-cursor-size);
+    height: var(--pdf-image-placement-virtual-cursor-size);
+    transform: translate(
+        calc(var(--pdf-image-placement-virtual-cursor-size) * -0.5),
+        calc(var(--pdf-image-placement-virtual-cursor-size) * -0.5)
+    );
     filter: drop-shadow(0 1px 2px var(--app-image-placement-shadow));
 }
 
 .pdf-image-placement {
+    --pdf-image-placement-resizer-size: 0.9rem;
+    --pdf-image-placement-resizer-offset: calc(var(--pdf-image-placement-resizer-size) * -0.5);
+    --pdf-image-placement-resizer-hit-inset: -0.35rem;
+    --pdf-image-placement-rotate-handle-size: 1.1rem;
+    --pdf-image-placement-rotate-handle-offset: calc(var(--pdf-image-placement-rotate-handle-size) * -0.5);
+    --pdf-image-placement-rotate-handle-top: -2.95rem;
+    --pdf-image-placement-rotate-stem-width: 2px;
+    --pdf-image-placement-rotate-stem-height: 1.9rem;
+    --pdf-image-placement-controls-offset-block-start: 0.6rem;
+
     position: absolute;
     z-index: 8;
     touch-action: none;
@@ -583,8 +598,8 @@ onBeforeUnmount(() => {
 
 .pdf-image-placement__resizer {
     position: absolute;
-    width: 0.9rem;
-    height: 0.9rem;
+    width: var(--pdf-image-placement-resizer-size);
+    height: var(--pdf-image-placement-resizer-size);
     border: 1px solid var(--ui-bg);
     border-radius: 999px;
     background: var(--ui-primary);
@@ -595,7 +610,7 @@ onBeforeUnmount(() => {
 .pdf-image-placement__resizer::after {
     content: '';
     position: absolute;
-    inset: -0.35rem;
+    inset: var(--pdf-image-placement-resizer-hit-inset);
 }
 
 .pdf-image-placement__resizer:disabled {
@@ -603,51 +618,51 @@ onBeforeUnmount(() => {
 }
 
 .pdf-image-placement__resizer--nw {
-    top: -0.45rem;
-    left: -0.45rem;
+    top: var(--pdf-image-placement-resizer-offset);
+    left: var(--pdf-image-placement-resizer-offset);
 }
 
 .pdf-image-placement__resizer--n {
-    top: -0.45rem;
-    left: calc(50% - 0.45rem);
+    top: var(--pdf-image-placement-resizer-offset);
+    left: calc(50% + var(--pdf-image-placement-resizer-offset));
 }
 
 .pdf-image-placement__resizer--ne {
-    top: -0.45rem;
-    right: -0.45rem;
+    top: var(--pdf-image-placement-resizer-offset);
+    right: var(--pdf-image-placement-resizer-offset);
 }
 
 .pdf-image-placement__resizer--e {
-    top: calc(50% - 0.45rem);
-    right: -0.45rem;
+    top: calc(50% + var(--pdf-image-placement-resizer-offset));
+    right: var(--pdf-image-placement-resizer-offset);
 }
 
 .pdf-image-placement__resizer--se {
-    right: -0.45rem;
-    bottom: -0.45rem;
+    right: var(--pdf-image-placement-resizer-offset);
+    bottom: var(--pdf-image-placement-resizer-offset);
 }
 
 .pdf-image-placement__resizer--s {
-    bottom: -0.45rem;
-    left: calc(50% - 0.45rem);
+    bottom: var(--pdf-image-placement-resizer-offset);
+    left: calc(50% + var(--pdf-image-placement-resizer-offset));
 }
 
 .pdf-image-placement__resizer--sw {
-    left: -0.45rem;
-    bottom: -0.45rem;
+    left: var(--pdf-image-placement-resizer-offset);
+    bottom: var(--pdf-image-placement-resizer-offset);
 }
 
 .pdf-image-placement__resizer--w {
-    top: calc(50% - 0.45rem);
-    left: -0.45rem;
+    top: calc(50% + var(--pdf-image-placement-resizer-offset));
+    left: var(--pdf-image-placement-resizer-offset);
 }
 
 .pdf-image-placement__rotate-handle {
     position: absolute;
-    top: -2.95rem;
-    left: calc(50% - 0.55rem);
-    width: 1.1rem;
-    height: 1.1rem;
+    top: var(--pdf-image-placement-rotate-handle-top);
+    left: calc(50% + var(--pdf-image-placement-rotate-handle-offset));
+    width: var(--pdf-image-placement-rotate-handle-size);
+    height: var(--pdf-image-placement-rotate-handle-size);
     border: 1px solid var(--ui-bg);
     border-radius: 999px;
     background: color-mix(in oklab, var(--ui-bg) 18%, var(--ui-primary) 82%);
@@ -659,16 +674,16 @@ onBeforeUnmount(() => {
 .pdf-image-placement__rotate-handle::after {
     content: '';
     position: absolute;
-    inset: -0.45rem;
+    inset: var(--pdf-image-placement-resizer-offset);
 }
 
 .pdf-image-placement__rotate-handle::before {
     content: '';
     position: absolute;
-    left: calc(50% - 1px);
-    top: calc(100% - 1px);
-    width: 2px;
-    height: 1.9rem;
+    left: calc(50% - (var(--pdf-image-placement-rotate-stem-width) * 0.5));
+    top: calc(100% - (var(--pdf-image-placement-rotate-stem-width) * 0.5));
+    width: var(--pdf-image-placement-rotate-stem-width);
+    height: var(--pdf-image-placement-rotate-stem-height);
     border-radius: 999px;
     background: color-mix(in oklab, var(--ui-primary) 76%, var(--ui-bg) 24%);
 }
@@ -684,7 +699,7 @@ onBeforeUnmount(() => {
 .pdf-image-placement__controls {
     position: absolute;
     left: 0;
-    top: calc(100% + 0.6rem);
+    top: calc(100% + var(--pdf-image-placement-controls-offset-block-start));
     display: flex;
     gap: 0.45rem;
     align-items: center;

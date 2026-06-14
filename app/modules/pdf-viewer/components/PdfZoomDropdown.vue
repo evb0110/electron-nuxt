@@ -317,7 +317,7 @@ function selectCustomZoomInput(event: FocusEvent) {
     gap: 0;
     padding: 0;
     border: 1px solid var(--app-toolbar-group-border);
-    border-radius: 0.5625rem;
+    border-radius: var(--app-toolbar-segmented-radius);
     background: var(--app-toolbar-group-bg);
     overflow: hidden;
 }
@@ -400,8 +400,8 @@ function selectCustomZoomInput(event: FocusEvent) {
 
 .zoom-dropdown {
     padding: 0.375rem;
-    width: min(22rem, calc(100vw - 2rem));
-    max-width: calc(100vw - 2rem);
+    width: min(var(--app-pdf-zoom-menu-width), var(--app-overlay-viewport-width));
+    max-width: var(--app-overlay-viewport-width);
     background: var(--app-toolbar-group-bg);
 }
 

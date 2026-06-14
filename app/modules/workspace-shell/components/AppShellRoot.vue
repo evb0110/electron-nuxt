@@ -1107,14 +1107,14 @@ useAppShellLifecycle({
 .browser-install-hint {
     position: fixed;
     top: auto;
-    bottom: 2.5rem;
-    right: 1rem;
+    bottom: var(--app-install-hint-block-end);
+    right: var(--app-install-hint-inline-end);
     z-index: 35;
     display: inline-flex;
     align-items: center;
     gap: var(--app-install-hint-gap);
     width: fit-content;
-    max-width: calc(100vw - 2rem);
+    max-width: var(--app-install-hint-max-inline-size);
     padding: var(--app-install-hint-padding);
     border: 1px solid var(--ui-border);
     border-radius: var(--app-radius-full);

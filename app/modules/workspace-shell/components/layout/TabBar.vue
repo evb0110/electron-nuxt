@@ -505,8 +505,8 @@ useEventListener(window, 'keydown', (event) => {
 
 <style>
 .tab-context-menu {
-    min-width: min(13.125rem, calc(100vw - 1rem));
-    max-width: min(560px, calc(100vw - 16px));
+    min-width: min(var(--app-tab-context-menu-min-width), var(--app-floating-panel-viewport-width));
+    max-width: min(var(--app-tab-context-menu-max-width), var(--app-floating-panel-viewport-width));
     padding: 0;
     border: 1px solid var(--ui-border);
     border-radius: 0.375rem;
