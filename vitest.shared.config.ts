@@ -19,6 +19,7 @@ const vitestProjectNames = {
 } as const;
 
 const bundleIntegrityTestFiles = ['tests/unit/electron/bundleIntegrity.test.ts'];
+const landingUnitTestFiles = ['tests/unit/landing/**/*.test.ts'];
 
 const electronE2ESmokeTestFiles = [
     'tests/e2e/electron/startupHydration.e2e.test.ts',
@@ -52,7 +53,10 @@ function createUnitTestProject() {
         test: {
             name: vitestProjectNames.unit,
             include: ['tests/unit/**/*.test.ts'],
-            exclude: bundleIntegrityTestFiles,
+            exclude: [
+                ...bundleIntegrityTestFiles,
+                ...landingUnitTestFiles,
+            ],
             globals: false,
             setupFiles: unitTestSetupFiles,
         },
