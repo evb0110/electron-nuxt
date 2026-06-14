@@ -54,6 +54,7 @@ describe('useWorkspaceCrop', () => {
 
         const viewer: IPdfViewerExpose = {
             getViewerContainer: () => null,
+            getPagePreview: () => null,
             scrollToPage: vi.fn(),
             captureRegionToClipboard: vi.fn(async () => false),
             isCapturingRegion: false,

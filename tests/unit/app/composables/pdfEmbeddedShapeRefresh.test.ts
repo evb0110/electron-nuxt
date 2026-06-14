@@ -15,12 +15,14 @@ import {
 
 interface IFakeEmbeddedShapeAnnotationElement {
     dataset: { annotationId?: string; };
+    getAttribute?: (name: string) => string | null;
     remove: ReturnType<typeof vi.fn>;
-    closest: (selector: string) => IFakeEmbeddedShapeAnnotationElement | null;
+    closest: (selector: string) => Element | IFakeEmbeddedShapeAnnotationElement | null;
 }
 
 interface IFakeViewerContainer {
     elements: IFakeEmbeddedShapeAnnotationElement[];
+    overlayElements: IFakeEmbeddedShapeAnnotationElement[];
     popups: IFakeEmbeddedShapeAnnotationElement[];
     querySelectorAll: (selector: string) => IFakeEmbeddedShapeAnnotationElement[];
 }
@@ -29,7 +31,26 @@ function createFakeAnnotationElement(annotationId: string): IFakeEmbeddedShapeAn
     const element: IFakeEmbeddedShapeAnnotationElement = {
         dataset: { annotationId },
         remove: vi.fn(),
-        closest: () => element,
+        closest: (selector: string) => selector === '[data-annotation-id]' ? element : null,
+    };
+    return element;
+}
+
+function createFakeShapeOverlayAnnotationElement(annotationId: string): IFakeEmbeddedShapeAnnotationElement {
+    const overlay = Object.assign(Object.create(null) as Element, { classList: { contains: () => false } });
+    const element: IFakeEmbeddedShapeAnnotationElement = {
+        dataset: { annotationId },
+        getAttribute: (name: string) => name === 'data-annotation-id' ? annotationId : null,
+        remove: vi.fn(),
+        closest: (selector: string) => {
+            if (selector === '.pdf-shape-overlay' || selector === '.pdf-shape-overlay.has-shapes') {
+                return overlay;
+            }
+            if (selector === '[data-annotation-id]') {
+                return element;
+            }
+            return null;
+        },
     };
     return element;
 }
@@ -43,12 +64,18 @@ function createFakePopup(parentAnnotationId: string): IFakeEmbeddedShapeAnnotati
     };
 }
 
-function createFakeViewerContainer(annotationIds: string[]): HTMLElement & IFakeViewerContainer {
+function createFakeViewerContainer(
+    annotationIds: string[],
+    options: { shapeOverlayAnnotationIds?: string[] } = {},
+): HTMLElement & IFakeViewerContainer {
     const elements = annotationIds.map(createFakeAnnotationElement);
+    const overlayElements = (options.shapeOverlayAnnotationIds ?? [])
+        .map(createFakeShapeOverlayAnnotationElement);
     const popups = annotationIds.map(createFakePopup);
 
     return {
         elements,
+        overlayElements,
         popups,
         querySelectorAll: (selector: string) => {
             const exactMatch = selector.match(/^\[data-annotation-id="(.+)"\]$/);
@@ -56,7 +83,10 @@ function createFakeViewerContainer(annotationIds: string[]): HTMLElement & IFake
                 return elements.filter(element => element.dataset.annotationId === exactMatch[1]);
             }
             if (selector === '[data-annotation-id]') {
-                return elements;
+                return [
+                    ...elements,
+                    ...overlayElements,
+                ];
             }
             if (selector === '.annotationLayer .popup[data-annotation-id], .annotation-layer .popup[data-annotation-id]') {
                 return popups;
@@ -70,18 +100,13 @@ function createFakeHiddenAnnotationContainer(
     annotationId: string,
     options: {
         hasShapeOverlay: boolean;
+        includeShapeOverlayInContainerQuery?: boolean;
         shapeOverlayAnnotationIds?: string[];
     },
 ) {
     const overlayAnnotationIds = options.shapeOverlayAnnotationIds
         ?? (options.hasShapeOverlay ? [annotationId] : []);
-    const overlayElements = overlayAnnotationIds.map(id => Object.assign(
-        Object.create(null) as Element,
-        {
-            dataset: { annotationId: id },
-            getAttribute: (name: string) => name === 'data-annotation-id' ? id : null,
-        },
-    ));
+    const overlayElements = overlayAnnotationIds.map(createFakeShapeOverlayAnnotationElement);
     const querySelector = (selector: string) => (
         selector === '.pdf-shape-overlay.has-shapes' && overlayElements.length > 0
             ? Object.create(null)
@@ -97,17 +122,31 @@ function createFakeHiddenAnnotationContainer(
         querySelectorAll,
     });
     const element = Object.assign(Object.create(null) as HTMLElement, {
-        closest: (selector: string) => selector === '.page_container' ? pageContainer : null,
+        closest: (selector: string) => {
+            if (selector === '.page_container') {
+                return pageContainer;
+            }
+            if (selector === '[data-annotation-id]') {
+                return element;
+            }
+            return null;
+        },
         dataset: { annotationId },
         getAttribute: (name: string) => name === 'data-annotation-id' ? annotationId : null,
         remove: vi.fn(),
     });
-    const containerQuerySelectorAll = (selector: string) => selector === '[data-annotation-id]' ? [element] : [];
+    const containerQuerySelectorAll = (selector: string) => selector === '[data-annotation-id]'
+        ? [
+            element,
+            ...(options.includeShapeOverlayInContainerQuery ? overlayElements : []),
+        ]
+        : [];
     const container = Object.assign(Object.create(null) as HTMLElement, { querySelectorAll: containerQuerySelectorAll });
 
     return {
         container,
         element,
+        overlayElements,
         pageContainer,
     };
 }
@@ -162,12 +201,13 @@ describe('removeEmbeddedShapeAnnotationDom', () => {
         const viewerContainer = createFakeViewerContainer([
             '12R',
             'keep-me',
-        ]);
+        ], { shapeOverlayAnnotationIds: ['12R'] });
 
         removeEmbeddedShapeAnnotationDom(viewerContainer, '12R0');
 
         expect(viewerContainer.elements[0]?.remove).toHaveBeenCalledOnce();
         expect(viewerContainer.popups[0]?.remove).toHaveBeenCalledOnce();
+        expect(viewerContainer.overlayElements[0]?.remove).not.toHaveBeenCalled();
         expect(viewerContainer.elements[1]?.remove).not.toHaveBeenCalled();
         expect(viewerContainer.popups[1]?.remove).not.toHaveBeenCalled();
     });
@@ -219,8 +259,10 @@ describe('syncHiddenEmbeddedAnnotationDom', () => {
         const {
             container,
             element,
+            overlayElements,
         } = createFakeHiddenAnnotationContainer('12R', {
             hasShapeOverlay: true,
+            includeShapeOverlayInContainerQuery: true,
             shapeOverlayAnnotationIds: ['12R'],
         });
 
@@ -231,6 +273,7 @@ describe('syncHiddenEmbeddedAnnotationDom', () => {
         });
 
         expect(element.remove).toHaveBeenCalledOnce();
+        expect(overlayElements[0]?.remove).not.toHaveBeenCalled();
         expect(result).toEqual({
             removedCount: 1,
             deferredManagedAnnotationCount: 0,
