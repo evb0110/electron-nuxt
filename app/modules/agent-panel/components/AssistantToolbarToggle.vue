@@ -1,8 +1,9 @@
 <template>
     <ToolbarButton
-        v-if="isAvailable"
+        v-if="isEnabled"
         icon="ph:sparkle"
         :active="isOpen"
+        :disabled="!isAvailable"
         :tooltip="t('assistant.toggle')"
         @click="toggle"
     />
@@ -15,6 +16,7 @@ import { useAssistantPanel } from '@app/composables/useAssistantPanel';
 const { t } = useTypedI18n();
 const {
     isOpen,
+    isEnabled,
     isAvailable,
     toggle,
 } = useAssistantPanel();
