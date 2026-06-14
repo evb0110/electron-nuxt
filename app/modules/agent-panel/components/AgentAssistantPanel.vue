@@ -237,6 +237,143 @@
                                                 class="agent-assistant-message-code-block"
                                             ><code>{{ block.code }}</code></pre>
                                             <p
+                                                v-else-if="block.kind === 'heading'"
+                                                class="agent-assistant-message-heading"
+                                                :data-level="block.level"
+                                            >
+                                                <template
+                                                    v-for="(segment, segmentIndex) in block.segments"
+                                                    :key="`${message.id}-${blockIndex}-${segmentIndex}`"
+                                                >
+                                                    <code
+                                                        v-if="segment.kind === 'code'"
+                                                        class="agent-assistant-message-inline-code"
+                                                    >{{ segment.text }}</code>
+                                                    <strong
+                                                        v-else-if="segment.kind === 'strong'"
+                                                        class="agent-assistant-message-strong"
+                                                    >{{ segment.text }}</strong>
+                                                    <em
+                                                        v-else-if="segment.kind === 'emphasis'"
+                                                        class="agent-assistant-message-emphasis"
+                                                    >{{ segment.text }}</em>
+                                                    <a
+                                                        v-else-if="segment.kind === 'link'"
+                                                        class="agent-assistant-message-link"
+                                                        :href="segment.href"
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                    >{{ segment.text }}</a>
+                                                    <span v-else>{{ segment.text }}</span>
+                                                </template>
+                                            </p>
+                                            <template v-else-if="block.kind === 'list'">
+                                                <ol
+                                                    v-if="block.ordered"
+                                                    class="agent-assistant-message-list is-ordered"
+                                                >
+                                                    <li
+                                                        v-for="(item, itemIndex) in block.items"
+                                                        :key="`${message.id}-${blockIndex}-${itemIndex}`"
+                                                    >
+                                                        <template
+                                                            v-for="(segment, segmentIndex) in item"
+                                                            :key="`${message.id}-${blockIndex}-${itemIndex}-${segmentIndex}`"
+                                                        >
+                                                            <code
+                                                                v-if="segment.kind === 'code'"
+                                                                class="agent-assistant-message-inline-code"
+                                                            >{{ segment.text }}</code>
+                                                            <strong
+                                                                v-else-if="segment.kind === 'strong'"
+                                                                class="agent-assistant-message-strong"
+                                                            >{{ segment.text }}</strong>
+                                                            <em
+                                                                v-else-if="segment.kind === 'emphasis'"
+                                                                class="agent-assistant-message-emphasis"
+                                                            >{{ segment.text }}</em>
+                                                            <a
+                                                                v-else-if="segment.kind === 'link'"
+                                                                class="agent-assistant-message-link"
+                                                                :href="segment.href"
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                            >{{ segment.text }}</a>
+                                                            <span v-else>{{ segment.text }}</span>
+                                                        </template>
+                                                    </li>
+                                                </ol>
+                                                <ul
+                                                    v-else
+                                                    class="agent-assistant-message-list"
+                                                >
+                                                    <li
+                                                        v-for="(item, itemIndex) in block.items"
+                                                        :key="`${message.id}-${blockIndex}-${itemIndex}`"
+                                                    >
+                                                        <template
+                                                            v-for="(segment, segmentIndex) in item"
+                                                            :key="`${message.id}-${blockIndex}-${itemIndex}-${segmentIndex}`"
+                                                        >
+                                                            <code
+                                                                v-if="segment.kind === 'code'"
+                                                                class="agent-assistant-message-inline-code"
+                                                            >{{ segment.text }}</code>
+                                                            <strong
+                                                                v-else-if="segment.kind === 'strong'"
+                                                                class="agent-assistant-message-strong"
+                                                            >{{ segment.text }}</strong>
+                                                            <em
+                                                                v-else-if="segment.kind === 'emphasis'"
+                                                                class="agent-assistant-message-emphasis"
+                                                            >{{ segment.text }}</em>
+                                                            <a
+                                                                v-else-if="segment.kind === 'link'"
+                                                                class="agent-assistant-message-link"
+                                                                :href="segment.href"
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                            >{{ segment.text }}</a>
+                                                            <span v-else>{{ segment.text }}</span>
+                                                        </template>
+                                                    </li>
+                                                </ul>
+                                            </template>
+                                            <blockquote
+                                                v-else-if="block.kind === 'blockquote'"
+                                                class="agent-assistant-message-blockquote"
+                                            >
+                                                <template
+                                                    v-for="(segment, segmentIndex) in block.segments"
+                                                    :key="`${message.id}-${blockIndex}-${segmentIndex}`"
+                                                >
+                                                    <code
+                                                        v-if="segment.kind === 'code'"
+                                                        class="agent-assistant-message-inline-code"
+                                                    >{{ segment.text }}</code>
+                                                    <strong
+                                                        v-else-if="segment.kind === 'strong'"
+                                                        class="agent-assistant-message-strong"
+                                                    >{{ segment.text }}</strong>
+                                                    <em
+                                                        v-else-if="segment.kind === 'emphasis'"
+                                                        class="agent-assistant-message-emphasis"
+                                                    >{{ segment.text }}</em>
+                                                    <a
+                                                        v-else-if="segment.kind === 'link'"
+                                                        class="agent-assistant-message-link"
+                                                        :href="segment.href"
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                    >{{ segment.text }}</a>
+                                                    <span v-else>{{ segment.text }}</span>
+                                                </template>
+                                            </blockquote>
+                                            <hr
+                                                v-else-if="block.kind === 'rule'"
+                                                class="agent-assistant-message-rule"
+                                            >
+                                            <p
                                                 v-else
                                                 class="agent-assistant-message-text"
                                             >
@@ -248,6 +385,21 @@
                                                         v-if="segment.kind === 'code'"
                                                         class="agent-assistant-message-inline-code"
                                                     >{{ segment.text }}</code>
+                                                    <strong
+                                                        v-else-if="segment.kind === 'strong'"
+                                                        class="agent-assistant-message-strong"
+                                                    >{{ segment.text }}</strong>
+                                                    <em
+                                                        v-else-if="segment.kind === 'emphasis'"
+                                                        class="agent-assistant-message-emphasis"
+                                                    >{{ segment.text }}</em>
+                                                    <a
+                                                        v-else-if="segment.kind === 'link'"
+                                                        class="agent-assistant-message-link"
+                                                        :href="segment.href"
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                    >{{ segment.text }}</a>
                                                     <span v-else>{{ segment.text }}</span>
                                                 </template>
                                             </p>
@@ -470,7 +622,7 @@ import type {
     TAgentAssistantLoginMode,
     TAgentAssistantMessageRole,
 } from '@contracts/agent';
-import { formatAssistantMessage } from '@app/modules/agent-panel/utils/assistantMessageFormatting';
+import { formatAssistantMessage } from '@app/modules/agent-panel/utils/formatAssistantMessage';
 import { getAgentAssistantPanelView } from '@app/modules/workspace-shell/public';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -1442,9 +1594,71 @@ onUnmounted(() => {
 }
 
 .agent-assistant-message-text {
+    margin: 0;
     color: inherit;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+}
+
+.agent-assistant-message-heading {
+    margin: 0;
+    color: inherit;
+    font-size: 0.875rem;
+    font-weight: var(--app-font-weight-semibold);
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.agent-assistant-message-heading[data-level="1"],
+.agent-assistant-message-heading[data-level="2"] {
+    font-size: 0.95rem;
+}
+
+.agent-assistant-message-strong {
+    color: inherit;
+    font-weight: var(--app-font-weight-semibold);
+}
+
+.agent-assistant-message-emphasis {
+    color: inherit;
+    font-style: italic;
+}
+
+.agent-assistant-message-link {
+    color: var(--ui-primary);
+    text-decoration: underline;
+    text-underline-offset: 0.14em;
+    overflow-wrap: anywhere;
+}
+
+.agent-assistant-message-list {
+    margin: 0;
+    padding-inline-start: 1.1rem;
+    color: inherit;
+}
+
+.agent-assistant-message-list li {
+    padding-inline-start: 0.05rem;
+}
+
+.agent-assistant-message-list li + li {
+    margin-top: 0.15rem;
+}
+
+.agent-assistant-message-blockquote {
+    margin: 0;
+    padding: 0.05rem 0 0.05rem 0.6rem;
+    border-left: 2px solid color-mix(in oklab, var(--ui-text-dimmed) 45%, transparent);
+    color: inherit;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.agent-assistant-message-rule {
+    width: 100%;
+    margin: 0.05rem 0;
+    border: 0;
+    border-top: 1px solid var(--ui-border);
 }
 
 .agent-assistant-message-inline-code,
@@ -1482,11 +1696,35 @@ onUnmounted(() => {
     color: var(--ui-primary-fg);
 }
 
+.agent-assistant-message.is-user .agent-assistant-message-link {
+    color: var(--ui-primary-fg);
+}
+
+.agent-assistant-message.is-user .agent-assistant-message-blockquote {
+    border-left-color: color-mix(in oklab, var(--ui-primary-fg) 45%, transparent);
+}
+
+.agent-assistant-message.is-user .agent-assistant-message-rule {
+    border-top-color: color-mix(in oklab, var(--ui-primary-fg) 28%, transparent);
+}
+
 .agent-assistant-message.is-system .agent-assistant-message-inline-code,
 .agent-assistant-message.is-system .agent-assistant-message-code-block {
     border-color: color-mix(in oklab, var(--ui-error) 28%, transparent);
     background: color-mix(in oklab, var(--ui-error) 8%, var(--ui-bg) 92%);
     color: var(--ui-error);
+}
+
+.agent-assistant-message.is-system .agent-assistant-message-link {
+    color: var(--ui-error);
+}
+
+.agent-assistant-message.is-system .agent-assistant-message-blockquote {
+    border-left-color: color-mix(in oklab, var(--ui-error) 38%, transparent);
+}
+
+.agent-assistant-message.is-system .agent-assistant-message-rule {
+    border-top-color: color-mix(in oklab, var(--ui-error) 24%, transparent);
 }
 
 .agent-assistant-message-copy {
