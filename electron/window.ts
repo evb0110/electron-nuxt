@@ -210,6 +210,14 @@ function attachRendererDiagnostics(window: BrowserWindow) {
         recoverRenderer(`render-process-gone:${details.reason}`);
     });
 
+    webContents.on('preload-error', (_event, preloadPath, error) => {
+        logger.error(
+            `[renderer] preload-error (windowId=${windowId}, preload=${preloadPath}): ${
+                error.stack ?? getErrorMessage(error)
+            }`,
+        );
+    });
+
     window.on('unresponsive', () => {
         logger.warn(`[renderer] window unresponsive (windowId=${windowId})`);
         if (config.isDev || recoveryAttempted || window.isDestroyed() || UNRESPONSIVE_RECOVERY_DELAY_MS <= 0) {

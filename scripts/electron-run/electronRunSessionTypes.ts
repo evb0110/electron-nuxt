@@ -87,4 +87,9 @@ export interface ISessionInfo {
 export interface ISessionStartingInfo {
     pid: number;
     startedAt: number;
+    electronPids: number[];
+    cdpPorts: number[];
+    electronUserDataDir: string | null;
+    nuxtPid: number | null;
+    nuxtPort: number | null;
 }

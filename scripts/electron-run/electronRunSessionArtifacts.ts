@@ -16,12 +16,14 @@ import { isJsonRecord } from '@scripts/electron-run/isJsonRecord';
 import {
     getCurrentSessionName,
     sessionDir,
+    electronUserDataPath,
     sessionFilePath,
     sessionLogFilePath,
     sessionStartingFilePath,
     sessionsBaseDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import {
+    findPidsByCommandSubstring,
     isProcessAlive,
     killProcessTree,
 } from '@scripts/electron-run/electronRunProcessTree';
@@ -80,6 +82,26 @@ function isSessionStartingInfo(value: unknown): value is ISessionStartingInfo {
     return isPositiveInt(value.pid) && isPositiveInt(value.startedAt);
 }
 
+function normalizeSessionStartingInfo(raw: ISessionStartingInfo): ISessionStartingInfo {
+    const electronPids = Array.isArray(raw.electronPids)
+        ? raw.electronPids.filter(isPositiveInt)
+        : [];
+    const cdpPorts = Array.isArray(raw.cdpPorts)
+        ? raw.cdpPorts.filter(isPositiveInt)
+        : [];
+    return {
+        pid: raw.pid,
+        startedAt: raw.startedAt,
+        electronPids,
+        cdpPorts,
+        electronUserDataDir: typeof raw.electronUserDataDir === 'string' && raw.electronUserDataDir.length > 0
+            ? raw.electronUserDataDir
+            : null,
+        nuxtPid: isNullablePositiveInt(raw.nuxtPid) ? raw.nuxtPid : null,
+        nuxtPort: isNullablePositiveInt(raw.nuxtPort) ? raw.nuxtPort : null,
+    };
+}
+
 export function getSessionInfo(name = getCurrentSessionName()): ISessionInfo | null {
     const raw = parseJsonFile(sessionFilePath(name));
     if (!isSessionInfo(raw)) {
@@ -93,7 +115,7 @@ export function getSessionStartingInfo(name = getCurrentSessionName()): ISession
     if (!isSessionStartingInfo(raw)) {
         return null;
     }
-    return raw;
+    return normalizeSessionStartingInfo(raw);
 }
 
 export function readSessionLogTail(maxLines = 80) {
@@ -111,6 +133,37 @@ export function markSessionStarting(pid: number) {
     writeFileSync(sessionStartingFilePath(), JSON.stringify({
         pid,
         startedAt: Date.now(),
+        electronPids: [],
+        cdpPorts: [],
+        electronUserDataDir: electronUserDataPath(),
+        nuxtPid: null,
+        nuxtPort: null,
+    }));
+}
+
+export function recordSessionStartingAttempt(update: Partial<Pick<
+    ISessionStartingInfo,
+    'electronPids' | 'cdpPorts' | 'electronUserDataDir' | 'nuxtPid' | 'nuxtPort'
+>>) {
+    const current = getSessionStartingInfo();
+    if (!current) {
+        return;
+    }
+    const electronPids = [
+        ...current.electronPids,
+        ...(update.electronPids ?? []),
+    ].filter(isPositiveInt);
+    const cdpPorts = [
+        ...current.cdpPorts,
+        ...(update.cdpPorts ?? []),
+    ].filter(isPositiveInt);
+    writeFileSync(sessionStartingFilePath(), JSON.stringify({
+        ...current,
+        electronPids: [...new Set(electronPids)],
+        cdpPorts: [...new Set(cdpPorts)],
+        electronUserDataDir: update.electronUserDataDir ?? current.electronUserDataDir,
+        nuxtPid: update.nuxtPid ?? current.nuxtPid,
+        nuxtPort: update.nuxtPort ?? current.nuxtPort,
     }));
 }
 
@@ -118,6 +171,52 @@ export function clearSessionStarting(name = getCurrentSessionName()) {
     try {
         unlinkSync(sessionStartingFilePath(name));
     } catch {}
+}
+
+async function killRecordedStartingProcesses(
+    name: string,
+    starting: ISessionStartingInfo,
+    options: { killNuxt?: boolean } = {},
+) {
+    for (const electronPid of starting.electronPids) {
+        if (isProcessAlive(electronPid)) {
+            await killProcessTree(electronPid, 800);
+        }
+    }
+
+    for (const cdpPort of starting.cdpPorts) {
+        const cdpPids = findPidsByCommandSubstring(`--remote-debugging-port=${cdpPort}`);
+        for (const pid of cdpPids) {
+            if (isProcessAlive(pid)) {
+                await killProcessTree(pid, 800);
+            }
+        }
+    }
+
+    const userDataDir = starting.electronUserDataDir ?? electronUserDataPath(name);
+    const userDataPids = findPidsByCommandSubstring(`--user-data-dir=${userDataDir}`);
+    for (const pid of userDataPids) {
+        if (isProcessAlive(pid)) {
+            await killProcessTree(pid, 800);
+        }
+    }
+
+    if (options.killNuxt !== false && starting.nuxtPid && isProcessAlive(starting.nuxtPid)) {
+        await killProcessTree(starting.nuxtPid, 1200);
+    }
+}
+
+export async function cleanupSessionStartingAttempt(
+    name = getCurrentSessionName(),
+    options: { killNuxt?: boolean } = {},
+) {
+    const starting = getSessionStartingInfo(name);
+    if (!starting) {
+        return;
+    }
+    clearSessionStarting(name);
+    await killRecordedStartingProcesses(name, starting, options);
+    clearSessionStarting(name);
 }
 
 export function isSessionStarting(name = getCurrentSessionName()) {
@@ -149,7 +248,7 @@ export async function cleanupStaleSessionArtifacts(name = getCurrentSessionName(
 
     const starting = getSessionStartingInfo(name);
     if (starting && !isProcessAlive(starting.pid)) {
-        clearSessionStarting(name);
+        await cleanupSessionStartingAttempt(name);
     }
 
     if (info && !(await isSessionRunning(name)) && !isProcessAlive(info.pid)) {

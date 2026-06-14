@@ -21,6 +21,7 @@ const builds = [
         entryPoints: ['electron/preload.ts'],
         format: 'cjs',
         outfile: 'dist-electron/preload.cjs',
+        minify: false,
         external: ['electron'],
     },
     ...WORKER_BUNDLES.map(bundle => ({

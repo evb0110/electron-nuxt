@@ -10,6 +10,7 @@ import {
     buildMacOSAutomationAppEntryPaths,
     buildMacOSHiddenAppBundlePaths,
     buildNuxtDevServerEnv,
+    resolveAutomationRendererReadyEnv,
     resolveAutomationWindowEnv,
     sanitizeElectronLaunchEnv,
     shouldBootstrapInteractiveDevProfile,
@@ -32,6 +33,9 @@ import {
 import { isReusableNuxtResponse } from '@scripts/electron-run/isReusableNuxtResponse';
 import {
     hasOtherAliveSessionUsingNuxt,
+    isElectronAppPageUrl,
+    isNuxtDevServerUrl,
+    isRendererReadinessError,
     selectOrphanedProjectNuxtRootCleanupTargets,
     selectStaleNuxtPortOwnerCleanupTargets,
 } from '@scripts/electron-run/sessionManager';
@@ -140,6 +144,37 @@ describe('sessionManager automation launch args', () => {
             EVB_AUTOMATION_NO_FOCUS: '0',
             EVB_AUTOMATION_HIDE_WINDOW: '1',
         });
+    });
+
+    it('waits for renderer readiness only for hidden automation by default', () => {
+        expect(resolveAutomationRendererReadyEnv({}, {
+            EVB_AUTOMATION_NO_FOCUS: '0',
+            EVB_AUTOMATION_HIDE_WINDOW: '0',
+        })).toBe('0');
+
+        expect(resolveAutomationRendererReadyEnv({}, {
+            EVB_AUTOMATION_NO_FOCUS: '1',
+            EVB_AUTOMATION_HIDE_WINDOW: '0',
+        })).toBe('1');
+
+        expect(resolveAutomationRendererReadyEnv({}, {
+            EVB_AUTOMATION_NO_FOCUS: '0',
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+        })).toBe('1');
+    });
+
+    it('respects explicit renderer readiness overrides', () => {
+        const visibleWindowEnv = {
+            EVB_AUTOMATION_NO_FOCUS: '0',
+            EVB_AUTOMATION_HIDE_WINDOW: '0',
+        };
+
+        expect(resolveAutomationRendererReadyEnv({ EVB_WAIT_RENDERER_READY: '1' }, visibleWindowEnv)).toBe('1');
+
+        expect(resolveAutomationRendererReadyEnv({ EVB_WAIT_RENDERER_READY: '0' }, {
+            EVB_AUTOMATION_NO_FOCUS: '1',
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+        })).toBe('0');
     });
 
     it('forces e2e automation into dockless hidden mode even from interactive env defaults', () => {
@@ -313,6 +348,32 @@ describe('sessionManager automation launch args', () => {
         expect(url).toBe('http://127.0.0.1:3235/electron');
         expect(init).toMatchObject({method: 'GET'});
         expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it('recognizes only the Electron route as an Electron app page', () => {
+        expect(isElectronAppPageUrl('http://127.0.0.1:3235/electron')).toBe(true);
+        expect(isElectronAppPageUrl('http://localhost:3235/electron/settings')).toBe(true);
+        expect(isElectronAppPageUrl('evb-viewer://app/electron')).toBe(true);
+        expect(isElectronAppPageUrl('evb-viewer://app/electron/settings')).toBe(true);
+
+        expect(isElectronAppPageUrl('http://127.0.0.1:3235/')).toBe(false);
+        expect(isElectronAppPageUrl('http://localhost:3235/workspace')).toBe(false);
+        expect(isElectronAppPageUrl('evb-viewer://app/')).toBe(false);
+        expect(isElectronAppPageUrl('about:blank')).toBe(false);
+    });
+
+    it('keeps Nuxt dev-server asset URLs eligible for optimize-dep recovery', () => {
+        expect(isNuxtDevServerUrl('http://127.0.0.1:3235/_nuxt/app.js')).toBe(true);
+        expect(isNuxtDevServerUrl('http://localhost:3235/')).toBe(true);
+        expect(isNuxtDevServerUrl('http://127.0.0.1:3236/_nuxt/app.js')).toBe(false);
+        expect(isNuxtDevServerUrl('evb-viewer://app/electron')).toBe(false);
+    });
+
+    it('classifies renderer readiness failures as non-transient launch failures', () => {
+        expect(isRendererReadinessError(new Error('Renderer readiness timeout (electronAPI=undefined)'))).toBe(true);
+        expect(isRendererReadinessError(new Error('Renderer startup timed out after 30000ms'))).toBe(true);
+        expect(isRendererReadinessError(new Error('frame was detached'))).toBe(false);
+        expect(isRendererReadinessError(new Error('VITE_OPTIMIZE_DEP_504'))).toBe(false);
     });
 
     it('treats failed Nuxt HTTP readiness probes as not ready', async () => {

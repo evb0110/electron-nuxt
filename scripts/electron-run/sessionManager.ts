@@ -26,6 +26,7 @@ import {
     buildElectronExecutablePath,
     prepareMacOSAutomationAppEntry,
     prepareMacOSHiddenAppBundle,
+    resolveAutomationRendererReadyEnv,
     resolveAutomationWindowEnv,
     sanitizeElectronLaunchEnv,
     shouldBootstrapInteractiveDevProfile,
@@ -54,6 +55,7 @@ import { projectRoot } from '@scripts/electron-run/projectRoot';
 import { parseElectronRunCommandRequest } from '@scripts/electron-run/electronRunProtocol';
 import {
     cleanupStaleSessionArtifacts,
+    cleanupSessionStartingAttempt,
     clearSessionStarting,
     getSessionInfo,
     getSessionStartingInfo,
@@ -62,6 +64,7 @@ import {
     listAllSessionNames,
     listRunningSessions,
     markSessionStarting,
+    recordSessionStartingAttempt,
     readSessionLogTail,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
@@ -96,9 +99,10 @@ let sessionState: ISessionState | null = null;
 const handleCommand = createCommandHandler(() => sessionState);
 const MAX_CONSOLE_MESSAGES = 400;
 const MAX_DEVTOOLS_EVENTS = 1200;
-const RENDERER_READY_TIMEOUT_MS = 15_000;
+const RENDERER_READY_TIMEOUT_MS = 30_000;
 const ELECTRON_APP_PAGE_APPEAR_TIMEOUT_MS = 20_000;
 const VITE_OPTIMIZE_DEP_ERROR_MARKER = 'VITE_OPTIMIZE_DEP_504';
+const RENDERER_READINESS_ERROR_NAME = 'RendererReadinessError';
 const ELECTRON_START_TIMEOUT_MS = 45_000;
 const ELECTRON_LAUNCH_ATTEMPTS = 3;
 const ELECTRON_LAUNCH_RETRY_DELAY_MS = 5_000;
@@ -143,6 +147,21 @@ function isViteOptimizeDepError(error: unknown) {
         || error.message.includes('optimize-dep');
 }
 
+function createRendererReadinessError(message: string) {
+    const error = new Error(message);
+    error.name = RENDERER_READINESS_ERROR_NAME;
+    return error;
+}
+
+export function isRendererReadinessError(error: unknown) {
+    if (!(error instanceof Error)) {
+        return false;
+    }
+    return error.name === RENDERER_READINESS_ERROR_NAME
+        || error.message.includes('Renderer readiness timeout')
+        || error.message.includes('Renderer startup timed out');
+}
+
 function isTransientPageContextError(error: unknown) {
     if (!(error instanceof Error)) {
         return false;
@@ -167,6 +186,12 @@ async function killElectronProcessesByCdpPort(cdpPort: number | null | undefined
 
     const pids = findPidsByCommandSubstring(`--remote-debugging-port=${cdpPort}`);
     await killProcessTreeForPids(pids, 500);
+}
+
+async function killElectronProcessesByUserDataDir(userDataDir: string, graceMs = 800) {
+    const pids = [...new Set(findPidsByCommandSubstring(`--user-data-dir=${userDataDir}`))];
+    await killProcessTreeForPids(pids, graceMs);
+    return pids.length;
 }
 
 function createElectronStartupLog() {
@@ -220,6 +245,7 @@ function buildElectronRuntimeEnv(cdpPort: number, mainJs: string) {
         EVB_SERVER_PORT: String(getNuxtPort()),
         EVB_SERVER_PATH: ELECTRON_SERVER_PATH,
         EVB_WAIT_FOR_EXTERNAL_DEV_SERVER: '1',
+        EVB_WAIT_RENDERER_READY: resolveAutomationRendererReadyEnv(process.env, automationWindowEnv),
         ...automationWindowEnv,
         EVB_AUTOMATION_USER_DATA_DIR: automationUserDataDir,
         EVB_AUTOMATION_SESSION_NAME: getCurrentSessionName(),
@@ -489,16 +515,48 @@ async function reattachToAppPage(
     return currentPage;
 }
 
-function isAppPageUrl(url: string) {
-    const port = getNuxtPort();
-    return url.startsWith('evb-viewer://app/')
-        || url.includes(`localhost:${port}`)
-        || url.includes(`127.0.0.1:${port}`);
+function isElectronRendererPath(pathname: string) {
+    return pathname === ELECTRON_SERVER_PATH
+        || pathname.startsWith(`${ELECTRON_SERVER_PATH}/`);
+}
+
+function isLocalNuxtHost(hostname: string) {
+    return hostname === '127.0.0.1'
+        || hostname === 'localhost'
+        || hostname === '::1'
+        || hostname === '[::1]';
+}
+
+export function isElectronAppPageUrl(url: string) {
+    try {
+        const parsedUrl = new URL(url);
+        if (parsedUrl.protocol === 'evb-viewer:' && parsedUrl.hostname === 'app') {
+            return isElectronRendererPath(parsedUrl.pathname);
+        }
+
+        return (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:')
+            && isLocalNuxtHost(parsedUrl.hostname)
+            && parsedUrl.port === String(getNuxtPort())
+            && isElectronRendererPath(parsedUrl.pathname);
+    } catch {
+        return false;
+    }
+}
+
+export function isNuxtDevServerUrl(url: string) {
+    try {
+        const parsedUrl = new URL(url);
+        return (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:')
+            && isLocalNuxtHost(parsedUrl.hostname)
+            && parsedUrl.port === String(getNuxtPort());
+    } catch {
+        return false;
+    }
 }
 
 async function findAppPage(browser: Browser): Promise<Page | null> {
     const pages = await browser.pages();
-    return pages.find(page => isAppPageUrl(page.url())) ?? null;
+    return pages.find(page => isElectronAppPageUrl(page.url())) ?? null;
 }
 
 async function waitForAppPage(browser: Browser, timeoutMs: number): Promise<Page | null> {
@@ -613,7 +671,7 @@ async function ensureAppPageLoaded(
     page: Page,
     logTiming: (message: string) => void,
 ) {
-    if (isAppPageUrl(page.url())) {
+    if (isElectronAppPageUrl(page.url())) {
         return page;
     }
 
@@ -657,7 +715,7 @@ function createOptimizeDepWatcher() {
             }
             trackedPage = nextPage;
             responseListener = (response) => {
-                if (response.status() === 504 && isAppPageUrl(response.url())) {
+                if (response.status() === 504 && isNuxtDevServerUrl(response.url())) {
                     sawOutdatedOptimizeDep = true;
                     optimizeDepUrl = response.url();
                 }
@@ -833,7 +891,7 @@ async function waitForReadyRenderer(
         if (watcher.sawOutdatedOptimizeDep()) {
             throw createViteOptimizeDepError(watcher.optimizeDepUrl() ?? 'Outdated Optimize Dep while waiting for renderer bindings');
         }
-        throw new Error(`Renderer readiness timeout (openFileDirect=${rendererState.openFileDirect}, electronAPI=${rendererState.electronAPI}, nuxtChildren=${rendererState.nuxtRootChildren}, text=${rendererState.bodyTextLength}, url=${rendererState.url}, body="${rendererState.bodyTextSnippet}")`);
+        throw createRendererReadinessError(`Renderer readiness timeout (openFileDirect=${rendererState.openFileDirect}, electronAPI=${rendererState.electronAPI}, nuxtChildren=${rendererState.nuxtRootChildren}, text=${rendererState.bodyTextLength}, url=${rendererState.url}, body="${rendererState.bodyTextSnippet}")`);
     }
     return currentPage;
 }
@@ -936,12 +994,20 @@ function clearElectronUserDataCache() {
 
 async function killStaleElectronForCurrentSession() {
     const staleInfo = getSessionInfo();
-    if (!staleInfo?.electronPid || !isProcessAlive(staleInfo.electronPid)) {
-        return;
+    const pids = new Set(findPidsByCommandSubstring(`--user-data-dir=${electronUserDataPath()}`));
+    if (staleInfo?.electronPid && isProcessAlive(staleInfo.electronPid)) {
+        pids.add(staleInfo.electronPid);
     }
-    await killProcessTree(staleInfo.electronPid, 500);
-    await killElectronProcessesByCdpPort(staleInfo.cdpPort);
-    await delay(500);
+
+    if (pids.size > 0) {
+        await killProcessTreeForPids([...pids], 500);
+    }
+    if (staleInfo?.cdpPort) {
+        await killElectronProcessesByCdpPort(staleInfo.cdpPort);
+    }
+    if (pids.size > 0 || staleInfo?.cdpPort) {
+        await delay(500);
+    }
 }
 
 async function allocateAutomationPorts(logTiming: (message: string) => void) {
@@ -1003,7 +1069,16 @@ async function launchAutomationSessionWithRecovery(options: {
         let electronProcess: ChildProcess | null = null;
 
         try {
+            recordSessionStartingAttempt({
+                cdpPorts: [cdpPort],
+                electronUserDataDir: electronUserDataPath(),
+                nuxtPid: nuxtProcess?.pid ?? null,
+                nuxtPort: getNuxtPort(),
+            });
             electronProcess = await startElectron(cdpPort);
+            if (electronProcess.pid) {
+                recordSessionStartingAttempt({electronPids: [electronProcess.pid]});
+            }
             options.logTiming('Electron process/CDP ready');
             const {
                 browser,
@@ -1026,6 +1101,10 @@ async function launchAutomationSessionWithRecovery(options: {
                 await stopElectronLaunchAttempt(electronProcess, cdpPort);
             } else {
                 await killElectronProcessesByCdpPort(cdpPort);
+            }
+
+            if (isRendererReadinessError(error)) {
+                throw error;
             }
 
             if (attempt === 0 && isViteOptimizeDepError(error)) {
@@ -1242,6 +1321,53 @@ async function cleanupSessionAndExit(exitCode: number, httpServer: ReturnType<ty
     process.exit(exitCode);
 }
 
+function getSignalExitCode(signal: NodeJS.Signals) {
+    if (signal === 'SIGINT') {
+        return 130;
+    }
+    return 143;
+}
+
+function installStartupSignalCleanup() {
+    let active = true;
+    let cleanupStarted = false;
+    let cleanupPromise: Promise<void> | null = null;
+
+    const handleStartupSignal = (signal: NodeJS.Signals) => {
+        if (!active || cleanupStarted) {
+            return;
+        }
+        cleanupStarted = true;
+        console.log(`\n[Session] Received ${signal} during startup, cleaning up...`);
+        cleanupPromise = cleanupSessionStartingAttempt()
+            .catch((error) => {
+                const message = error instanceof Error ? error.message : String(error);
+                console.error(`[Session] Startup cleanup failed: ${message}`);
+            })
+            .finally(() => {
+                process.exit(getSignalExitCode(signal));
+            });
+        void cleanupPromise;
+    };
+
+    process.once('SIGINT', handleStartupSignal);
+    process.once('SIGTERM', handleStartupSignal);
+
+    return {
+        disarm() {
+            active = false;
+            process.off('SIGINT', handleStartupSignal);
+            process.off('SIGTERM', handleStartupSignal);
+        },
+        wasTriggered() {
+            return cleanupStarted;
+        },
+        async waitForCleanup() {
+            await cleanupPromise;
+        },
+    };
+}
+
 function createSessionCommandServer() {
     return createServer((req, res) => {
         if (req.method !== 'POST') {
@@ -1310,6 +1436,14 @@ export async function startSession(forceClean = false) {
     }
 
     console.log(`Starting Electron Puppeteer session '${getCurrentSessionName()}'...\n`);
+    const startupSignalCleanup = installStartupSignalCleanup();
+    const stopIfStartupInterrupted = async () => {
+        if (!startupSignalCleanup.wasTriggered()) {
+            return false;
+        }
+        await startupSignalCleanup.waitForCleanup();
+        return true;
+    };
 
     try {
         const sharedRenderer = applyE2ESharedRendererPort(process.env);
@@ -1325,13 +1459,22 @@ export async function startSession(forceClean = false) {
             nuxtProcess = await startNuxtServer(startupOptions.forceClean);
             logTiming('Nuxt startup phase complete');
         }
+        if (await stopIfStartupInterrupted()) {
+            return;
+        }
 
         if (!sharedRenderer && startupOptions.forceClean) {
             clearElectronUserDataCache();
         }
 
         await killStaleElectronForCurrentSession();
+        if (await stopIfStartupInterrupted()) {
+            return;
+        }
         const ports = await allocateAutomationPorts(logTiming);
+        if (await stopIfStartupInterrupted()) {
+            return;
+        }
         const launch = await launchAutomationSessionWithRecovery({
             cdpPort: ports.cdpPort,
             nuxtProcess,
@@ -1339,6 +1482,9 @@ export async function startSession(forceClean = false) {
             usesSharedRenderer: sharedRenderer !== null,
             logTiming,
         });
+        if (await stopIfStartupInterrupted()) {
+            return;
+        }
         const diagnostics = attachPageDiagnostics(launch.page);
 
         sessionState = {
@@ -1389,6 +1535,7 @@ export async function startSession(forceClean = false) {
             logTiming,
         });
 
+        startupSignalCleanup.disarm();
         process.on('SIGINT', () => {
             void cleanupAndExit(0);
         });
@@ -1398,6 +1545,8 @@ export async function startSession(forceClean = false) {
 
         await new Promise(() => {});
     } catch (error) {
+        startupSignalCleanup.disarm();
+        await cleanupSessionStartingAttempt();
         clearSessionStarting();
         throw error;
     }
@@ -1487,6 +1636,13 @@ export async function stopSingleSession(name: string, options: {keepNuxt?: boole
     const starting = getSessionStartingInfo(name);
 
     if (!info && !starting) {
+        const orphanCount = await killElectronProcessesByUserDataDir(electronUserDataPath(name));
+        if (orphanCount > 0) {
+            await delay(250);
+            console.log(`Cleaned ${orphanCount} orphaned Electron process(es) for session '${name}'.`);
+            return;
+        }
+
         console.log(`No session '${name}' running.`);
         return;
     }
@@ -1498,6 +1654,7 @@ export async function stopSingleSession(name: string, options: {keepNuxt?: boole
     if (starting?.pid && isProcessAlive(starting.pid)) {
         await killProcessTree(starting.pid, 1000);
     }
+    await cleanupSessionStartingAttempt(name, {killNuxt: options.keepNuxt !== true});
     clearSessionStarting(name);
 
     await delay(options.keepNuxt ? 1000 : 250);
@@ -1600,6 +1757,10 @@ export async function startSessionDetached(options: { env?: NodeJS.ProcessEnv } 
         await delay(300);
     }
     if (!ready) {
+        if (child.pid && isProcessAlive(child.pid)) {
+            await killProcessTree(child.pid, 1500);
+        }
+        await cleanupSessionStartingAttempt();
         const tail = readSessionLogTail();
         const details = tail ? `\n\n--- Recent session log ---\n${tail}` : '';
         throw new Error(`Detached session failed to become ready in ${Math.round(timeoutMs / 1000)}s. Check logs: ${sessionLogFilePath()}${details}`);

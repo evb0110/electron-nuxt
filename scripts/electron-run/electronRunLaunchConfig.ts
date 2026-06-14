@@ -96,6 +96,19 @@ export function resolveAutomationWindowEnv(
     };
 }
 
+export function resolveAutomationRendererReadyEnv(
+    env: NodeJS.ProcessEnv,
+    automationWindowEnv: ReturnType<typeof resolveAutomationWindowEnv>,
+) {
+    if (env.EVB_WAIT_RENDERER_READY !== undefined) {
+        return env.EVB_WAIT_RENDERER_READY;
+    }
+    return automationWindowEnv.EVB_AUTOMATION_HIDE_WINDOW === '1'
+        || automationWindowEnv.EVB_AUTOMATION_NO_FOCUS === '1'
+        ? '1'
+        : '0';
+}
+
 export function buildHeadlessAutomationEnv(env: NodeJS.ProcessEnv = process.env) {
     return {
         ...env,

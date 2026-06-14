@@ -28,6 +28,10 @@ export function isElectronRoutePath(path: string | null | undefined) {
     return path === '/electron' || path?.startsWith('/electron/') === true;
 }
 
+export function isElectronUserAgent(userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent) {
+    return /\bElectron\//u.test(userAgent);
+}
+
 export function shouldPreferDesktopPlatform(
     routePath: string | null | undefined,
     desktopRuntime = false,
