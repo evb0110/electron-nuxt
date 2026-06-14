@@ -290,6 +290,19 @@ describe('menu per-window document state', () => {
         ]));
     });
 
+    it('installs the built native application menu instead of clearing it', () => {
+        const window = mocks.createWindow(1, 'Window');
+
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+
+        const builtMenu = mocks.buildFromTemplate.mock.results.at(-1)?.value;
+        expect(builtMenu).toBeDefined();
+        expect(mocks.setApplicationMenu).toHaveBeenLastCalledWith(builtMenu);
+        expect(mocks.setApplicationMenu).not.toHaveBeenCalledWith(null);
+    });
+
     it('adds print current page to the native file menu', () => {
         const window = mocks.createWindow(1, 'Window');
 

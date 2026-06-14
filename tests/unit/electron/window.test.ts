@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => {
 
         readonly id = MockBrowserWindow.nextId++;
 
+        readonly options: unknown;
+
         private destroyed = false;
 
         private maximized = false;
@@ -57,7 +59,8 @@ const mocks = vi.hoisted(() => {
             setZoomLevel: vi.fn(),
         };
 
-        constructor(_options: unknown) {
+        constructor(options: unknown) {
+            this.options = options;
             MockBrowserWindow.windows.push(this);
         }
 
@@ -113,6 +116,8 @@ const mocks = vi.hoisted(() => {
         show = vi.fn(() => {
             this.visible = true;
         });
+
+        setMenuBarVisibility = vi.fn();
 
         private removeListener(event: string, handler: (...args: unknown[]) => void) {
             const existing = this.handlers.get(event) ?? [];
@@ -189,7 +194,29 @@ describe('window runtime readiness', () => {
         mocks.config.automation.hideWindow = true;
         mocks.config.automation.noFocus = false;
         mocks.config.isDev = false;
+        mocks.config.isMac = false;
         delete process.env.EVB_CLEAR_RENDERER_CACHE;
+    });
+
+    it('hides the native menu bar on non-macOS windows while preserving the application menu', async () => {
+        const { createAppWindow } = await import('@electron/window');
+
+        await createAppWindow({ showStartupPlaceholder: false });
+
+        const window = mocks.BrowserWindow.windows[0];
+        expect(window?.options).toEqual(expect.objectContaining({autoHideMenuBar: true}));
+        expect(window?.setMenuBarVisibility).toHaveBeenCalledWith(false);
+    });
+
+    it('keeps the native menu bar visible on macOS windows', async () => {
+        mocks.config.isMac = true;
+        const { createAppWindow } = await import('@electron/window');
+
+        await createAppWindow({ showStartupPlaceholder: false });
+
+        const window = mocks.BrowserWindow.windows[0];
+        expect(window?.options).toEqual(expect.objectContaining({autoHideMenuBar: false}));
+        expect(window?.setMenuBarVisibility).not.toHaveBeenCalled();
     });
 
     it('waits for the initial rendererReady signal when requested', async () => {

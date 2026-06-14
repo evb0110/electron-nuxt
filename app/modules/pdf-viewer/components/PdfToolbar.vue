@@ -437,6 +437,7 @@ function handleToolbarCommand(command: TToolbarCommand) {
     align-items: center;
     padding: 0.5rem 0.65rem;
     border-bottom: 1px solid var(--app-toolbar-border);
+    border-top: 1px solid var(--app-toolbar-border);
     background: var(--app-toolbar-bg);
     white-space: nowrap;
     overflow: visible;
