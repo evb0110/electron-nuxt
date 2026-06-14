@@ -11,8 +11,11 @@ import {
     countBy,
     sortBy,
 } from 'es-toolkit/array';
+import { basename } from 'path';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
+import { config } from '@electron/config';
 import { createLogger } from '@electron/utils/createLogger';
+import { getRecentFilesSync } from '@electron/recentFiles';
 import { te } from '@electron/te';
 import {
     getAllRegisteredAppWindows,
@@ -20,6 +23,7 @@ import {
 } from '@electron/window/registry';
 import { getErrorMessage } from '@electron/utils/error';
 
+const appName = te('app.title');
 const logger = createLogger('menu');
 const WINDOW_TABS_ACTION_CHANNEL = 'menu:windowTabsAction';
 const MENU_REBUILD_DEBOUNCE_MS = 40;
@@ -32,6 +36,29 @@ let listenersRegistered = false;
 let menuRebuildTimer: ReturnType<typeof setTimeout> | null = null;
 let menuRebuildPending = false;
 
+interface IWindowMenuActionOptions {
+    label: string;
+    channel: string;
+    accelerator?: string;
+    enabled?: boolean;
+    args?: unknown[];
+}
+
+interface ITextAwareWindowMenuActionOptions extends IWindowMenuActionOptions {nativeEditCommand: 'undo' | 'redo';}
+
+const TEXT_EDITING_FOCUS_SCRIPT = `
+(() => {
+    const element = document.activeElement;
+    if (!(element instanceof HTMLElement)) {
+        return false;
+    }
+    return element.isContentEditable
+        || Boolean(element.closest('[contenteditable="true"], [contenteditable=""]'))
+        || element instanceof HTMLInputElement
+        || element instanceof HTMLTextAreaElement;
+})()
+`;
+
 function getFocusedAppWindow() {
     const focusedWindow = BrowserWindow.getFocusedWindow();
     if (focusedWindow && !focusedWindow.isDestroyed()) {
@@ -40,6 +67,38 @@ function getFocusedAppWindow() {
 
     const windows = getAllRegisteredAppWindows();
     return windows[0] ?? null;
+}
+
+function resolveWindowFromMenuContext(window: BaseWindow | undefined) {
+    if (window instanceof BrowserWindow && !window.isDestroyed()) {
+        return window;
+    }
+
+    return getFocusedAppWindow();
+}
+
+function getWindowDocumentState(window: BrowserWindow | null) {
+    if (!window) {
+        return false;
+    }
+
+    return menuDocumentStateByWindow.get(window.id) ?? false;
+}
+
+function getWindowSaveState(window: BrowserWindow | null) {
+    if (!window) {
+        return false;
+    }
+
+    return menuSaveStateByWindow.get(window.id) ?? getWindowDocumentState(window);
+}
+
+function getWindowRepairSaveState(window: BrowserWindow | null) {
+    if (!window) {
+        return false;
+    }
+
+    return menuRepairSaveStateByWindow.get(window.id) ?? getWindowDocumentState(window);
 }
 
 function getWindowTabCount(window: BrowserWindow | null) {
@@ -94,6 +153,13 @@ function buildMoveToWindowSubmenu(
     }));
 }
 
+function buildMergeWindowSubmenu(sourceWindowId: number): MenuItemConstructorOptions[] {
+    return buildWindowTargetSubmenu(sourceWindowId, window => ({
+        kind: 'merge-window-into',
+        targetWindowId: window.id,
+    }));
+}
+
 function buildWindowTargetSubmenu(
     sourceWindowId: number,
     createAction: (window: BaseWindow) => TWindowTabsAction,
@@ -132,8 +198,546 @@ export function sendToWindow(window: BaseWindow | undefined | null, channel: str
     }
 }
 
+function createWindowMenuAction(options: IWindowMenuActionOptions): MenuItemConstructorOptions {
+    const {
+        label,
+        channel,
+        accelerator,
+        enabled = true,
+        args = [],
+    } = options;
+
+    return {
+        label,
+        ...(accelerator ? { accelerator } : {}),
+        enabled,
+        click: (_item, window) => {
+            sendToWindow(resolveWindowFromMenuContext(window), channel, ...args);
+        },
+    };
+}
+
+async function isTextEditingFocused(window: BrowserWindow) {
+    try {
+        return Boolean(await window.webContents.executeJavaScript(TEXT_EDITING_FOCUS_SCRIPT, true));
+    } catch (error) {
+        logger.warn(`Failed to inspect focused edit target: ${getErrorMessage(error)}`);
+        return false;
+    }
+}
+
+function createTextAwareWindowMenuAction(options: ITextAwareWindowMenuActionOptions): MenuItemConstructorOptions {
+    const {
+        label,
+        channel,
+        accelerator,
+        enabled = true,
+        args = [],
+        nativeEditCommand,
+    } = options;
+
+    return {
+        label,
+        ...(accelerator ? { accelerator } : {}),
+        click: (_item, window) => {
+            void (async () => {
+                const targetWindow = resolveWindowFromMenuContext(window);
+                if (!targetWindow) {
+                    return;
+                }
+
+                if (await isTextEditingFocused(targetWindow)) {
+                    if (targetWindow.isDestroyed() || targetWindow.webContents.isDestroyed()) {
+                        return;
+                    }
+
+                    try {
+                        targetWindow.webContents[nativeEditCommand]();
+                    } catch (error) {
+                        logger.warn(`Failed to invoke native ${nativeEditCommand}: ${getErrorMessage(error)}`);
+                    }
+                    return;
+                }
+
+                if (enabled) {
+                    sendToWindow(targetWindow, channel, ...args);
+                }
+            })().catch(error => logger.warn(`Failed to handle menu action "${channel}": ${getErrorMessage(error)}`));
+        },
+    };
+}
+
+function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
+    const recentFiles = getRecentFilesSync();
+
+    if (recentFiles.length === 0) {
+        return [{
+            label: te('menu.noRecentFiles'),
+            enabled: false,
+        }];
+    }
+
+    const fileItems: MenuItemConstructorOptions[] = recentFiles.map((filePath) => ({
+        label: basename(filePath),
+        click: (_, window) => {
+            sendToWindow(resolveWindowFromMenuContext(window), 'menu:openRecentFile', filePath);
+        },
+    }));
+
+    return [
+        ...fileItems,
+        { type: 'separator' },
+        {
+            label: te('menu.clearRecentFiles'),
+            click: (_, window) => {
+                sendToWindow(resolveWindowFromMenuContext(window), 'menu:clearRecentFiles');
+            },
+        },
+    ];
+}
+
+function getFileMenu(
+    documentActionsEnabled: boolean,
+    saveActionEnabled: boolean,
+    repairSaveActionEnabled: boolean,
+): MenuItemConstructorOptions {
+    return {
+        label: te('menu.file'),
+        submenu: [
+            createWindowMenuAction({
+                label: te('menu.openFile'),
+                accelerator: 'CmdOrCtrl+O',
+                channel: 'menu:openPdf',
+            }),
+            {
+                label: te('menu.openRecent'),
+                submenu: buildRecentFilesSubmenu(),
+            },
+            createWindowMenuAction({
+                label: te('menu.save'),
+                accelerator: 'CmdOrCtrl+S',
+                enabled: saveActionEnabled,
+                channel: 'menu:save',
+            }),
+            createWindowMenuAction({
+                label: te('menu.repairAndSave'),
+                enabled: repairSaveActionEnabled,
+                channel: 'menu:repairSave',
+            }),
+            createWindowMenuAction({
+                label: te('menu.saveAs'),
+                accelerator: 'CmdOrCtrl+Shift+S',
+                enabled: documentActionsEnabled,
+                channel: 'menu:saveAs',
+            }),
+            createWindowMenuAction({
+                label: te('menu.print'),
+                accelerator: 'CmdOrCtrl+P',
+                enabled: documentActionsEnabled,
+                channel: 'menu:print',
+            }),
+            createWindowMenuAction({
+                label: te('menu.printCurrentPage'),
+                enabled: documentActionsEnabled,
+                channel: 'menu:printCurrentPage',
+            }),
+            {
+                label: te('menu.export'),
+                enabled: documentActionsEnabled,
+                submenu: [
+                    createWindowMenuAction({
+                        label: te('menu.exportDocx'),
+                        accelerator: 'CmdOrCtrl+Shift+E',
+                        channel: 'menu:exportDocx',
+                    }),
+                    createWindowMenuAction({
+                        label: te('menu.exportImages'),
+                        channel: 'menu:exportImages',
+                    }),
+                    createWindowMenuAction({
+                        label: te('menu.exportMultiPageTiff'),
+                        channel: 'menu:exportMultiPageTiff',
+                    }),
+                ],
+            },
+            { type: 'separator' },
+            createWindowMenuAction({
+                label: te('menu.newTab'),
+                accelerator: 'CmdOrCtrl+T',
+                channel: 'menu:newTab',
+            }),
+            createWindowMenuAction({
+                label: te('menu.closeTab'),
+                accelerator: 'CmdOrCtrl+W',
+                channel: 'menu:closeTab',
+            }),
+            ...(config.isMac ? [] : [
+                { type: 'separator' as const },
+                {
+                    label: te('menu.quit'),
+                    accelerator: 'CmdOrCtrl+Q',
+                    click: () => {
+                        app.quit();
+                    },
+                },
+            ]),
+        ],
+    };
+}
+
+function getEditMenu(documentActionsEnabled: boolean): MenuItemConstructorOptions {
+    return {
+        label: te('menu.actions'),
+        submenu: [
+            createWindowMenuAction({
+                label: te('menu.insertImageFromFile'),
+                accelerator: 'CmdOrCtrl+Shift+I',
+                enabled: documentActionsEnabled,
+                channel: 'menu:insertImageFromFile',
+            }),
+            createWindowMenuAction({
+                label: te('menu.pasteImageFromClipboard'),
+                accelerator: 'CmdOrCtrl+Shift+V',
+                enabled: documentActionsEnabled,
+                channel: 'menu:pasteImageFromClipboard',
+            }),
+            { type: 'separator' },
+            createTextAwareWindowMenuAction({
+                label: te('menu.undo'),
+                accelerator: 'CmdOrCtrl+Z',
+                enabled: documentActionsEnabled,
+                channel: 'menu:undo',
+                nativeEditCommand: 'undo',
+            }),
+            createTextAwareWindowMenuAction({
+                label: te('menu.redo'),
+                accelerator: config.isMac ? 'Cmd+Shift+Z' : 'Ctrl+Y',
+                enabled: documentActionsEnabled,
+                channel: 'menu:redo',
+                nativeEditCommand: 'redo',
+            }),
+            { type: 'separator' },
+            { role: 'cut' },
+            { role: 'copy' },
+            { role: 'paste' },
+            { role: 'selectAll' },
+        ],
+    };
+}
+
+function getPagesMenu(documentActionsEnabled: boolean): MenuItemConstructorOptions {
+    return {
+        label: te('menu.pages'),
+        enabled: documentActionsEnabled,
+        submenu: [
+            createWindowMenuAction({
+                label: te('menu.deleteSelectedPages'),
+                channel: 'menu:deletePages',
+            }),
+            createWindowMenuAction({
+                label: te('menu.extractSelectedPages'),
+                channel: 'menu:extractPages',
+            }),
+            { type: 'separator' },
+            createWindowMenuAction({
+                label: te('menu.rotateClockwise'),
+                channel: 'menu:rotateCw',
+            }),
+            createWindowMenuAction({
+                label: te('menu.rotateCounterclockwise'),
+                channel: 'menu:rotateCcw',
+            }),
+            { type: 'separator' },
+            createWindowMenuAction({
+                label: te('menu.insertPages'),
+                channel: 'menu:insertPages',
+            }),
+        ],
+    };
+}
+
+function getViewMenu(documentActionsEnabled: boolean): MenuItemConstructorOptions {
+    return {
+        label: te('menu.view'),
+        submenu: [
+            createWindowMenuAction({
+                label: te('menu.zoomIn'),
+                accelerator: 'CmdOrCtrl+=',
+                enabled: documentActionsEnabled,
+                channel: 'menu:zoomIn',
+            }),
+            createWindowMenuAction({
+                label: te('menu.zoomOut'),
+                accelerator: 'CmdOrCtrl+-',
+                enabled: documentActionsEnabled,
+                channel: 'menu:zoomOut',
+            }),
+            createWindowMenuAction({
+                label: te('menu.actualSize'),
+                accelerator: 'CmdOrCtrl+0',
+                enabled: documentActionsEnabled,
+                channel: 'menu:actualSize',
+            }),
+            { type: 'separator' },
+            createWindowMenuAction({
+                label: te('menu.fitWidth'),
+                accelerator: 'CmdOrCtrl+1',
+                enabled: documentActionsEnabled,
+                channel: 'menu:fitWidth',
+            }),
+            createWindowMenuAction({
+                label: te('menu.fitHeight'),
+                accelerator: 'CmdOrCtrl+2',
+                enabled: documentActionsEnabled,
+                channel: 'menu:fitHeight',
+            }),
+            { type: 'separator' },
+            createWindowMenuAction({
+                label: te('menu.singlePage'),
+                enabled: documentActionsEnabled,
+                channel: 'menu:viewModeSingle',
+            }),
+            createWindowMenuAction({
+                label: te('menu.facingPages'),
+                enabled: documentActionsEnabled,
+                channel: 'menu:viewModeFacing',
+            }),
+            createWindowMenuAction({
+                label: te('menu.facingWithFirstSingle'),
+                enabled: documentActionsEnabled,
+                channel: 'menu:viewModeFacingFirstSingle',
+            }),
+            { type: 'separator' },
+            createWindowMenuAction({
+                label: te('menu.assistant'),
+                accelerator: 'CmdOrCtrl+Shift+A',
+                enabled: documentActionsEnabled,
+                channel: 'menu:toggleAssistant',
+            }),
+            { type: 'separator' },
+            {
+                label: te('menu.editorPanes'),
+                submenu: [
+                    {
+                        label: te('menu.splitEditor'),
+                        submenu: [
+                            createWindowMenuAction({
+                                label: te('menu.splitEditorRight'),
+                                channel: 'menu:splitEditor',
+                                accelerator: 'CmdOrCtrl+\\',
+                                args: ['right'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.splitEditorLeft'),
+                                channel: 'menu:splitEditor',
+                                args: ['left'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.splitEditorUp'),
+                                channel: 'menu:splitEditor',
+                                args: ['up'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.splitEditorDown'),
+                                channel: 'menu:splitEditor',
+                                args: ['down'],
+                            }),
+                        ],
+                    },
+                    {
+                        label: te('menu.focusEditorPane'),
+                        submenu: [
+                            createWindowMenuAction({
+                                label: te('menu.focusPaneRight'),
+                                channel: 'menu:focusEditorPane',
+                                args: ['right'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.focusPaneLeft'),
+                                channel: 'menu:focusEditorPane',
+                                args: ['left'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.focusPaneUp'),
+                                channel: 'menu:focusEditorPane',
+                                args: ['up'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.focusPaneDown'),
+                                channel: 'menu:focusEditorPane',
+                                args: ['down'],
+                            }),
+                        ],
+                    },
+                    {
+                        label: te('menu.moveTabToPane'),
+                        submenu: [
+                            createWindowMenuAction({
+                                label: te('menu.moveTabRight'),
+                                channel: 'menu:moveTabToPane',
+                                args: ['right'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.moveTabLeft'),
+                                channel: 'menu:moveTabToPane',
+                                args: ['left'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.moveTabUp'),
+                                channel: 'menu:moveTabToPane',
+                                args: ['up'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.moveTabDown'),
+                                channel: 'menu:moveTabToPane',
+                                args: ['down'],
+                            }),
+                        ],
+                    },
+                    {
+                        label: te('menu.copyTabToPane'),
+                        submenu: [
+                            createWindowMenuAction({
+                                label: te('menu.copyTabRight'),
+                                channel: 'menu:copyTabToPane',
+                                args: ['right'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.copyTabLeft'),
+                                channel: 'menu:copyTabToPane',
+                                args: ['left'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.copyTabUp'),
+                                channel: 'menu:copyTabToPane',
+                                args: ['up'],
+                            }),
+                            createWindowMenuAction({
+                                label: te('menu.copyTabDown'),
+                                channel: 'menu:copyTabToPane',
+                                args: ['down'],
+                            }),
+                        ],
+                    },
+                ],
+            },
+            { type: 'separator' },
+            { role: 'toggleDevTools' },
+        ],
+    };
+}
+
+function getWindowMenu(activeWindow: BrowserWindow | null): MenuItemConstructorOptions {
+    const sourceWindowId = activeWindow?.id ?? null;
+    const hasTargets = sourceWindowId === null
+        ? false
+        : getOtherWindows(sourceWindowId).length > 0;
+    const canMoveActiveTabToNewWindow = getWindowTabCount(activeWindow) > 1;
+
+    return {
+        label: te('menu.window'),
+        submenu: [
+            { role: 'minimize' },
+            { role: 'close' },
+            { type: 'separator' },
+            {
+                label: te('menu.moveActiveTabToNewWindow'),
+                enabled: sourceWindowId !== null && canMoveActiveTabToNewWindow,
+                click: () => {
+                    sendWindowTabsAction(sourceWindowId, {kind: 'move-tab-to-new-window'});
+                },
+            },
+            {
+                label: te('menu.moveActiveTabToWindow'),
+                enabled: sourceWindowId !== null && hasTargets,
+                submenu: sourceWindowId === null
+                    ? [{
+                        label: te('menu.noOtherWindows'),
+                        enabled: false,
+                    }]
+                    : buildMoveToWindowSubmenu(sourceWindowId, undefined),
+            },
+            {
+                label: te('menu.mergeWindowInto'),
+                enabled: sourceWindowId !== null && hasTargets,
+                submenu: sourceWindowId === null
+                    ? [{
+                        label: te('menu.noOtherWindows'),
+                        enabled: false,
+                    }]
+                    : buildMergeWindowSubmenu(sourceWindowId),
+            },
+            ...(config.isMac ? [
+                { type: 'separator' as const },
+                { role: 'front' as const },
+            ] : []),
+        ],
+    };
+}
+
+function getHelpMenu(): MenuItemConstructorOptions {
+    return {
+        label: te('menu.help'),
+        submenu: [
+            createWindowMenuAction({
+                label: te('menu.checkForUpdates'),
+                channel: 'menu:checkForUpdates',
+            }),
+            { type: 'separator' },
+            config.isMac
+                ? { role: 'about' }
+                : {
+                    label: te('menu.about'),
+                    click: () => { app.showAboutPanel(); },
+                },
+        ],
+    };
+}
+
+function getMacAppMenu(): MenuItemConstructorOptions {
+    return {
+        label: appName,
+        submenu: [
+            { role: 'about' },
+            { type: 'separator' },
+            { role: 'services' },
+            { type: 'separator' },
+            { role: 'hide' },
+            { role: 'hideOthers' },
+            { role: 'unhide' },
+            { type: 'separator' },
+            { role: 'quit' },
+        ],
+    };
+}
+
+function buildMenuTemplate(activeWindow: BrowserWindow | null): MenuItemConstructorOptions[] {
+    const template: MenuItemConstructorOptions[] = [];
+    const documentActionsEnabled = getWindowDocumentState(activeWindow);
+    const saveActionEnabled = getWindowSaveState(activeWindow);
+    const repairSaveActionEnabled = getWindowRepairSaveState(activeWindow);
+
+    if (config.isMac) {
+        template.push(getMacAppMenu());
+    }
+
+    template.push(
+        getFileMenu(documentActionsEnabled, saveActionEnabled, repairSaveActionEnabled),
+        getEditMenu(documentActionsEnabled),
+        getPagesMenu(documentActionsEnabled),
+        getViewMenu(documentActionsEnabled),
+        getWindowMenu(activeWindow),
+        getHelpMenu(),
+    );
+
+    return template;
+}
+
 function rebuildMenuNow() {
-    Menu.setApplicationMenu(null);
+    const activeWindow = getFocusedAppWindow();
+    const template = buildMenuTemplate(activeWindow);
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
 }
 
 function rebuildMenu(immediate = false) {
