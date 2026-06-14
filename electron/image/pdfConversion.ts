@@ -34,6 +34,10 @@ import {
     tryCreatePdfFromInputPathsNative,
     tryWritePdfFromInputPathsNative,
 } from '@electron/image/tryCreatePdfFromInputPathsNative';
+import {
+    atomicReplace,
+    makeSiblingTempPath,
+} from '@electron/utils/atomicReplace';
 
 export interface ICreatePdfFromInputPathsProgress {
     processed: number;
@@ -522,7 +526,17 @@ export async function createPdfFileFromInputPaths(
         resourceUsage,
         options,
     );
-    await writeFile(normalizedOutputPath, pdfBytes);
+    const stagedOutputPath = makeSiblingTempPath(normalizedOutputPath);
+    let replaced = false;
+    try {
+        await writeFile(stagedOutputPath, pdfBytes);
+        await atomicReplace(stagedOutputPath, normalizedOutputPath);
+        replaced = true;
+    } finally {
+        if (!replaced) {
+            await rm(stagedOutputPath, { force: true }).catch(() => undefined);
+        }
+    }
     return normalizedOutputPath;
 }
 

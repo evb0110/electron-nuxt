@@ -1,6 +1,15 @@
 import { readFile } from 'node:fs/promises';
+import {
+    chmodSync,
+    mkdtempSync,
+    writeFileSync,
+} from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import {
+    join,
+    resolve,
+} from 'node:path';
 import {
     describe,
     expect,
@@ -8,6 +17,7 @@ import {
 } from 'vitest';
 
 const platformArchHelperPath = resolve(process.cwd(), 'scripts/release/platform-arch.sh');
+const sourceMatrixScriptPath = resolve(process.cwd(), 'scripts/check-native-tools-source-matrix.sh');
 
 async function readProjectFile(path: string) {
     return readFile(path, 'utf8');
@@ -54,6 +64,50 @@ function resolveReleasePlatformArch(platform: string, arch: string) {
         ],
         { encoding: 'utf8' },
     ).trim();
+}
+
+function writeExecutable(filePath: string, body: string) {
+    writeFileSync(filePath, body);
+    chmodSync(filePath, 0o755);
+}
+
+function runSourceMatrixAsLinuxX64Host() {
+    const binDir = mkdtempSync(join(tmpdir(), 'evb-native-matrix-bin-'));
+    writeExecutable(join(binDir, 'uname'), [
+        '#!/bin/sh',
+        'case "$1" in',
+        '  -s) echo Linux ;;',
+        '  -m) echo x86_64 ;;',
+        '  *) /usr/bin/uname "$@" ;;',
+        'esac',
+        '',
+    ].join('\n'));
+    writeExecutable(join(binDir, 'pnpm'), [
+        '#!/bin/sh',
+        'if [ "$1" = "run" ] && [ "$2" = "check:ocr-language-model-registry" ]; then',
+        '  echo "stubbed ocr registry check"',
+        '  exit 0',
+        'fi',
+        'echo "unexpected pnpm invocation: $*" >&2',
+        'exit 1',
+        '',
+    ].join('\n'));
+
+    return execFileSync(
+        '/bin/bash',
+        [
+            sourceMatrixScriptPath,
+            '--all',
+        ],
+        {
+            encoding: 'utf8',
+            env: {
+                ...process.env,
+                EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN: '1',
+                PATH: `${binDir}:${process.env.PATH ?? ''}`,
+            },
+        },
+    );
 }
 
 describe('macOS native tool workflow', () => {
@@ -125,5 +179,13 @@ describe('macOS native tool workflow', () => {
         expect(verifier).toContain('run_macos_packaged_tool_smoke "unpaper"');
         expect(bundleUnpaper).toContain('if "$DEST/bin/unpaper" --help > /dev/null 2>&1; then');
         expect(bundleUnpaper).toContain('exit 1');
+    });
+
+    it('lets the release quality gate defer CI-generated host Linux resources explicitly', () => {
+        const output = runSourceMatrixAsLinuxX64Host();
+
+        expect(output).toContain('== Checking linux-x64 ==');
+        expect(output).toContain('CI-GEN  tesseract: resources/tesseract/linux-x64/bin/tesseract');
+        expect(output).toContain('Native tool source matrix check passed (--all).');
     });
 });

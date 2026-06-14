@@ -64,12 +64,18 @@ export const usePlatformHydratedState = <T>(
 
             try {
                 const nextValue = await options.loadValue();
+                if (isDisposed) {
+                    return null;
+                }
                 state.value = nextValue;
                 options.onLoaded?.(nextValue);
                 isResolved.value = true;
                 clearRetryTimer();
                 return nextValue;
             } catch (loadError) {
+                if (isDisposed) {
+                    return null;
+                }
                 error.value = options.getErrorMessage?.(loadError)
                     ?? getErrorMessage(loadError);
                 options.onError?.(loadError);
@@ -79,9 +85,11 @@ export const usePlatformHydratedState = <T>(
                 }
                 return null;
             } finally {
-                isLoading.value = false;
+                if (!isDisposed) {
+                    isLoading.value = false;
+                }
                 loadPromises.delete(options.key);
-                if (shouldRetry) {
+                if (shouldRetry && !isDisposed) {
                     scheduleRetry();
                 }
             }

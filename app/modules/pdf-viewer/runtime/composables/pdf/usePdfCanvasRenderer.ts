@@ -30,6 +30,10 @@ interface IRenderCanvasOptions {
     maxCanvasPixels?: number;
     onRenderTask?: (task: ICancelableRenderTask) => void;
     hiddenAnnotationIds?: Set<string>;
+    pageRenderCoordination?: {
+        owner: string;
+        priority: number;
+    };
 }
 
 interface ICanvasPixelSize {
@@ -176,6 +180,7 @@ export const usePdfCanvasRenderer = (deps: {
             pdfPage,
             annotationMode,
             options?.hiddenAnnotationIds,
+            options?.pageRenderCoordination,
         );
 
         return {

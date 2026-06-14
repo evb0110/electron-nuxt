@@ -1,15 +1,13 @@
 import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
-import { getPlatformAPI } from '@app/utils/platform';
+import {
+    getPlatformAPI,
+    hasElectronAPI,
+} from '@app/utils/platform';
 
 export function getWindowTabsCapability(): IWindowTabsCapability {
     return getPlatformAPI().windowTabs;
 }
 
-export function isWindowTabTransferSupported() {
-    if (typeof window === 'undefined') {
-        return false;
-    }
-
-    return typeof BroadcastChannel !== 'undefined'
-        && typeof window.open === 'function';
+export function canUseNativeWindowTabTransfers() {
+    return hasElectronAPI();
 }

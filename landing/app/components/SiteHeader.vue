@@ -4,8 +4,8 @@
       class="brand-link"
       :to="localePath('/')"
     >
-      <span class="brand-mark">{{ brandTitle.mark }}</span>
-      <span class="brand-name">{{ brandTitle.name }}</span>
+      <span class="brand-mark">EVB</span>
+      <span class="brand-name">Viewer</span>
     </NuxtLink>
 
     <div class="header-actions">
@@ -16,16 +16,4 @@
 
 <script setup lang="ts">
 const localePath = useLocalePath();
-const { t } = useI18n();
-
-const brandTitle = computed(() => {
-    const [
-        mark = '',
-        ...nameParts
-    ] = t('app.title').split(' ');
-    return {
-        mark,
-        name: nameParts.join(' '),
-    };
-});
 </script>

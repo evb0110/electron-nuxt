@@ -1,16 +1,23 @@
-import { getDb } from '~~/server/db';
+import { getOptionalDb } from '~~/server/db';
 import { landingDownload } from '~~/server/db/schema';
+import type {
+    TReleaseArch,
+    TReleasePlatform,
+} from '~~/vendor/contracts/release';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
 interface IDownloadBody {
-    platform: string
-    arch: string
+    platform: TReleasePlatform
+    arch: TReleaseArch
     version: string
     fileName: string
 }
+
+const DOWNLOAD_PLATFORMS = new Set<TReleasePlatform>(['macos', 'windows', 'linux', 'unknown']);
+const DOWNLOAD_ARCHES = new Set<TReleaseArch>(['arm64', 'x64', 'universal', 'unknown']);
 
 function validateDownloadBody(value: unknown): IDownloadBody {
     if (
@@ -23,6 +30,8 @@ function validateDownloadBody(value: unknown): IDownloadBody {
         || !value.arch
         || !value.version
         || !value.fileName
+        || !DOWNLOAD_PLATFORMS.has(value.platform as TReleasePlatform)
+        || !DOWNLOAD_ARCHES.has(value.arch as TReleaseArch)
     ) {
         throw createError({
             statusCode: 400,
@@ -31,34 +40,40 @@ function validateDownloadBody(value: unknown): IDownloadBody {
     }
 
     return {
-        platform: value.platform,
-        arch: value.arch,
+        platform: value.platform as TReleasePlatform,
+        arch: value.arch as TReleaseArch,
         version: value.version,
         fileName: value.fileName,
     };
 }
 
 export default defineEventHandler(async (event) => {
-    const config = useRuntimeConfig(event);
-    const db = getDb(config.databaseUrl ?? process.env.DATABASE_URL);
-
     const body = await readValidatedBody(event, validateDownloadBody);
+    const config = useRuntimeConfig(event);
+    const db = getOptionalDb(config.databaseUrl ?? process.env.DATABASE_URL);
+    if (!db) {
+        return { ok: true };
+    }
 
     const {
         geo, visitorHash, userAgent,
     } = await getAnalyticsRequestContext(event);
 
-    await db.insert(landingDownload).values({
-        platform: body.platform.slice(0, 20),
-        arch: body.arch.slice(0, 20),
-        version: body.version.slice(0, 50),
-        fileName: body.fileName.slice(0, 255),
-        country: geo.country,
-        city: geo.city,
-        region: geo.region,
-        visitorHash,
-        userAgent,
-    });
+    try {
+        await db.insert(landingDownload).values({
+            platform: body.platform.slice(0, 20),
+            arch: body.arch.slice(0, 20),
+            version: body.version.slice(0, 50),
+            fileName: body.fileName.slice(0, 255),
+            country: geo.country,
+            city: geo.city,
+            region: geo.region,
+            visitorHash,
+            userAgent,
+        });
+    } catch (error) {
+        console.warn('Landing download analytics insert failed', error);
+    }
 
     return { ok: true };
 });

@@ -7,6 +7,7 @@ Orchestrates the processing pipeline for scanned book pages.
 import cv2
 import numpy as np
 import os
+import tempfile
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -20,6 +21,33 @@ from detection import (
 from split import find_gutter_position, split_facing_pages
 from deskew_wrapper import deskew_page
 from crop import crop_to_content
+
+
+def write_image_atomically(path: Path, image: np.ndarray, params: list[int]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=str(path.parent),
+            prefix=f".{path.name}.",
+            suffix=path.suffix,
+            delete=False,
+        ) as tmp_file:
+            tmp_path = Path(tmp_file.name)
+
+        ok = cv2.imwrite(str(tmp_path), image, params)
+        if not ok:
+            raise RuntimeError(f"Failed to write output image: {path}")
+
+        os.replace(tmp_path, path)
+        tmp_path = None
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 class PageProcessor:
@@ -310,13 +338,11 @@ class PageProcessor:
             output_path = Path(output_dir) / output_filename
 
             progress("saving", f"Saving {output_filename}")
-            ok = cv2.imwrite(
-                str(output_path),
+            write_image_atomically(
+                output_path,
                 page,
                 [cv2.IMWRITE_PNG_COMPRESSION, png_compression],
             )
-            if not ok:
-                raise RuntimeError(f"Failed to write output image: {output_path}")
             output_paths.append(str(output_path))
             ph, pw = page.shape[:2]
             output_sizes.append({"width": int(pw), "height": int(ph)})

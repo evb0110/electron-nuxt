@@ -30,3 +30,8 @@
 - Read the FreeText note-persistence documentation before changing annotation serialization or note-window code.
 - Electron e2e runs in nightly/manual diagnostics until the smoke lane is stable enough to promote; keep release gates focused on deterministic checks.
 - For visual PDF navigation blink/skeleton debugging, see `scripts/diagnostics/README.md`.
+
+## Git
+
+- Never create a new branch unless the user explicitly asks.
+- Work directly on the repository's default branch unless the user asks to use another branch.

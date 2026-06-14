@@ -138,6 +138,7 @@ interface IBrowserDocumentsTestStore {
 }
 
 interface IBrowserDocumentsTestOpenResult {
+    isGenerated?: boolean;
     kind: string;
     originalPath: string;
     workingPath: string;
@@ -148,6 +149,7 @@ interface IBrowserDocumentsTestCapability {
     createWorkingCopyFromData: (fileName: string, data: Uint8Array) => Promise<string>;
     createWorkingCopyFromPath: (sourcePath: string, originalPath?: string) => Promise<string>;
     openCombineDialog: () => Promise<IBrowserDocumentsTestOpenResult | null>;
+    openDocumentDirectBatch: (paths: string[], requestId?: string) => Promise<IBrowserDocumentsTestOpenResult | null>;
     openImageDialog: () => Promise<string | null>;
     openPdfDialog: () => Promise<IBrowserDocumentsTestOpenResult | null>;
     openPdfDirect: (path: string) => Promise<IBrowserDocumentsTestOpenResult | null>;
@@ -922,6 +924,47 @@ describe('createBrowserDocumentsFileCapability', () => {
 
         await capability.cleanupFile(workingRef);
         await expect(browserDocumentStore.exists(workingRef)).resolves.toBe(false);
+    });
+
+    it('does not add direct-batch PDF or DjVu sources to recents when opening a generated PDF', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const pdfBytes = await createPdfBytes();
+        const pdfRef = await browserDocumentStore.createStoredDocument(
+            'first.pdf',
+            pdfBytes,
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const djvuRef = await browserDocumentStore.createStoredDocument(
+            'second.djvu',
+            new Uint8Array([1]),
+            {
+                mimeType: 'image/vnd.djvu',
+                kind: 'source',
+                saveKind: 'generic',
+            },
+        );
+        browserDjvuCapabilityMock.convertToPdf.mockImplementation(async (_path: string, outputRef: string) => {
+            await browserDocumentStore.write(outputRef, pdfBytes);
+            return {success: true};
+        });
+
+        const result = await capability.openDocumentDirectBatch([
+            pdfRef,
+            djvuRef,
+        ]);
+
+        expect(result).toEqual(expect.objectContaining({
+            kind: 'pdf',
+            isGenerated: true,
+        }));
+        await expect(capability.recentFiles.get()).resolves.toEqual([]);
     });
 
     it('cleans up the original source when cloned working copy snapshots are removed', async () => {

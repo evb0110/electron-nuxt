@@ -1,13 +1,30 @@
 import { formatWebTitleTemplate } from '@app/utils/appWindowTitle';
+import { LOCALE_CODES } from '@i18n-core';
 
 interface IUseWebSeoOptions { noindex?: boolean; }
 
 const SEO_IMAGE_PATH = '/evb-viewer-seo.png';
 const SEO_IMAGE_WIDTH = 2926;
 const SEO_IMAGE_HEIGHT = 1898;
+const FALLBACK_WEB_SITE_URL = 'https://evb-viewer-web.vercel.app';
 
 function normalizeSiteUrl(siteUrl: string) {
-    return siteUrl.endsWith('/') ? siteUrl : `${siteUrl}/`;
+    const configured = siteUrl.trim() || FALLBACK_WEB_SITE_URL;
+    const withProtocol = /^https?:\/\//iu.test(configured)
+        ? configured
+        : `https://${configured}`;
+
+    try {
+        const normalized = new URL(withProtocol);
+        if (normalized.protocol !== 'http:' && normalized.protocol !== 'https:') {
+            return `${FALLBACK_WEB_SITE_URL}/`;
+        }
+        normalized.hash = '';
+        normalized.search = '';
+        return normalized.toString().endsWith('/') ? normalized.toString() : `${normalized.toString()}/`;
+    } catch {
+        return `${FALLBACK_WEB_SITE_URL}/`;
+    }
 }
 
 export const useWebSeo = (options: IUseWebSeoOptions = {}) => {
@@ -22,7 +39,7 @@ export const useWebSeo = (options: IUseWebSeoOptions = {}) => {
             ? runtimeConfig.public.siteUrl.trim()
             : '';
         return normalizeSiteUrl(
-            configuredSiteUrl || 'https://evb-viewer-web.vercel.app',
+            configuredSiteUrl || FALLBACK_WEB_SITE_URL,
         );
     });
     const canonicalUrl = computed(() => new URL('/', siteUrl.value).toString());
@@ -101,16 +118,7 @@ export const useWebSeo = (options: IUseWebSeoOptions = {}) => {
                             t('seo.featureExport'),
                             t('seo.featureMultiTab'),
                         ],
-                        'inLanguage': [
-                            'en',
-                            'ru',
-                            'fr',
-                            'de',
-                            'es',
-                            'it',
-                            'pt',
-                            'nl',
-                        ],
+                        'inLanguage': [...LOCALE_CODES],
                     }),
                 },
                 {

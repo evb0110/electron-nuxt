@@ -5,6 +5,7 @@
         icon="i-ph-gear"
         :show-back="showBack"
         :show-eyebrow="showEyebrow"
+        :show-header="showHeader"
         @close="emit('close')"
     >
         <div class="settings-page-content">
@@ -22,9 +23,11 @@ const emit = defineEmits<{ 'close': [] }>();
 const {
     showBack = true,
     showEyebrow = true,
+    showHeader = true,
 } = defineProps<{
     showBack?: boolean;
     showEyebrow?: boolean;
+    showHeader?: boolean;
 }>();
 
 const { t } = useTypedI18n();
@@ -32,7 +35,7 @@ const { t } = useTypedI18n();
 
 <style scoped>
 .settings-page-content {
-    width: min(100%, 52rem);
+    width: min(100%, 64rem);
     margin: 0 auto;
 }
 </style>

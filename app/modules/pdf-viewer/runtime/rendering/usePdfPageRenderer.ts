@@ -1,4 +1,4 @@
-import { Mutex } from 'es-toolkit';
+import { Mutex } from 'es-toolkit/promise';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
     IPdfPageMatches,
@@ -34,6 +34,7 @@ import { usePdfRendererTextLayerController } from '@app/modules/pdf-viewer/runti
 import { usePdfRendererRerenderController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererRerenderController';
 import { usePdfRendererVisibleRenderController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererVisibleRenderController';
 import { usePdfRendererSinglePageController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSinglePageController';
+import { resolveHiddenEmbeddedAnnotationIdsForPageContainer } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
 
 export type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 
@@ -284,6 +285,37 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         setTimeout(retry, 0);
     }
 
+    function resolveCanvasHiddenAnnotationIds(pageNumber: number) {
+        const hiddenAnnotationIds = toValue(options.canvasHiddenAnnotationIds ?? options.hiddenAnnotationIds);
+        if (!hiddenAnnotationIds || hiddenAnnotationIds.size === 0) {
+            logPdfRenderTrace('renderer-page-hidden-annotations-resolved', {
+                pageNumber,
+                baseHiddenAnnotationCount: hiddenAnnotationIds?.size ?? 0,
+                resolvedHiddenAnnotationCount: hiddenAnnotationIds?.size ?? 0,
+                managedAnnotationCount: toValue(options.managedAnnotationIds)?.size ?? 0,
+                hasPageContainer: Boolean(getMountedPageContainer(pageNumber, options.container.value)),
+            });
+            return hiddenAnnotationIds;
+        }
+
+        const pageContainer = getMountedPageContainer(pageNumber, options.container.value);
+        const resolvedHiddenAnnotationIds = resolveHiddenEmbeddedAnnotationIdsForPageContainer({
+            hiddenAnnotationIds,
+            managedAnnotationIds: toValue(options.managedAnnotationIds) ?? new Set<string>(),
+            pageContainer,
+        });
+        logPdfRenderTrace('renderer-page-hidden-annotations-resolved', {
+            pageNumber,
+            baseHiddenAnnotationCount: hiddenAnnotationIds.size,
+            resolvedHiddenAnnotationCount: resolvedHiddenAnnotationIds.size,
+            managedAnnotationCount: toValue(options.managedAnnotationIds)?.size ?? 0,
+            hasPageContainer: Boolean(pageContainer),
+            baseHiddenAnnotationIds: Array.from(hiddenAnnotationIds).slice(0, 30),
+            resolvedHiddenAnnotationIds: Array.from(resolvedHiddenAnnotationIds).slice(0, 30),
+        });
+        return resolvedHiddenAnnotationIds;
+    }
+
     const searchController = usePdfRendererSearchController({
         container: options.container,
         isActive,
@@ -344,7 +376,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         canvasRenderer,
         activeRenderTasks,
         pageCanvases,
-        hiddenAnnotationIds: () => toValue(options.canvasHiddenAnnotationIds ?? options.hiddenAnnotationIds),
+        hiddenAnnotationIds: pageNumber => resolveCanvasHiddenAnnotationIds(pageNumber),
         getRenderVersion: () => renderVersion,
         getPage,
         cancelActiveRenderTask,

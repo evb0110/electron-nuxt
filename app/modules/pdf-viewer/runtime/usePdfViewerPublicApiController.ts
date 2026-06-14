@@ -22,6 +22,7 @@ interface IUsePdfViewerPublicApiControllerOptions {
     applyFitWidthToCurrentPage: NonNullable<IPdfViewerExpose['applyFitWidthToCurrentPage']>;
     waitForViewerLoadSettled: NonNullable<IPdfViewerExpose['waitForViewerLoadSettled']>;
     preserveNextSourceReloadVisibleContent: NonNullable<IPdfViewerExpose['preserveNextSourceReloadVisibleContent']>;
+    getPagePreview: IPdfViewerExpose['getPagePreview'];
     saveViewerDocument: IPdfViewerExpose['saveDocument'];
     renderLoadedPdfPagesForBrowserPrint: NonNullable<IPdfViewerExpose['renderLoadedPdfPagesForBrowserPrint']>;
     undoAnnotation: IPdfViewerExpose['undoAnnotation'];
@@ -59,6 +60,7 @@ export function usePdfViewerPublicApiController(options: IUsePdfViewerPublicApiC
 
     return createPdfViewerPublicApi({
         getViewerContainer: () => options.viewerContainer.value,
+        getPagePreview: options.getPagePreview,
         getCurrentPage: () => currentPage.value,
         scrollToPage: (pageNumber, scrollOptions) => {
             options.cancelPendingSearchScroll();

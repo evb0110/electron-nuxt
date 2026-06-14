@@ -1,5 +1,6 @@
 <template>
     <aside
+        ref="panelRef"
         class="agent-assistant-panel"
         :style="{ '--assistant-panel-width': widthVar }"
         :aria-label="t('assistant.title')"
@@ -221,9 +222,213 @@
                                     >
                                 </button>
                             </div>
-                            <p v-if="message.text || message.pending">
-                                {{ message.text || (message.pending ? t('assistant.working') : '') }}
-                            </p>
+                            <div
+                                v-if="message.text || message.pending"
+                                class="agent-assistant-message-row"
+                            >
+                                <div class="agent-assistant-message-bubble">
+                                    <template v-if="message.text">
+                                        <template
+                                            v-for="(block, blockIndex) in formatAssistantMessage(message.text)"
+                                            :key="`${message.id}-${blockIndex}`"
+                                        >
+                                            <pre
+                                                v-if="block.kind === 'code'"
+                                                class="agent-assistant-message-code-block"
+                                            ><code>{{ block.code }}</code></pre>
+                                            <p
+                                                v-else-if="block.kind === 'heading'"
+                                                class="agent-assistant-message-heading"
+                                                :data-level="block.level"
+                                            >
+                                                <template
+                                                    v-for="(segment, segmentIndex) in block.segments"
+                                                    :key="`${message.id}-${blockIndex}-${segmentIndex}`"
+                                                >
+                                                    <code
+                                                        v-if="segment.kind === 'code'"
+                                                        class="agent-assistant-message-inline-code"
+                                                    >{{ segment.text }}</code>
+                                                    <strong
+                                                        v-else-if="segment.kind === 'strong'"
+                                                        class="agent-assistant-message-strong"
+                                                    >{{ segment.text }}</strong>
+                                                    <em
+                                                        v-else-if="segment.kind === 'emphasis'"
+                                                        class="agent-assistant-message-emphasis"
+                                                    >{{ segment.text }}</em>
+                                                    <a
+                                                        v-else-if="segment.kind === 'link'"
+                                                        class="agent-assistant-message-link"
+                                                        :href="segment.href"
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                    >{{ segment.text }}</a>
+                                                    <span v-else>{{ segment.text }}</span>
+                                                </template>
+                                            </p>
+                                            <template v-else-if="block.kind === 'list'">
+                                                <ol
+                                                    v-if="block.ordered"
+                                                    class="agent-assistant-message-list is-ordered"
+                                                >
+                                                    <li
+                                                        v-for="(item, itemIndex) in block.items"
+                                                        :key="`${message.id}-${blockIndex}-${itemIndex}`"
+                                                    >
+                                                        <template
+                                                            v-for="(segment, segmentIndex) in item"
+                                                            :key="`${message.id}-${blockIndex}-${itemIndex}-${segmentIndex}`"
+                                                        >
+                                                            <code
+                                                                v-if="segment.kind === 'code'"
+                                                                class="agent-assistant-message-inline-code"
+                                                            >{{ segment.text }}</code>
+                                                            <strong
+                                                                v-else-if="segment.kind === 'strong'"
+                                                                class="agent-assistant-message-strong"
+                                                            >{{ segment.text }}</strong>
+                                                            <em
+                                                                v-else-if="segment.kind === 'emphasis'"
+                                                                class="agent-assistant-message-emphasis"
+                                                            >{{ segment.text }}</em>
+                                                            <a
+                                                                v-else-if="segment.kind === 'link'"
+                                                                class="agent-assistant-message-link"
+                                                                :href="segment.href"
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                            >{{ segment.text }}</a>
+                                                            <span v-else>{{ segment.text }}</span>
+                                                        </template>
+                                                    </li>
+                                                </ol>
+                                                <ul
+                                                    v-else
+                                                    class="agent-assistant-message-list"
+                                                >
+                                                    <li
+                                                        v-for="(item, itemIndex) in block.items"
+                                                        :key="`${message.id}-${blockIndex}-${itemIndex}`"
+                                                    >
+                                                        <template
+                                                            v-for="(segment, segmentIndex) in item"
+                                                            :key="`${message.id}-${blockIndex}-${itemIndex}-${segmentIndex}`"
+                                                        >
+                                                            <code
+                                                                v-if="segment.kind === 'code'"
+                                                                class="agent-assistant-message-inline-code"
+                                                            >{{ segment.text }}</code>
+                                                            <strong
+                                                                v-else-if="segment.kind === 'strong'"
+                                                                class="agent-assistant-message-strong"
+                                                            >{{ segment.text }}</strong>
+                                                            <em
+                                                                v-else-if="segment.kind === 'emphasis'"
+                                                                class="agent-assistant-message-emphasis"
+                                                            >{{ segment.text }}</em>
+                                                            <a
+                                                                v-else-if="segment.kind === 'link'"
+                                                                class="agent-assistant-message-link"
+                                                                :href="segment.href"
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                            >{{ segment.text }}</a>
+                                                            <span v-else>{{ segment.text }}</span>
+                                                        </template>
+                                                    </li>
+                                                </ul>
+                                            </template>
+                                            <blockquote
+                                                v-else-if="block.kind === 'blockquote'"
+                                                class="agent-assistant-message-blockquote"
+                                            >
+                                                <template
+                                                    v-for="(segment, segmentIndex) in block.segments"
+                                                    :key="`${message.id}-${blockIndex}-${segmentIndex}`"
+                                                >
+                                                    <code
+                                                        v-if="segment.kind === 'code'"
+                                                        class="agent-assistant-message-inline-code"
+                                                    >{{ segment.text }}</code>
+                                                    <strong
+                                                        v-else-if="segment.kind === 'strong'"
+                                                        class="agent-assistant-message-strong"
+                                                    >{{ segment.text }}</strong>
+                                                    <em
+                                                        v-else-if="segment.kind === 'emphasis'"
+                                                        class="agent-assistant-message-emphasis"
+                                                    >{{ segment.text }}</em>
+                                                    <a
+                                                        v-else-if="segment.kind === 'link'"
+                                                        class="agent-assistant-message-link"
+                                                        :href="segment.href"
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                    >{{ segment.text }}</a>
+                                                    <span v-else>{{ segment.text }}</span>
+                                                </template>
+                                            </blockquote>
+                                            <hr
+                                                v-else-if="block.kind === 'rule'"
+                                                class="agent-assistant-message-rule"
+                                            >
+                                            <p
+                                                v-else
+                                                class="agent-assistant-message-text"
+                                            >
+                                                <template
+                                                    v-for="(segment, segmentIndex) in block.segments"
+                                                    :key="`${message.id}-${blockIndex}-${segmentIndex}`"
+                                                >
+                                                    <code
+                                                        v-if="segment.kind === 'code'"
+                                                        class="agent-assistant-message-inline-code"
+                                                    >{{ segment.text }}</code>
+                                                    <strong
+                                                        v-else-if="segment.kind === 'strong'"
+                                                        class="agent-assistant-message-strong"
+                                                    >{{ segment.text }}</strong>
+                                                    <em
+                                                        v-else-if="segment.kind === 'emphasis'"
+                                                        class="agent-assistant-message-emphasis"
+                                                    >{{ segment.text }}</em>
+                                                    <a
+                                                        v-else-if="segment.kind === 'link'"
+                                                        class="agent-assistant-message-link"
+                                                        :href="segment.href"
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                    >{{ segment.text }}</a>
+                                                    <span v-else>{{ segment.text }}</span>
+                                                </template>
+                                            </p>
+                                        </template>
+                                    </template>
+                                    <p
+                                        v-else
+                                        class="agent-assistant-message-text"
+                                    >
+                                        {{ t('assistant.working') }}
+                                    </p>
+                                </div>
+                                <AppTooltip
+                                    v-if="message.text"
+                                    :text="copyMessageTooltip(message.id)"
+                                    :delay-duration="300"
+                                >
+                                    <UButton
+                                        class="agent-assistant-message-copy"
+                                        :aria-label="copyMessageTooltip(message.id)"
+                                        :icon="copyMessageIcon(message.id)"
+                                        color="neutral"
+                                        variant="ghost"
+                                        size="xs"
+                                        type="button"
+                                        @click="copyMessageText(message.id, message.text)"
+                                    />
+                                </AppTooltip>
+                            </div>
                         </article>
 
                         <div
@@ -417,13 +622,17 @@ import type {
     TAgentAssistantLoginMode,
     TAgentAssistantMessageRole,
 } from '@contracts/agent';
+import { formatAssistantMessage } from '@app/modules/agent-panel/utils/formatAssistantMessage';
 import { getAgentAssistantPanelView } from '@app/modules/workspace-shell/public';
 import { guardAsync } from '@app/utils/asyncGuard';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { getPlatformAPI } from '@app/utils/platform';
 import {
     defaultDocument,
     defaultWindow,
+    useClipboard,
     useEventListener,
+    useTimeoutFn,
 } from '@vueuse/core';
 
 const {
@@ -450,6 +659,7 @@ const emit = defineEmits<{
 const widthVar = computed(() => (width != null ? `${width}px` : undefined));
 
 const { t } = useTypedI18n();
+const { copy: copyClipboardText } = useClipboard();
 const ASSISTANT_MAX_IMAGE_ATTACHMENTS = 8;
 const ASSISTANT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const ASSISTANT_IMAGE_SIZE_LIMIT_LABEL = `${Math.round(ASSISTANT_MAX_IMAGE_BYTES / (1024 * 1024))} MB`;
@@ -465,11 +675,20 @@ const deviceCode = ref('');
 const draft = ref('');
 const composerImages = ref<IAgentAssistantImageAttachment[]>([]);
 const composerError = ref('');
+const copiedMessageId = ref<string | null>(null);
+const panelRef = ref<HTMLElement | null>(null);
 const messagesRef = ref<HTMLElement | null>(null);
 const state = ref<IAgentAssistantState | null>(null);
 let sendGeneration = 0;
 let stateGeneration = 0;
 let lastRefreshStartedAt = 0;
+
+const {
+    start: startCopiedMessageReset,
+    stop: stopCopiedMessageReset,
+} = useTimeoutFn(() => {
+    copiedMessageId.value = null;
+}, 1800, { immediate: false });
 
 interface IExpandedImageItem {
     src: string;
@@ -590,6 +809,107 @@ const expandedImageCaption = computed(() => {
         total: preview.images.length,
     });
 });
+
+function isCopyShortcut(event: KeyboardEvent) {
+    return (event.metaKey || event.ctrlKey)
+        && !event.altKey
+        && event.key.toLowerCase() === 'c';
+}
+
+function isEditableCopyTarget(target: EventTarget | null) {
+    if (typeof HTMLElement === 'undefined' || !(target instanceof HTMLElement)) {
+        return false;
+    }
+    return Boolean(
+        target.isContentEditable === true
+        || Boolean(target.closest('[contenteditable="true"], [contenteditable=""]'))
+        || Boolean(target.closest('input, textarea, select')),
+    );
+}
+
+function rangeIntersectsPanel(range: Range, panel: HTMLElement) {
+    try {
+        return range.intersectsNode(panel);
+    } catch {
+        return false;
+    }
+}
+
+function selectionNodeIsInPanel(node: Node | null, panel: HTMLElement) {
+    return Boolean(node && (node === panel || panel.contains(node)));
+}
+
+function getAssistantSelectionText() {
+    const panel = panelRef.value;
+    const selection = defaultDocument?.getSelection();
+    if (!panel || !selection || selection.isCollapsed || selection.rangeCount === 0) {
+        return '';
+    }
+
+    const isSelectionInPanel = selectionNodeIsInPanel(selection.anchorNode, panel)
+        || selectionNodeIsInPanel(selection.focusNode, panel)
+        || Array.from({ length: selection.rangeCount }).some((_, index) => (
+            rangeIntersectsPanel(selection.getRangeAt(index), panel)
+        ));
+    if (!isSelectionInPanel) {
+        return '';
+    }
+
+    const text = selection.toString();
+    return text.trim().length > 0 ? text : '';
+}
+
+async function copyText(text: string, logMessage: string) {
+    try {
+        await copyClipboardText(text);
+        return true;
+    } catch (error) {
+        BrowserLogger.warn('assistant', logMessage, error);
+        return false;
+    }
+}
+
+function copyMessageTooltip(messageId: string) {
+    return copiedMessageId.value === messageId
+        ? t('assistant.copyMessageCopied')
+        : t('assistant.copyMessage');
+}
+
+function copyMessageIcon(messageId: string) {
+    return copiedMessageId.value === messageId
+        ? 'i-ph-check'
+        : 'i-ph-copy';
+}
+
+async function copyMessageText(messageId: string, text: string) {
+    if (text.trim().length === 0) {
+        return;
+    }
+
+    const copied = await copyText(text, 'Failed to copy assistant message text');
+    if (!copied) {
+        return;
+    }
+
+    stopCopiedMessageReset();
+    copiedMessageId.value = messageId;
+    startCopiedMessageReset();
+}
+
+function handleAssistantCopyShortcut(event: KeyboardEvent) {
+    if (!isCopyShortcut(event) || isEditableCopyTarget(event.target)) {
+        return;
+    }
+
+    const text = getAssistantSelectionText();
+    if (!text) {
+        return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    void copyText(text, 'Failed to copy selected assistant text');
+}
 
 function cloneAssistantScope(scope: IAgentAssistantChatScope): IAgentAssistantChatScope {
     return {
@@ -969,9 +1289,11 @@ onMounted(() => {
 
 useEventListener(defaultWindow, 'focus', refreshStateAfterWindowReturn);
 useEventListener(defaultDocument, 'visibilitychange', refreshStateAfterWindowReturn);
+useEventListener(defaultWindow, 'keydown', handleAssistantCopyShortcut, { capture: true });
 useEventListener(defaultWindow, 'keydown', handleExpandedImageKeydown);
 
 onUnmounted(() => {
+    stopCopiedMessageReset();
     unsubscribe?.();
     unsubscribe = null;
 });
@@ -982,8 +1304,9 @@ onUnmounted(() => {
     position: relative;
     display: flex;
     flex-direction: column;
-    flex: 0 0 var(--assistant-panel-width, 24rem);
-    width: var(--assistant-panel-width, 24rem);
+    flex: 0 1 min(var(--assistant-panel-width, var(--app-assistant-panel-default-width)), var(--app-assistant-panel-max-viewport-width));
+    width: min(var(--assistant-panel-width, var(--app-assistant-panel-default-width)), var(--app-assistant-panel-max-viewport-width));
+    max-width: 100%;
     min-width: 0;
     min-height: 0;
     border-left: 1px solid var(--ui-border);
@@ -1149,7 +1472,7 @@ onUnmounted(() => {
 }
 
 .agent-assistant-placeholder p,
-.agent-assistant-message p,
+.agent-assistant-message-text,
 .agent-assistant-progress {
     margin: 0;
     color: var(--ui-text-muted);
@@ -1222,35 +1545,198 @@ onUnmounted(() => {
     cursor: zoom-in;
 }
 
-.agent-assistant-message p {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
+.agent-assistant-message-row {
+    display: flex;
+    max-width: 100%;
+    align-items: flex-start;
+    gap: 0.25rem;
+}
+
+.agent-assistant-message.is-user .agent-assistant-message-row {
+    flex-direction: row-reverse;
+}
+
+.agent-assistant-message-bubble {
+    display: flex;
+    min-width: 0;
+    max-width: 100%;
+    flex-direction: column;
+    gap: 0.45rem;
     padding: 0.5rem 0.7rem;
     border: 1px solid var(--ui-border);
     border-radius: 0.9rem;
     background: var(--ui-bg);
     color: var(--ui-text);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    user-select: text;
 }
 
-.agent-assistant-message.is-assistant p {
+.agent-assistant-message.is-assistant .agent-assistant-message-bubble {
     border-bottom-left-radius: 0.3rem;
 }
 
-.agent-assistant-message.is-user p {
+.agent-assistant-message.is-user .agent-assistant-message-bubble {
     border-color: transparent;
     border-bottom-right-radius: 0.3rem;
     background: var(--ui-primary);
     color: var(--ui-primary-fg);
 }
 
-.agent-assistant-message.is-system p {
+.agent-assistant-message.is-system .agent-assistant-message-bubble {
     border-color: color-mix(in oklab, var(--ui-error) 30%, var(--ui-border) 70%);
     background: color-mix(in oklab, var(--ui-error) 8%, var(--ui-bg) 92%);
     color: var(--ui-error);
 }
 
-.agent-assistant-message.is-pending p {
+.agent-assistant-message.is-pending .agent-assistant-message-bubble {
     border-color: color-mix(in oklab, var(--ui-primary) 34%, var(--ui-border) 66%);
+}
+
+.agent-assistant-message-text {
+    margin: 0;
+    color: inherit;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.agent-assistant-message-heading {
+    margin: 0;
+    color: inherit;
+    font-size: 0.875rem;
+    font-weight: var(--app-font-weight-semibold);
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.agent-assistant-message-heading[data-level="1"],
+.agent-assistant-message-heading[data-level="2"] {
+    font-size: 0.95rem;
+}
+
+.agent-assistant-message-strong {
+    color: inherit;
+    font-weight: var(--app-font-weight-semibold);
+}
+
+.agent-assistant-message-emphasis {
+    color: inherit;
+    font-style: italic;
+}
+
+.agent-assistant-message-link {
+    color: var(--ui-primary);
+    text-decoration: underline;
+    text-underline-offset: 0.14em;
+    overflow-wrap: anywhere;
+}
+
+.agent-assistant-message-list {
+    margin: 0;
+    padding-inline-start: 1.1rem;
+    color: inherit;
+}
+
+.agent-assistant-message-list li {
+    padding-inline-start: 0.05rem;
+}
+
+.agent-assistant-message-list li + li {
+    margin-top: 0.15rem;
+}
+
+.agent-assistant-message-blockquote {
+    margin: 0;
+    padding: 0.05rem 0 0.05rem 0.6rem;
+    border-left: 2px solid color-mix(in oklab, var(--ui-text-dimmed) 45%, transparent);
+    color: inherit;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.agent-assistant-message-rule {
+    width: 100%;
+    margin: 0.05rem 0;
+    border: 0;
+    border-top: 1px solid var(--ui-border);
+}
+
+.agent-assistant-message-inline-code,
+.agent-assistant-message-code-block {
+    border: 1px solid color-mix(in oklab, var(--ui-border) 72%, transparent);
+    border-radius: var(--app-radius-sm);
+    background: var(--ui-bg-muted);
+    color: var(--ui-text);
+    font-family: var(--app-font-mono);
+}
+
+.agent-assistant-message-inline-code {
+    padding: 0 0.25rem;
+    font-size: 0.78em;
+}
+
+.agent-assistant-message-code-block {
+    max-width: 100%;
+    margin: 0;
+    overflow: auto;
+    padding: 0.5rem 0.6rem;
+    font-size: 0.75rem;
+    line-height: 1.45;
+    white-space: pre;
+}
+
+.agent-assistant-message-code-block code {
+    font: inherit;
+}
+
+.agent-assistant-message.is-user .agent-assistant-message-inline-code,
+.agent-assistant-message.is-user .agent-assistant-message-code-block {
+    border-color: color-mix(in oklab, var(--ui-primary-fg) 26%, transparent);
+    background: color-mix(in oklab, var(--ui-primary-fg) 13%, transparent);
+    color: var(--ui-primary-fg);
+}
+
+.agent-assistant-message.is-user .agent-assistant-message-link {
+    color: var(--ui-primary-fg);
+}
+
+.agent-assistant-message.is-user .agent-assistant-message-blockquote {
+    border-left-color: color-mix(in oklab, var(--ui-primary-fg) 45%, transparent);
+}
+
+.agent-assistant-message.is-user .agent-assistant-message-rule {
+    border-top-color: color-mix(in oklab, var(--ui-primary-fg) 28%, transparent);
+}
+
+.agent-assistant-message.is-system .agent-assistant-message-inline-code,
+.agent-assistant-message.is-system .agent-assistant-message-code-block {
+    border-color: color-mix(in oklab, var(--ui-error) 28%, transparent);
+    background: color-mix(in oklab, var(--ui-error) 8%, var(--ui-bg) 92%);
+    color: var(--ui-error);
+}
+
+.agent-assistant-message.is-system .agent-assistant-message-link {
+    color: var(--ui-error);
+}
+
+.agent-assistant-message.is-system .agent-assistant-message-blockquote {
+    border-left-color: color-mix(in oklab, var(--ui-error) 38%, transparent);
+}
+
+.agent-assistant-message.is-system .agent-assistant-message-rule {
+    border-top-color: color-mix(in oklab, var(--ui-error) 24%, transparent);
+}
+
+.agent-assistant-message-copy {
+    flex: 0 0 auto;
+    width: 1.5rem;
+    min-width: 1.5rem;
+    height: 1.5rem;
+    min-height: 1.5rem;
+    margin-top: 0.15rem;
+    color: var(--ui-text-muted);
+    user-select: none;
 }
 
 .agent-assistant-turn-progress {
@@ -1410,7 +1896,7 @@ onUnmounted(() => {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 1.5rem;
+    padding: var(--app-assistant-image-preview-padding);
     background: color-mix(in oklab, var(--ui-bg-inverted) 78%, transparent);
     -webkit-app-region: no-drag;
 }
@@ -1429,8 +1915,8 @@ onUnmounted(() => {
     position: relative;
     z-index: 1;
     display: flex;
-    max-width: min(92vw, 72rem);
-    max-height: 92vh;
+    max-width: min(var(--app-assistant-image-preview-max-viewport-width), var(--app-assistant-image-preview-max-width));
+    max-height: var(--app-assistant-image-preview-content-max-height);
     flex-direction: column;
     align-items: center;
     gap: 0.5rem;
@@ -1439,8 +1925,8 @@ onUnmounted(() => {
 
 .agent-assistant-image-preview-image {
     display: block;
-    max-width: min(92vw, 72rem);
-    max-height: 86vh;
+    max-width: min(var(--app-assistant-image-preview-max-viewport-width), var(--app-assistant-image-preview-max-width));
+    max-height: var(--app-assistant-image-preview-image-max-height);
     border: 1px solid color-mix(in oklab, var(--ui-border) 72%, transparent);
     border-radius: var(--ui-radius);
     background: var(--ui-bg);
@@ -1450,7 +1936,7 @@ onUnmounted(() => {
 }
 
 .agent-assistant-image-preview-caption {
-    max-width: min(92vw, 72rem);
+    max-width: min(var(--app-assistant-image-preview-max-viewport-width), var(--app-assistant-image-preview-max-width));
     overflow: hidden;
     color: color-mix(in oklab, var(--ui-bg) 82%, transparent);
     font-size: 0.8125rem;
@@ -1475,11 +1961,11 @@ onUnmounted(() => {
 }
 
 .agent-assistant-image-preview-nav.is-previous {
-    left: 1rem;
+    left: var(--app-assistant-image-preview-control-offset);
 }
 
 .agent-assistant-image-preview-nav.is-next {
-    right: 1rem;
+    right: var(--app-assistant-image-preview-control-offset);
 }
 
 @keyframes agent-assistant-spin {
@@ -1493,7 +1979,7 @@ onUnmounted(() => {
         position: absolute;
         inset: var(--app-tabbar-height) 0 0 auto;
         z-index: 30;
-        width: min(100vw, 24rem);
+        width: min(100vw, var(--app-assistant-panel-default-width));
         flex: none;
         max-width: none;
         box-shadow: var(--app-pdf-context-menu-panel-shadow);

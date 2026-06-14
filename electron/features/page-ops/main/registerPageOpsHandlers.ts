@@ -44,6 +44,7 @@ import {
     validateReorderPermutation,
 } from '@electron/features/page-ops/domain/pageNumbers';
 import { insertPagesFromSourcePaths } from '@electron/features/page-ops/main/insertPagesFromSourcePaths.service';
+import { assertOpenInputPathCount } from '@electron/features/documents/public';
 import {
     clearWorkingCopyOcrArtifacts,
     enqueueWorkingCopyMutation,
@@ -215,6 +216,12 @@ async function handlePageOpsReorder(
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const actualPageCount = await getPdfPageCount(queuedWorkingCopyPath);
+        validatePageNumbers(newOrder, 'reorderPages', {
+            requireUnique: true,
+            totalPages: actualPageCount,
+        });
+        validateReorderPermutation(newOrder, actualPageCount);
         const operationResult = await reorderPages(queuedWorkingCopyPath, newOrder, event.sender?.id);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
         return operationResult;
@@ -259,6 +266,7 @@ async function handlePageOpsInsert(
             canceled: true,
         };
     }
+    assertOpenInputPathCount(result.filePaths);
     allowOpenPaths(result.filePaths, event.sender);
     const trustedSourcePaths = normalizeNonEmptyStringPaths(result.filePaths)
         .map(path => requireOpenPath(path, event.sender));
@@ -315,6 +323,7 @@ async function handlePageOpsInsertFile(
     if (!Array.isArray(sourcePaths) || sourcePaths.length === 0) {
         throw new Error('Invalid source paths');
     }
+    assertOpenInputPathCount(sourcePaths);
     const trustedSourcePaths = normalizeNonEmptyStringPaths(sourcePaths)
         .map(path => requireOpenPath(path, event.sender));
     const normalizedRequestId = typeof requestId === 'string' ? requestId.trim() : '';

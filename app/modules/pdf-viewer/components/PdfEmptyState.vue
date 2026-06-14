@@ -1,5 +1,5 @@
 <template>
-    <div class="empty-state">
+    <div ref="rootRef" class="empty-state">
         <div
             v-if="openBatchProgress"
             class="batch-progress"
@@ -76,28 +76,17 @@
                         <span class="open-panel-copy">
                             <span>{{ t('emptyState.openSubtitle') }}</span>
                         </span>
-                        <button
+                        <UButton
                             :id="openPanelButtonId"
-                            type="button"
                             class="open-panel-cta"
-                            :aria-label="t('toolbar.openPdf')"
+                            color="primary"
+                            icon="i-ph-folder-open"
+                            :label="t('emptyState.openFileEllipsis')"
+                            :loading="openInProgress"
                             :disabled="openInProgress"
+                            :aria-label="t('toolbar.openPdf')"
                             @click="openFile"
-                        >
-                            <AppSpinner
-                                v-if="openInProgress"
-                                size="sm"
-                                tone="inherit"
-                                class="shrink-0"
-                            />
-                            <UIcon
-                                v-else
-                                name="i-ph-folder-open"
-                                class="open-panel-cta-icon"
-                                aria-hidden="true"
-                            />
-                            <span>{{ t('emptyState.openFileEllipsis') }}</span>
-                        </button>
+                        />
                     </section>
 
                     <section class="start-recent" :aria-labelledby="recentFilesHeadingId">
@@ -115,16 +104,16 @@
                                         :aria-label="t('emptyState.searchRecentFiles')"
                                     >
                                 </label>
-                                <button
-                                    type="button"
+                                <UButton
                                     class="recent-clear"
+                                    color="neutral"
+                                    variant="ghost"
+                                    icon="i-ph-trash"
                                     :disabled="recentFiles.length === 0"
                                     :aria-label="t('emptyState.clearRecentFiles')"
+                                    v-bind="recentClearLabelProps"
                                     @click="requestClearRecent"
-                                >
-                                    <UIcon name="i-ph-trash" />
-                                    <span>{{ t('emptyState.clearHistory') }}</span>
-                                </button>
+                                />
                             </div>
                         </header>
 
@@ -266,6 +255,7 @@
                     class="start-tool-page"
                     :show-back="false"
                     :show-eyebrow="false"
+                    :show-header="false"
                     @close="showRecentFiles"
                     @open-result="handleCombineOpenResult"
                 />
@@ -274,6 +264,7 @@
                     class="start-tool-page"
                     :show-back="false"
                     :show-eyebrow="false"
+                    :show-header="false"
                     @close="showRecentFiles"
                 />
             </main>
@@ -322,6 +313,7 @@
 <script setup lang="ts">
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
+import { useElementSize } from '@vueuse/core';
 import { formatRelativeTime } from '@app/utils/formatters';
 import {
     displayProcessedCount,
@@ -379,6 +371,13 @@ const openPanelButtonId = useId();
 const recentSearch = ref('');
 const activeSection = ref<TStartSection>(startSection);
 const clearHistoryDialogOpen = ref(false);
+
+const rootRef = ref<HTMLElement | null>(null);
+const { width: rootWidth } = useElementSize(rootRef);
+const isRecentControlsCompact = computed(() => rootWidth.value > 0 && rootWidth.value <= 520);
+const recentClearLabelProps = computed(() => (
+    isRecentControlsCompact.value ? {} : { label: t('emptyState.clearHistory') }
+));
 
 const batchEtaText = computed(() => formatEtaDuration(openBatchProgress?.estimatedRemainingMs ?? null));
 const filteredRecentFiles = computed(() => {
@@ -495,25 +494,25 @@ watch(() => startSection, (section) => {
     width: min(100%, 38rem);
     margin: 2rem auto;
     border: 1px solid var(--ui-border);
-    border-radius: 0.5rem;
+    border-radius: var(--app-radius-2xl);
     background: var(--ui-bg-elevated);
-    padding: 0.75rem 1rem;
+    padding: var(--app-space-9xl) var(--app-space-12xl);
 }
 
 .clear-history-confirm {
     display: flex;
     align-items: flex-start;
-    gap: 0.75rem;
+    gap: var(--app-space-9xl);
 }
 
 .clear-history-confirm-icon {
     display: inline-flex;
-    width: 2rem;
-    height: 2rem;
+    width: var(--app-control-height-sm);
+    height: var(--app-control-height-sm);
     flex: 0 0 auto;
     align-items: center;
     justify-content: center;
-    border-radius: 0.5rem;
+    border-radius: var(--app-radius-2xl);
     background: var(--ui-error-50);
     color: var(--ui-error-600);
 }
@@ -525,42 +524,42 @@ watch(() => startSection, (section) => {
 
 .start-shell {
     display: grid;
-    grid-template-columns: 232px minmax(0, 1fr);
-    gap: 1.5rem;
+    grid-template-columns: var(--app-start-shell-rail-width) minmax(0, 1fr);
+    gap: var(--app-start-shell-gap);
     width: 100%;
-    max-width: 1280px;
+    max-width: var(--app-content-width-2xl);
     height: 100%;
     min-height: 0;
     margin: 0 auto;
-    padding: 1.25rem clamp(0.75rem, 2vw, 1.5rem) 1.5rem;
+    padding: var(--app-start-shell-padding);
 }
 
 .start-rail {
     display: flex;
     flex-direction: column;
-    gap: 1.1rem;
-    padding: 0.5rem 0.25rem;
+    gap: var(--app-start-rail-gap);
+    padding: var(--app-start-rail-padding);
 }
 
 .rail-section {
     display: flex;
     flex-direction: column;
-    gap: 0.18rem;
+    gap: var(--app-start-rail-section-gap);
 }
 
 .rail-item {
     display: flex;
     align-items: center;
-    gap: 0.7rem;
+    gap: var(--app-start-rail-item-gap);
     width: 100%;
-    height: 2.4rem;
-    padding: 0 0.6rem;
+    height: var(--app-start-rail-item-height);
+    padding: 0 var(--app-start-rail-item-padding-x);
     border: 1px solid transparent;
-    border-radius: 0.45rem;
+    border-radius: var(--app-start-rail-item-radius);
     background: transparent;
     color: var(--app-start-rail-item-fg);
-    font-size: 0.9rem;
-    font-weight: 500;
+    font-size: var(--app-start-rail-item-font-size);
+    font-weight: var(--app-font-weight-medium);
     text-align: left;
     cursor: pointer;
     transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
@@ -589,13 +588,13 @@ watch(() => startSection, (section) => {
 }
 
 .rail-item:disabled {
-    opacity: 0.62;
+    opacity: var(--app-opacity-muted);
     cursor: default;
 }
 
 .rail-item-icon {
-    width: 1.2rem;
-    height: 1.2rem;
+    width: var(--app-start-rail-item-icon-size);
+    height: var(--app-start-rail-item-icon-size);
     flex: 0 0 auto;
     color: currentcolor;
     opacity: 1;
@@ -604,8 +603,8 @@ watch(() => startSection, (section) => {
 .rail-shortcut {
     margin-left: auto;
     color: var(--ui-text-dimmed);
-    font-size: 0.72rem;
-    line-height: 1;
+    font-size: var(--app-start-rail-shortcut-font-size);
+    line-height: var(--app-line-height-tight);
     white-space: nowrap;
 }
 
@@ -613,17 +612,17 @@ watch(() => startSection, (section) => {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 1.25rem;
-    height: 1.25rem;
+    min-width: var(--app-start-rail-badge-size);
+    height: var(--app-start-rail-badge-size);
     margin-left: auto;
-    padding: 0 0.35rem;
-    border-radius: 999px;
+    padding: 0 var(--app-start-rail-badge-padding-x);
+    border-radius: var(--app-radius-full);
     border: 1px solid transparent;
     background: var(--app-start-rail-item-hover-bg);
     color: var(--ui-text-muted);
-    font-size: 0.7rem;
-    font-weight: 600;
-    line-height: 1;
+    font-size: var(--app-start-rail-badge-font-size);
+    font-weight: var(--app-font-weight-semibold);
+    line-height: var(--app-line-height-tight);
 }
 
 .rail-item.is-active .rail-count {
@@ -633,7 +632,7 @@ watch(() => startSection, (section) => {
 .start-main {
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
+    gap: var(--app-start-main-gap);
     min-width: 0;
     height: 100%;
     min-height: 0;
@@ -648,11 +647,11 @@ watch(() => startSection, (section) => {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 1rem;
+    gap: var(--app-start-panel-gap);
     width: 100%;
-    padding: 0.85rem 1.05rem;
+    padding: var(--app-start-panel-padding);
     border: 1px solid var(--app-start-card-border);
-    border-radius: 0.65rem;
+    border-radius: var(--app-start-panel-radius);
     background: var(--app-start-card-bg);
     color: var(--ui-text);
     flex: 0 0 auto;
@@ -662,8 +661,8 @@ watch(() => startSection, (section) => {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 2rem;
-    height: 2.25rem;
+    width: var(--app-document-icon-width);
+    height: var(--app-document-icon-height);
     flex: 0 0 auto;
 }
 
@@ -676,57 +675,26 @@ watch(() => startSection, (section) => {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 0.2rem;
+    gap: var(--app-start-panel-copy-gap);
     min-width: 0;
     flex: 1 1 auto;
 }
 
 .open-panel-copy span {
     color: var(--ui-text-muted);
-    font-size: 0.85rem;
+    font-size: var(--app-start-panel-copy-font-size);
 }
 
 .open-panel-cta {
-    display: inline-flex;
-    align-items: center;
     flex: 0 0 auto;
-    gap: 0.375rem;
-    justify-content: center;
-    min-width: 7.5rem;
-    min-height: 2rem;
-    padding: 0.375rem 0.625rem;
-    border: 0;
-    border-radius: 0.375rem;
-    background: var(--ui-primary);
-    color: var(--ui-primary-fg);
-    font-size: 0.875rem;
-    font-weight: 500;
-    line-height: 1.25rem;
-    opacity: 1;
-    transition: background-color 120ms ease, opacity 120ms ease;
-}
-
-.open-panel-cta:hover:not(:disabled),
-.open-panel-cta:active:not(:disabled) {
-    background: var(--ui-primary-hover);
-}
-
-.open-panel-cta:focus-visible {
-    outline: 2px solid var(--ui-primary);
-    outline-offset: 2px;
-}
-
-.open-panel-cta-icon {
-    width: 1rem;
-    height: 1rem;
-    flex: 0 0 auto;
+    min-width: var(--app-start-cta-min-width);
 }
 
 .start-recent {
     display: flex;
     flex-direction: column;
     border: 1px solid var(--app-start-card-border);
-    border-radius: 0.65rem;
+    border-radius: var(--app-start-panel-radius);
     background: var(--app-start-card-bg);
     overflow: hidden;
     flex: 1 1 0;
@@ -736,35 +704,40 @@ watch(() => startSection, (section) => {
 .recent-header {
     display: flex;
     align-items: center;
-    gap: 0.85rem;
+    gap: var(--app-start-recent-header-gap);
     flex: 0 0 auto;
     flex-wrap: wrap;
     justify-content: space-between;
-    padding: 0.85rem 1.05rem 0.75rem;
+    padding: var(--app-start-recent-header-padding);
 }
 
 .recent-title {
     margin: 0;
-    color: var(--ui-text);
-    font-size: 0.93rem;
-    font-weight: 600;
+    flex: 0 0 auto;
+    color: var(--ui-text-highlighted);
+    font-size: var(--app-text-size-title-sm);
+    font-weight: var(--app-font-weight-heading);
+    white-space: nowrap;
 }
 
 .recent-controls {
     display: flex;
     align-items: center;
-    gap: 0.55rem;
+    gap: var(--app-start-recent-controls-gap);
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: flex-end;
 }
 
 .recent-search {
     display: flex;
     align-items: center;
-    gap: 0.45rem;
-    width: 16rem;
-    height: 2rem;
-    padding: 0 0.65rem;
+    gap: var(--app-start-control-gap);
+    width: var(--app-start-search-width);
+    height: var(--app-control-height-sm);
+    padding: 0 var(--app-start-control-padding-x);
     border: 1px solid var(--ui-border);
-    border-radius: 0.4rem;
+    border-radius: var(--app-control-radius);
     background: var(--ui-bg);
     color: var(--ui-text-muted);
     transition: border-color 0.12s ease, box-shadow 0.12s ease;
@@ -776,8 +749,8 @@ watch(() => startSection, (section) => {
 }
 
 .recent-search-icon {
-    width: 0.95rem;
-    height: 0.95rem;
+    width: var(--app-icon-size-sm);
+    height: var(--app-icon-size-sm);
     flex: 0 0 auto;
 }
 
@@ -788,47 +761,16 @@ watch(() => startSection, (section) => {
     outline: 0;
     background: transparent;
     color: var(--ui-text);
-    font-size: 0.8125rem;
+    font-size: var(--app-text-size-body-sm);
 }
 
 .recent-search input::placeholder {
     color: var(--ui-text-dimmed);
 }
 
-.recent-clear {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    height: 2rem;
-    padding: 0 0.7rem;
-    border: 1px solid var(--ui-border);
-    border-radius: 0.4rem;
-    background: var(--ui-bg);
-    color: var(--ui-text-muted);
-    font-size: 0.78rem;
-    cursor: pointer;
-    transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-}
-
-.recent-clear :deep(.iconify) {
-    width: 0.95rem;
-    height: 0.95rem;
-}
-
-.recent-clear:hover:not(:disabled) {
-    background: var(--app-start-row-hover-bg);
-    color: var(--ui-text);
-    border-color: color-mix(in oklab, var(--ui-border) 80%, var(--ui-text) 20%);
-}
-
-.recent-clear:disabled {
-    opacity: 0.5;
-    cursor: default;
-}
-
 .recent-table {
     display: grid;
-    grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr) auto 5.5rem;
+    grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr) auto var(--app-start-table-time-width);
     grid-auto-rows: min-content;
     align-content: start;
     border-top: 1px solid var(--app-start-row-divider);
@@ -839,17 +781,17 @@ watch(() => startSection, (section) => {
 }
 
 .recent-table--compact {
-    grid-template-columns: minmax(0, 1fr) auto 5.5rem;
+    grid-template-columns: minmax(0, 1fr) auto var(--app-start-table-time-width);
 }
 
 .recent-row {
     display: grid;
     grid-template-columns: subgrid;
     grid-column: 1 / -1;
-    column-gap: 1rem;
+    column-gap: var(--app-start-row-column-gap);
     align-items: center;
     width: 100%;
-    padding: 0.7rem 0 0.7rem 1.05rem;
+    padding: var(--app-start-row-padding);
     border-bottom: 1px solid var(--app-start-row-divider);
     text-align: left;
     background: transparent;
@@ -864,14 +806,14 @@ watch(() => startSection, (section) => {
     position: sticky;
     top: 0;
     z-index: 1;
-    padding-block: 0.45rem;
+    padding-block: var(--app-start-row-head-padding-block);
     background: color-mix(in oklab, var(--ui-bg) 92%, var(--ui-bg-muted) 8%);
 }
 
 .recent-row--head .recent-col {
     color: var(--ui-text-dimmed);
-    font-size: 0.72rem;
-    font-weight: 600;
+    font-size: var(--app-text-size-caption);
+    font-weight: var(--app-font-weight-semibold);
     letter-spacing: 0;
     text-transform: none;
 }
@@ -887,9 +829,14 @@ watch(() => startSection, (section) => {
     background: var(--app-start-row-hover-bg);
 }
 
+.recent-row--data:focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--ui-primary) 55%, transparent);
+    outline-offset: -2px;
+}
+
 .recent-row--data.is-disabled {
     cursor: default;
-    opacity: 0.6;
+    opacity: var(--app-opacity-muted);
 }
 
 .recent-row--skeleton {
@@ -904,7 +851,7 @@ watch(() => startSection, (section) => {
 .recent-col--name {
     display: flex;
     align-items: center;
-    gap: 0.85rem;
+    gap: var(--app-start-recent-header-gap);
     min-width: 0;
 }
 
@@ -916,18 +863,18 @@ watch(() => startSection, (section) => {
 
 .recent-row--data .recent-col--location {
     color: var(--ui-text-muted);
-    font-size: 0.8rem;
+    font-size: var(--app-text-size-secondary);
 }
 
 .recent-location {
     display: inline-flex;
     align-items: center;
-    gap: 0.45rem;
+    gap: var(--app-start-control-gap);
     min-width: 0;
     max-width: 100%;
-    margin-left: -0.45rem;
-    padding: 0.2rem 0.45rem;
-    border-radius: 0.4rem;
+    margin-left: var(--app-start-location-margin);
+    padding: var(--app-start-location-padding);
+    border-radius: var(--app-control-radius);
     color: var(--ui-text-muted);
 }
 
@@ -947,8 +894,8 @@ watch(() => startSection, (section) => {
 }
 
 .recent-location-icon {
-    width: 1rem;
-    height: 1rem;
+    width: var(--app-icon-size-md);
+    height: var(--app-icon-size-md);
     flex: 0 0 auto;
     color: currentcolor;
 }
@@ -966,30 +913,31 @@ watch(() => startSection, (section) => {
 }
 
 .recent-row--data .recent-col--time {
-    color: var(--ui-text-dimmed);
-    font-size: 0.78rem;
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-meta);
 }
 
 .recent-col--actions {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 0.45rem;
-    padding-right: 0.7rem;
+    gap: var(--app-start-control-gap);
+    padding-right: var(--app-start-row-actions-padding-right);
 }
 
 .recent-file-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 2rem;
-    height: 2.25rem;
+    width: var(--app-document-icon-width);
+    height: var(--app-document-icon-height);
     flex: 0 0 auto;
 }
 
 .recent-file-name {
     color: var(--ui-text);
-    font-size: 0.88rem;
+    font-size: var(--app-text-size-body);
+    font-weight: var(--app-font-weight-semibold);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1000,7 +948,7 @@ watch(() => startSection, (section) => {
     position: relative;
     display: block;
     overflow: hidden;
-    border-radius: 0.35rem;
+    border-radius: var(--app-action-radius);
     background: color-mix(in oklab, var(--ui-bg-muted) 86%, var(--ui-border) 14%);
 }
 
@@ -1020,25 +968,25 @@ watch(() => startSection, (section) => {
 }
 
 .recent-skeleton-icon {
-    width: 2rem;
-    height: 2.25rem;
+    width: var(--app-document-icon-width);
+    height: var(--app-document-icon-height);
     flex: 0 0 auto;
 }
 
 .recent-skeleton-line {
-    height: 0.75rem;
+    height: var(--app-space-9xl);
 }
 
 .recent-skeleton-line--name {
-    width: min(25rem, 78%);
+    width: var(--app-start-skeleton-name-width);
 }
 
 .recent-skeleton-line--location {
-    width: 7.5rem;
+    width: var(--app-start-skeleton-location-width);
 }
 
 .recent-skeleton-line--time {
-    width: 5.75rem;
+    width: var(--app-start-skeleton-time-width);
     margin-left: auto;
 }
 
@@ -1046,10 +994,10 @@ watch(() => startSection, (section) => {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.6rem;
-    height: 1.6rem;
+    width: var(--app-action-size-sm);
+    height: var(--app-action-size-sm);
     border: 0;
-    border-radius: 0.35rem;
+    border-radius: var(--app-action-radius);
     background: transparent;
     color: var(--ui-text-dimmed);
     cursor: pointer;
@@ -1057,8 +1005,8 @@ watch(() => startSection, (section) => {
 }
 
 .recent-action :deep(.iconify) {
-    width: 1rem;
-    height: 1rem;
+    width: var(--app-icon-size-md);
+    height: var(--app-icon-size-md);
 }
 
 .recent-action:hover {
@@ -1085,9 +1033,9 @@ watch(() => startSection, (section) => {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.65rem;
+    gap: var(--app-start-empty-gap);
     flex: 1 1 auto;
-    min-height: 14rem;
+    min-height: var(--app-start-empty-min-height);
     border-top: 1px solid var(--app-start-row-divider);
     color: var(--ui-text-muted);
     text-align: center;
@@ -1095,30 +1043,30 @@ watch(() => startSection, (section) => {
 
 .recent-empty p {
     margin: 0;
-    font-size: 0.88rem;
+    font-size: var(--app-text-size-body);
 }
 
 .recent-empty-icon {
-    width: 2.25rem;
-    height: 2.25rem;
+    width: var(--app-start-empty-icon-size);
+    height: var(--app-start-empty-icon-size);
     color: var(--ui-text-dimmed);
-    opacity: 0.7;
+    opacity: var(--app-opacity-faint);
 }
 
 .recent-footer {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: var(--app-start-footer-gap);
     flex: 0 0 auto;
-    padding: 0.6rem 1.05rem;
+    padding: var(--app-start-footer-padding);
     border-top: 1px solid var(--app-start-row-divider);
     background: color-mix(in oklab, var(--ui-bg) 96%, var(--ui-bg-muted) 4%);
 }
 
 .recent-count {
-    color: var(--ui-text-dimmed);
-    font-size: 0.78rem;
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-secondary);
 }
 
 @keyframes recent-skeleton-shimmer {
@@ -1138,27 +1086,31 @@ watch(() => startSection, (section) => {
     .start-shell {
         grid-template-columns: minmax(0, 1fr);
         grid-template-rows: auto minmax(0, 1fr);
-        gap: 0.75rem;
+        gap: var(--app-start-responsive-gap);
     }
 
     .start-rail {
-        flex-flow: row wrap;
+        flex-flow: row nowrap;
         align-items: center;
-        gap: 0.4rem;
-        padding: 0.25rem 0;
+        gap: var(--app-start-responsive-rail-gap);
+        padding: var(--app-start-responsive-rail-padding);
+        min-width: 0;
     }
 
     .rail-section {
-        flex: 0 0 auto;
+        flex: 0 1 auto;
+        min-width: 0;
     }
 
     .rail-item {
         width: auto;
+        min-width: 0;
     }
 
     .rail-count,
     .rail-shortcut {
-        margin-left: 0.4rem;
+        margin-left: var(--app-start-responsive-rail-gap);
+        flex: 0 0 auto;
     }
 }
 
@@ -1166,8 +1118,8 @@ watch(() => startSection, (section) => {
     .start-open-panel {
         flex-direction: column;
         align-items: stretch;
-        padding: 1rem 1.25rem;
-        gap: 0.6rem;
+        padding: var(--app-start-responsive-panel-padding);
+        gap: var(--app-start-responsive-panel-gap);
         text-align: center;
     }
 
@@ -1185,11 +1137,11 @@ watch(() => startSection, (section) => {
     }
 
     .recent-table {
-        grid-template-columns: minmax(0, 1fr) auto 5.25rem;
+        grid-template-columns: minmax(0, 1fr) auto var(--app-start-table-time-width-compact);
     }
 
     .recent-row {
-        column-gap: 0.7rem;
+        column-gap: var(--app-start-row-column-gap-compact);
     }
 
     .recent-col--location {
@@ -1198,6 +1150,18 @@ watch(() => startSection, (section) => {
 
     .recent-row--head .recent-col--location {
         display: none;
+    }
+}
+
+@container (max-width: 520px) {
+    .recent-search {
+        flex: 1 1 var(--app-start-search-min-width);
+        width: auto;
+        min-width: 0;
+    }
+
+    .recent-clear {
+        flex: 0 0 auto;
     }
 }
 </style>

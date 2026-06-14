@@ -3,14 +3,12 @@ import path from 'node:path';
 
 const CODESIGN_CHECK_TIMEOUT_MS = 5_000;
 
-export async function checkMacCodeSignature() {
-    return new Promise<boolean>((resolve) => {
-        const appBundle = path.resolve(process.execPath, '..', '..', '..');
-        const child = spawn('codesign', [
-            '-d',
-            '--verbose=2',
-            appBundle,
-        ], {
+function runCodesign(args: string[]) {
+    return new Promise<{
+        code: number | null;
+        stderr: string;
+    }>((resolve) => {
+        const child = spawn('codesign', args, {
             shell: false,
             windowsHide: true,
             stdio: [
@@ -33,7 +31,10 @@ export async function checkMacCodeSignature() {
             } catch {
                 // Ignore kill failures after timeout.
             }
-            resolve(false);
+            resolve({
+                code: null,
+                stderr,
+            });
         }, CODESIGN_CHECK_TIMEOUT_MS);
         timeoutHandle.unref?.();
 
@@ -49,7 +50,10 @@ export async function checkMacCodeSignature() {
             if (timeoutHandle) {
                 clearTimeout(timeoutHandle);
             }
-            resolve(false);
+            resolve({
+                code: null,
+                stderr,
+            });
         });
 
         child.once('close', (code) => {
@@ -60,11 +64,36 @@ export async function checkMacCodeSignature() {
             if (timeoutHandle) {
                 clearTimeout(timeoutHandle);
             }
-            if (code !== 0) {
-                resolve(false);
-                return;
-            }
-            resolve(!stderr.includes('Signature=adhoc'));
+            resolve({
+                code,
+                stderr,
+            });
         });
     });
+}
+
+export async function checkMacCodeSignature() {
+    const appBundle = path.resolve(process.execPath, '..', '..', '..');
+    const verification = await runCodesign([
+        '--verify',
+        '--deep',
+        '--strict',
+        '--verbose=2',
+        appBundle,
+    ]);
+    if (verification.code !== 0) {
+        return false;
+    }
+
+    const details = await runCodesign([
+        '-d',
+        '--verbose=4',
+        appBundle,
+    ]);
+    if (details.code !== 0) {
+        return false;
+    }
+
+    return /^Authority=Developer ID Application:/mu.test(details.stderr)
+        && /^TeamIdentifier=\S+/mu.test(details.stderr);
 }

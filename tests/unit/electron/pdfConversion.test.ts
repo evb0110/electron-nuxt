@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => {
     const workerState: { mode: 'runtime-error' | 'startup-error' | 'success' } = { mode: 'startup-error' };
     const workerCtor = vi.fn();
     const loggerWarn = vi.fn();
+    const atomicReplace = vi.fn(async () => undefined);
+    const makeSiblingTempPath = vi.fn(() => '/tmp/.staged-output.tmp');
     const readFile = vi.fn(async () => new Uint8Array([
         1,
         2,
@@ -58,6 +60,8 @@ const mocks = vi.hoisted(() => {
         workerState,
         workerCtor,
         loggerWarn,
+        atomicReplace,
+        makeSiblingTempPath,
         readFile,
         writeFile,
         mkdtemp,
@@ -180,6 +184,11 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     info: vi.fn(),
 })}));
 
+vi.mock('@electron/utils/atomicReplace', () => ({
+    atomicReplace: mocks.atomicReplace,
+    makeSiblingTempPath: mocks.makeSiblingTempPath,
+}));
+
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({convertDjvuToPdfFile: mocks.convertDjvuToPdfFile}));
 vi.mock('@electron/djvu/metadata', () => ({getDjvuPageCount: mocks.getDjvuPageCount}));
 
@@ -207,6 +216,8 @@ describe('createPdfFromInputPaths worker fallback', () => {
         mocks.workerState.mode = 'startup-error';
         mocks.mkdtemp.mockResolvedValue('/tmp/pdf-combine-djvu-test');
         mocks.rm.mockResolvedValue(undefined);
+        mocks.atomicReplace.mockResolvedValue(undefined);
+        mocks.makeSiblingTempPath.mockReturnValue('/tmp/.staged-output.tmp');
         mocks.convertDjvuToPdfFile.mockResolvedValue({
             success: true,
             outputPath: '/tmp/pdf-combine-djvu-test/output.pdf',
@@ -301,11 +312,12 @@ describe('createPdfFromInputPaths worker fallback', () => {
         );
         expect(mocks.stat).toHaveBeenCalledTimes(1);
         expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
-        expect(mocks.writeFile).toHaveBeenCalledWith('/tmp/output.pdf', new Uint8Array([
+        expect(mocks.writeFile).toHaveBeenCalledWith('/tmp/.staged-output.tmp', new Uint8Array([
             9,
             9,
             9,
         ]));
+        expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/.staged-output.tmp', '/tmp/output.pdf');
     });
 
     it('falls back to in-process conversion when worker startup fails', async () => {

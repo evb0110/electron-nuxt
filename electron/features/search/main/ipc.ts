@@ -38,6 +38,30 @@ const SEARCH_PAGE_COUNT_MAX = (() => {
     }
     return Math.min(parsed, 1_000_000);
 })();
+const SEARCH_QUERY_MAX_LENGTH = 2_048;
+const SEARCH_REGEX_QUERY_MAX_LENGTH = 512;
+
+function assertSearchQueryWithinLimit(query: string, useRegex: boolean) {
+    const maxLength = useRegex ? SEARCH_REGEX_QUERY_MAX_LENGTH : SEARCH_QUERY_MAX_LENGTH;
+    if (query.length > maxLength) {
+        throw new Error(`Invalid search query: maximum length is ${maxLength} characters`);
+    }
+}
+
+function assertSearchRegexCompiles(query: string, options: {
+    matchCase?: boolean | undefined;
+    wholeWord?: boolean | undefined;
+}) {
+    const pattern = options.wholeWord
+        ? `(?<![\\p{L}\\p{N}_])(?:${query})(?![\\p{L}\\p{N}_])`
+        : query;
+    try {
+        new RegExp(pattern, options.matchCase ? 'gu' : 'giu');
+    } catch (error) {
+        throw new Error(`Invalid search regex: ${error instanceof Error ? error.message : 'pattern could not be compiled'}`);
+    }
+}
+
 function parseOptionalPageCount(raw: unknown) {
     if (raw === undefined) {
         return undefined;
@@ -82,13 +106,19 @@ function parseSearchRequestPayload(raw: unknown): {
     if (typeof raw.query !== 'string') {
         throw new Error('Invalid search query');
     }
-    const query = raw.query;
-
     const pageCount = parseOptionalPageCount(raw.pageCount);
     const requestId = parseOptionalRequestId(raw.requestId);
     const matchCase = typeof raw.matchCase === 'boolean' ? raw.matchCase : undefined;
     const wholeWord = typeof raw.wholeWord === 'boolean' ? raw.wholeWord : undefined;
     const useRegex = typeof raw.useRegex === 'boolean' ? raw.useRegex : undefined;
+    const query = raw.query;
+    assertSearchQueryWithinLimit(query, useRegex === true);
+    if (useRegex === true && query.length > 0) {
+        assertSearchRegexCompiles(query, {
+            matchCase,
+            wholeWord,
+        });
+    }
 
     const parsed: {
         pdfPath: string;

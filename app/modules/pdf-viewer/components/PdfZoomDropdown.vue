@@ -317,7 +317,7 @@ function selectCustomZoomInput(event: FocusEvent) {
     gap: 0;
     padding: 0;
     border: 1px solid var(--app-toolbar-group-border);
-    border-radius: 0.5625rem;
+    border-radius: var(--app-toolbar-segmented-radius);
     background: var(--app-toolbar-group-bg);
     overflow: hidden;
 }
@@ -400,7 +400,8 @@ function selectCustomZoomInput(event: FocusEvent) {
 
 .zoom-dropdown {
     padding: 0.375rem;
-    width: 15rem;
+    width: min(var(--app-pdf-zoom-menu-width), var(--app-overlay-viewport-width));
+    max-width: var(--app-overlay-viewport-width);
     background: var(--app-toolbar-group-bg);
 }
 
@@ -412,7 +413,7 @@ function selectCustomZoomInput(event: FocusEvent) {
 
 .zoom-chip-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.125rem;
 }
 
@@ -421,8 +422,8 @@ function selectCustomZoomInput(event: FocusEvent) {
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 1.875rem;
-    padding: 0 0.5rem;
+    min-height: 1.875rem;
+    padding: 0 0.375rem;
     border: 1px solid transparent;
     border-radius: 0.375rem;
     background: transparent;
@@ -480,6 +481,7 @@ function selectCustomZoomInput(event: FocusEvent) {
 }
 
 .zoom-chip-custom-input {
+    min-width: 0;
     width: 100%;
     height: 100%;
     background: transparent;
@@ -503,14 +505,15 @@ function selectCustomZoomInput(event: FocusEvent) {
 }
 
 .zoom-toggle-group {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(7rem, 100%), 1fr));
     gap: 0.125rem;
 }
 
 .zoom-toggle-btn {
-    flex: 1;
     gap: 0.375rem;
-    padding: 0 0.5rem;
+    min-width: 0;
+    padding: 0.25rem 0.5rem;
 }
 
 .zoom-toggle-icon {
@@ -520,9 +523,9 @@ function selectCustomZoomInput(event: FocusEvent) {
 }
 
 .zoom-toggle-label {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    line-height: 1.15;
 }
 
 .zoom-toggle-icon-badge {

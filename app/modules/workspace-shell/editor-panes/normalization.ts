@@ -1,4 +1,8 @@
 import type { ITab } from '@app/types/tabs';
+import {
+    uniq,
+    uniqBy,
+} from 'es-toolkit/array';
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
@@ -48,41 +52,27 @@ function buildNormalizedPaneMru(
     panesOrder: string[],
     validPaneIds: Set<string>,
 ) {
-    const nextMru: string[] = [];
-    const mruSeen = new Set<string>();
     const preferredPaneIds = [
         currentActivePaneId,
         ...currentMru,
         ...panesOrder,
     ];
-    for (const paneId of preferredPaneIds) {
-        if (!paneId || !validPaneIds.has(paneId) || mruSeen.has(paneId)) {
-            continue;
+    return uniq(preferredPaneIds.filter((paneId): paneId is string => {
+        if (!paneId) {
+            return false;
         }
-        mruSeen.add(paneId);
-        nextMru.push(paneId);
-    }
-    return nextMru;
+        return validPaneIds.has(paneId);
+    }));
 }
 
 function collectUniqueTabs(tabs: ITab[]) {
-    const uniqueTabs: ITab[] = [];
-    const validTabIds = new Set<string>();
-    let hasInvalidTabs = false;
-
-    for (const tab of tabs) {
-        if (!tab.id || validTabIds.has(tab.id)) {
-            hasInvalidTabs = true;
-            continue;
-        }
-        validTabIds.add(tab.id);
-        uniqueTabs.push(tab);
-    }
+    const uniqueTabs = uniqBy(tabs.filter(tab => tab.id), tab => tab.id);
+    const validTabIds = new Set(uniqueTabs.map(tab => tab.id));
 
     return {
         tabs: uniqueTabs,
         tabIds: validTabIds,
-        hasInvalidTabs,
+        hasInvalidTabs: uniqueTabs.length !== tabs.length,
     };
 }
 

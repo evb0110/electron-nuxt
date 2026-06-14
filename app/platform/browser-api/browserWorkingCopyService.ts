@@ -206,13 +206,6 @@ export async function openDocumentPaths(
         await browserDocumentStore.cloneAsWorkingCopy(originalPath);
     browserDocumentStore.unload(originalPath);
 
-    for (const path of normalizedPaths.filter((path) => {
-        const name = getBrowserDocumentFileName(path);
-        return isPdfFileName(name) || isDjvuFileName(name);
-    })) {
-        await browserDocumentStore.touchRecentFile(path);
-    }
-
     return {
         kind: 'pdf',
         workingPath,

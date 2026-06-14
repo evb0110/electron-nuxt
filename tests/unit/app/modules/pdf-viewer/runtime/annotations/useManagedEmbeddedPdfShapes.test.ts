@@ -22,13 +22,94 @@ vi.mock('@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmb
     };
 });
 
-function createRenderedViewerContainer() {
+class FakeNodeList<TElement extends Element> implements NodeListOf<TElement> {
+    readonly length: number;
+
+    [index: number]: TElement;
+
+    constructor(private readonly elements: TElement[]) {
+        this.length = elements.length;
+        elements.forEach((element, index) => {
+            this[index] = element;
+        });
+    }
+
+    item(index: number) {
+        const element = this.elements[index];
+        if (!element) {
+            throw new RangeError(`No fake node at index ${index}`);
+        }
+        return element;
+    }
+
+    forEach(
+        callbackfn: (value: TElement, key: number, parent: NodeListOf<TElement>) => void,
+        thisArg?: unknown,
+    ) {
+        this.elements.forEach((element, index) => {
+            callbackfn.call(thisArg, element, index, this);
+        });
+    }
+
+    entries() {
+        return this.elements.entries();
+    }
+
+    keys() {
+        return this.elements.keys();
+    }
+
+    values() {
+        return this.elements.values();
+    }
+
+    [Symbol.iterator]() {
+        return this.values();
+    }
+}
+
+function createFakeNodeList<TElement extends Element>(elements: TElement[]) {
+    return new FakeNodeList(elements);
+}
+
+function createRenderedViewerContainer(options: {
+    hasShapeOverlay?: boolean;
+    shapeOverlayAnnotationIds?: string[];
+} = {}) {
+    const overlayAnnotationIds = options.shapeOverlayAnnotationIds
+        ?? (options.hasShapeOverlay ? ['12R'] : []);
+    const overlayElements = overlayAnnotationIds.map(id => Object.assign(
+        Object.create(null) as Element,
+        {
+            dataset: { annotationId: id },
+            getAttribute: (name: string) => name === 'data-annotation-id' ? id : null,
+        },
+    ));
+    const pageContainer = Object.create(null) as HTMLElement & {
+        querySelector: (selector: string) => object | null;
+        querySelectorAll: (selector: string) => NodeListOf<Element>;
+    };
+    pageContainer.querySelector = (selector: string) => {
+        if (selector === '.pdf-shape-overlay.has-shapes' && overlayElements.length > 0) {
+            return {};
+        }
+        return null;
+    };
+    pageContainer.querySelectorAll = (selector: string) => (
+        selector === '.pdf-shape-overlay.has-shapes [data-annotation-id]'
+            ? createFakeNodeList(overlayElements)
+            : createFakeNodeList([])
+    );
     return Object.assign(Object.create(null), {
-        querySelector: (selector: string) => (
-            selector === '.page_container--rendered .page_canvas canvas'
-                ? {}
-                : null
-        ),
+        querySelector: (selector: string) => {
+            if (selector === '.page_container--rendered .page_canvas canvas') {
+                return {};
+            }
+            if (selector === '.page_container[data-page="1"]') {
+                return pageContainer;
+            }
+            return null;
+        },
         querySelectorAll: () => [],
     }) as HTMLElement;
 }
@@ -213,6 +294,79 @@ describe('useManagedEmbeddedPdfShapes', () => {
         await Promise.all(pendingTasks);
 
         expect(invalidatePages).not.toHaveBeenCalled();
+        expect(renderVisiblePages).toHaveBeenCalledWith(
+            {
+                start: 1,
+                end: 1,
+            },
+            {
+                preserveRenderedPages: true,
+                forceRerender: true,
+                bufferOverride: 0,
+            },
+        );
+    });
+
+    it('keeps managed annotations out of render suppression until their page overlay is ready', async () => {
+        const shapeComposable = useAnnotationShapes();
+        const importEmbeddedShapesMock = vi.mocked(importEmbeddedShapeAnnotations);
+        importEmbeddedShapesMock.mockReset();
+        importEmbeddedShapesMock.mockResolvedValueOnce([createEmbeddedInkShape({ annotationId: '12R0' })]);
+        const viewerContainer = ref<HTMLElement | null>(
+            createRenderedViewerContainer({ hasShapeOverlay: false }),
+        );
+        const pendingTasks: Array<Promise<unknown>> = [];
+        const renderVisiblePages = vi.fn(async () => {});
+        const managedShapes = useManagedEmbeddedPdfShapes({
+            viewerContainer,
+            workingCopyPath: ref('/tmp/work.pdf'),
+            sourcePdfData: ref<Uint8Array | null>(new Uint8Array([1])),
+            visibleRange: ref({
+                start: 1,
+                end: 1,
+            }),
+            bufferPages: ref(0),
+            shapeComposable,
+            suppressCommentAnnotationId: vi.fn(),
+            logger: {
+                debug: vi.fn(),
+                warn: vi.fn(),
+            },
+            runGuardedTask: (task) => {
+                pendingTasks.push(Promise.resolve(task()));
+            },
+            nextTick,
+            isPageRendered: pageNumber => pageNumber === 1,
+            invalidatePages: vi.fn(),
+            renderVisiblePages,
+            hideManagedAnnotationEditors: vi.fn(),
+            currentPage: ref(1),
+        });
+
+        await vi.waitFor(() => {
+            expect(importEmbeddedShapesMock).toHaveBeenCalledOnce();
+            expect(managedShapes.hiddenEmbeddedAnnotationIds.value.has('12R')).toBe(true);
+        });
+        await vi.waitFor(() => {
+            expect(renderVisiblePages).toHaveBeenCalled();
+        });
+        renderVisiblePages.mockClear();
+
+        expect(managedShapes.renderHiddenEmbeddedAnnotationIds.value.has('12R')).toBe(false);
+
+        viewerContainer.value = createRenderedViewerContainer({
+            hasShapeOverlay: true,
+            shapeOverlayAnnotationIds: ['34R'],
+        });
+        managedShapes.syncAfterPageRendered(1);
+
+        expect(managedShapes.renderHiddenEmbeddedAnnotationIds.value.has('12R')).toBe(false);
+
+        viewerContainer.value = createRenderedViewerContainer({ hasShapeOverlay: true });
+        managedShapes.syncAfterPageRendered(1);
+
+        expect(managedShapes.renderHiddenEmbeddedAnnotationIds.value.has('12R')).toBe(true);
+        await Promise.all(pendingTasks);
         expect(renderVisiblePages).toHaveBeenCalledWith(
             {
                 start: 1,

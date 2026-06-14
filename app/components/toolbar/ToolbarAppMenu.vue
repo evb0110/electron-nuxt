@@ -1,9 +1,10 @@
 <template>
     <nav v-if="isBrowserRuntime" class="app-menu-bar" :aria-label="t('toolbar.appMenu')">
-        <UPopover
+        <UDropdownMenu
             v-model:open="menuOpen"
-            mode="click"
+            :items="appMenuItems"
             :content="menuContentOptions"
+            :ui="appMenuUi"
         >
             <button
                 type="button"
@@ -11,162 +12,25 @@
                 aria-haspopup="menu"
                 :aria-expanded="menuOpen"
             >
-                <span>{{ t('toolbar.appMenu') }}</span>
+                <span class="app-menu-trigger-label">{{ t('toolbar.appMenu') }}</span>
                 <UIcon name="i-ph-caret-down" class="app-menu-trigger-chevron" />
             </button>
 
-            <template #content>
-                <div class="app-menu toolbar-menu-panel">
-                    <div class="app-menu-section-header toolbar-menu-section-header">{{ t('menu.file') }}</div>
-                    <div class="app-menu-section toolbar-menu-section">
-                        <button
-                            class="app-menu-item toolbar-menu-item"
-                            @click="handleMenuCommand('open-file')"
-                        >
-                            <UIcon name="i-ph-folder-open" class="app-menu-icon toolbar-menu-icon" />
-                            <span class="app-menu-label toolbar-menu-label">{{ t('menu.openFile') }}</span>
-                            <span class="app-menu-shortcut toolbar-menu-shortcut">{{ shortcutLabels.openFile }}</span>
-                        </button>
-                        <button
-                            class="app-menu-item toolbar-menu-item"
-                            :disabled="!hasInteractiveDocument || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
-                            @click="handleMenuCommand('save')"
-                        >
-                            <UIcon name="i-ph-floppy-disk" class="app-menu-icon toolbar-menu-icon" />
-                            <span class="app-menu-label toolbar-menu-label">{{ t('menu.save') }}</span>
-                            <span class="app-menu-shortcut toolbar-menu-shortcut">{{ shortcutLabels.save }}</span>
-                        </button>
-                        <button
-                            class="app-menu-item toolbar-menu-item"
-                            :disabled="!hasInteractiveDocument || !canRepairSave || isAnySaving || isHistoryBusy || isDjvuMode"
-                            @click="handleMenuCommand('repair-save')"
-                        >
-                            <UIcon name="i-ph-arrows-clockwise" class="app-menu-icon toolbar-menu-icon" />
-                            <span class="app-menu-label toolbar-menu-label">{{ t('menu.repairAndSave') }}</span>
-                        </button>
-                        <button
-                            class="app-menu-item toolbar-menu-item"
-                            :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
-                            @click="handleMenuCommand('save-as')"
-                        >
-                            <UIcon name="i-ph-floppy-disk-back" class="app-menu-icon toolbar-menu-icon" />
-                            <span class="app-menu-label toolbar-menu-label">{{ t('menu.saveAs') }}</span>
-                            <span class="app-menu-shortcut toolbar-menu-shortcut">{{ shortcutLabels.saveAs }}</span>
-                        </button>
-                        <button
-                            class="app-menu-item toolbar-menu-item"
-                            :disabled="!hasInteractiveDocument || isPreparingPrint"
-                            @click="handleMenuCommand('print')"
-                        >
-                            <UIcon
-                                :name="isPreparingPrint && !isPreparingCurrentPagePrint ? 'i-ph-circle-notch' : 'i-ph-printer'"
-                                :class="['app-menu-icon', 'toolbar-menu-icon', { 'animate-spin': isPreparingPrint && !isPreparingCurrentPagePrint }]"
-                            />
-                            <span class="app-menu-label toolbar-menu-label">{{ t('menu.print') }}</span>
-                            <span class="app-menu-shortcut toolbar-menu-shortcut">{{ shortcutLabels.print }}</span>
-                        </button>
-                        <button
-                            class="app-menu-item toolbar-menu-item"
-                            :disabled="!hasInteractiveDocument || isPreparingPrint || isDjvuMode"
-                            @click="handleMenuCommand('print-current-page')"
-                        >
-                            <UIcon
-                                v-if="isPreparingCurrentPagePrint"
-                                name="i-ph-circle-notch"
-                                class="app-menu-icon toolbar-menu-icon animate-spin"
-                            />
-                            <PrintCurrentPageIcon v-else class="app-menu-icon toolbar-menu-icon" />
-                            <span class="app-menu-label toolbar-menu-label">{{ t('menu.printCurrentPage') }}</span>
-                        </button>
-                        <div class="app-menu-divider toolbar-menu-divider" />
-                        <button
-                            class="app-menu-item toolbar-menu-item"
-                            @click="handleMenuCommand('combine-images')"
-                        >
-                            <UIcon name="i-ph-stack-plus" class="app-menu-icon toolbar-menu-icon" />
-                            <span class="app-menu-label toolbar-menu-label">{{ t('menu.combineFiles') }}</span>
-                        </button>
-                        <div class="app-menu-divider toolbar-menu-divider" />
-                        <button
-                            class="app-menu-item toolbar-menu-item"
-                            :disabled="!hasInteractiveDocument || !canExportDocx || isExportingDocx"
-                            @click="handleMenuCommand('export-docx')"
-                        >
-                            <UIcon name="i-ph-file-text" class="app-menu-icon toolbar-menu-icon" />
-                            <span class="app-menu-label toolbar-menu-label">{{ t('menu.exportDocx') }}</span>
-                            <span class="app-menu-shortcut toolbar-menu-shortcut">{{ shortcutLabels.exportDocx }}</span>
-                        </button>
-                        <button
-                            class="app-menu-item toolbar-menu-item"
-                            :disabled="!hasInteractiveDocument"
-                            @click="handleMenuCommand('export-images')"
-                        >
-                            <UIcon name="i-ph-image" class="app-menu-icon toolbar-menu-icon" />
-                            <span class="app-menu-label toolbar-menu-label">{{ t('menu.exportImages') }}</span>
-                        </button>
-                        <button
-                            class="app-menu-item toolbar-menu-item"
-                            :disabled="!hasInteractiveDocument"
-                            @click="handleMenuCommand('export-multi-page-tiff')"
-                        >
-                            <UIcon name="i-ph-images" class="app-menu-icon toolbar-menu-icon" />
-                            <span class="app-menu-label toolbar-menu-label">{{ t('menu.exportMultiPageTiff') }}</span>
-                        </button>
-                        <template v-if="canUseDjvu && isDjvuMode">
-                            <div class="app-menu-divider toolbar-menu-divider" />
-                            <button
-                                class="app-menu-item toolbar-menu-item"
-                                :disabled="documentBusy"
-                                @click="handleMenuCommand('convert-to-pdf')"
-                            >
-                                <UIcon name="i-ph-arrows-clockwise" class="app-menu-icon toolbar-menu-icon" />
-                                <span class="app-menu-label toolbar-menu-label">{{ t('menu.convertToPdf') }}</span>
-                            </button>
-                        </template>
-                    </div>
-
-                    <div class="app-menu-divider toolbar-menu-divider" />
-                    <div class="app-menu-section-header toolbar-menu-section-header">{{ t('menu.edit') }}</div>
-                    <div class="app-menu-section toolbar-menu-section">
-                        <button
-                            class="app-menu-item toolbar-menu-item"
-                            :disabled="!hasInteractiveDocument || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
-                            @click="handleMenuCommand('undo')"
-                        >
-                            <UIcon name="i-ph-arrow-u-up-left" class="app-menu-icon toolbar-menu-icon" />
-                            <span class="app-menu-label toolbar-menu-label">{{ t('menu.undo') }}</span>
-                            <span class="app-menu-shortcut toolbar-menu-shortcut">{{ shortcutLabels.undo }}</span>
-                        </button>
-                        <button
-                            class="app-menu-item toolbar-menu-item"
-                            :disabled="!hasInteractiveDocument || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
-                            @click="handleMenuCommand('redo')"
-                        >
-                            <UIcon name="i-ph-arrow-u-up-right" class="app-menu-icon toolbar-menu-icon" />
-                            <span class="app-menu-label toolbar-menu-label">{{ t('menu.redo') }}</span>
-                            <span class="app-menu-shortcut toolbar-menu-shortcut">{{ shortcutLabels.redo }}</span>
-                        </button>
-                        <div class="app-menu-divider toolbar-menu-divider" />
-                        <button
-                            class="app-menu-item toolbar-menu-item"
-                            :disabled="!hasInteractiveDocument || isDjvuMode"
-                            @click="handleMenuCommand('insert-image-from-file')"
-                        >
-                            <UIcon name="i-ph-image" class="app-menu-icon toolbar-menu-icon" />
-                            <span class="app-menu-label toolbar-menu-label">{{ t('menu.insertImageFromFile') }}</span>
-                        </button>
-                        <button
-                            class="app-menu-item toolbar-menu-item"
-                            :disabled="!hasInteractiveDocument || isDjvuMode"
-                            @click="handleMenuCommand('paste-image-from-clipboard')"
-                        >
-                            <UIcon name="i-ph-clipboard-text" class="app-menu-icon toolbar-menu-icon" />
-                            <span class="app-menu-label toolbar-menu-label">{{ t('menu.pasteImageFromClipboard') }}</span>
-                        </button>
-                    </div>
-                </div>
+            <template #print-current-page-leading>
+                <UIcon
+                    v-if="isPreparingCurrentPagePrint"
+                    name="i-ph-circle-notch"
+                    class="app-menu-icon toolbar-menu-icon animate-spin"
+                />
+                <PrintCurrentPageIcon v-else class="app-menu-icon toolbar-menu-icon" />
             </template>
-        </UPopover>
+
+            <template #item-trailing="{ item }">
+                <span v-if="getMenuShortcut(item)" class="app-menu-shortcut toolbar-menu-shortcut">
+                    {{ getMenuShortcut(item) }}
+                </span>
+            </template>
+        </UDropdownMenu>
     </nav>
 </template>
 
@@ -178,6 +42,23 @@ import type { TToolbarAppMenuCommand } from '@app/types/toolbarMenuCommands';
 
 const { t } = useTypedI18n();
 const { isBrowserRuntime } = useRuntimeEnvironment();
+
+type TToolbarAppMenuItem = IToolbarAppMenuStructuralItem | IToolbarAppMenuCommandItem;
+
+interface IToolbarAppMenuStructuralItem {
+    type: 'label' | 'separator';
+    label?: string;
+}
+
+interface IToolbarAppMenuCommandItem {
+    label: string;
+    icon?: string;
+    slot?: string;
+    disabled?: boolean;
+    shortcut?: string;
+    loading?: boolean;
+    onSelect: () => void;
+}
 
 interface IProps {
     open: boolean
@@ -198,8 +79,20 @@ interface IProps {
 }
 
 const {
+    canExportDocx,
+    canRedo,
+    canRepairSave,
+    canSave,
+    canUndo,
+    canUseDjvu,
     documentBusy,
     hasPdf,
+    isAnySaving,
+    isDjvuMode,
+    isExportingDocx,
+    isHistoryBusy,
+    isPreparingCurrentPagePrint,
+    isPreparingPrint,
     open,
 } = defineProps<IProps>();
 
@@ -248,10 +141,85 @@ const menuContentOptions = {
     sideOffset: 8,
     collisionPadding: 8,
 };
+const appMenuUi = {
+    content: 'app-menu toolbar-menu-panel',
+    group: 'app-menu-section toolbar-menu-section',
+    label: 'app-menu-section-header toolbar-menu-section-header',
+    separator: 'app-menu-divider toolbar-menu-divider',
+    item: 'app-menu-item toolbar-menu-item',
+    itemLeadingIcon: 'app-menu-icon toolbar-menu-icon',
+    itemLabel: 'app-menu-label toolbar-menu-label',
+    itemTrailing: 'app-menu-trailing',
+};
 
 const menuOpen = computed({
     get: () => open,
     set: (open: boolean) => emit('update:open', open),
+});
+
+const appMenuItems = computed(() => {
+    const items: TToolbarAppMenuItem[] = [
+        {
+            type: 'label',
+            label: t('menu.file'),
+        },
+        createCommandItem('open-file', t('menu.openFile'), 'i-ph-folder-open', { shortcut: shortcutLabels.openFile }),
+        createCommandItem('save', t('menu.save'), 'i-ph-floppy-disk', {
+            disabled: !hasInteractiveDocument.value || !canSave || isAnySaving || isHistoryBusy || isDjvuMode,
+            shortcut: shortcutLabels.save,
+        }),
+        createCommandItem('repair-save', t('menu.repairAndSave'), 'i-ph-arrows-clockwise', {disabled: !hasInteractiveDocument.value || !canRepairSave || isAnySaving || isHistoryBusy || isDjvuMode}),
+        createCommandItem('save-as', t('menu.saveAs'), 'i-ph-floppy-disk-back', {
+            disabled: !hasInteractiveDocument.value || isAnySaving || isHistoryBusy || isDjvuMode,
+            shortcut: shortcutLabels.saveAs,
+        }),
+        createCommandItem('print', t('menu.print'), isPreparingPrint && !isPreparingCurrentPagePrint ? 'i-ph-circle-notch' : 'i-ph-printer', {
+            disabled: !hasInteractiveDocument.value || isPreparingPrint,
+            loading: isPreparingPrint && !isPreparingCurrentPagePrint,
+            shortcut: shortcutLabels.print,
+        }),
+        createCommandItem('print-current-page', t('menu.printCurrentPage'), undefined, {
+            disabled: !hasInteractiveDocument.value || isPreparingPrint || isDjvuMode,
+            slot: 'print-current-page',
+        }),
+        { type: 'separator' },
+        createCommandItem('combine-images', t('menu.combineFiles'), 'i-ph-stack-plus'),
+        { type: 'separator' },
+        createCommandItem('export-docx', t('menu.exportDocx'), 'i-ph-file-text', {
+            disabled: !hasInteractiveDocument.value || !canExportDocx || isExportingDocx,
+            shortcut: shortcutLabels.exportDocx,
+        }),
+        createCommandItem('export-images', t('menu.exportImages'), 'i-ph-image', {disabled: !hasInteractiveDocument.value}),
+        createCommandItem('export-multi-page-tiff', t('menu.exportMultiPageTiff'), 'i-ph-images', {disabled: !hasInteractiveDocument.value}),
+    ];
+
+    if (canUseDjvu && isDjvuMode) {
+        items.push(
+            { type: 'separator' },
+            createCommandItem('convert-to-pdf', t('menu.convertToPdf'), 'i-ph-arrows-clockwise', {disabled: documentBusy}),
+        );
+    }
+
+    items.push(
+        { type: 'separator' },
+        {
+            type: 'label',
+            label: t('menu.edit'),
+        },
+        createCommandItem('undo', t('menu.undo'), 'i-ph-arrow-u-up-left', {
+            disabled: !hasInteractiveDocument.value || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode,
+            shortcut: shortcutLabels.undo,
+        }),
+        createCommandItem('redo', t('menu.redo'), 'i-ph-arrow-u-up-right', {
+            disabled: !hasInteractiveDocument.value || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode,
+            shortcut: shortcutLabels.redo,
+        }),
+        { type: 'separator' },
+        createCommandItem('insert-image-from-file', t('menu.insertImageFromFile'), 'i-ph-image', {disabled: !hasInteractiveDocument.value || isDjvuMode}),
+        createCommandItem('paste-image-from-clipboard', t('menu.pasteImageFromClipboard'), 'i-ph-clipboard-text', {disabled: !hasInteractiveDocument.value || isDjvuMode}),
+    );
+
+    return items;
 });
 
 function close() {
@@ -262,37 +230,93 @@ function handleMenuCommand(command: TToolbarAppMenuCommand) {
     emitMenuCommand[command]();
     close();
 }
+
+function createCommandItem(
+    command: TToolbarAppMenuCommand,
+    label: string,
+    icon?: string,
+    options: {
+        disabled?: boolean;
+        shortcut?: string;
+        slot?: string;
+        loading?: boolean;
+    } = {},
+): IToolbarAppMenuCommandItem {
+    const item: IToolbarAppMenuCommandItem = {
+        label,
+        onSelect: () => handleMenuCommand(command),
+    };
+
+    if (icon !== undefined) {
+        item.icon = icon;
+    }
+
+    if (options.disabled !== undefined) {
+        item.disabled = options.disabled;
+    }
+
+    if (options.shortcut !== undefined) {
+        item.shortcut = options.shortcut;
+    }
+
+    if (options.slot !== undefined) {
+        item.slot = options.slot;
+    }
+
+    if (options.loading !== undefined) {
+        item.loading = options.loading;
+    }
+
+    return item;
+}
+
+function getMenuShortcut(item: unknown) {
+    return typeof item === 'object' && item != null && 'shortcut' in item
+        ? String(item.shortcut ?? '')
+        : '';
+}
 </script>
 
-<style lang="scss" scoped>
+<style lang="scss">
 @use '@app/assets/css/toolbar-menu-shared';
 
+.app-menu {
+    min-width: min(var(--app-toolbar-app-menu-min-width), var(--app-floating-panel-viewport-width));
+}
+</style>
+
+<style lang="scss" scoped>
 .app-menu-bar {
     display: inline-flex;
     align-items: center;
-    gap: 0.125rem;
+    gap: var(--app-toolbar-group-gap);
     height: var(--toolbar-control-height, 2.25rem);
-}
-
-.app-menu {
-    min-width: 15rem;
 }
 
 .app-menu-trigger {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--app-space-sm);
+    min-width: 0;
+    max-width: min(var(--app-toolbar-app-menu-trigger-max-width), var(--app-toolbar-app-menu-trigger-max-viewport-width));
     height: var(--toolbar-control-height, 2.25rem);
-    padding: 0 0.5rem 0 0.625rem;
+    padding: 0 var(--app-space-3xl) 0 var(--app-toolbar-control-padding-x);
     border: 1px solid transparent;
-    border-radius: 0.4375rem;
+    border-radius: var(--app-toolbar-button-radius);
     background: transparent;
     color: var(--app-toolbar-menu-trigger-fg);
     font: inherit;
-    font-size: 0.875rem;
-    font-weight: 500;
+    font-size: var(--app-text-size-body);
+    font-weight: var(--app-font-weight-medium);
     cursor: pointer;
     transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+
+.app-menu-trigger-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .app-menu-trigger:hover,
@@ -318,8 +342,8 @@ function handleMenuCommand(command: TToolbarAppMenuCommand) {
 }
 
 .app-menu-trigger-chevron {
-    width: 0.875rem;
-    height: 0.875rem;
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
     flex-shrink: 0;
     color: var(--ui-text-muted);
     transition: transform 150ms ease;

@@ -52,6 +52,13 @@ import {
     syncCommentMarkerAnchorEditor,
 } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
 
+const ANNOTATION_EDITOR_RETRY_ATTEMPTS = 12;
+const ANNOTATION_EDITOR_RETRY_DELAY_MS = 80;
+const ANNOTATION_EDITOR_MARKER_RECT_RETRY_DELAY_MS = 16;
+const SELECTION_CLEAR_FALLBACK_DELAY_MS = 80;
+const SCROLL_RESTORE_FALLBACK_DELAY_MS = 48;
+const CREATED_EDITOR_SETTLE_DELAY_MS = 60;
+
 interface IHighlightIdentity {
     getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
     getEditorPendingKey: (editor: IPdfjsEditor, pageIndex: number) => string;
@@ -330,8 +337,8 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             );
             if (!lateEditor) {
                 attempts += 1;
-                if (attempts < 12) {
-                    scheduleSubtypeRetry(tryEmitLater, 80);
+                if (attempts < ANNOTATION_EDITOR_RETRY_ATTEMPTS) {
+                    scheduleSubtypeRetry(tryEmitLater, ANNOTATION_EDITOR_RETRY_DELAY_MS);
                 }
                 return;
             }
@@ -345,7 +352,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 emitAnnotationOpenNote(summary);
             });
         };
-        scheduleSubtypeRetry(tryEmitLater, 80);
+        scheduleSubtypeRetry(tryEmitLater, ANNOTATION_EDITOR_RETRY_DELAY_MS);
     }
 
     function handleCreatedHighlightComment(context: IHighlightCommentContext) {
@@ -506,7 +513,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             if (typeof window !== 'undefined') {
                 window.requestAnimationFrame(clearSelectionClasses);
                 window.setTimeout(clearSelectionClasses, 0);
-                window.setTimeout(clearSelectionClasses, 80);
+                window.setTimeout(clearSelectionClasses, SELECTION_CLEAR_FALLBACK_DELAY_MS);
             }
         };
 
@@ -588,11 +595,11 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                         return;
                     }
                     attempts += 1;
-                    if (attempts < 12) {
-                        scheduleSubtypeRetry(hydrateEditorLater, 80);
+                    if (attempts < ANNOTATION_EDITOR_RETRY_ATTEMPTS) {
+                        scheduleSubtypeRetry(hydrateEditorLater, ANNOTATION_EDITOR_RETRY_DELAY_MS);
                     }
                 };
-                scheduleSubtypeRetry(hydrateEditorLater, 80);
+                scheduleSubtypeRetry(hydrateEditorLater, ANNOTATION_EDITOR_RETRY_DELAY_MS);
             }
 
             if (withComment) {
@@ -735,12 +742,12 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
     }
 
     async function waitForEditorMarkerRect(editor: IPdfjsEditor) {
-        for (let attempt = 0; attempt < 12; attempt += 1) {
+        for (let attempt = 0; attempt < ANNOTATION_EDITOR_RETRY_ATTEMPTS; attempt += 1) {
             const markerRect = toMarkerRectFromEditor(editor);
             if (markerRect) {
                 break;
             }
-            await delay(16);
+            await delay(ANNOTATION_EDITOR_MARKER_RECT_RETRY_DELAY_MS);
             await nextTick();
         }
     }
@@ -1013,7 +1020,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                     window.requestAnimationFrame(restoreViewerScroll);
                 });
                 window.setTimeout(restoreViewerScroll, 0);
-                window.setTimeout(restoreViewerScroll, 48);
+                window.setTimeout(restoreViewerScroll, SCROLL_RESTORE_FALLBACK_DELAY_MS);
             }
         };
 
@@ -1126,7 +1133,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                     diagnosticsContext,
                 );
             } catch { /* ignore */ }
-            await delay(60);
+            await delay(CREATED_EDITOR_SETTLE_DELAY_MS);
             await nextTick();
             if (!isAnnotationUiManagerCurrent(uiManager)) {
                 return null;

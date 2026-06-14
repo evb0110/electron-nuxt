@@ -33,6 +33,7 @@ const PDF_PERSISTENCE_CHUNK_BYTES = 8 * 1024 * 1024;
 const PDF_PERSISTENCE_MAX_IN_FLIGHT_CHUNKS = 2;
 const PDF_PERSISTENCE_READY_TIMEOUT_MS = 10_000;
 const PDF_PERSISTENCE_ACK_TIMEOUT_MS = 60_000;
+const PDF_PERSISTENCE_RESULT_TIMEOUT_MS = 10 * 60_000;
 const PDF_NOTE_TEXT_MAX_UPDATES = 256;
 const PDF_NATIVE_NOTE_MAX_CHANGES = 256;
 const PDF_NATIVE_PAGE_LABEL_MAX_RANGES = 2_048;
@@ -922,12 +923,21 @@ function getPdfPersistenceErrorMessage(payload: IPdfPersistenceErrorMessage) {
 
 function waitForPortStreamResult(port: MessagePort) {
     return new Promise<ISerializedPdfPersistencePortResult>((resolve, reject) => {
+        const cleanup = () => {
+            clearTimeout(timeout);
+            port.removeEventListener('message', handleMessage);
+        };
+        const timeout = setTimeout(() => {
+            cleanup();
+            reject(new Error('PDF persistence port did not return a final result'));
+        }, PDF_PERSISTENCE_RESULT_TIMEOUT_MS);
         const handleMessage = (event: MessageEvent<unknown>) => {
             const payload = parsePdfPersistenceMessage(event.data);
             if (!payload) {
                 return;
             }
             if (payload.type === 'result') {
+                cleanup();
                 resolve({
                     path: payload.path,
                     validation: payload.validation,
@@ -935,6 +945,7 @@ function waitForPortStreamResult(port: MessagePort) {
                 return;
             }
             if (payload.type === 'error') {
+                cleanup();
                 reject(new Error(getPdfPersistenceErrorMessage(payload)));
             }
         };

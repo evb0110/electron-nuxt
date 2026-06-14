@@ -233,8 +233,7 @@
 .pdfViewer.pdfViewer--resize-transition .annotation-layer,
 .pdfViewer.pdfViewer--resize-transition .annotationLayer,
 .pdfViewer.pdfViewer--resize-transition .annotation-editor-layer,
-.pdfViewer.pdfViewer--resize-transition .annotationEditorLayer,
-.pdfViewer.pdfViewer--resize-transition .pdf-shape-overlay {
+.pdfViewer.pdfViewer--resize-transition .annotationEditorLayer {
     opacity: 0;
     pointer-events: none;
 }

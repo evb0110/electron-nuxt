@@ -27,7 +27,10 @@ interface INativePdfImageCombineProgress {
     estimatedRemainingMs: number | null;
 }
 
-interface INativePdfImageCombineOptions {onProgress?: (progress: INativePdfImageCombineProgress) => void;}
+interface INativePdfImageCombineOptions {
+    maxPages?: number;
+    onProgress?: (progress: INativePdfImageCombineProgress) => void;
+}
 
 type TNativeProgressPayload = INativePdfImageCombineProgress & {type: 'progress';};
 
@@ -237,8 +240,13 @@ function runNativePdfImageCombine(
         if (inputPaths.length > 0) {
             args.push('--', ...inputPaths);
         }
+        const maxPages = normalizeMaxPagesForEnv(options?.maxPages);
 
         const proc = spawn(binaryPath, args, {
+            ...(maxPages ? {env: {
+                ...process.env,
+                EVB_PDF_COMBINE_MAX_PAGES: maxPages,
+            }} : {}),
             shell: false,
             windowsHide: true,
             stdio: [
@@ -327,4 +335,11 @@ function runNativePdfImageCombine(
             finish(true);
         });
     });
+}
+
+function normalizeMaxPagesForEnv(value: number | undefined) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
+        return null;
+    }
+    return String(Math.trunc(value));
 }

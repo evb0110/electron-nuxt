@@ -34,7 +34,7 @@
             @cancel="emit('cancel-placed-image')"
         />
         <PdfShapeOverlay
-            v-if="shapeContext && rendered"
+            v-if="shapeContext && showShapeOverlay"
             :shapes="pageShapes"
             :drawing-shape="pageDrawingShape"
             :selected-shape-id="shapeContext.selectedShapeId.value"
@@ -162,6 +162,11 @@ const pageDrawingShape = computed(() => {
     }
     return drawing;
 });
+const showShapeOverlay = computed(() => Boolean(
+    rendered
+    || pageShapes.value.length > 0
+    || pageDrawingShape.value,
+));
 
 function startDrawingShape(coords: IShapePoint) {
     shapeContext?.handleStartDrawing(page - 1, coords);

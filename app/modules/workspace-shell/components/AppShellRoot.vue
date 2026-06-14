@@ -590,13 +590,26 @@ useEventListener(window, 'keydown', (event: KeyboardEvent) => {
 }, { capture: true });
 
 let unsubscribeZenModeChange: (() => void) | null = null;
+let isShellRootDisposed = false;
 
 onMounted(() => {
+    isShellRootDisposed = false;
     guardAsync(
         (async () => {
             await waitForDesktopPlatformBridge({ shouldWait: !isBrowserRuntime.value });
+            if (isShellRootDisposed) {
+                return;
+            }
             await getPlatformAPI().host.getZenModeState().then(applyZenModeState);
-            unsubscribeZenModeChange = getPlatformAPI().host.onZenModeChange(applyZenModeState);
+            if (isShellRootDisposed) {
+                return;
+            }
+            const unsubscribe = getPlatformAPI().host.onZenModeChange(applyZenModeState);
+            if (isShellRootDisposed) {
+                unsubscribe();
+                return;
+            }
+            unsubscribeZenModeChange = unsubscribe;
         })(),
         {
             scope: 'shell',
@@ -613,6 +626,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    isShellRootDisposed = true;
     unsubscribeZenModeChange?.();
     unsubscribeZenModeChange = null;
     if (import.meta.dev) {
@@ -959,6 +973,7 @@ function dismissBrowserInstallHint(reason: 'manual' | 'auto' = 'manual') {
     browserInstallHintStorageDismissed.value = true;
 }
 
+let windowTitleSyncGeneration = 0;
 watch(windowTitle, (nextTitle) => {
     if (!import.meta.client) {
         return;
@@ -974,8 +989,12 @@ watch(windowTitle, (nextTitle) => {
         return;
     }
 
+    const generation = ++windowTitleSyncGeneration;
     guardAsync((async () => {
         await waitForDesktopPlatformBridge({ shouldWait: true });
+        if (generation !== windowTitleSyncGeneration || nextTitle !== windowTitle.value) {
+            return;
+        }
         await getPlatformAPI().documents.setWindowTitle(nextTitle);
     })(), {
         scope: 'window-title',
@@ -1088,20 +1107,20 @@ useAppShellLifecycle({
 .browser-install-hint {
     position: fixed;
     top: auto;
-    bottom: 2.5rem;
-    right: 1rem;
+    bottom: var(--app-install-hint-block-end);
+    right: var(--app-install-hint-inline-end);
     z-index: 35;
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--app-install-hint-gap);
     width: fit-content;
-    max-width: calc(100vw - 2rem);
-    padding: 0.25rem 0.25rem 0.25rem 0.5rem;
+    max-width: var(--app-install-hint-max-inline-size);
+    padding: var(--app-install-hint-padding);
     border: 1px solid var(--ui-border);
-    border-radius: 999px;
+    border-radius: var(--app-radius-full);
     background: var(--ui-bg);
     backdrop-filter: blur(12px);
-    opacity: 0.65;
+    opacity: var(--app-opacity-subtle);
     transition: opacity 0.2s ease;
 }
 
@@ -1111,18 +1130,18 @@ useAppShellLifecycle({
 
 .browser-install-icon {
     flex: 0 0 auto;
-    width: 14px;
-    height: 14px;
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
     color: var(--ui-primary);
 }
 
 .browser-install-link {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--app-install-hint-gap);
     min-width: 0;
     max-width: 100%;
-    padding: 0.125rem 0;
+    padding: var(--app-install-hint-link-padding);
     border: 0;
     background: transparent;
     color: var(--ui-text-muted);
@@ -1137,13 +1156,13 @@ useAppShellLifecycle({
 .browser-install-link-icon,
 .browser-install-dismiss-icon {
     flex: 0 0 auto;
-    width: 0.875rem;
-    height: 0.875rem;
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
 }
 
 .browser-install-divider {
     width: 1px;
-    height: 14px;
+    height: var(--app-install-hint-divider-height);
     background: var(--ui-border);
     flex: 0 0 auto;
 }
@@ -1191,9 +1210,16 @@ useAppShellLifecycle({
 .editor-global-status-host {
     display: flex;
     flex-direction: column;
-    height: 1.9rem;
-    min-height: 1.9rem;
-    flex: 0 0 1.9rem;
+    height: var(--app-statusbar-height);
+    min-height: var(--app-statusbar-height);
+    flex: 0 0 var(--app-statusbar-height);
+}
+
+.editor-global-status-host:empty {
+    height: 0;
+    min-height: 0;
+    flex-basis: 0;
+    border-top: 0;
 }
 
 .app-shell-root.is-zen-mode .browser-install-hint,

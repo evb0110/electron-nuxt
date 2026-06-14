@@ -260,6 +260,8 @@ const workspaceChunkLoadError = ref<unknown>(null);
 const workspaceRenderNonce = ref(0);
 const workspaceHostRef = ref<HTMLElement | null>(null);
 const chunkRetryTimers = new Set<ReturnType<typeof setTimeout>>();
+const ASYNC_CHUNK_RETRY_DELAY_STEP_MS = 150;
+const WORKSPACE_MOUNT_POLL_INTERVAL_MS = 25;
 
 const DocumentWorkspace = import.meta.client
     ? defineAsyncComponent({
@@ -277,7 +279,7 @@ const DocumentWorkspace = import.meta.client
                 error,
                 isDev: import.meta.dev,
             })) {
-                const retryDelayMs = attempts * 150;
+                const retryDelayMs = attempts * ASYNC_CHUNK_RETRY_DELAY_STEP_MS;
                 const retryTimer = setTimeout(() => {
                     chunkRetryTimers.delete(retryTimer);
                     retry();
@@ -346,7 +348,7 @@ const workspaceLoadErrorDescription = computed(() => {
     return t('errors.workspace.loadDescriptionWithMessage', { message });
 });
 
-const hasPdf = computed<boolean>(() => {
+const hasPdf = computed(() => {
     const value = mountedWorkspace.value?.hasPdf;
     if (typeof value === 'boolean') {
         return value;
@@ -664,7 +666,7 @@ async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransa
                 return;
             }
         } else {
-            await delay(25);
+            await delay(WORKSPACE_MOUNT_POLL_INTERVAL_MS);
         }
     }
 
@@ -986,7 +988,7 @@ async function waitForWorkspaceMount(timeoutMs = WORKSPACE_MOUNT_TIMEOUT_MS) {
             return mountedWorkspace.value;
         }
 
-        await delay(25);
+        await delay(WORKSPACE_MOUNT_POLL_INTERVAL_MS);
     }
     return null;
 }

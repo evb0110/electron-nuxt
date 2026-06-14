@@ -11,10 +11,10 @@ export function expectsUpdaterMetadata(target, env = process.env) {
         return false;
     }
 
-    if (target.platform === 'mac' && !hasDeveloperIdSigningCredentials(env)) {
+    if (target.platform === 'mac' && !hasMacPublishUpdaterMetadataPolicy(env)) {
         return false;
     }
-    if (target.platform === 'win' && !hasWindowsSigningCredentials(env)) {
+    if (target.platform === 'win' && !hasWindowsPublishUpdaterMetadataPolicy(env)) {
         return false;
     }
 

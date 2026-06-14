@@ -2,7 +2,6 @@ import {
     existsSync,
     readdirSync,
 } from 'fs';
-import { spawn } from 'child_process';
 import {
     dirname,
     join,
@@ -15,6 +14,8 @@ import {
 import { resolveOcrResourcesBase } from '@electron/ocr/resolveOcrResourcesBase';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import type { IOcrToolValidationResult } from '@contracts/electronApiOcr';
+import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import { getErrorMessage } from '@electron/utils/error';
 
 interface IOcrPaths {
     binary: string;
@@ -102,70 +103,18 @@ async function runProcess(
     args: string[],
     timeoutMs = 5_000,
 ) {
-    return new Promise<{
-        exitCode: number;
-        stdout: string;
-        stderr: string;
-    }>((resolve) => {
-        const proc = spawn(command, args, {
-            shell: false,
-            windowsHide: true,
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
+    try {
+        return await runNativeToolCommand(command, args, {
+            timeoutMs,
+            commandLabel: `ocr-tool-probe(${command})`,
         });
-
-        let stdout = '';
-        let stderr = '';
-        let settled = false;
-        const timeoutHandle = setTimeout(() => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            proc.kill('SIGKILL');
-            resolve({
-                exitCode: -1,
-                stdout,
-                stderr: `${stderr}\nProcess timed out`,
-            });
-        }, timeoutMs);
-
-        proc.stdout?.on('data', (data: Buffer) => {
-            stdout += data.toString();
-        });
-        proc.stderr?.on('data', (data: Buffer) => {
-            stderr += data.toString();
-        });
-
-        proc.on('error', (error) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            clearTimeout(timeoutHandle);
-            resolve({
-                exitCode: -1,
-                stdout,
-                stderr: `${stderr}\n${error.message}`,
-            });
-        });
-
-        proc.on('close', (code) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            clearTimeout(timeoutHandle);
-            resolve({
-                exitCode: typeof code === 'number' ? code : -1,
-                stdout,
-                stderr,
-            });
-        });
-    });
+    } catch (error) {
+        return {
+            exitCode: -1,
+            stdout: '',
+            stderr: getErrorMessage(error),
+        };
+    }
 }
 
 async function getToolVersion(path: string, versionFlag = '--version'): Promise<string | undefined> {

@@ -3,6 +3,7 @@ import type {
     TAnnotationTool,
     TDrawableShapeType,
 } from '@app/types/annotations';
+import { uniq } from 'es-toolkit/array';
 import type { TAgentTextMarkupKind } from '@app/modules/pdf-viewer/public';
 import type {
     TAgentOcrPageRange,
@@ -91,7 +92,7 @@ export function getAgentStringArrayInput(input: Record<string, unknown> | undefi
             strings.push(trimmedItem);
         }
     }
-    return strings.length > 0 ? Array.from(new Set(strings)) : undefined;
+    return strings.length > 0 ? uniq(strings) : undefined;
 }
 
 export function getAgentNumberArrayInput(input: Record<string, unknown> | undefined, key: string) {

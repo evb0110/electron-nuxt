@@ -12,6 +12,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
 const WINDOW_ID_QUERY_PARAM = 'evbWindowId';
+const WINDOW_TABS_STATE_KEY = '__evbBrowserWindowTabsState';
 const DEFAULT_TRANSFER_TIMEOUT_MS = 12_000;
 const DISCOVERY_SETTLE_DELAY_MS = 60;
 const FALLBACK_WINDOW_TITLE = 'EVB Viewer';
@@ -24,7 +25,14 @@ type TIncomingTransferListener = (
 
 interface IKnownBrowserWindow {
     label: string;
+    lastSeenAt: number;
     ready: boolean;
+}
+
+interface IBrowserWindowTabsState {
+    cleanupInstance?: () => void;
+    instanceId?: symbol;
+    windowId?: number;
 }
 
 interface IPendingBrowserTransfer {
@@ -76,6 +84,8 @@ const knownWindows = new Map<number, IKnownBrowserWindow>();
 const pendingTransfers = new Map<string, IPendingBrowserTransfer>();
 const incomingTransferNonces = new Map<string, string>();
 const queuedTransfersByWindow = new Map<number, string[]>();
+
+const browserWindowTabsInstanceId = Symbol('browserWindowTabsInstance');
 
 let channel: BroadcastChannel | null = null;
 let initialized = false;
@@ -217,6 +227,16 @@ function hasBrowserWindowContext() {
     return typeof window !== 'undefined' && typeof document !== 'undefined';
 }
 
+function getBrowserWindowTabsState() {
+    if (!hasBrowserWindowContext()) {
+        return null;
+    }
+
+    const browserWindow = window as Window & {[WINDOW_TABS_STATE_KEY]?: IBrowserWindowTabsState;};
+    browserWindow[WINDOW_TABS_STATE_KEY] ??= {};
+    return browserWindow[WINDOW_TABS_STATE_KEY];
+}
+
 function getCurrentWindowLabel() {
     if (!hasBrowserWindowContext()) {
         return FALLBACK_WINDOW_TITLE;
@@ -270,6 +290,10 @@ function resolveCurrentWindowId() {
                     url.toString(),
                 );
             }
+            const state = getBrowserWindowTabsState();
+            if (state) {
+                state.windowId = fromQuery;
+            }
             return fromQuery;
         }
     } catch (error) {
@@ -280,7 +304,16 @@ function resolveCurrentWindowId() {
         );
     }
 
-    return createWindowId();
+    const state = getBrowserWindowTabsState();
+    if (isPositiveWindowId(state?.windowId)) {
+        return state.windowId;
+    }
+
+    const windowId = createWindowId();
+    if (state) {
+        state.windowId = windowId;
+    }
+    return windowId;
 }
 
 function ensureChannel() {
@@ -309,6 +342,47 @@ function cleanupChannel() {
     channel.removeEventListener('message', handleChannelMessage);
     channel.close();
     channel = null;
+}
+
+function cleanupBrowserWindowTabsInstance(unregister: boolean) {
+    if (unregister && currentWindowId > 0) {
+        postMessage({
+            type: 'unregister',
+            windowId: currentWindowId,
+        });
+    }
+
+    if (hasBrowserWindowContext() && cleanupRegistered) {
+        window.removeEventListener('beforeunload', handleWindowBeforeUnload);
+        window.removeEventListener('focus', handleWindowFocus);
+    }
+    cleanupRegistered = false;
+    cleanupChannel();
+
+    const state = getBrowserWindowTabsState();
+    if (state?.instanceId === browserWindowTabsInstanceId) {
+        delete state.cleanupInstance;
+    }
+}
+
+function claimBrowserWindowTabsInstance() {
+    const state = getBrowserWindowTabsState();
+    if (!state || state.instanceId === browserWindowTabsInstanceId) {
+        return;
+    }
+
+    state.cleanupInstance?.();
+    state.instanceId = browserWindowTabsInstanceId;
+    delete state.cleanupInstance;
+}
+
+function rememberBrowserWindowTabsInstance() {
+    const state = getBrowserWindowTabsState();
+    if (!state || state.instanceId !== browserWindowTabsInstanceId) {
+        return;
+    }
+
+    state.cleanupInstance = () => cleanupBrowserWindowTabsInstance(true);
 }
 
 function postMessage(message: TBrowserWindowTabsMessage) {
@@ -465,6 +539,7 @@ function shouldIgnoreBrowserWindowTabsMessage(message: TBrowserWindowTabsMessage
 function handleWindowAnnouncement(message: Extract<TBrowserWindowTabsMessage, { type: 'announce' }>) {
     knownWindows.set(message.windowId, {
         label: message.label,
+        lastSeenAt: Date.now(),
         ready: message.ready,
     });
     if (message.ready) {
@@ -559,13 +634,7 @@ function registerCleanupHandlers() {
 }
 
 function handleWindowBeforeUnload() {
-    if (currentWindowId > 0) {
-        postMessage({
-            type: 'unregister',
-            windowId: currentWindowId,
-        });
-    }
-    cleanupChannel();
+    cleanupBrowserWindowTabsInstance(true);
 }
 
 function handleWindowFocus() {
@@ -577,12 +646,15 @@ function initializeBrowserWindowTabs() {
         return;
     }
 
+    claimBrowserWindowTabsInstance();
     initialized = true;
     currentWindowId = resolveCurrentWindowId();
     knownWindows.set(currentWindowId, {
         label: getCurrentWindowLabel(),
+        lastSeenAt: Date.now(),
         ready: isCurrentWindowReady,
     });
+    rememberBrowserWindowTabsInstance();
     ensureChannel();
     registerCleanupHandlers();
     announceCurrentWindow();
@@ -599,6 +671,7 @@ function updateKnownCurrentWindow() {
 
     knownWindows.set(currentWindowId, {
         label: getCurrentWindowLabel(),
+        lastSeenAt: Date.now(),
         ready: isCurrentWindowReady,
     });
 }
@@ -636,6 +709,17 @@ function waitForDiscoverySettling() {
 
         window.setTimeout(resolve, DISCOVERY_SETTLE_DELAY_MS);
     });
+}
+
+function pruneStaleTargetWindows(discoveryStartedAt: number) {
+    for (const [
+        windowId,
+        windowInfo,
+    ] of knownWindows) {
+        if (windowId !== currentWindowId && windowInfo.lastSeenAt < discoveryStartedAt) {
+            knownWindows.delete(windowId);
+        }
+    }
 }
 
 export function syncBrowserWindowTitle() {
@@ -739,11 +823,13 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
     },
     async listTargetWindows() {
         initializeBrowserWindowTabs();
+        const discoveryStartedAt = Date.now();
         postMessage({
             type: 'discover',
             windowId: currentWindowId,
         });
         await waitForDiscoverySettling();
+        pruneStaleTargetWindows(discoveryStartedAt);
 
         return Array.from(knownWindows.entries())
             .filter(([

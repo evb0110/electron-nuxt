@@ -1,6 +1,6 @@
 <template>
     <div
-        v-if="props.active"
+        v-if="active"
         class="crop-overlay is-active"
         @pointerdown="handlePointerDown"
         @pointermove="handlePointerMove"
@@ -10,12 +10,12 @@
         @wheel="handleWheel"
     >
         <div
-            v-if="props.selectionRect"
+            v-if="selectionRect"
             class="crop-selection"
             :style="selectionStyle"
         />
-        <div v-if="!props.selectionRect" class="crop-hint">
-            {{ props.hintLabel }}
+        <div v-if="!selectionRect" class="crop-hint">
+            {{ hintLabel }}
         </div>
     </div>
 </template>
@@ -28,7 +28,11 @@ import type {
 import { useEmittedPdfRegionSelectionOverlay } from '@app/modules/pdf-viewer/runtime/composables/pdf/useEmittedPdfRegionSelectionOverlay';
 import { regionRectStyle } from '@app/modules/pdf-viewer/engine/region-selection/regionRectStyle';
 
-const props = defineProps<IRegionSelectionOverlayBaseProps>();
+const {
+    active,
+    selectionRect,
+    hintLabel,
+} = defineProps<IRegionSelectionOverlayBaseProps>();
 const emit = defineEmits<IRegionSelectionOverlayEmits>();
 
 const {
@@ -37,9 +41,19 @@ const {
     handlePointerUp,
     handleContextMenu,
     handleWheel,
-} = useEmittedPdfRegionSelectionOverlay(props, emit);
+} = useEmittedPdfRegionSelectionOverlay({
+    get active() {
+        return active;
+    },
+    get selectionRect() {
+        return selectionRect;
+    },
+    get hintLabel() {
+        return hintLabel;
+    },
+}, emit);
 
-const selectionStyle = computed(() => regionRectStyle(props.selectionRect));
+const selectionStyle = computed(() => regionRectStyle(selectionRect));
 
 function cancelSelection() {
     emit('cancel');

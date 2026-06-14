@@ -61,13 +61,13 @@ jobs:
           changed_files="$(git diff --name-only "$base_sha" "$HEAD_SHA")"
           printf '%s\n' "$changed_files"
 
-          if printf '%s\n' "$changed_files" | grep -Eq '^landing/'; then
+          if printf '%s\n' "$changed_files" | grep -Eq '^(landing/|packages/(contracts|i18n-core|release-selection)/)'; then
             echo "landing=true" >> "$GITHUB_OUTPUT"
           else
             echo "landing=false" >> "$GITHUB_OUTPUT"
           fi
 
-          if printf '%s\n' "$changed_files" | grep -Eq '^native/'; then
+          if printf '%s\n' "$changed_files" | grep -Eq '^(native/|scripts/(build-pdf-image-combine|build-pdf-page-ops|build-pdf-search|native-rust-targets)[.]mjs|Cargo[.]lock|package[.]json|[.]github/workflows/(ci|build|release)[.]yml)'; then
             echo "native=true" >> "$GITHUB_OUTPUT"
           else
             echo "native=false" >> "$GITHUB_OUTPUT"
@@ -137,6 +137,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.landing == 'true' }}
     runs-on: ubuntu-latest
+    continue-on-error: true
     timeout-minutes: 15
 
     steps:

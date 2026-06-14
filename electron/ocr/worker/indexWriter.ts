@@ -36,6 +36,16 @@ import {
     persistCompactSearchIndex,
 } from '@electron/search/searchIndexSidecar';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    abortErrorFromSignal,
+    isAbortError,
+} from '@electron/utils/abort';
+
+function throwIfAborted(signal?: AbortSignal) {
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+}
 
 function isPathInsideBaseDir(baseDir: string, candidatePath: string) {
     const relativePath = relative(baseDir, candidatePath);
@@ -337,7 +347,9 @@ async function writeCompactSearchIndexForOcr(
     ocrPageData: IOcrPageWithWords[],
     existingManifestMtimeMs: number | undefined,
     log: TWorkerLog,
+    signal?: AbortSignal,
 ) {
+    throwIfAborted(signal);
     const pages = await collectCompactSearchIndexPages(
         workingCopyPath,
         ocrDir,
@@ -351,6 +363,7 @@ async function writeCompactSearchIndexForOcr(
     }
 
     try {
+        throwIfAborted(signal);
         await persistCompactSearchIndex(workingCopyPath, {
             pageCount: manifest.pageCount,
             pages,
@@ -358,9 +371,12 @@ async function writeCompactSearchIndexForOcr(
                 kind: COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
                 version: OCR_TEXT_LAYER_INDEX_VERSION,
             },
-        });
+        }, signal);
         log('debug', `Wrote compact OCR search sidecar for ${workingCopyPath} with ${pages.length} pages`);
     } catch (error) {
+        if (isAbortError(error)) {
+            throw error;
+        }
         log('warn', `Failed to write compact OCR search sidecar: ${getErrorMessage(error)}`);
     }
 }
@@ -419,7 +435,9 @@ export async function writeOcrIndexV2(
     languages: string[],
     extractionDpi: number,
     log: TWorkerLog,
+    signal?: AbortSignal,
 ) {
+    throwIfAborted(signal);
     const ocrDir = `${workingCopyPath}.ocr`;
     await mkdir(ocrDir, { recursive: true });
     const manifestPath = join(ocrDir, 'manifest.json');
@@ -443,6 +461,7 @@ export async function writeOcrIndexV2(
     };
 
     for (const pd of ocrPageData) {
+        throwIfAborted(signal);
         const pageFile = `page-${String(pd.pageNumber).padStart(4, '0')}.json`;
 
         const pageData: IOcrIndexV2Page = {
@@ -467,8 +486,10 @@ export async function writeOcrIndexV2(
         manifest.pages[pd.pageNumber] = { path: pageFile };
     }
 
+    throwIfAborted(signal);
     const tempManifestPath = createUniqueTempPath(manifestPath);
     await writeFile(tempManifestPath, JSON.stringify(manifest), 'utf-8');
+    throwIfAborted(signal);
     await rename(tempManifestPath, manifestPath);
 
     await writeCompactSearchIndexForOcr(
@@ -478,6 +499,7 @@ export async function writeOcrIndexV2(
         ocrPageData,
         existingManifestMtimeMs,
         log,
+        signal,
     );
 
     log('debug', `Wrote OCR index v2 to ${ocrDir} with ${ocrPageData.length} pages`);

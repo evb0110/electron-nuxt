@@ -336,11 +336,11 @@ export default {
         ocrExport: {
             heading: 'OCR and exports',
             intro: 'Exports are available across the product. Searchable-PDF OCR stays in the desktop runtime, where local processing and language assets are available.',
-            li1: 'OCR popup supports all pages, current page, or custom range modes.',
+            li1: 'OCR pop-up supports all pages, current page, or custom range modes.',
             li2: 'Language selection is grouped by script families for faster setup.',
             li3: 'You can cancel running OCR and monitor progress page-by-page.',
             li4: 'After OCR completes, the document is searchable and ready for text export.',
-            li5: '{command} is available from toolbar and OCR popup.',
+            li5: '{command} is available from toolbar and OCR pop-up.',
             li6: '{exportImages} and {exportTiff} provide page scope selection (all/current/range/selected).',
             li7: '{captureRegion} copies a selected region to clipboard; press {esc} to cancel capture mode.',
         },

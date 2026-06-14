@@ -26,6 +26,9 @@ const mocks = vi.hoisted(() => {
         },
         browserWindowFromWebContents: vi.fn(() => null),
         randomUUID: vi.fn(),
+        copyFile: vi.fn(),
+        makeSiblingTempPath: vi.fn(),
+        mkdtemp: vi.fn(),
         rename: vi.fn(),
         rm: vi.fn(),
         stat: vi.fn(),
@@ -46,11 +49,16 @@ const mocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('electron', () => ({ BrowserWindow: {fromWebContents: mocks.browserWindowFromWebContents} }));
+vi.mock('electron', () => ({
+    app: {getPath: vi.fn(() => '/tmp')},
+    BrowserWindow: {fromWebContents: mocks.browserWindowFromWebContents},
+}));
 
 vi.mock('node:crypto', () => ({randomUUID: mocks.randomUUID}));
 
 vi.mock('fs/promises', () => ({
+    copyFile: mocks.copyFile,
+    mkdtemp: mocks.mkdtemp,
     rename: mocks.rename,
     rm: mocks.rm,
     stat: mocks.stat,
@@ -78,7 +86,10 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
 })}));
 
-vi.mock('@electron/utils/atomicReplace', () => ({atomicReplace: mocks.atomicReplace}));
+vi.mock('@electron/utils/atomicReplace', () => ({
+    atomicReplace: mocks.atomicReplace,
+    makeSiblingTempPath: mocks.makeSiblingTempPath,
+}));
 
 vi.mock('@electron/features/djvu/main/pdfWorkerClient', () => ({
     createDjvuPdfBookmarkTask: mocks.createDjvuPdfBookmarkTask,
@@ -131,6 +142,9 @@ describe('handleDjvuConvertToPdf', () => {
         mocks.randomUUID
             .mockReturnValueOnce('convert-123')
             .mockReturnValue('temp-456');
+        mocks.copyFile.mockResolvedValue(undefined);
+        mocks.makeSiblingTempPath.mockReturnValue('/tmp/.staged-output.tmp');
+        mocks.mkdtemp.mockResolvedValue('/tmp/djvu-export-test');
         mocks.rename.mockResolvedValue(undefined);
         mocks.rm.mockResolvedValue(undefined);
         mocks.stat.mockResolvedValue({size: 8 * 1024 * 1024});
@@ -199,6 +213,12 @@ describe('handleDjvuConvertToPdf', () => {
         expect(mocks.getDjvuPageCount).toHaveBeenCalledWith(trustedDjvuPath, {signal: expect.any(AbortSignal)});
         expect(mocks.getDjvuOutline).toHaveBeenCalledWith(trustedDjvuPath, {signal: expect.any(AbortSignal)});
         expect(mocks.convertDjvuToPdfFile).toHaveBeenCalledTimes(1);
+        expect(mocks.convertDjvuToPdfFile).toHaveBeenCalledWith(
+            trustedDjvuPath,
+            '/tmp/djvu-export-test/convert-123.convert.pdf',
+            'djvu-convert-convert-123',
+            expect.objectContaining({pageCount: 2}),
+        );
         expect(mocks.createDjvuPdfBookmarkTask).toHaveBeenCalledTimes(1);
         expect(mocks.embedBookmarksIntoPdfFile).toHaveBeenCalledTimes(1);
         expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
@@ -318,6 +338,10 @@ describe('handleDjvuConvertToPdf', () => {
             percent: 0,
         });
         expect(mocks.convertDjvuToPdfFile).not.toHaveBeenCalled();
+        for (let attempt = 0; attempt < 5 && mocks.getDjvuPageCount.mock.calls.length === 0; attempt += 1) {
+            await Promise.resolve();
+        }
+        expect(mocks.getDjvuPageCount).toHaveBeenCalledTimes(1);
 
         const cancelResult = await handleDjvuCancel(
             createEvent(7) as never,
@@ -346,7 +370,11 @@ describe('handleDjvuConvertToPdf', () => {
             pdfPath: '/tmp/output.pdf',
             jobId: 'djvu-convert-convert-123',
         });
-        expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/.convert-123.convert.pdf', '/tmp/output.pdf');
+        expect(mocks.copyFile).toHaveBeenCalledWith(
+            '/tmp/djvu-export-test/convert-123.convert.pdf',
+            '/tmp/.staged-output.tmp',
+        );
+        expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/.staged-output.tmp', '/tmp/output.pdf');
     });
 
     it('cancels active jobs when the sender is destroyed', async () => {

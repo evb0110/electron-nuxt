@@ -130,6 +130,7 @@
                     :selected-thumbnail-pages="selectedThumbnailPages"
                     :thumbnail-invalidation-request="thumbnailInvalidationRequest"
                     :thumbnail-hidden-annotation-ids="thumbnailHiddenAnnotationIds"
+                    :thumbnail-page-preview-provider="pdfViewerRef?.getPagePreview ?? null"
                     @search="handleSearch"
                     @next="handleSearchNext"
                     @previous="handleSearchPrevious"

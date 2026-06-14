@@ -291,6 +291,43 @@ describe('search IPC worker resource limits', () => {
         expect(mocks.workerRecords).toHaveLength(1);
     });
 
+    it('rejects oversized literal queries before resolving paths or spawning workers', async () => {
+        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
+        registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+
+        await expect(searchHandler(
+            createInvokeEvent(78),
+            {
+                pdfPath: '/tmp/one.pdf',
+                query: 'x'.repeat(2_049),
+                requestId: 'oversized-literal',
+            },
+        )).rejects.toThrow('maximum length is 2048 characters');
+
+        expect(mocks.resolveAllowedReadPath).not.toHaveBeenCalled();
+        expect(mocks.workerRecords).toHaveLength(0);
+    });
+
+    it('precompiles regex queries before dispatching to a worker', async () => {
+        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
+        registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+
+        await expect(searchHandler(
+            createInvokeEvent(79),
+            {
+                pdfPath: '/tmp/one.pdf',
+                query: '(',
+                requestId: 'invalid-regex',
+                useRegex: true,
+            },
+        )).rejects.toThrow('Invalid search regex');
+
+        expect(mocks.resolveAllowedReadPath).not.toHaveBeenCalled();
+        expect(mocks.workerRecords).toHaveLength(0);
+    });
+
     it('caps the default active worker budget at two concurrent senders', async () => {
         mocks.autoCompleteSearch = false;
 

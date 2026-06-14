@@ -84,14 +84,15 @@ function close() {
 <style scoped>
 .annotation-properties {
     position: fixed;
-    z-index: 200;
+    z-index: var(--app-pdf-annotation-properties-z-index);
     background: var(--ui-bg);
     border: 1px solid var(--ui-border);
-    border-radius: 8px;
+    border-radius: var(--app-pdf-annotation-properties-radius);
     box-shadow: var(--app-pdf-popover-shadow);
-    min-width: 240px;
-    max-width: 320px;
-    font-size: 12px;
+    width: min(var(--app-pdf-annotation-properties-width), var(--app-pdf-annotation-properties-max-inline-size));
+    min-width: min(var(--app-pdf-annotation-properties-min-width), var(--app-pdf-annotation-properties-max-inline-size));
+    max-width: var(--app-pdf-annotation-properties-max-inline-size);
+    font-size: var(--app-pdf-annotation-properties-font-size);
 }
 
 .annotation-properties-header {
@@ -104,14 +105,15 @@ function close() {
 
 .annotation-properties-title {
     font-weight: 600;
-    font-size: 11px;
+    font-size: var(--app-pdf-annotation-properties-title-font-size);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: var(--app-pdf-annotation-properties-title-letter-spacing);
     color: var(--ui-text-muted);
+    overflow-wrap: anywhere;
 }
 
 .annotation-properties-body {
-    padding: 8px 10px;
+    padding: var(--app-pdf-annotation-properties-body-padding);
 }
 
 .annotation-properties-field {

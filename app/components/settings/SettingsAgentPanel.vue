@@ -16,16 +16,13 @@
                     <p class="settings-field-hint">{{ t('settings.assistantPanelDescription') }}</p>
                 </div>
 
-                <label class="settings-agent-switch-row">
-                    <span class="settings-agent-switch-label">{{ t('settings.assistantPanelToggle') }}</span>
-                    <input
-                        class="sr-only"
-                        type="checkbox"
-                        :checked="assistantPanelEnabled"
-                        @change="handleAssistantPanelToggle"
-                    >
-                    <span class="settings-agent-switch" aria-hidden="true" />
-                </label>
+                <USwitch
+                    :model-value="assistantPanelEnabled"
+                    :label="t('settings.assistantPanelToggle')"
+                    size="sm"
+                    :ui="assistantSwitchUi"
+                    @update:model-value="emit('update:assistantPanelEnabled', $event)"
+                />
             </div>
 
             <div
@@ -266,7 +263,6 @@ import {
 import type {
     IAgentAssistantState,
     IAgentMcpIntegrationStatus,
-    TAgentMcpCodexRegistrationState,
 } from '@contracts/agent';
 import {
     getSettingsAssistantStatusModel,
@@ -274,7 +270,14 @@ import {
 } from '@app/modules/workspace-shell/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
-const props = defineProps<{
+const {
+    assistantPanelEnabled,
+    assistantState,
+    assistantDeviceCode,
+    isAssistantBusy,
+    status,
+    isBusy,
+} = defineProps<{
     assistantPanelEnabled: boolean;
     assistantState: IAgentAssistantState | null;
     assistantDeviceCode: string;
@@ -297,6 +300,12 @@ const emit = defineEmits<{
 const { t } = useTypedI18n();
 const { copy: copyClipboardText } = useClipboard();
 const setupGuideOpen = ref(false);
+const assistantSwitchUi = {
+    root: 'settings-agent-switch-row',
+    container: 'order-2',
+    wrapper: 'order-1 ms-0',
+    label: 'settings-agent-switch-label',
+};
 type TSetupSnippetId = 'codex' | 'claude' | 'cursor';
 const copiedSetupSnippet = ref<TSetupSnippetId | null>(null);
 const {
@@ -306,24 +315,24 @@ const {
     copiedSetupSnippet.value = null;
 }, 1800, { immediate: false });
 
-const needsRepair = computed(() => props.status?.enabled === true && (
-    !props.status.serverRunning
-    || !props.status.codexConfigured
-    || props.status.codexRegistrationState !== 'configured'
+const needsRepair = computed(() => status?.enabled === true && (
+    !status.serverRunning
+    || !status.codexConfigured
+    || status.codexRegistrationState !== 'configured'
 ));
 
 const primaryActionEnabled = computed(() => {
     if (needsRepair.value) {
         return true;
     }
-    return props.status?.enabled !== true;
+    return status?.enabled !== true;
 });
 
 const primaryActionLabel = computed(() => {
     if (needsRepair.value) {
         return t('settings.agentMcpRepair');
     }
-    return props.status?.enabled
+    return status?.enabled
         ? t('settings.agentMcpDisable')
         : t('settings.agentMcpEnable');
 });
@@ -332,32 +341,32 @@ const primaryActionIcon = computed(() => {
     if (needsRepair.value) {
         return 'i-ph-arrows-clockwise';
     }
-    return props.status?.enabled
+    return status?.enabled
         ? 'i-ph-warning-circle'
         : 'i-ph-check-circle';
 });
 
-const showInstallCodex = computed(() => props.status !== null && !props.status.codexInstalled);
-const assistantPanelStatusLabel = computed(() => props.assistantPanelEnabled
+const showInstallCodex = computed(() => status !== null && !status.codexInstalled);
+const assistantPanelStatusLabel = computed(() => assistantPanelEnabled
     ? t('settings.assistantPanelStatusEnabled')
     : t('settings.assistantPanelStatusDisabled'));
 const assistantSetup = computed(() => getSettingsAssistantStatusModel(
-    props.assistantState?.status ?? null,
-    props.assistantState !== null,
+    assistantState?.status ?? null,
+    assistantState !== null,
 ));
 const assistantSetupIconClass = computed(() => ({
     'is-ready': assistantSetup.value.tone === 'ready',
     'is-warning': assistantSetup.value.tone === 'warning',
 }));
 const assistantSetupLabel = computed(() => translateAssistantCopy(assistantSetup.value.label));
-const assistantSetupHint = computed(() => props.assistantState?.status.error
+const assistantSetupHint = computed(() => assistantState?.status.error
     ?? translateAssistantCopy(assistantSetup.value.hint));
 const assistantPrimaryActionLabel = computed(() => assistantSetup.value.primaryActionLabelKey
     ? t(assistantSetup.value.primaryActionLabelKey)
     : '');
-const mcpServerName = computed(() => props.status?.serverName ?? t('settings.agentMcpUnavailable'));
-const mcpServerUrl = computed(() => props.status?.serverUrl?.length
-    ? props.status.serverUrl
+const mcpServerName = computed(() => status?.serverName ?? t('settings.agentMcpUnavailable'));
+const mcpServerUrl = computed(() => status?.serverUrl?.length
+    ? status.serverUrl
     : t('settings.agentMcpUnavailable'));
 const codexCommand = computed(() => `codex mcp add ${mcpServerName.value} --url ${mcpServerUrl.value}`);
 const claudeCommand = computed(() => `claude mcp add --transport http --scope user ${mcpServerName.value} ${mcpServerUrl.value}`);
@@ -367,24 +376,24 @@ const cursorConfig = computed(() => JSON.stringify(
     2,
 ));
 
-const statusKind = computed<TAgentMcpCodexRegistrationState | 'disabled' | 'error' | 'starting'>(() => {
-    const status = props.status;
-    if (!status) {
+const statusKind = computed(() => {
+    const currentStatus = status;
+    if (!currentStatus) {
         return 'starting';
     }
-    if (status.error) {
+    if (currentStatus.error) {
         return 'error';
     }
-    if (!status.enabled) {
+    if (!currentStatus.enabled) {
         return 'disabled';
     }
-    if (!status.codexInstalled) {
+    if (!currentStatus.codexInstalled) {
         return 'unknown';
     }
-    if (status.serverRunning && status.codexConfigured && status.codexRegistrationState === 'configured') {
+    if (currentStatus.serverRunning && currentStatus.codexConfigured && currentStatus.codexRegistrationState === 'configured') {
         return 'configured';
     }
-    return status.codexRegistrationState;
+    return currentStatus.codexRegistrationState;
 });
 
 const statusLabel = computed(() => {
@@ -408,23 +417,23 @@ const statusLabel = computed(() => {
 });
 
 const statusHint = computed(() => {
-    const status = props.status;
-    if (!status) {
+    const currentStatus = status;
+    if (!currentStatus) {
         return t('settings.agentMcpDescription');
     }
-    if (status.error) {
-        return status.error;
+    if (currentStatus.error) {
+        return currentStatus.error;
     }
-    if (!status.enabled) {
+    if (!currentStatus.enabled) {
         return t('settings.agentMcpDescription');
     }
-    if (!status.codexInstalled) {
+    if (!currentStatus.codexInstalled) {
         return t('settings.agentMcpInstallHint');
     }
-    if (!status.serverRunning) {
+    if (!currentStatus.serverRunning) {
         return t('settings.agentMcpStatusServerStopped');
     }
-    if (!status.codexConfigured) {
+    if (!currentStatus.codexConfigured) {
         return t('settings.agentMcpStatusMismatchedHint');
     }
     return t('settings.agentMcpStatusReadyHint');
@@ -449,16 +458,11 @@ const statusClass = computed(() => ({
 }));
 
 const codexLocationLabel = computed(() => {
-    if (!props.status?.codexInstalled) {
+    if (!status?.codexInstalled) {
         return t('settings.agentMcpCodexMissing');
     }
-    return props.status.codexPath ?? t('settings.agentMcpUnavailable');
+    return status.codexPath ?? t('settings.agentMcpUnavailable');
 });
-
-function handleAssistantPanelToggle(event: Event) {
-    const target = event.target as HTMLInputElement | null;
-    emit('update:assistantPanelEnabled', target?.checked === true);
-}
 
 function translateAssistantCopy(copy: TSettingsAssistantCopy) {
     switch (copy.key) {
@@ -613,7 +617,7 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
 }
 
 .settings-agent-switch-row {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 0.6rem;
     flex-shrink: 0;
@@ -624,43 +628,6 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     color: var(--ui-text-muted);
     font-size: 0.8125rem;
     font-weight: 500;
-}
-
-.settings-agent-switch {
-    position: relative;
-    width: 2.4rem;
-    height: 1.35rem;
-    border: 1px solid var(--ui-border);
-    border-radius: 999px;
-    background: var(--ui-bg-muted);
-    transition: background-color $ease-standard, border-color $ease-standard;
-}
-
-.settings-agent-switch::before {
-    content: '';
-    position: absolute;
-    top: 0.15rem;
-    left: 0.15rem;
-    width: 0.95rem;
-    height: 0.95rem;
-    border-radius: 50%;
-    background: var(--ui-bg);
-    box-shadow: var(--app-toolbar-control-active-shadow);
-    transition: transform $ease-standard;
-}
-
-.settings-agent-switch-row input:checked + .settings-agent-switch {
-    border-color: var(--ui-primary);
-    background: var(--ui-primary);
-}
-
-.settings-agent-switch-row input:checked + .settings-agent-switch::before {
-    transform: translateX(1.05rem);
-}
-
-.settings-agent-switch-row input:focus-visible + .settings-agent-switch {
-    outline: 2px solid var(--ui-primary);
-    outline-offset: 2px;
 }
 
 .settings-agent-details {
@@ -704,7 +671,7 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     gap: 0.75rem;
 }
 
-@media (width <= 42rem) {
+@container (max-width: 42rem) {
     .settings-agent-card-row,
     .settings-agent-auth,
     .settings-agent-install {
@@ -784,7 +751,7 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     align-self: flex-end;
 }
 
-@media (width <= 36rem) {
+@container (max-width: 36rem) {
     .settings-agent-card,
     .settings-agent-install {
         flex-direction: column;

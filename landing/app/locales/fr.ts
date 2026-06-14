@@ -57,7 +57,7 @@ export default {
             packageSize: '{package} · {size}',
             platformHint: {
                 macos: 'Apple Silicon est destiné aux Macs à puce M ; Intel aux anciens Macs.',
-                windows: 'La plupart des PC Windows utilisent Intel/AMD 64-bit ; choisissez ARM64 pour les appareils Snapdragon ou ARM.',
+                windows: 'La plupart des PC Windows utilisent Intel / AMD 64-bit ; choisissez ARM64 pour les appareils Snapdragon ou ARM.',
                 linux: 'DEB convient le mieux à Ubuntu/Debian ; AppImage est portable pour les autres distributions.',
                 default: 'Choisissez le build qui correspond à votre système d’exploitation et à votre processeur.',
             },

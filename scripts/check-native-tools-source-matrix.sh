@@ -14,7 +14,8 @@ Default mode:
 --all mode:
 - Validate source readiness for the full release matrix. Generated non-host
   native tool folders may be absent locally when a CI bundling script owns that
-  target; host resources are still required.
+  target; host resources are still required unless
+  EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN=1 is set for a pre-bundle CI quality gate.
 EOF
 }
 
@@ -75,6 +76,7 @@ resolve_host_tag() {
 }
 
 host_tag="$(resolve_host_tag)"
+allow_host_ci_gen="${EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN:-0}"
 
 has_ci_bundler_for_tag() {
   local tag="$1"
@@ -102,7 +104,9 @@ mark_missing() {
   local label="$2"
   local tag="$3"
 
-  if [ "$check_all" -eq 1 ] && [ "$tag" != "$host_tag" ] && has_ci_bundler_for_tag "$tag"; then
+  if [ "$check_all" -eq 1 ] \
+    && { [ "$tag" != "$host_tag" ] || [ "$allow_host_ci_gen" = "1" ]; } \
+    && has_ci_bundler_for_tag "$tag"; then
     echo "  CI-GEN  $label: $path"
     return
   fi
