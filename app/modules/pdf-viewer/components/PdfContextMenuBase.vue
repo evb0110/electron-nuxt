@@ -48,7 +48,7 @@ const resolvedStyle = computed(() => {
     position: fixed;
     box-sizing: border-box;
     width: max-content;
-    max-width: min(28rem, calc(100vw - 1rem));
+    max-width: var(--app-floating-panel-max-inline-size);
     border: 1px solid var(--app-pdf-context-menu-border);
     background: var(--app-pdf-context-menu-grid-bg);
     box-shadow: var(--app-pdf-context-menu-grid-shadow);

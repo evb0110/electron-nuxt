@@ -507,7 +507,7 @@ function shouldShowMenuCommand(command: TReaderCommandId, requiredCollapseTier =
 @use '@app/assets/css/toolbar-menu-shared';
 
 .overflow-menu {
-    min-width: min(var(--app-toolbar-overflow-menu-min-width), calc(100vw - 1rem));
+    min-width: min(var(--app-toolbar-overflow-menu-min-width), var(--app-floating-panel-viewport-width));
 }
 
 .overflow-menu-icon--facing-first-single {
@@ -516,8 +516,8 @@ function shouldShowMenuCommand(command: TReaderCommandId, requiredCollapseTier =
 
 .overflow-menu-icon-badge {
     position: absolute;
-    top: -0.125rem;
-    right: -0.3125rem;
+    top: var(--app-toolbar-overflow-badge-offset-top);
+    right: var(--app-toolbar-overflow-badge-offset-inline-end);
     display: inline-flex;
     align-items: center;
     justify-content: center;

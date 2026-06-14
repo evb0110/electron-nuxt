@@ -1304,8 +1304,8 @@ onUnmounted(() => {
     position: relative;
     display: flex;
     flex-direction: column;
-    flex: 0 1 min(var(--assistant-panel-width, 24rem), 45vw);
-    width: min(var(--assistant-panel-width, 24rem), 45vw);
+    flex: 0 1 min(var(--assistant-panel-width, var(--app-assistant-panel-default-width)), var(--app-assistant-panel-max-viewport-width));
+    width: min(var(--assistant-panel-width, var(--app-assistant-panel-default-width)), var(--app-assistant-panel-max-viewport-width));
     max-width: 100%;
     min-width: 0;
     min-height: 0;
@@ -1896,7 +1896,7 @@ onUnmounted(() => {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 1.5rem;
+    padding: var(--app-assistant-image-preview-padding);
     background: color-mix(in oklab, var(--ui-bg-inverted) 78%, transparent);
     -webkit-app-region: no-drag;
 }
@@ -1915,8 +1915,8 @@ onUnmounted(() => {
     position: relative;
     z-index: 1;
     display: flex;
-    max-width: min(92vw, 72rem);
-    max-height: 92vh;
+    max-width: min(var(--app-assistant-image-preview-max-viewport-width), var(--app-assistant-image-preview-max-width));
+    max-height: var(--app-assistant-image-preview-content-max-height);
     flex-direction: column;
     align-items: center;
     gap: 0.5rem;
@@ -1925,8 +1925,8 @@ onUnmounted(() => {
 
 .agent-assistant-image-preview-image {
     display: block;
-    max-width: min(92vw, 72rem);
-    max-height: 86vh;
+    max-width: min(var(--app-assistant-image-preview-max-viewport-width), var(--app-assistant-image-preview-max-width));
+    max-height: var(--app-assistant-image-preview-image-max-height);
     border: 1px solid color-mix(in oklab, var(--ui-border) 72%, transparent);
     border-radius: var(--ui-radius);
     background: var(--ui-bg);
@@ -1936,7 +1936,7 @@ onUnmounted(() => {
 }
 
 .agent-assistant-image-preview-caption {
-    max-width: min(92vw, 72rem);
+    max-width: min(var(--app-assistant-image-preview-max-viewport-width), var(--app-assistant-image-preview-max-width));
     overflow: hidden;
     color: color-mix(in oklab, var(--ui-bg) 82%, transparent);
     font-size: 0.8125rem;
@@ -1961,11 +1961,11 @@ onUnmounted(() => {
 }
 
 .agent-assistant-image-preview-nav.is-previous {
-    left: 1rem;
+    left: var(--app-assistant-image-preview-control-offset);
 }
 
 .agent-assistant-image-preview-nav.is-next {
-    right: 1rem;
+    right: var(--app-assistant-image-preview-control-offset);
 }
 
 @keyframes agent-assistant-spin {
@@ -1979,7 +1979,7 @@ onUnmounted(() => {
         position: absolute;
         inset: var(--app-tabbar-height) 0 0 auto;
         z-index: 30;
-        width: min(100vw, 24rem);
+        width: min(100vw, var(--app-assistant-panel-default-width));
         flex: none;
         max-width: none;
         box-shadow: var(--app-pdf-context-menu-panel-shadow);

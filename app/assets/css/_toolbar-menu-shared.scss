@@ -1,7 +1,7 @@
 .toolbar-menu-panel {
     padding: var(--app-space-sm);
     background: var(--app-toolbar-menu-popover-bg);
-    max-width: min(28rem, calc(100vw - 1rem));
+    max-width: var(--app-floating-panel-max-inline-size);
     overflow-x: hidden;
 }
 

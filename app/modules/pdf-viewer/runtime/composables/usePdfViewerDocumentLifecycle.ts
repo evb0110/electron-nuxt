@@ -25,6 +25,11 @@ import { preservePdfPageAnnotationVisualSnapshot } from '@app/modules/pdf-viewer
 import { schedulePdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/schedulePdfLayerVisualSnapshotRelease';
 import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';
 
+const INITIAL_CONTENT_SHORT_WAIT_MS = 40;
+const INITIAL_CONTENT_LONG_WAIT_MS = 80;
+const PRESERVED_VISUAL_SNAPSHOT_CAPTURE_MAX_DELAY_MS = 15_000;
+const PRESERVED_VISUAL_SNAPSHOT_RELEASE_MAX_DELAY_MS = 2_500;
+const RELOAD_RECOVERY_PAGE_PIN_MS = 900;
 
 interface IReloadPlan {
     pageToRestore: number;
@@ -201,7 +206,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             return;
         }
         await nextTick();
-        await delay(40);
+        await delay(INITIAL_CONTENT_SHORT_WAIT_MS);
         if (hasRenderedInitialContent()) {
             return;
         }
@@ -217,7 +222,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         }
 
         await nextTick();
-        await delay(80);
+        await delay(INITIAL_CONTENT_LONG_WAIT_MS);
         if (hasRenderedInitialContent()) {
             return;
         }
@@ -334,7 +339,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             },
         );
         schedulePdfLayerVisualSnapshotRelease(release, {
-            maxDelayMs: 15_000,
+            maxDelayMs: PRESERVED_VISUAL_SNAPSHOT_CAPTURE_MAX_DELAY_MS,
             minFrames: 1,
             waitFor: () => false,
         });
@@ -380,7 +385,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             },
         );
         schedulePdfLayerVisualSnapshotRelease(release, {
-            maxDelayMs: 2_500,
+            maxDelayMs: PRESERVED_VISUAL_SNAPSHOT_RELEASE_MAX_DELAY_MS,
             minFrames: 1,
             waitFor: () => hasPdfPageAnnotationVisualContentForSnapshotRelease(
                 findPreservedPageContainer(pageNumber),
@@ -699,7 +704,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         // Geometry-changing reloads can briefly report a stale viewport page
         // while placeholders, resize observers, and buffered renders settle.
         options.pinCurrentPageDuringRecovery(plan.resolvedPageToRestore, {
-            durationMs: 900,
+            durationMs: RELOAD_RECOVERY_PAGE_PIN_MS,
             reason: 'reload-recovery',
         });
     }

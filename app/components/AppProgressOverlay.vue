@@ -55,7 +55,7 @@ const formattedPercent = computed(() => `${clamp(Math.round(value), 0, 100)}%`);
 .app-progress-overlay {
     position: absolute;
     inset: 0;
-    z-index: 50;
+    z-index: var(--app-progress-overlay-z-index);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -66,9 +66,9 @@ const formattedPercent = computed(() => `${clamp(Math.round(value), 0, 100)}%`);
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.75rem;
-    padding: 2rem 3rem;
-    border-radius: 0.75rem;
+    gap: var(--app-progress-card-gap);
+    padding: var(--app-progress-card-padding);
+    border-radius: var(--app-progress-card-radius);
     background: var(--ui-bg);
     border: 1px solid var(--ui-border);
     box-shadow: var(--ui-shadow-lg);
@@ -81,7 +81,7 @@ const formattedPercent = computed(() => `${clamp(Math.round(value), 0, 100)}%`);
 }
 
 .app-progress-overlay-bar {
-    width: 15rem;
+    width: var(--app-progress-bar-width);
 }
 
 .app-progress-overlay-percent {
