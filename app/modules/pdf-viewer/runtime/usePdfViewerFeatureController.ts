@@ -808,6 +808,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         applyFitWidthToCurrentPage,
         waitForViewerLoadSettled,
         preserveNextSourceReloadVisibleContent,
+        getPagePreview,
         saveViewerDocument,
         renderLoadedPdfPagesForBrowserPrint,
         undoAnnotation,

@@ -41,6 +41,11 @@ function getElementAnnotationId(element: HTMLElement) {
     );
 }
 
+function isAppShapeOverlayElement(element: Element) {
+    return typeof element.closest === 'function'
+        && Boolean(element.closest('.pdf-shape-overlay'));
+}
+
 function getOverlayCandidateAnnotationId(element: Element) {
     const datasetAnnotationId = (
         'dataset' in element
@@ -189,6 +194,10 @@ export function syncHiddenEmbeddedAnnotationDom({
 
     const normalizedManagedIds = toNormalizedAnnotationIdSet(managedAnnotationIds);
     container.querySelectorAll<HTMLElement>('[data-annotation-id]').forEach((element) => {
+        if (isAppShapeOverlayElement(element)) {
+            return;
+        }
+
         const annotationId = getElementAnnotationId(element);
         if (!annotationId || !normalizedHiddenIds.has(annotationId)) {
             return;

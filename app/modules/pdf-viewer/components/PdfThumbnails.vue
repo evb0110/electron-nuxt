@@ -124,6 +124,7 @@ import { usePdfThumbnailSelection } from '@app/modules/pdf-viewer/thumbnails/use
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import { resolveThumbnailRenderCoordination } from '@app/modules/pdf-viewer/thumbnails/resolveThumbnailRenderCoordination';
+import type { IPdfPagePreviewEntry } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -139,6 +140,7 @@ interface IProps {
     annotationComments?: IAnnotationCommentSummary[] | undefined;
     annotationSettings?: IAnnotationSettings | null | undefined;
     isActive?: boolean | undefined;
+    pagePreviewProvider?: ((page: number) => IPdfPagePreviewEntry | null) | null | undefined;
 }
 
 const THUMBNAIL_WIDTH_CHANGE_THRESHOLD = 1;
@@ -160,6 +162,7 @@ const {
     invalidationRequest = undefined,
     isActive = true,
     pageLabels = undefined,
+    pagePreviewProvider = null,
     pdfDocument,
     selectedPages = undefined,
     totalPages,
@@ -500,6 +503,8 @@ function clearThumbnailCanvas(canvas: HTMLCanvasElement, renderKey: string | nul
     canvas.width = 0;
     canvas.height = 0;
     delete canvas.dataset.thumbnailRendered;
+    delete canvas.dataset.thumbnailSeededPreview;
+    delete canvas.dataset.thumbnailSeededPreviewId;
     if (renderKey) {
         canvas.dataset.thumbnailRenderKey = renderKey;
         return;
@@ -1067,6 +1072,125 @@ function pruneDetachedThumbnailState() {
     }
 }
 
+function getPagePreviewSeed(pageNum: number) {
+    const preview = pagePreviewProvider?.(pageNum) ?? null;
+    if (
+        !preview
+        || preview.width <= 0
+        || preview.height <= 0
+    ) {
+        return null;
+    }
+
+    return preview;
+}
+
+function resolveSeededThumbnailMetrics(sourceWidth: number, sourceHeight: number) {
+    const sourceAspectRatio = sourceHeight / sourceWidth;
+    if (!Number.isFinite(sourceAspectRatio) || sourceAspectRatio <= 0) {
+        return null;
+    }
+
+    const outputScale = resolveThumbnailOutputScale();
+    const cssWidth = Math.max(1, thumbnailRenderWidth.value);
+    const cssHeight = Math.max(1, cssWidth * sourceAspectRatio);
+    return {
+        cssHeight,
+        cssWidth,
+        pixelHeight: Math.max(1, Math.round(cssHeight * outputScale)),
+        pixelWidth: Math.max(1, Math.round(cssWidth * outputScale)),
+        sourceAspectRatio,
+    };
+}
+
+function seedThumbnailCanvasFromPagePreview(
+    pageNum: number,
+    canvas: HTMLCanvasElement,
+    renderKey: string,
+    reason: string,
+) {
+    const preview = getPagePreviewSeed(pageNum);
+    if (!preview) {
+        return false;
+    }
+
+    const metrics = resolveSeededThumbnailMetrics(preview.width, preview.height);
+    if (!metrics) {
+        return false;
+    }
+
+    const context = canvas.getContext('2d');
+    if (!context) {
+        return false;
+    }
+
+    updateThumbnailAspectRatioForPage(
+        pageNum,
+        preview.width,
+        preview.height,
+        'page-preview-seed',
+    );
+    canvas.width = metrics.pixelWidth;
+    canvas.height = metrics.pixelHeight;
+    canvas.style.removeProperty('width');
+    canvas.style.removeProperty('height');
+    canvas.dataset.thumbnailRenderKey = renderKey;
+    canvas.dataset.thumbnailSeededPreview = 'true';
+    canvas.dataset.thumbnailSeededPreviewId = String(preview.id);
+    context.drawImage(preview.source, 0, 0, metrics.pixelWidth, metrics.pixelHeight);
+    logPdfRenderTrace('thumbnail-seeded-from-page-preview', {
+        pageNumber: pageNum,
+        previewId: preview.id,
+        reason,
+        renderKey,
+        sourceWidth: preview.width,
+        sourceHeight: preview.height,
+        pixelWidth: metrics.pixelWidth,
+        pixelHeight: metrics.pixelHeight,
+        sourceAspectRatio: metrics.sourceAspectRatio,
+    });
+    return true;
+}
+
+function seedVisibleThumbnailsFromPagePreview(reason: string) {
+    for (const pageNum of virtualPages.value) {
+        const canvas = getCanvas(pageNum);
+        if (!canvas || isCurrentThumbnailCanvasRendered(pageNum)) {
+            continue;
+        }
+
+        const preview = getPagePreviewSeed(pageNum);
+        if (!preview) {
+            continue;
+        }
+
+        const renderKey = getThumbnailRenderKey(pageNum);
+        if (
+            isCanvasForRenderKey(canvas, renderKey)
+            && canvas.dataset.thumbnailSeededPreviewId === String(preview.id)
+        ) {
+            continue;
+        }
+
+        seedThumbnailCanvasFromPagePreview(pageNum, canvas, renderKey, reason);
+    }
+}
+
+const visiblePagePreviewSignature = computed(() => {
+    if (!pagePreviewProvider) {
+        return '';
+    }
+
+    return virtualPages.value
+        .map((pageNum) => {
+            const preview = pagePreviewProvider(pageNum);
+            return preview
+                ? `${pageNum}:${preview.id}:${preview.width}:${preview.height}`
+                : `${pageNum}:`;
+        })
+        .join('|');
+});
+
 function prepareThumbnailCanvas(pageNum: number) {
     const canvas = getCanvas(pageNum);
     if (!canvas || isCurrentThumbnailCanvasRendered(pageNum)) {
@@ -1085,6 +1209,7 @@ function prepareThumbnailCanvas(pageNum: number) {
     }
 
     clearThumbnailCanvas(canvas, renderKey);
+    seedThumbnailCanvasFromPagePreview(pageNum, canvas, renderKey, 'render-prepare');
     renderingPages.add(pageNum);
     renderingCanvases.set(pageNum, canvas);
     renderingCanvasKeys.set(pageNum, renderKey);
@@ -1179,6 +1304,8 @@ function finalizeRenderedThumbnail(pageNum: number, canvas: HTMLCanvasElement, r
     }
 
     canvas.dataset.thumbnailRendered = 'true';
+    delete canvas.dataset.thumbnailSeededPreview;
+    delete canvas.dataset.thumbnailSeededPreviewId;
     renderedCanvases.set(pageNum, canvas);
     logPdfRenderTrace('thumbnail-finalize-rendered', {
         pageNumber: pageNum,
@@ -1241,17 +1368,11 @@ async function renderPreparedThumbnail(
             return;
         }
 
-        const metrics = resolveThumbnailRenderMetrics(page, pageNum);
-        applyThumbnailCanvasSize(canvas, metrics);
-        const context = canvas.getContext('2d');
-        if (!context) {
-            return;
-        }
-
         const annotationMode = AnnotationMode?.ENABLE_STORAGE
             ?? AnnotationMode?.ENABLE_FORMS
             ?? AnnotationMode?.ENABLE
             ?? 1;
+        const metrics = resolveThumbnailRenderMetrics(page, pageNum);
         const renderCoordination = resolveThumbnailRenderCoordination(pageNum, currentPage);
         const operationsFilter = await createHiddenAnnotationOperationsFilter(
             page,
@@ -1262,6 +1383,18 @@ async function renderPreparedThumbnail(
                 priority: renderCoordination.priority,
             },
         );
+        const renderCanvas = canvas.dataset.thumbnailSeededPreview === 'true'
+            ? document.createElement('canvas')
+            : canvas;
+        applyThumbnailCanvasSize(renderCanvas, metrics);
+        const context = renderCanvas.getContext('2d');
+        if (!context) {
+            if (renderCanvas !== canvas) {
+                renderCanvas.remove();
+            }
+            return;
+        }
+
         const hiddenIds = Array.from(hiddenAnnotationIdSet.value);
         logPdfRenderTrace('thumbnail-render-start', {
             pageNumber: pageNum,
@@ -1274,6 +1407,7 @@ async function renderPreparedThumbnail(
             pixelHeight: metrics.pixelHeight,
             scaleX: metrics.scaleX,
             scaleY: metrics.scaleY,
+            target: renderCanvas === canvas ? 'visible' : 'buffered',
             renderOwner: renderCoordination.owner,
             renderPriority: renderCoordination.priority,
         });
@@ -1294,7 +1428,7 @@ async function renderPreparedThumbnail(
                 startRender: () => page.render({
                     canvasContext: context,
                     viewport: metrics.scaledViewport,
-                    canvas,
+                    canvas: renderCanvas,
                     transform: buildThumbnailRenderTransform(metrics.scaleX, metrics.scaleY),
                     annotationMode,
                     operationsFilter,
@@ -1317,24 +1451,48 @@ async function renderPreparedThumbnail(
                 errorName: error instanceof Error ? error.name : null,
                 errorMessage: error instanceof Error ? error.message : String(error),
             });
+            if (renderCanvas !== canvas) {
+                renderCanvas.width = 0;
+                renderCanvas.height = 0;
+                renderCanvas.remove();
+            }
             throw error;
         } finally {
             if (task && renderTasks.get(pageNum) === task) {
                 renderTasks.delete(pageNum);
             }
         }
-        if (
+        const isStillCurrentCanvas = (
             getCanvas(pageNum) === canvas
             && getThumbnailRenderKey(pageNum) === renderKey
             && isCanvasForRenderKey(canvas, renderKey)
-        ) {
+        );
+        if (isStillCurrentCanvas) {
             drawEditedTextMarkupThumbnailVisuals({
                 annotationSettings,
-                canvas,
+                canvas: renderCanvas,
                 comments: editedTextMarkupComments.value,
                 context,
                 pageNum,
             });
+        }
+        if (renderCanvas !== canvas && isStillCurrentCanvas) {
+            const visibleContext = canvas.getContext('2d');
+            if (!visibleContext) {
+                renderCanvas.remove();
+                return;
+            }
+
+            applyThumbnailCanvasSize(canvas, metrics);
+            visibleContext.drawImage(renderCanvas, 0, 0);
+            renderCanvas.width = 0;
+            renderCanvas.height = 0;
+            renderCanvas.remove();
+        }
+        if (renderCanvas !== canvas && !isStillCurrentCanvas) {
+            renderCanvas.width = 0;
+            renderCanvas.height = 0;
+            renderCanvas.remove();
         }
         finalizeRenderedThumbnail(pageNum, canvas, renderKey);
     } finally {
@@ -1721,6 +1879,18 @@ watch(
         }
 
         scheduleActivePaneRefresh('pane-active');
+    },
+    {
+        flush: 'post',
+        immediate: true,
+    },
+);
+
+watch(
+    visiblePagePreviewSignature,
+    async () => {
+        await nextTick();
+        seedVisibleThumbnailsFromPagePreview('page-preview-ready');
     },
     {
         flush: 'post',

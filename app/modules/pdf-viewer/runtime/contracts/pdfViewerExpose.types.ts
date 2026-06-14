@@ -18,6 +18,7 @@ import type {
 } from '@app/types/pdf';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
+import type { IPdfPagePreviewEntry } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
 
 export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 export type TAgentTextMarkupKind = 'highlight' | 'underline' | 'strikethrough' | 'squiggly';
@@ -105,6 +106,8 @@ export interface IPdfViewerLoadExpose {
     ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
     getPageMetricsSnapshot?: () => IPdfPageMetric[];
 }
+
+export interface IPdfViewerPreviewExpose {getPagePreview: (page: number) => IPdfPagePreviewEntry | null;}
 
 export interface IPdfViewerRegionCaptureExpose {
     captureRegionToClipboard: () => Promise<boolean>;
@@ -212,6 +215,7 @@ export interface IPdfViewerImagePlacementExpose {
 export interface IPdfViewerExpose extends
     IDocumentViewerExpose,
     IPdfViewerLoadExpose,
+    IPdfViewerPreviewExpose,
     IPdfViewerRegionCaptureExpose,
     IPdfViewerCropExpose,
     IPdfViewerShapePersistenceExpose,
