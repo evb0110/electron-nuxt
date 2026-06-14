@@ -91,6 +91,8 @@ jobs:
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
       - name: Release checks
+        env:
+          EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN: '1'
         run: pnpm run release:verify:checks
 
   build_artifacts:

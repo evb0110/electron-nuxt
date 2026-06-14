@@ -13,63 +13,25 @@
         <template #body>
             <div class="flex flex-col gap-4">
                 <div class="flex flex-col gap-2">
-                    <p class="m-0 mb-0.5 text-xs text-muted">
-                        {{ t('print.scopeLabel') }}
-                    </p>
-
-                    <label class="flex items-center gap-2 text-sm text-default">
-                        <input
-                            v-model="scope"
-                            type="radio"
-                            value="all"
-                        >
-                        <span>{{ t('print.scopeAll', { count: totalPages }) }}</span>
-                    </label>
-
-                    <label class="flex items-center gap-2 text-sm text-default">
-                        <input
-                            v-model="scope"
-                            type="radio"
-                            value="current"
-                        >
-                        <span>{{ t('print.scopeCurrent', { page: currentPage }) }}</span>
-                    </label>
-
-                    <label
-                        v-if="normalizedSelectedPages.length > 0"
-                        class="flex items-center gap-2 text-sm text-default"
-                    >
-                        <input
-                            v-model="scope"
-                            type="radio"
-                            value="selected"
-                        >
-                        <span>{{ t('print.scopeSelected', { count: normalizedSelectedPages.length }) }}</span>
-                    </label>
-
-                    <label class="flex items-center gap-2 text-sm text-default">
-                        <input
-                            v-model="scope"
-                            type="radio"
-                            value="range"
-                        >
-                        <span>{{ t('print.scopeRange') }}</span>
-                    </label>
-
-                    <UInput
-                        v-if="scope === 'range'"
-                        v-model="rangeInput"
-                        :placeholder="t('print.rangePlaceholder')"
-                        class="mt-1"
-                        @blur="rangeTouched = true"
+                    <URadioGroup
+                        v-model="scope"
+                        :legend="t('print.scopeLabel')"
+                        :items="scopeOptions"
+                        :ui="radioGroupUi"
                     />
 
-                    <p
-                        v-if="scope === 'range' && rangeTouched && rangeInput.trim() && rangePages === null"
-                        class="m-0 text-xs text-error"
+                    <UFormField
+                        v-if="scope === 'range'"
+                        :error="rangeError"
+                        class="mt-1"
+                        :ui="rangeFieldUi"
                     >
-                        {{ t('print.invalidRange') }}
-                    </p>
+                        <UInput
+                            v-model="rangeInput"
+                            :placeholder="t('print.rangePlaceholder')"
+                            @blur="rangeTouched = true"
+                        />
+                    </UFormField>
                 </div>
 
                 <div class="grid gap-4 sm:grid-cols-2">
@@ -193,6 +155,15 @@ const emit = defineEmits<{submit: [payload: {
 
 const { t } = useTypedI18n();
 
+const radioGroupUi = {
+    fieldset: 'gap-y-2',
+    legend: 'mb-0.5 text-xs text-muted font-normal',
+    item: 'items-center',
+    label: 'font-normal',
+} as const;
+
+const rangeFieldUi = { error: 'mt-1 text-xs' } as const;
+
 const viewMode = ref<TPdfViewMode>('single');
 const orientation = ref<TPrintOrientation>('auto');
 
@@ -210,6 +181,42 @@ const {
     selectedPages: () => selectedPages,
     resolveRangePages: () => rangePages.value,
 });
+
+const scopeOptions = computed(() => {
+    const options = [
+        {
+            value: 'all',
+            label: t('print.scopeAll', { count: totalPages }),
+        },
+        {
+            value: 'current',
+            label: t('print.scopeCurrent', { page: currentPage }),
+        },
+    ];
+
+    if (normalizedSelectedPages.value.length > 0) {
+        options.push({
+            value: 'selected',
+            label: t('print.scopeSelected', { count: normalizedSelectedPages.value.length }),
+        });
+    }
+
+    options.push({
+        value: 'range',
+        label: t('print.scopeRange'),
+    });
+
+    return options;
+});
+
+const rangeError = computed(() => (
+    scope.value === 'range'
+    && rangeTouched.value
+    && rangeInput.value.trim().length > 0
+    && rangePages.value === null
+        ? t('print.invalidRange')
+        : false
+));
 
 const printPageCount = computed(() => {
     if (scope.value === 'all') {

@@ -2,6 +2,7 @@ import type {
     ITab,
     TTabUpdate,
 } from '@app/types/tabs';
+import { moveArrayItem } from '@app/utils/moveArrayItem';
 
 // Intentional client-wide singleton: the workspace shell, toolbar, and tab
 // transfer flows share one tab collection within the renderer process.
@@ -16,19 +17,6 @@ function createEmptyTab(): ITab {
         isDirty: false,
         isDjvu: false,
     };
-}
-
-function reorderTabs(currentTabs: readonly ITab[], fromIndex: number, toIndex: number) {
-    const tab = currentTabs[fromIndex];
-    if (!tab) {
-        return [...currentTabs];
-    }
-    const withoutTab = currentTabs.filter((_, index) => index !== fromIndex);
-    return [
-        ...withoutTab.slice(0, toIndex),
-        tab,
-        ...withoutTab.slice(toIndex),
-    ];
 }
 
 export const useTabManager = () => {
@@ -96,7 +84,7 @@ export const useTabManager = () => {
         ) {
             return;
         }
-        tabs.value = reorderTabs(tabs.value, fromIndex, toIndex);
+        tabs.value = moveArrayItem(tabs.value, fromIndex, toIndex);
     }
 
     function getTabById(id: string) {

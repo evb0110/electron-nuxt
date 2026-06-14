@@ -63,9 +63,12 @@ describe('CI topology policy', () => {
 
     it('keeps native, landing, and Python smoke checks path-filtered on push', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
+        const testsTsconfig = await readProjectFile('tests/tsconfig.json');
+        const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
 
-        expect(workflow).toContain('grep -Eq \'^landing/\'');
-        expect(workflow).toContain('grep -Eq \'^native/\'');
+        expect(workflow).toContain('packages/(contracts|i18n-core|release-selection)/');
+        expect(workflow).toContain('scripts/(build-pdf-image-combine|build-pdf-page-ops|build-pdf-search|native-rust-targets)[.]mjs');
+        expect(workflow).toContain('Cargo[.]lock');
         expect(workflow).toContain('python/page-processor/');
         expect(workflow).toContain('name: Native Rust Tests');
         expect(workflow).toContain('run: pnpm run test:rust');
@@ -73,14 +76,41 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('run: pnpm --dir landing run check:vendor');
         expect(workflow).toContain('run: pnpm --dir landing run typecheck');
         expect(workflow).toContain('run: pnpm --dir landing run build');
+        expect(workflowJob(workflow, 'landing_push')).toContain('continue-on-error: true');
+        expect(sharedVitestConfig).toContain('tests/unit/landing/**/*.test.ts');
+        expect(testsTsconfig).toContain('./unit/landing/**/*.ts');
         expect(workflow).toContain('name: Python Page Processor Smoke');
         expect(workflowJob(workflow, 'python_page_processor_push')).toContain('python -m pip install');
         expect(workflowJob(workflow, 'python_page_processor_push')).toContain('opencv-python-headless');
         expect(workflow).toContain('run: pnpm run test:python-page-processor');
     });
 
+    it('verifies release build artifacts before upload', async () => {
+        const workflow = await readProjectFile('.github/workflows/build.yml');
+        const verifyStep = workflow.slice(
+            workflow.indexOf('- name: Verify release artifacts'),
+            workflow.indexOf('- name: Upload artifacts'),
+        );
+
+        expect(verifyStep).toContain('node scripts/release/assert-build-artifacts.mjs release "${{ matrix.platform }}" "${{ matrix.arch }}"');
+        expect(verifyStep).toContain('EVB_RELEASE_HAS_MAC_SIGNING');
+        expect(verifyStep).toContain('EVB_RELEASE_HAS_WINDOWS_SIGNING');
+        expect(verifyStep).not.toContain('CSC_LINK');
+        expect(verifyStep).not.toContain('WIN_CSC_LINK');
+    });
+
+    it('keeps release quality gates from requiring pre-bundle host Linux resources', async () => {
+        const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
+        const qualityJob = workflowJob(releaseWorkflow, 'quality');
+
+        expect(qualityJob).toContain('EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN: \'1\'');
+        expect(qualityJob).toContain('run: pnpm run release:verify:checks');
+    });
+
     it('runs the heavier deterministic checks in the nightly lane', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
+        const buildWorkflow = await readProjectFile('.github/workflows/build.yml');
+        const nvmrc = await readProjectFile('.nvmrc');
 
         expect(workflow).toContain('github.event_name == \'schedule\'');
         expect(workflow).toContain('name: Nightly Maintenance Gates');
@@ -91,6 +121,9 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('python -m pip install');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('opencv-python-headless');
         expect(workflow).toContain('run: pnpm run test:python-page-processor');
+        expect(nvmrc.trim()).toBe('24.11.1');
+        expect(workflow).toContain('NODE_VERSION: \'24.11.1\'');
+        expect(buildWorkflow).toContain('NODE_VERSION: \'24.11.1\'');
     });
 
     it('keeps Electron desktop automation and PDF tab diagnostics nightly and non-blocking', async () => {

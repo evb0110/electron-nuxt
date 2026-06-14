@@ -30,6 +30,7 @@ const {
     getLocalReleaseBuildCommand,
     getPackagingArgs,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-package.mjs')).href);
+const { assertBuildArtifacts } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/assert-build-artifacts.mjs')).href);
 const { filterIgnoredFiles } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/shared.mjs')).href);
 
 describe('release policy', () => {
@@ -70,6 +71,7 @@ describe('release policy', () => {
 
         expect(expectsUpdaterMetadata(macTarget, unsignedEnv)).toBe(false);
         expect(expectsUpdaterMetadata(macTarget, signedEnv)).toBe(true);
+        expect(expectsUpdaterMetadata(macTarget, { EVB_RELEASE_HAS_MAC_SIGNING: 'true' })).toBe(true);
         expect(shouldVerifyPackagedStartup(macTarget, unsignedEnv)).toBe(false);
         expect(shouldVerifyPackagedStartup(macTarget, signedEnv)).toBe(true);
     });
@@ -99,6 +101,15 @@ describe('release policy', () => {
             CSC_KEY_PASSWORD: 'password',
             CSC_LINK: 'certificate',
         }).map((pattern: RegExp) => pattern.source)).toEqual([
+            '\\.dmg$',
+            '\\.zip$',
+        ]);
+
+        expect(getRequiredArtifactPatterns({
+            arch: 'arm64',
+            expectsUpdaterMetadata: true,
+            platform: 'mac',
+        }, { EVB_RELEASE_HAS_MAC_SIGNING: 'true' }).map((pattern: RegExp) => pattern.source)).toEqual([
             '\\.dmg$',
             '\\.zip$',
         ]);
@@ -260,6 +271,10 @@ describe('release policy', () => {
             ],
             [
                 'run',
+                'check:resources:matrix',
+            ],
+            [
+                'run',
                 'check:architecture:all',
             ],
             [
@@ -288,10 +303,6 @@ describe('release policy', () => {
             [
                 'run',
                 'release:verify:package:local',
-            ],
-            [
-                'run',
-                'check:resources:host',
             ],
         ]);
     });
@@ -381,10 +392,6 @@ describe('release policy', () => {
                 'run',
                 'release:verify:package:local',
             ],
-            [
-                'run',
-                'check:resources:host',
-            ],
         ]);
     });
 
@@ -445,5 +452,57 @@ describe('release policy', () => {
             '--mac',
             '--arm64',
         ]);
+    });
+
+    it('validates matrix build artifacts before upload', () => {
+        const macMetadata = [
+            'version: 0.1.0',
+            'path: EVB-Viewer-0.1.0-arm64.zip',
+            'files:',
+            '  - url: EVB-Viewer-0.1.0-arm64.zip',
+            '  - url: EVB-Viewer-0.1.0-arm64.dmg',
+        ].join('\n');
+
+        expect(assertBuildArtifacts({
+            arch: 'arm64',
+            platform: 'mac',
+            env: {
+                EVB_RELEASE_HAS_MAC_SIGNING: 'true',
+                EVB_RELEASE_HAS_WINDOWS_SIGNING: 'false',
+            },
+            artifactNames: [
+                'EVB-Viewer-0.1.0-arm64.dmg',
+                'EVB-Viewer-0.1.0-arm64.dmg.blockmap',
+                'EVB-Viewer-0.1.0-arm64.zip',
+                'EVB-Viewer-0.1.0-arm64.zip.blockmap',
+                'latest-mac.yml',
+            ],
+            readMetadataText: () => macMetadata,
+        })).toBe(true);
+
+        expect(() => assertBuildArtifacts({
+            arch: 'arm64',
+            platform: 'linux',
+            artifactNames: [
+                'EVB Viewer-0.1.0-arm64.AppImage',
+                'EVB Viewer-0.1.0-arm64.deb',
+                'latest-linux.yml',
+            ],
+            readMetadataText: () => 'path: EVB Viewer-0.1.0-arm64.AppImage\n',
+        })).toThrow('latest-linux.yml');
+
+        expect(() => assertBuildArtifacts({
+            arch: 'arm64',
+            platform: 'win',
+            env: {
+                EVB_RELEASE_HAS_MAC_SIGNING: 'false',
+                EVB_RELEASE_HAS_WINDOWS_SIGNING: 'true',
+            },
+            artifactNames: [
+                'EVB Viewer Setup 0.1.0-arm64.exe',
+                'EVB Viewer Setup 0.1.0-arm64.exe.blockmap',
+            ],
+            readMetadataText: () => '',
+        })).toThrow('Unexpected updater metadata for win-arm64');
     });
 });

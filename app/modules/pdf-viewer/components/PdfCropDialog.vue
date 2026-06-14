@@ -31,103 +31,42 @@
                                 {{ t('crop.margins') }}
                             </p>
 
-                            <div class="flex items-center gap-2">
-                                <span class="w-14 text-sm text-default">{{ t('crop.marginTop') }}</span>
-                                <UInput
-                                    :model-value="displayTop"
-                                    type="number"
+                            <UFormField
+                                v-for="field in marginFields"
+                                :key="field.side"
+                                :label="field.label"
+                                orientation="horizontal"
+                                :ui="marginFieldUi"
+                            >
+                                <UInputNumber
+                                    :model-value="field.modelValue"
                                     :step="currentStep"
                                     :min="0"
+                                    :format-options="displayNumberFormatOptions"
+                                    :increment="false"
+                                    :decrement="false"
                                     class="w-24"
-                                    @update:model-value="updateMargin('top', $event)"
+                                    @update:model-value="updateMargin(field.side, $event)"
                                 />
-                            </div>
-
-                            <div class="flex items-center gap-2">
-                                <span class="w-14 text-sm text-default">{{ t('crop.marginBottom') }}</span>
-                                <UInput
-                                    :model-value="displayBottom"
-                                    type="number"
-                                    :step="currentStep"
-                                    :min="0"
-                                    class="w-24"
-                                    @update:model-value="updateMargin('bottom', $event)"
-                                />
-                            </div>
-
-                            <div class="flex items-center gap-2">
-                                <span class="w-14 text-sm text-default">{{ t('crop.marginLeft') }}</span>
-                                <UInput
-                                    :model-value="displayLeft"
-                                    type="number"
-                                    :step="currentStep"
-                                    :min="0"
-                                    class="w-24"
-                                    @update:model-value="updateMargin('left', $event)"
-                                />
-                            </div>
-
-                            <div class="flex items-center gap-2">
-                                <span class="w-14 text-sm text-default">{{ t('crop.marginRight') }}</span>
-                                <UInput
-                                    :model-value="displayRight"
-                                    type="number"
-                                    :step="currentStep"
-                                    :min="0"
-                                    class="w-24"
-                                    @update:model-value="updateMargin('right', $event)"
-                                />
-                            </div>
+                            </UFormField>
                         </div>
                     </div>
 
-                    <div class="flex items-center gap-3">
-                        <p class="m-0 text-xs text-muted">
-                            {{ t('crop.units') }}
-                        </p>
-                        <label class="flex items-center gap-1 text-sm text-default">
-                            <input v-model="unit" type="radio" value="pt">
-                            <span>{{ t('crop.unitPoints') }}</span>
-                        </label>
-                        <label class="flex items-center gap-1 text-sm text-default">
-                            <input v-model="unit" type="radio" value="mm">
-                            <span>{{ t('crop.unitMillimeters') }}</span>
-                        </label>
-                        <label class="flex items-center gap-1 text-sm text-default">
-                            <input v-model="unit" type="radio" value="in">
-                            <span>{{ t('crop.unitInches') }}</span>
-                        </label>
-                    </div>
+                    <URadioGroup
+                        v-model="unit"
+                        :legend="t('crop.units')"
+                        :items="unitOptions"
+                        orientation="horizontal"
+                        :ui="horizontalRadioGroupUi"
+                    />
 
                     <div class="flex flex-col gap-2">
-                        <p class="m-0 mb-0.5 text-xs text-muted">
-                            {{ t('crop.applyTo') }}
-                        </p>
-
-                        <label class="flex items-center gap-2 text-sm text-default">
-                            <input v-model="scope" type="radio" value="all">
-                            <span>{{ t('crop.scopeAll', { count: totalPages }) }}</span>
-                        </label>
-
-                        <label class="flex items-center gap-2 text-sm text-default">
-                            <input v-model="scope" type="radio" value="current">
-                            <span>{{ t('crop.scopeCurrent', { page: currentPage }) }}</span>
-                        </label>
-
-                        <label class="flex items-center gap-2 text-sm text-default">
-                            <input v-model="scope" type="radio" value="even">
-                            <span>{{ t('crop.scopeEven') }}</span>
-                        </label>
-
-                        <label class="flex items-center gap-2 text-sm text-default">
-                            <input v-model="scope" type="radio" value="odd">
-                            <span>{{ t('crop.scopeOdd') }}</span>
-                        </label>
-
-                        <label class="flex items-center gap-2 text-sm text-default">
-                            <input v-model="scope" type="radio" value="range">
-                            <span>{{ t('crop.scopeRange') }}</span>
-                        </label>
+                        <URadioGroup
+                            v-model="scope"
+                            :legend="t('crop.applyTo')"
+                            :items="scopeOptions"
+                            :ui="verticalRadioGroupUi"
+                        />
 
                         <UInput
                             v-if="scope === 'range'"
@@ -135,14 +74,6 @@
                             :placeholder="t('crop.rangePlaceholder')"
                             class="mt-1"
                         />
-
-                        <label
-                            v-if="normalizedSelectedPages.length > 0"
-                            class="flex items-center gap-2 text-sm text-default"
-                        >
-                            <input v-model="scope" type="radio" value="selected">
-                            <span>{{ t('crop.scopeSelected', { count: normalizedSelectedPages.length }) }}</span>
-                        </label>
                     </div>
                 </template>
             </div>
@@ -198,6 +129,12 @@ import {
     normalizeSelectedPageNumbers,
 } from '@app/utils/pdfPageSelection';
 
+interface ICropMarginField {
+    side: keyof ICropMargins;
+    label: string;
+    modelValue: number;
+}
+
 const open = defineModel<boolean>('open', { required: true });
 
 const {
@@ -227,6 +164,26 @@ const emit = defineEmits<{
 
 const { t } = useTypedI18n();
 
+const marginFieldUi = {
+    root: 'flex items-center justify-start gap-2',
+    label: 'w-14 text-sm font-normal',
+} as const;
+
+const horizontalRadioGroupUi = {
+    fieldset: 'items-center gap-x-3',
+    legend: 'm-0 text-xs text-muted font-normal',
+    item: 'items-center',
+    wrapper: 'ms-1',
+    label: 'font-normal',
+} as const;
+
+const verticalRadioGroupUi = {
+    fieldset: 'gap-y-2',
+    legend: 'mb-0.5 text-xs text-muted font-normal',
+    item: 'items-center',
+    label: 'font-normal',
+} as const;
+
 const margins = reactive<ICropMargins>({
     top: 0,
     bottom: 0,
@@ -250,14 +207,88 @@ const displayBottom = computed(() => formatDisplay(margins.bottom));
 const displayLeft = computed(() => formatDisplay(margins.left));
 const displayRight = computed(() => formatDisplay(margins.right));
 
+const displayNumberFormatOptions = computed(() => ({ maximumFractionDigits: unit.value === 'in' ? 2 : 1 }));
+
+const marginFields = computed<ICropMarginField[]>(() => [
+    {
+        side: 'top',
+        label: t('crop.marginTop'),
+        modelValue: displayTop.value,
+    },
+    {
+        side: 'bottom',
+        label: t('crop.marginBottom'),
+        modelValue: displayBottom.value,
+    },
+    {
+        side: 'left',
+        label: t('crop.marginLeft'),
+        modelValue: displayLeft.value,
+    },
+    {
+        side: 'right',
+        label: t('crop.marginRight'),
+        modelValue: displayRight.value,
+    },
+]);
+
+const unitOptions = computed(() => [
+    {
+        value: 'pt',
+        label: t('crop.unitPoints'),
+    },
+    {
+        value: 'mm',
+        label: t('crop.unitMillimeters'),
+    },
+    {
+        value: 'in',
+        label: t('crop.unitInches'),
+    },
+]);
+
+const scopeOptions = computed(() => {
+    const options = [
+        {
+            value: 'all',
+            label: t('crop.scopeAll', { count: totalPages }),
+        },
+        {
+            value: 'current',
+            label: t('crop.scopeCurrent', { page: currentPage }),
+        },
+        {
+            value: 'even',
+            label: t('crop.scopeEven'),
+        },
+        {
+            value: 'odd',
+            label: t('crop.scopeOdd'),
+        },
+        {
+            value: 'range',
+            label: t('crop.scopeRange'),
+        },
+    ];
+
+    if (normalizedSelectedPages.value.length > 0) {
+        options.push({
+            value: 'selected',
+            label: t('crop.scopeSelected', { count: normalizedSelectedPages.value.length }),
+        });
+    }
+
+    return options;
+});
+
 function formatDisplay(pts: number) {
     const value = pointsToUnit(pts, unit.value);
     const precision = unit.value === 'in' ? 2 : 1;
-    return parseFloat(value.toFixed(precision)).toString();
+    return parseFloat(value.toFixed(precision));
 }
 
-function updateMargin(side: keyof ICropMargins, displayValue: string | number) {
-    const numValue = typeof displayValue === 'string' ? parseFloat(displayValue) : displayValue;
+function updateMargin(side: keyof ICropMargins, displayValue: number | null) {
+    const numValue = displayValue ?? Number.NaN;
     if (Number.isFinite(numValue) && numValue >= 0) {
         margins[side] = unitToPoints(numValue, unit.value);
         marginsDirty.value = true;

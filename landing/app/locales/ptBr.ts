@@ -16,7 +16,7 @@ export default {
         copyright: 'Copyright © 2026 Eugene Barsky',
         docs: 'Documentação',
         features: 'Recursos',
-        viewSource: 'Ver código fonte',
+        viewSource: 'Ver código-fonte',
     },
     home: {
         seo: {

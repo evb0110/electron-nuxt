@@ -3,6 +3,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { getIgnorableRuntimeErrorMessage } from '@app/utils/runtimeErrorFilter';
 
 const INSTALL_FLAG = '__evbRendererErrorGuardInstalled';
+const RENDERER_GUARD_WARN_THROTTLE_MS = 5000;
 
 function serializeError(error: unknown) {
     if (error instanceof Error) {
@@ -80,7 +81,7 @@ export default defineNuxtPlugin((nuxtApp) => {
             BrowserLogger.warnThrottled(
                 'renderer-guard',
                 ignorableMessage,
-                5000,
+                RENDERER_GUARD_WARN_THROTTLE_MS,
                 'Ignored benign window error',
                 {
                     message: event.message,
@@ -109,7 +110,7 @@ export default defineNuxtPlugin((nuxtApp) => {
             BrowserLogger.warnThrottled(
                 'renderer-guard',
                 ignorableMessage,
-                5000,
+                RENDERER_GUARD_WARN_THROTTLE_MS,
                 'Ignored benign promise rejection',
                 {reason: serializeError(event.reason)},
             );

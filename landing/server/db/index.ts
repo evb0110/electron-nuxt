@@ -19,3 +19,11 @@ export function getDb(databaseUrl: string | undefined) {
     }
     return dbInstance;
 }
+
+export function getOptionalDb(databaseUrl: string | undefined) {
+    if (!databaseUrl) {
+        return null;
+    }
+
+    return getDb(databaseUrl);
+}

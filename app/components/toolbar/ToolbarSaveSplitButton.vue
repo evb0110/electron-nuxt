@@ -26,45 +26,29 @@
             </template>
         </AppTooltip>
 
-        <UPopover v-model:open="menuOpen" mode="click" :content="menuContentOptions">
+        <UDropdownMenu
+            v-model:open="menuOpen"
+            :items="saveMenuItems"
+            :content="menuContentOptions"
+            :ui="saveMenuUi"
+        >
             <button
                 type="button"
                 class="save-split-trigger"
                 :disabled="triggerDisabled"
-                aria-haspopup="true"
+                aria-haspopup="menu"
                 :aria-expanded="menuOpen"
                 :aria-label="t('toolbar.saveOptions')"
             >
                 <Icon name="ph:caret-down" class="save-split-chevron" aria-hidden="true" />
             </button>
 
-            <template #content>
-                <div
-                    class="save-split-menu toolbar-menu-panel"
-                    role="group"
-                    :aria-label="t('toolbar.saveOptions')"
-                >
-                    <button
-                        class="save-split-item toolbar-menu-item"
-                        :disabled="primaryDisabled"
-                        @click="handleMenuSave"
-                    >
-                        <Icon name="ph:floppy-disk" class="save-split-menu-icon toolbar-menu-icon" aria-hidden="true" />
-                        <span class="toolbar-menu-label">{{ t('toolbar.save') }}</span>
-                        <span v-if="saveShortcut" class="toolbar-menu-shortcut">{{ saveShortcut }}</span>
-                    </button>
-                    <button
-                        class="save-split-item toolbar-menu-item"
-                        :disabled="saveAsDisabled || isSavingAs"
-                        @click="handleSaveAs"
-                    >
-                        <Icon name="ph:floppy-disk-back" class="save-split-menu-icon toolbar-menu-icon" aria-hidden="true" />
-                        <span class="toolbar-menu-label">{{ t('toolbar.saveAs') }}</span>
-                        <span v-if="saveAsShortcut" class="toolbar-menu-shortcut">{{ saveAsShortcut }}</span>
-                    </button>
-                </div>
+            <template #item-trailing="{ item }">
+                <span v-if="getMenuShortcut(item)" class="toolbar-menu-shortcut">
+                    {{ getMenuShortcut(item) }}
+                </span>
             </template>
-        </UPopover>
+        </UDropdownMenu>
     </div>
 </template>
 
@@ -105,6 +89,31 @@ const menuContentOptions = {
     collisionPadding: 8,
 };
 
+const saveMenuUi = {
+    content: 'save-split-menu toolbar-menu-panel',
+    item: 'save-split-item toolbar-menu-item',
+    itemLeadingIcon: 'save-split-menu-icon toolbar-menu-icon',
+    itemLabel: 'toolbar-menu-label',
+    itemTrailing: 'save-split-menu-trailing',
+};
+
+const saveMenuItems = computed(() => [
+    {
+        label: t('toolbar.save'),
+        icon: 'ph:floppy-disk',
+        disabled: primaryDisabled.value,
+        shortcut: saveShortcut,
+        onSelect: handleMenuSave,
+    },
+    {
+        label: t('toolbar.saveAs'),
+        icon: 'ph:floppy-disk-back',
+        disabled: saveAsDisabled || isSavingAs,
+        shortcut: saveAsShortcut,
+        onSelect: handleSaveAs,
+    },
+]);
+
 function handleSave() {
     emit('save');
 }
@@ -118,16 +127,28 @@ function handleSaveAs() {
     menuOpen.value = false;
     emit('save-as');
 }
+
+function getMenuShortcut(item: unknown) {
+    return typeof item === 'object' && item != null && 'shortcut' in item
+        ? String(item.shortcut ?? '')
+        : '';
+}
 </script>
 
-<style lang="scss" scoped>
+<style lang="scss">
 @use '@app/assets/css/toolbar-menu-shared';
 
+.save-split-menu {
+    min-width: min(var(--app-toolbar-save-menu-min-width), var(--app-floating-panel-viewport-width));
+}
+</style>
+
+<style lang="scss" scoped>
 .save-split {
     display: inline-flex;
     align-items: center;
     height: var(--toolbar-control-height);
-    border-radius: 0.4375rem;
+    border-radius: var(--app-toolbar-button-radius);
     transition: background-color 0.1s ease, box-shadow 0.1s ease;
 }
 
@@ -145,15 +166,15 @@ function handleSaveAs() {
 }
 
 .save-split-primary {
-    width: 2rem;
-    padding: 0.32rem;
-    border-radius: 0.4375rem 0 0 0.4375rem;
+    width: var(--app-toolbar-save-primary-width);
+    padding: var(--app-toolbar-button-padding);
+    border-radius: var(--app-toolbar-button-radius) 0 0 var(--app-toolbar-button-radius);
 }
 
 .save-split-trigger {
-    width: 1rem;
+    width: var(--app-toolbar-save-trigger-width);
     padding-right: 0.0625rem;
-    border-radius: 0 0.4375rem 0.4375rem 0;
+    border-radius: 0 var(--app-toolbar-button-radius) var(--app-toolbar-button-radius) 0;
 }
 
 /* HOVER, both actions live → the control lights as one recessed gray pill. */
@@ -167,7 +188,7 @@ function handleSaveAs() {
 .save-split.is-primary-disabled:not(.is-open) .save-split-trigger:not(:disabled):hover {
     background: var(--app-toolbar-control-hover-bg);
     color: var(--app-toolbar-control-hover-fg);
-    border-radius: 0.4375rem;
+    border-radius: var(--app-toolbar-button-radius);
 }
 
 /*
@@ -190,7 +211,7 @@ function handleSaveAs() {
 .save-split.is-open.is-primary-disabled .save-split-trigger {
     background: var(--app-toolbar-control-active-bg);
     box-shadow: inset 0 0 0 1px var(--app-toolbar-control-active-border);
-    border-radius: 0.4375rem;
+    border-radius: var(--app-toolbar-button-radius);
 }
 
 .save-split-primary:focus-visible,
@@ -214,22 +235,18 @@ function handleSaveAs() {
 }
 
 .save-split-icon {
-    width: 1.25rem;
-    height: 1.25rem;
+    width: var(--app-tab-close-size);
+    height: var(--app-tab-close-size);
 }
 
 .save-split-chevron {
-    width: 0.6875rem;
-    height: 0.6875rem;
+    width: var(--app-toolbar-save-chevron-size);
+    height: var(--app-toolbar-save-chevron-size);
     transition: transform 0.15s ease;
 }
 
 .save-split.is-open .save-split-chevron {
     transform: rotate(180deg);
-}
-
-.save-split-menu {
-    min-width: 11rem;
 }
 
 .toolbar-tooltip-label {

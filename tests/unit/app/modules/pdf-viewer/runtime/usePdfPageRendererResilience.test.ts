@@ -35,6 +35,7 @@ interface INodeLike {
     style: Record<string, string>;
     classList: IClassList;
     dataset?: Record<string, string>;
+    getAttribute?: (name: string) => string | null;
     offsetTop?: number;
     offsetHeight?: number;
     innerHTML?: string;
@@ -42,6 +43,7 @@ interface INodeLike {
     dir?: string;
     appendChild?: (...args: unknown[]) => void;
     querySelector?: (selector: string) => unknown;
+    querySelectorAll?: (selector: string) => unknown[];
 }
 
 interface ICanvasLike extends INodeLike {
@@ -158,9 +160,19 @@ function createPageContainer(overrides?: {
     textLayerDiv?: INodeLike | null;
     annotationLayerDiv?: INodeLike | null;
     annotationEditorLayerDiv?: INodeLike | null;
+    hasShapeOverlay?: boolean;
+    shapeOverlayAnnotationIds?: string[];
 }) {
     const pageNumber = overrides?.pageNumber ?? 1;
     let mountedCanvas: unknown = null;
+    const overlayAnnotationIds = overrides?.shapeOverlayAnnotationIds
+        ?? (overrides?.hasShapeOverlay === true ? ['12R'] : []);
+    const overlayElements: INodeLike[] = overlayAnnotationIds.map(annotationId => ({
+        dataset: { annotationId },
+        style: {},
+        classList: createClassList(),
+        getAttribute: (name: string) => name === 'data-annotation-id' ? annotationId : null,
+    }));
     const canvasHost: INodeLike = {
         innerHTML: '',
         style: {},
@@ -214,6 +226,10 @@ function createPageContainer(overrides?: {
             '.annotation-editor-layer',
             annotationEditorLayerDiv,
         ],
+        [
+            '.pdf-shape-overlay.has-shapes',
+            overlayElements.length > 0 ? {} : null,
+        ],
     ]);
 
     const pageContainer: INodeLike = {
@@ -223,6 +239,11 @@ function createPageContainer(overrides?: {
         style: {},
         classList: createClassList(),
         querySelector: vi.fn((selector: string) => selectorMap.get(selector) ?? null),
+        querySelectorAll: vi.fn((selector: string) => (
+            selector === '.pdf-shape-overlay.has-shapes [data-annotation-id]'
+                ? overlayElements
+                : []
+        )),
     };
 
     return {
@@ -334,6 +355,101 @@ describe('usePdfPageRenderer resilience', () => {
         expect(renderer.isPageRendered(1)).toBe(true);
         expect(cleanup).toHaveBeenCalledTimes(1);
         expect(documentState.evictPage).not.toHaveBeenCalled();
+    });
+
+    it('does not suppress managed embedded canvas annotations before the page overlay is mounted', async () => {
+        const { pageContainer } = createPageContainer({ hasShapeOverlay: false });
+        const containerRoot = createContainerRoot(pageContainer);
+        const documentState = {
+            pdfDocument: shallowRef({} as object),
+            numPages: ref(1),
+            basePageWidth: ref(100),
+            basePageHeight: ref(100),
+            isLoading: ref(false),
+            getPage: vi.fn(async () => ({ cleanup: vi.fn() })),
+            evictPage: vi.fn(),
+            cleanupPageCache: vi.fn(),
+        };
+
+        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
+        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
+        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
+
+        const renderer = usePdfPageRenderer({
+            container: ref(containerRoot),
+            document: documentState as never,
+            currentPage: ref(1),
+            effectiveScale: ref(1),
+            bufferPages: ref(0),
+            showAnnotations: ref(true),
+            hiddenAnnotationIds: ref(new Set([
+                '12R0',
+                'deleted-annotation',
+            ])),
+            managedAnnotationIds: ref(new Set(['12R'])),
+            annotationUiManager: ref(null),
+            annotationL10n: ref(null),
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+        });
+
+        await renderer.renderVisiblePages({
+            start: 1,
+            end: 1,
+        });
+
+        const canvasOptions = canvasRendererMock.renderCanvas.mock.calls[0]?.[2] as { hiddenAnnotationIds?: Set<string>; } | undefined;
+        expect(canvasOptions?.hiddenAnnotationIds).toEqual(new Set(['deleted-annotation']));
+    });
+
+    it('suppresses managed embedded canvas annotations after the page overlay is mounted', async () => {
+        const { pageContainer } = createPageContainer({ hasShapeOverlay: true });
+        const containerRoot = createContainerRoot(pageContainer);
+        const documentState = {
+            pdfDocument: shallowRef({} as object),
+            numPages: ref(1),
+            basePageWidth: ref(100),
+            basePageHeight: ref(100),
+            isLoading: ref(false),
+            getPage: vi.fn(async () => ({ cleanup: vi.fn() })),
+            evictPage: vi.fn(),
+            cleanupPageCache: vi.fn(),
+        };
+
+        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
+        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
+        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
+
+        const renderer = usePdfPageRenderer({
+            container: ref(containerRoot),
+            document: documentState as never,
+            currentPage: ref(1),
+            effectiveScale: ref(1),
+            bufferPages: ref(0),
+            showAnnotations: ref(true),
+            hiddenAnnotationIds: ref(new Set([
+                '12R0',
+                'deleted-annotation',
+            ])),
+            managedAnnotationIds: ref(new Set(['12R'])),
+            annotationUiManager: ref(null),
+            annotationL10n: ref(null),
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+        });
+
+        await renderer.renderVisiblePages({
+            start: 1,
+            end: 1,
+        });
+
+        const canvasOptions = canvasRendererMock.renderCanvas.mock.calls[0]?.[2] as { hiddenAnnotationIds?: Set<string>; } | undefined;
+        expect(canvasOptions?.hiddenAnnotationIds).toEqual(new Set([
+            '12R',
+            'deleted-annotation',
+        ]));
     });
 
     it('re-renders a tracked page when the mounted canvas is missing', async () => {

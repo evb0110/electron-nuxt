@@ -32,6 +32,7 @@ import { updateRecentFilesMenu } from '@electron/menu';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { assertWithinIpcWriteBudget } from '@electron/features/documents/main/documentFileWriteAtomic';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
+import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
 
 const SERIALIZED_PDF_SESSION_TIMEOUT_MS = 10 * 60_000;
 
@@ -75,6 +76,10 @@ function createEmptyPdfValidationResult(message: string): IPdfValidationResult {
         errors: [message],
         warnings: [],
     };
+}
+
+function createOriginalChangedValidationResult() {
+    return createEmptyPdfValidationResult('Original file changed on disk; save skipped to avoid overwriting external edits');
 }
 
 function normalizeWorkingPath(workingPath: unknown) {
@@ -256,6 +261,7 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
         return validation;
     }
 
+    let conflictValidation: IPdfValidationResult | null = null;
     await enqueueWorkingCopyMutation(session.workingPath, async () => {
         if (!await ensureWorkingCopyDirectory(session.workingPath, session.senderId)) {
             throw new Error('Working copy path is not managed');
@@ -269,12 +275,16 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
             await addRecentFile(session.targetPath);
             updateRecentFilesMenu();
         } else {
+            if (!await originalPathSaveBaseMatches(session.workingPath, session.targetPath, session.senderId)) {
+                conflictValidation = createOriginalChangedValidationResult();
+                return;
+            }
             await atomicReplace(session.tempPath, session.targetPath);
             await copyFileCopyOnWrite(session.targetPath, session.workingPath);
         }
     });
 
-    return validation;
+    return conflictValidation ?? validation;
 }
 
 function getChunkBytes(value: unknown) {

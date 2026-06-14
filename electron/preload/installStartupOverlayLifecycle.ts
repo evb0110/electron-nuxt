@@ -18,6 +18,8 @@ const STARTUP_OVERLAY_SPINNER_SIZE_PX = 20;
 const STARTUP_OVERLAY_GAP_PX = 10;
 const STARTUP_OVERLAY_TEXT_FONT_SIZE_PX = 13;
 const STARTUP_OVERLAY_TEXT_LINE_HEIGHT_PX = 13;
+const STARTUP_OVERLAY_Z_INDEX = 2_147_483_647;
+const STARTUP_OVERLAY_INNER_WIDTH_PX = 128;
 const DEV_STARTUP_OVERLAY_APP_READY_DELAY_MS = 2200;
 const STARTUP_OPEN_CLAIM_GRACE_MS = 300;
 const STARTUP_OPEN_CLAIM_FALLBACK_MS = 5_000;
@@ -33,7 +35,7 @@ function ensureStartupOverlayStyles() {
 #${STARTUP_OVERLAY_ID} {
     position: fixed;
     inset: 0;
-    z-index: 2147483647;
+    z-index: ${STARTUP_OVERLAY_Z_INDEX};
     display: flex;
     align-items: center;
     justify-content: center;
@@ -47,7 +49,7 @@ function ensureStartupOverlayStyles() {
     flex-direction: column;
     align-items: center;
     gap: ${STARTUP_OVERLAY_GAP_PX}px;
-    width: 128px;
+    width: ${STARTUP_OVERLAY_INNER_WIDTH_PX}px;
     height: ${STARTUP_OVERLAY_SPINNER_SIZE_PX + STARTUP_OVERLAY_GAP_PX + STARTUP_OVERLAY_TEXT_LINE_HEIGHT_PX}px;
     min-height: ${STARTUP_OVERLAY_SPINNER_SIZE_PX + STARTUP_OVERLAY_GAP_PX + STARTUP_OVERLAY_TEXT_LINE_HEIGHT_PX}px;
 }

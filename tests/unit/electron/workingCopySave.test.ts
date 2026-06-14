@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
     }),
     validatePdfFile: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn(),
+    getWorkingCopyOriginalFileExpectation: vi.fn(),
     getWorkingCopyOriginalPath: vi.fn(),
     isAllowedOriginalSavePath: vi.fn(),
 }));
@@ -40,6 +41,7 @@ vi.mock('@electron/utils/atomicReplace', () => ({
 vi.mock('@electron/features/documents/main/pdfConformance', () => ({validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args)}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({
+    getWorkingCopyOriginalFileExpectation: (...args: unknown[]) => mocks.getWorkingCopyOriginalFileExpectation(...args),
     getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args),
     normalizePathForLookup: (path: string) => path.trim(),
 }));
@@ -59,6 +61,7 @@ describe('workingCopySave', () => {
             warnings: [],
         });
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(null);
         mocks.isAllowedOriginalSavePath.mockReturnValue(true);
     });
 
@@ -116,6 +119,29 @@ describe('workingCopySave', () => {
         await expect(savePromise).resolves.toMatchObject({isValid: true});
         expect(readFileSyncUtf8(workingPath)).toBe('serialized-pdf');
         expect(readFileSyncUtf8(originalPath)).toBe('serialized-pdf');
+    });
+
+    it('skips copy-back when the original file changed since the working copy was opened', async () => {
+        const workingPath = join(tempRoot, 'changed-working.pdf');
+        const originalPath = join(tempRoot, 'changed-original.pdf');
+        writeFileSync(workingPath, 'old-original');
+        writeFileSync(originalPath, 'external-change');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            mtimeMs: 1,
+            size: 12,
+        });
+        const { handleSerializedPdfSave } = await import('@electron/features/documents/main/workingCopySave');
+
+        await expect(handleSerializedPdfSave(event, workingPath, Buffer.from('serialized-pdf')))
+            .resolves.toMatchObject({
+                isValid: false,
+                errors: [expect.stringContaining('Original file changed on disk')],
+            });
+
+        expect(readFileSyncUtf8(workingPath)).toBe('old-original');
+        expect(readFileSyncUtf8(originalPath)).toBe('external-change');
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
     });
 });
 

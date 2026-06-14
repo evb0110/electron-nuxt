@@ -70,9 +70,6 @@ vi.mock('@app/composables/useDjvuMode', () => {
     })};
 });
 
-const mockT = vi.fn((key: string) => key);
-vi.stubGlobal('useI18n', () => ({ t: mockT }));
-
 const { useDjvu } = await import('@app/composables/useDjvu');
 
 describe('useDjvu', () => {
@@ -229,6 +226,36 @@ describe('useDjvu', () => {
     });
 
     describe('convertToPdf', () => {
+        it('suggests a PDF name from the DjVu source file without using localized fallback text', async () => {
+            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'view-1',
+            });
+            mockElectronAPI.documents.savePdfDialog.mockResolvedValue(null);
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
+            await djvu.convertToPdf(1, true, vi.fn(async () => {}));
+
+            expect(mockElectronAPI.documents.savePdfDialog).toHaveBeenCalledWith('input.pdf');
+        });
+
+        it('turns the DjVu fallback into a PDF suggestion only when the source has no basename', async () => {
+            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'view-1',
+            });
+            mockElectronAPI.documents.savePdfDialog.mockResolvedValue(null);
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('browser://documents/source/', vi.fn(async () => {}));
+            await djvu.convertToPdf(1, true, vi.fn(async () => {}));
+
+            expect(mockElectronAPI.documents.savePdfDialog).toHaveBeenCalledWith('djvu.documentFallback.pdf');
+        });
+
         it('shows a conversion error without cleaning filesystem save paths', async () => {
             mockElectronAPI.djvu.openForViewing.mockResolvedValue({
                 success: true,

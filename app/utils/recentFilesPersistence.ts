@@ -1,4 +1,5 @@
 import type { IRecentFile } from '@contracts/shared';
+import { take } from 'es-toolkit/array';
 import {
     getOptionalNumber,
     getOptionalString,
@@ -212,7 +213,7 @@ export function readBrowserRecentFilesSnapshot(): IRecentFilesCookieSnapshot {
 }
 
 export function serializeRecentFilesPayload(recentFiles: IRecentFile[]) {
-    return JSON.stringify(recentFiles.slice(0, RECENT_FILES_LIMIT));
+    return JSON.stringify(take(recentFiles, RECENT_FILES_LIMIT));
 }
 
 export function trimRecentFilesForCookie(recentFiles: IRecentFile[]) {

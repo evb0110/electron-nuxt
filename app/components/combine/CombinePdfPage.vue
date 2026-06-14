@@ -5,6 +5,7 @@
         icon="i-ph-stack-plus"
         :show-back="showBack"
         :show-eyebrow="showEyebrow"
+        :show-header="showHeader"
         @close="closePage"
     >
         <div
@@ -107,12 +108,29 @@
                     :description="combineError"
                 />
 
-                <ol class="combine-file-list">
+                <p class="sr-only" role="status" aria-live="polite">{{ reorderAnnouncement }}</p>
+
+                <ol
+                    ref="listRef"
+                    class="combine-file-list"
+                    :class="{ 'is-reordering': isReordering }"
+                >
                     <li
                         v-for="(file, index) in files"
                         :key="file.id"
                         class="combine-file-row"
+                        :class="{ 'is-row-dragging': reorderDragIndex === index }"
+                        data-combine-row
                     >
+                        <AppTooltip :text="t('combinePdf.dragToReorder')" :delay-duration="600">
+                            <span
+                                class="combine-drag-handle"
+                                aria-hidden="true"
+                                @pointerdown="(event) => startReorder(event, index)"
+                            >
+                                <UIcon name="i-ph-dots-six-vertical" class="size-4" />
+                            </span>
+                        </AppTooltip>
                         <span class="combine-file-index">{{ index + 1 }}</span>
                         <FileTypeIcon :kind="file.kind" class="combine-file-icon" />
                         <span class="combine-file-copy">
@@ -192,6 +210,7 @@ import AppToolPageShell from '@app/components/AppToolPageShell.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import { formatBytes } from '@app/utils/formatters';
 import { getErrorMessage } from '@app/utils/error';
+import { moveArrayItem } from '@app/utils/moveArrayItem';
 import {
     combinePdfFiles as combinePdfInputFiles,
     type ICombinePdfProgress,
@@ -225,15 +244,19 @@ function closePage() {
 const {
     showBack = true,
     showEyebrow = true,
+    showHeader = true,
 } = defineProps<{
     showBack?: boolean;
     showEyebrow?: boolean;
+    showHeader?: boolean;
 }>();
 
 const { t } = useTypedI18n();
 const listTitleId = useId();
 const fileInputRef = ref<HTMLInputElement | null>(null);
+const listRef = ref<HTMLElement | null>(null);
 const files = ref<ICombineFile[]>([]);
+const reorderAnnouncement = ref('');
 const isDraggingOver = ref(false);
 const dragDepth = ref(0);
 const isCombining = ref(false);
@@ -303,20 +326,6 @@ function mergeCombineFiles(currentFiles: readonly ICombineFile[], fileList: File
     });
 }
 
-function reorderFile(filesToReorder: readonly ICombineFile[], index: number, targetIndex: number) {
-    const file = filesToReorder[index];
-    if (!file) {
-        return [...filesToReorder];
-    }
-
-    const withoutFile = filesToReorder.filter((_, fileIndex) => fileIndex !== index);
-    return [
-        ...withoutFile.slice(0, targetIndex),
-        file,
-        ...withoutFile.slice(targetIndex),
-    ];
-}
-
 function addFiles(fileList: FileList | File[]) {
     combineError.value = null;
     const merged = mergeCombineFiles(files.value, fileList);
@@ -376,13 +385,44 @@ function removeFile(index: number) {
     files.value = files.value.filter((_, fileIndex) => fileIndex !== index);
 }
 
+function announceReorder(position: number) {
+    const file = files.value[position];
+    if (!file) {
+        return;
+    }
+    reorderAnnouncement.value = t('combinePdf.reorderAnnouncement', {
+        name: file.name,
+        position: position + 1,
+        total: files.value.length,
+    });
+}
+
 function moveFile(index: number, delta: -1 | 1) {
     const targetIndex = index + delta;
     if (targetIndex < 0 || targetIndex >= files.value.length) {
         return;
     }
 
-    files.value = reorderFile(files.value, index, targetIndex);
+    files.value = moveArrayItem(files.value, index, targetIndex);
+    announceReorder(targetIndex);
+}
+
+function handleReorder(fromIndex: number, toIndex: number) {
+    files.value = moveArrayItem(files.value, fromIndex, toIndex);
+    announceReorder(toIndex);
+}
+
+const {
+    isDragging: isReordering,
+    dragIndex: reorderDragIndex,
+    onPointerDown: onReorderPointerDown,
+} = useListDragReorder(listRef, '[data-combine-row]', handleReorder);
+
+function startReorder(event: PointerEvent, index: number) {
+    if (isCombining.value) {
+        return;
+    }
+    onReorderPointerDown(event, index);
 }
 
 function buildOutputName() {
@@ -433,8 +473,8 @@ async function combineFiles() {
 .combine-page {
     display: grid;
     align-items: stretch;
-    gap: 1.25rem;
-    width: min(100%, 76rem);
+    gap: var(--app-combine-page-gap);
+    width: min(100%, var(--app-combine-page-max-width));
     height: 100%;
     min-height: 0;
     margin: 0 auto;
@@ -442,17 +482,17 @@ async function combineFiles() {
 
 .combine-page.is-empty {
     grid-template-columns: minmax(0, 1fr);
-    width: min(100%, 45rem);
+    width: min(100%, var(--app-combine-empty-page-max-width));
 }
 
 .combine-page.has-files {
-    grid-template-columns: minmax(20rem, 0.6fr) minmax(0, 1fr);
+    grid-template-columns: minmax(var(--app-combine-rail-min-width), 0.6fr) minmax(0, 1fr);
 }
 
 .combine-dropzone,
 .combine-workbench {
     border: 1px solid var(--app-start-card-border);
-    border-radius: 0.5rem;
+    border-radius: var(--app-start-panel-radius);
     background: var(--app-start-card-bg);
 }
 
@@ -461,12 +501,12 @@ async function combineFiles() {
     top: 0;
     display: flex;
     align-self: start;
-    min-height: 22rem;
+    min-height: var(--app-combine-dropzone-min-height);
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 1rem;
-    padding: 1.25rem;
+    gap: var(--app-combine-dropzone-gap);
+    padding: var(--app-combine-dropzone-padding);
     border-style: dashed;
     border-color: var(--app-start-dropzone-border);
     background: var(--app-start-dropzone-bg);
@@ -474,7 +514,7 @@ async function combineFiles() {
 }
 
 .combine-page.is-empty .combine-dropzone {
-    min-height: 22.5rem;
+    min-height: var(--app-combine-empty-dropzone-min-height);
 }
 
 .combine-page.is-dragging .combine-dropzone {
@@ -484,58 +524,58 @@ async function combineFiles() {
 
 .combine-dropzone-art {
     display: inline-flex;
-    width: 4.5rem;
-    height: 4.5rem;
+    width: var(--app-combine-dropzone-art-size);
+    height: var(--app-combine-dropzone-art-size);
     align-items: center;
     justify-content: center;
     border: 1px solid var(--ui-border);
-    border-radius: 0.5rem;
+    border-radius: var(--app-radius-2xl);
     background: var(--ui-bg);
     color: var(--ui-primary);
 }
 
 .combine-dropzone-icon {
-    width: 2rem;
-    height: 2rem;
+    width: var(--app-combine-dropzone-icon-size);
+    height: var(--app-combine-dropzone-icon-size);
 }
 
 .combine-dropzone-copy {
     display: flex;
-    max-width: 18rem;
+    max-width: var(--app-content-width-xs);
     flex-direction: column;
-    gap: 0.35rem;
+    gap: var(--app-combine-dropzone-copy-gap);
 }
 
 .combine-dropzone-copy h2 {
     margin: 0;
     color: var(--ui-text-highlighted);
-    font-size: 1.05rem;
-    font-weight: 650;
+    font-size: var(--app-combine-dropzone-copy-title-size);
+    font-weight: var(--app-font-weight-heading);
     letter-spacing: 0;
 }
 
 .combine-dropzone-copy p {
     margin: 0;
     color: var(--ui-text-muted);
-    font-size: 0.86rem;
-    line-height: 1.45;
+    font-size: var(--app-combine-dropzone-copy-text-size);
+    line-height: var(--app-line-height-body);
 }
 
 .combine-dropzone-alerts {
     display: grid;
-    width: min(100%, 24rem);
-    gap: 0.5rem;
+    width: min(100%, var(--app-combine-dropzone-alert-width));
+    gap: var(--app-space-3xl);
 }
 
 .combine-workbench {
     display: flex;
     min-width: 0;
-    min-height: 28rem;
+    min-height: var(--app-combine-workbench-min-height);
     max-height: 100%;
     flex-direction: column;
-    gap: 0.9rem;
+    gap: var(--app-combine-workbench-gap);
     overflow: hidden;
-    padding: 1rem;
+    padding: var(--app-combine-workbench-padding);
 }
 
 .combine-list-header,
@@ -543,14 +583,14 @@ async function combineFiles() {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: var(--app-start-panel-gap);
 }
 
 .combine-list-title {
     margin: 0;
     color: var(--ui-text-highlighted);
-    font-size: 1rem;
-    font-weight: 650;
+    font-size: var(--app-text-size-title-sm);
+    font-weight: var(--app-font-weight-heading);
     letter-spacing: 0;
 }
 
@@ -558,7 +598,7 @@ async function combineFiles() {
 .combine-actions p {
     margin: 0.2rem 0 0;
     color: var(--ui-text-muted);
-    font-size: 0.8rem;
+    font-size: var(--app-text-size-secondary);
 }
 
 .combine-file-list {
@@ -566,7 +606,7 @@ async function combineFiles() {
     flex: 1;
     min-height: 0;
     flex-direction: column;
-    gap: 0.4rem;
+    gap: var(--app-combine-file-list-gap);
     margin: 0;
     padding: 0;
     overflow: auto;
@@ -575,14 +615,45 @@ async function combineFiles() {
 
 .combine-file-row {
     display: grid;
-    grid-template-columns: 2rem 2rem minmax(0, 1fr) auto;
+    grid-template-columns: var(--app-combine-file-row-columns);
     align-items: center;
-    gap: 0.65rem;
-    min-height: 3.25rem;
-    padding: 0.45rem 0.55rem;
+    gap: var(--app-combine-file-row-gap);
+    min-height: var(--app-combine-file-row-min-height);
+    padding: var(--app-combine-file-row-padding);
     border: 1px solid var(--ui-border);
-    border-radius: 0.45rem;
+    border-radius: var(--app-radius-xl);
     background: var(--ui-bg);
+}
+
+.combine-drag-handle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ui-text-dimmed);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+
+.combine-drag-handle:hover {
+    color: var(--ui-text-muted);
+}
+
+.combine-drag-handle:active {
+    cursor: grabbing;
+}
+
+.combine-file-list.is-reordering {
+    cursor: grabbing;
+    user-select: none;
+}
+
+.combine-file-row.is-row-dragging {
+    position: relative;
+    z-index: 1;
+    border-color: var(--ui-primary);
+    background: var(--ui-bg-elevated);
+    box-shadow: var(--shadow-popup);
 }
 
 .combine-file-index {
@@ -592,59 +663,59 @@ async function combineFiles() {
 }
 
 .combine-file-icon {
-    width: 1.55rem;
-    height: 1.85rem;
+    width: var(--app-combine-file-icon-width);
+    height: var(--app-combine-file-icon-height);
 }
 
 .combine-file-copy {
     display: flex;
     min-width: 0;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: var(--app-combine-file-copy-gap);
 }
 
 .combine-file-copy strong {
     overflow: hidden;
     color: var(--ui-text);
-    font-size: 0.87rem;
-    font-weight: 600;
+    font-size: var(--app-text-size-body);
+    font-weight: var(--app-font-weight-semibold);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 .combine-file-copy span {
     color: var(--ui-text-muted);
-    font-size: 0.76rem;
+    font-size: var(--app-text-size-meta);
 }
 
 .combine-row-actions {
     display: flex;
     align-items: center;
-    gap: 0.15rem;
+    gap: var(--app-space-2xs);
 }
 
 .combine-progress {
     display: flex;
     flex-shrink: 0;
     flex-direction: column;
-    gap: 0.45rem;
+    gap: var(--app-space-2xl);
     border: 1px solid var(--ui-border);
-    border-radius: 0.45rem;
+    border-radius: var(--app-radius-xl);
     background: var(--ui-bg-muted);
-    padding: 0.65rem 0.75rem;
+    padding: var(--app-combine-progress-padding);
 }
 
 .combine-progress-copy {
     display: flex;
     justify-content: space-between;
-    gap: 1rem;
+    gap: var(--app-start-panel-gap);
     color: var(--ui-text-muted);
-    font-size: 0.8rem;
+    font-size: var(--app-text-size-secondary);
 }
 
 .combine-progress-copy span:first-child {
     color: var(--ui-text);
-    font-weight: 600;
+    font-weight: var(--app-font-weight-semibold);
 }
 
 .combine-actions {
@@ -654,34 +725,83 @@ async function combineFiles() {
     margin-top: auto;
     border-top: 1px solid var(--app-start-row-divider);
     background: var(--app-start-card-bg);
-    padding-top: 0.85rem;
+    padding-top: var(--app-combine-actions-padding-top);
 }
 
-@media (width <= 760px) {
-    .combine-page {
+@container (max-width: 991px) {
+    .combine-page.has-files {
         grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
     }
 
-    .combine-dropzone {
+    .combine-page.has-files .combine-workbench {
+        min-height: 0;
+    }
+
+    .combine-page.has-files .combine-dropzone {
         position: static;
-        min-height: 16rem;
+        min-height: 0;
+        flex-direction: row;
+        align-items: center;
+        justify-content: flex-start;
+        gap: var(--app-combine-compact-dropzone-gap);
+        padding: var(--app-combine-compact-dropzone-padding);
+        border-width: 1.5px;
+        text-align: left;
+    }
+
+    .combine-page.has-files .combine-dropzone-art {
+        width: var(--app-combine-compact-dropzone-art-size);
+        height: var(--app-combine-compact-dropzone-art-size);
+        flex: 0 0 auto;
+        border-radius: var(--app-radius-xl);
+    }
+
+    .combine-page.has-files .combine-dropzone-icon {
+        width: var(--app-combine-compact-dropzone-icon-size);
+        height: var(--app-combine-compact-dropzone-icon-size);
+    }
+
+    .combine-page.has-files .combine-dropzone-copy {
+        max-width: none;
+        min-width: 0;
+        flex: 1 1 auto;
+        gap: var(--app-combine-compact-copy-gap);
+    }
+
+    .combine-page.has-files .combine-dropzone-copy h2 {
+        font-size: var(--app-combine-compact-title-size);
+    }
+
+    .combine-page.has-files .combine-dropzone-copy p {
+        display: none;
+    }
+
+    .combine-page.has-files .combine-dropzone :deep(button) {
+        flex: 0 0 auto;
     }
 }
 
-@media (width <= 520px) {
-    .combine-list-header,
-    .combine-actions {
+@container (max-width: 520px) {
+    .combine-list-header {
         align-items: stretch;
         flex-direction: column;
     }
 
     .combine-file-row {
-        grid-template-columns: 1.5rem 1.75rem minmax(0, 1fr);
+        grid-template-columns: var(--app-combine-small-row-columns);
     }
 
     .combine-row-actions {
-        grid-column: 3;
+        grid-column: 4;
         justify-self: end;
+    }
+}
+
+@container (max-width: 430px) {
+    .combine-actions {
+        align-items: stretch;
+        flex-direction: column;
     }
 }
 </style>

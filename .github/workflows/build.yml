@@ -288,6 +288,13 @@ jobs:
           rm -f release/latest*.yml
           rm -f release/*.blockmap
 
+      - name: Verify release artifacts
+        shell: bash
+        env:
+          EVB_RELEASE_HAS_MAC_SIGNING: ${{ env.MAC_EXPECT_DEVELOPER_ID }}
+          EVB_RELEASE_HAS_WINDOWS_SIGNING: ${{ env.WIN_EXPECT_SIGNATURE }}
+        run: node scripts/release/assert-build-artifacts.mjs release "${{ matrix.platform }}" "${{ matrix.arch }}"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:

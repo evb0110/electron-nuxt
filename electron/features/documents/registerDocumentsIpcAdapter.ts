@@ -25,6 +25,8 @@ type TDocumentsIpcRegistrar = IIpcMainRegistrar<IDocumentsInvokeMap, IpcMainInvo
 type TDocumentsIpcChannel = Extract<keyof IDocumentsInvokeMap, string>;
 
 const RENDERER_FILE_OPEN_TOKEN_TTL_MS = 5 * 60 * 1000;
+const MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER = 128;
+const RENDERER_FILE_OPEN_TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const rendererFileOpenTokens = new Map<number, Map<string, IRendererFileOpenToken>>();
 const rendererFileOpenTokenCleanupSenders = new Set<number>();
 
@@ -163,16 +165,19 @@ export function registerDocumentsIpcAdapter(
     register(DOCUMENTS_CHANNELS.recentFilesRemove, (event, originalPath) => service.removeRecentFile(event, originalPath));
     register(DOCUMENTS_CHANNELS.registerRendererFileOpenToken, (event, token: unknown) => {
         const normalizedToken = typeof token === 'string' ? token.trim() : '';
-        if (!normalizedToken) {
+        if (!RENDERER_FILE_OPEN_TOKEN_PATTERN.test(normalizedToken)) {
             return false;
         }
 
         const senderId = getSenderId(event);
         const tokens = rendererFileOpenTokens.get(senderId) ?? new Map<string, IRendererFileOpenToken>();
+        pruneRendererFileOpenTokens(senderId);
+        if (tokens.size >= MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER && !tokens.has(normalizedToken)) {
+            return false;
+        }
         tokens.delete(normalizedToken);
         tokens.set(normalizedToken, {expiresAtMs: Date.now() + RENDERER_FILE_OPEN_TOKEN_TTL_MS});
         rendererFileOpenTokens.set(senderId, tokens);
-        pruneRendererFileOpenTokens(senderId);
         registerRendererFileOpenTokenCleanup(event, senderId);
         return true;
     });

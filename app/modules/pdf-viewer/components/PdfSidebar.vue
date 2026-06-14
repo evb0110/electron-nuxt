@@ -86,6 +86,7 @@
                         :annotation-comments="annotationComments"
                         :annotation-settings="annotationSettings"
                         :is-active="isOpen && activeTab === 'thumbnails'"
+                        :page-preview-provider="thumbnailPagePreviewProvider"
                         @go-to-page="goToPage"
                         @update:selected-pages="handleSelectedPagesUpdate"
                         @page-context-menu="openPageContextMenu"
@@ -167,6 +168,7 @@ import type {
     TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
+import type { IPdfPagePreviewEntry } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { TPdfSidebarTab } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import PdfAnnotationsPanel from '@app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue';
@@ -217,6 +219,7 @@ interface IProps {
         pages: number[];
     } | null | undefined;
     thumbnailHiddenAnnotationIds?: string[] | undefined;
+    thumbnailPagePreviewProvider?: ((page: number) => IPdfPagePreviewEntry | null) | null | undefined;
 }
 
 const { t } = useTypedI18n();
@@ -250,6 +253,7 @@ const {
     searchResults,
     selectedThumbnailPages: selectedThumbnailPagesProp,
     thumbnailHiddenAnnotationIds = undefined,
+    thumbnailPagePreviewProvider = null,
     submittedSearchQuery = undefined,
     thumbnailInvalidationRequest = undefined,
     totalMatches,

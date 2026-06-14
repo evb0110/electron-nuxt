@@ -2,6 +2,7 @@ import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts
 
 export const requiredPdfViewerExposeMembers = [
     'getViewerContainer',
+    'getPagePreview',
     'getCurrentPage',
     'scrollToPage',
     'cancelProgrammaticNavigation',

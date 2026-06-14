@@ -320,7 +320,7 @@ export default {
         bookmarksPanelSection: {
             heading: 'Bladwijzerpaneel',
             li1: 'Weergavemodi: alleen bovenste niveau, volledig uitgeklapt of huidig pad uitgeklapt.',
-            li2: 'Bewerkmodus maakt bladwijzers maken, hernoemen, broer/kind invoegen en verwijderen mogelijk.',
+            li2: 'Bewerkmodus maakt bladwijzers maken, hernoemen, naburig/onderliggend invoegen en verwijderen mogelijk.',
             li3: 'Bladwijzercontextacties omvatten vet, cursief en aangepaste tekstkleur.',
             li4: 'Met stijlbereik kun je stijl instellen bij een startbladwijzer en toepassen op een aaneengesloten bereik.',
             li5: 'Slepen en neerzetten ondersteunt het herschikken van de bladwijzerboom.',

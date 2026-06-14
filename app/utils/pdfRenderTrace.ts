@@ -3,7 +3,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 const PDF_RENDER_TRACE_STORAGE_KEY = 'evb-viewer:pdf-render-trace';
 const PDF_RENDER_TRACE_CONSOLE_STORAGE_KEY = 'evb-viewer:pdf-render-trace-console';
 const PDF_RENDER_TRACE_SECTION = 'pdf-render-trace';
-const PDF_RENDER_TRACE_BUFFER_LIMIT = 5_000;
+const PDF_RENDER_TRACE_BUFFER_LIMIT = 20_000;
 
 type TPdfRenderTracePayload = Record<string, unknown> | (() => Record<string, unknown>);
 export interface IPdfRenderTraceEntry {

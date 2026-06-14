@@ -1,5 +1,10 @@
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 
+function isAppShapeOverlayElement(element: Element) {
+    return typeof element.closest === 'function'
+        && Boolean(element.closest('.pdf-shape-overlay'));
+}
+
 export function removeEmbeddedShapeAnnotationDom(
     viewerContainer: HTMLElement | null,
     annotationId: string | null | undefined,
@@ -10,6 +15,10 @@ export function removeEmbeddedShapeAnnotationDom(
     }
 
     viewerContainer.querySelectorAll<HTMLElement>('[data-annotation-id]').forEach((element) => {
+        if (isAppShapeOverlayElement(element)) {
+            return;
+        }
+
         if (normalizePdfJsAnnotationId(element.dataset.annotationId) === normalizedAnnotationId) {
             element.remove();
         }

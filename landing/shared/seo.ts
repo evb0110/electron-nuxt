@@ -2,13 +2,22 @@ const DEFAULT_SITE_URL = 'https://evb-viewer.vercel.app';
 export const SEO_IMAGE_PATH = '/evb-viewer-seo.png';
 
 export function normalizeSiteUrl(siteUrl?: string): string {
-    const fallback = siteUrl?.trim() ?? DEFAULT_SITE_URL;
-    const withoutTrailingSlash = fallback.replace(/\/+$/, '');
-    if (/^https?:\/\//i.test(withoutTrailingSlash)) {
-        return withoutTrailingSlash;
-    }
+    const configured = siteUrl?.trim() || DEFAULT_SITE_URL;
+    const withProtocol = /^https?:\/\//iu.test(configured)
+        ? configured
+        : `https://${configured}`;
 
-    return `https://${withoutTrailingSlash}`;
+    try {
+        const normalized = new URL(withProtocol);
+        if (normalized.protocol !== 'http:' && normalized.protocol !== 'https:') {
+            return DEFAULT_SITE_URL;
+        }
+        normalized.hash = '';
+        normalized.search = '';
+        return normalized.toString().replace(/\/+$/u, '');
+    } catch {
+        return DEFAULT_SITE_URL;
+    }
 }
 
 export function normalizeCanonicalPath(path: string): string {

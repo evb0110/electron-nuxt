@@ -10,6 +10,7 @@ import {
     readFile,
     rm,
     stat,
+    writeFile,
 } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -168,5 +169,18 @@ describe('compact search index sidecar', () => {
                 version: OCR_TEXT_LAYER_INDEX_VERSION,
             },
         })).resolves.toBeNull();
+    });
+
+    it('rejects sidecars whose record count exceeds the bounded load budget', async () => {
+        const pdfPath = join(tempDir, 'huge-record-count.pdf');
+        const header = Buffer.alloc(COMPACT_SEARCH_INDEX_HEADER_SIZE);
+        header.write(COMPACT_SEARCH_INDEX_MAGIC, 0, 'ascii');
+        header.writeUInt32LE(COMPACT_SEARCH_INDEX_SCHEMA_VERSION, 8);
+        header.writeUInt32LE(1_000_001, 12);
+        header.writeUInt32LE(1_000_001, 16);
+        header.writeUInt32LE(COMPACT_SEARCH_INDEX_SOURCE_KIND_GENERIC, 20);
+        await writeFile(getCompactSearchIndexPath(pdfPath), header);
+
+        await expect(loadCompactSearchIndex(pdfPath)).resolves.toBeNull();
     });
 });

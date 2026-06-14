@@ -212,7 +212,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         activeCommentStableKey,
         managedEmbeddedPdfShapes,
         managedEmbeddedAnnotationIds,
-        hiddenEmbeddedAnnotationIds,
+        renderHiddenEmbeddedAnnotationIds,
         highlightComposable,
         commentCrud,
         markersByPage,
@@ -233,7 +233,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
     } = useEditedTextMarkupVisualSync({
         viewerContainer,
         annotationCommentsCache,
-        hiddenEmbeddedAnnotationIds,
+        hiddenEmbeddedAnnotationIds: renderHiddenEmbeddedAnnotationIds,
         annotationSettings,
     });
     const outputScale = usePdfViewerOutputScale();
@@ -262,7 +262,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         outputScale,
         bufferPages,
         showAnnotations,
-        hiddenAnnotationIds: hiddenEmbeddedAnnotationIds,
+        hiddenAnnotationIds: renderHiddenEmbeddedAnnotationIds,
         canvasHiddenAnnotationIds,
         managedAnnotationIds: managedEmbeddedAnnotationIds,
         annotationUiManager,
@@ -808,6 +808,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         applyFitWidthToCurrentPage,
         waitForViewerLoadSettled,
         preserveNextSourceReloadVisibleContent,
+        getPagePreview,
         saveViewerDocument,
         renderLoadedPdfPagesForBrowserPrint,
         undoAnnotation,

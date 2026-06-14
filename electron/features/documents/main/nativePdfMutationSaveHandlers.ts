@@ -37,7 +37,6 @@ import {
 } from '@electron/features/page-ops/public';
 import {
     findWorkingCopyPathByOriginalPath,
-    getWorkingCopyOriginalFileExpectation,
     getWorkingCopyOriginalPath,
     refreshWorkingCopyOriginalFileExpectation,
 } from '@electron/file-access/workingCopyStore';
@@ -51,6 +50,7 @@ import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMut
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
 
 const PDF_NATIVE_MUTATION_TIMEOUT_MS = 2 * 60 * 1000;
 const MAX_NATIVE_NOTE_TEXT_UPDATES = 256;
@@ -197,58 +197,6 @@ async function workingCopyMatchesExpectation(
         .update(bytes)
         .digest('hex');
     return sha256 === expectedBase.sha256;
-}
-
-async function originalPathMatchesStoredExpectation(
-    originalPath: string,
-    expectedOriginal: NonNullable<ReturnType<typeof getWorkingCopyOriginalFileExpectation>>,
-) {
-    const originalStat = await stat(originalPath);
-    return (
-        originalStat.size === expectedOriginal.size
-        && originalStat.mtimeMs === expectedOriginal.mtimeMs
-    );
-}
-
-async function originalPathMatchesWorkingCopyBytes(
-    originalPath: string,
-    workingPath: string,
-) {
-    const [
-        originalStat,
-        workingStat,
-    ] = await Promise.all([
-        stat(originalPath),
-        stat(workingPath),
-    ]);
-    if (originalStat.size !== workingStat.size) {
-        return false;
-    }
-
-    const [
-        originalBytes,
-        workingBytes,
-    ] = await Promise.all([
-        readFile(originalPath),
-        readFile(workingPath),
-    ]);
-    return originalBytes.equals(workingBytes);
-}
-
-async function originalPathNativeSaveBaseMatches(
-    workingPath: string,
-    originalPath: string,
-    senderWebContentsId: number,
-) {
-    const expectedOriginal = getWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId);
-    if (!expectedOriginal) {
-        return true;
-    }
-    if (await originalPathMatchesStoredExpectation(originalPath, expectedOriginal)) {
-        return true;
-    }
-
-    return originalPathMatchesWorkingCopyBytes(originalPath, workingPath);
 }
 
 function normalizeNoteTextUpdates(updates: unknown) {
@@ -1153,7 +1101,7 @@ async function runNativeNoteCommand(
                 assertNativeOutputReady(tempPath));
             const validation = createNativeValidationResult();
             const originalBaseMatches = await measureNativeNotePhase(phaseTimings, 'assert-original-base', () =>
-                originalPathNativeSaveBaseMatches(normalizedWorkingPath, originalPath, event.sender.id));
+                originalPathSaveBaseMatches(normalizedWorkingPath, originalPath, event.sender.id));
             if (!originalBaseMatches) {
                 log.debug(`Native note save skipped because original base expectation no longer matches: ${JSON.stringify({
                     command: options.command,

@@ -396,6 +396,7 @@ async function writeOcrIndexes(
     pageCount: number,
     allLanguages: string[],
     effectiveRenderDpi: number,
+    signal: AbortSignal,
 ) {
     const validatedWorkingCopyPath = await resolveOcrIndexPath(sourcePdfPath);
     if (!validatedWorkingCopyPath) {
@@ -411,15 +412,23 @@ async function writeOcrIndexes(
             allLanguages,
             effectiveRenderDpi,
             log,
+            signal,
         );
     } catch (v2Err) {
+        if (isAbortError(v2Err)) {
+            throw v2Err;
+        }
         const v2ErrMsg = getErrorMessage(v2Err);
         log('warn', `Failed to write OCR index v2: ${v2ErrMsg}`);
     }
 
     try {
+        throwIfAborted(signal);
         await writeOcrIndexV1(validatedWorkingCopyPath, ocrPageData, pageCount);
-    } catch {
+    } catch (v1Err) {
+        if (isAbortError(v1Err)) {
+            throw v1Err;
+        }
         // Non-blocking - don't fail OCR if index save fails
     }
 }
@@ -733,7 +742,7 @@ async function processOcrJob(
         }
 
         const allLanguages = uniq(targetPages.flatMap(p => p.languages));
-        await writeOcrIndexes(sourcePdfPath, ocrPageData, pageCount, allLanguages, actualRenderDpi);
+        await writeOcrIndexes(sourcePdfPath, ocrPageData, pageCount, allLanguages, actualRenderDpi, abortController.signal);
 
         keepFiles.add(mergedPdfPath);
         sendComplete(jobId, {

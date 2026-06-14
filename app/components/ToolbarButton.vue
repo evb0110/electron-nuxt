@@ -1,6 +1,7 @@
 <template>
     <AppTooltip :delay-duration="1200">
-        <button
+        <UButton
+            type="button"
             class="toolbar-btn"
             :class="{
                 'is-toggle': active != null,
@@ -8,18 +9,22 @@
                 'is-grouped': grouped,
                 'is-loading': loading,
             }"
-            :disabled="disabled || loading"
+            :disabled="disabled"
+            :icon="hasDefaultSlot ? undefined : icon"
+            :loading="loading"
+            loading-icon="ph:circle-notch"
+            variant="ghost"
+            color="neutral"
+            square
             :aria-label="tooltip"
             :aria-pressed="active"
+            :ui="{ leadingIcon: iconClass }"
             @click="handleClick"
         >
-            <span v-if="!loading" :class="iconClass">
-                <slot>
-                    <Icon :name="icon" class="size-full" />
-                </slot>
+            <span v-if="hasDefaultSlot && !loading" :class="iconClass">
+                <slot />
             </span>
-            <Icon v-else name="ph:circle-notch" :class="[iconClass, 'animate-spin']" />
-        </button>
+        </UButton>
 
         <template #content>
             <span class="toolbar-tooltip-label">{{ tooltip }}</span>
@@ -57,7 +62,9 @@ const {
 
 const emit = defineEmits<{ click: [] }>();
 
+const slots = useSlots();
 const shortcutLabel = computed(() => shortcut.trim());
+const hasDefaultSlot = computed(() => slots.default != null);
 
 function handleClick() {
     emit('click');
@@ -71,9 +78,9 @@ function handleClick() {
     justify-content: center;
     width: var(--toolbar-control-height);
     height: var(--toolbar-control-height);
-    padding: 0.32rem;
+    padding: var(--app-toolbar-button-padding);
     border: 1px solid transparent;
-    border-radius: 0.4375rem;
+    border-radius: var(--app-toolbar-button-radius);
     background: transparent;
     color: var(--app-toolbar-control-inactive-fg);
     cursor: pointer;

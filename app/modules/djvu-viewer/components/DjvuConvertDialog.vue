@@ -262,20 +262,23 @@ function handleConvert() {
 
 <style lang="scss" scoped>
 .convert-info-row {
-    display: flex;
-    align-items: baseline;
+    display: grid;
+    grid-template-columns: minmax(0, 8rem) minmax(0, 1fr);
+    align-items: start;
     gap: 8px;
     font-size: 13px;
 }
 
 .convert-info-label {
+    min-width: 0;
     color: var(--ui-text-muted);
-    min-width: 120px;
 }
 
 .convert-info-value {
+    min-width: 0;
     color: var(--ui-text);
     font-weight: 500;
+    overflow-wrap: anywhere;
 }
 
 .convert-presets-title {

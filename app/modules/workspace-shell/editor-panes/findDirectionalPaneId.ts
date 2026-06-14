@@ -3,6 +3,7 @@ import type {
     TEditorLayoutNode,
     TPaneDirection,
 } from '@app/types/editorPanes';
+import { orderBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 
 interface IFindDirectionalPaneIdParams {
@@ -145,19 +146,17 @@ export function findDirectionalPaneId({
         }
     }
 
-    const sortScores = (left: IScore, right: IScore) => {
-        if (left.distance !== right.distance) {
-            return left.distance - right.distance;
-        }
-        if (left.overlap !== right.overlap) {
-            return right.overlap - left.overlap;
-        }
-        return left.mruRank - right.mruRank;
-    };
-
     if (candidates.length > 0) {
-        candidates.sort(sortScores);
-        return candidates[0]?.paneId ?? null;
+        const sortedCandidates = orderBy(candidates, [
+            candidate => candidate.distance,
+            candidate => candidate.overlap,
+            candidate => candidate.mruRank,
+        ], [
+            'asc',
+            'desc',
+            'asc',
+        ]);
+        return sortedCandidates[0]?.paneId ?? null;
     }
 
     if (!wrap) {
@@ -212,21 +211,18 @@ export function findDirectionalPaneId({
             };
         });
 
-    wrapCandidates.sort((left, right) => {
-        if (direction === 'right' || direction === 'down') {
-            if (left.anchor !== right.anchor) {
-                return left.anchor - right.anchor;
-            }
-        } else if (left.anchor !== right.anchor) {
-            return right.anchor - left.anchor;
-        }
+    const anchorOrder: 'asc' | 'desc' = direction === 'right' || direction === 'down'
+        ? 'asc'
+        : 'desc';
+    const sortedWrapCandidates = orderBy(wrapCandidates, [
+        candidate => candidate.anchor,
+        candidate => candidate.overlap,
+        candidate => candidate.mruRank,
+    ], [
+        anchorOrder,
+        'desc',
+        'asc',
+    ]);
 
-        if (left.overlap !== right.overlap) {
-            return right.overlap - left.overlap;
-        }
-
-        return left.mruRank - right.mruRank;
-    });
-
-    return wrapCandidates[0]?.paneId ?? null;
+    return sortedWrapCandidates[0]?.paneId ?? null;
 }

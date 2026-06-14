@@ -705,7 +705,7 @@ defineExpose({
 
 .checkboxes {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
     gap: 0.25rem 0.5rem;
     padding-left: 0.25rem;
 }
@@ -714,8 +714,14 @@ defineExpose({
     display: flex;
     align-items: center;
     gap: 0.375rem;
+    min-width: 0;
     font-size: 0.8125rem;
     cursor: pointer;
+}
+
+.checkbox-item span {
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .checkbox-item input {

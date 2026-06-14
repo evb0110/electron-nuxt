@@ -68,18 +68,18 @@ function onSave() {
 
 <style scoped>
 .status-bar {
-    height: 1.9rem;
-    min-height: 1.9rem;
+    height: var(--app-statusbar-height);
+    min-height: var(--app-statusbar-height);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.3rem 0.75rem;
+    gap: var(--app-statusbar-gap);
+    padding: var(--app-statusbar-padding);
     border-top: 1px solid var(--ui-border);
     background: var(--app-status-bar-bg);
     color: var(--ui-text-dimmed);
-    font-size: 0.74rem;
-    line-height: 1.2;
+    font-size: var(--app-statusbar-font-size);
+    line-height: var(--app-line-height-snug);
     transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
@@ -96,7 +96,7 @@ function onSave() {
     flex: 1;
     display: flex;
     align-items: center;
-    gap: 0.45rem;
+    gap: var(--app-statusbar-file-gap);
     min-width: 0;
 }
 
@@ -104,7 +104,7 @@ function onSave() {
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: 0.875rem;
+    gap: var(--app-statusbar-metrics-gap);
 }
 
 .status-bar-metrics > * + * {
@@ -114,10 +114,10 @@ function onSave() {
 .status-bar-metrics > * + *::before {
     content: "";
     position: absolute;
-    left: -0.5rem;
+    left: var(--app-statusbar-divider-offset);
     top: 50%;
     width: 1px;
-    height: 0.76rem;
+    height: var(--app-statusbar-divider-height);
     transform: translateY(-50%);
     background: var(--app-status-bar-divider);
 }
@@ -127,21 +127,21 @@ function onSave() {
 }
 
 .status-save-dot-button {
-    width: 1.1rem;
-    height: 1.1rem;
+    width: var(--app-statusbar-action-size);
+    height: var(--app-statusbar-action-size);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     border: none;
     background: transparent;
     padding: 0;
-    border-radius: 999px;
+    border-radius: var(--app-radius-full);
     cursor: default;
 }
 
 .status-folder-button {
-    width: 1.1rem;
-    height: 1.1rem;
+    width: var(--app-statusbar-action-size);
+    height: var(--app-statusbar-action-size);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -149,14 +149,14 @@ function onSave() {
     background: transparent;
     color: var(--ui-text-dimmed);
     padding: 0;
-    border-radius: 0.25rem;
+    border-radius: var(--app-statusbar-folder-radius);
     cursor: default;
     transition: color 0.14s ease, background-color 0.14s ease, border-color 0.14s ease;
 }
 
 .status-folder-icon {
-    width: 0.82rem;
-    height: 0.82rem;
+    width: var(--app-statusbar-folder-icon-size);
+    height: var(--app-statusbar-folder-icon-size);
 }
 
 .status-folder-button.is-actionable {
@@ -174,9 +174,9 @@ function onSave() {
 }
 
 .status-save-dot {
-    width: 0.56rem;
-    height: 0.56rem;
-    border-radius: 999px;
+    width: var(--app-statusbar-save-dot-size);
+    height: var(--app-statusbar-save-dot-size);
+    border-radius: var(--app-radius-full);
     background: var(--app-status-save-dot-idle-bg);
     box-shadow: 0 0 0 1px var(--app-status-save-dot-idle-ring);
     transition: transform 0.14s ease, background-color 0.14s ease, box-shadow 0.14s ease;
@@ -211,7 +211,7 @@ function onSave() {
 
     50% {
         transform: scale(1.15);
-        opacity: 0.72;
+        opacity: var(--app-statusbar-pulse-opacity);
     }
 }
 </style>

@@ -18,7 +18,6 @@ import type {
     TTabContextCommand,
 } from '@app/types/tabContextMenu';
 import { hasElectronAPI } from '@app/utils/platform';
-import { isWindowTabTransferSupported } from '@app/utils/platformWindowTabs';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import type { IWorkspaceSplitCacheLike } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 
@@ -106,7 +105,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
     } = options;
 
     const splitCacheCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
-    const canTransferTabsAcrossWindows = computed(() => hasElectronAPI() || isWindowTabTransferSupported());
+    const canTransferTabsAcrossWindows = computed(() => hasElectronAPI());
 
     function getDirectionalTargetPane(sourcePaneId: string, direction: TPaneDirection) {
         return findDirectionalPane(sourcePaneId, direction, false);

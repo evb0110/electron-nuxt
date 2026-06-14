@@ -12,8 +12,7 @@ import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-
-
+import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 
 interface IUsePdfRendererCanvasControllerOptions {
     canvasRenderer: ReturnType<typeof usePdfCanvasRenderer>;
@@ -23,7 +22,7 @@ interface IUsePdfRendererCanvasControllerOptions {
         task: ICancelableRenderTask;
     }>;
     pageCanvases: Map<number, HTMLCanvasElement>;
-    hiddenAnnotationIds: () => Set<string> | undefined;
+    hiddenAnnotationIds: (pageNumber: number) => Set<string> | undefined;
     getRenderVersion: () => number;
     getPage: (pageNumber: number) => Promise<PDFPageProxy>;
     cancelActiveRenderTask: (pageNumber: number) => void;
@@ -49,8 +48,22 @@ export function usePdfRendererCanvasController(options: IUsePdfRendererCanvasCon
         pdfPage: PDFPageProxy,
     ) {
         try {
+            logPdfRenderTrace('renderer-page-cleanup-begin', {
+                pageNumber,
+                renderVersion: getRenderVersion(),
+            });
             pdfPage.cleanup();
+            logPdfRenderTrace('renderer-page-cleanup-end', {
+                pageNumber,
+                renderVersion: getRenderVersion(),
+            });
         } catch (error) {
+            logPdfRenderTrace('renderer-page-cleanup-error', {
+                pageNumber,
+                renderVersion: getRenderVersion(),
+                errorName: error instanceof Error ? error.name : null,
+                errorMessage: error instanceof Error ? error.message : String(error),
+            });
             BrowserLogger.warn(
                 'pdf-renderer',
                 `Failed to release PDF page resources for page ${pageNumber}`,
@@ -60,6 +73,7 @@ export function usePdfRendererCanvasController(options: IUsePdfRendererCanvasCon
     }
 
     async function renderPreparedCanvasResult(
+        pdfPage: PDFPageProxy,
         pageNumber: number,
         version: number,
         requestId: number,
@@ -96,29 +110,37 @@ export function usePdfRendererCanvasController(options: IUsePdfRendererCanvasCon
                     });
                     cancelActiveRenderTask(pageNumber);
                 }
-                logPdfRenderTrace('renderer-canvas-render-start', {
+                runCoordinatedPdfPageRender({
+                    owner: 'viewer',
                     pageNumber,
-                    version,
-                    requestId,
-                    activeTasks: Array.from(activeRenderTasks.keys()),
-                });
-                const renderTask = startRender();
-                if (getRenderVersion() !== version || !shouldContinue()) {
-                    try {
-                        renderTask.cancel();
-                    } catch {
-                        // Ignore cancellation failures.
-                    }
-                    reject(new Error(`Rendering cancelled before canvas paint for page ${pageNumber}`));
-                    return;
-                }
-                activeRenderTasks.set(pageNumber, {
-                    version,
-                    requestId,
-                    task: renderTask,
-                });
-
-                renderTask.promise.then(
+                    pdfPage,
+                    priority: 100,
+                    shouldStart: () => getRenderVersion() === version && shouldContinue(),
+                    startRender: () => {
+                        logPdfRenderTrace('renderer-canvas-render-start', {
+                            pageNumber,
+                            version,
+                            requestId,
+                            activeTasks: Array.from(activeRenderTasks.keys()),
+                        });
+                        return startRender();
+                    },
+                    onTask: (renderTask) => {
+                        if (getRenderVersion() !== version || !shouldContinue()) {
+                            try {
+                                renderTask.cancel();
+                            } catch {
+                                // Ignore cancellation failures.
+                            }
+                            return;
+                        }
+                        activeRenderTasks.set(pageNumber, {
+                            version,
+                            requestId,
+                            task: renderTask,
+                        });
+                    },
+                }).then(
                     () => {
                         logPdfRenderTrace('renderer-canvas-render-resolve', {
                             pageNumber,
@@ -181,10 +203,21 @@ export function usePdfRendererCanvasController(options: IUsePdfRendererCanvasCon
         renderOptions?: IRenderVisiblePagesOptions,
     ) {
         const canvasRenderOptions: Parameters<typeof canvasRenderer.prepareCanvasRender>[2] = {};
-        const ids = hiddenAnnotationIds();
+        canvasRenderOptions.pageRenderCoordination = {
+            owner: 'viewer',
+            priority: 100,
+        };
+        const ids = hiddenAnnotationIds(pageNumber);
         if (ids !== undefined) {
             canvasRenderOptions.hiddenAnnotationIds = ids;
         }
+        logPdfRenderTrace('renderer-canvas-hidden-annotations', {
+            pageNumber,
+            version,
+            requestId,
+            hiddenAnnotationCount: ids?.size ?? 0,
+            hiddenAnnotationIds: ids ? Array.from(ids).slice(0, 30) : [],
+        });
         if (renderOptions?.maxCanvasPixelsOverride !== undefined) {
             canvasRenderOptions.maxCanvasPixels = renderOptions.maxCanvasPixelsOverride;
         }
@@ -204,6 +237,7 @@ export function usePdfRendererCanvasController(options: IUsePdfRendererCanvasCon
 
         try {
             const renderResult = await renderPreparedCanvasResult(
+                pdfPage,
                 pageNumber,
                 version,
                 requestId,
