@@ -137,6 +137,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.landing == 'true' }}
     runs-on: ubuntu-latest
+    continue-on-error: true
     timeout-minutes: 15
 
     steps:

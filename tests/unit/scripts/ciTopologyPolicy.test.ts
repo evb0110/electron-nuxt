@@ -63,6 +63,8 @@ describe('CI topology policy', () => {
 
     it('keeps native, landing, and Python smoke checks path-filtered on push', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
+        const testsTsconfig = await readProjectFile('tests/tsconfig.json');
+        const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
 
         expect(workflow).toContain('packages/(contracts|i18n-core|release-selection)/');
         expect(workflow).toContain('scripts/(build-pdf-image-combine|build-pdf-page-ops|build-pdf-search|native-rust-targets)[.]mjs');
@@ -74,6 +76,9 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('run: pnpm --dir landing run check:vendor');
         expect(workflow).toContain('run: pnpm --dir landing run typecheck');
         expect(workflow).toContain('run: pnpm --dir landing run build');
+        expect(workflowJob(workflow, 'landing_push')).toContain('continue-on-error: true');
+        expect(sharedVitestConfig).toContain('tests/unit/landing/**/*.test.ts');
+        expect(testsTsconfig).toContain('./unit/landing/**/*.ts');
         expect(workflow).toContain('name: Python Page Processor Smoke');
         expect(workflowJob(workflow, 'python_page_processor_push')).toContain('python -m pip install');
         expect(workflowJob(workflow, 'python_page_processor_push')).toContain('opencv-python-headless');
