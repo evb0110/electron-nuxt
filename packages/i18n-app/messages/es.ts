@@ -46,6 +46,8 @@ export default {
         'workspacePlaceholder': 'Abre un documento para chatear...',
         'send': 'Enviar',
         'stop': 'Detener',
+        'copyMessage': 'Copiar mensaje',
+        'copyMessageCopied': 'Copiado',
         'startingTurn': 'Iniciando',
         'working': 'Trabajando',
         'interrupting': 'Deteniendo',

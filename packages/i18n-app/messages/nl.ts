@@ -46,6 +46,8 @@ export default {
         'workspacePlaceholder': 'Open een document om te chatten...',
         'send': 'Verzenden',
         'stop': 'Stoppen',
+        'copyMessage': 'Bericht kopiëren',
+        'copyMessageCopied': 'Gekopieerd',
         'startingTurn': 'Starten',
         'working': 'Bezig',
         'interrupting': 'Stoppen',
