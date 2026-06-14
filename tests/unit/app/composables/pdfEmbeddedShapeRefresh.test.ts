@@ -68,22 +68,42 @@ function createFakeViewerContainer(annotationIds: string[]): HTMLElement & IFake
 
 function createFakeHiddenAnnotationContainer(
     annotationId: string,
-    options: { hasShapeOverlay: boolean },
+    options: {
+        hasShapeOverlay: boolean;
+        shapeOverlayAnnotationIds?: string[];
+    },
 ) {
+    const overlayAnnotationIds = options.shapeOverlayAnnotationIds
+        ?? (options.hasShapeOverlay ? [annotationId] : []);
+    const overlayElements = overlayAnnotationIds.map(id => Object.assign(
+        Object.create(null) as Element,
+        {
+            dataset: { annotationId: id },
+            getAttribute: (name: string) => name === 'data-annotation-id' ? id : null,
+        },
+    ));
     const querySelector = (selector: string) => (
-        selector === '.pdf-shape-overlay.has-shapes' && options.hasShapeOverlay
+        selector === '.pdf-shape-overlay.has-shapes' && overlayElements.length > 0
             ? Object.create(null)
             : null
     );
-    const pageContainer = Object.assign(Object.create(null) as HTMLElement, { querySelector });
+    const querySelectorAll = (selector: string) => (
+        selector === '.pdf-shape-overlay.has-shapes [data-annotation-id]'
+            ? overlayElements
+            : []
+    );
+    const pageContainer = Object.assign(Object.create(null) as HTMLElement, {
+        querySelector,
+        querySelectorAll,
+    });
     const element = Object.assign(Object.create(null) as HTMLElement, {
         closest: (selector: string) => selector === '.page_container' ? pageContainer : null,
         dataset: { annotationId },
         getAttribute: (name: string) => name === 'data-annotation-id' ? annotationId : null,
         remove: vi.fn(),
     });
-    const querySelectorAll = (selector: string) => selector === '[data-annotation-id]' ? [element] : [];
-    const container = Object.assign(Object.create(null) as HTMLElement, { querySelectorAll });
+    const containerQuerySelectorAll = (selector: string) => selector === '[data-annotation-id]' ? [element] : [];
+    const container = Object.assign(Object.create(null) as HTMLElement, { querySelectorAll: containerQuerySelectorAll });
 
     return {
         container,
@@ -173,11 +193,36 @@ describe('syncHiddenEmbeddedAnnotationDom', () => {
         });
     });
 
-    it('removes managed embedded annotation DOM once the shape overlay is mounted', () => {
+    it('keeps managed embedded annotation DOM when only a different shape overlay is mounted', () => {
         const {
             container,
             element,
-        } = createFakeHiddenAnnotationContainer('12R', { hasShapeOverlay: true });
+        } = createFakeHiddenAnnotationContainer('12R', {
+            hasShapeOverlay: true,
+            shapeOverlayAnnotationIds: ['34R'],
+        });
+
+        const result = syncHiddenEmbeddedAnnotationDom({
+            container,
+            hiddenAnnotationIds: new Set(['12R0']),
+            managedAnnotationIds: new Set(['12R']),
+        });
+
+        expect(element.remove).not.toHaveBeenCalled();
+        expect(result).toEqual({
+            removedCount: 0,
+            deferredManagedAnnotationCount: 1,
+        });
+    });
+
+    it('removes managed embedded annotation DOM once the matching shape overlay is mounted', () => {
+        const {
+            container,
+            element,
+        } = createFakeHiddenAnnotationContainer('12R', {
+            hasShapeOverlay: true,
+            shapeOverlayAnnotationIds: ['12R'],
+        });
 
         const result = syncHiddenEmbeddedAnnotationDom({
             container,
@@ -228,8 +273,25 @@ describe('resolveHiddenEmbeddedAnnotationIdsForPageContainer', () => {
         expect(hiddenIds.has('deleted-annotation')).toBe(true);
     });
 
-    it('hides managed embedded annotations once their page overlay is mounted', () => {
-        const { pageContainer } = createFakeHiddenAnnotationContainer('12R', { hasShapeOverlay: true });
+    it('keeps active managed embedded annotations visible when only a different page overlay is mounted', () => {
+        const { pageContainer } = createFakeHiddenAnnotationContainer('12R', {
+            hasShapeOverlay: true,
+            shapeOverlayAnnotationIds: ['34R'],
+        });
+        const hiddenIds = resolveHiddenEmbeddedAnnotationIdsForPageContainer({
+            hiddenAnnotationIds: new Set(['12R0']),
+            managedAnnotationIds: new Set(['12R']),
+            pageContainer,
+        });
+
+        expect(hiddenIds.has('12R')).toBe(false);
+    });
+
+    it('hides managed embedded annotations once their matching page overlay is mounted', () => {
+        const { pageContainer } = createFakeHiddenAnnotationContainer('12R', {
+            hasShapeOverlay: true,
+            shapeOverlayAnnotationIds: ['12R'],
+        });
         const hiddenIds = resolveHiddenEmbeddedAnnotationIdsForPageContainer({
             hiddenAnnotationIds: new Set(['12R0']),
             managedAnnotationIds: new Set(['12R']),

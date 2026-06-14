@@ -22,14 +22,84 @@ vi.mock('@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmb
     };
 });
 
-function createRenderedViewerContainer(options: { hasShapeOverlay?: boolean } = {}) {
-    const pageContainer = Object.create(null) as HTMLElement & { querySelector: (selector: string) => object | null; };
+class FakeNodeList<TElement extends Element> implements NodeListOf<TElement> {
+    readonly length: number;
+
+    [index: number]: TElement;
+
+    constructor(private readonly elements: TElement[]) {
+        this.length = elements.length;
+        elements.forEach((element, index) => {
+            this[index] = element;
+        });
+    }
+
+    item(index: number) {
+        const element = this.elements[index];
+        if (!element) {
+            throw new RangeError(`No fake node at index ${index}`);
+        }
+        return element;
+    }
+
+    forEach(
+        callbackfn: (value: TElement, key: number, parent: NodeListOf<TElement>) => void,
+        thisArg?: unknown,
+    ) {
+        this.elements.forEach((element, index) => {
+            callbackfn.call(thisArg, element, index, this);
+        });
+    }
+
+    entries() {
+        return this.elements.entries();
+    }
+
+    keys() {
+        return this.elements.keys();
+    }
+
+    values() {
+        return this.elements.values();
+    }
+
+    [Symbol.iterator]() {
+        return this.values();
+    }
+}
+
+function createFakeNodeList<TElement extends Element>(elements: TElement[]) {
+    return new FakeNodeList(elements);
+}
+
+function createRenderedViewerContainer(options: {
+    hasShapeOverlay?: boolean;
+    shapeOverlayAnnotationIds?: string[];
+} = {}) {
+    const overlayAnnotationIds = options.shapeOverlayAnnotationIds
+        ?? (options.hasShapeOverlay ? ['12R'] : []);
+    const overlayElements = overlayAnnotationIds.map(id => Object.assign(
+        Object.create(null) as Element,
+        {
+            dataset: { annotationId: id },
+            getAttribute: (name: string) => name === 'data-annotation-id' ? id : null,
+        },
+    ));
+    const pageContainer = Object.create(null) as HTMLElement & {
+        querySelector: (selector: string) => object | null;
+        querySelectorAll: (selector: string) => NodeListOf<Element>;
+    };
     pageContainer.querySelector = (selector: string) => {
-        if (selector === '.pdf-shape-overlay.has-shapes' && options.hasShapeOverlay === true) {
+        if (selector === '.pdf-shape-overlay.has-shapes' && overlayElements.length > 0) {
             return {};
         }
         return null;
     };
+    pageContainer.querySelectorAll = (selector: string) => (
+        selector === '.pdf-shape-overlay.has-shapes [data-annotation-id]'
+            ? createFakeNodeList(overlayElements)
+            : createFakeNodeList([])
+    );
     return Object.assign(Object.create(null), {
         querySelector: (selector: string) => {
             if (selector === '.page_container--rendered .page_canvas canvas') {
@@ -281,6 +351,14 @@ describe('useManagedEmbeddedPdfShapes', () => {
             expect(renderVisiblePages).toHaveBeenCalled();
         });
         renderVisiblePages.mockClear();
+
+        expect(managedShapes.renderHiddenEmbeddedAnnotationIds.value.has('12R')).toBe(false);
+
+        viewerContainer.value = createRenderedViewerContainer({
+            hasShapeOverlay: true,
+            shapeOverlayAnnotationIds: ['34R'],
+        });
+        managedShapes.syncAfterPageRendered(1);
 
         expect(managedShapes.renderHiddenEmbeddedAnnotationIds.value.has('12R')).toBe(false);
 

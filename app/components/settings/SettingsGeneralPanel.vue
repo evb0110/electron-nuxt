@@ -9,6 +9,7 @@
         >
             <UInput
                 id="settings-author"
+                class="w-full"
                 :model-value="settings.authorName"
                 :placeholder="t('settings.authorPlaceholder')"
                 icon="i-ph-user"

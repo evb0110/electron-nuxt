@@ -5,7 +5,7 @@ import { refreshDeletedEmbeddedShapePage } from '@app/modules/pdf-viewer/engine/
 import { rerenderRenderedManagedEmbeddedShapePages } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/rerenderRenderedManagedEmbeddedShapePages';
 import { shouldRefreshManagedShapePage } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/shouldRefreshManagedShapePage';
 import {
-    hasManagedShapeOverlayForPageContainer,
+    hasManagedShapeOverlayForAnnotation,
     syncHiddenEmbeddedAnnotationDom as syncHiddenEmbeddedAnnotationDomForContainer,
 } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
 import { resolveEmbeddedShapeImportLoadPolicy } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-import-policy/resolveEmbeddedShapeImportLoadPolicy';
@@ -242,7 +242,7 @@ export function useManagedEmbeddedPdfShapes({
             const pageContainer = container.querySelector<HTMLElement>(
                 `.page_container[data-page="${pageNumber}"]`,
             );
-            if (hasManagedShapeOverlayForPageContainer(pageContainer)) {
+            if (hasManagedShapeOverlayForAnnotation(pageContainer, annotationId)) {
                 readyIds.add(annotationId);
             }
         });
