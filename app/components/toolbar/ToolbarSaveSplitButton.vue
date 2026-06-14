@@ -139,7 +139,7 @@ function getMenuShortcut(item: unknown) {
 @use '@app/assets/css/toolbar-menu-shared';
 
 .save-split-menu {
-    min-width: var(--app-toolbar-save-menu-min-width);
+    min-width: min(var(--app-toolbar-save-menu-min-width), calc(100vw - 1rem));
 }
 </style>
 

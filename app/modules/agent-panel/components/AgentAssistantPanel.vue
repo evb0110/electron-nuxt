@@ -1304,8 +1304,9 @@ onUnmounted(() => {
     position: relative;
     display: flex;
     flex-direction: column;
-    flex: 0 0 var(--assistant-panel-width, 24rem);
-    width: var(--assistant-panel-width, 24rem);
+    flex: 0 1 min(var(--assistant-panel-width, 24rem), 45vw);
+    width: min(var(--assistant-panel-width, 24rem), 45vw);
+    max-width: 100%;
     min-width: 0;
     min-height: 0;
     border-left: 1px solid var(--ui-border);

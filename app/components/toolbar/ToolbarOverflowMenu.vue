@@ -507,7 +507,7 @@ function shouldShowMenuCommand(command: TReaderCommandId, requiredCollapseTier =
 @use '@app/assets/css/toolbar-menu-shared';
 
 .overflow-menu {
-    min-width: var(--app-toolbar-overflow-menu-min-width);
+    min-width: min(var(--app-toolbar-overflow-menu-min-width), calc(100vw - 1rem));
 }
 
 .overflow-menu-icon--facing-first-single {

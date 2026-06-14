@@ -12,7 +12,7 @@
                 aria-haspopup="menu"
                 :aria-expanded="menuOpen"
             >
-                <span>{{ t('toolbar.appMenu') }}</span>
+                <span class="app-menu-trigger-label">{{ t('toolbar.appMenu') }}</span>
                 <UIcon name="i-ph-caret-down" class="app-menu-trigger-chevron" />
             </button>
 
@@ -281,7 +281,7 @@ function getMenuShortcut(item: unknown) {
 @use '@app/assets/css/toolbar-menu-shared';
 
 .app-menu {
-    min-width: var(--app-toolbar-app-menu-min-width);
+    min-width: min(var(--app-toolbar-app-menu-min-width), calc(100vw - 1rem));
 }
 </style>
 
@@ -297,6 +297,8 @@ function getMenuShortcut(item: unknown) {
     display: inline-flex;
     align-items: center;
     gap: var(--app-space-sm);
+    min-width: 0;
+    max-width: min(11rem, 32vw);
     height: var(--toolbar-control-height, 2.25rem);
     padding: 0 var(--app-space-3xl) 0 var(--app-toolbar-control-padding-x);
     border: 1px solid transparent;
@@ -308,6 +310,13 @@ function getMenuShortcut(item: unknown) {
     font-weight: var(--app-font-weight-medium);
     cursor: pointer;
     transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+
+.app-menu-trigger-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .app-menu-trigger:hover,

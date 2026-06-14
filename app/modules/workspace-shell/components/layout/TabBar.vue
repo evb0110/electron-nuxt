@@ -505,7 +505,7 @@ useEventListener(window, 'keydown', (event) => {
 
 <style>
 .tab-context-menu {
-    min-width: 210px;
+    min-width: min(13.125rem, calc(100vw - 1rem));
     max-width: min(560px, calc(100vw - 16px));
     padding: 0;
     border: 1px solid var(--ui-border);
@@ -529,18 +529,20 @@ useEventListener(window, 'keydown', (event) => {
     letter-spacing: 0.08em;
     text-transform: uppercase;
     font-weight: 600;
+    overflow-wrap: anywhere;
 }
 
 .tab-context-menu-action {
     width: 100%;
     min-width: 0;
     min-height: 2rem;
-    padding: 0 0.6rem;
+    padding: 0.4rem 0.6rem;
     border-radius: 0;
     background: var(--ui-bg);
     color: var(--ui-text);
     font-size: 0.8125rem;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 </style>
 

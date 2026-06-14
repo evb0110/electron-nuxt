@@ -1,6 +1,8 @@
 .toolbar-menu-panel {
     padding: var(--app-space-sm);
     background: var(--app-toolbar-menu-popover-bg);
+    max-width: min(28rem, calc(100vw - 1rem));
+    overflow-x: hidden;
 }
 
 .toolbar-menu-section {
@@ -73,11 +75,14 @@
 
 .toolbar-menu-label {
     flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    line-height: 1.2;
 }
 
 .toolbar-menu-shortcut {
     flex-shrink: 0;
-    margin-left: var(--app-space-12xl);
+    margin-left: var(--app-space-3xl);
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-kicker);
 }
