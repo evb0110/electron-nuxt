@@ -107,6 +107,10 @@ describe('usePdfRendererSinglePageController', () => {
             1,
             () => true,
             new Set([1]),
+            {
+                start: 1,
+                end: 1,
+            },
         );
 
         expect(canvasHost.children).toHaveLength(0);

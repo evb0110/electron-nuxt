@@ -21,6 +21,7 @@ interface IUsePdfMountedPageRenderRecoveryOptions {
      * page first restarts the PDF.js same-page cancellation race.
      */
     suppressRecovery?: MaybeRefOrGetter<boolean> | undefined;
+    isPageMounted?: ((pageNumber: number) => boolean) | undefined;
     shouldRecoverPage: (pageNumber: number) => boolean;
     renderVisiblePages: (
         range: IPageRange,
@@ -92,8 +93,13 @@ export function usePdfMountedPageRenderRecovery(options: IUsePdfMountedPageRende
             && options.shouldRecoverPage(pageNumber);
     }
 
+    function isPageMountedForRecovery(pageNumber: number) {
+        return options.isPageMounted?.(pageNumber) !== false;
+    }
+
     function canRecoverPage(pageNumber: number) {
         return canTrackPendingPage(pageNumber)
+            && isPageMountedForRecovery(pageNumber)
             && !toValue(options.suppressRecovery ?? false);
     }
 
@@ -102,9 +108,9 @@ export function usePdfMountedPageRenderRecovery(options: IUsePdfMountedPageRende
             .filter(pageNumber => canRecoverPage(pageNumber));
     }
 
-    function pruneUntrackablePendingPages() {
+    function pruneUnrecoverablePendingPages() {
         for (const pageNumber of Array.from(pendingPages.keys())) {
-            if (!canTrackPendingPage(pageNumber)) {
+            if (!canTrackPendingPage(pageNumber) || !isPageMountedForRecovery(pageNumber)) {
                 pendingPages.delete(pageNumber);
             }
         }
@@ -161,7 +167,7 @@ export function usePdfMountedPageRenderRecovery(options: IUsePdfMountedPageRende
 
         const pages = getRecoverablePages();
         if (pages.length === 0) {
-            pruneUntrackablePendingPages();
+            pruneUnrecoverablePendingPages();
             return;
         }
 
@@ -195,7 +201,7 @@ export function usePdfMountedPageRenderRecovery(options: IUsePdfMountedPageRende
         const stillRecoverablePages = getRecoverablePages();
         const stillRecoverablePageSet = new Set(stillRecoverablePages);
         for (const pageNumber of Array.from(pendingPages.keys())) {
-            if (!canTrackPendingPage(pageNumber)) {
+            if (!canTrackPendingPage(pageNumber) || !isPageMountedForRecovery(pageNumber)) {
                 pendingPages.delete(pageNumber);
                 continue;
             }
@@ -257,7 +263,7 @@ export function usePdfMountedPageRenderRecovery(options: IUsePdfMountedPageRende
             toValue(options.suppressRecovery ?? false),
         ] as const,
         () => {
-            pruneUntrackablePendingPages();
+            pruneUnrecoverablePendingPages();
             const recoverablePages = getRecoverablePages();
             if (recoverablePages.length > 0) {
                 scheduleRetryForPages(recoverablePages);

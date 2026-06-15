@@ -755,6 +755,64 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }
     });
 
+    it('uses the pending paged target as the anchor when sidebar resizing settles', async () => {
+        vi.useFakeTimers();
+        try {
+            const isResizing = ref(true);
+            const pagedNavigationTargetPage = ref<number | null>(8);
+            const buildResizeAnchorContext = vi.fn((options?: IBuildResizeAnchorContextOptions) => {
+                return createResizeAnchor(options?.preferredAnchorPage ?? 4);
+            });
+            const scheduleResizeAwareRerender = vi.fn();
+            const beginResizeTransition = vi.fn(() => 9);
+
+            usePdfViewerRerenderCoordinator(createDeps({
+                currentPage: ref(4),
+                pagedNavigationTargetPage,
+                visibleRange: ref({
+                    start: 4,
+                    end: 5,
+                }),
+                zoomMode: computed(() => 'fit-width' as const),
+                isResizing: computed(() => isResizing.value),
+                continuousScroll: computed(() => true),
+                getVisibleRange: () => ({
+                    start: 4,
+                    end: 5,
+                }),
+                buildResizeAnchorContext,
+                scheduleResizeAwareRerender,
+                computeFitWidthScale: vi.fn(() => true),
+                getMostVisiblePage: vi.fn(() => 4),
+                beginResizeTransition,
+            }));
+
+            isResizing.value = false;
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(25);
+            await nextTick();
+
+            expect(buildResizeAnchorContext).toHaveBeenCalledWith({
+                forcePreferredAnchorPage: true,
+                preferredAnchorPage: 8,
+                trustPreferredAnchorPage: true,
+            });
+            expect(beginResizeTransition).toHaveBeenCalledWith('resize-settle', 8);
+            expect(scheduleResizeAwareRerender).toHaveBeenCalledWith(
+                're-render visible pages after resize settle',
+                expect.objectContaining({
+                    source: 'resize-settle',
+                    resizeAnchor: expect.objectContaining({
+                        page: 8,
+                        transitionToken: 9,
+                    }),
+                }),
+            );
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('does not rerender custom zoom when fit mode is width and the current page changes', async () => {
         const currentPage = ref(1);
         const computeFitWidthScale = vi.fn(() => true);

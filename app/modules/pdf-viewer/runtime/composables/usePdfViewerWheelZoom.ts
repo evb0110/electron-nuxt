@@ -24,6 +24,7 @@ const WHEEL_ZOOM_SENSITIVITY = 0.0016;
 const WHEEL_LINE_DELTA_PX = 16;
 const WHEEL_DISPATCH_LOG_THROTTLE_MS = 420;
 const WHEEL_SCROLL_LOG_THROTTLE_MS = 420;
+const MAC_PLATFORM_PATTERN = /Mac|iPhone|iPad|iPod/i;
 
 interface IViewerRange {
     start: number;
@@ -115,6 +116,52 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
     let lastViewerScrollLeft = 0;
     let lastModifierWheelZoomAtMs = 0;
     let lastModifierWheelZoomEventId = 0;
+    let physicalControlKeyDown = false;
+
+    function isMacLikePlatform() {
+        if (typeof navigator === 'undefined') {
+            return false;
+        }
+        const userAgentNavigator = navigator as Navigator & {userAgentData?: {platform?: string;};};
+        const platform = userAgentNavigator.userAgentData?.platform
+            ?? userAgentNavigator.platform
+            ?? '';
+        return MAC_PLATFORM_PATTERN.test(platform);
+    }
+
+    function isPhysicalMacControlWheel(event: WheelEvent) {
+        return isMacLikePlatform()
+            && event.ctrlKey
+            && physicalControlKeyDown
+            && !event.metaKey;
+    }
+
+    function handlePhysicalModifierKeyDown(event: KeyboardEvent) {
+        if (event.key === 'Control') {
+            physicalControlKeyDown = true;
+        }
+    }
+
+    function handlePhysicalModifierKeyUp(event: KeyboardEvent) {
+        if (event.key === 'Control') {
+            physicalControlKeyDown = false;
+        }
+    }
+
+    function clearPhysicalModifierKeys() {
+        physicalControlKeyDown = false;
+    }
+
+    if (typeof window !== 'undefined') {
+        window.addEventListener('keydown', handlePhysicalModifierKeyDown, true);
+        window.addEventListener('keyup', handlePhysicalModifierKeyUp, true);
+        window.addEventListener('blur', clearPhysicalModifierKeys);
+        onScopeDispose(() => {
+            window.removeEventListener('keydown', handlePhysicalModifierKeyDown, true);
+            window.removeEventListener('keyup', handlePhysicalModifierKeyUp, true);
+            window.removeEventListener('blur', clearPhysicalModifierKeys);
+        });
+    }
 
     function summarizeViewerStateForLog() {
         return summarizeViewerMetrics(viewerContainer.value);
@@ -193,7 +240,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             activeSession
             && nowMs - activeSession.lastPacketAtMs <= wheelZoomGestureGraceMs,
         );
-        const hasModifierZoomSignal = event.ctrlKey
+        const hasModifierZoomSignal = (event.ctrlKey && !isPhysicalMacControlWheel(event))
             || event.metaKey
             || Math.abs(event.deltaZ) > Number.EPSILON;
 
@@ -389,6 +436,27 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
 
         event.preventDefault();
         BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'wheel-blocked-snip', wheelDetailLogThrottleMs, '[wheel] blocked by snip mode');
+        return true;
+    }
+
+    function suppressPhysicalMacControlWheel(event: WheelEvent) {
+        if (!isPhysicalMacControlWheel(event)) {
+            return false;
+        }
+
+        event.preventDefault();
+        suppressSinglePageSnapForWheelZoom();
+        BrowserLogger.diagnosticThrottled(
+            'pdf-zoom-debug',
+            'wheel-suppressed-physical-mac-control',
+            wheelDetailLogThrottleMs,
+            '[wheel] suppressed physical macOS Control wheel',
+            {
+                viewer: summarizeViewerStateForLog(),
+                wheel: summarizeWheelEventForDebug(event),
+            },
+        );
+        cancelPendingSearchScroll();
         return true;
     }
 
@@ -659,7 +727,8 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         }
 
         if (
-            routeModifierWheelZoom(event)
+            suppressPhysicalMacControlWheel(event)
+            || routeModifierWheelZoom(event)
             || suppressWheelDuringActiveZoom(event, context)
         ) {
             markWheelViewportInteraction();

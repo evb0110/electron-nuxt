@@ -64,13 +64,16 @@ interface IUsePdfRendererVisibleRenderControllerOptions {
         requestId: number,
         shouldContinue: () => boolean,
         requiredPages: Set<number>,
+        visibleRange: IPageRange,
         renderOptions?: IRenderVisiblePagesOptions,
     ) => Promise<void>;
+    isVisibleRenderRangeCurrent?: ((visibleRange: IPageRange) => boolean) | undefined;
     scheduleMissingRenderTargetRetry: (
         pageNumber: number,
         version: number,
         requestId: number,
         shouldRetry: boolean,
+        visibleRange: IPageRange,
     ) => void;
     resolveBufferPageCanvasClamp?: ((
         pageNumber: number,
@@ -100,6 +103,7 @@ export function usePdfRendererVisibleRenderController(options: IUsePdfRendererVi
         cleanupPage,
         cancelObsoleteInFlightRenders,
         renderSingleVisiblePage,
+        isVisibleRenderRangeCurrent,
         scheduleMissingRenderTargetRetry,
         resolveBufferPageCanvasClamp,
         throttleMs,
@@ -240,6 +244,10 @@ export function usePdfRendererVisibleRenderController(options: IUsePdfRendererVi
         return orderPagesForRender(pagesToRender, visibleRange);
     }
 
+    function isRequestedVisibleRangeCurrent(visibleRange: IPageRange) {
+        return isVisibleRenderRangeCurrent?.(visibleRange) !== false;
+    }
+
     async function waitForMountedPageContainers(
         containerRoot: HTMLElement,
         requiredPagesToRender: number[],
@@ -249,14 +257,35 @@ export function usePdfRendererVisibleRenderController(options: IUsePdfRendererVi
         let pagesMissingMountedContainer: number[] = [];
 
         for (let attempt = 0; attempt < 4; attempt += 1) {
+            if (!isRequestedVisibleRangeCurrent(visibleRange)) {
+                logPdfRenderTrace('renderer-visible-render-abort-stale-mounted-page-wait', {
+                    visibleRange,
+                    renderVersion: version,
+                    currentRenderVersion: getRenderVersion(),
+                    currentPage: currentPage.value,
+                });
+                return false;
+            }
+
             pagesMissingMountedContainer = requiredPagesToRender.filter(
                 (pageNumber) => !getPageContainer(containerRoot, pageNumber - 1),
             );
             if (pagesMissingMountedContainer.length === 0 || getRenderVersion() !== version) {
-                return;
+                return true;
             }
 
             await nextTick();
+        }
+
+        if (!isRequestedVisibleRangeCurrent(visibleRange)) {
+            logPdfRenderTrace('renderer-visible-render-skip-stale-mounted-page-warning', {
+                pagesMissingMountedContainer,
+                visibleRange,
+                renderVersion: version,
+                currentRenderVersion: getRenderVersion(),
+                currentPage: currentPage.value,
+            });
+            return false;
         }
 
         BrowserLogger.warnThrottled(
@@ -272,6 +301,7 @@ export function usePdfRendererVisibleRenderController(options: IUsePdfRendererVi
                 currentPage: currentPage.value,
             },
         );
+        return true;
     }
 
     async function renderSinglePageWithBufferClamp(
@@ -322,6 +352,7 @@ export function usePdfRendererVisibleRenderController(options: IUsePdfRendererVi
             requestId,
             shouldContinue,
             requiredPages,
+            visibleRange,
             pageRenderOptions,
         );
         /**
@@ -522,13 +553,17 @@ export function usePdfRendererVisibleRenderController(options: IUsePdfRendererVi
             (pageNumber) => pageNumber >= visibleRange.start && pageNumber <= visibleRange.end,
         );
         const requiredPages = new Set(requiredPagesToRender);
-        await waitForMountedPageContainers(
+        const mountedPageWaitStillCurrent = await waitForMountedPageContainers(
             containerRoot,
             requiredPagesToRender,
             visibleRange,
             version,
         );
-        if (getRenderVersion() !== version || requestId !== getVisibleRenderRequestId()) {
+        if (
+            !mountedPageWaitStillCurrent
+            || getRenderVersion() !== version
+            || requestId !== getVisibleRenderRequestId()
+        ) {
             logPdfRenderTrace('renderer-visible-render-abort-before-batches', {
                 requestId,
                 activeRequestId: getVisibleRenderRequestId(),
@@ -553,7 +588,7 @@ export function usePdfRendererVisibleRenderController(options: IUsePdfRendererVi
                 missingRequiredPages,
             });
             for (const pageNumber of missingRequiredPages) {
-                scheduleMissingRenderTargetRetry(pageNumber, version, requestId, true);
+                scheduleMissingRenderTargetRetry(pageNumber, version, requestId, true, visibleRange);
             }
         }
         if (mountedPagesToRenderNow.length === 0) {

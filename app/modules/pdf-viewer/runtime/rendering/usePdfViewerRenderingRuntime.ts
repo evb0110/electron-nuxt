@@ -12,6 +12,7 @@ import type {
     IUsePdfPageRendererOptions,
 } from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
 import type {
+    IPageRange,
     IPdfPageMatches,
     IPdfSearchMatch,
 } from '@app/types/pdf';
@@ -42,6 +43,7 @@ interface IUsePdfViewerRenderingRuntimeOptions {
     onPageCanvasMounted: (pageNumber: number) => void;
     onPageRendered: (pageNumber: number) => void;
     onAnnotationLayersRendered?: ((pageNumber: number, container: HTMLElement) => void) | undefined;
+    isVisibleRenderRangeCurrent?: ((visibleRange: IPageRange) => boolean) | undefined;
     onRenderedPageStateChanged: () => void;
     renderedPageStateVersion: Ref<number>;
 }
@@ -73,6 +75,7 @@ export function usePdfViewerRenderingRuntime(options: IUsePdfViewerRenderingRunt
         onPageCanvasMounted: options.onPageCanvasMounted,
         onPageRendered: options.onPageRendered,
         onAnnotationLayersRendered: options.onAnnotationLayersRendered,
+        isVisibleRenderRangeCurrent: options.isVisibleRenderRangeCurrent,
         onRenderedPageStateChanged: options.onRenderedPageStateChanged,
     });
 

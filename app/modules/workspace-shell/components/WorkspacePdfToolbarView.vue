@@ -122,11 +122,12 @@
         </template>
         <template #page-dropdown="{ compactLevel }">
             <PdfPageDropdown
-                v-model="currentPage"
+                :model-value="currentPage"
                 :open="pageDropdownOpen"
                 :total-pages="pageDropdownTotalPages"
                 :view-mode="snapshot.viewMode"
                 :page-labels="pageLabels"
+                :navigation-page="navigationPage"
                 :disabled="toolbarControlsDisabled"
                 :compact-level="compactLevel"
                 @go-to-page="handleGoToPage"
@@ -236,6 +237,7 @@ const {
     pageDropdownOpen,
     pageDropdownTotalPages: pageDropdownTotalPagesProp = undefined,
     pageLabels = null,
+    navigationFeedbackPage = null,
     snapshot,
     surface,
     zoomDropdownOpen,
@@ -256,6 +258,7 @@ const {
     controlsDisabled?: boolean | undefined;
     pageDropdownTotalPages?: number | undefined;
     pageLabels?: string[] | null | undefined;
+    navigationFeedbackPage?: number | null | undefined;
     ocrPdfDocument?: PDFDocumentProxy | null | undefined;
     ocrWorkingCopyPath?: TDocumentRef | null | undefined;
     ocrExternalError?: string | null | undefined;
@@ -350,9 +353,11 @@ const viewMode = computed({
 });
 const {
     currentPage,
+    navigationPage,
     handleGoToPage: handleToolbarGoToPage,
 } = useWorkspaceToolbarPageModel({
     sourcePage: () => snapshot.currentPage,
+    feedbackPage: () => navigationFeedbackPage,
     goToPage: page => emit('go-to-page', page),
 });
 

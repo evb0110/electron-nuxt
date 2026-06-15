@@ -972,8 +972,13 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         if (!isViewerAsyncRunActive(runId, resizeSettleRunId, document) || isResizing.value) {
             return;
         }
+        const pendingAnchorPage = pagedNavigationTargetPage?.value ?? null;
+        const preferredAnchorPage = pendingAnchorPage ?? currentPage.value;
         const resizeAnchor = buildResizeAnchorContext({
-            preferredAnchorPage: currentPage.value,
+            ...(pendingAnchorPage !== null
+                ? { forcePreferredAnchorPage: true }
+                : {}),
+            preferredAnchorPage,
             trustPreferredAnchorPage: true,
         });
         const updated = computeFitWidthScale(viewerContainer.value);

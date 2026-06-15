@@ -1,4 +1,5 @@
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type { IPageRange } from '@app/types/pdf';
 import type { MaybeRefOrGetter } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
@@ -78,6 +79,7 @@ interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
         version: number,
         requestId: number,
         shouldRetry: boolean,
+        visibleRange: IPageRange,
     ) => void;
     clearMissingRenderTargetRetry: (pageNumber: number) => void;
     renderTextLayerForPage: (
@@ -463,6 +465,7 @@ export function usePdfRendererSinglePageController<TRenderResult>(
         requestId: number,
         shouldContinue: () => boolean,
         requiredPages: Set<number>,
+        visibleRange: IPageRange,
         renderOptions?: IRenderVisiblePagesOptions,
     ) {
         const shouldContinuePage = () => (
@@ -483,6 +486,7 @@ export function usePdfRendererSinglePageController<TRenderResult>(
                 version,
                 requestId,
                 requiredPages.has(pageNumber),
+                visibleRange,
             );
             return;
         }

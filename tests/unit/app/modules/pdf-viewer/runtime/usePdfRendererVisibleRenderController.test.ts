@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { usePdfRendererVisibleRenderController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererVisibleRenderController';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { cast } from '@tests/helpers/cast';
 
 function createControllerHarness(options?: {
@@ -109,6 +110,62 @@ describe('usePdfRendererVisibleRenderController', () => {
         expect(harness.ensurePageMetricsInRange).toHaveBeenCalledWith(12, 14);
     });
 
+    it('abandons stale visible ranges without warning or retrying missing containers', async () => {
+        const currentVisibleRange = ref({
+            start: 16,
+            end: 16,
+        });
+        const scheduleMissingRenderTargetRetry = vi.fn();
+        const warnSpy = vi.spyOn(BrowserLogger, 'warnThrottled').mockImplementation(() => {});
+        const renderSingleVisiblePage = vi.fn(async () => undefined);
+        const controller = usePdfRendererVisibleRenderController({
+            container: ref(cast<HTMLElement>({
+                querySelector: vi.fn(() => null),
+                querySelectorAll: vi.fn(() => []),
+            })),
+            currentPage: ref(18),
+            numPages: ref(392),
+            isActive: true,
+            bufferPages: 0,
+            renderConcurrency: 1,
+            effectiveScale: 1,
+            renderedPages: new Set<number>(),
+            staleRenderedPages: new Set<number>(),
+            renderingPages: new Map<number, number>(),
+            renderingPageRequestIds: new Map<number, number>(),
+            getRenderVersion: () => 50,
+            getVisibleRenderRequestId: () => 10,
+            nextVisibleRenderRequestId: () => 10,
+            ensurePageMetricsInRange: vi.fn(async () => true),
+            setupPagePlaceholders: vi.fn(),
+            cleanupPage: vi.fn(),
+            cancelObsoleteInFlightRenders: vi.fn(),
+            renderSingleVisiblePage,
+            isVisibleRenderRangeCurrent: range => (
+                currentVisibleRange.value.start === range.start
+                && currentVisibleRange.value.end === range.end
+            ),
+            scheduleMissingRenderTargetRetry,
+            throttleMs: 0,
+        });
+
+        const renderPromise = controller.renderVisiblePages({
+            start: 16,
+            end: 16,
+        });
+        currentVisibleRange.value = {
+            start: 18,
+            end: 18,
+        };
+        await renderPromise;
+
+        expect(warnSpy).not.toHaveBeenCalled();
+        expect(scheduleMissingRenderTargetRetry).not.toHaveBeenCalled();
+        expect(renderSingleVisiblePage).not.toHaveBeenCalled();
+
+        warnSpy.mockRestore();
+    });
+
     it('renders over-budget buffer pages clamped, forward neighbor first, and marks them stale', async () => {
         const resolveBufferPageCanvasClamp = vi.fn(() => ({
             maxCanvasPixels: 16_700_000,
@@ -128,10 +185,10 @@ describe('usePdfRendererVisibleRenderController', () => {
             9,
         ]);
         expect(resolveBufferPageCanvasClamp).toHaveBeenCalledTimes(2);
-        expect(harness.renderSingleVisiblePage.mock.calls[0]?.[8]).toBeUndefined();
-        expect(harness.renderSingleVisiblePage.mock.calls[1]?.[8])
+        expect(harness.renderSingleVisiblePage.mock.calls[0]?.[9]).toBeUndefined();
+        expect(harness.renderSingleVisiblePage.mock.calls[1]?.[9])
             .toEqual({ maxCanvasPixelsOverride: 16_700_000 });
-        expect(harness.renderSingleVisiblePage.mock.calls[2]?.[8])
+        expect(harness.renderSingleVisiblePage.mock.calls[2]?.[9])
             .toEqual({ maxCanvasPixelsOverride: 16_700_000 });
         expect(harness.staleRenderedPages).toEqual(new Set([
             9,
@@ -159,7 +216,7 @@ describe('usePdfRendererVisibleRenderController', () => {
             9,
         ]);
         for (const call of harness.renderSingleVisiblePage.mock.calls) {
-            expect(call[8]).toBeUndefined();
+            expect(call[9]).toBeUndefined();
         }
         expect(harness.staleRenderedPages.size).toBe(0);
     });
@@ -186,7 +243,7 @@ describe('usePdfRendererVisibleRenderController', () => {
         );
 
         for (const call of harness.renderSingleVisiblePage.mock.calls) {
-            expect(call[8]).toEqual({
+            expect(call[9]).toEqual({
                 preserveRenderedPages: true,
                 maxCanvasPixelsOverride: 14_000_000,
             });

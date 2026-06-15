@@ -157,6 +157,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
     const emitCurrentPage = vi.fn((page: number) => {
         currentPage.value = page;
     });
+    const emitNavigationFeedbackPage = vi.fn();
 
     const defaultMostVisiblePage = (viewer: HTMLElement | null) => {
         if (!viewer) {
@@ -196,12 +197,14 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         isPageFreshlyRenderedForNavigation: pageNumber => freshRenderedPageNumbers.has(pageNumber),
         visibleRange,
         emitCurrentPage,
+        emitNavigationFeedbackPage,
     });
 
     return {
         container,
         currentPage,
         emitCurrentPage,
+        emitNavigationFeedbackPage,
         markPageCanvasReady: (pageNumber: number) => canvasReadyPageNumbers.add(pageNumber),
         markPageFreshRendered: (pageNumber: number) => freshRenderedPageNumbers.add(pageNumber),
         markPageStaleRendered: (pageNumber: number) => freshRenderedPageNumbers.delete(pageNumber),
@@ -586,6 +589,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         const {
             currentPage,
             emitCurrentPage,
+            emitNavigationFeedbackPage,
             markPageCanvasReady,
             markPageVisualReady,
             singlePageScroll,
@@ -611,6 +615,8 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
 
         expect(currentPage.value).toBe(1);
         expect(emitCurrentPage).not.toHaveBeenCalledWith(3);
+        expect(emitNavigationFeedbackPage).toHaveBeenCalledWith(3);
+        expect(emitNavigationFeedbackPage).not.toHaveBeenCalledWith(null);
         expect(singlePageScroll.isNavigationHoldActiveForPage(3)).toBe(true);
         expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(3);
 
@@ -620,6 +626,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
 
         expect(currentPage.value).toBe(3);
         expect(emitCurrentPage).toHaveBeenCalledWith(3);
+        expect(emitNavigationFeedbackPage).toHaveBeenLastCalledWith(null);
         expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
     });
 
@@ -642,7 +649,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         const didScroll = singlePageScroll.scrollToPage(3);
         await nextTick();
 
-        expect(didScroll).toBe(false);
+        expect(didScroll).toBe(true);
         expect(preparePagedTargetLayout).toHaveBeenCalledWith(3, expect.any(Function));
         expect(currentPage.value).toBe(1);
         expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
@@ -1241,6 +1248,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
                 {
                     preserveRenderedPages: true,
                     bufferOverride: 0,
+                    preserveInFlightRequiredPages: true,
                 },
             );
         } finally {
@@ -1282,7 +1290,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         });
         await nextTick();
 
-        expect(didScroll).toBe(false);
+        expect(didScroll).toBe(true);
         expect(currentPage.value).toBe(1);
         expect(visibleRange.value).toEqual({
             start: 1,
@@ -1325,7 +1333,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         expect(emitCurrentPage).not.toHaveBeenCalled();
     });
 
-    it('lets fit-current navigation suppress the queued paged row render', async () => {
+    it('renders the authoritative paged target even when fit-current suppression is active', async () => {
         const suppressPagedRowRender = vi.fn(() => true);
         const {
             renderVisiblePages,
@@ -1339,7 +1347,17 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         await nextTick();
 
         expect(suppressPagedRowRender).toHaveBeenCalled();
-        expect(renderVisiblePages).not.toHaveBeenCalled();
+        expect(renderVisiblePages).toHaveBeenCalledWith(
+            {
+                start: 2,
+                end: 2,
+            },
+            {
+                preserveRenderedPages: true,
+                bufferOverride: 0,
+                preserveInFlightRequiredPages: true,
+            },
+        );
     });
 
     it('throttles rapid same-direction flips on small pages (trackpad inertia guard)', () => {
@@ -1395,7 +1413,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         expect(currentPage.value).toBe(3);
     });
 
-    it('does not accumulate a continuous pixel-wheel tail into a late same-direction page flip', () => {
+    it('does not accumulate a long pixel-wheel tail into a late same-direction page flip', () => {
         const {
             currentPage,
             singlePageScroll,
@@ -1441,13 +1459,220 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
             230,
             270,
             310,
+            370,
+            430,
+            490,
+            550,
+            610,
         ]) {
             singlePageScroll.handleWheel(createWheelEvent(30, timeStamp));
             expect(currentPage.value).toBe(2);
         }
 
-        singlePageScroll.handleWheel(createWheelEvent(120, 530));
+        singlePageScroll.handleWheel(createWheelEvent(120, 850));
         expect(currentPage.value).toBe(3);
+    });
+
+    it('keeps paging during a sustained same-direction pixel-wheel gesture', () => {
+        const {
+            currentPage,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 140,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 260,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 380,
+                    offsetHeight: 100,
+                },
+            ],
+            clientHeight: 100,
+            scrollHeight: 480,
+            getMostVisiblePage: (viewer) => {
+                if (!viewer) {
+                    return 1;
+                }
+                if (viewer.scrollTop >= 360) {
+                    return 4;
+                }
+                if (viewer.scrollTop >= 240) {
+                    return 3;
+                }
+                if (viewer.scrollTop >= 120) {
+                    return 2;
+                }
+                return 1;
+            },
+        });
+
+        singlePageScroll.handleWheel(createWheelEvent(120, 10));
+        expect(currentPage.value).toBe(2);
+
+        for (const timeStamp of [
+            70,
+            130,
+            190,
+            250,
+            310,
+            370,
+        ]) {
+            singlePageScroll.handleWheel(createWheelEvent(120, timeStamp));
+            expect(currentPage.value).toBe(2);
+        }
+
+        singlePageScroll.handleWheel(createWheelEvent(120, 430));
+        expect(currentPage.value).toBe(3);
+    });
+
+    it('keeps paging during sustained small-delta trackpad scrolling', () => {
+        const {
+            currentPage,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 140,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 260,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 380,
+                    offsetHeight: 100,
+                },
+            ],
+            clientHeight: 100,
+            scrollHeight: 480,
+            getMostVisiblePage: (viewer) => {
+                if (!viewer) {
+                    return 1;
+                }
+                if (viewer.scrollTop >= 360) {
+                    return 4;
+                }
+                if (viewer.scrollTop >= 240) {
+                    return 3;
+                }
+                if (viewer.scrollTop >= 120) {
+                    return 2;
+                }
+                return 1;
+            },
+        });
+
+        singlePageScroll.handleWheel(createWheelEvent(30, 10));
+        expect(currentPage.value).toBe(1);
+        singlePageScroll.handleWheel(createWheelEvent(30, 70));
+        expect(currentPage.value).toBe(2);
+
+        for (const timeStamp of [
+            130,
+            190,
+            250,
+        ]) {
+            singlePageScroll.handleWheel(createWheelEvent(30, timeStamp));
+            expect(currentPage.value).toBe(2);
+        }
+
+        singlePageScroll.handleWheel(createWheelEvent(30, 310));
+        expect(currentPage.value).toBe(2);
+        singlePageScroll.handleWheel(createWheelEvent(30, 370));
+        expect(currentPage.value).toBe(3);
+    });
+
+    it('does not starve sustained low-delta trackpad scrolling after a small-delta flip', () => {
+        const {
+            currentPage,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 140,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 260,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 380,
+                    offsetHeight: 100,
+                },
+            ],
+            clientHeight: 100,
+            scrollHeight: 480,
+            getMostVisiblePage: (viewer) => {
+                if (!viewer) {
+                    return 1;
+                }
+                if (viewer.scrollTop >= 360) {
+                    return 4;
+                }
+                if (viewer.scrollTop >= 240) {
+                    return 3;
+                }
+                if (viewer.scrollTop >= 120) {
+                    return 2;
+                }
+                return 1;
+            },
+        });
+
+        singlePageScroll.handleWheel(createWheelEvent(30, 10));
+        expect(currentPage.value).toBe(1);
+        singlePageScroll.handleWheel(createWheelEvent(30, 70));
+        expect(currentPage.value).toBe(2);
+
+        for (const timeStamp of [
+            130,
+            190,
+            250,
+            310,
+            370,
+        ]) {
+            singlePageScroll.handleWheel(createWheelEvent(15, timeStamp));
+            expect(currentPage.value).toBe(2);
+        }
+
+        singlePageScroll.handleWheel(createWheelEvent(15, 430));
+        expect(currentPage.value).toBe(3);
+    });
+
+    it('reuses in-flight paged target layout preparation for repeated same-target wheel input', () => {
+        const preparePagedTargetLayout = vi.fn(() => new Promise<void>(() => {}));
+        const {
+            currentPage,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({ preparePagedTargetLayout });
+
+        singlePageScroll.handleWheel(createWheelEvent(120, 10));
+        expect(currentPage.value).toBe(1);
+        expect(preparePagedTargetLayout).toHaveBeenCalledTimes(1);
+        expect(preparePagedTargetLayout).toHaveBeenLastCalledWith(2, expect.any(Function));
+
+        singlePageScroll.handleWheel(createWheelEvent(120, 250));
+        expect(currentPage.value).toBe(1);
+        expect(preparePagedTargetLayout).toHaveBeenCalledTimes(1);
     });
 
     it('bypasses cooldown when wheel direction reverses', () => {
@@ -1924,6 +2149,72 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
 
             expect(currentPage.value).toBe(2);
             expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('forces a recovery render when a suppressed paged target stalls', async () => {
+        vi.useFakeTimers();
+        try {
+            const {
+                renderVisiblePages,
+                singlePageScroll,
+            } = createSinglePageScrollHarness({
+                suppressPagedRowRender: () => true,
+                visuallyReadyPageNumbers: [1],
+            });
+
+            singlePageScroll.scrollToPage(2);
+            await nextTick();
+            renderVisiblePages.mockClear();
+
+            await vi.advanceTimersByTimeAsync(1_400);
+            await nextTick();
+
+            expect(renderVisiblePages).toHaveBeenCalledWith(
+                {
+                    start: 2,
+                    end: 2,
+                },
+                {
+                    preserveRenderedPages: true,
+                    bufferOverride: 0,
+                    preserveInFlightRequiredPages: true,
+                },
+            );
+            expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('abandons a stale paged target after the recovery timeout', async () => {
+        vi.useFakeTimers();
+        try {
+            const {
+                currentPage,
+                emitNavigationFeedbackPage,
+                singlePageScroll,
+            } = createSinglePageScrollHarness({
+                suppressPagedRowRender: () => true,
+                visuallyReadyPageNumbers: [1],
+            });
+
+            singlePageScroll.scrollToPage(2);
+            await nextTick();
+
+            expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(2);
+            expect(emitNavigationFeedbackPage).toHaveBeenCalledWith(2);
+
+            await vi.advanceTimersByTimeAsync(6_000);
+            await nextTick();
+
+            expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
+            expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(false);
+            expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
+            expect(currentPage.value).toBe(2);
+            expect(emitNavigationFeedbackPage).toHaveBeenLastCalledWith(null);
         } finally {
             vi.useRealTimers();
         }

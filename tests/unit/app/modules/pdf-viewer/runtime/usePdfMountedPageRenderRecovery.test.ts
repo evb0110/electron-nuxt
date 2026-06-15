@@ -13,6 +13,7 @@ import {
 } from 'vue';
 import type { Ref } from 'vue';
 import { usePdfMountedPageRenderRecovery } from '@app/modules/pdf-viewer/runtime/rendering/usePdfMountedPageRenderRecovery';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 async function flushTimersAndTicks() {
     await vi.runOnlyPendingTimersAsync();
@@ -20,7 +21,10 @@ async function flushTimersAndTicks() {
     await Promise.resolve();
 }
 
-function createHarness(options?: { suppressRecovery?: Ref<boolean> }) {
+function createHarness(options?: {
+    isPageMounted?: ((pageNumber: number) => boolean) | undefined;
+    suppressRecovery?: Ref<boolean>;
+}) {
     const scope = effectScope();
     const isActive = ref(true);
     const isLoading = ref(false);
@@ -35,6 +39,7 @@ function createHarness(options?: { suppressRecovery?: Ref<boolean> }) {
         hasDocument: computed(() => hasDocument.value),
         numPages,
         suppressRecovery,
+        isPageMounted: options?.isPageMounted,
         shouldRecoverPage: pageNumber => pagesNeedingRender.value.has(pageNumber),
         renderVisiblePages,
     }));
@@ -247,6 +252,36 @@ describe('usePdfMountedPageRenderRecovery', () => {
 
         expect(renderVisiblePages).toHaveBeenCalledTimes(2);
 
+        scope.stop();
+    });
+
+    it('drops a pending page that unmounts before recovery exhausts', async () => {
+        vi.useFakeTimers();
+        const mountedPages = ref(new Set([928]));
+        const warnSpy = vi.spyOn(BrowserLogger, 'warnThrottled').mockImplementation(() => {});
+        const {
+            pagesNeedingRender,
+            recovery,
+            renderVisiblePages,
+            scope,
+        } = createHarness({ isPageMounted: pageNumber => mountedPages.value.has(pageNumber) });
+        pagesNeedingRender.value = new Set([928]);
+
+        recovery.queueMountedPageRender(928);
+        mountedPages.value = new Set();
+        await flushTimersAndTicks();
+        await vi.runAllTimersAsync();
+
+        expect(renderVisiblePages).not.toHaveBeenCalled();
+        expect(warnSpy).not.toHaveBeenCalledWith(
+            'pdf-renderer',
+            'mounted-page-render-recovery-exhausted:928',
+            expect.any(Number),
+            expect.any(String),
+            expect.any(Object),
+        );
+
+        warnSpy.mockRestore();
         scope.stop();
     });
 });

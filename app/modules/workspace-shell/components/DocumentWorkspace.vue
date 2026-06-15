@@ -16,6 +16,7 @@
                 :controls-disabled="toolbarControlsDisabled"
                 :page-dropdown-total-pages="documentMetadataReady ? totalPages : 0"
                 :page-labels="toolbarPageLabels"
+                :navigation-feedback-page="navigationFeedbackPage"
                 :ocr-pdf-document="pdfDocument"
                 :ocr-working-copy-path="workingCopyPath"
                 :ocr-external-error="docxExportError"
@@ -194,6 +195,7 @@
                         @update:fit-mode="fitMode = $event"
                         @update:effective-zoom="effectiveZoom = $event"
                         @update:current-page="handleViewerCurrentPageUpdate"
+                        @update:navigation-feedback-page="navigationFeedbackPage = $event"
                         @update:total-pages="handleViewerTotalPagesUpdate"
                         @update:document="pdfDocument = $event"
                         @loading="isLoading = $event"
@@ -529,6 +531,7 @@ const currentPageTransitionHistory = ref<Array<{
     page: number;
     at: number 
 }>>([]);
+const navigationFeedbackPage = ref<number | null>(null);
 const pendingDocumentOpen = computed(() => pendingDocumentOpenProp === true);
 const isActiveRef = computed({
     get: () => isActive,
@@ -1086,6 +1089,7 @@ function handleViewerCurrentPageUpdate(page: number) {
 }
 
 watch(pdfSrc, (src) => {
+    navigationFeedbackPage.value = null;
     if (src) {
         resetDocumentOpenVisualSettleWaiter();
         scheduleStartupOpenVisualReady('pdf-src');
@@ -1094,6 +1098,7 @@ watch(pdfSrc, (src) => {
 
 watch(showNativeDjvuViewer, (visible) => {
     if (visible) {
+        navigationFeedbackPage.value = null;
         scheduleStartupOpenVisualReady('djvu-src');
     }
 });

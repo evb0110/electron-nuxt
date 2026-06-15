@@ -51,6 +51,7 @@ export interface IPdfViewerEmit {
     (e: 'update:fitMode', mode: TFitMode): void;
     (e: 'update:effectiveZoom', value: number): void;
     (e: 'update:currentPage', page: number): void;
+    (e: 'update:navigationFeedbackPage', page: number | null): void;
     (e: 'update:totalPages', total: number): void;
     (e: 'update:loading', loading: boolean): void;
     (e: 'update:document', document: PDFDocumentProxy | null): void;

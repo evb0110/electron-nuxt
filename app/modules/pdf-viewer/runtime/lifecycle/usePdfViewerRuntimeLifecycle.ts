@@ -383,6 +383,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         isResizing,
         pdfDocument,
         currentPage,
+        pendingNavigationAnchorPage: options.pagedNavigationTargetPage,
         visibleRange,
         numPages,
         computeFitWidthScale,

@@ -5,62 +5,55 @@ import { WORKSPACE_PAGE_NAVIGATION_LOCK_MS } from '@app/modules/workspace-shell/
 
 interface IUseWorkspaceToolbarPageModelOptions {
     sourcePage: MaybeRefOrGetter<number>;
+    feedbackPage?: MaybeRefOrGetter<number | null | undefined>;
     goToPage: (page: number) => void;
 }
 
 export function useWorkspaceToolbarPageModel(options: IUseWorkspaceToolbarPageModelOptions) {
-    const optimisticPage = ref(toValue(options.sourcePage));
-    let pendingNavigationPage: number | null = null;
+    const pendingNavigationPage = ref<number | null>(null);
     let pendingNavigationSourcePage: number | null = null;
 
     const {
         start: startPendingNavigationReconcileTimer,
         stop: stopPendingNavigationReconcileTimer,
     } = useTimeoutFn((page: number) => {
-        if (pendingNavigationPage !== page) {
+        if (pendingNavigationPage.value !== page) {
             return;
         }
 
         const sourcePage = toValue(options.sourcePage);
         logPdfRenderTrace('workspace-toolbar-page-pending-reconcile-timeout', {
             page,
-            pendingNavigationPage,
+            pendingNavigationPage: pendingNavigationPage.value,
             pendingNavigationSourcePage,
             sourcePage,
             timeoutMs: WORKSPACE_PAGE_NAVIGATION_LOCK_MS,
         });
         clearPendingNavigation('target-timeout');
-        optimisticPage.value = sourcePage;
-        logPdfRenderTrace('workspace-toolbar-page-source-sync', {
-            page: sourcePage,
-            reason: 'target-timeout',
-        });
     }, WORKSPACE_PAGE_NAVIGATION_LOCK_MS, { immediate: false });
 
     watch(
         () => toValue(options.sourcePage),
         (page) => {
-            if (pendingNavigationPage !== null) {
-                if (page === pendingNavigationPage) {
+            if (pendingNavigationPage.value !== null) {
+                if (page === pendingNavigationPage.value) {
                     logPdfRenderTrace('workspace-toolbar-page-source-caught-up', {
                         page,
-                        pendingNavigationPage,
+                        pendingNavigationPage: pendingNavigationPage.value,
                         pendingNavigationSourcePage,
                     });
                     clearPendingNavigation('source-caught-up');
-                    optimisticPage.value = page;
                     return;
                 }
 
-                logPdfRenderTrace('workspace-toolbar-page-source-ignored-pending-target', {
+                logPdfRenderTrace('workspace-toolbar-page-source-observed-pending-target', {
                     page,
-                    pendingNavigationPage,
+                    pendingNavigationPage: pendingNavigationPage.value,
                     pendingNavigationSourcePage,
                 });
                 return;
             }
 
-            optimisticPage.value = page;
             logPdfRenderTrace('workspace-toolbar-page-source-sync', { page });
         },
     );
@@ -74,19 +67,19 @@ export function useWorkspaceToolbarPageModel(options: IUseWorkspaceToolbarPageMo
     }
 
     function clearPendingNavigation(reason: string) {
-        if (pendingNavigationPage === null && pendingNavigationSourcePage === null) {
+        if (pendingNavigationPage.value === null && pendingNavigationSourcePage === null) {
             clearPendingNavigationReconcileTimer();
             return;
         }
 
         clearPendingNavigationReconcileTimer();
         logPdfRenderTrace('workspace-toolbar-page-pending-cleared', {
-            pendingNavigationPage,
+            pendingNavigationPage: pendingNavigationPage.value,
             pendingNavigationSourcePage,
             reason,
             sourcePage: toValue(options.sourcePage),
         });
-        pendingNavigationPage = null;
+        pendingNavigationPage.value = null;
         pendingNavigationSourcePage = null;
     }
 
@@ -103,26 +96,31 @@ export function useWorkspaceToolbarPageModel(options: IUseWorkspaceToolbarPageMo
         clearPendingNavigation('scope-dispose');
     });
 
-    const currentPage = computed({
-        get: () => optimisticPage.value,
-        set: (page) => {
-            optimisticPage.value = page;
-        },
+    const feedbackPage = computed(() => {
+        const page = toValue(options.feedbackPage);
+        return typeof page === 'number' && Number.isFinite(page)
+            ? Math.max(1, Math.trunc(page))
+            : null;
     });
+    const currentPage = computed(() => feedbackPage.value ?? toValue(options.sourcePage));
+    const navigationPage = computed(() => (
+        pendingNavigationPage.value
+        ?? feedbackPage.value
+        ?? currentPage.value
+    ));
 
     function handleGoToPage(page: number) {
-        optimisticPage.value = page;
-        if (pendingNavigationPage === null) {
+        if (pendingNavigationPage.value === null) {
             pendingNavigationSourcePage = toValue(options.sourcePage);
         }
 
-        logPdfRenderTrace('workspace-toolbar-page-optimistic-set', {
+        logPdfRenderTrace('workspace-toolbar-page-navigation-target-set', {
             page,
-            pendingNavigationPage,
+            pendingNavigationPage: pendingNavigationPage.value,
             pendingNavigationSourcePage,
             sourcePage: toValue(options.sourcePage),
         });
-        pendingNavigationPage = page;
+        pendingNavigationPage.value = page;
         commitNavigation(page);
         if (page === toValue(options.sourcePage)) {
             clearPendingNavigation('already-at-target');
@@ -133,6 +131,7 @@ export function useWorkspaceToolbarPageModel(options: IUseWorkspaceToolbarPageMo
 
     return {
         currentPage,
+        navigationPage,
         handleGoToPage,
     };
 }

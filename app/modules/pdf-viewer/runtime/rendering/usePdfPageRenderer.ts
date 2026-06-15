@@ -1,6 +1,7 @@
 import { Mutex } from 'es-toolkit/promise';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
+    IPageRange,
     IPdfPageMatches,
     IPdfPageMetric,
     IPdfSearchMatch,
@@ -73,6 +74,7 @@ export interface IUsePdfPageRendererOptions {
     onRenderStall?: (payload: IPageRenderStallPayload) => void;
     onPageRendered?: (pageNumber: number) => void;
     onPageCanvasMounted?: (pageNumber: number) => void;
+    isVisibleRenderRangeCurrent?: ((visibleRange: IPageRange) => boolean) | undefined;
     onAnnotationLayersRendered?: ((pageNumber: number, container: HTMLElement) => void) | undefined;
     onRenderedPageStateChanged?: () => void;
 }
@@ -234,12 +236,25 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         version: number,
         requestId: number,
         shouldRetry: boolean,
+        visibleRange: IPageRange,
     ) {
+        const isStaleVisibleRange = options.isVisibleRenderRangeCurrent?.(visibleRange) === false;
         if (
             !shouldRetry
             || renderVersion !== version
             || requestId !== visibleRenderRequestId
+            || isStaleVisibleRange
         ) {
+            if (isStaleVisibleRange) {
+                missingRenderTargetRetries.delete(pageNumber);
+                logPdfRenderTrace('renderer-missing-target-retry-skipped-stale-range', {
+                    pageNumber,
+                    version,
+                    renderVersion,
+                    currentPage: options.currentPage.value,
+                    visibleRange,
+                });
+            }
             return;
         }
 
@@ -267,7 +282,22 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
         missingRenderTargetRetries.set(pageNumber, retryCount + 1);
         const retry = () => {
-            if (renderVersion !== version || requestId !== visibleRenderRequestId) {
+            const isRetryStaleVisibleRange = options.isVisibleRenderRangeCurrent?.(visibleRange) === false;
+            if (
+                renderVersion !== version
+                || requestId !== visibleRenderRequestId
+                || isRetryStaleVisibleRange
+            ) {
+                if (isRetryStaleVisibleRange) {
+                    missingRenderTargetRetries.delete(pageNumber);
+                    logPdfRenderTrace('renderer-missing-target-retry-abort-stale-range', {
+                        pageNumber,
+                        version,
+                        renderVersion,
+                        currentPage: options.currentPage.value,
+                        visibleRange,
+                    });
+                }
                 return;
             }
 
@@ -535,6 +565,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             );
         },
         renderSingleVisiblePage,
+        isVisibleRenderRangeCurrent: options.isVisibleRenderRangeCurrent,
         scheduleMissingRenderTargetRetry,
         resolveBufferPageCanvasClamp,
         throttleMs: RERENDER_LOG_THROTTLE_MS,

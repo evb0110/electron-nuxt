@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type { Ref } from 'vue';
 import { ref } from 'vue';
 
 const resizeObserverMock = vi.hoisted(() => ({callback: null as (() => void) | null}));
@@ -31,7 +32,10 @@ const { usePdfViewerResizeLifecycle } = await import(
 
 function createResizeLifecycle(
     isActive = ref(true),
-    options?: { computeFitWidthScale?: () => boolean; },
+    options?: {
+        computeFitWidthScale?: () => boolean;
+        pendingNavigationAnchorPage?: Readonly<Ref<number | null>>;
+    },
 ) {
     const getMostVisiblePage = vi.fn(() => 2);
     const computeFitWidthScale = vi.fn(options?.computeFitWidthScale ?? (() => true));
@@ -44,6 +48,7 @@ function createResizeLifecycle(
         isResizing: ref(false),
         pdfDocument: ref({}),
         currentPage: ref(4),
+        pendingNavigationAnchorPage: options?.pendingNavigationAnchorPage,
         visibleRange: ref({
             start: 4,
             end: 5,
@@ -162,5 +167,42 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         expect(computeFitWidthScale).toHaveBeenCalledOnce();
         expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
         expect(setResizeTransitionVisible).not.toHaveBeenCalled();
+    });
+
+    it('uses a pending navigation page as the resize observer anchor', async () => {
+        vi.useFakeTimers();
+        const {
+            scheduleResizeAwareRerender,
+            setResizeTransitionVisible,
+        } = createResizeLifecycle(ref(true), { pendingNavigationAnchorPage: ref(8) });
+
+        resizeObserverMock.callback?.();
+
+        await vi.advanceTimersByTimeAsync(400);
+
+        expect(captureScrollSnapshotMock).toHaveBeenNthCalledWith(1, null, {
+            anchorViewportX: null,
+            anchorViewportY: null,
+            preferredAnchorPage: 8,
+        });
+        expect(captureScrollSnapshotMock).toHaveBeenNthCalledWith(2, null, {
+            anchorViewportX: null,
+            anchorViewportY: null,
+            preferredAnchorPage: 8,
+        });
+        expect(setResizeTransitionVisible).toHaveBeenCalledWith({
+            active: true,
+            source: 'resize-observer',
+            token: 1,
+            anchorPage: 8,
+        });
+        expect(scheduleResizeAwareRerender).toHaveBeenCalledWith(
+            're-render visible pages after resize',
+            expect.objectContaining({
+                resizeAnchor: expect.objectContaining({ page: 8 }),
+                source: 'resize-observer',
+                stabilize: true,
+            }),
+        );
     });
 });

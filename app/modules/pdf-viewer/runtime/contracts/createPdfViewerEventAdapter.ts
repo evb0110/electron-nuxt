@@ -19,6 +19,7 @@ export interface IPdfViewerEventAdapter {
     updateFitMode(mode: TFitMode): void;
     updateEffectiveZoom(value: number): void;
     updateCurrentPage(page: number): void;
+    updateNavigationFeedbackPage(page: number | null): void;
     updateTotalPages(total: number): void;
     updateLoading(loading: boolean): void;
     updateDocument(document: PDFDocumentProxy | null): void;
@@ -53,6 +54,7 @@ export function createPdfViewerEventAdapter(emit: IPdfViewerEmit): IPdfViewerEve
         updateFitMode: mode => emit('update:fitMode', mode),
         updateEffectiveZoom: value => emit('update:effectiveZoom', value),
         updateCurrentPage: page => emit('update:currentPage', page),
+        updateNavigationFeedbackPage: page => emit('update:navigationFeedbackPage', page),
         updateTotalPages: total => emit('update:totalPages', total),
         updateLoading: loading => emit('update:loading', loading),
         updateDocument: document => emit('update:document', document),

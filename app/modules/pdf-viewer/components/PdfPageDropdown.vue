@@ -4,7 +4,7 @@
             <ToolbarButton
                 icon="ph:caret-double-left"
                 :tooltip="t('pageDropdown.firstPage')"
-                :disabled="disabled || totalPages === 0 || currentPage <= 1"
+                :disabled="disabled || totalPages === 0 || commandPage <= 1"
                 grouped
                 icon-class="size-[1.1rem]"
                 @click="goToFirst"
@@ -14,7 +14,7 @@
             <ToolbarButton
                 icon="ph:caret-left"
                 :tooltip="t('pageDropdown.previousPage')"
-                :disabled="disabled || totalPages === 0 || currentPage <= 1"
+                :disabled="disabled || totalPages === 0 || commandPage <= 1"
                 grouped
                 icon-class="size-[1.1rem]"
                 @click="goToPrevious"
@@ -75,7 +75,7 @@
             <ToolbarButton
                 icon="ph:caret-right"
                 :tooltip="t('pageDropdown.nextPage')"
-                :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
+                :disabled="disabled || totalPages === 0 || commandPage >= totalPages"
                 grouped
                 icon-class="size-[1.1rem]"
                 @click="goToNext"
@@ -85,7 +85,7 @@
             <ToolbarButton
                 icon="ph:caret-double-right"
                 :tooltip="t('pageDropdown.lastPage')"
-                :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
+                :disabled="disabled || totalPages === 0 || commandPage >= totalPages"
                 grouped
                 icon-class="size-[1.1rem]"
                 @click="goToLast"
@@ -112,6 +112,7 @@ interface IProps {
     totalPages: number;
     open: boolean;
     pageLabels?: string[] | null;
+    navigationPage?: number;
     disabled?: boolean;
     compactLevel?: number;
     viewMode?: TPdfViewMode;
@@ -122,6 +123,7 @@ const {
     totalPages,
     open,
     pageLabels = null,
+    navigationPage = undefined,
     disabled = false,
     compactLevel = 0,
     viewMode = 'single',
@@ -147,6 +149,13 @@ const showEdgeButtons = computed(() => true);
 const showStepButtons = computed(() => true);
 const showTotalInDisplay = computed(() => true);
 const hasPages = computed(() => totalPages > 0);
+const commandPage = computed(() => {
+    const page = navigationPage ?? currentPage;
+    if (!Number.isFinite(page)) {
+        return currentPage;
+    }
+    return Math.min(Math.max(Math.trunc(page), 1), Math.max(totalPages, 1));
+});
 
 const effectivePageLabels = computed(() =>
     pageLabels && pageLabels.length === totalPages
@@ -220,35 +229,31 @@ function cancelEditing() {
 }
 
 function goToFirst() {
-    emit('update:modelValue', 1);
     emit('goToPage', 1);
     isEditing.value = false;
 }
 
 function goToPrevious() {
-    if (currentPage > 1) {
-        const newPage = stepBySpread(currentPage, viewMode, totalPages, -1);
-        if (newPage === currentPage) {
+    if (commandPage.value > 1) {
+        const newPage = stepBySpread(commandPage.value, viewMode, totalPages, -1);
+        if (newPage === commandPage.value) {
             return;
         }
-        emit('update:modelValue', newPage);
         emit('goToPage', newPage);
     }
 }
 
 function goToNext() {
-    if (currentPage < totalPages) {
-        const newPage = stepBySpread(currentPage, viewMode, totalPages, 1);
-        if (newPage === currentPage) {
+    if (commandPage.value < totalPages) {
+        const newPage = stepBySpread(commandPage.value, viewMode, totalPages, 1);
+        if (newPage === commandPage.value) {
             return;
         }
-        emit('update:modelValue', newPage);
         emit('goToPage', newPage);
     }
 }
 
 function goToLast() {
-    emit('update:modelValue', totalPages);
     emit('goToPage', totalPages);
     isEditing.value = false;
 }
@@ -259,7 +264,6 @@ function commitPageInput() {
     }
     const page = findPageByPageLabelInput(pageInputValue.value, totalPages, effectivePageLabels.value);
     if (page !== null) {
-        emit('update:modelValue', page);
         emit('goToPage', page);
     }
     isEditing.value = false;

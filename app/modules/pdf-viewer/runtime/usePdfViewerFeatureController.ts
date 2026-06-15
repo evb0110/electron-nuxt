@@ -39,6 +39,7 @@ import type {
     IAnnotationEditorState,
     IAnnotationModifiedPayload,
 } from '@app/types/annotations';
+import type { IPageRange } from '@app/types/pdf';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 
 export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdfViewerEmit) {
@@ -237,6 +238,18 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         annotationSettings,
     });
     const outputScale = usePdfViewerOutputScale();
+    function pageRangeContainsPage(range: IPageRange, pageNumber: number) {
+        return pageNumber >= range.start && pageNumber <= range.end;
+    }
+
+    function pageRangesIntersect(left: IPageRange, right: IPageRange) {
+        return left.start <= right.end && right.start <= left.end;
+    }
+
+    let isVisibleRenderRangeCurrent = (range: IPageRange) => (
+        pageRangesIntersect(range, visibleRange.value)
+    );
+    let getPagedNavigationTargetPage = (): number | null => null;
     const {
         setupPagePlaceholders,
         renderVisiblePages,
@@ -276,6 +289,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         currentSearchMatchNavigationId,
         workingCopyPath,
         onRenderStall: relayPageRenderStall,
+        isVisibleRenderRangeCurrent: range => isVisibleRenderRangeCurrent(range),
         onPageCanvasMounted: pageNumber => {
             handlePageCanvasMounted(pageNumber);
         },
@@ -287,6 +301,26 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         onRenderedPageStateChanged: handleRenderedPageStateChanged,
         renderedPageStateVersion,
     });
+    isVisibleRenderRangeCurrent = (range: IPageRange) => {
+        if (pageRangesIntersect(range, visibleRange.value)) {
+            return true;
+        }
+
+        const targetPage = getPagedNavigationTargetPage();
+        if (targetPage === null || numPages.value <= 0) {
+            return false;
+        }
+
+        const targetRowBounds = getPageRowBoundsForViewMode({
+            pageNumber: targetPage,
+            viewMode: viewMode.value,
+            totalPages: numPages.value,
+        });
+        return (
+            pageRangesIntersect(range, targetRowBounds)
+            || pageRangeContainsPage(range, targetPage)
+        );
+    };
     watch(outputScale, (nextScale, previousScale) => {
         if (nextScale === previousScale || !pdfDocument.value || isLoading.value) {
             return;
@@ -395,9 +429,11 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         isPageFreshlyRenderedForNavigation,
         visibleRange,
         emitCurrentPage: viewerEvents.updateCurrentPage,
+        emitNavigationFeedbackPage: viewerEvents.updateNavigationFeedbackPage,
         requestedCurrentPage,
         cancelPendingSearchScroll,
     });
+    getPagedNavigationTargetPage = () => singlePageScroll.pagedNavigationTargetPage.value;
     const { navigationAnchorPage } = singlePageScroll;
     const userViewportInteractionEpoch = ref(0);
 
@@ -686,6 +722,13 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
             ),
         );
     }
+    function hasMountedPageContainer(pageNumber: number) {
+        return Boolean(
+            viewerContainer.value?.querySelector(
+                `.page_container[data-page="${pageNumber}"]`,
+            ),
+        );
+    }
     function isPageVisualReadyForShapeOverlay(pageNumber: number) {
         return (
             isPageFreshlyRenderedForNavigation(pageNumber)
@@ -715,6 +758,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         hasDocument: computed(() => Boolean(pdfDocument.value)),
         numPages,
         suppressRecovery: isCurrentPageFitRerenderTransitionActive,
+        isPageMounted: hasMountedPageContainer,
         shouldRecoverPage: pageNumber => (
             shouldShowNavigationSkeleton(pageNumber)
             && !isPageVisuallyReady(pageNumber)
