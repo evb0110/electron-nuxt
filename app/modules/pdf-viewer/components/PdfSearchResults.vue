@@ -30,7 +30,7 @@
         >
             <div class="pdf-search-results-header">
                 <span class="pdf-search-results-header-summary">
-                    {{ t('searchResults.resultCount', { count: results.length }) }} {{ t('searchResults.forQuery', { query: trimmedQuery }) }}
+                    {{ searchSummaryText }}
                 </span>
                 <UIcon
                     v-if="isSearching"
@@ -107,6 +107,7 @@ import type { IPdfSearchMatch } from '@app/types/pdf';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import PdfPanelEmptyState from '@app/modules/pdf-viewer/components/PdfPanelEmptyState.vue';
 import PdfSearchResultItem from '@app/modules/pdf-viewer/components/PdfSearchResultItem.vue';
+import { formatPdfSearchResultsSummary } from '@app/modules/pdf-viewer/search/formatPdfSearchResultsSummary';
 import { formatPageIndicatorWithOptions } from '@app/utils/pdfPageLabels';
 
 const { t } = useTypedI18n();
@@ -149,6 +150,12 @@ const expandedPages = ref<Set<number>>(new Set());
 const resultItemRefs = new Map<number, HTMLElement>();
 
 const activeMatchIndex = computed(() => results[currentResultIndex]?.matchIndex ?? -1);
+const searchSummaryText = computed(() => formatPdfSearchResultsSummary({
+    isSearching: Boolean(isSearching),
+    query: trimmedQuery.value,
+    resultCount: results.length,
+    t,
+}));
 
 const groupedResults = computed(() => {
     const groups = groupBy(results, result => result.pageIndex);

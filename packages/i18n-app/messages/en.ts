@@ -568,7 +568,7 @@ export default {
             other: 'Type at least {count} characters',
         }),
         'noResults': 'No results found',
-        'noResultsHint': 'Try a different term or adjust the search options.',
+        'noResultsHint': 'Try a different term or run OCR if visible scanned text is not found.',
         'unavailable': 'Search unavailable',
         'resultCount': plural({
             one: '{count} result',
