@@ -312,7 +312,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         height: config.window.height,
         title: config.window.title,
         ...(windowIconPath ? { icon: windowIconPath } : {}),
-        autoHideMenuBar: !config.isMac,
+        autoHideMenuBar: false,
         show: false,
         backgroundColor: config.window.backgroundColor,
         webPreferences: {
@@ -322,10 +322,6 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
             preload: preloadPath,
         },
     });
-
-    if (!config.isMac) {
-        window.setMenuBarVisibility(false);
-    }
 
     registerAppWindow(window, {...(options.setAsMain === undefined ? {} : { setAsMain: options.setAsMain })});
 

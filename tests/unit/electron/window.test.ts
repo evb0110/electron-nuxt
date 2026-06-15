@@ -198,14 +198,14 @@ describe('window runtime readiness', () => {
         delete process.env.EVB_CLEAR_RENDERER_CACHE;
     });
 
-    it('hides the native menu bar on non-macOS windows while preserving the application menu', async () => {
+    it('keeps the native menu bar visible on non-macOS windows', async () => {
         const { createAppWindow } = await import('@electron/window');
 
         await createAppWindow({ showStartupPlaceholder: false });
 
         const window = mocks.BrowserWindow.windows[0];
-        expect(window?.options).toEqual(expect.objectContaining({autoHideMenuBar: true}));
-        expect(window?.setMenuBarVisibility).toHaveBeenCalledWith(false);
+        expect(window?.options).toEqual(expect.objectContaining({autoHideMenuBar: false}));
+        expect(window?.setMenuBarVisibility).not.toHaveBeenCalled();
     });
 
     it('keeps the native menu bar visible on macOS windows', async () => {
