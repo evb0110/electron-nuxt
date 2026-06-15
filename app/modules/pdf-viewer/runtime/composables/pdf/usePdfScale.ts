@@ -14,6 +14,8 @@ import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-pa
 
 const BASE_MARGIN = 20;
 
+interface IFitScalePageOptions { page?: number | null | undefined; }
+
 export const usePdfScale = (
     zoom: MaybeRefOrGetter<number>,
     fitMode: MaybeRefOrGetter<TFitMode>,
@@ -69,14 +71,23 @@ export const usePdfScale = (
         return normalizedMetricsCacheValue;
     }
 
+    function resolveFitScalePage(options?: IFitScalePageOptions) {
+        const page = options?.page ?? toValue(currentPage);
+        if (!Number.isFinite(page)) {
+            return toValue(currentPage);
+        }
+
+        return Math.trunc(page);
+    }
+
     function resolveFitHeightBaseDimension(
         normalizedPageMetrics: IPdfPageMetric[],
         documentBaseHeight: number,
+        page: number,
     ) {
         // Fit-height is anchored to the visible page row. In facing modes the
         // row is the unit the user is paging through, so the taller page in
         // the active spread must define the scale.
-        const page = toValue(currentPage);
         const totalPages = toValue(numPages);
         const rowBounds = getPageRowBoundsForViewMode({
             pageNumber: page,
@@ -135,15 +146,16 @@ export const usePdfScale = (
         });
     }
 
-    function computeFitWidthScale(container: HTMLElement | null) {
+    function computeFitWidthScale(container: HTMLElement | null, options?: IFitScalePageOptions) {
         const totalPages = toValue(numPages);
         const normalizedPageMetrics = getNormalizedPageMetrics();
+        const scalePage = resolveFitScalePage(options);
         const height = resolveDocumentBaseMetric(normalizedPageMetrics, 'height');
         const width = resolveCurrentSpreadBaseWidth(
             normalizedPageMetrics,
             toValue(viewMode),
             totalPages,
-            toValue(currentPage),
+            scalePage,
         );
 
         if (!container || !width || !height) {
@@ -173,7 +185,7 @@ export const usePdfScale = (
             return false;
         }
         const baseDimension = mode === 'height'
-            ? resolveFitHeightBaseDimension(normalizedPageMetrics, height)
+            ? resolveFitHeightBaseDimension(normalizedPageMetrics, height, scalePage)
             : width;
 
         if (hasUnchangedFitDimensions(rawSize, baseDimension)) {
@@ -213,6 +225,7 @@ export const usePdfScale = (
             viewMode: toValue(viewMode),
             numPages: totalPages,
             currentPage: toValue(currentPage),
+            scalePage,
             previousScale: fitWidthScale.value,
             nextScale: newScale,
         });
@@ -220,15 +233,16 @@ export const usePdfScale = (
         return true;
     }
 
-    function isFitWidthScaleCurrent(container: HTMLElement | null) {
+    function isFitWidthScaleCurrent(container: HTMLElement | null, options?: IFitScalePageOptions) {
         const totalPages = toValue(numPages);
         const normalizedPageMetrics = getNormalizedPageMetrics();
+        const scalePage = resolveFitScalePage(options);
         const height = resolveDocumentBaseMetric(normalizedPageMetrics, 'height');
         const width = resolveCurrentSpreadBaseWidth(
             normalizedPageMetrics,
             toValue(viewMode),
             totalPages,
-            toValue(currentPage),
+            scalePage,
         );
 
         if (!container || !width || !height) {
@@ -247,7 +261,7 @@ export const usePdfScale = (
         }
 
         const baseDimension = mode === 'height'
-            ? resolveFitHeightBaseDimension(normalizedPageMetrics, height)
+            ? resolveFitHeightBaseDimension(normalizedPageMetrics, height, scalePage)
             : width;
         const expectedScale = Math.min(availableSize / baseDimension, ZOOM.MAX);
 

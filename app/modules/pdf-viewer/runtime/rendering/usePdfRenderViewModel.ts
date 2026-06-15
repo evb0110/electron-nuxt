@@ -59,8 +59,6 @@ interface IUsePdfRenderViewModelOptions {
     continuousScroll: ComputedRef<boolean>;
     numPages: Ref<number>;
     isPagedNavigationBurstActive?: (() => boolean) | undefined;
-    isNavigationHoldActiveForPage?: ((pageNumber: number) => boolean) | undefined;
-    isNavigationHoldExpiredPage?: ((pageNumber: number) => boolean) | undefined;
     markersByPage: Ref<Map<number, IMarkerViewModel[]>>;
     linksByPage: ComputedRef<Record<number, ILinkAnnotation[]>>;
     renderVisiblePages: (
@@ -139,12 +137,6 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
         }
         if (options.hasMountedPageCanvas(page) && options.isPageRendering(page)) {
             delayedSkeleton.markPageRendered(page);
-            return false;
-        }
-        if (
-            options.isNavigationHoldActiveForPage?.(page) === true
-            || options.isNavigationHoldExpiredPage?.(page) === true
-        ) {
             return false;
         }
         const showSkeleton = delayedSkeleton.shouldShowSkeleton(page);

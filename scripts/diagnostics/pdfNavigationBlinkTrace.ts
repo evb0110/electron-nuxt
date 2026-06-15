@@ -29,6 +29,7 @@ const DEFAULT_OUT_PATH = '.devkit/pdf-navigation-blink-trace.json';
 const MAX_ASSERTED_TOOLBAR_BODY_LAG_MS = 750;
 const MAX_ASSERTED_BLANK_RUN_MS = 250;
 const MAX_ASSERTED_INTERMEDIATE_VISUAL_AFTER_CLICK_RUN_MS = 120;
+const MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX = 2;
 const POST_CLICK_INTERMEDIATE_VISUAL_GRACE_MS = 80;
 
 export interface IPdfNavigationBlinkTraceOptions {
@@ -54,6 +55,7 @@ interface ITraceSummary {
     frameAnalysis: IFrameAnalysisSummary;
     firstBlankSample: unknown;
     firstCenteredBlankSample: unknown;
+    firstCenteredBlankAfterClickSample: unknown;
     firstIntermediateVisualAfterClickSample: unknown;
     firstLatePostClickSwapSample: unknown;
     firstNonFinalPagedCommitAfterFinalRequest: unknown;
@@ -61,12 +63,14 @@ interface ITraceSummary {
     firstSkeletonAfterVisualSample: unknown;
     firstSkeletonVisualOverlapSample: unknown;
     firstTargetCanvasRegressionSample: unknown;
+    firstTargetFeedbackGeometryMismatchSample: unknown;
     firstToolbarAheadOfBodySample: unknown;
     finalRequestTraceAtMs: number | null;
     intermediateVisualAfterClickSampleCount: number;
     lastClickAtMs: number | null;
     latePostClickSwapCount: number;
     maxBlankRunMs: number;
+    maxCenteredBlankAfterClickRunMs: number;
     maxCenteredBlankRunMs: number;
     maxIntermediateVisualAfterClickRunMs: number;
     maxToolbarBodyLagMs: number;
@@ -77,10 +81,18 @@ interface ITraceSummary {
     skeletonSampleCount: number;
     skeletonVisualOverlapSampleCount: number;
     targetCanvasRegressionSampleCount: number;
+    targetFeedbackHeightDeltaPx: number;
+    targetFeedbackGeometrySampleCount: number;
+    targetFeedbackWidthDeltaPx: number;
     toolbarAheadOfBodySampleCount: number;
     toolbarPages: number[];
     workspaceGoToPages: number[];
     pagedTargets: number[];
+}
+
+interface IPageSampleGeometry {
+    width: number;
+    height: number;
 }
 
 interface IPdfBlinkDiagnosticWindow extends Window {__evbTestApi?: IEvbTestApi;}
@@ -320,6 +332,7 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
                         page: Number(container.dataset.page) || 0,
                         top: Math.round(rect.top),
                         bottom: Math.round(rect.bottom),
+                        width: Math.round(rect.width),
                         height: Math.round(rect.height),
                         className: container.className,
                         rendered,
@@ -845,6 +858,18 @@ function sampleHasVisualForPage(sample: Record<string, unknown>, page: number) {
     ));
 }
 
+function sampleHasSkeletonForPage(sample: Record<string, unknown>, page: number) {
+    return readVisiblePages(sample).some(pageInfo => (
+        readFiniteNumber(pageInfo.page) === page
+        && pageInfo.skeletonVisible === true
+    ));
+}
+
+function sampleHasFeedbackForPage(sample: Record<string, unknown>, page: number) {
+    return sampleHasVisualForPage(sample, page)
+        || sampleHasSkeletonForPage(sample, page);
+}
+
 function sampleHasCanvasForPage(sample: Record<string, unknown>, page: number) {
     return readVisiblePages(sample).some(pageInfo => (
         readFiniteNumber(pageInfo.page) === page
@@ -877,6 +902,146 @@ function sampleHasCenteredBlank(sample: Record<string, unknown>) {
     }
     return readCenteredVisualPage(sample) === null
         && readNumberArray(sample.blankVisiblePages).length > 0;
+}
+
+function getCenteredBlankAfterClickSummary(options: {
+    lastClickAtMs: number | null;
+    samples: Array<Record<string, unknown>>;
+}) {
+    const {
+        lastClickAtMs,
+        samples,
+    } = options;
+    if (lastClickAtMs === null) {
+        return {
+            firstSample: null,
+            maxRunMs: 0,
+        };
+    }
+
+    const minimumAtMs = lastClickAtMs + POST_CLICK_INTERMEDIATE_VISUAL_GRACE_MS;
+    let firstSample: Record<string, unknown> | null = null;
+    let maxRunMs = 0;
+    let runStartAtMs: number | null = null;
+    let runLastAtMs: number | null = null;
+
+    function flushRun() {
+        if (runStartAtMs !== null && runLastAtMs !== null) {
+            maxRunMs = Math.max(maxRunMs, runLastAtMs - runStartAtMs);
+        }
+        runStartAtMs = null;
+        runLastAtMs = null;
+    }
+
+    for (const sample of samples) {
+        const atMs = readFiniteNumber(sample.atMs);
+        if (atMs === null || atMs < minimumAtMs) {
+            continue;
+        }
+
+        if (sampleHasCenteredBlank(sample)) {
+            firstSample ??= sample;
+            runStartAtMs ??= atMs;
+            runLastAtMs = atMs;
+        } else {
+            flushRun();
+        }
+    }
+    flushRun();
+
+    return {
+        firstSample,
+        maxRunMs,
+    };
+}
+
+function readPageInfoGeometry(pageInfo: Record<string, unknown>) {
+    const width = readFiniteNumber(pageInfo.width);
+    const height = readFiniteNumber(pageInfo.height);
+    if (width === null || height === null) {
+        return null;
+    }
+
+    return {
+        width,
+        height,
+    };
+}
+
+function sampleHasNonBufferedFeedbackForPage(sample: Record<string, unknown>, page: number) {
+    const pageInfo = readPageInfoForPage(sample, page);
+    return pageInfo !== null
+        && pageInfo.buffered !== true
+        && (
+            pageInfo.skeletonVisible === true
+            || pageInfo.visualReady === true
+        );
+}
+
+function getTargetFeedbackGeometrySummary(options: {
+    finalTargetPage: number | null;
+    samples: Array<Record<string, unknown>>;
+}) {
+    const {
+        finalTargetPage,
+        samples,
+    } = options;
+    if (finalTargetPage === null) {
+        return {
+            firstMismatchSample: null,
+            maxHeightDeltaPx: 0,
+            maxWidthDeltaPx: 0,
+            sampleCount: 0,
+        };
+    }
+
+    const feedbackSamples = samples.filter(sample =>
+        sampleHasNonBufferedFeedbackForPage(sample, finalTargetPage),
+    );
+    const geometries = feedbackSamples
+        .map(sample => readPageInfoForPage(sample, finalTargetPage))
+        .map(pageInfo => pageInfo ? readPageInfoGeometry(pageInfo) : null)
+        .filter((geometry): geometry is IPageSampleGeometry => geometry !== null);
+    if (geometries.length === 0) {
+        return {
+            firstMismatchSample: null,
+            maxHeightDeltaPx: 0,
+            maxWidthDeltaPx: 0,
+            sampleCount: 0,
+        };
+    }
+
+    const finalGeometry = geometries.at(-1)!;
+    let maxHeightDeltaPx = 0;
+    let maxWidthDeltaPx = 0;
+    let firstMismatchSample: Record<string, unknown> | null = null;
+    for (const sample of feedbackSamples) {
+        const pageInfo = readPageInfoForPage(sample, finalTargetPage);
+        const geometry = pageInfo ? readPageInfoGeometry(pageInfo) : null;
+        if (geometry === null) {
+            continue;
+        }
+        const heightDelta = Math.abs(geometry.height - finalGeometry.height);
+        const widthDelta = Math.abs(geometry.width - finalGeometry.width);
+        maxHeightDeltaPx = Math.max(maxHeightDeltaPx, heightDelta);
+        maxWidthDeltaPx = Math.max(maxWidthDeltaPx, widthDelta);
+        if (
+            firstMismatchSample === null
+            && (
+                heightDelta > MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX
+                || widthDelta > MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX
+            )
+        ) {
+            firstMismatchSample = sample;
+        }
+    }
+
+    return {
+        firstMismatchSample,
+        maxHeightDeltaPx,
+        maxWidthDeltaPx,
+        sampleCount: feedbackSamples.length,
+    };
 }
 
 function sampleHasCenteredSkeleton(sample: Record<string, unknown>) {
@@ -1172,6 +1337,10 @@ export function summarizeTrace(payload: {
         'after-next-click',
         'toolbar-button-click',
     ]);
+    const centeredBlankAfterClick = getCenteredBlankAfterClickSummary({
+        lastClickAtMs,
+        samples,
+    });
     const finalRequestTraceAtMs = getFinalRequestTraceAtMs(payload.renderTrace, finalTargetPage);
     const nonFinalPagedCommitsAfterFinalRequest = getNonFinalRenderTraceEventsAfterFinalRequest(
         payload.renderTrace,
@@ -1212,7 +1381,7 @@ export function summarizeTrace(payload: {
     const toolbarAheadOfBodySamples = samples.filter(sample => {
         const toolbarPage = readToolbarPage(sample);
         return toolbarPage !== null
-            && !sampleHasVisualForPage(sample, toolbarPage);
+            && !sampleHasFeedbackForPage(sample, toolbarPage);
     });
 
     let maxToolbarBodyLagMs = 0;
@@ -1221,7 +1390,7 @@ export function summarizeTrace(payload: {
     for (const sample of samples) {
         const atMs = readFiniteNumber(sample.atMs) ?? 0;
         const toolbarPage = readToolbarPage(sample);
-        const toolbarAhead = toolbarPage !== null && !sampleHasVisualForPage(sample, toolbarPage);
+        const toolbarAhead = toolbarPage !== null && !sampleHasFeedbackForPage(sample, toolbarPage);
         if (toolbarAhead) {
             toolbarAheadStartedAt ??= atMs;
             lastToolbarAheadAt = atMs;
@@ -1276,6 +1445,10 @@ export function summarizeTrace(payload: {
                 && readCenteredVisualPage(sample) === finalTargetPage
                 && !sampleHasCanvasForPage(sample, finalTargetPage);
         });
+    const targetFeedbackGeometry = getTargetFeedbackGeometrySummary({
+        finalTargetPage,
+        samples,
+    });
     let latePostClickSwapCount = 0;
     let previousPostReadySignature: string | null = null;
     let firstLatePostClickSwapSample: Record<string, unknown> | null = null;
@@ -1303,6 +1476,7 @@ export function summarizeTrace(payload: {
         frameAnalysis: analyzeTraceFrames(samples),
         firstBlankSample: blankSamples[0] ?? null,
         firstCenteredBlankSample: samples.find(sampleHasCenteredBlank) ?? null,
+        firstCenteredBlankAfterClickSample: centeredBlankAfterClick.firstSample,
         firstIntermediateVisualAfterClickSample: intermediateVisualAfterClick.firstSample,
         firstLatePostClickSwapSample,
         firstNonFinalPagedCommitAfterFinalRequest: nonFinalPagedCommitsAfterFinalRequest[0] ?? null,
@@ -1310,12 +1484,14 @@ export function summarizeTrace(payload: {
         firstSkeletonAfterVisualSample: skeletonAfterVisualSamples[0] ?? null,
         firstSkeletonVisualOverlapSample: skeletonVisualOverlapSamples[0] ?? null,
         firstTargetCanvasRegressionSample: targetCanvasRegressionSamples[0] ?? null,
+        firstTargetFeedbackGeometryMismatchSample: targetFeedbackGeometry.firstMismatchSample,
         firstToolbarAheadOfBodySample: toolbarAheadOfBodySamples[0] ?? null,
         finalRequestTraceAtMs,
         intermediateVisualAfterClickSampleCount: intermediateVisualAfterClick.sampleCount,
         lastClickAtMs,
         latePostClickSwapCount,
         maxBlankRunMs,
+        maxCenteredBlankAfterClickRunMs: centeredBlankAfterClick.maxRunMs,
         maxCenteredBlankRunMs,
         maxIntermediateVisualAfterClickRunMs: intermediateVisualAfterClick.maxRunMs,
         maxToolbarBodyLagMs,
@@ -1326,6 +1502,9 @@ export function summarizeTrace(payload: {
         skeletonSampleCount: skeletonSamples.length,
         skeletonVisualOverlapSampleCount: skeletonVisualOverlapSamples.length,
         targetCanvasRegressionSampleCount: targetCanvasRegressionSamples.length,
+        targetFeedbackHeightDeltaPx: targetFeedbackGeometry.maxHeightDeltaPx,
+        targetFeedbackGeometrySampleCount: targetFeedbackGeometry.sampleCount,
+        targetFeedbackWidthDeltaPx: targetFeedbackGeometry.maxWidthDeltaPx,
         toolbarAheadOfBodySampleCount: toolbarAheadOfBodySamples.length,
         toolbarPages,
         workspaceGoToPages,
@@ -1363,10 +1542,20 @@ function assertTraceSummary(summary: ITraceSummary) {
         );
     }
     if (summary.maxToolbarBodyLagMs > MAX_ASSERTED_TOOLBAR_BODY_LAG_MS) {
-        failures.push(`toolbar/body lag ${summary.maxToolbarBodyLagMs}ms exceeded ${MAX_ASSERTED_TOOLBAR_BODY_LAG_MS}ms`);
+        failures.push(`toolbar/body feedback lag ${summary.maxToolbarBodyLagMs}ms exceeded ${MAX_ASSERTED_TOOLBAR_BODY_LAG_MS}ms`);
     }
-    if (summary.maxCenteredBlankRunMs > MAX_ASSERTED_BLANK_RUN_MS) {
-        failures.push(`centered blank visual run ${summary.maxCenteredBlankRunMs}ms exceeded ${MAX_ASSERTED_BLANK_RUN_MS}ms`);
+    if (summary.maxCenteredBlankAfterClickRunMs > MAX_ASSERTED_BLANK_RUN_MS) {
+        failures.push(`centered blank visual run after clicks ${summary.maxCenteredBlankAfterClickRunMs}ms exceeded ${MAX_ASSERTED_BLANK_RUN_MS}ms`);
+    }
+    if (
+        summary.targetFeedbackHeightDeltaPx > MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX
+        || summary.targetFeedbackWidthDeltaPx > MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX
+    ) {
+        failures.push(
+            `target feedback geometry changed by width=${summary.targetFeedbackWidthDeltaPx}px`
+            + ` height=${summary.targetFeedbackHeightDeltaPx}px`
+            + ` exceeding ${MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX}px`,
+        );
     }
     if (summary.bodyVisualReadyAtMs === null) {
         failures.push('final target was never observed with visual-ready body content');

@@ -30,8 +30,6 @@
             :buffered="isBufferedPage(page)"
             :rendered="isRenderedPage(page)"
             :shape-overlay-visual-ready="isShapeOverlayVisualReadyPage(page)"
-            :navigation-held="isNavigationHeldPage(page)"
-            :navigation-hold-style="getNavigationHoldStyle(page)"
             :placeholder-style="getPagePlaceholderStyle(page)"
             :placed-image="pendingImagePlacement?.pageNumber === page ? pendingImagePlacement : null"
             :placed-image-busy="isPendingImagePlacementFinalizing"
@@ -69,8 +67,6 @@ interface IProps {
     isBufferedPage: (page: number) => boolean;
     isRenderedPage: (page: number) => boolean;
     isShapeOverlayVisualReadyPage: (page: number) => boolean;
-    isNavigationHeldPage: (page: number) => boolean;
-    getNavigationHoldStyle: (page: number) => Record<string, string> | null;
     getPagePlaceholderStyle: (page: number) => Record<string, string> | null;
     topVirtualSpacerStyle?: Record<string, string> | null;
     bottomVirtualSpacerStyle?: Record<string, string> | null;
@@ -88,8 +84,6 @@ const {
     isBufferedPage,
     isRenderedPage,
     isShapeOverlayVisualReadyPage,
-    isNavigationHeldPage,
-    getNavigationHoldStyle,
     getPagePlaceholderStyle,
     topVirtualSpacerStyle = null,
     bottomVirtualSpacerStyle = null,

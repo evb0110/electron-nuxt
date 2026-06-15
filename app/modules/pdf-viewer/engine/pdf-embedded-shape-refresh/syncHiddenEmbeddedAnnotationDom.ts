@@ -109,7 +109,7 @@ function isOverlayCandidatePaintReady(element: Element) {
     return isStyleVisible(element) && hasVisibleSvgGeometry(element);
 }
 
-export function hasManagedShapeOverlayForAnnotation(
+function hasManagedShapeOverlayForAnnotation(
     pageContainer: HTMLElement | null | undefined,
     annotationId: string | null | undefined,
 ) {

@@ -26,8 +26,6 @@ function createHarness(options?: {
     isPageRendering?: (page: number) => boolean;
     pagedNavigationTargetPage?: Ref<number | null>;
     shouldShowSkeleton?: (page: number) => boolean;
-    isNavigationHoldActiveForPage?: (page: number) => boolean;
-    isNavigationHoldExpiredPage?: (page: number) => boolean;
 }) {
     const scope = effectScope();
     const mountedPages = ref([1]);
@@ -66,8 +64,6 @@ function createHarness(options?: {
         effectiveScale: ref(1),
         continuousScroll: computed(() => false),
         numPages: ref(1_000),
-        isNavigationHoldActiveForPage: options?.isNavigationHoldActiveForPage,
-        isNavigationHoldExpiredPage: options?.isNavigationHoldExpiredPage,
         markersByPage: ref(new Map<number, never[]>()),
         linksByPage: computed<Record<number, never[]>>(() => ({})),
         renderVisiblePages,
@@ -217,7 +213,7 @@ describe('usePdfRenderViewModel', () => {
         }
     });
 
-    it('keeps page skeletons visible when no final canvas or navigation hold is ready', () => {
+    it('keeps page skeletons visible when no final canvas is ready', () => {
         vi.useFakeTimers();
         try {
             const {
@@ -238,55 +234,20 @@ describe('usePdfRenderViewModel', () => {
         }
     });
 
-    it('suppresses skeletons while an active navigation hold covers the target row', () => {
+    it('keeps skeletons eligible while paged navigation waits to commit the target canvas', () => {
         vi.useFakeTimers();
         try {
-            const isHoldActive = ref(true);
             const {
                 scope,
                 viewModel,
-            } = createHarness({
-                shouldShowSkeleton: () => true,
-                isNavigationHoldActiveForPage: () => isHoldActive.value,
-            });
+            } = createHarness({ shouldShowSkeleton: () => true });
 
             if (!viewModel) {
                 throw new Error('Failed to create PDF render view model');
             }
 
             vi.advanceTimersByTime(PDF_VIEWER_PAGE_SKELETON_DELAY_MS);
-            expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
-
-            isHoldActive.value = false;
             expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
-
-            scope.stop();
-        } finally {
-            vi.useRealTimers();
-        }
-    });
-
-    it('keeps paged navigation target skeletons hidden after the soft hold expiry', () => {
-        vi.useFakeTimers();
-        try {
-            const isHoldExpired = ref(false);
-            const {
-                scope,
-                viewModel,
-            } = createHarness({
-                shouldShowSkeleton: () => true,
-                isNavigationHoldExpiredPage: () => isHoldExpired.value,
-            });
-
-            if (!viewModel) {
-                throw new Error('Failed to create PDF render view model');
-            }
-
-            expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
-
-            isHoldExpired.value = true;
-            vi.advanceTimersByTime(PDF_VIEWER_PAGE_SKELETON_DELAY_MS);
-            expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
 
             scope.stop();
         } finally {

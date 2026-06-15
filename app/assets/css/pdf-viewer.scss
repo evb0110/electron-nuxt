@@ -299,13 +299,6 @@
     transform: translateX(-200vw);
 }
 
-.pdfViewer .page_container--buffered.page_container--navigation-held {
-    visibility: visible;
-    pointer-events: none;
-    transform: none;
-    z-index: 5;
-}
-
 /* ── Drag Mode Cursor Overrides ────────────────────────────────────── */
 
 .pdfViewer.drag-mode {

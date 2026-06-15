@@ -86,7 +86,10 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
      * skeleton after a rapid jump to page 928.
      */
     ensurePageMetricsInRange?: ((startPage: number, endPage: number) => Promise<boolean>) | undefined;
-    computeFitWidthScale: (container: HTMLElement | null) => boolean;
+    computeFitWidthScale: (
+        container: HTMLElement | null,
+        options?: { page?: number | null | undefined },
+    ) => boolean;
     syncHorizontalScrollForZoomMode?: (() => boolean) | undefined;
     setupPagePlaceholders: () => void;
     scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => unknown;
@@ -419,7 +422,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             return null;
         }
 
-        computeFitWidthScale(viewerContainer.value);
+        computeFitWidthScale(viewerContainer.value, { page });
         setupPagePlaceholders();
         syncHorizontalScrollAfterLayoutUpdate();
         return range;

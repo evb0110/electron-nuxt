@@ -6,10 +6,9 @@
             'page_container--spread-single': spreadSingle,
             'page_container--buffered': buffered,
             'page_container--rendered': rendered,
-            'page_container--navigation-held': navigationHeld,
         }"
         :data-page="page"
-        :style="[placeholderStyle ?? undefined, navigationHoldStyle ?? undefined]"
+        :style="placeholderStyle ?? undefined"
     >
         <div class="page_canvas canvasWrapper"></div>
         <div class="text-layer textLayer"></div>
@@ -77,8 +76,6 @@ interface IProps {
     buffered?: boolean;
     rendered?: boolean;
     shapeOverlayVisualReady?: boolean;
-    navigationHeld?: boolean;
-    navigationHoldStyle?: Record<string, string> | null;
     placeholderStyle?: Record<string, string> | null;
     placedImage?: IPdfImagePlacementDraft | null;
     placedImageBusy?: boolean;
@@ -91,8 +88,6 @@ const {
     buffered = false,
     rendered = false,
     shapeOverlayVisualReady = false,
-    navigationHeld = false,
-    navigationHoldStyle = null,
     placeholderStyle = null,
     placedImage = null,
     placedImageBusy = false,

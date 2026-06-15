@@ -294,7 +294,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
             currentPage.value = 2;
             await flushCurrentPageFitRerender();
 
-            expect(computeFitWidthScale).toHaveBeenCalled();
+            expect(computeFitWidthScale).toHaveBeenCalledWith(null, { page: 2 });
             expect(buildResizeAnchorContext).toHaveBeenCalledWith({
                 preferredAnchorPage: 2,
                 trustPreferredAnchorPage: true,
@@ -354,7 +354,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
             currentPage.value = 2;
             await flushCurrentPageFitRerender();
 
-            expect(computeFitWidthScale).toHaveBeenCalled();
+            expect(computeFitWidthScale).toHaveBeenCalledWith(null, { page: 2 });
             expect(ensurePageMetricsInRange).toHaveBeenCalledWith(2, 3);
             expect(setupPagePlaceholders).toHaveBeenCalled();
             expect(ensurePageMetricsInRange.mock.invocationCallOrder[0]!).toBeLessThan(
@@ -417,7 +417,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
             currentPage.value = 2;
             await flushCurrentPageFitRerender();
 
-            expect(computeFitWidthScale).toHaveBeenCalled();
+            expect(computeFitWidthScale).toHaveBeenCalledWith(null, { page: 2 });
             expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
                 expect.any(Function),
                 expect.objectContaining({
@@ -438,6 +438,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
             const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
             const scrollToPage = vi.fn();
             const setCurrentPageFitRerenderTransitionActive = vi.fn();
+            const computeFitWidthScale = vi.fn(() => false);
 
             usePdfViewerRerenderCoordinator(createDeps({
                 currentPage,
@@ -451,7 +452,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 reRenderAllVisiblePages,
                 scrollToPage,
                 ensurePageMetricsInRange: vi.fn(async () => true),
-                computeFitWidthScale: vi.fn(() => false),
+                computeFitWidthScale,
                 setCurrentPageFitRerenderTransitionActive,
             }));
 
@@ -464,6 +465,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 preferExactDom: true,
                 suppressRenderAfterSnap: true,
             });
+            expect(computeFitWidthScale).toHaveBeenCalledWith(null, { page: 6 });
             expect(getRenderedRangeFromFirstCall(reRenderAllVisiblePages)).toEqual({
                 start: 6,
                 end: 6,
@@ -612,6 +614,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
             await flushCurrentPageFitRerender();
 
             expect(computeFitWidthScale).toHaveBeenCalledTimes(1);
+            expect(computeFitWidthScale).toHaveBeenCalledWith(null, { page: 928 });
             expect(cancelInFlightPageRenders).toHaveBeenCalledTimes(1);
             expect(reRenderAllVisiblePages).toHaveBeenCalledTimes(1);
             expect(getRenderedRangeFromFirstCall(reRenderAllVisiblePages)).toEqual({
@@ -671,6 +674,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
             await flushCurrentPageFitRerender();
 
             expect(computeFitWidthScale).toHaveBeenCalledTimes(1);
+            expect(computeFitWidthScale).toHaveBeenCalledWith(null, { page: 928 });
             expect(buildResizeAnchorContext).toHaveBeenCalledOnce();
             expect(buildResizeAnchorContext).toHaveBeenCalledWith({
                 preferredAnchorPage: 928,

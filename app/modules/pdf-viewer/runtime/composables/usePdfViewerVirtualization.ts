@@ -39,7 +39,6 @@ interface IUsePdfViewerVirtualizationOptions {
         end: number;
     }>;
     navigationAnchorPage: Ref<number | null>;
-    navigationHeldPageNumbers?: ComputedRef<number[]> | Ref<number[]> | undefined;
     resizeTransitionAnchorPage: Ref<number | null>;
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
 }
@@ -65,7 +64,6 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         scaledMargin,
         visibleRange,
         navigationAnchorPage,
-        navigationHeldPageNumbers,
         resizeTransitionAnchorPage,
         zoomVirtualizationFreeze,
     } = options;
@@ -348,20 +346,6 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
     });
 
     const pagesToRender = computed(() => {
-        const withHeldPagedPages = (pages: number[]) => {
-            if (continuousScroll.value || !navigationHeldPageNumbers) {
-                return pages;
-            }
-
-            const pageSet = new Set(pages);
-            for (const pageNumber of navigationHeldPageNumbers.value) {
-                if (pageNumber >= 1 && pageNumber <= numPages.value) {
-                    pageSet.add(pageNumber);
-                }
-            }
-            return [...pageSet].sort((left, right) => left - right);
-        };
-
         if (numPages.value <= 0) {
             return [];
         }
@@ -370,10 +354,9 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         if (!layout) {
             if (!continuousScroll.value) {
                 const bounds = pagedMountedWindowBounds.value;
-                const pages = bounds.end >= bounds.start
+                return bounds.end >= bounds.start
                     ? range(bounds.start, bounds.end + 1)
                     : [];
-                return withHeldPagedPages(pages);
             }
             const start = Math.max(1, currentPage.value - CONTINUOUS_LAYOUT_PENDING_FALLBACK_RADIUS);
             const end = Math.min(numPages.value, currentPage.value + CONTINUOUS_LAYOUT_PENDING_FALLBACK_RADIUS);
@@ -382,10 +365,9 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
 
         if (!continuousScroll.value) {
             const bounds = pagedMountedWindowBounds.value;
-            const pages = bounds.end >= bounds.start
+            return bounds.end >= bounds.start
                 ? range(bounds.start, bounds.end + 1)
                 : [];
-            return withHeldPagedPages(pages);
         }
 
         const startBounds = getPageRowBounds(layout, virtualWindowStart.value);

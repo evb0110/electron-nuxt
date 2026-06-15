@@ -171,10 +171,67 @@ describe('pdf navigation blink trace summary', () => {
         expect(summary.bodyVisualReadyAtMs).toBe(30);
         expect(summary.skeletonVisualOverlapSampleCount).toBe(1);
         expect(summary.skeletonAfterVisualSampleCount).toBe(1);
-        expect(summary.toolbarAheadOfBodySampleCount).toBe(2);
+        expect(summary.toolbarAheadOfBodySampleCount).toBe(1);
         expect(summary.postReadyUnstableSampleCount).toBe(2);
         expect(summary.latePostClickSwapCount).toBe(2);
         expect(summary.targetCanvasRegressionSampleCount).toBe(0);
+    });
+
+    it('measures target feedback geometry changes before the final canvas', () => {
+        const summary = summarizeTrace({
+            trace: {
+                events: [{
+                    atMs: 5,
+                    kind: 'after-next-click',
+                }],
+                samples: [
+                    {
+                        atMs: 100,
+                        toolbarSnapshot: { currentPage: 2 },
+                        visiblePages: [{
+                            height: 300,
+                            page: 2,
+                            skeletonVisible: true,
+                            visualReady: false,
+                            width: 120,
+                        }],
+                    },
+                    {
+                        atMs: 150,
+                        toolbarSnapshot: { currentPage: 2 },
+                        visiblePages: [{
+                            height: 280,
+                            page: 2,
+                            skeletonVisible: true,
+                            visualReady: false,
+                            width: 120,
+                        }],
+                    },
+                    {
+                        atMs: 200,
+                        centeredVisualPage: 2,
+                        toolbarSnapshot: { currentPage: 2 },
+                        visiblePages: [{
+                            hasUsableCanvas: true,
+                            height: 300,
+                            page: 2,
+                            skeletonVisible: false,
+                            visualReady: true,
+                            width: 120,
+                        }],
+                    },
+                ],
+            },
+            renderTrace: [{
+                event: 'single-page-set-paged-target',
+                payload: { targetPage: 2 },
+            }],
+        });
+
+        expect(summary.targetFeedbackGeometrySampleCount).toBe(3);
+        expect(summary.targetFeedbackHeightDeltaPx).toBe(20);
+        expect(summary.targetFeedbackWidthDeltaPx).toBe(0);
+        expect(summary.firstTargetFeedbackGeometryMismatchSample).toMatchObject({ atMs: 150 });
     });
 
     it('prefers the hit-tested visible page over buffered DOM-order geometry', () => {

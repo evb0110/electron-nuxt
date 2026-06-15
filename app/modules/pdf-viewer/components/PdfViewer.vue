@@ -14,8 +14,6 @@
             :is-buffered-page="isPageBuffered"
             :is-rendered-page="isPageRenderedForClass"
             :is-shape-overlay-visual-ready-page="isPageVisualReadyForShapeOverlay"
-            :is-navigation-held-page="isNavigationHeldPage"
-            :get-navigation-hold-style="getNavigationHoldStyle"
             :get-page-placeholder-style="getPagePlaceholderStyle"
             :top-virtual-spacer-style="topVirtualSpacerStyle"
             :bottom-virtual-spacer-style="bottomVirtualSpacerStyle"
@@ -98,8 +96,6 @@ const {
     isPageBuffered,
     isPageRenderedForClass,
     isPageVisualReadyForShapeOverlay,
-    isNavigationHeldPage,
-    getNavigationHoldStyle,
     getPagePlaceholderStyle,
     topVirtualSpacerStyle,
     bottomVirtualSpacerStyle,

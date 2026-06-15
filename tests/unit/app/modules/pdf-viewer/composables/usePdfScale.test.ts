@@ -263,4 +263,38 @@ describe('usePdfScale', () => {
 
         expect(scale.effectiveScale.value * pageMetrics[2]!.height).toBeCloseTo(860, 6);
     });
+
+    it('can fit-height against a pending navigation target before current page commits', () => {
+        const pageMetrics = [
+            {
+                width: 320,
+                height: 500,
+            },
+            {
+                width: 600,
+                height: 860,
+            },
+            {
+                width: 600,
+                height: 1_000,
+            },
+        ] satisfies IPdfPageMetric[];
+        const {
+            scale,
+            currentPage,
+        } = createScaleComposable({
+            width: 320,
+            height: 500,
+            pageMetrics,
+            mode: 'height',
+            currentPage: 1,
+            continuousScroll: false,
+        });
+        const container = createContainer(1536, 900);
+
+        scale.computeFitWidthScale(container, { page: 3 });
+
+        expect(currentPage.value).toBe(1);
+        expect(scale.effectiveScale.value * pageMetrics[2]!.height).toBeCloseTo(860, 6);
+    });
 });

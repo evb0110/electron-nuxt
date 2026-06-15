@@ -322,6 +322,59 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
             )
         );
     }
+    function isUsablePageMetric(pageNumber: number) {
+        const metric = pageMetrics.value[pageNumber - 1];
+        return typeof metric?.width === 'number'
+            && Number.isFinite(metric.width)
+            && metric.width > 0
+            && typeof metric.height === 'number'
+            && Number.isFinite(metric.height)
+            && metric.height > 0;
+    }
+    function getPageRangeNumbers(startPage: number, endPage: number) {
+        const pages: number[] = [];
+        for (let pageNumber = startPage; pageNumber <= endPage; pageNumber += 1) {
+            pages.push(pageNumber);
+        }
+        return pages;
+    }
+    function isTargetRowMetricReady(startPage: number, endPage: number) {
+        return getPageRangeNumbers(startPage, endPage).every(isUsablePageMetric);
+    }
+    function applyPreparedPagedTargetLayout(pageNumber: number, startPage: number, endPage: number) {
+        const didScaleChange = computeFitWidthScale(viewerContainer.value, { page: pageNumber });
+        setupPagePlaceholders();
+        if (didScaleChange) {
+            invalidateRenderedPages(getPageRangeNumbers(startPage, endPage));
+        }
+    }
+    function preparePagedTargetLayout(
+        pageNumber: number,
+        shouldContinue: () => boolean,
+    ) {
+        if (!shouldSuppressPagedFitRowRender() || numPages.value <= 0) {
+            return;
+        }
+
+        const rowBounds = getPageRowBoundsForViewMode({
+            pageNumber,
+            viewMode: viewMode.value,
+            totalPages: numPages.value,
+        });
+        if (isTargetRowMetricReady(rowBounds.start, rowBounds.end)) {
+            applyPreparedPagedTargetLayout(pageNumber, rowBounds.start, rowBounds.end);
+            return;
+        }
+
+        return (async () => {
+            await pdfDocumentResult.ensurePageMetricsInRange(rowBounds.start, rowBounds.end);
+            await nextTick();
+            if (!shouldContinue() || !shouldSuppressPagedFitRowRender()) {
+                return;
+            }
+            applyPreparedPagedTargetLayout(pageNumber, rowBounds.start, rowBounds.end);
+        })();
+    }
     const singlePageScroll = usePdfSinglePageNavigationController({
         viewerContainer,
         numPages,
@@ -337,6 +390,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         updateCurrentPage,
         renderVisiblePages,
         ensurePageMetricsInRange: pdfDocumentResult.ensurePageMetricsInRange,
+        preparePagedTargetLayout,
         suppressPagedRowRender: shouldSuppressPagedFitRowRender,
         isPageFreshlyRenderedForNavigation,
         visibleRange,
@@ -423,7 +477,6 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         scaledMargin,
         visibleRange,
         navigationAnchorPage,
-        navigationHeldPageNumbers: singlePageScroll.navigationHeldPageNumbers,
         resizeTransitionAnchorPage,
         zoomVirtualizationFreeze,
         scaleContainerStyle,
@@ -719,8 +772,6 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         continuousScroll,
         numPages,
         isPagedNavigationBurstActive: () => singlePageScroll.isPagedNavigationBurstActive(),
-        isNavigationHoldActiveForPage: pageNumber => singlePageScroll.isNavigationHoldActiveForPage(pageNumber),
-        isNavigationHoldExpiredPage: pageNumber => singlePageScroll.isNavigationHoldExpiredPage(pageNumber),
         markersByPage,
         linksByPage,
         renderVisiblePages,
@@ -830,8 +881,6 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         isPageRenderedForClass,
         isPageVisualReadyForShapeOverlay,
         getPagePreview,
-        isNavigationHeldPage: singlePageScroll.isNavigationHeldPage,
-        getNavigationHoldStyle: singlePageScroll.getNavigationHoldStyle,
         getPagePlaceholderStyle,
         topVirtualSpacerStyle,
         bottomVirtualSpacerStyle,
