@@ -284,4 +284,44 @@ describe('useWorkspaceViewState', () => {
         expect(beginProgrammaticPageNavigation).not.toHaveBeenCalled();
         expect(scrollToPage).not.toHaveBeenCalled();
     });
+
+    it('forwards a same-page request when it cancels a conflicting pending viewer target', () => {
+        const beginProgrammaticPageNavigation = vi.fn();
+        const scrollToPage = vi.fn();
+        const state = useWorkspaceViewState({
+            fitMode: ref('height'),
+            zoomMode: ref('fit-height'),
+            zoom: ref(1),
+            dragMode: ref(false),
+            showSidebar: ref(false),
+            sidebarTab: ref('thumbnails'),
+            annotationTool: ref('none'),
+            annotationPlacingPageNote: ref(false),
+            annotationEditorState: ref({
+                isEditing: false,
+                isEmpty: true,
+                hasSomethingToUndo: false,
+                hasSomethingToRedo: false,
+                hasSelectedEditor: false,
+            }),
+            hasLivePdfJsAnnotationChanges: ref(false),
+            appAnnotationUndoDepth: ref(0),
+            hasOpenAnnotationNotes: ref(false),
+            canUndoHistory: ref(false),
+            canRedoHistory: ref(false),
+            currentPage: ref(1),
+            totalPages: ref(10),
+            beginProgrammaticPageNavigation,
+            pdfViewerRef: ref({
+                scrollToPage,
+                getPendingNavigationTargetPage: () => 6,
+                cancelCommentPlacement: () => {},
+            }),
+        });
+
+        state.handleGoToPage(1);
+
+        expect(beginProgrammaticPageNavigation).toHaveBeenCalledWith(1);
+        expect(scrollToPage).toHaveBeenCalledWith(1, undefined);
+    });
 });

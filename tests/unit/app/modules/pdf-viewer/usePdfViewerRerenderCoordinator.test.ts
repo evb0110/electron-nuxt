@@ -430,6 +430,60 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }
     });
 
+    it('abandons delayed fit-height current-page rerender and renders the newer paged target', async () => {
+        vi.useFakeTimers();
+        try {
+            const currentPage = ref(1);
+            const pagedNavigationTargetPage = ref<number | null>(null);
+            const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+            const scrollToPage = vi.fn();
+            const setCurrentPageFitRerenderTransitionActive = vi.fn();
+
+            usePdfViewerRerenderCoordinator(createDeps({
+                currentPage,
+                pagedNavigationTargetPage,
+                zoomMode: computed(() => 'fit-height' as const),
+                fitMode: computed(() => 'height' as const),
+                getVisibleRange: () => ({
+                    start: 4,
+                    end: 4,
+                }),
+                reRenderAllVisiblePages,
+                scrollToPage,
+                ensurePageMetricsInRange: vi.fn(async () => true),
+                computeFitWidthScale: vi.fn(() => false),
+                setCurrentPageFitRerenderTransitionActive,
+            }));
+
+            currentPage.value = 4;
+            await nextTick();
+            pagedNavigationTargetPage.value = 6;
+            await flushCurrentPageFitRerender();
+
+            expect(scrollToPage).toHaveBeenCalledWith(6, {
+                preferExactDom: true,
+                suppressRenderAfterSnap: true,
+            });
+            expect(getRenderedRangeFromFirstCall(reRenderAllVisiblePages)).toEqual({
+                start: 6,
+                end: 6,
+            });
+            expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
+                expect.any(Function),
+                expect.objectContaining({
+                    rerenderSource: 'fit-height-paged-target',
+                    renderBufferOverride: 0,
+                }),
+            );
+            expect(setCurrentPageFitRerenderTransitionActive.mock.calls).toEqual([
+                [true],
+                [false],
+            ]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('does not apply a second fit-height snap when the user scrolls during rerender', async () => {
         vi.useFakeTimers();
         try {

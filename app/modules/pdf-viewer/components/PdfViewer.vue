@@ -14,7 +14,6 @@
             :is-buffered-page="isPageBuffered"
             :is-rendered-page="isPageRenderedForClass"
             :is-shape-overlay-visual-ready-page="isPageVisualReadyForShapeOverlay"
-            :get-page-preview="getPagePreview"
             :is-navigation-held-page="isNavigationHeldPage"
             :get-navigation-hold-style="getNavigationHoldStyle"
             :get-page-placeholder-style="getPagePlaceholderStyle"
@@ -33,7 +32,6 @@
             @contextmenu="handleViewerContextMenu"
             @selectstart="handleSelectStart"
             @page-container-mounted="handlePageContainerMounted"
-            @page-preview-drawn="handlePagePreviewDrawn"
             @update-placed-image-rect="updatePendingImagePlacementRect"
             @finalize-placed-image="requestPendingImagePlacementFinalize"
             @cancel-placed-image="clearPendingImagePlacement"
@@ -100,7 +98,6 @@ const {
     isPageBuffered,
     isPageRenderedForClass,
     isPageVisualReadyForShapeOverlay,
-    getPagePreview,
     isNavigationHeldPage,
     getNavigationHoldStyle,
     getPagePlaceholderStyle,
@@ -119,7 +116,6 @@ const {
     handleViewerContextMenu,
     handleSelectStart,
     handlePageContainerMounted,
-    handlePagePreviewDrawn,
     updatePendingImagePlacementRect,
     requestPendingImagePlacementFinalize,
     clearPendingImagePlacement,

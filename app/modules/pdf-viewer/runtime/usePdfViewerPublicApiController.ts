@@ -62,6 +62,7 @@ export function usePdfViewerPublicApiController(options: IUsePdfViewerPublicApiC
         getViewerContainer: () => options.viewerContainer.value,
         getPagePreview: options.getPagePreview,
         getCurrentPage: () => currentPage.value,
+        getPendingNavigationTargetPage: () => options.singlePageScroll.navigationAnchorPage.value,
         scrollToPage: (pageNumber, scrollOptions) => {
             options.cancelPendingSearchScroll();
             options.singlePageScroll.scrollToPage(pageNumber, scrollOptions);

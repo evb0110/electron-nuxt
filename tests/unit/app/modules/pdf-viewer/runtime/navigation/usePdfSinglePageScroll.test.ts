@@ -39,7 +39,6 @@ interface IScrollHarnessOptions {
     mountedPageNumbers?: number[];
     canvasReadyPageNumbers?: number[];
     freshRenderedPageNumbers?: number[];
-    previewReadyPageNumbers?: number[];
     visuallyReadyPageNumbers?: number[];
     getMostVisiblePage?: (viewer: HTMLElement | null) => number;
     clientHeight?: number;
@@ -104,7 +103,6 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
     const canvasReadyPageNumbers = new Set(
         options?.canvasReadyPageNumbers ?? options?.visuallyReadyPageNumbers ?? mountedPageNumbers,
     );
-    const previewReadyPageNumbers = new Set(options?.previewReadyPageNumbers ?? []);
     const freshRenderedPageNumbers = new Set(
         options?.freshRenderedPageNumbers ?? options?.visuallyReadyPageNumbers ?? mountedPageNumbers,
     );
@@ -114,24 +112,12 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
             ...page,
             dataset: {page: String(mountedPage)},
             classList: { contains: vi.fn((className: string) => (
-                (
-                    className === 'page_container--rendered'
-                    && visuallyReadyPageNumbers.has(mountedPage)
-                )
-                || (
-                    className === 'page_container--preview-drawn'
-                    && previewReadyPageNumbers.has(mountedPage)
-                )
+                className === 'page_container--rendered'
+                && visuallyReadyPageNumbers.has(mountedPage)
             )) },
             querySelector: vi.fn((selector: string) => (
-                (
-                    selector === '.page_canvas canvas'
-                    && canvasReadyPageNumbers.has(mountedPage)
-                )
-                || (
-                    selector === '.page_preview canvas[data-preview-id]'
-                    && previewReadyPageNumbers.has(mountedPage)
-                )
+                selector === '.page_canvas canvas'
+                && canvasReadyPageNumbers.has(mountedPage)
                     ? {}
                     : null
             )),
@@ -216,7 +202,6 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         emitCurrentPage,
         markPageCanvasReady: (pageNumber: number) => canvasReadyPageNumbers.add(pageNumber),
         markPageFreshRendered: (pageNumber: number) => freshRenderedPageNumbers.add(pageNumber),
-        markPagePreviewReady: (pageNumber: number) => previewReadyPageNumbers.add(pageNumber),
         markPageStaleRendered: (pageNumber: number) => freshRenderedPageNumbers.delete(pageNumber),
         markPageVisualReady: (pageNumber: number) => {
             visuallyReadyPageNumbers.add(pageNumber);
@@ -595,10 +580,12 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         }
     });
 
-    it('commits paged navigation when the target row has a drawn preview before full canvas', async () => {
+    it('keeps paged navigation held until the target row has a fresh canvas', async () => {
         const {
             currentPage,
             emitCurrentPage,
+            markPageCanvasReady,
+            markPageVisualReady,
             singlePageScroll,
         } = createSinglePageScrollHarness({
             canvasReadyPageNumbers: [
@@ -609,7 +596,6 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
                 1,
                 2,
             ],
-            previewReadyPageNumbers: [3],
             visuallyReadyPageNumbers: [
                 1,
                 2,
@@ -621,8 +607,59 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         await Promise.resolve();
         await nextTick();
 
+        expect(currentPage.value).toBe(1);
+        expect(emitCurrentPage).not.toHaveBeenCalledWith(3);
+        expect(singlePageScroll.isNavigationHeldPage(1)).toBe(true);
+        expect(singlePageScroll.isNavigationHoldActiveForPage(3)).toBe(true);
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(3);
+
+        markPageCanvasReady(3);
+        markPageVisualReady(3);
+        singlePageScroll.releasePagedNavigationHoldForPage(3);
+
         expect(currentPage.value).toBe(3);
         expect(emitCurrentPage).toHaveBeenCalledWith(3);
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
+        expect(singlePageScroll.isNavigationHeldPage(1)).toBe(false);
+    });
+
+    it('retries paged navigation release after canvas DOM readiness settles', async () => {
+        const {
+            currentPage,
+            emitCurrentPage,
+            markPageCanvasReady,
+            markPageVisualReady,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            canvasReadyPageNumbers: [
+                1,
+                2,
+            ],
+            freshRenderedPageNumbers: [
+                1,
+                2,
+            ],
+            visuallyReadyPageNumbers: [
+                1,
+                2,
+            ],
+            suppressPagedRowRender: () => true,
+        });
+
+        singlePageScroll.scrollToPage(3);
+        await nextTick();
+        expect(currentPage.value).toBe(1);
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(3);
+
+        singlePageScroll.releasePagedNavigationHoldForPage(3);
+        markPageCanvasReady(3);
+        markPageVisualReady(3);
+        await nextTick();
+
+        expect(currentPage.value).toBe(3);
+        expect(emitCurrentPage).toHaveBeenCalledWith(3);
+        expect(singlePageScroll.isNavigationHeldPage(1)).toBe(false);
+        expect(singlePageScroll.isNavigationHoldActiveForPage(3)).toBe(false);
         expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
     });
 
@@ -1728,31 +1765,42 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         }
     });
 
-    it('commits paged navigation when a drawn preview is ready before full canvas', async () => {
+    it('does not commit held paged navigation before the target canvas is finalized', async () => {
         const {
             currentPage,
             emitCurrentPage,
+            markPageCanvasReady,
+            markPageVisualReady,
             singlePageScroll,
         } = createSinglePageScrollHarness({
             suppressPagedRowRender: () => true,
             visuallyReadyPageNumbers: [1],
-            previewReadyPageNumbers: [2],
         });
 
         singlePageScroll.scrollToPage(2);
         await nextTick();
 
+        expect(currentPage.value).toBe(1);
+        expect(emitCurrentPage).not.toHaveBeenCalledWith(2);
+        expect(singlePageScroll.isNavigationHeldPage(1)).toBe(true);
+        expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(true);
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(2);
+
+        markPageCanvasReady(2);
+        markPageVisualReady(2);
+        singlePageScroll.releasePagedNavigationHoldForPage(2);
+
         expect(currentPage.value).toBe(2);
         expect(emitCurrentPage).toHaveBeenCalledWith(2);
         expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
         expect(singlePageScroll.isNavigationHeldPage(1)).toBe(false);
-        expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(false);
     });
 
-    it('commits held paged navigation when the target preview is drawn after mounting', async () => {
+    it('commits held paged navigation when the target canvas is finalized after mounting', async () => {
         const {
             currentPage,
-            markPagePreviewReady,
+            markPageCanvasReady,
+            markPageVisualReady,
             singlePageScroll,
         } = createSinglePageScrollHarness({
             suppressPagedRowRender: () => true,
@@ -1766,35 +1814,51 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(2);
         expect(singlePageScroll.isNavigationHeldPage(1)).toBe(true);
 
-        markPagePreviewReady(2);
         singlePageScroll.releasePagedNavigationHoldForPage(2);
 
-        expect(currentPage.value).toBe(2);
+        expect(currentPage.value).toBe(1);
+        expect(singlePageScroll.isNavigationHeldPage(1)).toBe(true);
+        expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(true);
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(2);
+
+        markPageCanvasReady(2);
+        markPageVisualReady(2);
+        singlePageScroll.releasePagedNavigationHoldForPage(2);
+
         expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
-        expect(singlePageScroll.isNavigationHeldPage(1)).toBe(false);
     });
 
-    it('releases programmatic navigation after an early preview commit reaches the settle window', async () => {
+    it('does not use the programmatic settle timer to commit a target without a final canvas', async () => {
         vi.useFakeTimers();
         try {
             const {
                 currentPage,
+                markPageCanvasReady,
+                markPageVisualReady,
                 singlePageScroll,
             } = createSinglePageScrollHarness({
                 suppressPagedRowRender: () => true,
                 visuallyReadyPageNumbers: [1],
-                previewReadyPageNumbers: [2],
             });
 
             singlePageScroll.scrollToPage(2);
             await nextTick();
 
-            expect(currentPage.value).toBe(2);
+            expect(currentPage.value).toBe(1);
             expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(true);
 
             vi.advanceTimersByTime(800);
 
+            expect(currentPage.value).toBe(1);
             expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
+            expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(2);
+
+            markPageCanvasReady(2);
+            markPageVisualReady(2);
+            singlePageScroll.releasePagedNavigationHoldForPage(2);
+
+            expect(currentPage.value).toBe(2);
+            expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
         } finally {
             vi.useRealTimers();
         }

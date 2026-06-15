@@ -85,6 +85,7 @@ export interface ICreateShapeAnnotationResult {
 export interface IDocumentViewerExpose {
     getViewerContainer: () => HTMLElement | null;
     getCurrentPage?: () => number;
+    getPendingNavigationTargetPage?: () => number | null;
     scrollToPage: (page: number, options?: IScrollToPageOptions) => void;
     cancelProgrammaticNavigation?: () => void;
     captureScrollSnapshot?: () => IScrollSnapshot | null;

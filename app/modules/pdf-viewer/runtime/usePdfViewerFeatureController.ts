@@ -322,8 +322,6 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
             )
         );
     }
-    let ensurePagePreviewRangeBridge: Parameters<typeof usePdfSinglePageNavigationController>[0]['ensurePagePreviewRange'] = () => {};
-    let getPagePreviewBridge: ReturnType<typeof usePdfRenderViewModel>['getPagePreview'] = () => null;
     const singlePageScroll = usePdfSinglePageNavigationController({
         viewerContainer,
         numPages,
@@ -340,7 +338,6 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         renderVisiblePages,
         ensurePageMetricsInRange: pdfDocumentResult.ensurePageMetricsInRange,
         suppressPagedRowRender: shouldSuppressPagedFitRowRender,
-        ensurePagePreviewRange: (range, options) => ensurePagePreviewRangeBridge?.(range, options),
         isPageFreshlyRenderedForNavigation,
         visibleRange,
         emitCurrentPage: viewerEvents.updateCurrentPage,
@@ -537,6 +534,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         pdfDocumentResult,
         annotations,
         currentPage: viewerCurrentPage,
+        pagedNavigationTargetPage: singlePageScroll.pagedNavigationTargetPage,
         visibleRange,
         effectiveScale,
         basePageWidth,
@@ -635,15 +633,6 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
             ),
         );
     }
-    function hasDrawnPagePreview(pageNumber: number) {
-        const pageElement = viewerContainer.value?.querySelector<HTMLElement>(
-            `.page_container[data-page="${pageNumber}"]`,
-        );
-        return Boolean(
-            pageElement?.classList.contains('page_container--preview-drawn')
-            && pageElement.querySelector('.page_preview canvas[data-preview-id]'),
-        );
-    }
     function isPageVisualReadyForShapeOverlay(pageNumber: number) {
         return (
             isPageFreshlyRenderedForNavigation(pageNumber)
@@ -653,7 +642,6 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
     function isPageVisuallyReady(pageNumber: number) {
         return (
             isPageRenderedForClass(pageNumber)
-            || hasDrawnPagePreview(pageNumber)
             || (
                 hasMountedPageCanvas(pageNumber)
                 && isPageRendering(pageNumber)
@@ -721,7 +709,6 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         isPageRendering,
         hasMountedPageCanvas,
         shouldShowSkeleton: shouldShowNavigationSkeleton,
-        isPagePreviewDrawn: hasDrawnPagePreview,
         visibleRange,
         pagedNavigationTargetPage: singlePageScroll.pagedNavigationTargetPage,
         currentPage: viewerCurrentPage,
@@ -739,8 +726,6 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         renderVisiblePages,
         runGuardedTask,
     });
-    ensurePagePreviewRangeBridge = renderViewModel.ensurePagePreviewRange;
-    getPagePreviewBridge = renderViewModel.getPagePreview;
     const {
         visibleMarkersByPage,
         visibleLinksByPage,
@@ -767,10 +752,10 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         return isStandaloneSpreadPage(page, viewMode.value, numPages.value);
     }
     function getPagePreview(page: number) {
-        return getPagePreviewBridge(page);
-    }
-    function handlePagePreviewDrawn(page: number) {
-        singlePageScroll.releasePagedNavigationHoldForPage(page);
+        // Main-page low-res previews were removed from navigation authority;
+        // keep the public hook as a null provider for thumbnail compatibility.
+        void page;
+        return null;
     }
     const {
         captureViewerScrollSnapshot,
@@ -863,7 +848,6 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         handleViewerContextMenu,
         handleSelectStart,
         handlePageContainerMounted,
-        handlePagePreviewDrawn,
         updatePendingImagePlacementRect,
         requestPendingImagePlacementFinalize,
         clearPendingImagePlacement,

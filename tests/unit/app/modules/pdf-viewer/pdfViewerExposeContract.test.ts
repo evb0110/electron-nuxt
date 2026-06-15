@@ -12,6 +12,7 @@ describe('PDF viewer expose contract', () => {
             'getViewerContainer',
             'getPagePreview',
             'getCurrentPage',
+            'getPendingNavigationTargetPage',
             'scrollToPage',
             'cancelProgrammaticNavigation',
             'captureScrollSnapshot',

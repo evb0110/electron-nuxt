@@ -34,6 +34,7 @@ interface IWorkspaceViewStateDeps {
     pdfViewerRef: Ref<{
         scrollToPage: (page: number, options?: IScrollToPageOptions) => void;
         cancelProgrammaticNavigation?: () => void;
+        getPendingNavigationTargetPage?: () => number | null;
         cancelCommentPlacement: () => void;
         applyFitWidthToCurrentPage?: () => Promise<boolean>;
     } | null>;
@@ -131,11 +132,16 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         const targetPage = normalizeNavigationPage(page);
         const wasAlreadyCurrentPage = deps.currentPage.value === targetPage;
         const hasExplicitScrollTarget = options !== undefined;
+        const pendingNavigationTargetPage = deps.pdfViewerRef.value?.getPendingNavigationTargetPage?.() ?? null;
+        const hasConflictingPendingNavigation = pendingNavigationTargetPage !== null
+            && pendingNavigationTargetPage !== targetPage;
         BrowserLogger.diagnostic('pdf-nav', `[workspace-go-to-page] requested=${page}`, {
             requestedPage: page,
             targetPage,
             wasAlreadyCurrentPage,
             hasExplicitScrollTarget,
+            pendingNavigationTargetPage,
+            hasConflictingPendingNavigation,
             hasViewer: Boolean(deps.pdfViewerRef.value),
             sidebarOpen: deps.showSidebar.value,
             sidebarTab: deps.sidebarTab.value,
@@ -149,10 +155,18 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
             currentPageBefore: deps.currentPage.value,
             wasAlreadyCurrentPage,
             hasExplicitScrollTarget,
+            pendingNavigationTargetPage,
+            hasConflictingPendingNavigation,
             hasViewer: Boolean(deps.pdfViewerRef.value),
         });
-        if (wasAlreadyCurrentPage && !hasExplicitScrollTarget) {
-            logPdfRenderTrace('workspace-go-to-page-skip-scroll-duplicate', { targetPage });
+        // A same-page request is not a duplicate when the viewer is still
+        // navigating toward another page; in that case it is a cancellation of
+        // the pending visual target and must reach scrollToPage.
+        if (wasAlreadyCurrentPage && !hasExplicitScrollTarget && !hasConflictingPendingNavigation) {
+            logPdfRenderTrace('workspace-go-to-page-skip-scroll-duplicate', {
+                targetPage,
+                pendingNavigationTargetPage,
+            });
             return;
         }
         deps.beginProgrammaticPageNavigation?.(targetPage);

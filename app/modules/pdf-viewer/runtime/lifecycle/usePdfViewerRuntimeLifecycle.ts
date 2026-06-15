@@ -61,6 +61,7 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     pdfDocumentResult: TPdfDocumentResult;
     annotations: TAnnotationOrchestrator;
     currentPage: Ref<number>;
+    pagedNavigationTargetPage?: Readonly<Ref<number | null>> | undefined;
     visibleRange: Ref<{
         start: number;
         end: number;
@@ -466,6 +467,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         isLoading,
         numPages,
         currentPage,
+        pagedNavigationTargetPage: options.pagedNavigationTargetPage,
         visibleRange,
         zoom,
         fitMode,

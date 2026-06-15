@@ -20,6 +20,7 @@ import type { IBuildResizeAnchorContextOptions } from '@app/modules/pdf-viewer/r
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { IZoomViewportAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import { shouldPreserveExistingRerenderContent } from '@app/modules/pdf-viewer/runtime/rerender-strategy/shouldPreserveExistingRerenderContent';
+import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
 const ZOOM_CHANGE_MAX_CANVAS_PIXELS = 14_000_000;
@@ -36,6 +37,7 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
     isLoading: Ref<boolean>;
     numPages: Ref<number>;
     currentPage: Ref<number>;
+    pagedNavigationTargetPage?: Readonly<Ref<number | null>> | undefined;
     visibleRange: Ref<IPageRange>;
     zoom: ComputedRef<number>;
     zoomMode?: ComputedRef<TZoomMode> | undefined;
@@ -114,6 +116,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         isLoading,
         numPages,
         currentPage,
+        pagedNavigationTargetPage,
         visibleRange,
         zoom,
         zoomMode,
@@ -152,6 +155,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     let reRenderSyncRunId = 0;
     let fitModeRunId = 0;
     let currentPageFitRerenderRunId = 0;
+    let pagedTargetFitRerenderRunId = 0;
     let viewModeRunId = 0;
     let continuousScrollRunId = 0;
     let resizeSettleRunId = 0;
@@ -300,11 +304,34 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         return page >= range.start && page <= range.end;
     }
 
+    function resolvePageRowRange(pageNumber: number): IPageRange {
+        if (numPages.value <= 0) {
+            return {
+                start: 1,
+                end: 1,
+            };
+        }
+        const rowBounds = getPageRowBoundsForViewMode({
+            pageNumber,
+            viewMode: viewMode.value,
+            totalPages: numPages.value,
+        });
+        return {
+            start: rowBounds.start,
+            end: rowBounds.end,
+        };
+    }
+
     function isCurrentPageFitRerenderModeActive() {
         return (
             (fitMode.value === 'width' && isFitWidthZoomModeActive())
             || (fitMode.value === 'height' && isFitHeightZoomModeActive())
         );
+    }
+
+    function isCurrentPageLatestPagedNavigationIntent(page: number) {
+        const targetPage = pagedNavigationTargetPage?.value ?? null;
+        return targetPage === null || targetPage === page;
     }
 
     function isCurrentPageFitRerenderRunActive(
@@ -314,6 +341,19 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     ) {
         return isViewerAsyncRunActive(runId, currentPageFitRerenderRunId, document)
             && currentPage.value === page
+            && isCurrentPageFitRerenderModeActive()
+            && isCurrentPageLatestPagedNavigationIntent(page)
+            && !continuousScroll.value
+            && !isResizing.value;
+    }
+
+    function isPagedTargetFitRerenderRunActive(
+        runId: number,
+        document: PDFDocumentProxy | null,
+        page: number,
+    ) {
+        return isViewerAsyncRunActive(runId, pagedTargetFitRerenderRunId, document)
+            && pagedNavigationTargetPage?.value === page
             && isCurrentPageFitRerenderModeActive()
             && !continuousScroll.value
             && !isResizing.value;
@@ -364,15 +404,18 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
      * hydrate its page metrics, recompute the fit scale, and refresh skeleton
      * dimensions before starting the only canvas render for that row.
      */
-    async function prepareCurrentPageFitRerenderLayout(
+    async function prepareFitPageRerenderLayout(
         runId: number,
         document: PDFDocumentProxy | null,
         page: number,
+        isRunActive: () => boolean,
     ) {
-        const range = getVisibleRange();
+        const range = resolvePageRowRange(page);
         await ensurePageMetricsInRange?.(range.start, range.end);
         await nextTick();
-        if (!isCurrentPageFitRerenderRunActive(runId, document, page)) {
+        void document;
+        void runId;
+        if (!isRunActive()) {
             return null;
         }
 
@@ -673,7 +716,9 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 return;
             }
 
-            const range = await prepareCurrentPageFitRerenderLayout(runId, document, next);
+            const range = await prepareFitPageRerenderLayout(runId, document, next, () => (
+                isCurrentPageFitRerenderRunActive(runId, document, next)
+            ));
             if (!range || !isCurrentPageFitRerenderRunActive(runId, document, next)) {
                 return;
             }
@@ -766,6 +811,80 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             });
         });
     });
+
+    watch(
+        () => pagedNavigationTargetPage?.value ?? null,
+        async (next, previous) => {
+            const runId = ++pagedTargetFitRerenderRunId;
+            const interactionEpoch = getCurrentUserViewportInteractionEpoch();
+            const document = pdfDocument.value;
+            if (
+                next === null
+                || next === previous
+                || !isCurrentPageFitRerenderModeActive()
+                || continuousScroll.value
+                || !document
+                || isLoading.value
+                || isResizing.value
+            ) {
+                return;
+            }
+
+            setCurrentPageFitRerenderTransitionMarkedActive(true);
+            try {
+                await delay(CURRENT_PAGE_FIT_RERENDER_SETTLE_MS);
+                await nextTick();
+                const isRunActive = () => isPagedTargetFitRerenderRunActive(runId, document, next);
+                if (!isRunActive()) {
+                    return;
+                }
+
+                const range = await prepareFitPageRerenderLayout(runId, document, next, isRunActive);
+                if (!range || !isRunActive()) {
+                    return;
+                }
+
+                // The paged navigation hold is released only by the final
+                // canvas readiness callback; low-res previews are no longer a
+                // valid visual authority for committing the target page.
+                if (fitMode.value === 'height') {
+                    await snapFitHeightPageBeforeRender(
+                        'fit-height-paged-target',
+                        runId,
+                        next,
+                        interactionEpoch,
+                        () => isRunActive() && fitMode.value === 'height',
+                    );
+                    if (!isRunActive() || fitMode.value !== 'height') {
+                        return;
+                    }
+                }
+
+                cancelInFlightPageRenders?.();
+                await waitForCurrentPageFitCancellationToSettle();
+                if (!isRunActive()) {
+                    return;
+                }
+                await reRenderAllVisiblePages(() => range, {
+                    preserveExistingPages: true,
+                    disableHorizontalAnchorRestore: true,
+                    disableVerticalAnchorRestore: fitMode.value === 'height',
+                    disablePageAnchorRestore: fitMode.value === 'height',
+                    rerenderSource: fitMode.value === 'height'
+                        ? 'fit-height-paged-target'
+                        : 'fit-width-paged-target',
+                    renderBufferOverride: 0,
+                });
+                if (isRunActive()) {
+                    syncHorizontalScrollAfterLayoutUpdate();
+                }
+            } finally {
+                if (runId === pagedTargetFitRerenderRunId) {
+                    setCurrentPageFitRerenderTransitionMarkedActive(false);
+                }
+            }
+        },
+    );
 
     watch(
         () => continuousScroll.value,

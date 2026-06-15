@@ -6,22 +6,11 @@
             'page_container--spread-single': spreadSingle,
             'page_container--buffered': buffered,
             'page_container--rendered': rendered,
-            'page_container--has-preview': showPreview,
-            'page_container--preview-drawn': isPreviewDrawn,
             'page_container--navigation-held': navigationHeld,
         }"
         :data-page="page"
         :style="[placeholderStyle ?? undefined, navigationHoldStyle ?? undefined]"
     >
-        <div
-            v-show="showPreview"
-            class="page_preview"
-        >
-            <canvas
-                ref="previewCanvas"
-                :data-preview-id="preview?.id ?? undefined"
-            ></canvas>
-        </div>
         <div class="page_canvas canvasWrapper"></div>
         <div class="text-layer textLayer"></div>
         <div class="annotation-layer annotationLayer"></div>
@@ -71,7 +60,6 @@ import PdfShapeOverlay from '@app/modules/pdf-viewer/components/PdfShapeOverlay.
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 import { shouldShowShapeOverlay } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-visibility/shouldShowShapeOverlay';
 import { usePdfSkeletonContext } from '@app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets';
-import type { IPdfPagePreviewEntry } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
 import type { IShapeContextProvide } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
 import type {
     IShapePoint,
@@ -89,7 +77,6 @@ interface IProps {
     buffered?: boolean;
     rendered?: boolean;
     shapeOverlayVisualReady?: boolean;
-    preview?: IPdfPagePreviewEntry | null;
     navigationHeld?: boolean;
     navigationHoldStyle?: Record<string, string> | null;
     placeholderStyle?: Record<string, string> | null;
@@ -104,7 +91,6 @@ const {
     buffered = false,
     rendered = false,
     shapeOverlayVisualReady = false,
-    preview = null,
     navigationHeld = false,
     navigationHoldStyle = null,
     placeholderStyle = null,
@@ -113,14 +99,11 @@ const {
 } = defineProps<IProps>();
 const emit = defineEmits<{
     'page-container-mounted': [page: number];
-    'page-preview-drawn': [page: number];
     'update-placed-image-rect': [payload: IPdfImagePlacementRectUpdate];
     'finalize-placed-image': [];
     'cancel-placed-image': [];
 }>();
 const pageContainer = ref<HTMLElement | null>(null);
-const previewCanvas = ref<HTMLCanvasElement | null>(null);
-const isPreviewDrawn = ref(false);
 
 const {
     scaledSkeletonPadding,
@@ -130,36 +113,8 @@ const {
 const shapeContext = inject<IShapeContextProvide | null>('shapeContext', null);
 
 const pageShapes = computed(() => shapeContext?.getShapesForPage(page - 1) ?? []);
-const showPreview = computed(() => Boolean(preview && !rendered));
-const showPageSkeleton = computed(() => showSkeleton && !showPreview.value && !isPreviewDrawn.value);
-const isPageVisualReadyForShapeOverlay = computed(() => (
-    shapeOverlayVisualReady || isPreviewDrawn.value
-));
-
-function drawPreview() {
-    if (!showPreview.value || !preview || !previewCanvas.value) {
-        isPreviewDrawn.value = false;
-        return;
-    }
-
-    const canvas = previewCanvas.value;
-    if (canvas.width !== preview.width) {
-        canvas.width = preview.width;
-    }
-    if (canvas.height !== preview.height) {
-        canvas.height = preview.height;
-    }
-
-    const context = canvas.getContext('2d');
-    if (!context) {
-        return;
-    }
-
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(preview.source, 0, 0, canvas.width, canvas.height);
-    isPreviewDrawn.value = true;
-    emit('page-preview-drawn', page);
-}
+const showPageSkeleton = computed(() => showSkeleton);
+const isPageVisualReadyForShapeOverlay = computed(() => shapeOverlayVisualReady);
 
 const pageDrawingShape = computed(() => {
     const drawing = shapeContext?.drawingShape.value;
@@ -231,20 +186,7 @@ function openShapeContextMenu(payload: {
 
 onMounted(() => {
     emit('page-container-mounted', page);
-    drawPreview();
 });
-
-watch(
-    () => [
-        preview?.id ?? null,
-        rendered,
-    ] as const,
-    async () => {
-        isPreviewDrawn.value = false;
-        await nextTick();
-        drawPreview();
-    },
-);
 
 onBeforeUnmount(() => {
     clearPdfSelectionForLayerTeardown({ target: pageContainer.value });
