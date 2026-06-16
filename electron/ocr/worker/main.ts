@@ -573,6 +573,7 @@ async function buildOcrPageProcessingPlan(
             log,
             popplerEnv,
             baseContext.signal,
+            targetPages.map(page => page.pageNumber),
         )
         : {
             documentDpi: renderDpi,

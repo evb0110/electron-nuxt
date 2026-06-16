@@ -14,6 +14,45 @@ export interface ISourceDpiDetectionResult {
     pageDpiByNumber: Map<number, number>;
 }
 
+function getPageProbeRange(pages: readonly number[] | undefined) {
+    const validPages = (pages ?? []).filter(pageNumber =>
+        Number.isSafeInteger(pageNumber) && pageNumber > 0,
+    );
+    if (validPages.length === 0) {
+        return null;
+    }
+
+    return {
+        firstPage: Math.min(...validPages),
+        lastPage: Math.max(...validPages),
+    };
+}
+
+function buildPdfImagesListArgs(pdfPath: string, pages: readonly number[] | undefined) {
+    const pageRange = getPageProbeRange(pages);
+    if (!pageRange) {
+        return [
+            '-list',
+            pdfPath,
+        ];
+    }
+
+    return [
+        '-f',
+        String(pageRange.firstPage),
+        '-l',
+        String(pageRange.lastPage),
+        '-list',
+        pdfPath,
+    ];
+}
+
+function createRecoverablePdfImagesLog(log: TWorkerLog): TWorkerLog {
+    return (level, message) => {
+        log(level === 'error' ? 'debug' : level, message);
+    };
+}
+
 function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
     const pageDpiByNumber = new Map<number, number>();
     const lines = compact(output.split(/\r?\n/).map(line => line.trim()));
@@ -51,6 +90,7 @@ export async function detectSourceDpiDetails(
     log: TWorkerLog,
     commandEnv?: NodeJS.ProcessEnv,
     signal?: AbortSignal,
+    pages?: readonly number[],
 ): Promise<ISourceDpiDetectionResult> {
     if (!pdfimagesBinary) {
         return {
@@ -66,7 +106,7 @@ export async function detectSourceDpiDetails(
         const commandOptions: TOcrRunCommandOptions = {
             commandLabel: 'pdfimages(-list)',
             timeoutMs: PDFIMAGES_TIMEOUT_MS,
-            log,
+            log: createRecoverablePdfImagesLog(log),
         };
         if (commandEnv !== undefined) {
             commandOptions.env = commandEnv;
@@ -75,10 +115,11 @@ export async function detectSourceDpiDetails(
             commandOptions.signal = signal;
         }
 
-        const result = await runOcrCommand(pdfimagesBinary, [
-            '-list',
-            pdfPath,
-        ], commandOptions);
+        const result = await runOcrCommand(
+            pdfimagesBinary,
+            buildPdfImagesListArgs(pdfPath, pages),
+            commandOptions,
+        );
         return parsePdfImagesListOutput(result.stdout);
     } catch (err) {
         if (signal?.aborted) {
@@ -99,6 +140,7 @@ export async function detectSourceDpi(
     log: TWorkerLog,
     commandEnv?: NodeJS.ProcessEnv,
     signal?: AbortSignal,
+    pages?: readonly number[],
 ) {
     return (await detectSourceDpiDetails(
         pdfPath,
@@ -106,6 +148,7 @@ export async function detectSourceDpi(
         log,
         commandEnv,
         signal,
+        pages,
     )).documentDpi;
 }
 

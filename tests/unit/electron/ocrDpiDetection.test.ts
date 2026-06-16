@@ -1,4 +1,5 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
@@ -14,6 +15,10 @@ const mocks = vi.hoisted(() => ({runOcrCommand: vi.fn()}));
 vi.mock('@electron/ocr/worker/runOcrCommand', () => ({runOcrCommand: mocks.runOcrCommand}));
 
 describe('ocr dpi detection', () => {
+    beforeEach(() => {
+        mocks.runOcrCommand.mockReset();
+    });
+
     it('keeps per-page source dpi while preserving document fallback dpi', async () => {
         mocks.runOcrCommand.mockResolvedValueOnce({
             stdout: [
@@ -45,5 +50,57 @@ describe('ocr dpi detection', () => {
         });
 
         await expect(detectSourceDpi('/tmp/input.pdf', '/bin/pdfimages', vi.fn())).resolves.toBe(200);
+    });
+
+    it('limits pdfimages probing to the selected OCR page span', async () => {
+        mocks.runOcrCommand.mockResolvedValueOnce({
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+        });
+
+        await detectSourceDpiDetails(
+            '/tmp/input.pdf',
+            '/bin/pdfimages',
+            vi.fn(),
+            undefined,
+            undefined,
+            [
+                9,
+                4,
+                4,
+            ],
+        );
+
+        expect(mocks.runOcrCommand).toHaveBeenCalledWith(
+            '/bin/pdfimages',
+            [
+                '-f',
+                '4',
+                '-l',
+                '9',
+                '-list',
+                '/tmp/input.pdf',
+            ],
+            expect.objectContaining({ commandLabel: 'pdfimages(-list)' }),
+        );
+    });
+
+    it('downgrades recoverable pdfimages runner errors to debug logs', async () => {
+        const log = vi.fn();
+        mocks.runOcrCommand.mockImplementationOnce(async (_command, _args, options) => {
+            options.log?.('error', 'pdfimages(-list) timed out after 30000ms; cmd=/bin/pdfimages -list /tmp/input.pdf');
+            throw new Error('pdfimages(-list) timed out after 30000ms');
+        });
+
+        const result = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', log);
+
+        expect(result.documentDpi).toBeNull();
+        expect(result.pageDpiByNumber.size).toBe(0);
+        expect(log).toHaveBeenCalledWith(
+            'debug',
+            expect.stringContaining('pdfimages(-list) timed out after 30000ms'),
+        );
+        expect(log).not.toHaveBeenCalledWith('error', expect.any(String));
     });
 });
