@@ -56,6 +56,7 @@ import {
     type TReaderCommandId,
     type IReaderCommandSurface,
 } from '@app/utils/readerCommandSurface';
+import { getReaderCommandMenuIcon } from '@app/utils/readerCommandIcons';
 
 const { t } = useTypedI18n();
 
@@ -287,28 +288,28 @@ function buildToolItems() {
     }
 
     if (canCaptureRegion && shouldShowMenuCommand('capture-region', 3)) {
-        items.push(createCommandItem('capture-region', t('toolbar.captureRegion'), 'i-ph-scan', {
+        items.push(createReaderCommandItem('capture-region', 'capture-region', t('toolbar.captureRegion'), {
             checked: isCapturingRegion,
             disabled: !hasInteractiveDocument.value || isDjvuMode,
         }));
     }
 
     if (canCrop && shouldShowMenuCommand('crop', 3)) {
-        items.push(createCommandItem('crop', t('toolbar.crop'), 'i-ph-crop', {
+        items.push(createReaderCommandItem('crop', 'crop', t('toolbar.crop'), {
             checked: isCropSelecting,
             disabled: !hasInteractiveDocument.value || isDjvuMode,
         }));
     }
 
     if (canQuickNote && shouldShowMenuCommand('quick-note', 4)) {
-        items.push(createCommandItem('quick-note', t('annotations.createNotes'), 'i-ph-chat-circle-dots', {
+        items.push(createReaderCommandItem('quick-note', 'quick-note', t('annotations.createNotes'), {
             checked: isPlacingPageNote,
             disabled: !hasInteractiveDocument.value || isDjvuMode,
         }));
     }
 
     if (canUseOcr && shouldShowMenuCommand('ocr', 3)) {
-        items.push(createCommandItem('open-ocr', t('ocr.button'), 'i-ph-scan', {disabled: !hasInteractiveDocument.value || isDjvuMode}));
+        items.push(createReaderCommandItem('ocr', 'open-ocr', t('ocr.button'), {disabled: !hasInteractiveDocument.value || isDjvuMode}));
     }
 
     return items;
@@ -322,7 +323,7 @@ function buildViewItems() {
     }
 
     if (shouldShowMenuCommand('toggle-sidebar')) {
-        items.push(createCommandItem('toggle-sidebar', t('toolbar.toggleSidebar'), 'i-ph-sidebar-simple', {
+        items.push(createReaderCommandItem('toggle-sidebar', 'toggle-sidebar', t('toolbar.toggleSidebar'), {
             checked: showSidebar,
             disabled: !hasInteractiveDocument.value || canToggleSidebar === false,
         }));
@@ -337,42 +338,47 @@ function buildViewItems() {
     }
 
     if (shouldShowMenuCommand('fit-width', 3)) {
-        items.push(createCommandItem('fit-width', t('zoom.fitWidth'), 'i-ph-arrows-out-line-horizontal', {
+        items.push(createReaderCommandItem('fit-width', 'fit-width', t('zoom.fitWidth'), {
             checked: isFitWidthActive,
             disabled: !hasInteractiveDocument.value,
         }));
     }
 
     if (shouldShowMenuCommand('fit-height', 3)) {
-        items.push(createCommandItem('fit-height', t('zoom.fitHeight'), 'i-ph-arrows-out-line-vertical', {
+        items.push(createReaderCommandItem('fit-height', 'fit-height', t('zoom.fitHeight'), {
             checked: isFitHeightActive,
             disabled: !hasInteractiveDocument.value,
         }));
     }
 
     if (shouldShowMenuCommand('continuous-scroll', 2)) {
-        items.push(createCommandItem('toggle-continuous-scroll', t('zoom.continuousScroll'), 'i-ph-scroll', {
+        items.push(createReaderCommandItem('continuous-scroll', 'toggle-continuous-scroll', t('zoom.continuousScroll'), {
             checked: continuousScroll,
             disabled: !hasInteractiveDocument.value,
         }));
     }
 
     if (shouldShowMenuCommand('drag-mode', 4)) {
-        items.push(createCommandItem('enable-drag', t('zoom.handTool'), 'i-ph-hand', {
+        items.push(createReaderCommandItem('drag-mode', 'enable-drag', t('zoom.handTool'), {
             checked: dragMode,
             disabled: !hasInteractiveDocument.value,
         }));
     }
 
     if (shouldShowMenuCommand('text-select', 4)) {
-        items.push(createCommandItem('disable-drag', t('zoom.textSelect'), 'i-ph-cursor-text', {
+        items.push(createReaderCommandItem('text-select', 'disable-drag', t('zoom.textSelect'), {
             checked: !dragMode,
             disabled: !hasInteractiveDocument.value,
         }));
     }
 
     if (shouldShowMenuCommand('fullscreen')) {
-        items.push(createCommandItem('toggle-fullscreen', t('toolbar.fullscreen'), isFullscreen.value ? 'i-ph-corners-in' : 'i-ph-corners-out', {disabled: !hasInteractiveDocument.value || !fullscreenSupported.value}));
+        items.push(createCommandItem(
+            'toggle-fullscreen',
+            t('toolbar.fullscreen'),
+            isFullscreen.value ? 'i-ph-corners-in' : getReaderCommandMenuIcon('fullscreen'),
+            {disabled: !hasInteractiveDocument.value || !fullscreenSupported.value},
+        ));
     }
 
     return items;
@@ -383,7 +389,7 @@ function buildShellItems() {
         return [];
     }
 
-    return [createCommandItem('open-settings', t('toolbar.settings'), 'i-ph-gear')];
+    return [createReaderCommandItem('settings', 'open-settings', t('toolbar.settings'))];
 }
 
 function appendMenuSection(
@@ -429,6 +435,19 @@ function createCommandItem(
 
     applyMenuItemOptions(item, options);
     return item;
+}
+
+function createReaderCommandItem(
+    readerCommand: TReaderCommandId,
+    command: TToolbarOverflowMenuCommand,
+    label: string,
+    options: {
+        checked?: boolean;
+        disabled?: boolean;
+        slot?: string;
+    } = {},
+) {
+    return createCommandItem(command, label, getReaderCommandMenuIcon(readerCommand), options);
 }
 
 function createViewModeItem(

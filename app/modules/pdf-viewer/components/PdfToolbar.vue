@@ -14,7 +14,7 @@
             />
             <ToolbarButton
                 v-if="isCommandInline('open-file')"
-                icon="ph:folder-open"
+                :icon="getReaderCommandToolbarIcon('open-file')"
                 :tooltip="t('toolbar.openPdf')"
                 :shortcut="shortcutLabels.openFile"
                 :disabled="isOpeningDocument"
@@ -23,7 +23,7 @@
             />
             <ToolbarButton
                 v-if="isCommandInline('toggle-sidebar')"
-                icon="ph:sidebar-simple"
+                :icon="getReaderCommandToolbarIcon('toggle-sidebar')"
                 :active="showSidebar"
                 :tooltip="t('toolbar.toggleSidebar')"
                 :shortcut="shortcutLabels.toggleSidebar"
@@ -52,7 +52,7 @@
                 <div class="toolbar-action toolbar-action--print">
                     <ToolbarButton
                         v-if="isCommandInline('print')"
-                        icon="ph:printer"
+                        :icon="getReaderCommandToolbarIcon('print')"
                         :tooltip="t('toolbar.print')"
                         :shortcut="shortcutLabels.print"
                         :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
@@ -81,7 +81,7 @@
                 <div class="toolbar-action toolbar-action--undo">
                     <ToolbarButton
                         v-if="isCommandInline('undo')"
-                        icon="ph:arrow-u-up-left"
+                        :icon="getReaderCommandToolbarIcon('undo')"
                         :tooltip="t('toolbar.undo')"
                         :shortcut="shortcutLabels.undo"
                         :disabled="!hasInteractiveDocument || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
@@ -91,7 +91,7 @@
                 <div class="toolbar-action toolbar-action--redo">
                     <ToolbarButton
                         v-if="isCommandInline('redo')"
-                        icon="ph:arrow-u-up-right"
+                        :icon="getReaderCommandToolbarIcon('redo')"
                         :tooltip="t('toolbar.redo')"
                         :shortcut="shortcutLabels.redo"
                         :disabled="!hasInteractiveDocument || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
@@ -127,7 +127,7 @@
             <div v-if="!isCollapsed(2)" class="toolbar-button-group toolbar-button-group--fit">
                 <div v-if="isCommandInline('fit-width')" class="toolbar-group-item">
                     <ToolbarButton
-                        icon="ph:arrows-out-line-horizontal"
+                        :icon="getReaderCommandToolbarIcon('fit-width')"
                         :active="isFitWidthActive"
                         :tooltip="t('zoom.fitWidth')"
                         :shortcut="shortcutLabels.fitWidth"
@@ -138,7 +138,7 @@
                 </div>
                 <div v-if="isCommandInline('fit-height')" class="toolbar-group-item">
                     <ToolbarButton
-                        icon="ph:arrows-out-line-vertical"
+                        :icon="getReaderCommandToolbarIcon('fit-height')"
                         :active="isFitHeightActive"
                         :tooltip="t('zoom.fitHeight')"
                         :shortcut="shortcutLabels.fitHeight"
@@ -149,7 +149,7 @@
                 </div>
                 <div v-if="isCommandInline('continuous-scroll') && !isCollapsed(2)" class="toolbar-group-item toolbar-group-item--continuous-scroll">
                     <ToolbarButton
-                        icon="ph:scroll"
+                        :icon="getReaderCommandToolbarIcon('continuous-scroll')"
                         :active="continuousScroll"
                         :tooltip="t('zoom.continuousScroll')"
                         :disabled="!hasInteractiveDocument"
@@ -164,7 +164,7 @@
             <div v-if="!isCollapsed(3)" class="toolbar-button-group toolbar-button-group--interaction">
                 <div v-if="isCommandInline('quick-note')" class="toolbar-group-item toolbar-group-item--quick-note">
                     <ToolbarButton
-                        icon="ph:chat-circle-dots"
+                        :icon="getReaderCommandToolbarIcon('quick-note')"
                         :active="isPlacingPageNote"
                         :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
                         :disabled="!hasInteractiveDocument || isDjvuMode"
@@ -174,7 +174,7 @@
                 </div>
                 <div v-if="isCommandInline('drag-mode')" class="toolbar-group-item toolbar-group-item--drag-mode">
                     <ToolbarButton
-                        icon="ph:hand"
+                        :icon="getReaderCommandToolbarIcon('drag-mode')"
                         :active="dragMode && !isPlacingPageNote"
                         :tooltip="t('zoom.handTool')"
                         :disabled="!hasInteractiveDocument"
@@ -184,7 +184,7 @@
                 </div>
                 <div v-if="isCommandInline('text-select')" class="toolbar-group-item toolbar-group-item--text-select">
                     <ToolbarButton
-                        icon="ph:cursor-text"
+                        :icon="getReaderCommandToolbarIcon('text-select')"
                         :active="!dragMode && !isPlacingPageNote"
                         :tooltip="t('zoom.textSelect')"
                         :disabled="!hasInteractiveDocument"
@@ -203,7 +203,7 @@
                 <div class="toolbar-action toolbar-action--capture-region">
                     <ToolbarButton
                         v-if="isCommandInline('capture-region')"
-                        icon="ph:scan"
+                        :icon="getReaderCommandToolbarIcon('capture-region')"
                         :active="isCapturingRegion"
                         :tooltip="t('toolbar.captureRegion')"
                         :disabled="!hasInteractiveDocument || isDjvuMode"
@@ -213,7 +213,7 @@
                 <div class="toolbar-action toolbar-action--crop">
                     <ToolbarButton
                         v-if="isCommandInline('crop')"
-                        icon="ph:crop"
+                        :icon="getReaderCommandToolbarIcon('crop')"
                         :active="isCropSelecting"
                         :tooltip="t('toolbar.crop')"
                         :disabled="!hasInteractiveDocument || isDjvuMode"
@@ -238,7 +238,7 @@
                 <div class="toolbar-action toolbar-action--export-docx">
                     <ToolbarButton
                         v-if="isCommandInline('export-docx')"
-                        icon="ph:file-text"
+                        :icon="getReaderCommandToolbarIcon('export-docx')"
                         :tooltip="t('toolbar.exportDocx')"
                         :shortcut="shortcutLabels.exportDocx"
                         :disabled="!hasInteractiveDocument || !canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
@@ -254,13 +254,13 @@
                 <slot
                     v-if="isCommandInline('overflow-menu')"
                     name="overflow-menu"
-                    :collapse-tier="overflowMenuCollapseTier"
+                    :collapse-tier="collapseTier"
                     :has-overflow-items="hasOverflowItems"
                     :is-collapsed="isCollapsed"
                 />
                 <ToolbarButton
                     v-if="isCommandInline('fullscreen') && !isCollapsed(5)"
-                    :icon="isFullscreen ? 'ph:corners-in' : 'ph:corners-out'"
+                    :icon="isFullscreen ? 'ph:corners-in' : getReaderCommandToolbarIcon('fullscreen')"
                     :tooltip="t('toolbar.fullscreen')"
                     :active="isFullscreen"
                     :disabled="!hasInteractiveDocument || !fullscreenSupported"
@@ -269,7 +269,7 @@
                 <AssistantToolbarToggle />
                 <ToolbarButton
                     v-if="isCommandInline('settings')"
-                    icon="ph:gear"
+                    :icon="getReaderCommandToolbarIcon('settings')"
                     :tooltip="t('toolbar.settings')"
                     @click="handleToolbarCommand('open-settings')"
                 />
@@ -284,6 +284,7 @@ import ToolbarSaveSplitButton from '@app/components/toolbar/ToolbarSaveSplitButt
 import { AssistantToolbarToggle } from '@app/modules/agent-panel/public/component-exports/assistantToolbarToggle';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
 import { getShortcutLabels } from '@app/constants/shortcuts';
+import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
 import {
     isReaderCommandInline,
     type TReaderCommandId,
@@ -384,7 +385,6 @@ const {
     isCollapsed,
 } = useToolbarOverflow();
 const hasOverflowItems = computed(() => hasMeasuredOverflowItems.value || isCommandInline('overflow-menu'));
-const overflowMenuCollapseTier = 5;
 const pageCompactLevel = 0;
 const zoomCompactLevel = 0;
 

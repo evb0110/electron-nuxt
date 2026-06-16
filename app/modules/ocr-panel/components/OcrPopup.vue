@@ -21,7 +21,11 @@
                 :aria-label="triggerTooltip"
                 type="button"
             >
-                <Icon v-if="!progress.isRunning && !showSuccessState" name="ph:text-aa" class="size-5" />
+                <Icon
+                    v-if="!progress.isRunning && !showSuccessState"
+                    :name="getReaderCommandToolbarIcon('ocr')"
+                    class="size-5"
+                />
                 <Icon v-else-if="!progress.isRunning" :name="triggerIcon" class="size-5" />
                 <AppSpinner v-else size="md" tone="inherit" />
             </button>
@@ -288,6 +292,7 @@ import AppSpinner from '@app/components/AppSpinner.vue';
 import type { IAgentOcrRunOptions } from '@app/types/ocrAgent';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
+import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
 import type {
     IOcrSearchablePdfResult,
     TOcrPageRange,
@@ -366,7 +371,9 @@ const {
     showSuccessState.value = false;
 }, 3000, { immediate: false });
 
-const triggerIcon = computed(() => showSuccessState.value ? 'ph:check-circle' : 'ph:text-aa');
+const triggerIcon = computed(() => (
+    showSuccessState.value ? 'ph:check-circle' : getReaderCommandToolbarIcon('ocr')
+));
 const triggerTooltip = computed(() => {
     if (progress.value.isRunning) {
         return progress.value.phase === 'preparing'

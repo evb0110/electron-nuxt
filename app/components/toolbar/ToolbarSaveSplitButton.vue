@@ -10,7 +10,12 @@
                 :aria-busy="isSaving"
                 @click="handleSave"
             >
-                <Icon v-if="!isSaving" name="ph:floppy-disk" class="save-split-icon" aria-hidden="true" />
+                <Icon
+                    v-if="!isSaving"
+                    :name="getReaderCommandToolbarIcon('save')"
+                    class="save-split-icon"
+                    aria-hidden="true"
+                />
                 <Icon v-else name="ph:circle-notch" class="save-split-icon animate-spin" aria-hidden="true" />
             </button>
 
@@ -53,6 +58,11 @@
 </template>
 
 <script setup lang="ts">
+import {
+    getReaderCommandMenuIcon,
+    getReaderCommandToolbarIcon,
+} from '@app/utils/readerCommandIcons';
+
 const {
     saveDisabled = false,
     saveAsDisabled = false,
@@ -100,14 +110,14 @@ const saveMenuUi = {
 const saveMenuItems = computed(() => [
     {
         label: t('toolbar.save'),
-        icon: 'ph:floppy-disk',
+        icon: getReaderCommandMenuIcon('save'),
         disabled: primaryDisabled.value,
         shortcut: saveShortcut,
         onSelect: handleMenuSave,
     },
     {
         label: t('toolbar.saveAs'),
-        icon: 'ph:floppy-disk-back',
+        icon: getReaderCommandMenuIcon('save-as'),
         disabled: saveAsDisabled || isSavingAs,
         shortcut: saveAsShortcut,
         onSelect: handleSaveAs,

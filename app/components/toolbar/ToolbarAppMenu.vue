@@ -38,6 +38,7 @@
 import { getShortcutLabels } from '@app/constants/shortcuts';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
+import { getReaderCommandMenuIcon } from '@app/utils/readerCommandIcons';
 import type { TToolbarAppMenuCommand } from '@app/types/toolbarMenuCommands';
 
 const { t } = useTypedI18n();
@@ -163,21 +164,26 @@ const appMenuItems = computed(() => {
             type: 'label',
             label: t('menu.file'),
         },
-        createCommandItem('open-file', t('menu.openFile'), 'i-ph-folder-open', { shortcut: shortcutLabels.openFile }),
-        createCommandItem('save', t('menu.save'), 'i-ph-floppy-disk', {
+        createCommandItem('open-file', t('menu.openFile'), getReaderCommandMenuIcon('open-file'), {shortcut: shortcutLabels.openFile}),
+        createCommandItem('save', t('menu.save'), getReaderCommandMenuIcon('save'), {
             disabled: !hasInteractiveDocument.value || !canSave || isAnySaving || isHistoryBusy || isDjvuMode,
             shortcut: shortcutLabels.save,
         }),
         createCommandItem('repair-save', t('menu.repairAndSave'), 'i-ph-arrows-clockwise', {disabled: !hasInteractiveDocument.value || !canRepairSave || isAnySaving || isHistoryBusy || isDjvuMode}),
-        createCommandItem('save-as', t('menu.saveAs'), 'i-ph-floppy-disk-back', {
+        createCommandItem('save-as', t('menu.saveAs'), getReaderCommandMenuIcon('save-as'), {
             disabled: !hasInteractiveDocument.value || isAnySaving || isHistoryBusy || isDjvuMode,
             shortcut: shortcutLabels.saveAs,
         }),
-        createCommandItem('print', t('menu.print'), isPreparingPrint && !isPreparingCurrentPagePrint ? 'i-ph-circle-notch' : 'i-ph-printer', {
-            disabled: !hasInteractiveDocument.value || isPreparingPrint,
-            loading: isPreparingPrint && !isPreparingCurrentPagePrint,
-            shortcut: shortcutLabels.print,
-        }),
+        createCommandItem(
+            'print',
+            t('menu.print'),
+            isPreparingPrint && !isPreparingCurrentPagePrint ? 'i-ph-circle-notch' : getReaderCommandMenuIcon('print'),
+            {
+                disabled: !hasInteractiveDocument.value || isPreparingPrint,
+                loading: isPreparingPrint && !isPreparingCurrentPagePrint,
+                shortcut: shortcutLabels.print,
+            },
+        ),
         createCommandItem('print-current-page', t('menu.printCurrentPage'), undefined, {
             disabled: !hasInteractiveDocument.value || isPreparingPrint || isDjvuMode,
             slot: 'print-current-page',
@@ -185,7 +191,7 @@ const appMenuItems = computed(() => {
         { type: 'separator' },
         createCommandItem('combine-images', t('menu.combineFiles'), 'i-ph-stack-plus'),
         { type: 'separator' },
-        createCommandItem('export-docx', t('menu.exportDocx'), 'i-ph-file-text', {
+        createCommandItem('export-docx', t('menu.exportDocx'), getReaderCommandMenuIcon('export-docx'), {
             disabled: !hasInteractiveDocument.value || !canExportDocx || isExportingDocx,
             shortcut: shortcutLabels.exportDocx,
         }),
@@ -206,11 +212,11 @@ const appMenuItems = computed(() => {
             type: 'label',
             label: t('menu.edit'),
         },
-        createCommandItem('undo', t('menu.undo'), 'i-ph-arrow-u-up-left', {
+        createCommandItem('undo', t('menu.undo'), getReaderCommandMenuIcon('undo'), {
             disabled: !hasInteractiveDocument.value || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode,
             shortcut: shortcutLabels.undo,
         }),
-        createCommandItem('redo', t('menu.redo'), 'i-ph-arrow-u-up-right', {
+        createCommandItem('redo', t('menu.redo'), getReaderCommandMenuIcon('redo'), {
             disabled: !hasInteractiveDocument.value || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode,
             shortcut: shortcutLabels.redo,
         }),
