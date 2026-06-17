@@ -1,4 +1,5 @@
 import type { TOcrWorkerOutboundMessage } from '@electron/ocr/worker/types';
+import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
 import {
     createAbortError,
     isAbortError,
@@ -16,6 +17,23 @@ function isStringArray(value: unknown): value is string[] {
 
 function isFiniteNumber(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value);
+}
+
+const OCR_PROGRESS_PHASES = new Set<TOcrProgressPhase>([
+    'preparing',
+    'model-prep',
+    'pdf-prep',
+    'dpi-inspection',
+    'page-size-probing',
+    'processing',
+    'merging',
+    'indexing',
+]);
+
+function parseOptionalProgressPhase(value: unknown) {
+    return typeof value === 'string' && OCR_PROGRESS_PHASES.has(value as TOcrProgressPhase)
+        ? value as TOcrProgressPhase
+        : undefined;
 }
 
 export function createTimeoutError(message: string) {
@@ -65,7 +83,7 @@ function parseWorkerProgressMessage(message: Record<string, unknown>): TOcrWorke
         return null;
     }
 
-    return {
+    const parsedProgress: TOcrWorkerManagerMessage = {
         type: 'progress',
         jobId: message.jobId,
         progress: {
@@ -75,6 +93,14 @@ function parseWorkerProgressMessage(message: Record<string, unknown>): TOcrWorke
             totalPages: progress.totalPages,
         },
     };
+    const phase = parseOptionalProgressPhase(progress.phase);
+    if (phase !== undefined) {
+        parsedProgress.progress.phase = phase;
+    }
+    if (isFiniteNumber(progress.phaseProgress)) {
+        parsedProgress.progress.phaseProgress = progress.phaseProgress;
+    }
+    return parsedProgress;
 }
 
 function parseSuccessfulCompleteResult(

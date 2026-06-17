@@ -16,7 +16,10 @@ import {
 } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { assembleSearchablePdf } from '@electron/ocr/worker/pdfAssembler';
+import {
+    assembleSearchablePdf,
+    stripTesseractImageLayer,
+} from '@electron/ocr/worker/pdfAssembler';
 
 const QPDF_BINARY = process.platform === 'win32'
     ? join(process.cwd(), 'resources/qpdf/win32-x64/bin/qpdf.exe')
@@ -98,7 +101,7 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
         }
     });
 
-    it('replaces OCR page contents instead of adding text over the existing layer', async () => {
+    it('overlays OCR page contents while preserving the original page', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
         const originalPath = join(tempDir, 'original.pdf');
         const ocrPath = join(tempDir, 'ocr.pdf');
@@ -121,10 +124,10 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
         const extractedText = await extractPdfText(outputPath);
 
         expect(extractedText).toContain('NEW OCR');
-        expect(extractedText).not.toContain('OLD TEXT');
+        expect(extractedText).toContain('OLD TEXT');
     });
 
-    it('replaces a previously OCRed page instead of stacking another text layer', async () => {
+    it('keeps previous page content when applying another OCR text overlay', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
         const originalPath = join(tempDir, 'original.pdf');
         const firstOcrPath = join(tempDir, 'ocr-first.pdf');
@@ -161,11 +164,11 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
         const extractedText = await extractPdfText(secondOutputPath);
 
         expect(extractedText).toContain('SECOND OCR');
-        expect(extractedText).not.toContain('FIRST OCR');
-        expect(extractedText).not.toContain('ORIGINAL TEXT');
+        expect(extractedText).toContain('FIRST OCR');
+        expect(extractedText).toContain('ORIGINAL TEXT');
     });
 
-    it('keeps untouched original page ranges around replacement pages', async () => {
+    it('keeps original page ranges and overlays selected page text', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
         const originalPath = join(tempDir, 'original.pdf');
         const ocrPath = join(tempDir, 'ocr-page-2.pdf');
@@ -219,8 +222,8 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
 
         expect(extractedText).toContain('ONE ORIGINAL');
         expect(extractedText).toContain('TWO OCR');
+        expect(extractedText).toContain('TWO OLD');
         expect(extractedText).toContain('THREE ORIGINAL');
-        expect(extractedText).not.toContain('TWO OLD');
         expect(pageSizes).toEqual([
             [
                 180,
@@ -235,5 +238,39 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
                 260,
             ],
         ]);
+    });
+});
+
+describe('stripTesseractImageLayer', () => {
+    it('removes the generated page image while keeping the hidden text stream', () => {
+        const qdfSource = [
+            '50 0 obj',
+            '<<',
+            '  /Contents 404 0 R',
+            '  /Resources <<',
+            '    /Font << /f-0-0 73 0 R >>',
+            '    /XObject <<',
+            '      /Im1 407 0 R',
+            '    >>',
+            '  >>',
+            '>>',
+            'endobj',
+            '404 0 obj',
+            '<< /Length 123 >>',
+            'stream',
+            'q 423.8 0 0 640.8 0 0 cm /Im1 Do Q',
+            'BT',
+            '3 Tr 1 0 0 1 28 100.8 Tm /f-0-0 8 Tf [ <04200438043C> ] TJ',
+            'ET',
+            'endstream',
+            'endobj',
+        ].join('\n');
+
+        const stripped = stripTesseractImageLayer(qdfSource);
+
+        expect(stripped).not.toContain('/Im1 Do');
+        expect(stripped).not.toContain('/XObject');
+        expect(stripped).toContain('3 Tr');
+        expect(stripped).toContain('<04200438043C>');
     });
 });

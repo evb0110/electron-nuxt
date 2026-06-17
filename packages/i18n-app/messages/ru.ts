@@ -285,6 +285,14 @@ export default {
         'greek': 'Греческий',
         'rtlScripts': 'Письменности RTL',
         'preparing': 'Подготовка OCR...',
+        'progressStage': {
+            'modelPrep': 'Подготовка языковых моделей OCR...',
+            'pdfPrep': 'Подготовка PDF...',
+            'dpiInspection': 'Проверка DPI источника...',
+            'pageSizeProbing': 'Проверка размеров страниц...',
+            'merging': 'Сборка PDF с текстовым слоем...',
+            'indexing': 'Индексация текста OCR...',
+        },
         'processingPage': 'Обработка страницы {page} ({processed}/{total})',
         'complete': 'OCR завершён — PDF теперь доступен для поиска',
         'exportDocx': 'Экспорт DOCX',
@@ -981,6 +989,7 @@ export default {
         },
         'ocr': {
             'loadLanguages': 'Не удалось загрузить языки',
+            'noLanguages': 'Выберите хотя бы один язык OCR',
             'noValidPages': 'Не выбраны корректные страницы',
             'timeout': 'Операция OCR превысила лимит 30 минут',
             'start': 'Не удалось запустить OCR',

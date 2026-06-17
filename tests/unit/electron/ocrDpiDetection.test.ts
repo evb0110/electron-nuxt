@@ -86,6 +86,53 @@ describe('ocr dpi detection', () => {
         );
     });
 
+    it('samples large selected page spans instead of probing the full range', async () => {
+        mocks.runOcrCommand.mockResolvedValue({
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+        });
+
+        await detectSourceDpiDetails(
+            '/tmp/input.pdf',
+            '/bin/pdfimages',
+            vi.fn(),
+            undefined,
+            undefined,
+            Array.from({ length: 392 }, (_value, index) => index + 1),
+        );
+
+        expect(mocks.runOcrCommand).toHaveBeenCalledTimes(12);
+        expect(mocks.runOcrCommand.mock.calls[0]?.[1]).toEqual([
+            '-f',
+            '1',
+            '-l',
+            '1',
+            '-list',
+            '/tmp/input.pdf',
+        ]);
+        expect(mocks.runOcrCommand.mock.calls.at(-1)?.[1]).toEqual([
+            '-f',
+            '392',
+            '-l',
+            '392',
+            '-list',
+            '/tmp/input.pdf',
+        ]);
+        expect(mocks.runOcrCommand).not.toHaveBeenCalledWith(
+            '/bin/pdfimages',
+            [
+                '-f',
+                '1',
+                '-l',
+                '392',
+                '-list',
+                '/tmp/input.pdf',
+            ],
+            expect.anything(),
+        );
+    });
+
     it('downgrades recoverable pdfimages runner errors to debug logs', async () => {
         const log = vi.fn();
         mocks.runOcrCommand.mockImplementationOnce(async (_command, _args, options) => {

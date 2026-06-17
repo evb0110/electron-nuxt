@@ -60,6 +60,11 @@ interface IPdfViewerForSave {
 
 interface IOcrCompletePayload extends IOcrSearchablePdfResult {sourceWorkingCopyPath: TDocumentRef;}
 
+interface IOcrApplyReloadResult {
+    restorePromise: Promise<void>;
+    getRestoreError: () => unknown;
+}
+
 type TSharedSaveOperationDeps = Pick<
     IFileOperationsDeps,
     | 'validatePdfPath'
@@ -353,20 +358,20 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         }
     }
 
-    async function handleOcrComplete(payload: IOcrCompletePayload) {
+    async function replaceOcrWorkingCopyForActiveDocument(
+        payload: IOcrCompletePayload,
+        pageToRestore: number,
+    ): Promise<IOcrApplyReloadResult | null> {
         if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
             BrowserLogger.debug('ocr', 'Ignoring stale OCR result for inactive document', {
                 sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
                 currentWorkingCopyPath: workingCopyPath.value,
             });
             await acknowledgeOcrResultFile(payload);
-            return;
+            return null;
         }
 
-        const pageToRestore = currentPage.value;
         let restoreError: unknown = null;
-        const warmupWorkingPath = payload.sourceWorkingCopyPath;
-        const warmupPageCountHint = totalPages.value > 0 ? totalPages.value : undefined;
 
         clearOcrCache(payload.sourceWorkingCopyPath);
         resetSearchCache();
@@ -386,7 +391,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                     currentWorkingCopyPath: workingCopyPath.value,
                 });
                 void restorePromise;
-                return;
+                return null;
             }
 
             const didReload = await reloadWorkingCopyIntoHistory({ markDirty: true });
@@ -396,7 +401,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                     currentWorkingCopyPath: workingCopyPath.value,
                 });
                 void restorePromise;
-                return;
+                return null;
             }
         } catch (error) {
             void restorePromise;
@@ -404,6 +409,32 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         } finally {
             await acknowledgeOcrResultFile(payload);
         }
+
+        return {
+            restorePromise,
+            getRestoreError: () => restoreError,
+        };
+    }
+
+    async function applyOcrCompleteResult(payload: IOcrCompletePayload) {
+        const pageToRestore = currentPage.value;
+        const warmupWorkingPath = payload.sourceWorkingCopyPath;
+        const warmupPageCountHint = totalPages.value > 0 ? totalPages.value : undefined;
+        const applyReloadResult = runWithDocumentOperationLease
+            ? await runWithDocumentOperationLease(
+                'ocr-apply',
+                () => replaceOcrWorkingCopyForActiveDocument(payload, pageToRestore),
+            )
+            : await replaceOcrWorkingCopyForActiveDocument(payload, pageToRestore);
+
+        if (!applyReloadResult) {
+            return;
+        }
+
+        const {
+            restorePromise,
+            getRestoreError,
+        } = applyReloadResult;
 
         await restorePromise;
         if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
@@ -413,6 +444,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             });
             return;
         }
+        const restoreError = getRestoreError();
         if (restoreError) {
             throw restoreError instanceof Error
                 ? restoreError
@@ -435,6 +467,10 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             color: 'success',
             title: t('ocr.complete'),
         });
+    }
+
+    async function handleOcrComplete(payload: IOcrCompletePayload) {
+        return applyOcrCompleteResult(payload);
     }
 
     async function getEmbeddedMutationBaseData() {

@@ -8,43 +8,98 @@ import { clamp } from 'es-toolkit/math';
 import { getErrorMessage } from '@electron/utils/error';
 
 const PDFIMAGES_TIMEOUT_MS = 30 * 1000;
+const PDFIMAGES_SAMPLE_TIMEOUT_MS = 5 * 1000;
+const PDFIMAGES_MAX_CONTIGUOUS_PROBE_SPAN = 48;
+const PDFIMAGES_MAX_SAMPLED_PAGES = 12;
 
 export interface ISourceDpiDetectionResult {
     documentDpi: number | null;
     pageDpiByNumber: Map<number, number>;
 }
 
-function getPageProbeRange(pages: readonly number[] | undefined) {
-    const validPages = (pages ?? []).filter(pageNumber =>
+interface IPdfImagesProbe {
+    args: string[];
+    timeoutMs: number;
+    label: string;
+}
+
+function getUniqueValidPages(pages: readonly number[] | undefined) {
+    return Array.from(new Set((pages ?? []).filter(pageNumber =>
         Number.isSafeInteger(pageNumber) && pageNumber > 0,
-    );
-    if (validPages.length === 0) {
+    ))).sort((a, b) => a - b);
+}
+
+function getPageProbeRange(pages: readonly number[]) {
+    if (pages.length === 0) {
         return null;
     }
 
     return {
-        firstPage: Math.min(...validPages),
-        lastPage: Math.max(...validPages),
+        firstPage: pages[0] ?? 1,
+        lastPage: pages[pages.length - 1] ?? 1,
     };
 }
 
-function buildPdfImagesListArgs(pdfPath: string, pages: readonly number[] | undefined) {
-    const pageRange = getPageProbeRange(pages);
-    if (!pageRange) {
-        return [
-            '-list',
-            pdfPath,
-        ];
+function getEvenlySpacedSample(pages: readonly number[]) {
+    if (pages.length <= PDFIMAGES_MAX_SAMPLED_PAGES) {
+        return [...pages];
     }
 
+    const lastIndex = pages.length - 1;
+    const sampledPages = new Set<number>();
+    for (let sampleIndex = 0; sampleIndex < PDFIMAGES_MAX_SAMPLED_PAGES; sampleIndex += 1) {
+        const pageIndex = Math.round((sampleIndex / (PDFIMAGES_MAX_SAMPLED_PAGES - 1)) * lastIndex);
+        const pageNumber = pages[pageIndex];
+        if (pageNumber !== undefined) {
+            sampledPages.add(pageNumber);
+        }
+    }
+    return Array.from(sampledPages).sort((a, b) => a - b);
+}
+
+function buildPdfImagesListArgs(pdfPath: string, firstPage: number, lastPage: number) {
     return [
         '-f',
-        String(pageRange.firstPage),
+        String(firstPage),
         '-l',
-        String(pageRange.lastPage),
+        String(lastPage),
         '-list',
         pdfPath,
     ];
+}
+
+function buildPdfImagesProbes(pdfPath: string, pages: readonly number[] | undefined): IPdfImagesProbe[] {
+    const validPages = getUniqueValidPages(pages);
+    if (validPages.length === 0) {
+        return [{
+            args: [
+                '-list',
+                pdfPath,
+            ],
+            timeoutMs: PDFIMAGES_TIMEOUT_MS,
+            label: 'full-document',
+        }];
+    }
+
+    const pageRange = getPageProbeRange(validPages);
+    if (!pageRange) {
+        return [];
+    }
+
+    const pageSpan = pageRange.lastPage - pageRange.firstPage + 1;
+    if (pageSpan <= PDFIMAGES_MAX_CONTIGUOUS_PROBE_SPAN) {
+        return [{
+            args: buildPdfImagesListArgs(pdfPath, pageRange.firstPage, pageRange.lastPage),
+            timeoutMs: PDFIMAGES_TIMEOUT_MS,
+            label: `${pageRange.firstPage}-${pageRange.lastPage}`,
+        }];
+    }
+
+    return getEvenlySpacedSample(validPages).map(pageNumber => ({
+        args: buildPdfImagesListArgs(pdfPath, pageNumber, pageNumber),
+        timeoutMs: PDFIMAGES_SAMPLE_TIMEOUT_MS,
+        label: String(pageNumber),
+    }));
 }
 
 function createRecoverablePdfImagesLog(log: TWorkerLog): TWorkerLog {
@@ -84,6 +139,19 @@ function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
     };
 }
 
+function mergeDpiDetectionResults(
+    target: ISourceDpiDetectionResult,
+    source: ISourceDpiDetectionResult,
+) {
+    target.documentDpi = Math.max(target.documentDpi ?? 0, source.documentDpi ?? 0) || null;
+    for (const [
+        pageNumber,
+        dpi,
+    ] of source.pageDpiByNumber) {
+        target.pageDpiByNumber.set(pageNumber, Math.max(target.pageDpiByNumber.get(pageNumber) ?? 0, dpi));
+    }
+}
+
 export async function detectSourceDpiDetails(
     pdfPath: string,
     pdfimagesBinary: string | undefined,
@@ -103,24 +171,39 @@ export async function detectSourceDpiDetails(
     }
 
     try {
-        const commandOptions: TOcrRunCommandOptions = {
-            commandLabel: 'pdfimages(-list)',
-            timeoutMs: PDFIMAGES_TIMEOUT_MS,
-            log: createRecoverablePdfImagesLog(log),
+        const combinedResult: ISourceDpiDetectionResult = {
+            documentDpi: null,
+            pageDpiByNumber: new Map(),
         };
-        if (commandEnv !== undefined) {
-            commandOptions.env = commandEnv;
-        }
-        if (signal !== undefined) {
-            commandOptions.signal = signal;
-        }
+        const probes = buildPdfImagesProbes(pdfPath, pages);
+        for (const probe of probes) {
+            const commandOptions: TOcrRunCommandOptions = {
+                commandLabel: 'pdfimages(-list)',
+                timeoutMs: probe.timeoutMs,
+                log: createRecoverablePdfImagesLog(log),
+            };
+            if (commandEnv !== undefined) {
+                commandOptions.env = commandEnv;
+            }
+            if (signal !== undefined) {
+                commandOptions.signal = signal;
+            }
 
-        const result = await runOcrCommand(
-            pdfimagesBinary,
-            buildPdfImagesListArgs(pdfPath, pages),
-            commandOptions,
-        );
-        return parsePdfImagesListOutput(result.stdout);
+            try {
+                const result = await runOcrCommand(
+                    pdfimagesBinary,
+                    probe.args,
+                    commandOptions,
+                );
+                mergeDpiDetectionResults(combinedResult, parsePdfImagesListOutput(result.stdout));
+            } catch (err) {
+                if (signal?.aborted) {
+                    throw signal.reason instanceof Error ? signal.reason : err;
+                }
+                log('debug', `pdfimages detection failed for pages ${probe.label}: ${getErrorMessage(err)}`);
+            }
+        }
+        return combinedResult;
     } catch (err) {
         if (signal?.aborted) {
             throw signal.reason instanceof Error ? signal.reason : err;

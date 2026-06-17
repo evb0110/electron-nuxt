@@ -1,5 +1,8 @@
 import type {IpcRenderer} from 'electron';
-import type { IOcrCapability } from '@contracts/electronApiOcr';
+import type {
+    IOcrCapability,
+    IOcrProgress,
+} from '@contracts/electronApiOcr';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
     assertAbsolutePath,
@@ -80,12 +83,8 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
             renderDpi,
         ),
 
-        onProgress: (callback: (progress: {
-            requestId: string;
-            currentPage: number;
-            processedCount: number;
-            totalPages: number;
-        }) => void): (() => void) => eventSubscriber.onPayload(OCR_EVENT_CHANNELS.progress, callback),
+        onProgress: (callback: (progress: IOcrProgress) => void): (() => void) =>
+            eventSubscriber.onPayload(OCR_EVENT_CHANNELS.progress, callback),
 
         onComplete: (callback: (result: {
             requestId: string;

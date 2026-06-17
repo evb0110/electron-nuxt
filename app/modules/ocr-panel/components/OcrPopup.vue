@@ -44,6 +44,7 @@
                                 type="radio"
                                 name="pageRange"
                                 value="all"
+                                :disabled="isRunSettingsLocked"
                             >
                             <span>{{ t('ocr.allPages', { total: totalPages }) }}</span>
                         </label>
@@ -53,6 +54,7 @@
                                 type="radio"
                                 name="pageRange"
                                 value="current"
+                                :disabled="isRunSettingsLocked"
                             >
                             <span>{{ t('ocr.currentPage', { page: currentPage }) }}</span>
                         </label>
@@ -62,6 +64,7 @@
                                 type="radio"
                                 name="pageRange"
                                 value="custom"
+                                :disabled="isRunSettingsLocked"
                             >
                             <span>{{ t('ocr.customRange') }}</span>
                         </label>
@@ -73,6 +76,7 @@
                             :placeholder="t('ocr.customRangePlaceholder')"
                             size="sm"
                             class="custom-input"
+                            :disabled="isRunSettingsLocked"
                         />
                     </div>
                 </div>
@@ -94,6 +98,7 @@
                                 >
                                     <input
                                         type="checkbox"
+                                        :disabled="isRunSettingsLocked"
                                         :checked="
                                             settings.selectedLanguages.includes(
                                                 lang.code,
@@ -124,6 +129,7 @@
                                 >
                                     <input
                                         type="checkbox"
+                                        :disabled="isRunSettingsLocked"
                                         :checked="
                                             settings.selectedLanguages.includes(
                                                 lang.code,
@@ -154,6 +160,7 @@
                                 >
                                     <input
                                         type="checkbox"
+                                        :disabled="isRunSettingsLocked"
                                         :checked="
                                             settings.selectedLanguages.includes(
                                                 lang.code,
@@ -183,18 +190,7 @@
                     >
                         <AppProgressBar :value="progressPercent" />
                         <span class="progress-text">
-                            <template v-if="progress.phase === 'preparing'">
-                                {{ t('ocr.preparing') }}
-                            </template>
-                            <template v-else>
-                                {{
-                                    t('ocr.processingPage', {
-                                        page: progress.currentPage,
-                                        processed: progress.processedCount,
-                                        total: progress.totalPages,
-                                    })
-                                }}
-                            </template>
+                            {{ progressStatusText }}
                         </span>
                     </div>
 
@@ -286,6 +282,7 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
+import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
 import type { TTranslationKey } from '@i18n-app';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppSpinner from '@app/components/AppSpinner.vue';
@@ -294,6 +291,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
 import type {
+    IOcrSettings,
     IOcrSearchablePdfResult,
     TOcrPageRange,
 } from '@app/utils/ocr/ocrTypes';
@@ -333,6 +331,8 @@ const emit = defineEmits<{
 
 const {
     settings,
+    activeRunSettings,
+    lastCompletedRunSettings,
     progress,
     results,
     error,
@@ -345,6 +345,7 @@ const {
     runOcr,
     cancelOcr,
     clearResults,
+    clearRunSettingsHistory,
     toggleLanguage,
 } = useOcr();
 
@@ -354,6 +355,7 @@ const isOpen = computed({
 });
 const isExporting = computed(() => isExportingDocx ?? false);
 const effectiveError = computed(() => error.value ?? externalError ?? null);
+const isRunSettingsLocked = computed(() => progress.value.isRunning);
 const isCopyingLogs = ref(false);
 const copyLogsState = ref<'idle' | 'copied' | 'failed'>('idle');
 const showSuccessState = ref(false);
@@ -374,15 +376,29 @@ const {
 const triggerIcon = computed(() => (
     showSuccessState.value ? 'ph:check-circle' : getReaderCommandToolbarIcon('ocr')
 ));
+const ocrProgressStageKeys = {
+    preparing: 'ocr.preparing',
+    'model-prep': 'ocr.progressStage.modelPrep',
+    'pdf-prep': 'ocr.progressStage.pdfPrep',
+    'dpi-inspection': 'ocr.progressStage.dpiInspection',
+    'page-size-probing': 'ocr.progressStage.pageSizeProbing',
+    merging: 'ocr.progressStage.merging',
+    indexing: 'ocr.progressStage.indexing',
+} as const satisfies Record<Exclude<TOcrProgressPhase, 'processing'>, TTranslationKey>;
+const progressStatusText = computed(() => {
+    if (progress.value.phase === 'processing') {
+        return t('ocr.processingPage', {
+            page: progress.value.currentPage,
+            processed: progress.value.processedCount,
+            total: progress.value.totalPages,
+        });
+    }
+
+    return t(ocrProgressStageKeys[progress.value.phase], undefined);
+});
 const triggerTooltip = computed(() => {
     if (progress.value.isRunning) {
-        return progress.value.phase === 'preparing'
-            ? t('ocr.preparing')
-            : t('ocr.processingPage', {
-                page: progress.value.currentPage,
-                processed: progress.value.processedCount,
-                total: progress.value.totalPages,
-            });
+        return progressStatusText.value;
     }
 
     if (showSuccessState.value) {
@@ -433,6 +449,10 @@ function normalizeAgentLanguages(value: unknown) {
 }
 
 function applyAgentOcrOptions(options: IAgentOcrRunOptions) {
+    if (isRunSettingsLocked.value) {
+        return;
+    }
+
     const nextSettings = {...settings.value};
     if (isOcrPageRange(options.pageRange)) {
         nextSettings.pageRange = options.pageRange;
@@ -447,16 +467,34 @@ function applyAgentOcrOptions(options: IAgentOcrRunOptions) {
     settings.value = nextSettings;
 }
 
+function cloneSettingsSnapshot(value: IOcrSettings | null) {
+    return value
+        ? {
+            pageRange: value.pageRange,
+            customRange: value.customRange,
+            selectedLanguages: [...value.selectedLanguages],
+        }
+        : null;
+}
+
 function createAgentOcrSnapshot() {
+    const activeSettingsSnapshot = cloneSettingsSnapshot(activeRunSettings.value);
+    const draftSettingsSnapshot = cloneSettingsSnapshot(settings.value);
+    const completedSettingsSnapshot = cloneSettingsSnapshot(lastCompletedRunSettings.value);
+
     return {
         isOpen: isOpen.value,
         isRunning: progress.value.isRunning,
         phase: progress.value.phase,
+        phaseLabel: progressStatusText.value,
         currentPage,
         totalPages,
         processedCount: progress.value.processedCount,
         progressCurrentPage: progress.value.currentPage,
         progressTotalPages: progress.value.totalPages,
+        draftSettings: draftSettingsSnapshot,
+        activeRunSettings: activeSettingsSnapshot,
+        lastCompletedRunSettings: completedSettingsSnapshot,
         selectedLanguages: [...settings.value.selectedLanguages],
         pageRange: settings.value.pageRange,
         customRange: settings.value.customRange,
@@ -485,10 +523,17 @@ function scheduleCopyLogsStateReset() {
     startCopyLogsStateReset();
 }
 
-function getSelectedLanguagesForDiagnostics() {
-    return settings.value.selectedLanguages.length > 0
-        ? settings.value.selectedLanguages.join(',')
+function formatLanguagesForDiagnostics(languages: readonly string[]) {
+    return languages.length > 0
+        ? languages.join(',')
         : '-';
+}
+
+function getExportLanguages() {
+    const sourceSettings = lastCompletedRunSettings.value
+        ?? activeRunSettings.value
+        ?? settings.value;
+    return [...sourceSettings.selectedLanguages];
 }
 
 function formatDebugLogEntry(entry: IDebugLogEntry) {
@@ -501,8 +546,15 @@ function buildOcrDiagnosticsLog(debugLogs: IDebugLogEntry[]) {
         `generatedAt=${new Date().toISOString()}`,
         `currentPage=${currentPage}`,
         `totalPages=${totalPages}`,
-        `selectedLanguages=${getSelectedLanguagesForDiagnostics()}`,
         `isRunning=${progress.value.isRunning}`,
+        `phase=${progress.value.phase}`,
+        `phaseLabel=${progressStatusText.value}`,
+        `draftSelectedLanguages=${formatLanguagesForDiagnostics(settings.value.selectedLanguages)}`,
+        `activeRunSelectedLanguages=${formatLanguagesForDiagnostics(activeRunSettings.value?.selectedLanguages ?? [])}`,
+        `lastCompletedSelectedLanguages=${formatLanguagesForDiagnostics(lastCompletedRunSettings.value?.selectedLanguages ?? [])}`,
+        `draftPageRange=${settings.value.pageRange}`,
+        `activeRunPageRange=${activeRunSettings.value?.pageRange ?? '-'}`,
+        `lastCompletedPageRange=${lastCompletedRunSettings.value?.pageRange ?? '-'}`,
         `uiError=${effectiveError.value}`,
         '',
         '--- debug:log stream ---',
@@ -542,6 +594,14 @@ function handleRunOcr() {
 }
 
 async function runOcrForAgent(options: IAgentOcrRunOptions = {}) {
+    if (progress.value.isRunning) {
+        return {
+            ok: false,
+            error: 'OCR is already running.',
+            ocr: createAgentOcrSnapshot(),
+        };
+    }
+
     applyAgentOcrOptions(options);
     if (options.open !== false) {
         isOpen.value = true;
@@ -579,8 +639,17 @@ function cancelOcrForAgent() {
 }
 
 function handleExportDocx() {
-    emit('export-docx', [...settings.value.selectedLanguages]);
+    emit('export-docx', getExportLanguages());
 }
+
+watch(() => workingCopyPath, () => {
+    if (progress.value.isRunning) {
+        return;
+    }
+    activeOcrSourcePath.value = null;
+    clearResults();
+    clearRunSettingsHistory();
+});
 
 watch(() => results.value.searchablePdfResult, (searchablePdfResult) => {
     const sourceWorkingCopyPath = activeOcrSourcePath.value;

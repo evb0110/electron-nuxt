@@ -116,7 +116,7 @@ describe('ocr resource governor', () => {
         ocrResourceGovernor.release(normalLease.token);
     });
 
-    it('expands queued normal requests to the normal slot count after a high-DPI request releases', async () => {
+    it('expands queued normal requests to the adaptive normal slot count after a high-DPI request releases', async () => {
         const { ocrResourceGovernor } = await import('@electron/ocr/ocrResourceGovernor');
 
         const highDpiLease = await ocrResourceGovernor.acquire({
@@ -140,6 +140,11 @@ describe('ocr resource governor', () => {
                 pageNumber: 1,
                 requestedDpi: 300,
             }),
+            ocrResourceGovernor.acquire({
+                jobId: 'job-normal-4',
+                pageNumber: 1,
+                requestedDpi: 300,
+            }),
         ];
         const grantedTokens: string[] = [];
         queuedNormalAcquires.forEach((acquire) => {
@@ -155,8 +160,9 @@ describe('ocr resource governor', () => {
         ocrResourceGovernor.release(highDpiLease.token);
         const normalLeases = await Promise.all(queuedNormalAcquires);
 
-        expect(normalLeases).toHaveLength(3);
+        expect(normalLeases).toHaveLength(4);
         expect(normalLeases.map(lease => lease.effectiveDpi)).toEqual([
+            300,
             300,
             300,
             300,

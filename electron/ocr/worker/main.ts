@@ -31,6 +31,7 @@ import {
     uniq,
 } from 'es-toolkit/array';
 import { PDFDocument } from 'pdf-lib';
+import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
 import {
     getOcrConcurrency,
     getSequentialProgressPage,
@@ -95,7 +96,16 @@ const log: TWorkerLog = (level, message) => {
     parentPort?.postMessage(payload);
 };
 
-function sendProgress(jobId: string, currentPage: number, processedCount: number, totalPages: number) {
+function sendProgress(
+    jobId: string,
+    currentPage: number,
+    processedCount: number,
+    totalPages: number,
+    options: {
+        phase?: TOcrProgressPhase;
+        phaseProgress?: number;
+    } = {},
+) {
     const payload: TOcrWorkerOutboundMessage = {
         type: 'progress',
         jobId,
@@ -104,9 +114,24 @@ function sendProgress(jobId: string, currentPage: number, processedCount: number
             currentPage,
             processedCount,
             totalPages,
+            ...options,
         },
     };
     parentPort?.postMessage(payload);
+}
+
+function sendStageProgress(
+    jobId: string,
+    pages: readonly IOcrPdfPageRequest[],
+    phase: TOcrProgressPhase,
+) {
+    sendProgress(
+        jobId,
+        pages[0]?.pageNumber ?? 0,
+        0,
+        pages.length,
+        { phase },
+    );
 }
 
 function sendComplete(jobId: string, result: TOcrWorkerCompleteResult) {
@@ -325,7 +350,13 @@ async function processOcrPages(
 ) {
     let processedCount = 0;
 
-    sendProgress(jobId, targetPages[0]?.pageNumber ?? 0, 0, targetPages.length);
+    sendProgress(
+        jobId,
+        targetPages[0]?.pageNumber ?? 0,
+        0,
+        targetPages.length,
+        { phase: 'processing' },
+    );
 
     const processPageWithLimit = limitAsync(async (page: IOcrPdfPageRequest) => {
         const result = await processOcrPage(page, context);
@@ -335,6 +366,7 @@ async function processOcrPages(
             getSequentialProgressPage(targetPages, processedCount),
             processedCount,
             targetPages.length,
+            { phase: 'processing' },
         );
         return {
             pageNumber: page.pageNumber,
@@ -564,8 +596,10 @@ async function buildOcrPageProcessingPlan(
     renderDpi: number | undefined,
     popplerEnv: NodeJS.ProcessEnv | undefined,
     baseContext: Omit<IOcrPageProcessingContext, 'extractionDpi' | 'tesseractThreads' | 'pageSizeByNumber' | 'pageSourceDpiByNumber'>,
+    sendStage: (phase: TOcrProgressPhase) => void,
 ) {
     const targetPages = pages;
+    sendStage('dpi-inspection');
     const detectedSourceDpi = renderDpi === undefined
         ? await detectSourceDpiDetails(
             popplerSourcePdfPath,
@@ -583,6 +617,7 @@ async function buildOcrPageProcessingPlan(
     const extractionDpi = clampDpi(detectedDpi ?? 300);
     const concurrency = getOcrConcurrency(targetPages.length);
     const tesseractThreads = getTesseractThreadLimit(concurrency);
+    sendStage('page-size-probing');
     const pageSizeByNumber = await readPdfPageSizesInches(popplerSourcePdfPath);
 
     log('debug', `OCR PDF: pages=${targetPages.length}, dpi=${extractionDpi}, concurrency=${concurrency}, threads=${tesseractThreads}`);
@@ -677,6 +712,7 @@ async function processOcrJob(
         await validateSourcePdf(jobId, sourcePdfPath, pages.length);
 
         const sessionId = `ocr-${randomUUID()}`;
+        sendStageProgress(jobId, pages, 'pdf-prep');
         const popplerSourcePdfPath = await preparePdfForPoppler(
             paths,
             log,
@@ -702,7 +738,14 @@ async function processOcrJob(
             targetPages,
             concurrency,
             pageContext,
-        } = await buildOcrPageProcessingPlan(pages, popplerSourcePdfPath, renderDpi, popplerEnv, planOptions);
+        } = await buildOcrPageProcessingPlan(
+            pages,
+            popplerSourcePdfPath,
+            renderDpi,
+            popplerEnv,
+            planOptions,
+            phase => sendStageProgress(jobId, pages, phase),
+        );
         const {
             errors,
             ocrPageData,
@@ -717,6 +760,7 @@ async function processOcrJob(
             targetPages[targetPages.length - 1]?.pageNumber ?? 0,
             targetPages.length,
             targetPages.length,
+            { phase: 'processing' },
         );
 
         if (ocrPageData.length === 0 || ocrPdfMap.size === 0) {
@@ -728,6 +772,7 @@ async function processOcrJob(
         const maxOcrPage = ocrPageNumbers[ocrPageNumbers.length - 1] ?? 1;
         const pageCount = await getPageCount(paths.qpdfBinary, sourcePdfPath, maxOcrPage, abortController.signal);
 
+        sendStageProgress(jobId, targetPages, 'merging');
         const mergedPdfPath = await assembleMergedOcrPdf(
             jobId,
             sourcePdfPath,
@@ -743,6 +788,7 @@ async function processOcrJob(
         }
 
         const allLanguages = uniq(targetPages.flatMap(p => p.languages));
+        sendStageProgress(jobId, targetPages, 'indexing');
         await writeOcrIndexes(sourcePdfPath, ocrPageData, pageCount, allLanguages, actualRenderDpi, abortController.signal);
 
         keepFiles.add(mergedPdfPath);

@@ -279,6 +279,14 @@ export default {
         'greek': 'Greek',
         'rtlScripts': 'RTL Scripts',
         'preparing': 'Preparing OCR...',
+        'progressStage': {
+            'modelPrep': 'Preparing OCR language models...',
+            'pdfPrep': 'Preparing PDF...',
+            'dpiInspection': 'Inspecting source DPI...',
+            'pageSizeProbing': 'Checking page sizes...',
+            'merging': 'Merging searchable PDF...',
+            'indexing': 'Indexing OCR text...',
+        },
         'processingPage': 'Processing page {page} ({processed}/{total})',
         'complete': 'OCR complete - PDF is now searchable',
         'exportDocx': 'Export DOCX',
@@ -955,6 +963,7 @@ export default {
         },
         'ocr': {
             'loadLanguages': 'Failed to load languages',
+            'noLanguages': 'Select at least one OCR language',
             'noValidPages': 'No valid pages selected',
             'timeout': 'OCR operation timed out after 30 minutes',
             'start': 'Failed to start OCR job',

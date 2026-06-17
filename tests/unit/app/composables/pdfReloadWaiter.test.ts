@@ -1,4 +1,5 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
@@ -12,6 +13,10 @@ import { capturePdfReloadSnapshot } from '@app/modules/pdf-viewer/engine/pdf-rel
 import { createPdfReloadWaiter } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { cast } from '@tests/helpers/cast';
+
+afterEach(() => {
+    vi.useRealTimers();
+});
 
 describe('capturePdfReloadSnapshot', () => {
     it('prefers the captured anchor page over the fallback page', () => {
@@ -151,6 +156,45 @@ describe('createPdfReloadWaiter', () => {
         resolveViewerSettle();
         await waiter.promise;
 
+        expect(restoreScrollSnapshot).toHaveBeenCalledWith(
+            expect.objectContaining({ anchorPage: 4 }),
+            { fallbackPage: 4 },
+        );
+    });
+
+    it('continues restore when the viewer load-settle hook times out', async () => {
+        vi.useFakeTimers();
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
+        const restoreScrollSnapshot = vi.fn();
+        const resetSearchCache = vi.fn();
+
+        const waiter = createPdfReloadWaiter({
+            pdfDocument,
+            pdfViewerRef: ref({
+                scrollToPage: vi.fn(),
+                restoreScrollSnapshot,
+                waitForViewerLoadSettled: () => new Promise<void>(() => {}),
+            }),
+            resetSearchCache,
+            pageToRestore: 4,
+            scrollSnapshot: {
+                width: 300,
+                height: 400,
+                centerX: 120,
+                centerY: 220,
+                anchorPage: 4,
+            },
+        });
+
+        pdfDocument.value = cast({ id: 'after' });
+        await Promise.resolve();
+
+        expect(restoreScrollSnapshot).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(30000);
+        await waiter.promise;
+
+        expect(resetSearchCache).toHaveBeenCalledTimes(1);
         expect(restoreScrollSnapshot).toHaveBeenCalledWith(
             expect.objectContaining({ anchorPage: 4 }),
             { fallbackPage: 4 },

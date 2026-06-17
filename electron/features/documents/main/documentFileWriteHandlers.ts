@@ -17,6 +17,11 @@ import {
     writeFileAtomic,
 } from '@electron/features/documents/main/documentFileWriteAtomic';
 import { normalizeNonEmptyPath } from '@electron/features/documents/main/documentFilePathResolution';
+import {
+    getWorkingCopyOriginalPath,
+    refreshWorkingCopyOriginalFileExpectation,
+} from '@electron/file-access/workingCopyStore';
+import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
 
 function assertOcrPdfResultSourcePath(resolvedPath: string) {
     const fileName = basename(resolvedPath).toLowerCase();
@@ -26,6 +31,18 @@ function assertOcrPdfResultSourcePath(resolvedPath: string) {
     if (!fileName.startsWith('ocr-') && !fileName.startsWith('searchable-')) {
         throw new Error('Invalid source path: only OCR result files can replace a working copy');
     }
+}
+
+async function shouldRefreshOriginalSaveBaseAfterWorkingCopyReplacement(
+    workingCopyPath: string,
+    senderWebContentsId: number,
+) {
+    const mapping = getWorkingCopyOriginalPath(workingCopyPath, senderWebContentsId);
+    if (!mapping) {
+        return false;
+    }
+
+    return originalPathSaveBaseMatches(workingCopyPath, mapping.originalPath, senderWebContentsId);
 }
 
 export async function handleFileWrite(
@@ -90,6 +107,10 @@ export async function handleReplaceWorkingCopyFromPath(
         if (!await ensureWorkingCopyDirectory(resolvedWorkingCopyPath, event.sender?.id)) {
             throw new Error('Invalid file path: writes require a managed working copy');
         }
+        const shouldRefreshOriginalSaveBase = await shouldRefreshOriginalSaveBaseAfterWorkingCopyReplacement(
+            resolvedWorkingCopyPath,
+            event.sender.id,
+        );
         try {
             await copyFileAtomic(resolvedSourcePath, resolvedWorkingCopyPath);
         } catch (error) {
@@ -101,6 +122,9 @@ export async function handleReplaceWorkingCopyFromPath(
                 throw new Error('Invalid file path: writes require a managed working copy');
             }
             await copyFileAtomic(resolvedSourcePath, resolvedWorkingCopyPath);
+        }
+        if (shouldRefreshOriginalSaveBase) {
+            refreshWorkingCopyOriginalFileExpectation(resolvedWorkingCopyPath, event.sender.id);
         }
         return true;
     });

@@ -56,6 +56,7 @@ export const useOcr = () => {
         currentPage: 0,
         totalPages: 0,
         processedCount: 0,
+        phaseProgress: null,
     });
     const results = ref<IOcrResults>({
         pages: new Map(),
@@ -67,6 +68,8 @@ export const useOcr = () => {
     const isExporting = ref(false);
 
     const activeRequestId = ref<string | null>(null);
+    const activeRunSettings = ref<IOcrSettings | null>(null);
+    const lastCompletedRunSettings = ref<IOcrSettings | null>(null);
 
     let progressCleanup: (() => void) | null = null;
     let completeCleanup: (() => void) | null = null;
@@ -78,6 +81,7 @@ export const useOcr = () => {
     function cleanupRunState() {
         activeRequestId.value = null;
         progress.value.isRunning = false;
+        activeRunSettings.value = null;
         progressCleanup?.();
         progressCleanup = null;
         completeCleanup?.();
@@ -153,13 +157,42 @@ export const useOcr = () => {
         };
     }
 
-    function beginRunProgress(pages: number[]) {
+    function cloneOcrSettings(source: IOcrSettings): IOcrSettings {
+        return {
+            pageRange: source.pageRange,
+            customRange: source.customRange,
+            selectedLanguages: [...source.selectedLanguages],
+        };
+    }
+
+    function createRunSettingsSnapshot(source: IOcrSettings): IOcrSettings {
+        return {
+            pageRange: source.pageRange,
+            customRange: source.customRange,
+            selectedLanguages: uniq(
+                source.selectedLanguages
+                    .map(language => language.trim())
+                    .filter(Boolean),
+            ),
+        };
+    }
+
+    function getDocxExportLanguages() {
+        const sourceSettings = activeRunSettings.value
+            ?? lastCompletedRunSettings.value
+            ?? settings.value;
+        return [...sourceSettings.selectedLanguages];
+    }
+
+    function beginRunProgress(pages: number[], runSettings: IOcrSettings) {
+        activeRunSettings.value = cloneOcrSettings(runSettings);
         progress.value = {
             isRunning: true,
             phase: 'preparing',
             currentPage: pages[0] ?? 1,
             totalPages: pages.length,
             processedCount: 0,
+            phaseProgress: null,
         };
     }
 
@@ -193,9 +226,12 @@ export const useOcr = () => {
             });
             if (p.requestId === requestId) {
                 resetOcrTimeout(runToken);
-                progress.value.phase = 'processing';
+                progress.value.phase = p.phase ?? 'processing';
                 progress.value.currentPage = p.currentPage;
                 progress.value.processedCount = p.processedCount;
+                progress.value.phaseProgress = typeof p.phaseProgress === 'number'
+                    ? p.phaseProgress
+                    : null;
             }
         });
     }
@@ -232,8 +268,8 @@ export const useOcr = () => {
         });
     }
 
-    function buildPageRequests(pages: number[]): TOcrPageRequest[] {
-        const languages = [...settings.value.selectedLanguages];
+    function buildPageRequests(pages: number[], runSettings: IOcrSettings): TOcrPageRequest[] {
+        const languages = [...runSettings.selectedLanguages];
         return pages.map(pageNum => ({
             pageNumber: pageNum,
             languages,
@@ -259,6 +295,7 @@ export const useOcr = () => {
     function storeOcrPdfResult(
         requestId: string,
         response: TOcrCompleteResult,
+        runSettings: IOcrSettings,
     ) {
         if (!response.pdfPath) {
             throw new Error(t('errors.ocr.noPdfData'));
@@ -270,9 +307,10 @@ export const useOcr = () => {
             requiresCleanupAck: response.requiresCleanupAck === true,
         });
 
+        lastCompletedRunSettings.value = cloneOcrSettings(runSettings);
         results.value = {
             pages: new Map(),
-            languages: [...settings.value.selectedLanguages],
+            languages: [...runSettings.selectedLanguages],
             completedAt: Date.now(),
             searchablePdfResult: {
                 requestId,
@@ -300,7 +338,12 @@ export const useOcr = () => {
     function validateOcrRunRequest(
         pages: number[],
         workingCopyPath: TDocumentRef | null,
+        runSettings: IOcrSettings,
     ): workingCopyPath is TDocumentRef {
+        if (runSettings.selectedLanguages.length === 0) {
+            error.value = t('errors.ocr.noLanguages');
+            return false;
+        }
         if (pages.length === 0) {
             error.value = t('errors.ocr.noValidPages');
             return false;
@@ -312,10 +355,14 @@ export const useOcr = () => {
         return true;
     }
 
-    function getSelectedOcrPages(currentPage: number, totalPages: number) {
+    function getSelectedOcrPages(
+        currentPage: number,
+        totalPages: number,
+        runSettings: IOcrSettings,
+    ) {
         const pages = parsePageRange(
-            settings.value.pageRange,
-            settings.value.customRange,
+            runSettings.pageRange,
+            runSettings.customRange,
             currentPage,
             totalPages,
         );
@@ -338,12 +385,13 @@ export const useOcr = () => {
         requestId: string,
         response: TOcrCompleteResult,
         ensureRunActive: TRunGuard,
+        runSettings: IOcrSettings,
     ) {
         applyOcrResponseErrors(response, requestId);
 
         if (response.success && response.pdfPath) {
             ensureRunActive();
-            storeOcrPdfResult(requestId, response);
+            storeOcrPdfResult(requestId, response, runSettings);
         } else if (response.success) {
             throw new Error(t('errors.ocr.noPdfData'));
         } else if (!response.success) {
@@ -357,12 +405,13 @@ export const useOcr = () => {
         requestId: string,
         pages: number[],
         workingCopyPath: TDocumentRef,
+        runSettings: IOcrSettings,
         runToken: symbol,
         ensureRunActive: TRunGuard,
     ) {
         const ocr = getOcrCapability();
         registerProgressListener(ocr, requestId, runToken);
-        const pageRequests = buildPageRequests(pages);
+        const pageRequests = buildPageRequests(pages, runSettings);
 
         BrowserLogger.debug('ocr', 'Starting backend job', {
             requestId,
@@ -401,7 +450,7 @@ export const useOcr = () => {
             errors: response.errors,
         });
 
-        handleOcrResponse(requestId, response, ensureRunActive);
+        handleOcrResponse(requestId, response, ensureRunActive, runSettings);
     }
 
     async function runOcr(
@@ -421,9 +470,10 @@ export const useOcr = () => {
         }
 
         error.value = null;
-        const pages = getSelectedOcrPages(currentPage, totalPages);
+        const runSettings = createRunSettingsSnapshot(settings.value);
+        const pages = getSelectedOcrPages(currentPage, totalPages, runSettings);
 
-        if (!validateOcrRunRequest(pages, workingCopyPath)) {
+        if (!validateOcrRunRequest(pages, workingCopyPath, runSettings)) {
             return;
         }
 
@@ -435,7 +485,7 @@ export const useOcr = () => {
             ensureRunActive,
         } = createOcrRunContext();
 
-        beginRunProgress(pages);
+        beginRunProgress(pages, runSettings);
         if (!await waitForRunUiReady(runToken, runGeneration)) {
             return;
         }
@@ -447,6 +497,7 @@ export const useOcr = () => {
                 requestId,
                 pages,
                 workingCopyPath,
+                runSettings,
                 runToken,
                 ensureRunActive,
             );
@@ -489,6 +540,11 @@ export const useOcr = () => {
         };
     }
 
+    function clearRunSettingsHistory() {
+        activeRunSettings.value = null;
+        lastCompletedRunSettings.value = null;
+    }
+
     function toggleLanguage(code: string, selected: boolean) {
         const selectedLanguages = selected
             ? Array.from(new Set([
@@ -506,8 +562,8 @@ export const useOcr = () => {
     const hasResults = computed(() => results.value.searchablePdfResult !== null);
 
     const progressPercent = computed(() => {
-        if (progress.value.phase === 'preparing') {
-            return null;
+        if (progress.value.phase !== 'processing') {
+            return progress.value.phaseProgress;
         }
         if (progress.value.totalPages === 0) {
             return 0;
@@ -541,7 +597,7 @@ export const useOcr = () => {
         error.value = null;
 
         try {
-            const selectedLanguages = settings.value.selectedLanguages;
+            const selectedLanguages = getDocxExportLanguages();
             return await exportTextAsDocx({
                 workingCopyPath,
                 pdfDocument,
@@ -562,6 +618,8 @@ export const useOcr = () => {
     return {
         availableLanguages,
         settings,
+        activeRunSettings,
+        lastCompletedRunSettings,
         progress,
         results,
         error,
@@ -575,6 +633,7 @@ export const useOcr = () => {
         runOcr,
         cancelOcr,
         clearResults,
+        clearRunSettingsHistory,
         toggleLanguage,
         exportDocx,
     };

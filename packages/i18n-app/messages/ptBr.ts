@@ -282,6 +282,14 @@ export default {
         'greek': 'Grego',
         'rtlScripts': 'Escrita da Direita para a Esquerda',
         'preparing': 'Preparando OCR...',
+        'progressStage': {
+            'modelPrep': 'Preparando modelos de idioma OCR...',
+            'pdfPrep': 'Preparando PDF...',
+            'dpiInspection': 'Inspecionando DPI de origem...',
+            'pageSizeProbing': 'Verificando tamanhos de página...',
+            'merging': 'Unindo PDF pesquisável...',
+            'indexing': 'Indexando texto OCR...',
+        },
         'processingPage': 'Processando página {page} ({processed}/{total})',
         'complete': 'OCR concluído - o PDF agora é pesquisável',
         'exportDocx': 'Exportar DOCX',
@@ -967,6 +975,7 @@ export default {
         },
         'ocr': {
             'loadLanguages': 'Falha ao carregar idiomas',
+            'noLanguages': 'Selecione pelo menos um idioma OCR',
             'noValidPages': 'Nenhuma página válida selecionada',
             'timeout': 'A operação de OCR excedeu o tempo limite após 30 minutos',
             'start': 'Falha ao iniciar tarefa de OCR',

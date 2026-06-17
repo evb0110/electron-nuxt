@@ -3,6 +3,7 @@ import type { TTranslationKey } from '@i18n-app';
 export const ocrErrorMessageKeys = [
     'errors.file.invalid',
     'errors.ocr.loadLanguages',
+    'errors.ocr.noLanguages',
     'errors.ocr.noValidPages',
     'errors.ocr.timeout',
     'errors.ocr.start',

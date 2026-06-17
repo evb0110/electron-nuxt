@@ -1,4 +1,5 @@
 import type { IOcrWord } from '@contracts/shared';
+import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
 export type { IRunCommandResult } from '@electron/utils/runElectronCommand';
 
 export interface IWorkerPaths {
@@ -68,6 +69,8 @@ interface IOcrWorkerProgressPayload {
     currentPage: number;
     processedCount: number;
     totalPages: number;
+    phase?: TOcrProgressPhase;
+    phaseProgress?: number;
 }
 
 export type TOcrWorkerCompleteResult =

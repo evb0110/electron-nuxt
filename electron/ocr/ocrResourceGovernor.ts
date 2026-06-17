@@ -15,7 +15,8 @@ const MIB = 1024 * 1024;
 
 const MAX_RENDERED_PIXELS = 45_000_000;
 const LOW_MEMORY_BYTES = 8 * 1024 * MIB;
-const NORMAL_PAGE_SLOTS = 3;
+const BASE_NORMAL_PAGE_SLOTS = 3;
+const MAX_NORMAL_PAGE_SLOTS = 8;
 const LOW_MEMORY_PAGE_SLOTS = 2;
 const HIGH_DPI_THRESHOLD = 450;
 const HIGH_DPI_PAGE_SLOTS = 1;
@@ -88,6 +89,30 @@ function estimateRenderedBytes(dpi: number, request: Pick<IOcrResourceRequest, '
     return estimateRenderedPixels(dpi, request) * BYTES_PER_RGBA_PIXEL;
 }
 
+function getCpuSlotCount() {
+    const cpuCount = typeof availableParallelism === 'function'
+        ? availableParallelism()
+        : 2;
+    return clamp(Math.floor(cpuCount / 2), 1, MAX_NORMAL_PAGE_SLOTS);
+}
+
+function getMemorySlotCount(memoryBytes: number, renderedPageBytes: number) {
+    if (memoryBytes <= 0 || renderedPageBytes <= 0) {
+        return BASE_NORMAL_PAGE_SLOTS;
+    }
+
+    const memoryBudgetRatio = memoryBytes >= 32 * 1024 * MIB
+        ? 0.18
+        : memoryBytes >= 16 * 1024 * MIB
+            ? 0.12
+            : 0.08;
+    return clamp(
+        Math.floor((memoryBytes * memoryBudgetRatio) / renderedPageBytes),
+        1,
+        MAX_NORMAL_PAGE_SLOTS,
+    );
+}
+
 function capDpiForPixelBudget(request: IOcrResourceRequest) {
     const requestedPixels = estimateRenderedPixels(request.requestedDpi, request);
     if (requestedPixels <= MAX_RENDERED_PIXELS) {
@@ -109,14 +134,16 @@ function getDefaultSlotCount(effectiveDpi: number, request: IOcrResourceRequest)
         return LOW_MEMORY_PAGE_SLOTS;
     }
 
-    if (effectiveDpi >= HIGH_DPI_THRESHOLD || estimateRenderedBytes(effectiveDpi, request) > (MAX_RENDERED_PIXELS * BYTES_PER_RGBA_PIXEL) / 2) {
+    const renderedPageBytes = estimateRenderedBytes(effectiveDpi, request);
+    if (effectiveDpi >= HIGH_DPI_THRESHOLD || renderedPageBytes > (MAX_RENDERED_PIXELS * BYTES_PER_RGBA_PIXEL) / 2) {
         return HIGH_DPI_PAGE_SLOTS;
     }
 
-    const cpuCount = typeof availableParallelism === 'function'
-        ? availableParallelism()
-        : 2;
-    return clamp(Math.min(NORMAL_PAGE_SLOTS, Math.floor(cpuCount / 2)), 1, NORMAL_PAGE_SLOTS);
+    return clamp(
+        Math.min(getCpuSlotCount(), getMemorySlotCount(memoryBytes, renderedPageBytes)),
+        1,
+        MAX_NORMAL_PAGE_SLOTS,
+    );
 }
 
 class OcrResourceGovernor {
@@ -219,7 +246,7 @@ class OcrResourceGovernor {
 
     private getActiveSlotLimit() {
         if (this.activeLeases.size === 0) {
-            return NORMAL_PAGE_SLOTS;
+            return BASE_NORMAL_PAGE_SLOTS;
         }
         return Math.min(...Array.from(this.activeLeases.values(), lease => lease.slotLimit));
     }

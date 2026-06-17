@@ -4,8 +4,10 @@ import { delay } from 'es-toolkit/promise';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IScrollSnapshot } from '@app/types/pdf';
 import type { IPdfReloadWaiterViewer } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
-const PDF_RELOAD_TIMEOUT_MS = 8000;
+const PDF_DOCUMENT_RELOAD_TIMEOUT_MS = 8000;
+const PDF_VIEWER_LOAD_SETTLE_TIMEOUT_MS = 30000;
 
 interface ICreatePdfReloadWaiterOptions {
     pdfDocument: Ref<PDFDocumentProxy | null>;
@@ -33,7 +35,7 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
         .toMatch(({
             doc,
             cancelled,
-        }) => cancelled || Boolean(doc && doc !== initialDoc), { timeout: PDF_RELOAD_TIMEOUT_MS })
+        }) => cancelled || Boolean(doc && doc !== initialDoc), { timeout: PDF_DOCUMENT_RELOAD_TIMEOUT_MS })
         .then(async ({
             doc,
             cancelled,
@@ -47,12 +49,15 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
             if (viewer?.waitForViewerLoadSettled) {
                 const timeoutController = new AbortController();
                 try {
-                    await Promise.race([
-                        viewer.waitForViewerLoadSettled(),
-                        delay(PDF_RELOAD_TIMEOUT_MS, { signal: timeoutController.signal }).then(() => {
-                            throw new Error('Timed out waiting for viewer load to settle after PDF reload');
-                        }),
+                    const didSettle = await Promise.race([
+                        viewer.waitForViewerLoadSettled().then(() => true),
+                        delay(PDF_VIEWER_LOAD_SETTLE_TIMEOUT_MS, { signal: timeoutController.signal }).then(() => false),
                     ]);
+                    if (!didSettle) {
+                        BrowserLogger.warn('loader', 'Timed out waiting for viewer load to settle after PDF reload; continuing', { timeoutMs: PDF_VIEWER_LOAD_SETTLE_TIMEOUT_MS });
+                    }
+                } catch (error) {
+                    BrowserLogger.warn('loader', 'Viewer load settle hook failed after PDF reload; continuing', { error });
                 } finally {
                     timeoutController.abort();
                 }

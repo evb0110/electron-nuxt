@@ -3,4 +3,5 @@ export type TDocumentOperationKind =
     | 'save-as'
     | 'repair-save'
     | 'page-operation'
+    | 'ocr-apply'
     | 'split-capture';

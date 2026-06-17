@@ -330,6 +330,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         });
         const worker = mocks.workerInstances[0];
         expect(worker).toBeDefined();
+        mocks.sendToLiveWindow.mockClear();
 
         expect(handleOcrCancel(event as never, 'job-6')).toEqual({ canceled: true });
 

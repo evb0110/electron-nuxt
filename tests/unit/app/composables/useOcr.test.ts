@@ -190,6 +190,94 @@ describe('useOcr', () => {
         }
     });
 
+    it('freezes run languages for backend dispatch and result metadata', async () => {
+        interface IOcrCompleteTestResult {
+            requestId: string;
+            success: boolean;
+            pdfPath?: string;
+            requiresCleanupAck?: boolean;
+            errors: string[];
+        }
+        let completeHandler: ((result: IOcrCompleteTestResult) => void) | null = null;
+        const emitComplete = (result: IOcrCompleteTestResult) => {
+            const handler = completeHandler;
+            if (!handler) {
+                throw new Error('OCR completion handler was not registered');
+            }
+            handler(result);
+        };
+        mockOcr.onComplete.mockImplementation((handler) => {
+            completeHandler = handler;
+            return vi.fn();
+        });
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            ocr.settings.value = {
+                ...ocr.settings.value,
+                selectedLanguages: ['eng'],
+            };
+            const runPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+
+            await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
+            expect(ocr.activeRunSettings.value?.selectedLanguages).toEqual(['eng']);
+
+            ocr.settings.value = {
+                ...ocr.settings.value,
+                selectedLanguages: ['rus'],
+            };
+
+            const call = mockOcr.createSearchablePdf.mock.calls[0] ?? [];
+            const pageRequests = call[1];
+            const requestId = call[2];
+            expect(pageRequests).toEqual([{
+                pageNumber: 1,
+                languages: ['eng'],
+            }]);
+            emitComplete({
+                requestId: requestId as string,
+                success: true,
+                pdfPath: '/tmp/ocr-result.pdf',
+                requiresCleanupAck: true,
+                errors: [],
+            });
+            await runPromise;
+
+            expect(ocr.results.value.languages).toEqual(['eng']);
+            expect(ocr.lastCompletedRunSettings.value?.selectedLanguages).toEqual(['eng']);
+            expect(ocr.activeRunSettings.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('rejects runs with no selected languages before dispatching to the backend', async () => {
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            ocr.settings.value = {
+                ...ocr.settings.value,
+                selectedLanguages: [],
+            };
+
+            await ocr.runOcr(1, 1, '/tmp/work.pdf');
+
+            expect(mockOcr.createSearchablePdf).not.toHaveBeenCalled();
+            expect(ocr.error.value).toBe('errors.ocr.noLanguages');
+            expect(ocr.progress.value.isRunning).toBe(false);
+        } finally {
+            scope.stop();
+        }
+    });
+
     it('cancels the active backend job when OCR times out', async () => {
         vi.useFakeTimers();
         vi.stubGlobal('crypto', { randomUUID: () => '00000000-0000-4000-8000-000000000001' });

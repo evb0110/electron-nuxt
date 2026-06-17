@@ -279,6 +279,14 @@ export default {
         'greek': 'Grieks',
         'rtlScripts': 'RTL-schriften',
         'preparing': 'OCR voorbereiden...',
+        'progressStage': {
+            'modelPrep': 'OCR-taalmodellen voorbereiden...',
+            'pdfPrep': 'PDF voorbereiden...',
+            'dpiInspection': 'Bron-DPI controleren...',
+            'pageSizeProbing': 'Paginaformaten controleren...',
+            'merging': 'Doorzoekbare PDF samenvoegen...',
+            'indexing': 'OCR-tekst indexeren...',
+        },
         'processingPage': 'Pagina {page} verwerken ({processed}/{total})',
         'complete': 'OCR voltooid – PDF is nu doorzoekbaar',
         'exportDocx': 'DOCX exporteren',
@@ -955,6 +963,7 @@ export default {
         },
         'ocr': {
             'loadLanguages': 'Kan talen niet laden',
+            'noLanguages': 'Selecteer ten minste één OCR-taal',
             'noValidPages': 'Geen geldige pagina\'s geselecteerd',
             'timeout': 'OCR-bewerking verlopen na 30 minuten',
             'start': 'Kan OCR-taak niet starten',

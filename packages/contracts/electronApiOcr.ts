@@ -33,12 +33,22 @@ export interface IOcrRecognizeResult extends IOcrErrorEnvelopeCarrier {
     error?: string;
 }
 
+export type TOcrProgressPhase =
+    | 'preparing'
+    | 'model-prep'
+    | 'pdf-prep'
+    | 'dpi-inspection'
+    | 'page-size-probing'
+    | 'processing'
+    | 'merging'
+    | 'indexing';
+
 export interface IOcrProgress {
     requestId: string;
     currentPage: number;
     processedCount: number;
     totalPages: number;
-    phase?: 'preparing' | 'processing';
+    phase?: TOcrProgressPhase;
     phaseProgress?: number;
     activePages?: number[];
     languageCode?: string;

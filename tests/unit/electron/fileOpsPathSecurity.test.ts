@@ -28,7 +28,10 @@ const mocks = vi.hoisted(() => ({
     analyzePdfConformanceFile: vi.fn(),
     consumeAllowedDocxWritePath: vi.fn<(path: string, senderId: number) => boolean>(),
     findWorkingCopyPathByOriginalPath: vi.fn<(path: string, senderId?: number) => string | null>(),
+    getWorkingCopyOriginalPath: vi.fn(),
+    refreshWorkingCopyOriginalFileExpectation: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn<(path: string, senderId?: number) => Promise<boolean>>(),
+    originalPathSaveBaseMatches: vi.fn(),
     isAllowedDjvuViewingPath: vi.fn<(path: string) => boolean>(),
 }));
 
@@ -64,8 +67,11 @@ vi.mock('@electron/file-access/docxExportPaths', () => ({consumeAllowedDocxWrite
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({
     findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
+    getWorkingCopyOriginalPath: mocks.getWorkingCopyOriginalPath,
     normalizePathForLookup: (path: string) => path.trim(),
+    refreshWorkingCopyOriginalFileExpectation: mocks.refreshWorkingCopyOriginalFileExpectation,
 }));
+vi.mock('@electron/features/documents/main/originalPathSaveBaseMatches', () => ({originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches}));
 vi.mock('@electron/djvu/viewing', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
@@ -103,6 +109,8 @@ describe('fileOps path security', () => {
         mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/safe.pdf');
         mocks.consumeAllowedDocxWritePath.mockReturnValue(true);
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
+        mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
+        mocks.originalPathSaveBaseMatches.mockResolvedValue(true);
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.isAllowedDjvuViewingPath.mockReturnValue(false);
         mocks.readFile.mockResolvedValue(Buffer.from([
@@ -287,6 +295,53 @@ describe('fileOps path security', () => {
             expect.stringMatching(/\/\.work\.pdf\.\d+\..+\.tmp$/u),
             '/tmp/electron-test/work.pdf',
         );
+    });
+
+    it('refreshes the original save base after an OCR replacement when the previous base still matches', async () => {
+        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/work.pdf');
+        mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({
+            originalPath: '/Users/alice/Documents/book.pdf',
+            retired: false,
+        });
+        mocks.originalPathSaveBaseMatches.mockResolvedValue(true);
+
+        await handleReplaceWorkingCopyFromPath(
+            event,
+            '/tmp/electron-test/work.pdf',
+            '/tmp/electron-test/ocr-1-merged.pdf',
+        );
+
+        expect(mocks.originalPathSaveBaseMatches).toHaveBeenCalledWith(
+            '/tmp/electron-test/work.pdf',
+            '/Users/alice/Documents/book.pdf',
+            42,
+        );
+        expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledWith(
+            '/tmp/electron-test/work.pdf',
+            42,
+        );
+        expect(mocks.rename.mock.invocationCallOrder[0]!)
+            .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[0]!);
+    });
+
+    it('preserves the stale-original guard after an OCR replacement when the previous base no longer matches', async () => {
+        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/work.pdf');
+        mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({
+            originalPath: '/Users/alice/Documents/book.pdf',
+            retired: false,
+        });
+        mocks.originalPathSaveBaseMatches.mockResolvedValue(false);
+
+        await handleReplaceWorkingCopyFromPath(
+            event,
+            '/tmp/electron-test/work.pdf',
+            '/tmp/electron-test/ocr-1-merged.pdf',
+        );
+
+        expect(mocks.copyFile).toHaveBeenCalled();
+        expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
     });
 
     it('rejects working-copy replacement from non-OCR source file names', async () => {

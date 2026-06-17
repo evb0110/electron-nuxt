@@ -50,6 +50,7 @@ import {
     isErrnoException,
     isRecord,
 } from '@contracts/runtimeGuards';
+import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
 import { createLogger } from '@electron/utils/createLogger';
 import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 import { getErrorMessage } from '@electron/utils/error';
@@ -89,6 +90,23 @@ function getJobWindow(webContentsId: number) {
     return BrowserWindow.getAllWindows().find(
         window => window.webContents.id === webContentsId,
     );
+}
+
+function sendOcrProgressStage(
+    webContentsId: number,
+    requestId: string,
+    pages: IOcrPdfPageRequest[],
+    phase: TOcrProgressPhase,
+    phaseProgress?: number,
+) {
+    safeSendToWindow(getJobWindow(webContentsId), OCR_EVENT_CHANNELS.progress, {
+        requestId,
+        currentPage: pages[0]?.pageNumber ?? 0,
+        processedCount: 0,
+        totalPages: pages.length,
+        phase,
+        ...(phaseProgress !== undefined ? { phaseProgress } : {}),
+    });
 }
 
 function getBufferedBytes() {
@@ -844,6 +862,7 @@ export async function handleOcrCreateSearchablePdfAsync(
         const preparingJob = createPreparingJob(event, scopedJobId, requestId);
         preparingJobs.set(scopedJobId, preparingJob);
         isPreparingReserved = true;
+        sendOcrProgressStage(event.sender.id, requestId, pages, 'model-prep');
 
         const requestBytes = await estimateRequestBytes(sourcePdfPath, pages);
         preparingJob.requestedBytes = requestBytes;
