@@ -272,15 +272,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         const previousSidebarVisibility = showSidebar.value;
         const previousSidebarTab = sidebarTab.value;
         try {
-            const didAddToSelection = await viewer.commentSelection();
-            if (didAddToSelection) {
-                if (annotationPlacingPageNote.value) {
-                    viewer.cancelCommentPlacement();
-                    annotationPlacingPageNote.value = false;
-                }
-                return;
-            }
-
             dragMode.value = false;
             annotationTool.value = 'none';
             if (!annotationPlacingPageNote.value) {

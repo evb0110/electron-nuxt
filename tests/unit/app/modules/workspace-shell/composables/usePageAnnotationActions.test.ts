@@ -470,7 +470,7 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(note);
     });
 
-    it('starts quick note placement when selection-based note is not created', async () => {
+    it('starts quick note placement without creating a selection-based note', async () => {
         const {
             deps,
             viewer,
@@ -479,11 +479,10 @@ describe('usePageAnnotationActions', () => {
 
         deps.showSidebar.value = true;
         deps.sidebarTab.value = 'bookmarks';
-        viewer.commentSelection.mockResolvedValue(false);
 
         await actions.handleQuickNoteAction();
 
-        expect(viewer.commentSelection).toHaveBeenCalledOnce();
+        expect(viewer.commentSelection).not.toHaveBeenCalled();
         expect(viewer.startCommentPlacement).toHaveBeenCalledOnce();
         expect(deps.annotationPlacingPageNote.value).toBe(true);
         expect(deps.annotationTool.value).toBe('none');
