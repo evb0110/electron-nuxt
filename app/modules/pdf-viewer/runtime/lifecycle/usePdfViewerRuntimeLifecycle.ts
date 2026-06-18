@@ -424,6 +424,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         getVisibleRange,
         reRenderVisiblePagesAndSyncCurrentPage: () => rerenderVisiblePagesAndSyncCurrentPage(),
         syncCurrentPageFromViewport: (options) => syncCurrentPageFromViewport(options),
+        getUserViewportInteractionEpoch,
         applySearchHighlights,
         updateVisibleRange,
         scrollToPage,

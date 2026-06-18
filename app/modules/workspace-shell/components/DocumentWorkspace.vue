@@ -132,7 +132,7 @@
                     :thumbnail-invalidation-request="thumbnailInvalidationRequest"
                     :thumbnail-hidden-annotation-ids="thumbnailHiddenAnnotationIds"
                     :thumbnail-page-preview-provider="pdfViewerRef?.getPagePreview ?? null"
-                    @search="handleSearch"
+                    @search="handleSearchWhenDocumentReady"
                     @next="handleSearchNext"
                     @previous="handleSearchPrevious"
                     @update:search-options="searchOptions = $event"
@@ -428,6 +428,7 @@ import type {
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import { formatEtaDuration } from '@app/utils/progressFormatting';
+import { getErrorMessage } from '@app/utils/error';
 import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
 import type { IRecentFile } from '@contracts/shared';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
@@ -526,6 +527,8 @@ const analytics = useAnalytics();
 const { isResolved: recentFilesResolved } = useRecentFiles();
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
+const SEARCH_DOCUMENT_READY_TIMEOUT_MS = 20_000;
+const SEARCH_DOCUMENT_READY_POLL_MS = 50;
 const isRestoringSplitPayload = ref(false);
 const currentPageTransitionHistory = ref<Array<{
     page: number;
@@ -1165,6 +1168,90 @@ const {
     showNativeDjvuViewer,
     markAnnotationCommentsLoading,
 });
+
+function delaySearchReadinessPoll() {
+    return new Promise<void>(resolve => {
+        setTimeout(resolve, SEARCH_DOCUMENT_READY_POLL_MS);
+    });
+}
+
+function isDocumentReadyForSearch() {
+    return Boolean(
+        workingCopyPath.value
+        && pdfDocument.value
+        && totalPages.value > 0
+        && !isLoading.value
+        && !isOpeningDocumentForToolbar.value,
+    );
+}
+
+async function waitForDocumentReadyForSearch() {
+    if (isDocumentReadyForSearch()) {
+        return true;
+    }
+
+    BrowserLogger.diagnostic('pdf-search', 'Delaying search until document open settles', {
+        tabId,
+        hasWorkingCopyPath: Boolean(workingCopyPath.value),
+        hasPdfDocument: Boolean(pdfDocument.value),
+        totalPages: totalPages.value,
+        isLoading: isLoading.value,
+        isOpeningDocument: isOpeningDocumentForToolbar.value,
+    });
+
+    let settleFinished = false;
+    const settlePromise = waitForDocumentOpenSettled()
+        .catch((error) => {
+            BrowserLogger.warn('pdf-search', 'Document open settle wait failed before search', {
+                tabId,
+                error: getErrorMessage(error),
+            });
+        })
+        .finally(() => {
+            settleFinished = true;
+        });
+    const deadline = Date.now() + SEARCH_DOCUMENT_READY_TIMEOUT_MS;
+
+    while (Date.now() < deadline) {
+        if (isDocumentReadyForSearch()) {
+            return true;
+        }
+
+        if (settleFinished) {
+            await delaySearchReadinessPoll();
+        } else {
+            await Promise.race([
+                settlePromise,
+                delaySearchReadinessPoll(),
+            ]);
+        }
+        await nextTick();
+    }
+
+    BrowserLogger.warn('pdf-search', 'Search requested before document became ready', {
+        tabId,
+        hasWorkingCopyPath: Boolean(workingCopyPath.value),
+        hasPdfDocument: Boolean(pdfDocument.value),
+        totalPages: totalPages.value,
+        isLoading: isLoading.value,
+        isOpeningDocument: isOpeningDocumentForToolbar.value,
+    });
+    return isDocumentReadyForSearch();
+}
+
+async function handleSearchWhenDocumentReady() {
+    const requestedQuery = searchQuery.value;
+    const requestedOptions = { ...searchOptions.value };
+
+    if (!await waitForDocumentReadyForSearch()) {
+        return;
+    }
+    if (!searchQuery.value && requestedQuery) {
+        searchQuery.value = requestedQuery;
+        searchOptions.value = requestedOptions;
+    }
+    await handleSearch();
+}
 
 function handleAnnotationComments(comments: IAnnotationCommentSummary[]) {
     if (

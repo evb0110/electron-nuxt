@@ -1,4 +1,7 @@
-import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type {
+    ICancelableRenderTask,
+    IRenderVisiblePagesOptions,
+} from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import type { IPageRange } from '@app/types/pdf';
 import type { MaybeRefOrGetter } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
@@ -11,6 +14,8 @@ import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
+
+const TEXT_LAYER_FIRST_NAVIGATION_YIELD_MS = 50;
 
 interface ISinglePageRenderTarget {
     container: HTMLElement;
@@ -60,6 +65,28 @@ interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
         shouldContinue: () => boolean,
         renderOptions?: IRenderVisiblePagesOptions,
     ) => Promise<TRenderResult | null>;
+    prepareCanvasRenderForPage: (
+        pdfPage: PDFPageProxy,
+        pageNumber: number,
+        version: number,
+        requestId: number,
+        scale: number,
+        shouldContinue: () => boolean,
+        renderOptions?: IRenderVisiblePagesOptions,
+    ) => Promise<(TRenderResult & { startRender: () => ICancelableRenderTask }) | null>;
+    renderPreparedCanvasForPage: (
+        pdfPage: PDFPageProxy,
+        pageNumber: number,
+        version: number,
+        requestId: number,
+        preparedCanvasRender: TRenderResult & { startRender: () => ICancelableRenderTask },
+        shouldContinue: () => boolean,
+    ) => Promise<TRenderResult | null>;
+    applyContainerDimensions: (
+        container: HTMLElement,
+        renderResult: TRenderResult,
+        scale: number,
+    ) => void;
     mountRenderedCanvas: (
         pageNumber: number,
         container: HTMLElement,
@@ -138,7 +165,10 @@ export function usePdfRendererSinglePageController<TRenderResult>(
         cleanupCanvasRenderResult,
         releasePageResources,
         loadPageForRender,
+        prepareCanvasRenderForPage,
+        renderPreparedCanvasForPage,
         prepareCanvasForRender,
+        applyContainerDimensions,
         mountRenderedCanvas,
         scheduleRenderForSinglePage,
         scheduleMissingRenderTargetRetry,
@@ -306,6 +336,130 @@ export function usePdfRendererSinglePageController<TRenderResult>(
             return;
         }
 
+        const annotationRenderResult = await renderAnnotationLayersForPage(
+            pageNumber,
+            version,
+            requestId,
+            renderContext,
+            shouldContinue,
+        );
+        if (!annotationRenderResult.shouldContinue) {
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pdfPage);
+            return;
+        }
+        if (!shouldContinue()) {
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pdfPage);
+            return;
+        }
+
+        renderContext.annotationLayerInstance =
+            annotationRenderResult.annotationLayerInstance;
+        scheduleOcrDebugForPage(pageNumber, renderContext);
+        finalizePageRender(pageNumber, version, pdfPage, target.container, shouldContinue);
+    }
+
+    function yieldForSearchNavigation() {
+        return new Promise<void>((resolve) => {
+            setTimeout(resolve, TEXT_LAYER_FIRST_NAVIGATION_YIELD_MS);
+        });
+    }
+
+    async function mountTextLayerBeforeCanvas(
+        pageNumber: number,
+        version: number,
+        scale: number,
+        target: ISinglePageRenderTarget,
+        pdfPage: PDFPageProxy,
+        preparedCanvasRender: TRenderResult & { startRender: () => ICancelableRenderTask },
+        requestId: number,
+        shouldContinue: () => boolean,
+    ) {
+        if (getRenderVersion() !== version || !shouldContinue()) {
+            cleanupCanvasRenderResult(preparedCanvasRender);
+            releasePageResources(pageNumber, pdfPage);
+            return;
+        }
+
+        applyContainerDimensions(target.container, preparedCanvasRender, scale);
+        const textLayerDiv =
+            target.container.querySelector<HTMLDivElement>('.text-layer');
+        const renderContext: IRenderPageContext<TRenderResult> = {
+            container: target.container,
+            pdfPage,
+            renderResult: preparedCanvasRender,
+            textLayerDiv,
+            annotationLayerInstance: null,
+        };
+        let shouldContinueCanvasRender = true;
+        const shouldContinueSearchCanvasRender = () => (
+            shouldContinueCanvasRender && shouldContinue()
+        );
+        const canvasRenderPromise = renderPreparedCanvasForPage(
+            pdfPage,
+            pageNumber,
+            version,
+            requestId,
+            preparedCanvasRender,
+            shouldContinueSearchCanvasRender,
+        );
+
+        async function cancelPreparedCanvasRender() {
+            shouldContinueCanvasRender = false;
+            const renderResult = await canvasRenderPromise.catch(() => null);
+            if (renderResult) {
+                cleanupCanvasRenderResult(renderResult);
+            }
+        }
+
+        try {
+            const shouldContinueAfterTextLayer = await renderTextLayerForPage(
+                pageNumber,
+                version,
+                requestId,
+                renderContext,
+                scale,
+                shouldContinue,
+            );
+            if (!shouldContinueAfterTextLayer) {
+                await cancelPreparedCanvasRender();
+                releasePageResources(pageNumber, pdfPage);
+                return;
+            }
+        } catch (error) {
+            await cancelPreparedCanvasRender();
+            releasePageResources(pageNumber, pdfPage);
+            throw error;
+        }
+
+        await yieldForSearchNavigation();
+        if (getRenderVersion() !== version || !shouldContinue()) {
+            await cancelPreparedCanvasRender();
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pdfPage);
+            return;
+        }
+
+        const renderResult = await canvasRenderPromise;
+        if (!renderResult) {
+            releasePageResources(pageNumber, pdfPage);
+            return;
+        }
+        if (getRenderVersion() !== version || !shouldContinue()) {
+            cleanupCanvasRenderResult(renderResult);
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pdfPage);
+            return;
+        }
+
+        mountRenderedCanvas(pageNumber, target.container, target.canvasHost, renderResult, scale);
+        logPdfRenderTrace('renderer-canvas-mounted', {
+            pageNumber,
+            version,
+            requestId,
+            page: summarizePageDom(pageNumber),
+            textLayerFirst: true,
+        });
+        onPageCanvasMounted?.(pageNumber);
+
+        renderContext.renderResult = renderResult;
         const annotationRenderResult = await renderAnnotationLayersForPage(
             pageNumber,
             version,
@@ -543,6 +697,47 @@ export function usePdfRendererSinglePageController<TRenderResult>(
                     renderVersion: getRenderVersion(),
                 });
                 releasePageResources(pageNumber, pdfPage);
+                return;
+            }
+            if (
+                renderOptions?.prioritizeTextLayer === true
+                && target.container.querySelector('.text-layer')
+            ) {
+                logPdfRenderTrace('renderer-text-layer-first-prepare-begin', {
+                    pageNumber,
+                    version,
+                    requestId,
+                    scale,
+                });
+                const preparedCanvasRender = await prepareCanvasRenderForPage(
+                    pdfPage,
+                    pageNumber,
+                    version,
+                    requestId,
+                    scale,
+                    shouldContinuePage,
+                    renderOptions,
+                );
+                if (!preparedCanvasRender) {
+                    logPdfRenderTrace('renderer-text-layer-first-prepare-stale', {
+                        pageNumber,
+                        version,
+                        requestId,
+                        renderVersion: getRenderVersion(),
+                    });
+                    releasePageResources(pageNumber, pdfPage);
+                    return;
+                }
+                await mountTextLayerBeforeCanvas(
+                    pageNumber,
+                    version,
+                    scale,
+                    target,
+                    pdfPage,
+                    preparedCanvasRender,
+                    requestId,
+                    shouldContinuePage,
+                );
                 return;
             }
             logPdfRenderTrace('renderer-canvas-prepare-begin', {

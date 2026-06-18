@@ -363,6 +363,109 @@ describe('usePdfSearch', () => {
         expect(search.currentResultNavigationId.value).toBe(1);
     });
 
+    it('preserves the active match target when streamed batches insert earlier results', async () => {
+        let requestId = '';
+        let progressListener: (progress: {
+            requestId: string;
+            processed: number;
+            total: number;
+            results?: Array<{
+                pageNumber: number;
+                pageMatchIndex: number;
+                matchIndex: number;
+                startOffset: number;
+                endOffset: number;
+            }>;
+            truncated?: boolean;
+        }) => void = () => {
+            throw new Error('Progress listener was not registered');
+        };
+        let resolveSearch: (value: {
+            results: Array<{
+                pageNumber: number;
+                pageMatchIndex: number;
+                matchIndex: number;
+                startOffset: number;
+                endOffset: number;
+            }>;
+            truncated: boolean;
+        }) => void = () => {};
+
+        const initiallyVisibleResult = {
+            pageNumber: 8,
+            pageMatchIndex: 0,
+            matchIndex: 3,
+            startOffset: 40,
+            endOffset: 45,
+        };
+        const earlierDiscoveredResult = {
+            pageNumber: 6,
+            pageMatchIndex: 0,
+            matchIndex: 0,
+            startOffset: 12,
+            endOffset: 17,
+        };
+
+        mockSearch.onProgress.mockImplementation((listener) => {
+            progressListener = listener;
+            return vi.fn();
+        });
+        mockSearch.run.mockImplementation(async (_pdfPath, _query, options) => {
+            requestId = options.requestId;
+            return new Promise((resolve) => {
+                resolveSearch = resolve;
+            });
+        });
+        const search = await createPdfSearch();
+
+        const promise = search.search('alpha', '/tmp/work.pdf', 928);
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+
+        progressListener({
+            requestId,
+            processed: 8,
+            total: 928,
+            results: [initiallyVisibleResult],
+            truncated: false,
+        });
+
+        expect(search.currentResult.value).toEqual(expect.objectContaining({
+            pageIndex: 7,
+            matchIndex: 3,
+        }));
+        expect(search.currentResultNavigationId.value).toBe(1);
+
+        progressListener({
+            requestId,
+            processed: 12,
+            total: 928,
+            results: [
+                earlierDiscoveredResult,
+                initiallyVisibleResult,
+            ],
+            truncated: false,
+        });
+
+        expect(search.currentResultIndex.value).toBe(1);
+        expect(search.currentResult.value).toEqual(expect.objectContaining({
+            pageIndex: 7,
+            matchIndex: 3,
+        }));
+        expect(search.currentResultNavigationId.value).toBe(1);
+
+        resolveSearch({
+            results: [
+                earlierDiscoveredResult,
+                initiallyVisibleResult,
+            ],
+            truncated: false,
+        });
+        await promise;
+
+        expect(search.currentResultIndex.value).toBe(1);
+        expect(search.currentResultNavigationId.value).toBe(1);
+    });
+
     it('advances match navigation only for explicit result commands after initial selection', async () => {
         mockSearch.run.mockResolvedValue({
             results: [

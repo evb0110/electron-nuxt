@@ -1208,6 +1208,39 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         }
     });
 
+    it('cancels stale continuous destination navigation when search navigation begins', async () => {
+        vi.useFakeTimers();
+        try {
+            const {
+                scrollToPageInternal,
+                singlePageScroll,
+            } = createSinglePageScrollHarness({
+                continuousScroll: true,
+                mountedPageNumbers: [
+                    10,
+                    11,
+                    12,
+                ],
+            });
+
+            singlePageScroll.scrollToPage(1, {preferExactDom: true});
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(1);
+            expect(singlePageScroll.continuousNavigationTargetPage.value).toBe(1);
+
+            singlePageScroll.beginSearchNavigation(2, 500);
+
+            expect(singlePageScroll.searchNavigationTargetPage.value).toBe(2);
+            expect(singlePageScroll.continuousNavigationTargetPage.value).toBeNull();
+
+            await vi.runOnlyPendingTimersAsync();
+            await nextTick();
+
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('renders only the latest pending paged target during rapid supersession', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(1_000);

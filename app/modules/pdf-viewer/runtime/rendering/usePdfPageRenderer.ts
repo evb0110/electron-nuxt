@@ -36,6 +36,7 @@ import { usePdfRendererRerenderController } from '@app/modules/pdf-viewer/runtim
 import { usePdfRendererVisibleRenderController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererVisibleRenderController';
 import { usePdfRendererSinglePageController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSinglePageController';
 import { resolveHiddenEmbeddedAnnotationIdsForPageContainer } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
+import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 
 export type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 
@@ -210,10 +211,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
     function scheduleRenderForSinglePage(
         pageNumber: number,
-        optionsOverride: {
-            preserveRenderedPages?: boolean;
-            bufferOverride?: number;
-        },
+        optionsOverride: IRenderVisiblePagesOptions,
     ) {
         runGuardedTask(
             () =>
@@ -222,7 +220,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         start: pageNumber,
                         end: pageNumber,
                     },
-                    optionsOverride,
+                    {
+                        ...optionsOverride,
+                        preserveInFlightRequiredPages:
+                            optionsOverride.preserveInFlightRequiredPages ?? true,
+                    },
                 ),
             {
                 scope: 'pdf-renderer',
@@ -347,6 +349,29 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         return resolvedHiddenAnnotationIds;
     }
 
+    function resolveSearchNavigationRenderOptions(pageNumber: number): Partial<IRenderVisiblePagesOptions> {
+        const pageContainer = getMountedPageContainer(pageNumber, options.container.value);
+        if (!pageContainer) {
+            return {};
+        }
+
+        const width = pageContainer.offsetWidth || pageContainer.clientWidth;
+        const height = pageContainer.offsetHeight || pageContainer.clientHeight;
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+            return {};
+        }
+
+        const requestedPixels = canvasRenderer.estimateRequestedPixels(width, height);
+        if (requestedPixels <= performanceProfile.maxBufferCanvasPixels) {
+            return {};
+        }
+
+        return {
+            maxCanvasPixelsOverride: performanceProfile.maxBufferCanvasPixels,
+            markRenderedPageStale: true,
+        };
+    }
+
     const searchController = usePdfRendererSearchController({
         container: options.container,
         isActive,
@@ -360,12 +385,19 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             scheduleRenderForSinglePage(pageNumber, {
                 preserveRenderedPages: true,
                 bufferOverride: 0,
+                prioritizeTextLayer: true,
+                ...resolveSearchNavigationRenderOptions(pageNumber),
             });
         },
         ...(options.scrollToPage ? { scrollToPage: options.scrollToPage } : {}),
         ...(options.suppressSnap ? { suppressSnap: options.suppressSnap } : {}),
         ...(options.beginSearchNavigation ? { beginSearchNavigation: options.beginSearchNavigation } : {}),
         ...(options.endSearchNavigation ? { endSearchNavigation: options.endSearchNavigation } : {}),
+        isPageRenderPending: (pageNumber) => (
+            renderingPages.has(pageNumber)
+            || activeRenderTasks.has(pageNumber)
+            || activeTextLayerAbortControllers.has(pageNumber)
+        ),
     });
 
     const {
@@ -401,6 +433,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const {
         releasePageResources,
         loadPageForRender,
+        prepareCanvasRenderForPage,
+        renderPreparedCanvasForPage,
         prepareCanvasForRender,
         mountRenderedCanvas,
     } = usePdfRendererCanvasController({
@@ -458,7 +492,18 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         cleanupCanvasRenderResult: canvasRenderer.cleanupCanvasRenderResult,
         releasePageResources,
         loadPageForRender,
+        prepareCanvasRenderForPage,
+        renderPreparedCanvasForPage,
         prepareCanvasForRender,
+        applyContainerDimensions: (container, renderResult, scale) => {
+            canvasRenderer.applyContainerDimensions(
+                container,
+                renderResult.viewport,
+                scale,
+                renderResult.userUnit,
+                renderResult.totalScaleFactor,
+            );
+        },
         mountRenderedCanvas,
         scheduleRenderForSinglePage,
         scheduleMissingRenderTargetRetry,

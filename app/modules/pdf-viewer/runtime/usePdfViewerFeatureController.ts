@@ -238,18 +238,29 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         annotationSettings,
     });
     const outputScale = usePdfViewerOutputScale();
+    function isFinitePageRange(range: IPageRange) {
+        return Number.isFinite(range.start)
+            && Number.isFinite(range.end)
+            && range.start <= range.end;
+    }
+
     function pageRangeContainsPage(range: IPageRange, pageNumber: number) {
-        return pageNumber >= range.start && pageNumber <= range.end;
+        return isFinitePageRange(range)
+            && pageNumber >= range.start
+            && pageNumber <= range.end;
     }
 
     function pageRangesIntersect(left: IPageRange, right: IPageRange) {
-        return left.start <= right.end && right.start <= left.end;
+        return isFinitePageRange(left)
+            && isFinitePageRange(right)
+            && left.start <= right.end
+            && right.start <= left.end;
     }
 
     let isVisibleRenderRangeCurrent = (range: IPageRange) => (
         pageRangesIntersect(range, visibleRange.value)
     );
-    let getPagedNavigationTargetPage = (): number | null => null;
+    let getNavigationRenderTargetPage = (): number | null => null;
     const {
         setupPagePlaceholders,
         renderVisiblePages,
@@ -282,7 +293,10 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         annotationL10n,
         scrollToPage: (pageNumber, options) => singlePageScroll.scrollToPage(pageNumber, options),
         suppressSnap: () => singlePageScroll.suppressSnapFor(220),
-        beginSearchNavigation: (pageNumber) => singlePageScroll.beginSearchNavigation(pageNumber),
+        beginSearchNavigation: (pageNumber) => {
+            markUserViewportInteraction();
+            singlePageScroll.beginSearchNavigation(pageNumber);
+        },
         endSearchNavigation: (settleMs?: number) => singlePageScroll.endSearchNavigation(settleMs),
         searchPageMatches,
         currentSearchMatch,
@@ -302,24 +316,20 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         renderedPageStateVersion,
     });
     isVisibleRenderRangeCurrent = (range: IPageRange) => {
-        if (pageRangesIntersect(range, visibleRange.value)) {
-            return true;
+        const targetPage = getNavigationRenderTargetPage();
+        if (targetPage !== null && numPages.value > 0) {
+            const targetRowBounds = getPageRowBoundsForViewMode({
+                pageNumber: targetPage,
+                viewMode: viewMode.value,
+                totalPages: numPages.value,
+            });
+            return (
+                pageRangesIntersect(range, targetRowBounds)
+                || pageRangeContainsPage(range, targetPage)
+            );
         }
 
-        const targetPage = getPagedNavigationTargetPage();
-        if (targetPage === null || numPages.value <= 0) {
-            return false;
-        }
-
-        const targetRowBounds = getPageRowBoundsForViewMode({
-            pageNumber: targetPage,
-            viewMode: viewMode.value,
-            totalPages: numPages.value,
-        });
-        return (
-            pageRangesIntersect(range, targetRowBounds)
-            || pageRangeContainsPage(range, targetPage)
-        );
+        return pageRangesIntersect(range, visibleRange.value);
     };
     watch(outputScale, (nextScale, previousScale) => {
         if (nextScale === previousScale || !pdfDocument.value || isLoading.value) {
@@ -433,7 +443,11 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         requestedCurrentPage,
         cancelPendingSearchScroll,
     });
-    getPagedNavigationTargetPage = () => singlePageScroll.pagedNavigationTargetPage.value;
+    getNavigationRenderTargetPage = () => (
+        singlePageScroll.pagedNavigationTargetPage.value
+        ?? singlePageScroll.searchNavigationTargetPage.value
+        ?? singlePageScroll.continuousNavigationTargetPage.value
+    );
     const { navigationAnchorPage } = singlePageScroll;
     const userViewportInteractionEpoch = ref(0);
 

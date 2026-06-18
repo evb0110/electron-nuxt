@@ -1,4 +1,5 @@
 import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
+import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
 import { logPdfNav } from '@app/utils/logPdfNav';
 import { delay } from 'es-toolkit/promise';
 import { getErrorMessage } from '@app/utils/error';
@@ -17,6 +18,7 @@ interface IPdfSearchMatchScrollerDeps {
     suppressSnap?: () => void;
     beginSearchNavigation?: (pageNumber: number) => void;
     endSearchNavigation?: (settleMs?: number) => void;
+    isPageRenderPending?: (pageNumber: number) => boolean;
 }
 
 interface IPendingRequestToken {
@@ -26,7 +28,13 @@ interface IPendingRequestToken {
 
 const SEARCH_SCROLL_RETRY_DELAY_MS = 40;
 
-const SEARCH_SCROLL_WAIT_TIMEOUT_MS = 1500;
+const SEARCH_SCROLL_MIN_WAIT_TIMEOUT_MS = 3000;
+
+const SEARCH_SCROLL_MAX_WAIT_TIMEOUT_MS = 12000;
+
+const SEARCH_SCROLL_WAIT_EXTENSION_MS = 1000;
+
+const SEARCH_RENDER_REQUEST_RETRY_MS = 600;
 
 const SEARCH_SCROLL_SETTLE_MS = 120;
 
@@ -51,16 +59,87 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         return !!currentMatch && currentMatch.pageIndex === targetPageIndex;
     }
 
+    function getTargetPageWarmupState(targetPageIndex: number) {
+        const containerRoot = deps.getContainer();
+        const pageContainer = containerRoot
+            ? getPageContainer(containerRoot, targetPageIndex)
+            : null;
+        const textLayer = pageContainer?.querySelector<HTMLElement>('.text-layer') ?? null;
+        const pageNumber = targetPageIndex + 1;
+        const renderPending = deps.isPageRenderPending?.(pageNumber) ?? false;
+        const rendered = pageContainer?.classList.contains(pdfViewerDomClasses.renderedPageContainer) ?? false;
+        const hasCanvas = Boolean(pageContainer?.querySelector<HTMLCanvasElement>('.page_canvas canvas'));
+        const textLayerRendering = textLayer?.dataset?.pdfTextLayerRendering === 'true';
+        const textLayerReady = textLayer?.dataset?.pdfTextLayerReady === 'true';
+        const textLayerMarkedNotReady = textLayer?.dataset?.pdfTextLayerReady === 'false';
+
+        return {
+            containerInDOM: Boolean(pageContainer),
+            renderPending,
+            rendered,
+            hasCanvas,
+            hasTextLayer: Boolean(textLayer),
+            textLayerRendering,
+            textLayerReady,
+            textLayerMarkedNotReady,
+        };
+    }
+
+    function isTargetPageDisplayReady(state: ReturnType<typeof getTargetPageWarmupState>) {
+        return state.containerInDOM
+            && state.hasCanvas
+            && !state.textLayerRendering
+            && !state.textLayerMarkedNotReady;
+    }
+
+    function isTargetPageStillWarming(targetPageIndex: number) {
+        const state = getTargetPageWarmupState(targetPageIndex);
+        return !isTargetPageDisplayReady(state)
+            || (state.renderPending && !state.hasCanvas)
+            || state.textLayerRendering
+            || state.textLayerMarkedNotReady;
+    }
+
     async function waitForMatchAndScroll(
         token: IPendingRequestToken,
         targetPageIndex: number,
+        initialRenderRequestAt: number,
     ) {
-        const deadline = Date.now() + SEARCH_SCROLL_WAIT_TIMEOUT_MS;
+        const startedAt = Date.now();
+        const maxDeadline = startedAt + SEARCH_SCROLL_MAX_WAIT_TIMEOUT_MS;
+        let deadline = startedAt + SEARCH_SCROLL_MIN_WAIT_TIMEOUT_MS;
         let attempt = 0;
+        let lastRenderRequestAt = initialRenderRequestAt;
+        let lastWaitExtensionLogAt = 0;
 
-        while (Date.now() < deadline) {
+        while (true) {
             if (!isTokenActive(token)) {
                 return false;
+            }
+
+            const nowAtTop = Date.now();
+            if (nowAtTop >= deadline) {
+                if (
+                    deadline < maxDeadline
+                    && isTargetPageStillWarming(targetPageIndex)
+                ) {
+                    deadline = Math.min(maxDeadline, nowAtTop + SEARCH_SCROLL_WAIT_EXTENSION_MS);
+                    if (nowAtTop - lastWaitExtensionLogAt >= SEARCH_SCROLL_WAIT_EXTENSION_MS) {
+                        lastWaitExtensionLogAt = nowAtTop;
+                        const warmupState = getTargetPageWarmupState(targetPageIndex);
+                        logPdfNav(
+                            `[PDF-NAV] waitForTextLayerAndScroll extending: pageIndex=${targetPageIndex}`
+                            + ` untilMs=${deadline - startedAt}`
+                            + ` renderPending=${warmupState.renderPending}`
+                            + ` rendered=${warmupState.rendered}`
+                            + ` textLayerReady=${warmupState.textLayerReady}`
+                            + ` textLayerMarkedNotReady=${warmupState.textLayerMarkedNotReady}`
+                            + ` textLayerRendering=${warmupState.textLayerRendering}`,
+                        );
+                    }
+                } else {
+                    break;
+                }
             }
 
             if (!isStillTargetingPage(targetPageIndex)) {
@@ -68,6 +147,36 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
                     `[PDF-NAV] requestScrollToMatch aborting: match changed from pageIndex=${targetPageIndex} to ${deps.getCurrentSearchMatch()?.pageIndex ?? 'null'}`,
                 );
                 return false;
+            }
+
+            const warmupState = getTargetPageWarmupState(targetPageIndex);
+            const now = Date.now();
+            let renderRequested = false;
+            if (now - lastRenderRequestAt >= SEARCH_RENDER_REQUEST_RETRY_MS) {
+                deps.scheduleRenderForSinglePage(targetPageIndex + 1);
+                lastRenderRequestAt = now;
+                renderRequested = true;
+            }
+            const containerRoot = deps.getContainer();
+            const pageContainer = containerRoot
+                ? getPageContainer(containerRoot, targetPageIndex)
+                : null;
+
+            if (!isTargetPageDisplayReady(warmupState)) {
+                logPdfNav(
+                    `[PDF-NAV] waitForDisplayReadyAndScroll: pageIndex=${targetPageIndex} containerInDOM=${!!pageContainer} renderRequested=${renderRequested}`,
+                    {
+                        renderPending: warmupState.renderPending,
+                        rendered: warmupState.rendered,
+                        hasCanvas: warmupState.hasCanvas,
+                        textLayerRendering: warmupState.textLayerRendering,
+                        textLayerReady: warmupState.textLayerReady,
+                        textLayerMarkedNotReady: warmupState.textLayerMarkedNotReady,
+                    },
+                );
+
+                await delay(SEARCH_SCROLL_RETRY_DELAY_MS);
+                continue;
             }
 
             attempt += 1;
@@ -79,14 +188,16 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
                 return true;
             }
 
-            deps.scheduleRenderForSinglePage(targetPageIndex + 1);
-            const containerRoot = deps.getContainer();
-            const pageContainer = containerRoot
-                ? getPageContainer(containerRoot, targetPageIndex)
-                : null;
-
             logPdfNav(
-                `[PDF-NAV] waitForTextLayerAndScroll: pageIndex=${targetPageIndex} containerInDOM=${!!pageContainer}`,
+                `[PDF-NAV] waitForTextLayerAndScroll: pageIndex=${targetPageIndex} containerInDOM=${!!pageContainer} renderRequested=${renderRequested}`,
+                {
+                    renderPending: warmupState.renderPending,
+                    rendered: warmupState.rendered,
+                    hasCanvas: warmupState.hasCanvas,
+                    textLayerRendering: warmupState.textLayerRendering,
+                    textLayerReady: warmupState.textLayerReady,
+                    textLayerMarkedNotReady: warmupState.textLayerMarkedNotReady,
+                },
             );
 
             await delay(SEARCH_SCROLL_RETRY_DELAY_MS);
@@ -111,7 +222,23 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         return false;
     }
 
-    function scrollToCurrentMatchImmediately() {
+    function scrollToCurrentMatchImmediately(matchPageIndex: number) {
+        const warmupState = getTargetPageWarmupState(matchPageIndex);
+        if (!isTargetPageDisplayReady(warmupState)) {
+            logPdfNav(
+                `[PDF-NAV] fast-path: target page=${matchPageIndex + 1} not display-ready`,
+                {
+                    renderPending: warmupState.renderPending,
+                    rendered: warmupState.rendered,
+                    hasCanvas: warmupState.hasCanvas,
+                    textLayerRendering: warmupState.textLayerRendering,
+                    textLayerReady: warmupState.textLayerReady,
+                    textLayerMarkedNotReady: warmupState.textLayerMarkedNotReady,
+                },
+            );
+            return false;
+        }
+
         const didScroll = deps.scrollToCurrentMatch();
         if (didScroll) {
             logPdfNav('[PDF-NAV] fast-path: scrollToCurrentMatch succeeded immediately');
@@ -127,6 +254,7 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
             `[PDF-NAV] deferring page jump; waiting for match-ready scroll on page=${matchPageIndex + 1}`,
         );
         deps.scheduleRenderForSinglePage(matchPageIndex + 1);
+        return Date.now();
     }
 
     function fallbackToPageScroll(matchPageIndex: number, requestId: number) {
@@ -144,7 +272,12 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         requestId: number,
         matchPageIndex: number,
     ) {
-        const didScroll = await waitForMatchAndScroll(token, matchPageIndex);
+        const initialRenderRequestAt = deferSearchMatchScroll(matchPageIndex);
+        const didScroll = await waitForMatchAndScroll(
+            token,
+            matchPageIndex,
+            initialRenderRequestAt,
+        );
         if (!isTokenActive(token)) {
             return;
         }
@@ -167,11 +300,10 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
             return;
         }
 
-        if (scrollToCurrentMatchImmediately()) {
+        if (scrollToCurrentMatchImmediately(matchPageIndex)) {
             return;
         }
 
-        deferSearchMatchScroll(matchPageIndex);
         await finishDeferredSearchMatchScroll(token, requestId, matchPageIndex);
     }
 

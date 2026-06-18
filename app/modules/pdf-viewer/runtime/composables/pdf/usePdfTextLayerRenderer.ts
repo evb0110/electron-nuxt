@@ -234,6 +234,56 @@ export const usePdfTextLayerRenderer = (deps: {
             || elapsed >= HIGHLIGHT_REFRESH_BUDGET_MS;
     }
 
+    function pageHasSearchMatches(pageMatchData: IPdfPageMatches | null) {
+        return Boolean(pageMatchData && pageMatchData.matches.length > 0);
+    }
+
+    function isTextLayerRendering(textLayerDiv: HTMLElement) {
+        return textLayerDiv.dataset?.pdfTextLayerRendering === 'true';
+    }
+
+    function isTextLayerMarkedReady(textLayerDiv: HTMLElement) {
+        return textLayerDiv.dataset?.pdfTextLayerReady === 'true';
+    }
+
+    function hasSearchableTextLayerContent(textLayerDiv: HTMLElement) {
+        const textLength = (textLayerDiv.textContent ?? '').trim().length;
+        return textLength > 0 && Boolean(textLayerDiv.querySelector?.('span'));
+    }
+
+    function shouldWaitForSearchTextLayer(
+        textLayerDiv: HTMLElement,
+        pageMatchData: IPdfPageMatches | null,
+    ) {
+        if (!pageHasSearchMatches(pageMatchData)) {
+            return false;
+        }
+
+        if (isTextLayerRendering(textLayerDiv)) {
+            return true;
+        }
+
+        if (isTextLayerMarkedReady(textLayerDiv)) {
+            return false;
+        }
+
+        return !hasSearchableTextLayerContent(textLayerDiv);
+    }
+
+    function deferSearchHighlightsUntilTextLayerReady(
+        pageNumber: number,
+        textLayerDiv: HTMLElement,
+        pageMatchData: IPdfPageMatches | null,
+    ) {
+        if (!shouldWaitForSearchTextLayer(textLayerDiv, pageMatchData)) {
+            return false;
+        }
+
+        pageHighlightState.signatureByPage.delete(pageNumber);
+        clearTextLayerIndexCache(textLayerDiv);
+        return true;
+    }
+
     function refreshSearchHighlightsForPage(
         container: HTMLElement,
         mountedPageNumber: number,
@@ -241,15 +291,23 @@ export const usePdfTextLayerRenderer = (deps: {
         currentMatchValue: IPdfSearchMatch | null,
     ) {
         const pageIndex = mountedPageNumber - 1;
-        const signature = buildPageHighlightSignature(pageMatchData, currentMatchValue);
-        const previousSignature = pageHighlightState.signatureByPage.get(mountedPageNumber);
-        if (previousSignature === signature) {
+        const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
+        if (!textLayerDiv) {
+            pageHighlightState.signatureByPage.delete(mountedPageNumber);
             return;
         }
 
-        const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
-        if (!textLayerDiv) {
-            pageHighlightState.signatureByPage.set(mountedPageNumber, signature);
+        if (deferSearchHighlightsUntilTextLayerReady(
+            mountedPageNumber,
+            textLayerDiv,
+            pageMatchData,
+        )) {
+            return;
+        }
+
+        const signature = buildPageHighlightSignature(pageMatchData, currentMatchValue);
+        const previousSignature = pageHighlightState.signatureByPage.get(mountedPageNumber);
+        if (previousSignature === signature) {
             return;
         }
 
@@ -574,6 +632,8 @@ export const usePdfTextLayerRenderer = (deps: {
         signal?: AbortSignal,
     ) {
         throwIfAborted(signal);
+        textLayerDiv.dataset.pdfTextLayerRendering = 'true';
+        textLayerDiv.dataset.pdfTextLayerReady = 'false';
         clearTextLayerIndexCache(textLayerDiv);
         textLayerDiv.innerHTML = '';
         textLayerDiv.style.setProperty('--scale-factor', String(scale));
@@ -631,8 +691,11 @@ export const usePdfTextLayerRenderer = (deps: {
             signal?.removeEventListener('abort', abortTextLayer);
         }
         throwIfAborted(signal);
+        clearTextLayerIndexCache(textLayerDiv);
         textLayerDiv.style.width = '';
         textLayerDiv.style.height = '';
+        textLayerDiv.dataset.pdfTextLayerReady = 'true';
+        delete textLayerDiv.dataset.pdfTextLayerRendering;
     }
 
     function setupTextLayerInteraction(textLayerDiv: HTMLElement) {
@@ -656,6 +719,14 @@ export const usePdfTextLayerRenderer = (deps: {
         }
 
         const pageMatchData = searchMatches.get(pageIndex) ?? null;
+        if (deferSearchHighlightsUntilTextLayerReady(
+            pageNumber,
+            textLayerDiv,
+            pageMatchData,
+        )) {
+            return;
+        }
+
         const signature = buildPageHighlightSignature(pageMatchData, currentMatch);
         const highlightResult = highlightPage(
             textLayerDiv,
@@ -768,6 +839,14 @@ export const usePdfTextLayerRenderer = (deps: {
             return false;
         }
 
+        const pageMatchData = toValue(deps.searchPageMatches)?.get(pageIndex) ?? null;
+        refreshSearchHighlightsForPage(
+            targetContainer,
+            pageIndex + 1,
+            pageMatchData,
+            currentMatchValue,
+        );
+
         const currentHighlight = textLayerDiv.querySelector<HTMLElement>('.pdf-search-highlight--current');
         if (!currentHighlight) {
             const currentRanges = getCurrentMatchRanges(textLayerDiv);
@@ -807,6 +886,8 @@ export const usePdfTextLayerRenderer = (deps: {
         clearHighlights(textLayerDiv);
         textLayerDiv.innerHTML = '';
         clearTextLayerIndexCache(textLayerDiv);
+        delete textLayerDiv.dataset.pdfTextLayerRendering;
+        delete textLayerDiv.dataset.pdfTextLayerReady;
 
         const pageContainer = textLayerDiv.closest<HTMLElement>('.page_container');
         const pageNumber = Number.parseInt(pageContainer?.dataset.page ?? '', 10);

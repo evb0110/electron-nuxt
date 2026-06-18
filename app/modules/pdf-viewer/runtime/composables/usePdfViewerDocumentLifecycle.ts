@@ -114,6 +114,7 @@ interface IUsePdfViewerDocumentLifecycleOptions {
         source?: string;
         stabilize?: boolean 
     }) => Promise<void>;
+    getUserViewportInteractionEpoch?: (() => number) | undefined;
     applySearchHighlights: () => void;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => void;
@@ -840,6 +841,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         plan: IReloadPlan,
         activeLoadToken: number,
         loadedVersion: number,
+        viewportInteractionEpoch: number,
     ) {
         if (
             plan.shouldPreserveVisibleContent
@@ -851,6 +853,13 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         await nextTick();
         if (!isActiveLoadedDocument(activeLoadToken, loadedVersion)) {
             return false;
+        }
+
+        if (
+            options.getUserViewportInteractionEpoch
+            && options.getUserViewportInteractionEpoch() !== viewportInteractionEpoch
+        ) {
+            return true;
         }
 
         options.scrollToPage(plan.resolvedPageToRestore);
@@ -868,6 +877,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         }
 
         const activeLoadToken = startDocumentLoad();
+        const viewportInteractionEpoch = options.getUserViewportInteractionEpoch?.() ?? 0;
         let settleTransferredToFinish = false;
 
         try {
@@ -948,6 +958,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                         plan,
                         activeLoadToken,
                         loaded.version,
+                        viewportInteractionEpoch,
                     );
                     if (!reconciled) {
                         settleVisualReloadTransition('fresh-scroll-superseded');

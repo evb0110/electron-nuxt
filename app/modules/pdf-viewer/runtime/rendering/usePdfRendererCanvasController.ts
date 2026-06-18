@@ -193,7 +193,7 @@ export function usePdfRendererCanvasController(options: IUsePdfRendererCanvasCon
         return getRenderVersion() === version && shouldContinue() ? pdfPage : null;
     }
 
-    async function prepareCanvasForRender(
+    async function prepareCanvasRenderForPage(
         pdfPage: PDFPageProxy,
         pageNumber: number,
         version: number,
@@ -235,6 +235,17 @@ export function usePdfRendererCanvasController(options: IUsePdfRendererCanvasCon
             return null;
         }
 
+        return preparedCanvasRender;
+    }
+
+    async function renderPreparedCanvasForPage(
+        pdfPage: PDFPageProxy,
+        pageNumber: number,
+        version: number,
+        requestId: number,
+        preparedCanvasRender: NonNullable<Awaited<ReturnType<typeof canvasRenderer.prepareCanvasRender>>>,
+        shouldContinue: () => boolean,
+    ) {
         try {
             const renderResult = await renderPreparedCanvasResult(
                 pdfPage,
@@ -253,6 +264,38 @@ export function usePdfRendererCanvasController(options: IUsePdfRendererCanvasCon
             canvasRenderer.cleanupCanvasRenderResult(preparedCanvasRender);
             throw error;
         }
+    }
+
+    async function prepareCanvasForRender(
+        pdfPage: PDFPageProxy,
+        pageNumber: number,
+        version: number,
+        requestId: number,
+        scale: number,
+        shouldContinue: () => boolean,
+        renderOptions?: IRenderVisiblePagesOptions,
+    ) {
+        const preparedCanvasRender = await prepareCanvasRenderForPage(
+            pdfPage,
+            pageNumber,
+            version,
+            requestId,
+            scale,
+            shouldContinue,
+            renderOptions,
+        );
+        if (!preparedCanvasRender) {
+            return null;
+        }
+
+        return renderPreparedCanvasForPage(
+            pdfPage,
+            pageNumber,
+            version,
+            requestId,
+            preparedCanvasRender,
+            shouldContinue,
+        );
     }
 
     function mountRenderedCanvas(
@@ -292,6 +335,8 @@ export function usePdfRendererCanvasController(options: IUsePdfRendererCanvasCon
         releasePageResources,
         renderPreparedCanvasResult,
         loadPageForRender,
+        prepareCanvasRenderForPage,
+        renderPreparedCanvasForPage,
         prepareCanvasForRender,
         mountRenderedCanvas,
     };

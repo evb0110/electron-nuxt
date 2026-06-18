@@ -8,5 +8,7 @@ export interface IRenderVisiblePagesOptions {
     bufferOverride?: number;
     forceRerender?: boolean;
     maxCanvasPixelsOverride?: number;
+    markRenderedPageStale?: boolean;
     preserveInFlightRequiredPages?: boolean;
+    prioritizeTextLayer?: boolean;
 }

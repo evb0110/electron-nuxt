@@ -978,6 +978,7 @@ export const usePdfSinglePageScroll = (
 
     function beginSearchNavigation(pageNumber: number, holdMs = SEARCH_NAVIGATION_DEFAULT_HOLD_MS) {
         navigationEffects.clearSearchSettle();
+        cancelContinuousNavigationTarget();
         const targetPage = numPages.value > 0
             ? Math.max(
                 1,

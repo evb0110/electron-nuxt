@@ -77,7 +77,13 @@ describe('usePdfRendererSinglePageController', () => {
             cleanupCanvasRenderResult: vi.fn(),
             releasePageResources,
             loadPageForRender: vi.fn(async () => pdfPage),
+            prepareCanvasRenderForPage: vi.fn(async () => ({
+                canvas: document.createElement('canvas'),
+                startRender: vi.fn(),
+            })),
+            renderPreparedCanvasForPage: vi.fn(async prepared => ({ canvas: prepared.canvas })),
             prepareCanvasForRender: vi.fn(async () => ({ canvas: document.createElement('canvas') })),
+            applyContainerDimensions: vi.fn(),
             mountRenderedCanvas: vi.fn((_pageNumber, _container, _host, renderResult) => {
                 canvasHost.append(renderResult.canvas);
             }),

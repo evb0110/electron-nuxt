@@ -65,7 +65,7 @@ export const usePdfSearch = () => {
     const currentMatch = computed(() => results.value.length > 0 ? currentResultIndex.value + 1 : 0);
     const currentResult = computed(() => {
         if (currentResultIndex.value >= 0 && currentResultIndex.value < results.value.length) {
-            return results.value[currentResultIndex.value];
+            return results.value[currentResultIndex.value] ?? null;
         }
         return null;
     });
@@ -94,6 +94,31 @@ export const usePdfSearch = () => {
         });
 
         return `${pageMatchData.pageIndex}:${pageMatchData.matches.length}:${hash >>> 0}`;
+    }
+
+    function isSameSearchMatchTarget(
+        first: IPdfSearchMatch | null,
+        second: IPdfSearchMatch | null,
+    ) {
+        if (!first || !second) {
+            return first === second;
+        }
+
+        return first.pageIndex === second.pageIndex
+            && first.matchIndex === second.matchIndex
+            && first.startOffset === second.startOffset
+            && first.endOffset === second.endOffset
+            && (first.pageMatchIndex ?? null) === (second.pageMatchIndex ?? null);
+    }
+
+    function findSearchMatchTargetIndex(
+        matches: IPdfSearchMatch[],
+        target: IPdfSearchMatch | null,
+    ) {
+        if (!target) {
+            return -1;
+        }
+        return matches.findIndex(match => isSameSearchMatchTarget(match, target));
     }
 
     function cleanupProgressListener() {
@@ -192,6 +217,7 @@ export const usePdfSearch = () => {
         searchId: string,
     ) {
         const normalizedResponse = normalizeSearchResponse(response, query, options, searchId);
+        const previousCurrentResult = currentResult.value;
 
         results.value = normalizedResponse.results;
         pageMatches.value = normalizedResponse.pageMatches;
@@ -205,8 +231,22 @@ export const usePdfSearch = () => {
         if (currentResultIndex.value < 0) {
             currentResultIndex.value = 0;
             currentResultNavigationId.value += 1;
+            return;
+        }
+
+        const preservedCurrentResultIndex = findSearchMatchTargetIndex(
+            normalizedResponse.results,
+            previousCurrentResult,
+        );
+        if (preservedCurrentResultIndex >= 0) {
+            currentResultIndex.value = preservedCurrentResultIndex;
         } else if (currentResultIndex.value >= normalizedResponse.results.length) {
             currentResultIndex.value = normalizedResponse.results.length - 1;
+            currentResultNavigationId.value += 1;
+        } else if (!isSameSearchMatchTarget(
+            previousCurrentResult,
+            normalizedResponse.results[currentResultIndex.value] ?? null,
+        )) {
             currentResultNavigationId.value += 1;
         }
     }

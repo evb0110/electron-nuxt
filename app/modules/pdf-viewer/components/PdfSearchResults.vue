@@ -84,14 +84,14 @@
 
                     <div v-if="isGroupExpanded(group.pageIndex)" class="flex flex-col">
                         <PdfSearchResultItem
-                            v-for="match in group.matches"
-                            :key="match.matchIndex"
-                            :ref="element => setResultRef(match.matchIndex, element)"
-                            :result="match"
-                            :is-active="match.matchIndex === activeMatchIndex"
+                            v-for="matchEntry in group.matches"
+                            :key="matchEntry.resultIndex"
+                            :ref="element => setResultRef(matchEntry.resultIndex, element)"
+                            :result="matchEntry.match"
+                            :is-active="matchEntry.resultIndex === currentResultIndex"
                             :page-labels="pageLabels"
                             :show-page-label="false"
-                            @activate="goToResult(match.matchIndex)"
+                            @activate="goToResult(matchEntry.resultIndex)"
                         />
                     </div>
                 </section>
@@ -149,7 +149,6 @@ const isTruncated = computed(() => isTruncatedProp ?? false);
 const expandedPages = ref<Set<number>>(new Set());
 const resultItemRefs = new Map<number, HTMLElement>();
 
-const activeMatchIndex = computed(() => results[currentResultIndex]?.matchIndex ?? -1);
 const searchSummaryText = computed(() => formatPdfSearchResultsSummary({
     isSearching: Boolean(isSearching),
     query: trimmedQuery.value,
@@ -158,7 +157,10 @@ const searchSummaryText = computed(() => formatPdfSearchResultsSummary({
 }));
 
 const groupedResults = computed(() => {
-    const groups = groupBy(results, result => result.pageIndex);
+    const groups = groupBy(results.map((match, resultIndex) => ({
+        match,
+        resultIndex,
+    })), result => result.match.pageIndex);
 
     return Object.entries(groups).map(([
         pageIndex,
@@ -169,15 +171,8 @@ const groupedResults = computed(() => {
     }));
 });
 
-const resultIndexByMatchIndex = computed(() => new Map(
-    results.map((result, index) => [
-        result.matchIndex,
-        index,
-    ]),
-));
-
-function goToResult(matchIndex: number) {
-    emit('goToResult', resultIndexByMatchIndex.value.get(matchIndex) ?? -1);
+function goToResult(resultIndex: number) {
+    emit('goToResult', resultIndex);
 }
 
 const isQueryTooShort = computed(() => {
@@ -228,21 +223,21 @@ function togglePage(pageIndex: number) {
 }
 
 function setResultRef(
-    matchIndex: number,
+    resultIndex: number,
     component: ComponentPublicInstance | Element | null,
 ) {
     if (!component) {
-        resultItemRefs.delete(matchIndex);
+        resultItemRefs.delete(resultIndex);
         return;
     }
 
     if (component instanceof HTMLElement) {
-        resultItemRefs.set(matchIndex, component);
+        resultItemRefs.set(resultIndex, component);
         return;
     }
 
     if ('$el' in component && component.$el instanceof HTMLElement) {
-        resultItemRefs.set(matchIndex, component.$el);
+        resultItemRefs.set(resultIndex, component.$el);
     }
 }
 
@@ -275,7 +270,7 @@ watch(
         expandedPages.value = new Set(expandedPages.value).add(currentResult.pageIndex);
 
         await nextTick();
-        resultItemRefs.get(currentResult.matchIndex)?.scrollIntoView({
+        resultItemRefs.get(nextIndex)?.scrollIntoView({
             block: 'nearest',
             behavior: 'smooth',
         });

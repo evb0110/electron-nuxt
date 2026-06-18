@@ -360,7 +360,11 @@ export function usePdfRendererVisibleRenderController(options: IUsePdfRendererVi
          * stale makes the next render pass that promotes it into the visible
          * range rerender it at full resolution (atomic canvas swap, no flash).
          */
-        if (bufferClamp && !hadFreshMountedRender && renderedPages.has(pageNumber)) {
+        if (
+            (bufferClamp || renderOptions?.markRenderedPageStale === true)
+            && !hadFreshMountedRender
+            && renderedPages.has(pageNumber)
+        ) {
             staleRenderedPages.add(pageNumber);
         }
     }
@@ -429,6 +433,16 @@ export function usePdfRendererVisibleRenderController(options: IUsePdfRendererVi
             return;
         }
 
+        if (!isRequestedVisibleRangeCurrent(visibleRange)) {
+            logPdfRenderTrace('renderer-visible-render-skipped-stale-range', {
+                visibleRange,
+                renderOptions,
+                renderVersion: getRenderVersion(),
+                currentPage: currentPage.value,
+            });
+            return;
+        }
+
         const activeRequestId = getVisibleRenderRequestId();
         const inFlightRequiredPages = renderOptions?.preserveInFlightRequiredPages === true && !request.forceRerender
             ? range(visibleRange.start, visibleRange.end + 1).filter(
@@ -483,6 +497,19 @@ export function usePdfRendererVisibleRenderController(options: IUsePdfRendererVi
                 visibleRange,
                 renderStart,
                 renderEnd,
+            });
+            return;
+        }
+        if (!isRequestedVisibleRangeCurrent(visibleRange)) {
+            logPdfRenderTrace('renderer-visible-render-abort-stale-range', {
+                requestId,
+                activeRequestId: getVisibleRenderRequestId(),
+                version,
+                currentRenderVersion: getRenderVersion(),
+                visibleRange,
+                renderStart,
+                renderEnd,
+                currentPage: currentPage.value,
             });
             return;
         }
