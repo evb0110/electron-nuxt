@@ -131,12 +131,12 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'goToPage', page: number, options?: IScrollToPageOptions): void;
-    (e: 'bookmarks-change', payload: {
+    goToPage: [page: number, options?: IScrollToPageOptions];
+    'bookmarks-change': [payload: {
         bookmarks: IPdfBookmarkEntry[];
         dirty: boolean;
-    }): void;
-    (e: 'update:isEditMode', value: boolean): void;
+    }];
+    'update:isEditMode': [value: boolean];
 }>();
 
 function goToPage(page: number, options?: IScrollToPageOptions) {

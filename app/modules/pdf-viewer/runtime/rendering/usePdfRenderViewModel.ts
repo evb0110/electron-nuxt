@@ -80,7 +80,7 @@ interface IUsePdfRenderViewModelOptions {
 const emptyLinksByPage: Record<number, never[]> = {};
 const PAGED_BUFFER_RENDER_QUIET_DELAY_MS = 220;
 
-export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
+export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) => {
     const { isViewerLoadingOverlayVisible } = usePdfViewerLoadingState({
         src: options.src,
         isLoading: options.isLoading,
@@ -341,4 +341,4 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
         shouldShowPageSkeleton,
         markPageRendered: delayedSkeleton.markPageRendered,
     };
-}
+};

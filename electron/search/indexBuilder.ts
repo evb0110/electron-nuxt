@@ -330,7 +330,8 @@ async function loadOcrIndexText(
         throwIfAborted(signal);
         const manifestJson = await readFile(manifestPath, 'utf-8');
         throwIfAborted(signal);
-        const manifest = parseOcrManifestPayload(JSON.parse(manifestJson));
+        const parsedManifest: unknown = JSON.parse(manifestJson);
+        const manifest = parseOcrManifestPayload(parsedManifest);
 
         if (!manifest) {
             log.debug('OCR v2 manifest is invalid, skipping');
@@ -941,7 +942,8 @@ export async function loadSearchIndex(pdfPath: string): Promise<IPdfSearchIndex 
 
     try {
         const content = await readFile(indexPath, 'utf-8');
-        const index = parseSearchIndexPayload(JSON.parse(content), pdfPath);
+        const parsed: unknown = JSON.parse(content);
+        const index = parseSearchIndexPayload(parsed, pdfPath);
         if (!index) {
             log.warn(`Invalid search index schema at ${indexPath}; ignoring cached index`);
             return null;

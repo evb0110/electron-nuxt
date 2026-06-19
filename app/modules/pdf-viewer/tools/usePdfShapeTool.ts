@@ -31,7 +31,7 @@ interface IUsePdfShapeToolOptions {
     getShapeCommentsChangedHandler: () => (() => void) | null;
 }
 
-export function usePdfShapeTool(options: IUsePdfShapeToolOptions) {
+export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
     const shapeComposable = useAnnotationShapes();
 
     const {
@@ -107,4 +107,4 @@ export function usePdfShapeTool(options: IUsePdfShapeToolOptions) {
         getShapeAnnotationCommentSummaries,
         findShapeForAnnotationComment,
     };
-}
+};

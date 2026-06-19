@@ -2,7 +2,7 @@ import type {
     IEditorLayoutLeafNode,
     IEditorLayoutSplitNode,
     TEditorLayoutNode,
-} from '@app/types/editorPanes';
+} from '@contracts/editorPanes';
 
 export function collectLayoutPaneIds(node: TEditorLayoutNode, target: Set<string>) {
     if (node.type === 'leaf') {

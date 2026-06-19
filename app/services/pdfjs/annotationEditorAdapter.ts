@@ -129,8 +129,12 @@ export function setSelectedEditor(
         return false;
     }
 
-    const setSelected = uiManager.setSelected as (value: unknown) => void;
-    setSelected(editor);
+    const setSelected = getOptionalFunction<[unknown], unknown>(uiManager, 'setSelected');
+    if (!setSelected) {
+        return false;
+    }
+
+    setSelected.call(uiManager, editor);
     return true;
 }
 
@@ -146,10 +150,10 @@ export function clearSelectedEditorState(uiManager: AnnotationEditorUIManager) {
         cleared = true;
     }
 
-    const setSelected = uiManager.setSelected as ((value: unknown) => void) | undefined;
-    if (typeof setSelected === 'function') {
+    const setSelected = getOptionalFunction<[unknown], unknown>(uiManager, 'setSelected');
+    if (setSelected) {
         try {
-            setSelected(null);
+            setSelected.call(uiManager, null);
             cleared = true;
         } catch {
             // Ignore: older PDF.js builds may reject nullable selection values.

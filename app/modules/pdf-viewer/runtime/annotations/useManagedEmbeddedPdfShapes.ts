@@ -55,7 +55,7 @@ interface IUseManagedEmbeddedPdfShapesOptions {
     currentPage: Ref<number>;
 }
 
-export function useManagedEmbeddedPdfShapes({
+export const useManagedEmbeddedPdfShapes = ({
     viewerContainer,
     workingCopyPath,
     sourcePdfData,
@@ -71,7 +71,7 @@ export function useManagedEmbeddedPdfShapes({
     renderVisiblePages,
     hideManagedAnnotationEditors,
     currentPage,
-}: IUseManagedEmbeddedPdfShapesOptions) {
+}: IUseManagedEmbeddedPdfShapesOptions) => {
     let embeddedShapeImportToken = 0;
     let pendingEmbeddedShapeImportData: Uint8Array | null = null;
     let pendingEmbeddedShapeImportPath: string | null = null;
@@ -757,4 +757,4 @@ export function useManagedEmbeddedPdfShapes({
         restorePreparedManagedShapesAfterFailedSave,
         syncAfterPageRendered,
     };
-}
+};

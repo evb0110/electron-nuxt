@@ -8,7 +8,7 @@ interface IUsePdfViewerDelayedSkeletonOptions {
     shouldShowSkeletonNow: (pageNumber: number) => boolean;
 }
 
-export function usePdfViewerDelayedSkeleton(options: IUsePdfViewerDelayedSkeletonOptions) {
+export const usePdfViewerDelayedSkeleton = (options: IUsePdfViewerDelayedSkeletonOptions) => {
     const visiblePages = ref(new Set<number>());
     const pendingTimers = new Map<number, ReturnType<typeof setTimeout>>();
     let isDisposed = false;
@@ -171,4 +171,4 @@ export function usePdfViewerDelayedSkeleton(options: IUsePdfViewerDelayedSkeleto
         markPageRendered,
         shouldShowSkeleton,
     };
-}
+};

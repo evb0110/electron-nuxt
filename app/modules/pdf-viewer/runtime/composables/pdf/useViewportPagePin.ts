@@ -7,7 +7,7 @@ interface IViewportPagePin {
     reason: string;
 }
 
-export function useViewportPagePin(options: { summarizeViewerStateForLog: () => unknown }) {
+export const useViewportPagePin = (options: { summarizeViewerStateForLog: () => unknown }) => {
     const viewportPagePin = ref<IViewportPagePin | null>(null);
     const viewportPagePinDurationMs = ref(900);
 
@@ -88,4 +88,4 @@ export function useViewportPagePin(options: { summarizeViewerStateForLog: () => 
         getPinnedViewportPage,
         pinCurrentPageDuringRecovery,
     };
-}
+};

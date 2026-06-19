@@ -33,7 +33,7 @@ interface IUsePdfRendererCleanupControllerOptions {
     invalidatePendingSearchRequests: () => void;
 }
 
-export function usePdfRendererCleanupController(options: IUsePdfRendererCleanupControllerOptions) {
+export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupControllerOptions) => {
     const {
         container: containerRef,
         currentPage,
@@ -226,4 +226,4 @@ export function usePdfRendererCleanupController(options: IUsePdfRendererCleanupC
         cleanupPageIfCurrentRender,
         cleanupAllPages,
     };
-}
+};

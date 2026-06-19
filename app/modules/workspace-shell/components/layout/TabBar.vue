@@ -73,7 +73,7 @@
 import { useEventListener } from '@vueuse/core';
 import type { ITab } from '@app/types/tabs';
 import { useTabDragReorder } from '@app/modules/workspace-shell/composables/useTabDragReorder';
-import type { TPaneDirection } from '@app/types/editorPanes';
+import type { TPaneDirection } from '@contracts/editorPanes';
 import { getDocumentRefDisplayLabel } from '@app/utils/documentRef';
 import type {
     ITabContextAvailability,

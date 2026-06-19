@@ -1,6 +1,9 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IPdfSearchRequestOptions } from '@contracts/search';
+import type {
+    IResolvedSearchMatchOptions,
+    ISearchMatchOptions,
+} from '@contracts/search';
 import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 
 interface IPageSearchDeps {
@@ -10,12 +13,12 @@ interface IPageSearchDeps {
     workingCopyPath: Ref<TDocumentRef | null>;
     totalPages: Ref<number>;
     searchQuery: Ref<string>;
-    searchOptions: Ref<Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>>;
+    searchOptions: Ref<IResolvedSearchMatchOptions>;
     search: (
         query: string,
         path: TDocumentRef,
         totalPages?: number,
-        options?: Partial<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>,
+        options?: ISearchMatchOptions,
     ) => Promise<boolean>;
     goToResult: (direction: 'next' | 'previous') => void;
     setResultIndex: (index: number) => void;

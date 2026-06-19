@@ -48,7 +48,7 @@ interface IUsePdfViewerRenderingRuntimeOptions {
     renderedPageStateVersion: Ref<number>;
 }
 
-export function usePdfViewerRenderingRuntime(options: IUsePdfViewerRenderingRuntimeOptions) {
+export const usePdfViewerRenderingRuntime = (options: IUsePdfViewerRenderingRuntimeOptions) => {
     const rendering = usePdfPageRenderer({
         container: options.viewerContainer,
         document: options.document,
@@ -98,4 +98,4 @@ export function usePdfViewerRenderingRuntime(options: IUsePdfViewerRenderingRunt
         isPageFreshlyRenderedForNavigation,
         isPageRenderedForClass,
     };
-}
+};

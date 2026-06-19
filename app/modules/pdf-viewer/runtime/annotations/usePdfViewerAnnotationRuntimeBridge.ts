@@ -38,7 +38,7 @@ interface IUsePdfViewerAnnotationRuntimeBridgeOptions {
     annotations: TAnnotationOrchestrator;
 }
 
-export function usePdfViewerAnnotationRuntimeBridge(options: IUsePdfViewerAnnotationRuntimeBridgeOptions) {
+export const usePdfViewerAnnotationRuntimeBridge = (options: IUsePdfViewerAnnotationRuntimeBridgeOptions) => {
     const {
         viewerContainer,
         isActive,
@@ -320,4 +320,4 @@ export function usePdfViewerAnnotationRuntimeBridge(options: IUsePdfViewerAnnota
     });
 
     return {scheduleSetAnnotationTool};
-}
+};

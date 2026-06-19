@@ -36,7 +36,7 @@ interface IUsePdfViewerPortalAnnotationHandlersOptions {
     markModified: () => void;
 }
 
-export function usePdfViewerPortalAnnotationHandlers(options: IUsePdfViewerPortalAnnotationHandlersOptions) {
+export const usePdfViewerPortalAnnotationHandlers = (options: IUsePdfViewerPortalAnnotationHandlersOptions) => {
     function removeAnnotationFromDom(comment: IAnnotationCommentSummary) {
         if (comment.annotationId) {
             options.suppressAnnotationId(comment.annotationId);
@@ -81,4 +81,4 @@ export function usePdfViewerPortalAnnotationHandlers(options: IUsePdfViewerPorta
         handleMarkerContextMenu,
         handleMarkerMove,
     };
-}
+};

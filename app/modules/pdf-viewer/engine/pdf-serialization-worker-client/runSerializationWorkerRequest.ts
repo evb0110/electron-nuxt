@@ -3,8 +3,8 @@ import type {
     ISerializationWorkerRequestMap,
     TSerializationWorkerRequest,
     TSerializationWorkerRequestType,
-    TSerializationWorkerResponse,
 } from '@app/modules/pdf-viewer/engine/pdfSerializationWorker.types';
+import { isRecord } from '@contracts/runtimeGuards';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/public';
 import {
@@ -32,28 +32,52 @@ function isPdfSerializationWorkerOperationError(error: unknown) {
 }
 
 function settleSerializationWorkerResult(
-    pendingRequests: Map<number, IPendingBrowserWorkerRequest<Uint8Array | null>>,
-    result: TSerializationWorkerResponse,
+    pendingRequests: Map<number, IPendingBrowserWorkerRequest>,
+    response: unknown,
     onSettled: () => void,
 ) {
-    const pending = pendingRequests.get(result.id);
+    if (!isRecord(response) || typeof response.id !== 'number') {
+        return;
+    }
+
+    const pending = pendingRequests.get(response.id);
     if (!pending) {
         return;
     }
 
-    pendingRequests.delete(result.id);
+    pendingRequests.delete(response.id);
     if (pending.timeoutTimer) {
         clearTimeout(pending.timeoutTimer);
         pending.timeoutTimer = null;
     }
-    if (result.ok) {
-        pending.resolve(result.data);
+    if (response.ok === true) {
+        if (
+            !('data' in response)
+            || !pending.resolveData(response.data)
+        ) {
+            pending.reject(new PdfSerializationWorkerOperationError(
+                'PDF serialization worker returned an invalid result',
+            ));
+            onSettled();
+            return;
+        }
         onSettled();
         return;
     }
 
-    pending.reject(new PdfSerializationWorkerOperationError(result.error));
+    pending.reject(new PdfSerializationWorkerOperationError(
+        response.ok === false && typeof response.error === 'string'
+            ? response.error
+            : 'PDF serialization worker returned an invalid response',
+    ));
     onSettled();
+}
+
+function decodeSerializationWorkerResult(data: unknown): Uint8Array | null | undefined {
+    if (data === null || data instanceof Uint8Array) {
+        return data;
+    }
+    return undefined;
 }
 
 function toTransferableUint8Array(data: Uint8Array): Uint8Array<ArrayBuffer> {
@@ -117,10 +141,7 @@ function buildWorkerRequestWithTransfers(
     }
 }
 
-const serializationWorkerClient = new BrowserWorkerClient<
-    TSerializationWorkerResponse,
-    IPendingBrowserWorkerRequest<Uint8Array | null>
->({
+const serializationWorkerClient = new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
     idleTtlMs: SERIALIZATION_WORKER_IDLE_TTL_MS,
     requestTimeoutMs: SERIALIZATION_WORKER_REQUEST_TIMEOUT_MS,
     createWorker: () => new Worker(
@@ -200,7 +221,15 @@ export async function runSerializationWorkerRequest<K extends TSerializationWork
         serializationWorkerClient.clearIdleTerminateTimer();
 
         serializationWorkerClient.registerPendingRequest(request.id, {
-            resolve,
+            requestType: type,
+            resolveData: (data) => {
+                const decoded = decodeSerializationWorkerResult(data);
+                if (decoded === undefined) {
+                    return false;
+                }
+                resolve(decoded);
+                return true;
+            },
             reject,
         }, () => new Error(
             `PDF serialization worker did not reply within ${SERIALIZATION_WORKER_REQUEST_TIMEOUT_MS}ms (type=${request.type})`,

@@ -155,11 +155,11 @@ const {
     zoomMode: zoomModeProp = undefined,
 } = defineProps<IProps>();
 const emit = defineEmits<{
-    (e: 'update:effectiveZoom', value: number): void;
-    (e: 'update:currentPage', value: number): void;
-    (e: 'update:totalPages', value: number): void;
-    (e: 'update:document', value: null): void;
-    (e: 'loading', value: boolean): void;
+    'update:effectiveZoom': [value: number];
+    'update:currentPage': [value: number];
+    'update:totalPages': [value: number];
+    'update:document': [value: null];
+    loading: [value: boolean];
 }>();
 
 const { t } = useTypedI18n();

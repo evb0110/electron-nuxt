@@ -45,7 +45,7 @@ function waitForInitialVisualPaintOpportunity() {
     });
 }
 
-export function usePdfViewerInitialVisualLifecycle(options: IUsePdfViewerInitialVisualLifecycleOptions) {
+export const usePdfViewerInitialVisualLifecycle = (options: IUsePdfViewerInitialVisualLifecycleOptions) => {
     const {
         renderedPageStateVersion,
         emitInitialVisualReady,
@@ -108,4 +108,4 @@ export function usePdfViewerInitialVisualLifecycle(options: IUsePdfViewerInitial
         handlePageCanvasMounted,
         handlePageRendered,
     };
-}
+};

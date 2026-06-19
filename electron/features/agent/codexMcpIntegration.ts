@@ -209,6 +209,7 @@ export async function getAgentMcpIntegrationStatus(): Promise<IAgentMcpIntegrati
 async function setAgentMcpSetting(enabled: boolean) {
     await updateSettings(settings => {
         settings.agentMcpEnabled = enabled;
+        return undefined;
     });
 }
 

@@ -43,7 +43,7 @@ import EditorPanesGrid from '@app/modules/workspace-shell/components/EditorPanes
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
-} from '@app/types/editorPanes';
+} from '@contracts/editorPanes';
 import type {
     ITabContextAvailability,
     TTabContextCommand,

@@ -36,7 +36,7 @@ async function waitForStartupVisualFrames() {
     }
 }
 
-export function useWorkspaceStartupReadiness(options: IWorkspaceStartupReadinessOptions) {
+export const useWorkspaceStartupReadiness = (options: IWorkspaceStartupReadinessOptions) => {
     const {
         pdfViewerRef,
         showNativeDjvuViewer,
@@ -115,4 +115,4 @@ export function useWorkspaceStartupReadiness(options: IWorkspaceStartupReadiness
         hasRenderedStartupDocument,
         dispatchStartupOpenVisualReady,
     };
-}
+};

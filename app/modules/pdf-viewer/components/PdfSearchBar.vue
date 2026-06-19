@@ -104,15 +104,17 @@
 </template>
 
 <script setup lang="ts">
-import type { IPdfSearchRequestOptions } from '@contracts/search';
+import type { IResolvedSearchMatchOptions } from '@contracts/search';
 
 const { t } = useTypedI18n();
 
 interface IProps {
     modelValue: string;
     totalMatches: number;
-    options: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>;
+    options: IResolvedSearchMatchOptions;
 }
+
+interface IPdfSearchBarExpose {focus: () => void;}
 
 const {
     modelValue,
@@ -120,11 +122,11 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'update:modelValue', value: string): void;
-    (e: 'update:options', value: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>): void;
-    (e: 'search'): void;
-    (e: 'next'): void;
-    (e: 'previous'): void;
+    'update:modelValue': [value: string];
+    'update:options': [value: IResolvedSearchMatchOptions];
+    search: [];
+    next: [];
+    previous: [];
 }>();
 
 const inputRef = ref<{ $el: HTMLElement } | null>(null);
@@ -177,7 +179,7 @@ function toggleOption(key: keyof IProps['options']) {
     focus();
 }
 
-defineExpose({ focus });
+defineExpose<IPdfSearchBarExpose>({ focus });
 </script>
 
 <style scoped>

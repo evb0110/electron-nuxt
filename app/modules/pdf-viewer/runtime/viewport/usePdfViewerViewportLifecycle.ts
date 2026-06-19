@@ -41,7 +41,7 @@ interface IUsePdfViewerViewportLifecycleOptions {
     loadingLabel: () => string;
 }
 
-export function usePdfViewerViewportLifecycle(options: IUsePdfViewerViewportLifecycleOptions) {
+export const usePdfViewerViewportLifecycle = (options: IUsePdfViewerViewportLifecycleOptions) => {
     function handleResizeTransitionSignal(payload: IResizeTransitionSignal) {
         const nextAnchorPage = payload.active ? payload.anchorPage : null;
         if (
@@ -141,4 +141,4 @@ export function usePdfViewerViewportLifecycle(options: IUsePdfViewerViewportLife
         handleViewerContainerRef,
         handleViewportScroll,
     };
-}
+};

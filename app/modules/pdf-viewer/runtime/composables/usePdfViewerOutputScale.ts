@@ -4,7 +4,7 @@ function readWindowOutputScale() {
         : 1;
 }
 
-export function usePdfViewerOutputScale() {
+export const usePdfViewerOutputScale = () => {
     const outputScale = ref(readWindowOutputScale());
     let mediaQuery: MediaQueryList | null = null;
 
@@ -48,4 +48,4 @@ export function usePdfViewerOutputScale() {
     });
 
     return outputScale;
-}
+};

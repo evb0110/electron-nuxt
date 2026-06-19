@@ -10,7 +10,7 @@ interface IUsePdfViewerSavePrintControllerOptions {
     getAnnotationUiManager: () => AnnotationEditorUIManager | null;
 }
 
-export function usePdfViewerSavePrintController(options: IUsePdfViewerSavePrintControllerOptions) {
+export const usePdfViewerSavePrintController = (options: IUsePdfViewerSavePrintControllerOptions) => {
     async function saveViewerDocument() {
         return savePdfDocumentWithCommittedEditors({
             pdfDocument: options.getPdfDocument(),
@@ -42,4 +42,4 @@ export function usePdfViewerSavePrintController(options: IUsePdfViewerSavePrintC
         saveViewerDocument,
         renderLoadedPdfPagesForBrowserPrint,
     };
-}
+};

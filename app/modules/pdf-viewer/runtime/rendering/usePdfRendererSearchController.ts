@@ -33,7 +33,7 @@ interface IUsePdfRendererSearchControllerOptions {
     isPageRenderPending?: (pageNumber: number) => boolean;
 }
 
-export function usePdfRendererSearchController(options: IUsePdfRendererSearchControllerOptions) {
+export const usePdfRendererSearchController = (options: IUsePdfRendererSearchControllerOptions) => {
     const {
         container,
         isActive,
@@ -178,4 +178,4 @@ export function usePdfRendererSearchController(options: IUsePdfRendererSearchCon
         requestScrollToCurrentResult,
         invalidatePendingRequests: searchMatchScroller.invalidatePendingRequests,
     };
-}
+};

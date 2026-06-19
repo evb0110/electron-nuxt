@@ -8,7 +8,7 @@ import type {
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
-} from '@app/types/editorPanes';
+} from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IRecentFile } from '@contracts/shared';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
@@ -34,7 +34,7 @@ interface IUseAgentWorkspaceSnapshotOptions {
     waitForWorkspace(tabId: string): Promise<IWorkspaceExpose | null>;
 }
 
-export function useAgentWorkspaceSnapshot(options: IUseAgentWorkspaceSnapshotOptions) {
+export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOptions) => {
     let unsubscribeWorkspaceSnapshotRequest: (() => void) | null = null;
     let unsubscribeCommandRequest: (() => void) | null = null;
     let isDisposed = false;
@@ -210,4 +210,4 @@ export function useAgentWorkspaceSnapshot(options: IUseAgentWorkspaceSnapshotOpt
     });
 
     return { buildSnapshot: () => buildAgentWorkspaceSnapshot(options) };
-}
+};

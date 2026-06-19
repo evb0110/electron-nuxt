@@ -3,18 +3,14 @@ import type {
     PDFDocument,
     PDFPage,
 } from 'pdf-lib';
+import type { IPdfBox } from '@contracts/geometry';
 import {
     PDFArray,
     PDFName,
     PDFNumber,
 } from 'pdf-lib';
 
-export interface IPdfPageBox {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-}
+export interface IPdfPageBox extends IPdfBox {}
 
 export type TPdfRect = [number, number, number, number];
 

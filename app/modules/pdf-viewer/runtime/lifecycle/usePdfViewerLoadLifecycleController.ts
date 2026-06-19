@@ -11,7 +11,7 @@ interface IUsePdfViewerLoadLifecycleControllerOptions {
     markDelayedSkeletonPageRendered: (pageNumber: number) => void;
 }
 
-export function usePdfViewerLoadLifecycleController(options: IUsePdfViewerLoadLifecycleControllerOptions) {
+export const usePdfViewerLoadLifecycleController = (options: IUsePdfViewerLoadLifecycleControllerOptions) => {
     const {
         beginViewerLoadSettle,
         settleViewerLoadSettle,
@@ -55,4 +55,4 @@ export function usePdfViewerLoadLifecycleController(options: IUsePdfViewerLoadLi
         handlePageRendered,
         onDocumentLoadStateChange,
     };
-}
+};

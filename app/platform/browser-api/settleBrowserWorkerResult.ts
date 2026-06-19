@@ -1,5 +1,8 @@
-export interface IPendingBrowserWorkerRequest<TValue = unknown> {
-    resolve: (value: TValue) => void;
+import { isRecord } from '@contracts/runtimeGuards';
+
+export interface IPendingBrowserWorkerRequest {
+    requestType: string;
+    resolveData: (data: unknown) => boolean;
     reject: (error: Error) => void;
     timeoutTimer?: ReturnType<typeof setTimeout> | null;
 }
@@ -16,23 +19,75 @@ export type TBrowserWorkerResult<TData = unknown> =
         error: string;
     };
 
-export function settleBrowserWorkerResult<TData>(
-    pendingRequests: Map<number, IPendingBrowserWorkerRequest<TData>>,
-    result: TBrowserWorkerResult<TData>,
+function getWorkerResponseId(response: unknown) {
+    return isRecord(response) && typeof response.id === 'number'
+        ? response.id
+        : null;
+}
+
+function parseBrowserWorkerResult(
+    response: unknown,
+    expectedType: string,
+): TBrowserWorkerResult<unknown> | null {
+    if (!isRecord(response) || typeof response.id !== 'number') {
+        return null;
+    }
+
+    if (response.ok === true) {
+        if (response.type !== expectedType || !('data' in response)) {
+            return null;
+        }
+        return {
+            id: response.id,
+            ok: true,
+            data: response.data,
+        };
+    }
+
+    if (response.ok === false && typeof response.error === 'string') {
+        return {
+            id: response.id,
+            ok: false,
+            error: response.error,
+        };
+    }
+
+    return null;
+}
+
+export function settleBrowserWorkerResult(
+    pendingRequests: Map<number, IPendingBrowserWorkerRequest>,
+    response: unknown,
     onSettled: () => void,
 ) {
-    const pending = pendingRequests.get(result.id);
+    const responseId = getWorkerResponseId(response);
+    if (responseId === null) {
+        return;
+    }
+
+    const pending = pendingRequests.get(responseId);
     if (!pending) {
         return;
     }
 
-    pendingRequests.delete(result.id);
+    const result = parseBrowserWorkerResult(response, pending.requestType);
+
+    pendingRequests.delete(responseId);
     if (pending.timeoutTimer) {
         clearTimeout(pending.timeoutTimer);
         pending.timeoutTimer = null;
     }
+    if (!result) {
+        pending.reject(new Error('Browser worker returned an invalid response'));
+        onSettled();
+        return;
+    }
     if (result.ok) {
-        pending.resolve(result.data);
+        if (!pending.resolveData(result.data)) {
+            pending.reject(new Error('Browser worker returned an invalid result'));
+            onSettled();
+            return;
+        }
         onSettled();
         return;
     }

@@ -1,13 +1,29 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type {
+    IPdfBox,
+    IMarkerRect,
+    IPoint2D,
+} from '@contracts/geometry';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import type {
+    IPdfPageLabelRange,
+    TPdfPageLabelStyle,
+} from '@contracts/pdfPageLabels';
+import type { TPageIndex } from '@contracts/pageNumbers';
+import type {
+    TPdfAnnotationLineEndStyle,
+    TPdfAnnotationMarkupSubtype,
+    TPdfAnnotationShapePdfSubtype,
+    TPdfAnnotationShapeType,
+} from '@contracts/annotations';
 import type { IRecentFile } from '@contracts/shared';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
 import type {
-    IMenuEventCallback,
-    IMenuEventUnsubscribe,
+    TMenuEventCallback,
+    TMenuEventUnsubscribe,
 } from '@contracts/electronApiCommon';
 
 export interface IOpenPdfDirectBatchProgress {
@@ -42,15 +58,10 @@ export interface IPdfNoteTextUpdate {
     text: string;
 }
 
-export interface IPdfNativeFreeTextNoteMarkerRect {
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-}
+export interface IPdfNativeFreeTextNoteMarkerRect extends IMarkerRect {}
 
 export interface IPdfNativeFreeTextNote {
-    pageIndex: number;
+    pageIndex: TPageIndex;
     stableKey: string;
     text: string;
     markerRect: IPdfNativeFreeTextNoteMarkerRect;
@@ -60,7 +71,7 @@ export interface IPdfNativeFreeTextNote {
 }
 
 export interface IPdfNativeAnnotationDelete {
-    pageIndex: number;
+    pageIndex: TPageIndex;
     objectNumber?: number;
     generationNumber?: number;
     stableKey?: string;
@@ -73,14 +84,9 @@ export interface IPdfNativeNoteChanges {
     deletes?: IPdfNativeAnnotationDelete[];
 }
 
-export type TPdfNativePageLabelStyle = 'D' | 'R' | 'r' | 'A' | 'a' | null;
+export type TPdfNativePageLabelStyle = TPdfPageLabelStyle;
 
-export interface IPdfNativePageLabelRange {
-    startPage: number;
-    style: TPdfNativePageLabelStyle;
-    prefix: string;
-    startNumber: number;
-}
+export interface IPdfNativePageLabelRange extends IPdfPageLabelRange {}
 
 export interface IPdfNativePageLabelsMutation {
     totalPages: number;
@@ -93,19 +99,16 @@ export interface IPdfNativeBookmarksMutation {
     items: IPdfBookmarkEntry[];
 }
 
-export type TPdfNativeShapeType = 'rectangle' | 'circle' | 'line' | 'arrow' | 'polyline' | 'polygon';
-export type TPdfNativeShapePdfSubtype = 'Square' | 'Circle' | 'Line' | 'PolyLine' | 'Polygon' | 'Ink';
-export type TPdfNativeShapeLineEndStyle = 'none' | 'openArrow' | 'closedArrow';
+export type TPdfNativeShapeType = TPdfAnnotationShapeType;
+export type TPdfNativeShapePdfSubtype = TPdfAnnotationShapePdfSubtype;
+export type TPdfNativeShapeLineEndStyle = TPdfAnnotationLineEndStyle;
 
-export interface IPdfNativeShapePoint {
-    x: number;
-    y: number;
-}
+export interface IPdfNativeShapePoint extends IPoint2D {}
 
 export interface IPdfNativeShapeAnnotation {
     id?: string;
     type: TPdfNativeShapeType;
-    pageIndex: number;
+    pageIndex: TPageIndex;
     x: number;
     y: number;
     width: number;
@@ -135,18 +138,13 @@ export interface IPdfNativeShapesMutation {
     deletedStableKeys: string[];
 }
 
-export type TPdfNativeMarkupSubtype = 'Highlight' | 'Underline' | 'StrikeOut' | 'Squiggly';
+export type TPdfNativeMarkupSubtype = TPdfAnnotationMarkupSubtype;
 
-export interface IPdfNativeMarkupMarkerRect {
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-}
+export interface IPdfNativeMarkupMarkerRect extends IMarkerRect {}
 
 export interface IPdfNativeMarkupSubtypeHint {
     subtype: TPdfNativeMarkupSubtype;
-    pageIndex: number;
+    pageIndex: TPageIndex;
     markerRect: IPdfNativeMarkupMarkerRect;
     annotationId?: string | null;
     color?: string | null;
@@ -160,12 +158,8 @@ export interface IPdfNativeMarkupMutation {
     hints: IPdfNativeMarkupSubtypeHint[];
 }
 
-export interface IPdfNativePlacedImage {
-    pageIndex: number;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
+export interface IPdfNativePlacedImage extends IPdfBox {
+    pageIndex: TPageIndex;
     rotationDegrees?: number | null;
     mimeType: 'image/jpeg';
     bytes: Uint8Array;
@@ -215,7 +209,7 @@ export interface IImageExportCapability {
         outputPath?: TDocumentRef;
         outputPaths?: TDocumentRef[];
     }>;
-    onProgress: (callback: (progress: IImageExportProgress) => void) => IMenuEventUnsubscribe;
+    onProgress: (callback: (progress: IImageExportProgress) => void) => TMenuEventUnsubscribe;
 }
 
 export interface IDocumentsMenuCapability {
@@ -225,38 +219,38 @@ export interface IDocumentsMenuCapability {
         canRepairSave?: boolean;
     }) => Promise<void>;
     setMenuTabCount: (tabCount: number) => Promise<void>;
-    onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuInsertImageFromFile: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuPasteImageFromClipboard: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuRepairSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuSaveAs: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuPrint: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuPrintCurrentPage: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuExportDocx: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuExportImages: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuExportMultiPageTiff: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuZoomIn: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuZoomOut: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuActualSize: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuFitWidth: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuFitHeight: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuViewModeSingle: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuViewModeFacing: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuViewModeFacingFirstSingle: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuToggleAssistant: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuUndo: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuRedo: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuDeletePages: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuExtractPages: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuRotateCw: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuRotateCcw: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuInsertPages: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuOpenRecentFile: (callback: (path: TDocumentRef) => void) => IMenuEventUnsubscribe;
-    onMenuOpenExternalPaths: (callback: (paths: TDocumentRef[]) => void) => IMenuEventUnsubscribe;
-    onMenuClearRecentFiles: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onOpenDocumentDirectBatchProgress: (callback: (progress: TOpenDocumentDirectBatchProgress) => void) => IMenuEventUnsubscribe;
-    onOpenPdfDirectBatchProgress: (callback: (progress: IOpenPdfDirectBatchProgress) => void) => IMenuEventUnsubscribe;
+    onMenuOpenPdf: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuInsertImageFromFile: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuPasteImageFromClipboard: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuSave: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuRepairSave: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuSaveAs: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuPrint: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuPrintCurrentPage: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuExportDocx: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuExportImages: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuExportMultiPageTiff: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuZoomIn: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuZoomOut: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuActualSize: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuFitWidth: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuFitHeight: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuViewModeSingle: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuViewModeFacing: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuViewModeFacingFirstSingle: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuToggleAssistant: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuUndo: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuRedo: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuDeletePages: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuExtractPages: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuRotateCw: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuRotateCcw: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuInsertPages: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuOpenRecentFile: (callback: (path: TDocumentRef) => void) => TMenuEventUnsubscribe;
+    onMenuOpenExternalPaths: (callback: (paths: TDocumentRef[]) => void) => TMenuEventUnsubscribe;
+    onMenuClearRecentFiles: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onOpenDocumentDirectBatchProgress: (callback: (progress: TOpenDocumentDirectBatchProgress) => void) => TMenuEventUnsubscribe;
+    onOpenPdfDirectBatchProgress: (callback: (progress: IOpenPdfDirectBatchProgress) => void) => TMenuEventUnsubscribe;
 }
 
 export interface IDocumentsFileCapability {

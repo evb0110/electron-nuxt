@@ -132,19 +132,19 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'edit', id: string): void;
-    (e: 'add-sibling-above', id: string): void;
-    (e: 'add-sibling-below', id: string): void;
-    (e: 'add-child', id: string): void;
-    (e: 'toggle-bold', id: string): void;
-    (e: 'toggle-italic', id: string): void;
-    (e: 'set-color', payload: {
+    edit: [id: string];
+    'add-sibling-above': [id: string];
+    'add-sibling-below': [id: string];
+    'add-child': [id: string];
+    'toggle-bold': [id: string];
+    'toggle-italic': [id: string];
+    'set-color': [payload: {
         id: string;
         color: string | null 
-    }): void;
-    (e: 'set-style-range-start', id: string): void;
-    (e: 'apply-style-to-range'): void;
-    (e: 'remove', id: string): void;
+    }];
+    'set-style-range-start': [id: string];
+    'apply-style-to-range': [];
+    remove: [id: string];
 }>();
 
 const { t } = useTypedI18n();

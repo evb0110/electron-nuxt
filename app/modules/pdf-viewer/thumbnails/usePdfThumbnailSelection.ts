@@ -29,7 +29,7 @@ interface IUsePdfThumbnailSelectionOptions {
     totalPages: ComputedRef<number>;
 }
 
-export function usePdfThumbnailSelection(options: IUsePdfThumbnailSelectionOptions) {
+export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptions) => {
     const {
         consumeClickSkip,
         currentPage,
@@ -233,4 +233,4 @@ export function usePdfThumbnailSelection(options: IUsePdfThumbnailSelectionOptio
         isSelected,
         toggleSinglePageSelection,
     };
-}
+};

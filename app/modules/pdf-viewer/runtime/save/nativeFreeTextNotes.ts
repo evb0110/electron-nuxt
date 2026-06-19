@@ -3,6 +3,7 @@ import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-g
 import { toFreeTextNoteMarkerRect } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shared/toFreeTextNoteMarkerRect';
 import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import type { IPdfNativeFreeTextNote } from '@contracts/electronApiDocuments';
+import { parsePageIndex } from '@contracts/pageNumbers';
 import type {
     INativePdfMutationBuildResult,
     INativePdfMutationPlanCommonInput,
@@ -20,12 +21,13 @@ export function isReplayableEditorOnlyFreeTextNote(comment: IAnnotationCommentSu
 export function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNativeFreeTextNote | null {
     const markerRect = toFreeTextNoteMarkerRect(comment.markerRect);
     const stableKey = comment.stableKey?.trim();
-    if (!markerRect || !stableKey) {
+    const pageIndex = parsePageIndex(comment.pageIndex);
+    if (!markerRect || !stableKey || pageIndex === null) {
         return null;
     }
 
     return {
-        pageIndex: comment.pageIndex,
+        pageIndex,
         stableKey,
         text: comment.text ?? '',
         markerRect,

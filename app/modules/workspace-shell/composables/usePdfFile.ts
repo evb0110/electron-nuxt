@@ -40,6 +40,13 @@ export const usePdfFile = () => {
         shouldForceSaveAsForWorkingCopy,
     } = createDocumentConformance(sessionState);
     const documentOpenFlowRef: { current: ReturnType<typeof createDocumentOpenFlow> | null } = {current: null};
+    function getDocumentOpenFlow() {
+        if (!documentOpenFlowRef.current) {
+            throw new Error('Document open flow is not initialized');
+        }
+        return documentOpenFlowRef.current;
+    }
+
     const {
         canRedo,
         canUndo,
@@ -58,13 +65,13 @@ export const usePdfFile = () => {
         syncDirtyFromHistory,
         undo,
     } = createDocumentHistory(sessionState, {
-        applyLoadedPdfState: (...args) => documentOpenFlowRef.current!.applyLoadedPdfState(...args),
+        applyLoadedPdfState: (...args) => getDocumentOpenFlow().applyLoadedPdfState(...args),
         clearOcrCache,
         documents: getDocumentsCapability,
         getOpenEpoch: () => openEpoch.current(),
         isCurrentOpenEpoch: token => openEpoch.isCurrent(token),
-        readPdfStateFromPath: (...args) => documentOpenFlowRef.current!.readPdfStateFromPath(...args),
-        toPdfBlob: (...args) => documentOpenFlowRef.current!.toPdfBlob(...args),
+        readPdfStateFromPath: (...args) => getDocumentOpenFlow().readPdfStateFromPath(...args),
+        toPdfBlob: (...args) => getDocumentOpenFlow().toPdfBlob(...args),
     });
     const documentOpenFlow = createDocumentOpenFlow(sessionState, {
         analytics,

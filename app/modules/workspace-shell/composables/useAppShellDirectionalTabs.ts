@@ -8,7 +8,7 @@ import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits
 import type {
     IEditorPaneState,
     TPaneDirection,
-} from '@app/types/editorPanes';
+} from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type {

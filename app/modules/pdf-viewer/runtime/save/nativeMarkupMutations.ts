@@ -6,13 +6,10 @@ import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-g
 import { collectMarkupSubtypeHints } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/collectMarkupSubtypeHints';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type { IPdfNativeMarkupSubtypeHint } from '@contracts/electronApiDocuments';
+import { toPageIndex } from '@contracts/pageNumbers';
+import { PDF_ANNOTATION_MARKUP_SUBTYPES } from '@contracts/annotations';
 
-const NATIVE_MARKUP_SUBTYPES = new Set<TMarkupSubtype>([
-    'Highlight',
-    'Underline',
-    'StrikeOut',
-    'Squiggly',
-]);
+const NATIVE_MARKUP_SUBTYPES = new Set<TMarkupSubtype>(PDF_ANNOTATION_MARKUP_SUBTYPES);
 
 function isNativeMarkupSubtype(value: unknown): value is TMarkupSubtype {
     return typeof value === 'string' && NATIVE_MARKUP_SUBTYPES.has(value as TMarkupSubtype);
@@ -35,7 +32,7 @@ export function toNativeMarkupHint(hint: IMarkupSubtypeHint): IPdfNativeMarkupSu
     }
     return {
         subtype: hint.subtype,
-        pageIndex: hint.pageIndex,
+        pageIndex: toPageIndex(hint.pageIndex),
         markerRect,
         annotationId: hint.annotationId ?? null,
         color: hint.color ?? null,

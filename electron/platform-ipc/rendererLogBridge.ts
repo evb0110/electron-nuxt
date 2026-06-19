@@ -1,6 +1,9 @@
 import { ipcMain } from 'electron';
 import { clamp } from 'es-toolkit/math';
-import type { IRendererLogEntry } from '@contracts/electronApiCommon';
+import type {
+    IRendererLogEntry,
+    TRendererLogLevel,
+} from '@contracts/electronApiCommon';
 import { isRecord } from '@contracts/runtimeGuards';
 import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
 import { createLogger } from '@electron/utils/createLogger';
@@ -321,8 +324,6 @@ function registerRendererLogSenderCleanup(sender: Electron.WebContents) {
     sender.once('destroyed', cleanup);
     sender.once('render-process-gone', cleanup);
 }
-
-type TRendererLogLevel = IRendererLogEntry['level'];
 
 interface INormalizedRendererLogEntry {
     level: TRendererLogLevel;

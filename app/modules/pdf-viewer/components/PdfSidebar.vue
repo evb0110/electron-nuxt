@@ -156,7 +156,7 @@
 
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IPdfSearchRequestOptions } from '@contracts/search';
+import type { IResolvedSearchMatchOptions } from '@contracts/search';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
@@ -191,7 +191,7 @@ interface IProps {
     currentResultNavigationId: number;
     searchQuery: string;
     submittedSearchQuery?: string | undefined;
-    searchOptions: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>;
+    searchOptions: IResolvedSearchMatchOptions;
     totalMatches: number;
     isSearching: boolean;
     searchError?: string | null | undefined;
@@ -263,46 +263,46 @@ const {
 const annotationActiveCommentStableKey = computed(() => annotationActiveCommentStableKeyProp ?? null);
 
 const emit = defineEmits<{
-    (e: 'goToPage', page: number, options?: IScrollToPageOptions): void;
-    (e: 'goToResult', index: number): void;
-    (e: 'update:activeTab', value: TPdfSidebarTab): void;
-    (e: 'update:searchQuery', value: string): void;
-    (e: 'update:searchOptions', value: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>): void;
-    (e: 'update:annotation-tool', value: TAnnotationTool): void;
-    (e: 'update:annotation-keep-active', value: boolean): void;
-    (e: 'update:bookmark-edit-mode', value: boolean): void;
-    (e: 'update:pageLabelRanges', ranges: IPdfPageLabelRange[]): void;
-    (e: 'search'): void;
-    (e: 'next'): void;
-    (e: 'previous'): void;
-    (e: 'annotation-setting', payload: {
+    goToPage: [page: number, options?: IScrollToPageOptions];
+    goToResult: [index: number];
+    'update:activeTab': [value: TPdfSidebarTab];
+    'update:searchQuery': [value: string];
+    'update:searchOptions': [value: IResolvedSearchMatchOptions];
+    'update:annotation-tool': [value: TAnnotationTool];
+    'update:annotation-keep-active': [value: boolean];
+    'update:bookmark-edit-mode': [value: boolean];
+    'update:pageLabelRanges': [ranges: IPdfPageLabelRange[]];
+    search: [];
+    next: [];
+    previous: [];
+    'annotation-setting': [payload: {
         key: keyof IAnnotationSettings;
         value: IAnnotationSettings[keyof IAnnotationSettings]
-    }): void;
-    (e: 'annotation-focus-comment', comment: IAnnotationCommentSummary): void;
-    (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
-    (e: 'annotation-delete-comment', comment: IAnnotationCommentSummary): void;
-    (e: 'annotation-place-note'): void;
-    (e: 'bookmarks-change', payload: {
+    }];
+    'annotation-focus-comment': [comment: IAnnotationCommentSummary];
+    'annotation-open-note': [comment: IAnnotationCommentSummary];
+    'annotation-delete-comment': [comment: IAnnotationCommentSummary];
+    'annotation-place-note': [];
+    'bookmarks-change': [payload: {
         bookmarks: IPdfBookmarkEntry[];
         dirty: boolean;
-    }): void;
-    (e: 'page-context-menu', payload: {
+    }];
+    'page-context-menu': [payload: {
         clientX: number;
         clientY: number;
         pages: number[]
-    }): void;
-    (e: 'page-rotate-cw', pages: number[]): void;
-    (e: 'page-rotate-ccw', pages: number[]): void;
-    (e: 'page-extract', pages: number[]): void;
-    (e: 'page-export', pages: number[]): void;
-    (e: 'page-delete', pages: number[]): void;
-    (e: 'page-reorder', newOrder: number[]): void;
-    (e: 'update:selectedThumbnailPages', pages: number[]): void;
-    (e: 'page-file-drop', payload: {
+    }];
+    'page-rotate-cw': [pages: number[]];
+    'page-rotate-ccw': [pages: number[]];
+    'page-extract': [pages: number[]];
+    'page-export': [pages: number[]];
+    'page-delete': [pages: number[]];
+    'page-reorder': [newOrder: number[]];
+    'update:selectedThumbnailPages': [pages: number[]];
+    'page-file-drop': [payload: {
         afterPage: number;
         filePaths: TDocumentRef[];
-    }): void;
+    }];
 }>();
 
 const activeTabLocal = ref<TPdfSidebarTab>('thumbnails');
@@ -335,7 +335,7 @@ function handleSelectedPagesUpdate(pages: number[]) {
     emit('update:selectedThumbnailPages', pages);
 }
 
-function handleSearchOptionsUpdate(value: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>) {
+function handleSearchOptionsUpdate(value: IResolvedSearchMatchOptions) {
     emit('update:searchOptions', value);
 }
 

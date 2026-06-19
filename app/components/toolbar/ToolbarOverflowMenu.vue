@@ -141,23 +141,23 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'update:open', value: boolean): void
-    (e: 'open-ocr'): void
-    (e: 'toggle-sidebar'): void
-    (e: 'fit-width'): void
-    (e: 'fit-height'): void
-    (e: 'enable-drag'): void
-    (e: 'disable-drag'): void
-    (e: 'set-view-mode', mode: TPdfViewMode): void
-    (e: 'toggle-continuous-scroll'): void
-    (e: 'capture-region'): void
-    (e: 'crop'): void
-    (e: 'quick-note'): void
-    (e: 'toggle-fullscreen'): void
-    (e: 'open-settings'): void
-    (e: 'combine-images'): void
-    (e: 'print-current-page'): void
-    (e: 'convert-to-pdf'): void
+    'update:open': [value: boolean];
+    'open-ocr': [];
+    'toggle-sidebar': [];
+    'fit-width': [];
+    'fit-height': [];
+    'enable-drag': [];
+    'disable-drag': [];
+    'set-view-mode': [mode: TPdfViewMode];
+    'toggle-continuous-scroll': [];
+    'capture-region': [];
+    crop: [];
+    'quick-note': [];
+    'toggle-fullscreen': [];
+    'open-settings': [];
+    'combine-images': [];
+    'print-current-page': [];
+    'convert-to-pdf': [];
 }>();
 
 const emitMenuCommand = {

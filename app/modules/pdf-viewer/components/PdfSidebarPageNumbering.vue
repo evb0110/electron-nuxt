@@ -184,10 +184,10 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'update:selectedPages', pages: number[]): void;
-    (e: 'update:pageRangeInput', value: string): void;
-    (e: 'update:pageLabelRanges', ranges: IPdfPageLabelRange[]): void;
-    (e: 'clear'): void;
+    'update:selectedPages': [pages: number[]];
+    'update:pageRangeInput': [value: string];
+    'update:pageLabelRanges': [ranges: IPdfPageLabelRange[]];
+    clear: [];
 }>();
 
 const { t } = useTypedI18n();

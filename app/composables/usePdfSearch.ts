@@ -6,7 +6,10 @@ import type {
 import type {
     IPdfSearchRequestOptions,
     IPdfSearchResponse,
+    IResolvedSearchMatchOptions,
+    ISearchMatchOptions,
 } from '@contracts/search';
+import { pageNumberToPageIndex } from '@contracts/pageNumbers';
 import {
     tryOnScopeDispose,
     useDebounceFn,
@@ -18,7 +21,6 @@ import {
     bucketPageCount,
     bucketQueryLength,
 } from '@app/utils/analytics';
-import { groupBy } from 'es-toolkit/array';
 import { getSearchCapability } from '@app/utils/getSearchCapability';
 
 export type {
@@ -27,18 +29,12 @@ export type {
     TSearchDirection,
 };
 
-interface IResolvedSearchOptions {
-    matchCase: boolean;
-    wholeWord: boolean;
-    useRegex: boolean;
-}
-
 export const usePdfSearch = () => {
     const { t } = useTypedI18n();
     const analytics = useAnalytics();
     const searchQuery = ref('');
     const submittedSearchQuery = ref('');
-    const searchOptions = ref<IResolvedSearchOptions>({
+    const searchOptions = ref<IResolvedSearchMatchOptions>({
         matchCase: false,
         wholeWord: false,
         useRegex: false,
@@ -139,10 +135,17 @@ export const usePdfSearch = () => {
     function normalizeSearchResponse(
         response: IPdfSearchResponse,
         query: string,
-        options: IResolvedSearchOptions,
+        options: IResolvedSearchMatchOptions,
         searchId: string,
     ) {
-        const mergedResults = response.results.map((result, idx): IPdfSearchMatch => {
+        const resultsWithPageIndex = response.results.map(result => ({
+            result,
+            pageIndex: pageNumberToPageIndex(result.pageNumber),
+        }));
+        const mergedResults = resultsWithPageIndex.map(({
+            result,
+            pageIndex,
+        }, idx): IPdfSearchMatch => {
             if (idx < 3) {
                 BrowserLogger.debug('pdf-search', `Result ${idx}`, {
                     searchId,
@@ -153,7 +156,7 @@ export const usePdfSearch = () => {
             }
 
             return {
-                pageIndex: result.pageNumber - 1,
+                pageIndex,
                 matchIndex: result.matchIndex,
                 startOffset: result.startOffset,
                 endOffset: result.endOffset,
@@ -162,22 +165,15 @@ export const usePdfSearch = () => {
             };
         });
 
-        const pageResults = new Map(Object.entries(groupBy(
-            response.results,
-            result => result.pageNumber - 1,
-        )).map(([
-            pageIndex,
-            pageSearchResults,
-        ]) => {
-            const firstPageResult = pageSearchResults[0];
-            if (firstPageResult) {
-                BrowserLogger.debug('pdf-search', `Created pageMatches for page ${firstPageResult.pageNumber}`, { searchId });
+        const pageResults = new Map<typeof resultsWithPageIndex[number]['pageIndex'], IPdfSearchResponse['results']>();
+        resultsWithPageIndex.forEach((item) => {
+            const pageSearchResults = pageResults.get(item.pageIndex) ?? [];
+            if (pageSearchResults.length === 0) {
+                BrowserLogger.debug('pdf-search', `Created pageMatches for page ${item.result.pageNumber}`, { searchId });
+                pageResults.set(item.pageIndex, pageSearchResults);
             }
-            return [
-                Number(pageIndex),
-                pageSearchResults,
-            ];
-        }));
+            pageSearchResults.push(item.result);
+        });
 
         const matchesMap = new Map(Array.from(pageResults.entries()).map(([
             pageIndex,
@@ -213,7 +209,7 @@ export const usePdfSearch = () => {
     function applySearchResponse(
         response: IPdfSearchResponse,
         query: string,
-        options: IResolvedSearchOptions,
+        options: IResolvedSearchMatchOptions,
         searchId: string,
     ) {
         const normalizedResponse = normalizeSearchResponse(response, query, options, searchId);
@@ -256,7 +252,7 @@ export const usePdfSearch = () => {
         query: string;
         pdfPath: string;
         pageCount?: number;
-        options: IResolvedSearchOptions;
+        options: IResolvedSearchMatchOptions;
         requestedAt: number;
     }) => {
         const resolver = scheduledResolve;
@@ -318,7 +314,7 @@ export const usePdfSearch = () => {
         query: string,
         pdfPath: string,
         pageCount?: number,
-        options: IResolvedSearchOptions = searchOptions.value,
+        options: IResolvedSearchMatchOptions = searchOptions.value,
         requestedAt = Date.now(),
     ) {
         if (!query.trim()) {
@@ -413,7 +409,7 @@ export const usePdfSearch = () => {
         query: string,
         pdfPath: string,
         pageCount?: number,
-        options: Partial<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>> = searchOptions.value,
+        options: ISearchMatchOptions = searchOptions.value,
     ) {
         searchQuery.value = query;
         searchOptions.value = {

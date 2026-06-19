@@ -12,7 +12,7 @@ interface IUsePdfViewerSourceChangeLifecycleOptions {
     ) => void;
 }
 
-export function usePdfViewerSourceChangeLifecycle(options: IUsePdfViewerSourceChangeLifecycleOptions) {
+export const usePdfViewerSourceChangeLifecycle = (options: IUsePdfViewerSourceChangeLifecycleOptions) => {
     watch(() => options.src.value, (next, previous) => {
         if (next === previous) {
             return;
@@ -23,4 +23,4 @@ export function usePdfViewerSourceChangeLifecycle(options: IUsePdfViewerSourceCh
         options.clearPendingImagePlacement();
         options.handleAnnotationSourceChanged(next, previous);
     });
-}
+};

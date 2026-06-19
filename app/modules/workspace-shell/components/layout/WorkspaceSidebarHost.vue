@@ -36,7 +36,7 @@ const {
     resizeAriaLabel: string;
 }>();
 
-const emit = defineEmits<{(e: 'resize-start', event: PointerEvent): void;}>();
+const emit = defineEmits<{'resize-start': [event: PointerEvent];}>();
 
 function handleResizeStart(event: PointerEvent) {
     emit('resize-start', event);

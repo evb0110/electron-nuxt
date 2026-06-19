@@ -9,7 +9,7 @@ import { ref } from 'vue';
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
-} from '@app/types/editorPanes';
+} from '@contracts/editorPanes';
 
 const stateStore = new Map<string, ReturnType<typeof ref>>();
 

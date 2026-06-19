@@ -1,6 +1,6 @@
 import type {
-    IMenuEventCallback,
-    IMenuEventUnsubscribe,
+    TMenuEventCallback,
+    TMenuEventUnsubscribe,
 } from '@contracts/electronApiCommon';
 
 export type TAppUpdateCheckOrigin = 'auto' | 'manual';
@@ -20,6 +20,6 @@ export interface IUpdatesCapability {
     install: () => Promise<{ started: boolean }>;
     defer: () => Promise<void>;
     skipVersion: (version: string) => Promise<void>;
-    onStatus: (callback: (status: IAppUpdateStatus) => void) => IMenuEventUnsubscribe;
-    onMenuCheckForUpdates: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onStatus: (callback: (status: IAppUpdateStatus) => void) => TMenuEventUnsubscribe;
+    onMenuCheckForUpdates: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
 }

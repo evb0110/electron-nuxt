@@ -375,6 +375,10 @@ function normalizeAccount(rawAccount: unknown): IAgentAssistantAccount | null {
     return { type: 'other' };
 }
 
+function decodeRecordResponse(value: unknown): Record<PropertyKey, unknown> | null {
+    return isRecord(value) ? value : null;
+}
+
 function currentStatus(scope: IAgentAssistantChatScope | null = lastStateScope): IAgentAssistantStatus {
     const codexInfo = codexInfoCache;
     const installed = codexInfo?.installed === true;
@@ -716,27 +720,27 @@ async function refreshAuthState() {
     }
 
     try {
-        const accountResponse = await runtime.client.request('account/read', { refreshToken: true });
-        const normalizedAccount = normalizeAccount(isRecord(accountResponse) ? accountResponse.account : null);
+        const accountResponse = await runtime.client.requestDecoded('account/read', { refreshToken: true }, decodeRecordResponse);
+        const normalizedAccount = normalizeAccount(accountResponse.account);
         if (normalizedAccount) {
             authState = 'signed-in';
             account = normalizedAccount;
             return;
         }
 
-        const accountRequiresOpenaiAuth = isRecord(accountResponse) && accountResponse.requiresOpenaiAuth === true;
+        const accountRequiresOpenaiAuth = accountResponse.requiresOpenaiAuth === true;
         if (accountRequiresOpenaiAuth) {
             authState = 'signed-out';
             account = null;
             return;
         }
 
-        const authStatus = await runtime.client.request('getAuthStatus', {
+        const authStatus = await runtime.client.requestDecoded('getAuthStatus', {
             includeToken: false,
             refreshToken: true,
-        });
-        const statusRequiresOpenaiAuth = isRecord(authStatus) && authStatus.requiresOpenaiAuth === true;
-        const hasAuthMethod = isRecord(authStatus) && authStatus.authMethod != null;
+        }, decodeRecordResponse);
+        const statusRequiresOpenaiAuth = authStatus.requiresOpenaiAuth === true;
+        const hasAuthMethod = authStatus.authMethod != null;
         authState = statusRequiresOpenaiAuth || !hasAuthMethod
             ? 'signed-out'
             : 'signed-in';
@@ -850,8 +854,12 @@ async function refreshMcpToolCount() {
     }
 
     try {
-        const response = await runtime.client.request('mcpServerStatus/list', {detail: 'toolsAndAuthOnly'});
-        if (!isRecord(response) || !Array.isArray(response.data)) {
+        const response = await runtime.client.requestDecoded(
+            'mcpServerStatus/list',
+            {detail: 'toolsAndAuthOnly'},
+            decodeRecordResponse,
+        );
+        if (!Array.isArray(response.data)) {
             return;
         }
         const servers: unknown[] = response.data;
@@ -889,7 +897,7 @@ async function ensureAssistantThread(session: IAssistantChatSession) {
         return session.threadId;
     }
 
-    const response = await currentRuntime.client.request('thread/start', {
+    const response = await currentRuntime.client.requestDecoded('thread/start', {
         cwd: currentRuntime.cwd,
         approvalPolicy: 'never',
         sandbox: 'read-only',
@@ -898,8 +906,8 @@ async function ensureAssistantThread(session: IAssistantChatSession) {
         personality: 'friendly',
         ephemeral: true,
         threadSource: 'user',
-    });
-    if (!isRecord(response) || !isRecord(response.thread) || typeof response.thread.id !== 'string') {
+    }, decodeRecordResponse);
+    if (!isRecord(response.thread) || typeof response.thread.id !== 'string') {
         throw new Error('Codex did not return an assistant thread.');
     }
     session.threadId = response.thread.id;
@@ -1076,8 +1084,8 @@ export async function startAgentAssistantLogin(
                 type: 'chatgpt',
                 codexStreamlinedLogin: true,
             };
-        const response = await currentRuntime.client.request('account/login/start', params);
-        if (!isRecord(response) || typeof response.type !== 'string') {
+        const response = await currentRuntime.client.requestDecoded('account/login/start', params, decodeRecordResponse);
+        if (typeof response.type !== 'string') {
             throw new Error('Codex did not return a login flow.');
         }
 
@@ -1195,7 +1203,7 @@ export async function sendAgentAssistantMessage(
             ...(attachments.length > 0 ? { attachments } : {}),
         });
         publishState(session.scope);
-        const response = await currentRuntime.client.request('turn/start', {
+        const response = await currentRuntime.client.requestDecoded('turn/start', {
             threadId: currentThreadId,
             input: [
                 {
@@ -1215,8 +1223,8 @@ export async function sendAgentAssistantMessage(
                 networkAccess: false,
             },
             personality: 'friendly',
-        });
-        if (isRecord(response) && isRecord(response.turn) && typeof response.turn.id === 'string') {
+        }, decodeRecordResponse);
+        if (isRecord(response.turn) && typeof response.turn.id === 'string') {
             if (session.threadId !== currentThreadId) {
                 return {
                     ok: true,

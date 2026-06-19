@@ -4,7 +4,8 @@ import type {
 } from 'electron';
 import { compact } from 'es-toolkit/array';
 import type { IElectronAPI } from '@contracts/electronApi';
-import type { IMenuEventUnsubscribe } from '@contracts/electronApiCommon';
+import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
+import { sanitizeSettings } from '@contracts/settings';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import {createDocumentsPreloadClient} from '@electron/features/documents/createDocumentsPreloadClient';
 import { createDocumentsPreloadPageOpsClient } from '@electron/features/documents/createDocumentsPreloadPageOpsClient';
@@ -17,6 +18,7 @@ import {createOcrPreloadClient} from '@electron/features/ocr/createOcrPreloadCli
 import {createSearchPreloadClient} from '@electron/features/search/createSearchPreloadClient';
 import {createDjvuPreloadClient} from '@electron/features/djvu/createDjvuPreloadClient';
 import {
+    createDecodedIpcInvoker,
     createTypedIpcEventSubscriber,
     createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
@@ -93,6 +95,7 @@ function readSystemMemoryInfo() {
 
 export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: typeof webUtils): IElectronAPI {
     const invokeCore = createTypedIpcInvoker<ICoreInvokeMap>(ipcRenderer);
+    const invokeCoreDecoded = createDecodedIpcInvoker<ICoreInvokeMap>(ipcRenderer);
     const invokeDocuments = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer);
     const eventSubscriber = createTypedIpcEventSubscriber<ICoreEventMap>(ipcRenderer);
     const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
@@ -160,13 +163,16 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         djvu: createDjvuPreloadClient(ipcRenderer),
 
         settings: {
-            get: () => invokeWithStartupTrace('settings:get', () => invokeCore(CORE_IPC_CHANNELS.settingsGet)),
+            get: () => invokeWithStartupTrace(
+                'settings:get',
+                () => invokeCoreDecoded(CORE_IPC_CHANNELS.settingsGet, sanitizeSettings),
+            ),
             save: (settings) => invokeCore(CORE_IPC_CHANNELS.settingsSave, settings),
             getDebugLogs: () => Promise.resolve(getDebugLogMessages()),
-            onDebugLog: (callback): IMenuEventUnsubscribe =>
+            onDebugLog: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.debugLog, callback),
             rendererLog: (entry) => ipcRenderer.send(CORE_IPC_SEND_CHANNELS.rendererLog, entry),
-            onMenuOpenSettings: (callback): IMenuEventUnsubscribe =>
+            onMenuOpenSettings: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuOpenSettings, callback),
         },
 
@@ -178,9 +184,9 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
             install: () => invokeCore(CORE_IPC_CHANNELS.updatesInstall),
             defer: () => invokeCore(CORE_IPC_CHANNELS.updatesDefer),
             skipVersion: (version) => invokeCore(CORE_IPC_CHANNELS.updatesSkipVersion, version),
-            onStatus: (callback): IMenuEventUnsubscribe =>
+            onStatus: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.updatesStatus, callback),
-            onMenuCheckForUpdates: (callback): IMenuEventUnsubscribe =>
+            onMenuCheckForUpdates: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuCheckForUpdates, callback),
         },
 
@@ -188,20 +194,20 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
 
         host: {
             getEnvironment: () => invokeCore(CORE_IPC_CHANNELS.hostGetEnvironment),
-            onEnvironmentChange: (callback): IMenuEventUnsubscribe =>
+            onEnvironmentChange: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.hostEnvironmentChanged, callback),
             getZenModeState: () => invokeCore(CORE_IPC_CHANNELS.hostGetZenModeState),
             setZenMode: (active) => invokeCore(CORE_IPC_CHANNELS.hostSetZenMode, active),
-            onZenModeChange: (callback): IMenuEventUnsubscribe =>
+            onZenModeChange: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.hostZenModeChanged, callback),
         },
 
         agent: {
-            onWorkspaceSnapshotRequest: (callback): IMenuEventUnsubscribe =>
+            onWorkspaceSnapshotRequest: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.agentWorkspaceSnapshotRequest, callback),
             submitWorkspaceSnapshot: response =>
                 invokeCore(CORE_IPC_CHANNELS.agentSubmitWorkspaceSnapshot, response),
-            onCommandRequest: (callback): IMenuEventUnsubscribe =>
+            onCommandRequest: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.agentCommandRequest, callback),
             submitCommandResponse: response =>
                 invokeCore(CORE_IPC_CHANNELS.agentSubmitCommandResponse, response),
@@ -229,7 +235,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 request === undefined
                     ? invokeCore(CORE_IPC_CHANNELS.agentResetAssistantChat)
                     : invokeCore(CORE_IPC_CHANNELS.agentResetAssistantChat, request),
-            onAssistantEvent: (callback): IMenuEventUnsubscribe =>
+            onAssistantEvent: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.agentAssistantEvent, callback),
         },
 
@@ -247,21 +253,21 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
             transferAck: (ack) => invokeCore(CORE_IPC_CHANNELS.tabsTransferAck, ack),
             listTargetWindows: () => invokeCore(CORE_IPC_CHANNELS.tabsListTargets),
             showContextMenu: (tabId) => invokeCore(CORE_IPC_CHANNELS.tabsShowContextMenu, tabId),
-            onIncomingTransfer: (callback): IMenuEventUnsubscribe =>
+            onIncomingTransfer: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.tabsIncomingTransfer, callback),
-            onWindowAction: (callback): IMenuEventUnsubscribe =>
+            onWindowAction: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuWindowTabsAction, callback),
-            onMenuNewTab: (callback): IMenuEventUnsubscribe =>
+            onMenuNewTab: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuNewTab, callback),
-            onMenuCloseTab: (callback): IMenuEventUnsubscribe =>
+            onMenuCloseTab: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuCloseTab, callback),
-            onMenuSplitEditor: (callback): IMenuEventUnsubscribe =>
+            onMenuSplitEditor: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuSplitEditor, callback),
-            onMenuFocusEditorPane: (callback): IMenuEventUnsubscribe =>
+            onMenuFocusEditorPane: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuFocusEditorPane, callback),
-            onMenuMoveTabToPane: (callback): IMenuEventUnsubscribe =>
+            onMenuMoveTabToPane: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuMoveTabToPane, callback),
-            onMenuCopyTabToPane: (callback): IMenuEventUnsubscribe =>
+            onMenuCopyTabToPane: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuCopyTabToPane, callback),
         },
     } satisfies IElectronAPI;

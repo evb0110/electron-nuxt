@@ -1,5 +1,10 @@
 import type { PDFPageProxy } from 'pdfjs-dist';
 import type { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
+import type {
+    IActivePdfTextLayerTask,
+    TClearSelectionBeforePageLayerTeardown,
+    TPdfTextLayerCleanup,
+} from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import { PDF_PAGE_TEXT_LAYER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { isPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/isPageRenderTimeoutError';
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
@@ -26,23 +31,19 @@ interface ITextLayerRenderContext {
 
 interface IUsePdfRendererTextLayerControllerOptions {
     textLayerRenderer: ReturnType<typeof usePdfTextLayerRenderer>;
-    activeTextLayerAbortControllers: Map<number, {
-        version: number;
-        requestId: number;
-        controller: AbortController;
-    }>;
-    textLayerCleanupFns: Map<number, () => void>;
+    activeTextLayerAbortControllers: Map<number, IActivePdfTextLayerTask>;
+    textLayerCleanupFns: Map<number, TPdfTextLayerCleanup>;
     getRenderVersion: () => number;
     cleanupTextLayer: (pageNumber: number) => void;
     cleanupPageIfCurrentRender: (pageNumber: number, version: number, requestId?: number) => void;
     cancelActiveTextLayerRender: (pageNumber: number) => void;
     cancelActiveTextLayerRenderIfCurrent: (pageNumber: number, version: number, requestId: number) => void;
-    clearSelectionBeforePageLayerTeardown: (pageNumber: number) => unknown;
+    clearSelectionBeforePageLayerTeardown: TClearSelectionBeforePageLayerTeardown;
     logNonCriticalStageError: (pageNumber: number, stage: string, error: unknown) => void;
     onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
 }
 
-export function usePdfRendererTextLayerController(options: IUsePdfRendererTextLayerControllerOptions) {
+export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLayerControllerOptions) => {
     const {
         textLayerRenderer,
         activeTextLayerAbortControllers,
@@ -217,5 +218,5 @@ export function usePdfRendererTextLayerController(options: IUsePdfRendererTextLa
         return true;
     }
 
-    return {renderTextLayerForPage};
-}
+    return renderTextLayerForPage;
+};

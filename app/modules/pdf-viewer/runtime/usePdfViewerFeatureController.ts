@@ -42,7 +42,7 @@ import type {
 import type { IPageRange } from '@app/types/pdf';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 
-export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdfViewerEmit) {
+export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdfViewerEmit) => {
     const {
         src,
         sourcePdfData,
@@ -968,4 +968,4 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: IPdf
         handleViewerContainerRef,
         pdfViewerPublicApi,
     };
-}
+};

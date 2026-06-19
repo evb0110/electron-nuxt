@@ -1,6 +1,12 @@
 import type { TLocale } from '@i18n-core';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { IPdfBox as IPdfGeometryBox } from '@contracts/geometry';
 import { isRecord } from '@contracts/runtimeGuards';
+
+export type {
+    IPageGeometry,
+    IPdfBox,
+} from '@contracts/geometry';
 
 export function normalizeNonEmptyStringPaths(paths: readonly unknown[]): string[] {
     const normalizedPaths: string[] = [];
@@ -30,13 +36,7 @@ export interface IOcrLanguage {
     script: 'latin' | 'cyrillic' | 'greek' | 'rtl';
 }
 
-export interface IOcrWord {
-    text: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-}
+export interface IOcrWord extends IPdfGeometryBox {text: string;}
 
 export function isOcrWord(value: unknown): value is IOcrWord {
     return isRecord(value)
@@ -83,17 +83,4 @@ export interface ICropMargins {
     bottom: number;
     left: number;
     right: number;
-}
-
-export interface IPdfBox {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-}
-
-export interface IPageGeometry {
-    mediaBox: IPdfBox;
-    cropBox: IPdfBox | null;
-    rotation: number;
 }

@@ -98,22 +98,22 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'update:open', value: boolean): void
-    (e: 'open-file'): void
-    (e: 'save'): void
-    (e: 'repair-save'): void
-    (e: 'save-as'): void
-    (e: 'print'): void
-    (e: 'print-current-page'): void
-    (e: 'combine-images'): void
-    (e: 'export-docx'): void
-    (e: 'export-images'): void
-    (e: 'export-multi-page-tiff'): void
-    (e: 'convert-to-pdf'): void
-    (e: 'undo'): void
-    (e: 'redo'): void
-    (e: 'insert-image-from-file'): void
-    (e: 'paste-image-from-clipboard'): void
+    'update:open': [value: boolean];
+    'open-file': [];
+    save: [];
+    'repair-save': [];
+    'save-as': [];
+    print: [];
+    'print-current-page': [];
+    'combine-images': [];
+    'export-docx': [];
+    'export-images': [];
+    'export-multi-page-tiff': [];
+    'convert-to-pdf': [];
+    undo: [];
+    redo: [];
+    'insert-image-from-file': [];
+    'paste-image-from-clipboard': [];
 }>();
 
 const emitMenuCommand = {

@@ -2,7 +2,7 @@ import type {
     IpcRenderer,
     IpcRendererEvent,
 } from 'electron';
-import type { IMenuEventUnsubscribe } from '@contracts/electronApiCommon';
+import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import type { IIpcInvokeSpec } from '@contracts/ipcMain';
 
 type TNoArgEventChannel<TEventMap extends {[TChannel in keyof TEventMap]: unknown}> = Extract<{
@@ -13,6 +13,8 @@ type TPayloadEventChannel<TEventMap extends {[TChannel in keyof TEventMap]: unkn
     Extract<keyof TEventMap, string>,
     TNoArgEventChannel<TEventMap>
 >;
+
+type TIpcResultDecoder<TResult> = (value: unknown) => TResult | null;
 
 export function createTypedIpcInvoker<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec}>(
     ipcRenderer: Pick<IpcRenderer, 'invoke'>,
@@ -25,6 +27,23 @@ export function createTypedIpcInvoker<TMap extends {[TChannel in keyof TMap]: II
     };
 }
 
+export function createDecodedIpcInvoker<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec}>(
+    ipcRenderer: Pick<IpcRenderer, 'invoke'>,
+) {
+    return async function invokeDecoded<TChannel extends Extract<keyof TMap, string>>(
+        channel: TChannel,
+        decode: TIpcResultDecoder<TMap[TChannel]['result']>,
+        ...args: TMap[TChannel]['args']
+    ) {
+        const result: unknown = await ipcRenderer.invoke(channel, ...args);
+        const decoded = decode(result);
+        if (decoded === null) {
+            throw new Error(`Invalid IPC response for ${channel}`);
+        }
+        return decoded;
+    };
+}
+
 export function createTypedIpcEventSubscriber<
     TEventMap extends {[TChannel in keyof TEventMap]: unknown},
 >(ipcRenderer: IpcRenderer) {
@@ -32,7 +51,7 @@ export function createTypedIpcEventSubscriber<
         onNoArg<TChannel extends TNoArgEventChannel<TEventMap>>(
             channel: TChannel,
             callback: () => void,
-        ): IMenuEventUnsubscribe {
+        ): TMenuEventUnsubscribe {
             const handler = (_event: IpcRendererEvent) => callback();
             ipcRenderer.on(channel, handler);
             return () => ipcRenderer.removeListener(channel, handler);
@@ -41,7 +60,7 @@ export function createTypedIpcEventSubscriber<
         onPayload<TChannel extends TPayloadEventChannel<TEventMap>>(
             channel: TChannel,
             callback: (payload: TEventMap[TChannel]) => void,
-        ): IMenuEventUnsubscribe {
+        ): TMenuEventUnsubscribe {
             const handler = (_event: IpcRendererEvent, payload: TEventMap[TChannel]) => callback(payload);
             ipcRenderer.on(channel, handler);
             return () => ipcRenderer.removeListener(channel, handler);

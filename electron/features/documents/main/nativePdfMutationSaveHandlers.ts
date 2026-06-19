@@ -29,6 +29,16 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
+import type { IPdfBox } from '@contracts/geometry';
+import type { TPageIndex } from '@contracts/pageNumbers';
+import { toPageIndex } from '@contracts/pageNumbers';
+import { PDF_PAGE_LABEL_STYLE_VALUES } from '@contracts/pdfPageLabels';
+import {
+    PDF_ANNOTATION_LINE_END_STYLES,
+    PDF_ANNOTATION_MARKUP_SUBTYPES,
+    PDF_ANNOTATION_SHAPE_PDF_SUBTYPES,
+    PDF_ANNOTATION_SHAPE_TYPES,
+} from '@contracts/annotations';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
@@ -66,40 +76,11 @@ const MAX_NATIVE_MARKUP_ITEMS = 4_096;
 const MAX_NATIVE_MARKUP_TEXT_LENGTH = 2_048;
 const MAX_NATIVE_PLACED_IMAGES = 16;
 const MAX_NATIVE_PLACED_IMAGE_BYTES = 128 * 1024 * 1024;
-const PDF_NATIVE_PAGE_LABEL_STYLES = new Set([
-    'D',
-    'R',
-    'r',
-    'A',
-    'a',
-]);
-const PDF_NATIVE_SHAPE_TYPES = new Set([
-    'rectangle',
-    'circle',
-    'line',
-    'arrow',
-    'polyline',
-    'polygon',
-]);
-const PDF_NATIVE_SHAPE_SUBTYPES = new Set([
-    'Square',
-    'Circle',
-    'Line',
-    'PolyLine',
-    'Polygon',
-    'Ink',
-]);
-const PDF_NATIVE_SHAPE_LINE_END_STYLES = new Set([
-    'none',
-    'openArrow',
-    'closedArrow',
-]);
-const PDF_NATIVE_MARKUP_SUBTYPES = new Set([
-    'Highlight',
-    'Underline',
-    'StrikeOut',
-    'Squiggly',
-]);
+const PDF_NATIVE_PAGE_LABEL_STYLES = new Set<string>(PDF_PAGE_LABEL_STYLE_VALUES);
+const PDF_NATIVE_SHAPE_TYPES = new Set<string>(PDF_ANNOTATION_SHAPE_TYPES);
+const PDF_NATIVE_SHAPE_SUBTYPES = new Set<string>(PDF_ANNOTATION_SHAPE_PDF_SUBTYPES);
+const PDF_NATIVE_SHAPE_LINE_END_STYLES = new Set<string>(PDF_ANNOTATION_LINE_END_STYLES);
+const PDF_NATIVE_MARKUP_SUBTYPES = new Set<string>(PDF_ANNOTATION_MARKUP_SUBTYPES);
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/iu;
 const log = createLogger('native-note-text-save');
 
@@ -111,12 +92,8 @@ interface INativeNoteCommandOptions {
     commandLabel: string;
 }
 
-interface INativePlacedImagePayload {
-    pageIndex: number;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
+interface INativePlacedImagePayload extends IPdfBox {
+    pageIndex: TPageIndex;
     rotationDegrees: number | null;
     mimeType: 'image/jpeg';
     bytes: number[];
@@ -389,7 +366,7 @@ function normalizeFreeTextNotes(notes: unknown) {
             throw new Error(`Invalid FreeText note at index ${index}`);
         }
         return {
-            pageIndex: candidate.pageIndex,
+            pageIndex: toPageIndex(candidate.pageIndex),
             stableKey,
             text: candidate.text,
             markerRect: normalizeFreeTextNoteMarkerRect(candidate.markerRect, `FreeText note ${index} markerRect`),
@@ -438,7 +415,7 @@ function normalizeAnnotationDeletes(deletes: unknown) {
             throw new Error(`Invalid native annotation delete at index ${index}`);
         }
         return {
-            pageIndex: candidate.pageIndex,
+            pageIndex: toPageIndex(candidate.pageIndex),
             ...(hasValidRef
                 ? {
                     objectNumber: candidate.objectNumber,
@@ -688,7 +665,7 @@ function normalizeNativeShapeAnnotation(
     const strokes = normalizeNativeShapeStrokes(candidate.strokes, `shape ${index} strokes`, state);
     const shape: IPdfNativeShapeAnnotation = {
         type: normalizeNativeShapeEnum(candidate.type, `shape ${index} type`, PDF_NATIVE_SHAPE_TYPES) as IPdfNativeShapeAnnotation['type'],
-        pageIndex,
+        pageIndex: toPageIndex(pageIndex),
         x: normalizeFiniteUnitNumber(candidate.x, `shape ${index} x`),
         y: normalizeFiniteUnitNumber(candidate.y, `shape ${index} y`),
         width: normalizeFiniteNonNegativeNumber(candidate.width, `shape ${index} width`),
@@ -810,7 +787,7 @@ function normalizeNativeMarkupHint(rawHint: unknown, index: number): IPdfNativeM
     }
     return {
         subtype: normalizeNativeMarkupSubtype(candidate.subtype, `markup hint ${index} subtype`),
-        pageIndex: candidate.pageIndex,
+        pageIndex: toPageIndex(candidate.pageIndex),
         markerRect: normalizeMarkupMarkerRect(candidate.markerRect, `Markup hint ${index} markerRect`),
         annotationId: normalizeNativeMarkupOptionalString(candidate.annotationId, `markup hint ${index} annotationId`),
         color: normalizeNativeMarkupOptionalString(candidate.color, `markup hint ${index} color`),
@@ -904,7 +881,7 @@ function normalizeNativePlacedImages(rawPlacedImages: unknown) {
         }
         const bytes = normalizeNativePlacedImageBytes(candidate.bytes, `index ${index}`);
         return {
-            pageIndex: candidate.pageIndex,
+            pageIndex: toPageIndex(candidate.pageIndex),
             x: bounds.left,
             y: bounds.top,
             width: bounds.width,

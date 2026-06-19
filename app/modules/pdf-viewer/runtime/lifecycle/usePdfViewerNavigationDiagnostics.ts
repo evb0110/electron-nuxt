@@ -30,7 +30,7 @@ interface IUsePdfViewerNavigationDiagnosticsOptions {
 type TNavigationDiagnosticSnapshot = readonly [boolean, number, number, number, number, number, number | null, string];
 type TVisibleRangeSnapshot = readonly [number, number];
 
-export function usePdfViewerNavigationDiagnostics(options: IUsePdfViewerNavigationDiagnosticsOptions) {
+export const usePdfViewerNavigationDiagnostics = (options: IUsePdfViewerNavigationDiagnosticsOptions) => {
     watch(
         () => [
             !!options.navigationAnchorWindow.value,
@@ -119,4 +119,4 @@ export function usePdfViewerNavigationDiagnostics(options: IUsePdfViewerNavigati
             });
         },
     );
-}
+};

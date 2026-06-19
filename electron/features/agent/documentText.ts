@@ -2,7 +2,10 @@ import type {
     BrowserWindow,
     IpcMainInvokeEvent,
 } from 'electron';
-import type { IPdfSearchResponse } from '@contracts/search';
+import type {
+    IPdfSearchResponse,
+    ISearchMatchOptions,
+} from '@contracts/search';
 import type { IAgentTabSnapshot } from '@contracts/agent';
 import { createLogger } from '@electron/utils/createLogger';
 import {
@@ -12,11 +15,8 @@ import {
 } from '@electron/features/search/public';
 import { loadSearchIndex } from '@electron/search/indexBuilder';
 
-export interface IAgentDocumentSearchOptions {
+export interface IAgentDocumentSearchOptions extends ISearchMatchOptions {
     query: string;
-    matchCase?: boolean;
-    wholeWord?: boolean;
-    useRegex?: boolean;
     maxResults?: number;
 }
 

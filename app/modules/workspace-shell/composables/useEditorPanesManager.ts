@@ -6,7 +6,7 @@ import type {
     IEditorPaneState,
     TEditorLayoutNode,
     TPaneDirection,
-} from '@app/types/editorPanes';
+} from '@contracts/editorPanes';
 import {
     removeLeafNode,
     replaceLeafWithSplit,

@@ -1,6 +1,6 @@
 import type {
-    IMenuEventCallback,
-    IMenuEventUnsubscribe,
+    TMenuEventCallback,
+    TMenuEventUnsubscribe,
 } from '@contracts/electronApiCommon';
 import {
     assertAbsolutePath,
@@ -45,6 +45,6 @@ export {
 };
 
 export type {
-    IMenuEventCallback,
-    IMenuEventUnsubscribe,
+    TMenuEventCallback,
+    TMenuEventUnsubscribe,
 };

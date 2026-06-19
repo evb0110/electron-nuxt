@@ -296,6 +296,13 @@ export default withNuxt(
         },
     },
     {
+        files: ['app/**/*.ts'],
+        ignores: ['**/*.d.ts'],
+        rules: {
+            'custom/arrow-composable': 'error',
+        },
+    },
+    {
         files: [
             '**/*.ts',
             '**/*.tsx',
@@ -428,6 +435,7 @@ export default withNuxt(
             'custom/no-scss-ampersand-concatenation': 'error',
             'custom/nuxt-ui-semantic-utilities': 'error',
             'custom/tailwind-class-shorthand': 'error',
+            'custom/vue-define-emits-tuple': 'error',
         },
     },
 );

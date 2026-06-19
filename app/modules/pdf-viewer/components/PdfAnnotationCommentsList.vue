@@ -169,10 +169,10 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'focus-comment', comment: IAnnotationCommentSummary): void;
-    (e: 'open-note', comment: IAnnotationCommentSummary): void;
-    (e: 'delete-comment', comment: IAnnotationCommentSummary): void;
-    (e: 'place-note'): void;
+    'focus-comment': [comment: IAnnotationCommentSummary];
+    'open-note': [comment: IAnnotationCommentSummary];
+    'delete-comment': [comment: IAnnotationCommentSummary];
+    'place-note': [];
 }>();
 
 const query = ref('');

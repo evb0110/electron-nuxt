@@ -156,7 +156,8 @@ function emptyRecentFilesData(): IRecentFilesData {
 async function tryBootstrapRecentFiles(bootstrapPath: string): Promise<IRecentFilesData | null> {
     try {
         const content = await readFile(bootstrapPath, 'utf-8');
-        const bootstrapData = normalizeRecentFilesData(JSON.parse(content));
+        const parsed: unknown = JSON.parse(content);
+        const bootstrapData = normalizeRecentFilesData(parsed);
         const filtered = filterExistingFiles(bootstrapData.files);
         if (filtered.files.length === 0) {
             return null;
@@ -201,7 +202,8 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
     const storagePath = getStoragePath();
     try {
         const content = await readFile(storagePath, 'utf-8');
-        return normalizeRecentFilesData(JSON.parse(content));
+        const parsed: unknown = JSON.parse(content);
+        return normalizeRecentFilesData(parsed);
     } catch (err) {
         if (isErrnoException(err) && err.code === 'ENOENT') {
             const bootstrapData = await loadBootstrapRecentFilesData();

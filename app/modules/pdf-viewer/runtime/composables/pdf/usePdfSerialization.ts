@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
+import { parsePageIndex } from '@contracts/pageNumbers';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
@@ -197,8 +198,13 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             return null;
         }
 
+        const pageIndex = parsePageIndex(payload.pageNumber - 1);
+        if (pageIndex === null) {
+            return null;
+        }
+
         return {
-            pageIndex: payload.pageNumber - 1,
+            pageIndex,
             x: payload.x,
             y: payload.y,
             width: payload.width,

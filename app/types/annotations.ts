@@ -1,20 +1,28 @@
+import type {
+    IMarkerRect,
+    IPoint2D,
+} from '@contracts/geometry';
+import type {
+    TPdfAnnotationLineEndStyle,
+    TPdfAnnotationMarkupSubtype,
+    TPdfAnnotationShapePdfSubtype,
+    TPdfAnnotationShapeType,
+} from '@contracts/annotations';
+
 export type TAnnotationTool = 'none' | 'select' | 'highlight' | 'underline' | 'strikethrough' | 'squiggly' | 'text' | 'draw' | 'rectangle' | 'circle' | 'line' | 'arrow' | 'stamp';
 
 export type TAnnotationCommentsStatus = 'loading' | 'ready';
 
-export type TMarkupSubtype = 'Highlight' | 'Underline' | 'StrikeOut' | 'Squiggly';
+export type TMarkupSubtype = TPdfAnnotationMarkupSubtype;
 
-export type TShapeType = 'rectangle' | 'circle' | 'line' | 'arrow' | 'polyline' | 'polygon';
+export type TShapeType = TPdfAnnotationShapeType;
 export type TDrawableShapeType = Extract<TAnnotationTool, 'draw' | 'rectangle' | 'circle' | 'line' | 'arrow'>;
 
-export type TLineEndStyle = 'none' | 'openArrow' | 'closedArrow';
-export type TEmbeddedPdfShapeSubtype = 'Square' | 'Circle' | 'Line' | 'PolyLine' | 'Polygon' | 'Ink';
+export type TLineEndStyle = TPdfAnnotationLineEndStyle;
+export type TEmbeddedPdfShapeSubtype = TPdfAnnotationShapePdfSubtype;
 export type TShapeResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
 
-export interface IShapePoint {
-    x: number;
-    y: number;
-}
+export interface IShapePoint extends IPoint2D {}
 
 export interface IShapeAnnotation {
     id: string;
@@ -79,12 +87,7 @@ export interface IAnnotationEditorState {
 
 export interface IAnnotationModifiedPayload { forceDirty?: boolean }
 
-export interface IAnnotationMarkerRect {
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-}
+export interface IAnnotationMarkerRect extends IMarkerRect {}
 
 export interface ITextMarkupAnnotationProperties {
     id: string;

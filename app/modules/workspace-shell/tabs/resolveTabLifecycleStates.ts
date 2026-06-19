@@ -1,5 +1,5 @@
 import type { TTabMemoryPolicy } from '@contracts/shared';
-import type { IEditorPaneState } from '@app/types/editorPanes';
+import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type {
     ITabLifecycleState,

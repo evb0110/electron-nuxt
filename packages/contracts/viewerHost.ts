@@ -1,7 +1,7 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
-    IMenuEventCallback,
-    IMenuEventUnsubscribe,
+    TMenuEventCallback,
+    TMenuEventUnsubscribe,
 } from '@contracts/electronApiCommon';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type {
@@ -69,7 +69,7 @@ export interface IViewerSearchCapability {
         options?: IPdfSearchRequestOptions,
     ) => Promise<boolean>;
     cancel?: (requestId?: string) => Promise<{ canceled: boolean }>;
-    onProgress?: (callback: (progress: IPdfSearchProgress) => void) => IMenuEventUnsubscribe;
+    onProgress?: (callback: (progress: IPdfSearchProgress) => void) => TMenuEventUnsubscribe;
 }
 
 export interface IViewerSettingsCapability {
@@ -93,12 +93,12 @@ export interface IDesktopMenuCapability {
         canRepairSave?: boolean;
     }): Promise<void>;
     setMenuTabCount(tabCount: number): Promise<void>;
-    onMenuOpenPdf(callback: IMenuEventCallback): IMenuEventUnsubscribe;
-    onMenuSave(callback: IMenuEventCallback): IMenuEventUnsubscribe;
-    onMenuRepairSave(callback: IMenuEventCallback): IMenuEventUnsubscribe;
-    onMenuSaveAs(callback: IMenuEventCallback): IMenuEventUnsubscribe;
-    onMenuPrint(callback: IMenuEventCallback): IMenuEventUnsubscribe;
-    onMenuPrintCurrentPage(callback: IMenuEventCallback): IMenuEventUnsubscribe;
+    onMenuOpenPdf(callback: TMenuEventCallback): TMenuEventUnsubscribe;
+    onMenuSave(callback: TMenuEventCallback): TMenuEventUnsubscribe;
+    onMenuRepairSave(callback: TMenuEventCallback): TMenuEventUnsubscribe;
+    onMenuSaveAs(callback: TMenuEventCallback): TMenuEventUnsubscribe;
+    onMenuPrint(callback: TMenuEventCallback): TMenuEventUnsubscribe;
+    onMenuPrintCurrentPage(callback: TMenuEventCallback): TMenuEventUnsubscribe;
 }
 
 export interface IDesktopWindowCapability {

@@ -8,6 +8,10 @@ import {
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
+    public static responder: ((worker: FakeWorker, request: {
+        id: number;
+        type: string;
+    }) => void) | null = null;
 
     public readonly postMessageCalls: Array<{
         message: unknown;
@@ -49,11 +53,17 @@ class FakeWorker {
             transfer,
         });
 
+        const request = message as {
+            id: number;
+            type: string;
+        };
+
+        if (FakeWorker.responder) {
+            FakeWorker.responder(this, request);
+            return;
+        }
+
         queueMicrotask(() => {
-            const request = message as {
-                id: number;
-                type: string;
-            };
             const data = new Uint8Array([
                 9,
                 8,
@@ -69,6 +79,11 @@ class FakeWorker {
         });
     }
 
+    public dispatchMessage(data: unknown) {
+        const event = {data} as MessageEvent;
+        this.messageHandlers.forEach((handler) => handler(event));
+    }
+
     public dispatchEvent(_event: Event) {
         return false;
     }
@@ -82,6 +97,7 @@ describe('browserPdfCombineWorkerClient', () => {
         vi.unstubAllGlobals();
         vi.useRealTimers();
         FakeWorker.lastInstance = null;
+        FakeWorker.responder = null;
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', FakeWorker);
     });
@@ -125,6 +141,28 @@ describe('browserPdfCombineWorkerClient', () => {
         const request = firstCall?.message as {payload: {inputs: Array<{ data: Uint8Array }>;};};
         expect(request.payload.inputs[0]?.data.buffer).not.toBe(first.buffer);
         expect(request.payload.inputs[1]?.data.buffer).not.toBe(second.buffer);
+    });
+
+    it('rejects a matching-id success response with invalid combined data', async () => {
+        FakeWorker.responder = (worker, request) => {
+            queueMicrotask(() => {
+                worker.dispatchMessage({
+                    id: request.id,
+                    type: request.type,
+                    ok: true,
+                    data: { data: 'not-bytes' },
+                });
+            });
+        };
+        const {
+            cloneCombineWorkerInput,
+            runBrowserPdfCombineWorkerRequest,
+        } = await import('@app/platform/browser-api/browserPdfCombineWorkerClient');
+
+        await expect(runBrowserPdfCombineWorkerRequest(
+            'combinePdfs',
+            {inputs: [cloneCombineWorkerInput('first.pdf', new Uint8Array([1]))]},
+        )).rejects.toThrow('Browser worker returned an invalid result');
     });
 
     it('terminates the idle worker after the TTL elapses', async () => {

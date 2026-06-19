@@ -1,28 +1,16 @@
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import type { IPdfNativeShapeAnnotation } from '@contracts/electronApiDocuments';
+import { toPageIndex } from '@contracts/pageNumbers';
+import {
+    PDF_ANNOTATION_LINE_END_STYLES,
+    PDF_ANNOTATION_SHAPE_PDF_SUBTYPES,
+    PDF_ANNOTATION_SHAPE_TYPES,
+} from '@contracts/annotations';
 
-const NATIVE_SHAPE_TYPES = new Set([
-    'rectangle',
-    'circle',
-    'line',
-    'arrow',
-    'polyline',
-    'polygon',
-]);
-const NATIVE_SHAPE_PDF_SUBTYPES = new Set([
-    'Square',
-    'Circle',
-    'Line',
-    'PolyLine',
-    'Polygon',
-    'Ink',
-]);
-const NATIVE_SHAPE_LINE_END_STYLES = new Set([
-    'none',
-    'openArrow',
-    'closedArrow',
-]);
+const NATIVE_SHAPE_TYPES = new Set(PDF_ANNOTATION_SHAPE_TYPES);
+const NATIVE_SHAPE_PDF_SUBTYPES = new Set(PDF_ANNOTATION_SHAPE_PDF_SUBTYPES);
+const NATIVE_SHAPE_LINE_END_STYLES = new Set(PDF_ANNOTATION_LINE_END_STYLES);
 
 function isFiniteUnitNumber(value: unknown) {
     return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
@@ -105,7 +93,7 @@ export function toNativeShapeAnnotation(shape: IShapeAnnotation): IPdfNativeShap
     const nativeShape: IPdfNativeShapeAnnotation = {
         id: shape.id,
         type: shape.type,
-        pageIndex: shape.pageIndex,
+        pageIndex: toPageIndex(shape.pageIndex),
         x: shape.x,
         y: shape.y,
         width: shape.width,

@@ -22,7 +22,7 @@ interface IUsePdfViewerRuntimeOptions {
     summarizeViewerStateForLog: () => unknown;
 }
 
-export function usePdfViewerRuntime(options: IUsePdfViewerRuntimeOptions) {
+export const usePdfViewerRuntime = (options: IUsePdfViewerRuntimeOptions) => {
     const document = usePdfDocument();
     const {
         pdfDocument,
@@ -93,4 +93,4 @@ export function usePdfViewerRuntime(options: IUsePdfViewerRuntimeOptions) {
             isVisualReloadTransitionActive: reloadTransition.isVisualReloadTransitionActive,
         },
     };
-}
+};

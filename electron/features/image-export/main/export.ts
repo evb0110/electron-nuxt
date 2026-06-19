@@ -249,8 +249,11 @@ function parseRawPpm(bytes: Uint8Array) {
         throw new Error(`Unsupported PPM max value: ${maxValue}`);
     }
 
-    if (cursor.offset < bytes.length && bytes[cursor.offset]! <= 0x20) {
-        cursor.offset += 1;
+    if (cursor.offset < bytes.length) {
+        const separator = bytes[cursor.offset];
+        if (separator !== undefined && separator <= 0x20) {
+            cursor.offset += 1;
+        }
     }
 
     const expectedByteLength = width * height * 3;
@@ -269,8 +272,10 @@ function parseRawPpm(bytes: Uint8Array) {
 function createLosslessGrayscaleData(data: Uint8Array) {
     const grayscaleData = new Uint8Array(data.length / 3);
     for (let sourceIndex = 0, targetIndex = 0; sourceIndex < data.length; sourceIndex += 3, targetIndex += 1) {
-        const red = data[sourceIndex]!;
-        if (red !== data[sourceIndex + 1] || red !== data[sourceIndex + 2]) {
+        const red = data[sourceIndex];
+        const green = data[sourceIndex + 1];
+        const blue = data[sourceIndex + 2];
+        if (red === undefined || green === undefined || blue === undefined || red !== green || red !== blue) {
             return null;
         }
         grayscaleData[targetIndex] = red;
@@ -589,6 +594,19 @@ function normalizePageNumbers(pageNumbers: number[] | undefined): number[] | nul
     return unique;
 }
 
+function getRequestedPageCount(options: IExportPdfOptions) {
+    const normalizedPages = normalizePageNumbers(options.pageNumbers);
+    return normalizedPages?.length ?? null;
+}
+
+function getRenderedPageTempDir(pageFiles: IRenderedPageFile[]) {
+    const firstPageFile = pageFiles[0];
+    if (!firstPageFile) {
+        throw new Error('No page images were generated from the PDF');
+    }
+    return dirname(firstPageFile.path);
+}
+
 function formatPageList(pageNumbers: number[]) {
     const ranges: string[] = [];
     let rangeStart: number | null = null;
@@ -713,9 +731,8 @@ export async function exportPdfPagesAsImages(
     const preparedSourcePdf = await prepareSourcePdfForExport(pdfPath, options);
 
     try {
-        const pageCount = options.pageNumbers
-            ? normalizePageNumbers(options.pageNumbers)!.length
-            : await getPdfPageCount(preparedSourcePdf.pdfPath);
+        const requestedPageCount = getRequestedPageCount(options);
+        const pageCount = requestedPageCount ?? await getPdfPageCount(preparedSourcePdf.pdfPath);
         assertExportPageCountWithinLimit(pageCount);
 
         const stagedFiles: Array<{
@@ -767,7 +784,7 @@ export async function exportPdfPagesAsImages(
                         });
                     }
                 } finally {
-                    const tempDir = dirname(pageFiles[0]!.path);
+                    const tempDir = getRenderedPageTempDir(pageFiles);
                     await rm(tempDir, {
                         recursive: true,
                         force: true,
@@ -795,6 +812,10 @@ class TiffCombineWorkerStartupError extends Error {
         super(message);
         this.name = 'TiffCombineWorkerStartupError';
     }
+}
+
+function decodeUndefinedWorkerResult(data: unknown): undefined | null {
+    return data === undefined ? undefined : null;
 }
 
 async function canUseLocalTiffCombineFallback(pagePaths: string[]) {
@@ -894,6 +915,8 @@ async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: st
                     `TIFF combine worker exited during startup with code ${code}`,
                 ),
                 createWorkerExitError: code => new Error(`TIFF combine worker exited with code ${code}`),
+                decodeResult: decodeUndefinedWorkerResult,
+                invalidResultMessage: 'TIFF combine worker returned an invalid result',
                 ...(signal ? { signal } : {}),
                 timeoutMs: TIFF_COMBINE_WORKER_TIMEOUT_MS,
             }), {
@@ -942,9 +965,8 @@ export async function exportPdfAsMultiPageTiff(
     const preparedSourcePdf = await prepareSourcePdfForExport(pdfPath, options);
 
     try {
-        const pageCount = options.pageNumbers
-            ? normalizePageNumbers(options.pageNumbers)!.length
-            : await getPdfPageCount(preparedSourcePdf.pdfPath);
+        const requestedPageCount = getRequestedPageCount(options);
+        const pageCount = requestedPageCount ?? await getPdfPageCount(preparedSourcePdf.pdfPath);
         assertExportPageCountWithinLimit(pageCount);
         const pageFiles: IRenderedPageFile[] = [];
         let renderedPageCount = 0;
@@ -989,11 +1011,17 @@ export async function exportPdfAsMultiPageTiff(
             }> = [];
 
             try {
-                for (let index = 0; index < tiffPageGroups.length; index += 1) {
+                for (const [
+                    index,
+                    tiffPageGroup,
+                ] of tiffPageGroups.entries()) {
                     throwIfAborted(options.signal);
-                    const targetOutputPath = outputPaths[index]!;
+                    const targetOutputPath = outputPaths[index];
+                    if (!targetOutputPath) {
+                        throw new Error('Multi-page TIFF export target path is missing');
+                    }
                     const stagedPath = makeSiblingTempPath(targetOutputPath);
-                    await combinePagesIntoMultiPageTiff(tiffPageGroups[index]!, stagedPath, options.signal);
+                    await combinePagesIntoMultiPageTiff(tiffPageGroup, stagedPath, options.signal);
                     stagedFiles.push({
                         stagedPath,
                         targetPath: targetOutputPath,

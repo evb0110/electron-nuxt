@@ -32,6 +32,10 @@ export interface IPlatformApi {
 
 export type { TDocumentRef } from '@contracts/documentRef';
 export type * from '@contracts/shared';
+export type * from '@contracts/geometry';
+export type * from '@contracts/pageNumbers';
+export type * from '@contracts/pdfPageLabels';
+export type * from '@contracts/annotations';
 export type * from '@contracts/viewerHost';
 export type * from '@contracts/agent';
 export type * from '@contracts/agentCapability';

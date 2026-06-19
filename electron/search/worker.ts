@@ -22,18 +22,17 @@ import {
     buildExcerpt,
     iteratePageMatches,
 } from '@electron/search/worker/searchMatch';
+import { parsePageNumber } from '@contracts/pageNumbers';
+import type { IResolvedSearchMatchOptions } from '@contracts/search';
 import type { ICachedIndex } from '@electron/search/worker/ensureSearchIndex';
 import { ensureSearchIndex } from '@electron/search/worker/ensureSearchIndex';
 
-interface ISearchRequestContext {
+interface ISearchRequestContext extends IResolvedSearchMatchOptions {
     requestId: string;
     pdfPath: string;
     normalizedQuery: string;
     pageCount?: number;
     shouldWarmup: boolean;
-    matchCase: boolean;
-    wholeWord: boolean;
-    useRegex: boolean;
     signal: AbortSignal;
 }
 
@@ -462,6 +461,13 @@ function appendPageMatches(
     }
 
     let pageMatchIndex = 0;
+    const pageNumber = parsePageNumber(page.pageNumber, context.pageCount);
+    if (pageNumber === null) {
+        return {
+            globalMatchIndex,
+            truncated,
+        };
+    }
     const pageMatches = iteratePageMatches(pageText, context.normalizedQuery, {
         matchCase: context.matchCase,
         wholeWord: context.wholeWord,
@@ -474,7 +480,7 @@ function appendPageMatches(
         const endOffset = pageMatch.endOffset;
 
         results.push({
-            pageNumber: page.pageNumber,
+            pageNumber,
             pageMatchIndex,
             matchIndex: globalMatchIndex,
             startOffset,

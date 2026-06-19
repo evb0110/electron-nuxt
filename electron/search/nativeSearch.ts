@@ -12,7 +12,11 @@ import type {
     ISearchMatch,
     ISearchResponse,
 } from '@electron/search/protocol';
-import type { IPdfSearchExcerpt } from '@contracts/search';
+import type {
+    IPdfSearchExcerpt,
+    IResolvedSearchMatchOptions,
+} from '@contracts/search';
+import { toPageNumber } from '@contracts/pageNumbers';
 import {
     EXCERPT_CONTEXT_CHARS,
     SEARCH_RESULT_LIMIT,
@@ -44,13 +48,10 @@ interface INativeSearchIndexMetadata {
     pageRecordCount: number;
 }
 
-interface INativeSearchOptions {
+interface INativeSearchOptions extends IResolvedSearchMatchOptions {
     pdfPath: string;
     query: string;
     pageCount?: number;
-    matchCase: boolean;
-    wholeWord: boolean;
-    useRegex: boolean;
     signal?: AbortSignal;
 }
 
@@ -239,7 +240,7 @@ function parseNativeSearchMatch(value: unknown): ISearchMatch | null {
     }
 
     return {
-        pageNumber,
+        pageNumber: toPageNumber(pageNumber),
         pageMatchIndex,
         matchIndex,
         startOffset,
@@ -326,5 +327,6 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
         commandOptions,
     );
 
-    return parseNativeSearchResponse(JSON.parse(result.stdout ?? ''));
+    const parsed: unknown = JSON.parse(result.stdout ?? '');
+    return parseNativeSearchResponse(parsed);
 }

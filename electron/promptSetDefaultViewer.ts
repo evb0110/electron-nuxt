@@ -6,8 +6,8 @@ import {
 import type { BrowserWindow } from 'electron';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
-import { isPlainObject } from 'es-toolkit/predicate';
 import type { ISettingsData } from '@contracts/shared';
+import { isRecord } from '@contracts/runtimeGuards';
 import {
     loadSettings,
     saveSettings,
@@ -23,13 +23,9 @@ const KNOWN_USER_DATA_DIR_NAMES = [
     'EVB-Viewer',
 ] as const;
 
-function isSettingsPatch(value: unknown): value is Partial<ISettingsData> {
-    return isPlainObject(value);
-}
-
-function parseSettingsPatch(raw: string): Partial<ISettingsData> | null {
+function hasSuppressedDefaultViewerPrompt(raw: string) {
     const parsed: unknown = JSON.parse(raw);
-    return isSettingsPatch(parsed) ? parsed : null;
+    return isRecord(parsed) && parsed.suppressDefaultViewerPrompt === true;
 }
 
 async function isPromptSuppressedInKnownSettingsFiles() {
@@ -38,8 +34,7 @@ async function isPromptSuppressedInKnownSettingsFiles() {
         const settingsPath = join(appDataPath, dirName, 'settings.json');
         try {
             const raw = await readFile(settingsPath, 'utf-8');
-            const parsed = parseSettingsPatch(raw);
-            if (parsed?.suppressDefaultViewerPrompt === true) {
+            if (hasSuppressedDefaultViewerPrompt(raw)) {
                 return true;
             }
         } catch {

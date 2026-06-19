@@ -152,6 +152,132 @@ function isRelativeImportSpecifier(value) {
         || value.startsWith('../');
 }
 
+function getLineIndent(sourceCode, node) {
+    const line = sourceCode.lines[node.loc.start.line - 1] ?? '';
+    return line.match(/^(\s*)/u)?.[1] ?? '';
+}
+
+function shouldEscapeTypeKeyCharacter(character) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return character === '\\'
+        || character === '\''
+        || codePoint <= 0x1F
+        || codePoint === 0x7F
+        || codePoint === 0x2028
+        || codePoint === 0x2029;
+}
+
+function escapeTypeKeyCharacter(character) {
+    switch (character) {
+        case '\\':
+            return '\\\\';
+        case '\'':
+            return '\\\'';
+        case '\n':
+            return '\\n';
+        case '\r':
+            return '\\r';
+        case '\t':
+            return '\\t';
+        default: {
+            const codePoint = character.codePointAt(0) ?? 0;
+            return codePoint <= 0xFF
+                ? `\\x${codePoint.toString(16).padStart(2, '0')}`
+                : `\\u${codePoint.toString(16).padStart(4, '0')}`;
+        }
+    }
+}
+
+function formatPropertyKey(value) {
+    if (/^[A-Za-z_$][\w$]*$/u.test(value)) {
+        return value;
+    }
+
+    const escaped = Array.from(value, character => shouldEscapeTypeKeyCharacter(character)
+        ? escapeTypeKeyCharacter(character)
+        : character).join('');
+    return `'${escaped}'`;
+}
+
+function getTypeParameterInstantiation(node) {
+    return node.typeArguments ?? node.typeParameters ?? null;
+}
+
+function getStringLiteralTypeValue(node) {
+    if (node?.type !== 'TSLiteralType') {
+        return null;
+    }
+
+    const literal = node.literal;
+    return typeof literal?.value === 'string'
+        ? literal.value
+        : null;
+}
+
+function getDefineEmitsEventName(param) {
+    return getStringLiteralTypeValue(param?.typeAnnotation?.typeAnnotation);
+}
+
+function getDefineEmitsEventParam(member) {
+    const [
+        firstParam,
+        secondParam,
+    ] = member.params;
+    return isThisParam(firstParam)
+        ? secondParam
+        : firstParam;
+}
+
+function hasVoidReturnType(member) {
+    const returnType = member.returnType?.typeAnnotation;
+    return returnType?.type === 'TSVoidKeyword';
+}
+
+function isFixableTupleParam(param) {
+    if (param.type === 'Identifier') {
+        return Boolean(param.typeAnnotation);
+    }
+
+    return param.type === 'RestElement'
+        && param.argument?.type === 'Identifier'
+        && Boolean(param.typeAnnotation);
+}
+
+function isReportableDefineEmitsSignature(member) {
+    return member.type === 'TSCallSignatureDeclaration'
+        && !member.typeParameters
+        && member.params.length > 0
+        && Boolean(getDefineEmitsEventName(getDefineEmitsEventParam(member)));
+}
+
+function isThisParam(param) {
+    return param.type === 'Identifier' && param.name === 'this';
+}
+
+function isComposableFunctionDeclaration(node) {
+    return node.type === 'FunctionDeclaration'
+        && !node.declare
+        && !node.generator
+        && Boolean(node.body)
+        && Boolean(node.id?.name?.startsWith('use'))
+        && /^use[A-Z]/u.test(node.id.name);
+}
+
+function isComposableFunctionExpressionVariable(node) {
+    return node.type === 'VariableDeclarator'
+        && node.id?.type === 'Identifier'
+        && /^use[A-Z]/u.test(node.id.name)
+        && node.init?.type === 'FunctionExpression'
+        && !node.init.generator;
+}
+
+function hasCommentsInside(sourceCode, node) {
+    return sourceCode.getAllComments().some(comment => (
+        comment.range[0] > node.range[0]
+        && comment.range[1] < node.range[1]
+    ));
+}
+
 export default {rules: {
     'no-relative-imports': {
         meta: {
@@ -197,6 +323,224 @@ export default {rules: {
                     reportSource(node.source ?? node.argument);
                 },
             };
+        },
+    },
+    'arrow-composable': {
+        meta: {
+            type: 'suggestion',
+            docs: {
+                description: 'Require exported composables to use arrow constants',
+                recommended: true,
+            },
+            schema: [],
+        },
+        create(context) {
+            const topLevelComposableFunctions = new Map();
+            const topLevelComposableFunctionExpressions = new Map();
+            const exportedComposableNames = new Set();
+
+            function reportComposableNode(node) {
+                context.report({
+                    node: node.id,
+                    message: 'Exported composables should use arrow constants.',
+                });
+            }
+
+            return {
+                FunctionDeclaration(node) {
+                    const parent = node.parent;
+                    if (
+                        !isComposableFunctionDeclaration(node)
+                        || (
+                            parent?.type !== 'ExportNamedDeclaration'
+                            && parent?.type !== 'ExportDefaultDeclaration'
+                            && parent?.type !== 'Program'
+                        )
+                    ) {
+                        return;
+                    }
+
+                    if (parent.type === 'Program') {
+                        topLevelComposableFunctions.set(node.id.name, node);
+                        return;
+                    }
+
+                    if (parent.type === 'ExportDefaultDeclaration') {
+                        reportComposableNode(node);
+                        return;
+                    }
+
+                    if (parent.declaration !== node) {
+                        return;
+                    }
+
+                    reportComposableNode(node);
+                },
+                VariableDeclarator(node) {
+                    if (!isComposableFunctionExpressionVariable(node)) {
+                        return;
+                    }
+
+                    const variableDeclaration = node.parent;
+                    const parent = variableDeclaration?.parent;
+                    if (parent?.type === 'Program') {
+                        topLevelComposableFunctionExpressions.set(node.id.name, node);
+                        return;
+                    }
+
+                    if (parent?.type === 'ExportNamedDeclaration') {
+                        reportComposableNode(node);
+                    }
+                },
+                ExportNamedDeclaration(node) {
+                    if (node.source || node.exportKind === 'type') {
+                        return;
+                    }
+
+                    for (const specifier of node.specifiers) {
+                        if (specifier.exportKind === 'type') {
+                            continue;
+                        }
+
+                        const localName = specifier.local?.name;
+                        if (localName && /^use[A-Z]/u.test(localName)) {
+                            exportedComposableNames.add(localName);
+                        }
+                    }
+                },
+                ExportDefaultDeclaration(node) {
+                    const localName = node.declaration?.type === 'Identifier'
+                        ? node.declaration.name
+                        : null;
+                    if (localName && /^use[A-Z]/u.test(localName)) {
+                        exportedComposableNames.add(localName);
+                    }
+                },
+                'Program:exit'() {
+                    for (const name of exportedComposableNames) {
+                        const functionDeclaration = topLevelComposableFunctions.get(name);
+                        if (functionDeclaration) {
+                            reportComposableNode(functionDeclaration);
+                        }
+
+                        const functionExpression = topLevelComposableFunctionExpressions.get(name);
+                        if (functionExpression) {
+                            reportComposableNode(functionExpression);
+                        }
+                    }
+                },
+            };
+        },
+    },
+    'vue-define-emits-tuple': {
+        meta: {
+            type: 'suggestion',
+            docs: {
+                description: 'Require tuple-style defineEmits type literals',
+                recommended: true,
+            },
+            fixable: 'code',
+            schema: [],
+        },
+        create(context) {
+            const sourceCode = context.sourceCode;
+
+            function convertMember(member, seenEventNames) {
+                if (
+                    member.type !== 'TSCallSignatureDeclaration'
+                    || member.typeParameters
+                    || member.params.length === 0
+                    || !hasVoidReturnType(member)
+                ) {
+                    return null;
+                }
+
+                const eventParam = getDefineEmitsEventParam(member);
+                const eventName = getDefineEmitsEventName(eventParam);
+                if (
+                    !eventName
+                    || eventParam !== member.params[0]
+                    || eventParam.optional
+                    || seenEventNames.has(eventName)
+                ) {
+                    return null;
+                }
+
+                const tupleParams = member.params.slice(member.params.indexOf(eventParam) + 1);
+                if (!tupleParams.every(isFixableTupleParam)) {
+                    return null;
+                }
+
+                seenEventNames.add(eventName);
+                const tupleText = tupleParams.length === 0
+                    ? '[]'
+                    : `[${tupleParams.map(param => sourceCode.getText(param)).join(', ')}]`;
+                return `${formatPropertyKey(eventName)}: ${tupleText};`;
+            }
+
+            function convertTypeLiteral(typeLiteral) {
+                if (
+                    !typeLiteral
+                    || typeLiteral.type !== 'TSTypeLiteral'
+                    || typeLiteral.members.length === 0
+                ) {
+                    return null;
+                }
+
+                if (hasCommentsInside(sourceCode, typeLiteral)) {
+                    return null;
+                }
+
+                const seenEventNames = new Set();
+                const members = typeLiteral.members.map(member => convertMember(member, seenEventNames));
+                if (members.some(member => member === null)) {
+                    return null;
+                }
+
+                const multiline = typeLiteral.loc.start.line !== typeLiteral.loc.end.line || members.length > 1;
+                if (!multiline) {
+                    return `{${members[0]}}`;
+                }
+
+                const baseIndent = getLineIndent(sourceCode, typeLiteral);
+                const innerIndent = `${baseIndent}    `;
+                return `{\n${members.map(member => `${innerIndent}${member}`).join('\n')}\n${baseIndent}}`;
+            }
+
+            return {CallExpression(node) {
+                if (node.callee?.type !== 'Identifier' || node.callee.name !== 'defineEmits') {
+                    return;
+                }
+
+                const typeArguments = getTypeParameterInstantiation(node);
+                const typeLiteral = typeArguments?.params?.[0];
+                if (!typeLiteral || typeLiteral.type !== 'TSTypeLiteral') {
+                    return;
+                }
+
+                const replacement = convertTypeLiteral(typeLiteral);
+                if (replacement) {
+                    context.report({
+                        node: typeLiteral,
+                        message: 'Use tuple-style defineEmits type literals.',
+                        fix(fixer) {
+                            return fixer.replaceText(typeLiteral, replacement);
+                        },
+                    });
+                    return;
+                }
+
+                for (const member of typeLiteral.members) {
+                    if (!isReportableDefineEmitsSignature(member)) {
+                        continue;
+                    }
+
+                    context.report({
+                        node: member,
+                        message: 'Use tuple-style defineEmits type literals.',
+                    });
+                }
+            }};
         },
     },
     'import-specifier-newline': {

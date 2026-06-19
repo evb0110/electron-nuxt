@@ -191,6 +191,7 @@ async function writeSkippedVersion(version: string | null) {
     const normalized = normalizeVersion(version);
     await updateSettings((settings) => {
         settings.skippedUpdateVersion = normalized || undefined;
+        return undefined;
     });
 }
 

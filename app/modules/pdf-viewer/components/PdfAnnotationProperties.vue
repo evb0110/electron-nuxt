@@ -121,9 +121,9 @@ const propertiesSliderUi = {
 };
 
 const emit = defineEmits<{
-    (e: 'update', updates: Partial<IShapeAnnotation>): void;
-    (e: 'close'): void;
-    (e: 'delete'): void;
+    update: [updates: Partial<IShapeAnnotation>];
+    close: [];
+    delete: [];
 }>();
 
 function getShapeLabel(type: IShapeAnnotation['type'] | undefined) {

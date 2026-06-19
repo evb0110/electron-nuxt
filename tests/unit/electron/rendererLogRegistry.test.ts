@@ -8,6 +8,10 @@ import {
 import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 
 const rendererLogRegistryImportTimeoutMs = 10_000;
+type TMockSettings = Record<string, unknown>;
+type TMockSettingsUpdater = (
+    settings: TMockSettings,
+) => Partial<TMockSettings> | undefined | Promise<Partial<TMockSettings> | undefined>;
 
 const mocks = vi.hoisted(() => ({
     handlers: new Map<string, TRegisteredHandler>(),
@@ -45,10 +49,15 @@ vi.mock('@electron/menu', () => ({
 }));
 vi.mock('@electron/settings', () => ({
     loadSettings: vi.fn(async () => ({})),
-    updateSettings: vi.fn(async (updater: (settings: Record<string, unknown>) => void) => {
-        const settings: Record<string, unknown> = {};
-        updater(settings);
-        return settings;
+    updateSettings: vi.fn(async (updater: TMockSettingsUpdater) => {
+        const settings: TMockSettings = {};
+        const patch = await updater(settings);
+        return patch && typeof patch === 'object'
+            ? {
+                ...settings,
+                ...patch,
+            }
+            : settings;
     }),
 }));
 vi.mock('@electron/windowTabTransfer', () => ({

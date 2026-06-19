@@ -2,7 +2,7 @@ import type {
     IEditorPaneRect,
     TEditorLayoutNode,
     TPaneDirection,
-} from '@app/types/editorPanes';
+} from '@contracts/editorPanes';
 import { orderBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 

@@ -44,7 +44,7 @@ interface IUsePdfViewerFitWidthControllerOptions {
     emitZoomMode: (mode: TZoomMode) => void;
 }
 
-export function usePdfViewerFitWidthController(options: IUsePdfViewerFitWidthControllerOptions) {
+export const usePdfViewerFitWidthController = (options: IUsePdfViewerFitWidthControllerOptions) => {
     async function applyFitWidthToCurrentPage() {
         if (!options.pdfDocument.value || options.isLoading.value) {
             return false;
@@ -117,4 +117,4 @@ export function usePdfViewerFitWidthController(options: IUsePdfViewerFitWidthCon
     );
 
     return { applyFitWidthToCurrentPage };
-}
+};

@@ -28,9 +28,36 @@ describe('annotationEditorAdapter', () => {
         const uiManager = asUiManager({ setSelected });
         const editor = { id: 'editor-1' } as IPdfjsEditor;
 
-        setSelectedEditor(uiManager, editor);
+        expect(setSelectedEditor(uiManager, editor)).toBe(true);
 
         expect(setSelected).toHaveBeenCalledWith(editor);
+    });
+
+    it('ignores selected editor requests when the runtime hook is missing', () => {
+        const editor = { id: 'editor-1' } as IPdfjsEditor;
+
+        expect(setSelectedEditor(asUiManager({}), editor)).toBe(false);
+    });
+
+    it('preserves method binding for selected editor runtime hooks', () => {
+        const editor = { id: 'editor-1' } as IPdfjsEditor;
+
+        class PrivateUiManager {
+            #selected: unknown = null;
+
+            setSelected(nextEditor: unknown) {
+                this.#selected = nextEditor;
+            }
+
+            getSelected() {
+                return this.#selected;
+            }
+        }
+
+        const uiManager = new PrivateUiManager();
+
+        expect(setSelectedEditor(asUiManager(uiManager), editor)).toBe(true);
+        expect(uiManager.getSelected()).toBe(editor);
     });
 
     it('reads editor by uid from layer only when runtime hooks are available', () => {
@@ -118,17 +145,22 @@ describe('annotationEditorAdapter', () => {
     it('clears the active editor before unselecting selection state', () => {
         const setActiveEditor = vi.fn();
         const unselectAll = vi.fn();
+        const setSelected = vi.fn();
         const cleared = clearSelectedEditorState(asUiManager({
             setActiveEditor,
             unselectAll,
+            setSelected,
         }));
 
         expect(cleared).toBe(true);
         expect(setActiveEditor).toHaveBeenCalledWith(null);
         expect(unselectAll).toHaveBeenCalledOnce();
+        expect(setSelected).toHaveBeenCalledWith(null);
         const setActiveCallOrder = setActiveEditor.mock.invocationCallOrder[0] ?? 0;
         const unselectAllCallOrder = unselectAll.mock.invocationCallOrder[0] ?? 0;
+        const setSelectedCallOrder = setSelected.mock.invocationCallOrder[0] ?? 0;
         expect(setActiveCallOrder).toBeLessThan(unselectAllCallOrder);
+        expect(unselectAllCallOrder).toBeLessThan(setSelectedCallOrder);
     });
 
     it('uses the runtime default-param updater when installed', () => {

@@ -37,7 +37,7 @@ interface IUsePdfViewerActivationRestoreOptions {
 
 const ACTIVATION_RESTORE_CONTAINER_FRAME_LIMIT = 30;
 
-export function usePdfViewerActivationRestore(options: IUsePdfViewerActivationRestoreOptions) {
+export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRestoreOptions) => {
     const {
         viewerContainer,
         pdfDocument,
@@ -214,4 +214,4 @@ export function usePdfViewerActivationRestore(options: IUsePdfViewerActivationRe
         isActivationRestoreRunCurrent: isActiveDocumentRestoreRunCurrent,
         renderActiveDocumentAfterActivation,
     };
-}
+};

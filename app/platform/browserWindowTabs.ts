@@ -1,4 +1,4 @@
-import type { IMenuEventUnsubscribe } from '@contracts/electronApiCommon';
+import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 import type {
     IWindowTabIncomingTransfer,
@@ -219,7 +219,7 @@ function parseBrowserWindowTabsMessage(data: unknown): TBrowserWindowTabsMessage
     }
 }
 
-function noopUnsubscribe(): IMenuEventUnsubscribe {
+function noopUnsubscribe(): TMenuEventUnsubscribe {
     return () => {};
 }
 

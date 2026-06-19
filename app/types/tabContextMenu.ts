@@ -1,4 +1,4 @@
-import type { TPaneDirection } from '@app/types/editorPanes';
+import type { TPaneDirection } from '@contracts/editorPanes';
 
 export type TDirectionalCommandAvailability = Record<TPaneDirection, boolean>;
 

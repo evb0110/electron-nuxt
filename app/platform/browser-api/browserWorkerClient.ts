@@ -1,10 +1,10 @@
-interface IBrowserWorkerClientOptions<TResponse, TPendingRequest> {
+interface IBrowserWorkerClientOptions<TPendingRequest> {
     createWorker: () => Worker;
     idleTtlMs: number;
     requestTimeoutMs?: number;
     handleMessage: (
         pendingRequests: Map<number, TPendingRequest>,
-        response: TResponse,
+        response: unknown,
         scheduleIdleWorkerTermination: () => void,
     ) => void;
     createError: (event: ErrorEvent) => Error;
@@ -15,7 +15,6 @@ export function canUseBrowserWorker() {
 }
 
 export class BrowserWorkerClient<
-    TResponse,
     TPendingRequest extends {
         reject: (error: Error) => void;
         timeoutTimer?: ReturnType<typeof setTimeout> | null;
@@ -28,7 +27,7 @@ export class BrowserWorkerClient<
     private idleTerminateTimer: ReturnType<typeof setTimeout> | null = null;
     private cleanupListenerRegistered = false;
 
-    public constructor(private readonly options: IBrowserWorkerClientOptions<TResponse, TPendingRequest>) {}
+    public constructor(private readonly options: IBrowserWorkerClientOptions<TPendingRequest>) {}
 
     public createRequestId() {
         const requestId = this.nextRequestId;
@@ -101,6 +100,10 @@ export class BrowserWorkerClient<
         return this.worker !== null;
     }
 
+    public hasPendingRequest(requestId: number) {
+        return this.pendingRequests.has(requestId);
+    }
+
     public registerPendingRequest(
         requestId: number,
         pendingRequest: TPendingRequest,
@@ -127,7 +130,10 @@ export class BrowserWorkerClient<
     public cancelPendingRequest(
         requestId: number,
         error: Error,
-        options: {resetWorker?: boolean} = {},
+        options: {
+            resetWorker?: boolean;
+            resetError?: Error;
+        } = {},
     ) {
         const pendingRequest = this.pendingRequests.get(requestId);
         if (!pendingRequest) {
@@ -138,14 +144,14 @@ export class BrowserWorkerClient<
         this.clearRequestTimeout(pendingRequest);
         pendingRequest.reject(error);
         if (options.resetWorker) {
-            this.resetWorker();
+            this.resetWorker(options.resetError ?? error);
         } else {
             this.scheduleIdleWorkerTermination();
         }
         return true;
     }
 
-    private readonly handleWorkerMessage = (event: MessageEvent<TResponse>) => {
+    private readonly handleWorkerMessage = (event: MessageEvent<unknown>) => {
         this.options.handleMessage(
             this.pendingRequests,
             event.data,

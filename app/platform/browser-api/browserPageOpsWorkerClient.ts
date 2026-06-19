@@ -2,10 +2,15 @@ import type {
     IBrowserPageOpsWorkerRequest,
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
+    IPageMutationWorkerResult,
     TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerRequestType,
-    TBrowserPageOpsWorkerResponse,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
+import type {
+    IPageGeometry,
+    IPdfBox,
+} from '@contracts/shared';
+import { isRecord } from '@contracts/runtimeGuards';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';
@@ -60,14 +65,87 @@ function buildWorkerRequestWithTransfers(
     };
 }
 
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
+}
+
+function decodePageMutationWorkerResult(data: unknown): IPageMutationWorkerResult | null {
+    if (
+        !isRecord(data)
+        || !(data.data instanceof Uint8Array)
+        || typeof data.pageCount !== 'number'
+        || !Number.isInteger(data.pageCount)
+        || data.pageCount < 1
+    ) {
+        return null;
+    }
+
+    return {
+        data: data.data,
+        pageCount: data.pageCount,
+    };
+}
+
+function decodePdfBox(value: unknown): IPdfBox | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    if (
+        !isFiniteNumber(value.x)
+        || !isFiniteNumber(value.y)
+        || !isFiniteNumber(value.width)
+        || !isFiniteNumber(value.height)
+    ) {
+        return null;
+    }
+    return {
+        x: value.x,
+        y: value.y,
+        width: value.width,
+        height: value.height,
+    };
+}
+
+function decodePageGeometry(data: unknown): IPageGeometry | null {
+    if (!isRecord(data) || !isFiniteNumber(data.rotation)) {
+        return null;
+    }
+
+    const mediaBox = decodePdfBox(data.mediaBox);
+    if (!mediaBox) {
+        return null;
+    }
+
+    const cropBox = data.cropBox === null
+        ? null
+        : decodePdfBox(data.cropBox);
+    if (cropBox === null && data.cropBox !== null) {
+        return null;
+    }
+
+    return {
+        mediaBox,
+        cropBox,
+        rotation: data.rotation,
+    };
+}
+
+function decodePageOpsWorkerResult<K extends TBrowserPageOpsWorkerRequestType>(
+    type: K,
+    data: unknown,
+): IBrowserPageOpsWorkerResultMap[K] | null {
+    if (type === 'getPageGeometry') {
+        return decodePageGeometry(data) as IBrowserPageOpsWorkerResultMap[K] | null;
+    }
+
+    return decodePageMutationWorkerResult(data) as IBrowserPageOpsWorkerResultMap[K] | null;
+}
+
 export function canUseBrowserPageOpsWorker() {
     return canUseBrowserWorker();
 }
 
-const browserPageOpsWorkerClient = new BrowserWorkerClient<
-    TBrowserPageOpsWorkerResponse,
-    IPendingBrowserWorkerRequest
->({
+const browserPageOpsWorkerClient = new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
     idleTtlMs: BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS,
     requestTimeoutMs: BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS,
     createWorker: () => {
@@ -102,7 +180,15 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
 
     return new Promise<IBrowserPageOpsWorkerResultMap[K]>((resolve, reject) => {
         browserPageOpsWorkerClient.registerPendingRequest(request.id, {
-            resolve: (value) => resolve(value as IBrowserPageOpsWorkerResultMap[K]),
+            requestType: type,
+            resolveData: (value) => {
+                const decoded = decodePageOpsWorkerResult(type, value);
+                if (!decoded) {
+                    return false;
+                }
+                resolve(decoded);
+                return true;
+            },
             reject,
         }, () => new BrowserPageOpsWorkerUnavailableError(
             `Browser page operation worker request timed out after ${BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS}ms`,

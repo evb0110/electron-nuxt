@@ -20,7 +20,7 @@ interface IMetadataSessionOptions {
     redoFile: () => Promise<boolean>;
 }
 
-export function useMetadataSession(options: IMetadataSessionOptions) {
+export const useMetadataSession = (options: IMetadataSessionOptions) => {
     const {
         pdfDocument,
         totalPages,
@@ -85,4 +85,4 @@ export function useMetadataSession(options: IMetadataSessionOptions) {
         metadataHistory,
         workspaceUndoTimeline,
     };
-}
+};

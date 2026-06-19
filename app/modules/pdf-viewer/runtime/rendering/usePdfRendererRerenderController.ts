@@ -70,7 +70,7 @@ interface IUsePdfRendererRerenderControllerOptions {
     throttleMs: number;
 }
 
-export function usePdfRendererRerenderController(options: IUsePdfRendererRerenderControllerOptions) {
+export const usePdfRendererRerenderController = (options: IUsePdfRendererRerenderControllerOptions) => {
     const {
         container,
         currentPage,
@@ -272,5 +272,5 @@ export function usePdfRendererRerenderController(options: IUsePdfRendererRerende
         }
     }
 
-    return {reRenderAllVisiblePages};
-}
+    return reRenderAllVisiblePages;
+};

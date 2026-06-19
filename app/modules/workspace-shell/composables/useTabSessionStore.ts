@@ -1,16 +1,16 @@
 import type { TTabMemoryPolicy } from '@contracts/shared';
 import type { Ref } from 'vue';
-import type { IEditorPaneState } from '@app/types/editorPanes';
+import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
 
-export function useTabSessionStore(options: {
+export const useTabSessionStore = (options: {
     tabs: Ref<ITab[]>;
     panes: Ref<IEditorPaneState[]>;
     activeTabId: Ref<string | null>;
     policy: Ref<TTabMemoryPolicy>;
-}) {
+}) => {
     const viewStateByTabId = ref<Record<string, ITabViewSessionState>>({});
     const activationOrder = ref<string[]>([]);
 
@@ -60,4 +60,4 @@ export function useTabSessionStore(options: {
         updateViewState,
         viewStateByTabId,
     };
-}
+};

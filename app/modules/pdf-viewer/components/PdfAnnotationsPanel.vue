@@ -175,16 +175,16 @@ watch(() => commentsStatus, (status) => {
 });
 
 const emit = defineEmits<{
-    (e: 'set-tool', tool: TAnnotationTool): void;
-    (e: 'update:keep-active', value: boolean): void;
-    (e: 'update-setting', payload: {
+    'set-tool': [tool: TAnnotationTool];
+    'update:keep-active': [value: boolean];
+    'update-setting': [payload: {
         key: keyof IAnnotationSettings;
         value: IAnnotationSettings[keyof IAnnotationSettings];
-    }): void;
-    (e: 'focus-comment', comment: IAnnotationCommentSummary): void;
-    (e: 'open-note', comment: IAnnotationCommentSummary): void;
-    (e: 'delete-comment', comment: IAnnotationCommentSummary): void;
-    (e: 'place-note'): void;
+    }];
+    'focus-comment': [comment: IAnnotationCommentSummary];
+    'open-note': [comment: IAnnotationCommentSummary];
+    'delete-comment': [comment: IAnnotationCommentSummary];
+    'place-note': [];
 }>();
 
 function setTool(nextTool: TAnnotationTool) {

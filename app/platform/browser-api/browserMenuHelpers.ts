@@ -1,6 +1,6 @@
-import type { IMenuEventUnsubscribe } from '@contracts/electronApiCommon';
+import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 
-function noopUnsubscribe(): IMenuEventUnsubscribe {
+function noopUnsubscribe(): TMenuEventUnsubscribe {
     return () => {};
 }
 

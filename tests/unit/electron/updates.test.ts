@@ -9,6 +9,11 @@ import {
     vi,
 } from 'vitest';
 
+type TMockSettings = Record<string, unknown>;
+type TMockSettingsUpdater = (
+    settings: TMockSettings,
+) => Partial<TMockSettings> | undefined | Promise<Partial<TMockSettings> | undefined>;
+
 const mocks = vi.hoisted(() => {
     class TestEmitter {
         private readonly listeners = new Map<string, Set<(...args: unknown[]) => void>>();
@@ -58,10 +63,15 @@ const mocks = vi.hoisted(() => {
             info: vi.fn(),
             warn: vi.fn(),
         },
-        updateSettings: vi.fn(async (updater: (settings: Record<string, unknown>) => void) => {
-            const settings: Record<string, unknown> = {};
-            updater(settings);
-            return settings;
+        updateSettings: vi.fn(async (updater: TMockSettingsUpdater) => {
+            const settings: TMockSettings = {};
+            const patch = await updater(settings);
+            return patch && typeof patch === 'object'
+                ? {
+                    ...settings,
+                    ...patch,
+                }
+                : settings;
         }),
     };
 });
@@ -143,10 +153,15 @@ describe('updates robustness', () => {
         mocks.updateSettings.mockReset();
         mocks.app.getVersion.mockReturnValue('1.0.0');
         mocks.loadSettings.mockResolvedValue({});
-        mocks.updateSettings.mockImplementation(async (updater: (settings: Record<string, unknown>) => void) => {
-            const settings: Record<string, unknown> = {};
-            updater(settings);
-            return settings;
+        mocks.updateSettings.mockImplementation(async (updater: TMockSettingsUpdater) => {
+            const settings: TMockSettings = {};
+            const patch = await updater(settings);
+            return patch && typeof patch === 'object'
+                ? {
+                    ...settings,
+                    ...patch,
+                }
+                : settings;
         });
         vi.stubGlobal('fetch', mocks.fetch);
     });

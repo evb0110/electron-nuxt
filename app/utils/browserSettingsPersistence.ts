@@ -1,5 +1,6 @@
 import { omit } from 'es-toolkit/object';
 import { sanitizeSettings } from '@contracts/settings';
+import { isRecord } from '@contracts/runtimeGuards';
 import type {
     ISettingsData,
     TAppLocale,
@@ -15,16 +16,12 @@ export const BROWSER_LOCALE_COOKIE_KEY = 'i18n_redirected';
 type TBrowserSettingsCookiePayload = Omit<ISettingsData, 'agentMcpEnabled' | 'theme' | 'locale'>;
 const SUPPORTED_LOCALES: ReadonlySet<string> = new Set<TAppLocale>(LOCALE_CODES);
 
-function isSettingsPatch(value: unknown): value is Partial<ISettingsData> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function parseRawBrowserSettingsPayload(raw: unknown): Partial<ISettingsData> | null {
+function parseRawBrowserSettingsPayload(raw: unknown): Record<PropertyKey, unknown> | null {
     if (!raw) {
         return null;
     }
 
-    if (isSettingsPatch(raw)) {
+    if (isRecord(raw)) {
         return raw;
     }
 
@@ -34,7 +31,7 @@ function parseRawBrowserSettingsPayload(raw: unknown): Partial<ISettingsData> | 
 
     try {
         const parsed: unknown = JSON.parse(raw);
-        return isSettingsPatch(parsed) ? parsed : null;
+        return isRecord(parsed) ? parsed : null;
     } catch {
         return null;
     }
@@ -48,7 +45,7 @@ function isAppTheme(value: unknown): value is TAppTheme {
     return value === 'light' || value === 'dark';
 }
 
-function omitCookieBackedSettingsFields<T extends Partial<ISettingsData> | null>(
+function omitCookieBackedSettingsFields<T extends Record<PropertyKey, unknown> | null>(
     settings: T,
 ) : Omit<NonNullable<T>, 'theme' | 'locale'> | null {
     if (!settings) {

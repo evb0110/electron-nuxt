@@ -1,5 +1,11 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
+    IPdfSearchExcerpt,
+    ISearchMatchOptions,
+} from '@contracts/search';
+import type { TPageIndex } from '@contracts/pageNumbers';
+import type { TPdfPageLabelStyle } from '@contracts/pdfPageLabels';
+import type {
     IPdfValidationResult,
     TPdfSaveMode,
 } from '@contracts/pdfConformance';
@@ -15,6 +21,16 @@ export type {
     TZoomMode,
     TPdfViewMode,
 } from '@contracts/shared';
+export type {
+    IPdfSearchExcerpt,
+    ISearchMatchOptions,
+} from '@contracts/search';
+export type {
+    TPageIndex,
+    TPageNumber,
+} from '@contracts/pageNumbers';
+export { PDF_PAGE_LABEL_STYLE_VALUES as PAGE_LABEL_STYLE_VALUES } from '@contracts/pdfPageLabels';
+export type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 export type {
     IPdfConformanceProfile,
     IPdfValidationResult,
@@ -68,36 +84,24 @@ export interface IPdfPathSource {
 
 export type TPdfSource = Blob | IPdfPathSource;
 
-export interface ISearchExcerpt {
-    prefix: boolean;
-    suffix: boolean;
-    before: string;
-    match: string;
-    after: string;
-}
-
 export interface IPdfSearchMatch {
-    pageIndex: number;
+    pageIndex: TPageIndex;
     pageMatchIndex?: number; // Ordinal on page (0, 1, 2...) - used for direct match mapping from backend
     matchIndex: number;
     startOffset: number;
     endOffset: number;
-    excerpt?: ISearchExcerpt;
+    excerpt?: IPdfSearchExcerpt;
     words?: IOcrWord[];
     pageWidth?: number;
     pageHeight?: number;
 }
 
 export interface IPdfPageMatches {
-    pageIndex: number;
+    pageIndex: TPageIndex;
     pageText: string; // Full page text for reference
     searchQuery: string; // The query that generated these matches
     signatureToken?: string;
-    searchOptions?: {
-        matchCase?: boolean;
-        wholeWord?: boolean;
-        useRegex?: boolean;
-    };
+    searchOptions?: ISearchMatchOptions;
     matches: Array<{
         matchIndex: number;
         start: number;
@@ -110,22 +114,7 @@ export interface IPdfPageMatches {
 
 export type TSearchDirection = 'next' | 'previous';
 
-export const PAGE_LABEL_STYLE_VALUES = [
-    'D',
-    'R',
-    'r',
-    'A',
-    'a',
-] as const;
-
-export type TPageLabelStyle = typeof PAGE_LABEL_STYLE_VALUES[number] | null;
-
-export interface IPdfPageLabelRange {
-    startPage: number;
-    style: TPageLabelStyle;
-    prefix: string;
-    startNumber: number;
-}
+export type TPageLabelStyle = TPdfPageLabelStyle;
 
 export interface IPdfPageRange {
     startPage: number;

@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
+import { toPageIndex } from '@contracts/pageNumbers';
 
 class FakeMessagePort {
     readonly close = vi.fn();
@@ -274,7 +275,7 @@ describe('createDocumentsPreloadFileClient', () => {
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         const freeTextNotes = [{
-            pageIndex: 0,
+            pageIndex: toPageIndex(0),
             stableKey: 'uid:0:pdfjs_internal_editor_0',
             text: 'Editor note',
             markerRect: {
@@ -295,12 +296,12 @@ describe('createDocumentsPreloadFileClient', () => {
                 freeTextNotes,
                 deletes: [
                     {
-                        pageIndex: 0,
+                        pageIndex: toPageIndex(0),
                         objectNumber: 3856,
                         generationNumber: 0,
                     },
                     {
-                        pageIndex: 0,
+                        pageIndex: toPageIndex(0),
                         stableKey: 'uid:0:pdfjs_internal_editor_0',
                         createdAt: 1781009077000,
                     },
@@ -380,7 +381,7 @@ describe('createDocumentsPreloadFileClient', () => {
                     shapes: [{
                         id: 'shape-1',
                         type: 'rectangle',
-                        pageIndex: 0,
+                        pageIndex: toPageIndex(0),
                         x: 0.1,
                         y: 0.2,
                         width: 0.3,
@@ -403,7 +404,7 @@ describe('createDocumentsPreloadFileClient', () => {
                     ]],
                     hints: [{
                         subtype: 'Squiggly',
-                        pageIndex: 0,
+                        pageIndex: toPageIndex(0),
                         markerRect: {
                             left: 0.1,
                             top: 0.2,
@@ -508,7 +509,7 @@ describe('createDocumentsPreloadFileClient', () => {
         await expect(client.applyPdfNativeMutationsToWorkingCopy!(
             '/tmp/working.pdf',
             {placedImages: [{
-                pageIndex: 0,
+                pageIndex: toPageIndex(0),
                 x: 0.1,
                 y: 0.2,
                 width: 0.3,

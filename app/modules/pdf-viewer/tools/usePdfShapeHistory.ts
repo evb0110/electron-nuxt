@@ -15,7 +15,7 @@ function cloneShapeForHistoryComparison(shape: IShapeAnnotation) {
     return comparable;
 }
 
-export function usePdfShapeHistory(options: {
+export const usePdfShapeHistory = (options: {
     registerCommand: (command: IPdfAppAnnotationHistoryCommand) => void;
     addShape: (shape: IShapeAnnotation) => void;
     updateShape: (shapeId: string, shape: IShapeAnnotation) => void;
@@ -24,7 +24,7 @@ export function usePdfShapeHistory(options: {
     handleDeletedShape: (shape: IShapeAnnotation) => void;
     notifyShapeCommentsChanged: () => void;
     markModified: () => void;
-}) {
+}) => {
     function applyShapeUpdateWithHistory(previousShape: IShapeAnnotation, nextShape: IShapeAnnotation) {
         const hasChanges = JSON.stringify(cloneShapeForHistoryComparison(previousShape))
             !== JSON.stringify(cloneShapeForHistoryComparison(nextShape));
@@ -74,4 +74,4 @@ export function usePdfShapeHistory(options: {
         applyShapeUpdateWithHistory,
         handleShapeCreated,
     };
-}
+};

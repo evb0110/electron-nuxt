@@ -51,7 +51,7 @@ interface IUsePdfViewportViewModelOptions {
 
 const HORIZONTAL_SCROLL_CLAMP_EPSILON_PX = 1.5;
 
-export function usePdfViewportViewModel(options: IUsePdfViewportViewModelOptions) {
+export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions) => {
     const fitWidthHorizontalScrollLocked = ref(false);
 
     const virtualization = usePdfViewerVirtualization({
@@ -198,4 +198,4 @@ export function usePdfViewportViewModel(options: IUsePdfViewportViewModelOptions
         resolveHorizontalScrollClampForActiveSpread,
         syncHorizontalScrollForZoomMode,
     };
-}
+};

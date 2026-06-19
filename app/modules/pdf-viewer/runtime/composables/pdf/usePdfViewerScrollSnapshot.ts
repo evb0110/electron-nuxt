@@ -3,13 +3,13 @@ import type { IScrollSnapshot } from '@app/types/pdf';
 import { captureScrollSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/captureScrollSnapshot';
 import { restoreScrollFromSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/restoreScrollFromSnapshot';
 
-export function usePdfViewerScrollSnapshot(options: {
+export const usePdfViewerScrollSnapshot = (options: {
     viewerContainer: Ref<HTMLElement | null>;
     currentPage: Ref<number>;
     resolveHorizontalScrollClampForActiveSpread: () => { shouldLock: boolean } | null;
     syncHorizontalScrollForZoomMode: () => boolean;
     scrollToPage: (page: number) => void;
-}) {
+}) => {
     function captureViewerScrollSnapshot() {
         return captureScrollSnapshot(options.viewerContainer.value, { preferredAnchorPage: options.currentPage.value });
     }
@@ -43,4 +43,4 @@ export function usePdfViewerScrollSnapshot(options: {
         captureViewerScrollSnapshot,
         restoreViewerScrollSnapshot,
     };
-}
+};

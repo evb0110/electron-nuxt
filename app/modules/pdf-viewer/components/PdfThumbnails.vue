@@ -169,24 +169,18 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'go-to-page', page: number): void;
-    (e: 'update:selected-pages', pages: number[]): void;
-    (
-        e: 'page-context-menu',
-        payload: {
-            clientX: number;
-            clientY: number;
-            pages: number[];
-        },
-    ): void;
-    (e: 'reorder', newOrder: number[]): void;
-    (
-        e: 'file-drop',
-        payload: {
-            afterPage: number;
-            filePaths: TDocumentRef[];
-        },
-    ): void;
+    'go-to-page': [page: number];
+    'update:selected-pages': [pages: number[]];
+    'page-context-menu': [payload: {
+        clientX: number;
+        clientY: number;
+        pages: number[];
+    }];
+    reorder: [newOrder: number[]];
+    'file-drop': [payload: {
+        afterPage: number;
+        filePaths: TDocumentRef[];
+    }];
 }>();
 
 const containerRef = ref<HTMLElement | null>(null);

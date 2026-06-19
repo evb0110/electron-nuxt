@@ -9,12 +9,12 @@ import {
 } from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
-import { isPlainObject } from 'es-toolkit/predicate';
 import {
     DEFAULT_SETTINGS,
     sanitizeSettings,
 } from '@contracts/settings';
 import type { ISettingsData } from '@contracts/shared';
+import { isRecord } from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
@@ -28,6 +28,11 @@ const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 let settingsCache: ISettingsData | null = null;
 let settingsMutationQueue: Promise<unknown> = Promise.resolve();
 
+type TSettingsUpdateResult = Partial<ISettingsData> | undefined;
+type TSettingsUpdater = (
+    settings: ISettingsData,
+) => TSettingsUpdateResult | Promise<TSettingsUpdateResult>;
+
 function getStoragePath() {
     return join(app.getPath('userData'), 'settings.json');
 }
@@ -36,17 +41,13 @@ function cloneSettings(settings: ISettingsData): ISettingsData {
     return {...settings};
 }
 
-function isSettingsPatch(value: unknown): value is Partial<ISettingsData> {
-    return isPlainObject(value);
-}
-
-function parseSettingsPatch(content: string): Partial<ISettingsData> | null {
+function parseSettingsPayload(content: string): unknown {
     const parsed: unknown = JSON.parse(content);
-    return isSettingsPatch(parsed) ? parsed : null;
+    return parsed;
 }
 
 function cacheSettings(raw: unknown): ISettingsData {
-    settingsCache = sanitizeSettings(isSettingsPatch(raw) ? raw : null);
+    settingsCache = sanitizeSettings(raw);
     return cloneSettings(settingsCache);
 }
 
@@ -75,7 +76,7 @@ async function readSettingsFromStorage(storagePath: string) {
 
     try {
         const content = await readFile(storagePath, 'utf-8');
-        return cacheSettings(parseSettingsPatch(content));
+        return cacheSettings(parseSettingsPayload(content));
     } catch (err) {
         logger.error(`Failed to load settings: ${getErrorMessage(err)}`);
         return cacheSettings(DEFAULT_SETTINGS);
@@ -113,7 +114,7 @@ export async function saveSettings(settings: ISettingsData) {
 }
 
 export async function updateSettings(
-    mutate: (settings: ISettingsData) => unknown | Promise<unknown>,
+    mutate: TSettingsUpdater,
 ): Promise<ISettingsData> {
     const storagePath = getStoragePath();
     return queueSettingsMutation(async () => {
@@ -123,7 +124,7 @@ export async function updateSettings(
         const workingCopy = cloneSettings(current);
         const mutationResult = await mutate(workingCopy);
         const next = sanitizeSettings(
-            mutationResult && typeof mutationResult === 'object'
+            isRecord(mutationResult)
                 ? {
                     ...workingCopy,
                     ...mutationResult,
@@ -148,7 +149,7 @@ function loadSettingsSync(): ISettingsData {
 
     try {
         const content = readFileSync(storagePath, 'utf-8');
-        return cacheSettings(parseSettingsPatch(content));
+        return cacheSettings(parseSettingsPayload(content));
     } catch (err) {
         logger.error(`Failed to load settings: ${getErrorMessage(err)}`);
         return cacheSettings(DEFAULT_SETTINGS);

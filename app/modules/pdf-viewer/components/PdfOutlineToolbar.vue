@@ -78,9 +78,9 @@ interface IProps {
 defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'set-display-mode', mode: TBookmarkDisplayMode): void;
-    (e: 'toggle-edit-mode'): void;
-    (e: 'add-root-bookmark'): void;
+    'set-display-mode': [mode: TBookmarkDisplayMode];
+    'toggle-edit-mode': [];
+    'add-root-bookmark': [];
 }>();
 
 const { t } = useTypedI18n();

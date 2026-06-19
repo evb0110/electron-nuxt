@@ -4,8 +4,10 @@ import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import type {
     ICropMargins,
+    IPdfBox,
     IPageGeometry,
 } from '@contracts/shared';
+import { isRecord } from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import {
@@ -40,7 +42,62 @@ function resolveCropWorkerPath() {
     return resolveUnpackedWorkerPath(__dirname, CROP_WORKER_FILENAME);
 }
 
-async function runCropWorkerTask<T>(workerInput: TCropWorkerInput): Promise<T> {
+function decodeUndefinedResult(data: unknown): undefined | null {
+    return data === undefined ? undefined : null;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
+}
+
+function decodePdfBox(value: unknown): IPdfBox | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    if (
+        !isFiniteNumber(value.x)
+        || !isFiniteNumber(value.y)
+        || !isFiniteNumber(value.width)
+        || !isFiniteNumber(value.height)
+    ) {
+        return null;
+    }
+    return {
+        x: value.x,
+        y: value.y,
+        width: value.width,
+        height: value.height,
+    };
+}
+
+function decodePageGeometryResult(data: unknown): IPageGeometry | null {
+    if (!isRecord(data) || !isFiniteNumber(data.rotation)) {
+        return null;
+    }
+
+    const mediaBox = decodePdfBox(data.mediaBox);
+    if (!mediaBox) {
+        return null;
+    }
+
+    const cropBox = data.cropBox === null
+        ? null
+        : decodePdfBox(data.cropBox);
+    if (cropBox === null && data.cropBox !== null) {
+        return null;
+    }
+
+    return {
+        mediaBox,
+        cropBox,
+        rotation: data.rotation,
+    };
+}
+
+async function runCropWorkerTask<T>(
+    workerInput: TCropWorkerInput,
+    decodeResult: (data: unknown) => T | null,
+): Promise<T> {
     const workerPath = resolveCropWorkerPath();
     if (!existsSync(workerPath)) {
         throw new CropWorkerUnavailableError(`Crop worker unavailable at path: ${workerPath}`);
@@ -50,10 +107,12 @@ async function runCropWorkerTask<T>(workerInput: TCropWorkerInput): Promise<T> {
         workerPath,
         workerData: workerInput,
         invalidPayloadMessage: 'Crop worker returned an invalid payload',
+        invalidResultMessage: 'Crop worker returned an invalid result',
         createStartupError: message => new CropWorkerUnavailableError(`Crop worker startup failed: ${message}`),
         createStartupExitError: code => new CropWorkerUnavailableError(`Crop worker exited before startup with code ${code}`),
         createWorkerExitError: code => new Error(`Crop worker exited with code ${code}`),
         timeoutMs: CROP_WORKER_TIMEOUT_MS,
+        decodeResult,
     }), {
         thresholdMs: 25,
         details: {
@@ -101,7 +160,7 @@ export async function cropPages(
             pages,
             margins,
             ...(senderWebContentsId !== undefined ? { senderWebContentsId } : {}),
-        });
+        }, decodeUndefinedResult);
     } catch (error) {
         if (!shouldFallbackToLocalCrop(error)) {
             throw error;
@@ -124,7 +183,7 @@ export async function removeCropFromPages(
             workingCopyPath,
             pages,
             ...(senderWebContentsId !== undefined ? { senderWebContentsId } : {}),
-        });
+        }, decodeUndefinedResult);
     } catch (error) {
         if (!shouldFallbackToLocalCrop(error)) {
             throw error;
@@ -147,7 +206,7 @@ export async function getPageGeometry(
             workingCopyPath,
             pageNumber,
             ...(senderWebContentsId !== undefined ? { senderWebContentsId } : {}),
-        });
+        }, decodePageGeometryResult);
     } catch (error) {
         if (!shouldFallbackToLocalCrop(error)) {
             throw error;

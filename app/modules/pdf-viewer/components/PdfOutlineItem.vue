@@ -161,25 +161,25 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'go-to-page', page: number, options?: IScrollToPageOptions): void;
-    (e: 'activate', payload: {
+    'go-to-page': [page: number, options?: IScrollToPageOptions];
+    activate: [payload: {
         id: string;
         hasChildren: boolean;
         wasActive: boolean;
         multiSelect: boolean;
         rangeSelect: boolean;
-    }): void;
-    (e: 'toggle-expand', id: string): void;
-    (e: 'open-actions', payload: IBookmarkMenuPayload): void;
-    (e: 'save-edit', payload: {
+    }];
+    'toggle-expand': [id: string];
+    'open-actions': [payload: IBookmarkMenuPayload];
+    'save-edit': [payload: {
         id: string;
         title: string;
-    }): void;
-    (e: 'cancel-edit'): void;
-    (e: 'drag-start', payload: { id: string }): void;
-    (e: 'drag-hover', payload: IDragHoverPayload): void;
-    (e: 'drop-bookmark', payload: IDragHoverPayload): void;
-    (e: 'drag-end'): void;
+    }];
+    'cancel-edit': [];
+    'drag-start': [payload: { id: string }];
+    'drag-hover': [payload: IDragHoverPayload];
+    'drop-bookmark': [payload: IDragHoverPayload];
+    'drag-end': [];
 }>();
 
 const {

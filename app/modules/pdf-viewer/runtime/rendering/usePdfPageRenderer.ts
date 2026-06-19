@@ -449,7 +449,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         onRenderStall: options.onRenderStall,
     });
     type TCanvasRenderResult = NonNullable<Awaited<ReturnType<typeof prepareCanvasForRender>>>;
-    const { renderAnnotationLayersForPage } = usePdfRendererAnnotationLayerController({
+    const renderAnnotationLayersForPage = usePdfRendererAnnotationLayerController({
         annotationLayerRenderer,
         showAnnotations,
         annotationUiManager: options.annotationUiManager ?? null,
@@ -458,7 +458,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         logNonCriticalStageError,
         onAnnotationLayersRendered: options.onAnnotationLayersRendered,
     });
-    const { renderTextLayerForPage } = usePdfRendererTextLayerController({
+    const renderTextLayerForPage = usePdfRendererTextLayerController({
         textLayerRenderer,
         activeTextLayerAbortControllers,
         textLayerCleanupFns,
@@ -581,7 +581,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         };
     }
 
-    const { renderVisiblePages } = usePdfRendererVisibleRenderController({
+    const renderVisiblePages = usePdfRendererVisibleRenderController({
         container: options.container,
         currentPage: options.currentPage,
         numPages,
@@ -616,7 +616,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         throttleMs: RERENDER_LOG_THROTTLE_MS,
     });
 
-    const { reRenderAllVisiblePages } = usePdfRendererRerenderController({
+    const reRenderAllVisiblePages = usePdfRendererRerenderController({
         container: options.container,
         currentPage: options.currentPage,
         numPages,

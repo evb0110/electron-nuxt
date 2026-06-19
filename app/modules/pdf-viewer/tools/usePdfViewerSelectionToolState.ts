@@ -20,7 +20,7 @@ interface IUsePdfViewerSelectionToolStateOptions {
     pendingImagePlacement: Ref<unknown | null>;
 }
 
-export function usePdfViewerSelectionToolState(options: IUsePdfViewerSelectionToolStateOptions) {
+export const usePdfViewerSelectionToolState = (options: IUsePdfViewerSelectionToolStateOptions) => {
     const isImagePlacementActive = computed(() => options.pendingImagePlacement.value !== null);
     const isViewerPanDragModeActive = computed(() => options.dragMode.value && !isImagePlacementActive.value);
     const isSelectionMarkupToolActive = computed(() => isSelectionMarkupTool(options.annotationTool.value));
@@ -85,4 +85,4 @@ export function usePdfViewerSelectionToolState(options: IUsePdfViewerSelectionTo
         onDrag: drag.onDrag,
         stopDrag: drag.stopDrag,
     };
-}
+};

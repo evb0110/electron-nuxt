@@ -1,4 +1,1 @@
-export interface IPoint2D {
-    x: number;
-    y: number;
-}
+export type { IPoint2D } from '@contracts/geometry';

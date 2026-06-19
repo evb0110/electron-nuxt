@@ -8,6 +8,11 @@ import {
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
+    public static responder: ((worker: FakeWorker, request: {
+        id: number;
+        type: string;
+        payload: Record<string, unknown>;
+    }) => void) | null = null;
 
     public readonly postMessageCalls: unknown[] = [];
 
@@ -60,6 +65,11 @@ class FakeWorker {
             payload: Record<string, unknown>;
         };
 
+        if (FakeWorker.responder) {
+            FakeWorker.responder(this, request);
+            return;
+        }
+
         queueMicrotask(() => {
             if (request.type === 'cancel') {
                 this.dispatchMessage({
@@ -95,7 +105,7 @@ class FakeWorker {
         });
     }
 
-    private dispatchMessage(data: unknown) {
+    public dispatchMessage(data: unknown) {
         const event = { data } as MessageEvent;
         this.messageHandlers.forEach((handler) => handler(event));
     }
@@ -112,6 +122,7 @@ describe('browserSearchWorkerClient', () => {
         vi.resetModules();
         vi.useRealTimers();
         FakeWorker.lastInstance = null;
+        FakeWorker.responder = null;
         vi.unstubAllGlobals();
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', FakeWorker);
@@ -142,7 +153,28 @@ describe('browserSearchWorkerClient', () => {
         });
     });
 
-    it('rejects active jobs and resets the worker on cancel', async () => {
+    it('rejects a matching-id success response with invalid result data', async () => {
+        FakeWorker.responder = (worker, request) => {
+            queueMicrotask(() => {
+                worker.dispatchMessage({
+                    id: request.id,
+                    type: request.type,
+                    ok: true,
+                    data: {
+                        pageCount: 1,
+                        pageTexts: [123],
+                    },
+                });
+            });
+        };
+        const {runBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
+
+        await expect(runBrowserSearchWorkerRequest('extractDocumentText', {pdfPath: '/tmp/test.pdf'}))
+            .rejects.toThrow('Browser search worker returned an invalid result');
+    });
+
+    it('rejects the active job and sends a request-scoped worker cancel', async () => {
+        FakeWorker.responder = () => {};
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
         const {
             createBrowserSearchWorkerRequest,
@@ -153,12 +185,74 @@ describe('browserSearchWorkerClient', () => {
             'extractDocumentText',
             { pdfPath: '/tmp/pending.pdf' },
         );
+        const rejection = expect(workerRequest.promise).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
+        const terminateCallsBeforeCancel = terminateSpy.mock.calls.length;
+
         cancelBrowserSearchWorkerRequest(workerRequest.requestId);
-        await expect(workerRequest.promise).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
+        await rejection;
 
         const postMessages = FakeWorker.lastInstance?.postMessageCalls ?? [];
-        expect(postMessages).toHaveLength(1);
-        expect(terminateSpy).toHaveBeenCalledTimes(1);
+        expect(postMessages).toHaveLength(2);
+        expect(postMessages[1]).toMatchObject({
+            type: 'cancel',
+            payload: {requestId: workerRequest.requestId},
+        });
+        expect(terminateSpy).toHaveBeenCalledTimes(terminateCallsBeforeCancel);
+    });
+
+    it('keeps other in-flight jobs alive when canceling one shared-worker request', async () => {
+        FakeWorker.responder = () => {};
+        const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
+        const {
+            createBrowserSearchWorkerRequest,
+            cancelBrowserSearchWorkerRequest,
+        } = await import('@app/platform/browser-api/browserSearchWorkerClient');
+
+        const canceledRequest = createBrowserSearchWorkerRequest(
+            'extractDocumentText',
+            { pdfPath: '/tmp/canceled.pdf' },
+        );
+        const otherRequest = createBrowserSearchWorkerRequest(
+            'extractDocumentText',
+            { pdfPath: '/tmp/other.pdf' },
+        );
+        const canceledRejection = expect(canceledRequest.promise).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
+        const terminateCallsBeforeCancel = terminateSpy.mock.calls.length;
+
+        cancelBrowserSearchWorkerRequest(canceledRequest.requestId);
+
+        await canceledRejection;
+        FakeWorker.lastInstance?.dispatchMessage({
+            id: otherRequest.requestId,
+            type: 'extractDocumentText',
+            ok: true,
+            data: {
+                pageCount: 1,
+                pageTexts: ['other'],
+            },
+        });
+        await expect(otherRequest.promise).resolves.toEqual({
+            pageCount: 1,
+            pageTexts: ['other'],
+        });
+
+        const postMessages = FakeWorker.lastInstance?.postMessageCalls ?? [];
+        expect(postMessages).toHaveLength(3);
+        expect(postMessages[2]).toMatchObject({
+            type: 'cancel',
+            payload: {requestId: canceledRequest.requestId},
+        });
+        expect(terminateSpy).toHaveBeenCalledTimes(terminateCallsBeforeCancel);
+    });
+
+    it('does not create a worker when canceling an unknown request', async () => {
+        const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
+        const {cancelBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
+
+        cancelBrowserSearchWorkerRequest(12345);
+
+        expect(FakeWorker.lastInstance).toBeNull();
+        expect(terminateSpy).not.toHaveBeenCalled();
     });
 
     it('terminates the idle worker after the TTL elapses', async () => {

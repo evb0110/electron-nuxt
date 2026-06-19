@@ -205,9 +205,7 @@ function cloneAnnotationCommentSnapshot(comment: IAnnotationCommentSummary): IAn
     };
 }
 
-export function usePdfAnnotationCommentModel(
-    options: IUsePdfAnnotationCommentModelOptions,
-): IPdfAnnotationCommentModel {
+export const usePdfAnnotationCommentModel = (options: IUsePdfAnnotationCommentModelOptions): IPdfAnnotationCommentModel => {
     const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
     const activeCommentStableKey = ref<string | null>(null);
     const pendingMarkerMoves = new Map<string, IPendingAnnotationMarkerMove>();
@@ -726,4 +724,4 @@ export function usePdfAnnotationCommentModel(
         clearPendingMarkerMoves,
         handleSourceChanged,
     };
-}
+};

@@ -85,7 +85,7 @@ interface IUsePdfViewerAnnotationRuntimeOptions {
     emitShapeContextMenu: Parameters<typeof usePdfShapeTool>[0]['emitShapeContextMenu'];
 }
 
-export function usePdfViewerAnnotationRuntime(options: IUsePdfViewerAnnotationRuntimeOptions) {
+export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRuntimeOptions) => {
     function registerShapeHistoryCommand(command: {
         cmd: () => void;
         undo: () => void;
@@ -338,4 +338,4 @@ export function usePdfViewerAnnotationRuntime(options: IUsePdfViewerAnnotationRu
         handleSourceChanged,
         ...portalHandlers,
     };
-}
+};

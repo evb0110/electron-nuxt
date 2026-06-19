@@ -141,7 +141,7 @@ const {
     searchQuery,
 } = defineProps<IProps>();
 
-const emit = defineEmits<{(e: 'goToResult', index: number): void;}>();
+const emit = defineEmits<{goToResult: [index: number];}>();
 
 const trimmedQuery = computed(() => searchQuery.trim());
 const minQueryLength = computed(() => minQueryLengthProp ?? 0);

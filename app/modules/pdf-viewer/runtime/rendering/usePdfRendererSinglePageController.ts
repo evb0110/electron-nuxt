@@ -1,6 +1,8 @@
 import type {
+    IActivePdfRenderTask,
     ICancelableRenderTask,
     IRenderVisiblePagesOptions,
+    TClearSelectionBeforePageLayerTeardown,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import type { IPageRange } from '@app/types/pdf';
 import type { MaybeRefOrGetter } from 'vue';
@@ -39,15 +41,11 @@ interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
     staleRenderedPages: Set<number>;
     renderingPages: Map<number, number>;
     renderingPageRequestIds: Map<number, number>;
-    activeRenderTasks: Map<number, {
-        version: number;
-        requestId: number;
-        task: unknown;
-    }>;
+    activeRenderTasks: Map<number, IActivePdfRenderTask>;
     getRenderVersion: () => number;
     getVisibleRenderRequestId: () => number;
     summarizePageDom: (pageNumber: number) => Record<string, unknown>;
-    clearSelectionBeforePageLayerTeardown: (pageNumber: number) => unknown;
+    clearSelectionBeforePageLayerTeardown: TClearSelectionBeforePageLayerTeardown;
     cleanupPageIfCurrentRender: (pageNumber: number, version: number, requestId?: number) => void;
     cleanupCanvasRenderResult: (renderResult: TRenderResult) => void;
     releasePageResources: (pageNumber: number, pdfPage: PDFPageProxy) => void;
@@ -144,9 +142,9 @@ interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
     logNonCriticalStageError: (pageNumber: number, stage: string, error: unknown) => void;
 }
 
-export function usePdfRendererSinglePageController<TRenderResult>(
+export const usePdfRendererSinglePageController = <TRenderResult>(
     options: IUsePdfRendererSinglePageControllerOptions<TRenderResult>,
-) {
+) => {
     const {
         isActive,
         effectiveScale,
@@ -865,4 +863,4 @@ export function usePdfRendererSinglePageController<TRenderResult>(
             }
         },
     };
-}
+};

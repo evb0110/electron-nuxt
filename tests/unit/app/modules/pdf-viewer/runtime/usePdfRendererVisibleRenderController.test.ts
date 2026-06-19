@@ -32,7 +32,7 @@ function createControllerHarness(options?: {
     const cleanupPage = vi.fn();
     const scheduleMissingRenderTargetRetry = vi.fn();
 
-    const controller = usePdfRendererVisibleRenderController({
+    const renderVisiblePages = usePdfRendererVisibleRenderController({
         container: ref({} as HTMLElement),
         currentPage: ref(13),
         numPages: ref(20),
@@ -57,7 +57,7 @@ function createControllerHarness(options?: {
     });
 
     return {
-        controller,
+        renderVisiblePages,
         nextVisibleRenderRequestId,
         ensurePageMetricsInRange,
         renderSingleVisiblePage,
@@ -70,7 +70,7 @@ describe('usePdfRendererVisibleRenderController', () => {
     it('preserves an actively rendering required page without bumping the visible render request', async () => {
         const harness = createControllerHarness();
 
-        await harness.controller.renderVisiblePages(
+        await harness.renderVisiblePages(
             {
                 start: 13,
                 end: 13,
@@ -94,7 +94,7 @@ describe('usePdfRendererVisibleRenderController', () => {
             renderingPageRequestId: 6,
         });
 
-        await harness.controller.renderVisiblePages(
+        await harness.renderVisiblePages(
             {
                 start: 13,
                 end: 13,
@@ -118,7 +118,7 @@ describe('usePdfRendererVisibleRenderController', () => {
         const scheduleMissingRenderTargetRetry = vi.fn();
         const warnSpy = vi.spyOn(BrowserLogger, 'warnThrottled').mockImplementation(() => {});
         const renderSingleVisiblePage = vi.fn(async () => undefined);
-        const controller = usePdfRendererVisibleRenderController({
+        const renderVisiblePages = usePdfRendererVisibleRenderController({
             container: ref(cast<HTMLElement>({
                 querySelector: vi.fn(() => null),
                 querySelectorAll: vi.fn(() => []),
@@ -149,7 +149,7 @@ describe('usePdfRendererVisibleRenderController', () => {
             throttleMs: 0,
         });
 
-        const renderPromise = controller.renderVisiblePages({
+        const renderPromise = renderVisiblePages({
             start: 16,
             end: 16,
         });
@@ -173,7 +173,7 @@ describe('usePdfRendererVisibleRenderController', () => {
         }));
         const harness = createBufferClampHarness({ resolveBufferPageCanvasClamp });
 
-        await harness.controller.renderVisiblePages({
+        await harness.renderVisiblePages({
             start: 10,
             end: 10,
         });
@@ -204,7 +204,7 @@ describe('usePdfRendererVisibleRenderController', () => {
     it('renders within-budget buffer pages unclamped without stale marking', async () => {
         const harness = createBufferClampHarness({ resolveBufferPageCanvasClamp: () => null });
 
-        await harness.controller.renderVisiblePages({
+        await harness.renderVisiblePages({
             start: 10,
             end: 10,
         });
@@ -231,7 +231,7 @@ describe('usePdfRendererVisibleRenderController', () => {
                 }
         )});
 
-        await harness.controller.renderVisiblePages(
+        await harness.renderVisiblePages(
             {
                 start: 10,
                 end: 10,
@@ -287,7 +287,7 @@ function createBufferClampHarness(options: {resolveBufferPageCanvasClamp: NonNul
     );
     let visibleRenderRequestId = 7;
 
-    const controller = usePdfRendererVisibleRenderController({
+    const renderVisiblePages = usePdfRendererVisibleRenderController({
         container: ref(containerRoot),
         currentPage: ref(10),
         numPages: ref(20),
@@ -316,7 +316,7 @@ function createBufferClampHarness(options: {resolveBufferPageCanvasClamp: NonNul
     });
 
     return {
-        controller,
+        renderVisiblePages,
         renderSingleVisiblePage,
         renderedPages,
         staleRenderedPages,

@@ -5,8 +5,8 @@ import type {
     IBrowserPdfCombineWorkerResultMap,
     TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerRequestType,
-    TBrowserPdfCombineWorkerResponse,
 } from '@app/platform/browser-api/browserPdfCombineWorker.types';
+import { isRecord } from '@contracts/runtimeGuards';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';
@@ -46,14 +46,22 @@ function buildWorkerRequestWithTransfers(
     };
 }
 
+function decodePdfCombineWorkerResult<K extends TBrowserPdfCombineWorkerRequestType>(
+    _type: K,
+    data: unknown,
+): IBrowserPdfCombineWorkerResultMap[K] | null {
+    if (!isRecord(data) || !(data.data instanceof Uint8Array)) {
+        return null;
+    }
+
+    return {data: data.data};
+}
+
 export function canUseBrowserPdfCombineWorker() {
     return canUseBrowserWorker();
 }
 
-const browserPdfCombineWorkerClient = new BrowserWorkerClient<
-    TBrowserPdfCombineWorkerResponse,
-    IPendingBrowserWorkerRequest
->({
+const browserPdfCombineWorkerClient = new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
     idleTtlMs: BROWSER_PDF_COMBINE_WORKER_IDLE_TTL_MS,
     requestTimeoutMs: BROWSER_PDF_COMBINE_WORKER_REQUEST_TIMEOUT_MS,
     createWorker: () => {
@@ -88,7 +96,15 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
 
     return new Promise<IBrowserPdfCombineWorkerResultMap[K]>((resolve, reject) => {
         browserPdfCombineWorkerClient.registerPendingRequest(request.id, {
-            resolve: (value) => resolve(value as IBrowserPdfCombineWorkerResultMap[K]),
+            requestType: type,
+            resolveData: (value) => {
+                const decoded = decodePdfCombineWorkerResult(type, value);
+                if (!decoded) {
+                    return false;
+                }
+                resolve(decoded);
+                return true;
+            },
             reject,
         }, () => new BrowserPdfCombineWorkerUnavailableError(
             `Browser PDF combine worker request timed out after ${BROWSER_PDF_COMBINE_WORKER_REQUEST_TIMEOUT_MS}ms`,

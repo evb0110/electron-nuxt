@@ -4,7 +4,7 @@ import type { IPdfAppAnnotationHistoryCommand } from '@app/modules/pdf-viewer/to
 import { cloneShape } from '@app/modules/pdf-viewer/engine/shapes/cloneShape';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
-export function usePdfSelectedShapeCommands(options: {
+export const usePdfSelectedShapeCommands = (options: {
     selectedShapeId: Ref<string | null>;
     hasShapes: Ref<boolean>;
     isAnySaving: Ref<boolean>;
@@ -19,7 +19,7 @@ export function usePdfSelectedShapeCommands(options: {
     registerHistoryCommand: (command: IPdfAppAnnotationHistoryCommand) => void;
     notifyShapeCommentsChanged: () => void;
     markModified: () => void;
-}) {
+}) => {
     function getSelectedShape(): IShapeAnnotation | null {
         const id = options.selectedShapeId.value;
         if (!id) {
@@ -117,4 +117,4 @@ export function usePdfSelectedShapeCommands(options: {
         deleteShapeById,
         deleteSelectedShape,
     };
-}
+};

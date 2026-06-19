@@ -1,5 +1,5 @@
 import type {
-    ICancelableRenderTask,
+    IActivePdfRenderTask,
     IRenderVisiblePagesOptions,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import type { PDFPageProxy } from 'pdfjs-dist';
@@ -16,11 +16,7 @@ import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-
 
 interface IUsePdfRendererCanvasControllerOptions {
     canvasRenderer: ReturnType<typeof usePdfCanvasRenderer>;
-    activeRenderTasks: Map<number, {
-        version: number;
-        requestId: number;
-        task: ICancelableRenderTask;
-    }>;
+    activeRenderTasks: Map<number, IActivePdfRenderTask>;
     pageCanvases: Map<number, HTMLCanvasElement>;
     hiddenAnnotationIds: (pageNumber: number) => Set<string> | undefined;
     getRenderVersion: () => number;
@@ -30,7 +26,7 @@ interface IUsePdfRendererCanvasControllerOptions {
     onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
 }
 
-export function usePdfRendererCanvasController(options: IUsePdfRendererCanvasControllerOptions) {
+export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasControllerOptions) => {
     const {
         canvasRenderer,
         activeRenderTasks,
@@ -340,4 +336,4 @@ export function usePdfRendererCanvasController(options: IUsePdfRendererCanvasCon
         prepareCanvasForRender,
         mountRenderedCanvas,
     };
-}
+};

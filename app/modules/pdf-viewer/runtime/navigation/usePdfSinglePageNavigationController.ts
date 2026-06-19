@@ -9,7 +9,7 @@ interface IUsePdfSinglePageNavigationControllerOptions extends TUsePdfSinglePage
     cancelPendingSearchScroll: () => void;
 }
 
-export function usePdfSinglePageNavigationController(options: IUsePdfSinglePageNavigationControllerOptions) {
+export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageNavigationControllerOptions) => {
     const singlePageScroll = usePdfSinglePageScroll(options);
 
     const navigationAnchorPage = computed(() =>
@@ -69,4 +69,4 @@ export function usePdfSinglePageNavigationController(options: IUsePdfSinglePageN
         ...singlePageScroll,
         navigationAnchorPage,
     };
-}
+};

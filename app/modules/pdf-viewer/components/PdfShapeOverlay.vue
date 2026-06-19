@@ -360,42 +360,42 @@ const {
 } = toRefs(props);
 
 const emit = defineEmits<{
-    (e: 'start-drawing', payload: {
+    'start-drawing': [payload: {
         x: number;
         y: number 
-    }): void;
-    (e: 'continue-drawing', payload: {
+    }];
+    'continue-drawing': [payload: {
         x: number;
         y: number 
-    }): void;
-    (e: 'finish-drawing'): void;
-    (e: 'start-drag-shape', payload: {
+    }];
+    'finish-drawing': [];
+    'start-drag-shape': [payload: {
         shapeId: string;
         x: number;
         y: number
-    }): void;
-    (e: 'continue-drag-shape', payload: {
+    }];
+    'continue-drag-shape': [payload: {
         x: number;
         y: number
-    }): void;
-    (e: 'finish-drag-shape'): void;
-    (e: 'start-resize-shape', payload: {
+    }];
+    'finish-drag-shape': [];
+    'start-resize-shape': [payload: {
         shapeId: string;
         handle: TShapeResizeHandle;
         x: number;
         y: number
-    }): void;
-    (e: 'continue-resize-shape', payload: {
+    }];
+    'continue-resize-shape': [payload: {
         x: number;
         y: number
-    }): void;
-    (e: 'finish-resize-shape'): void;
-    (e: 'select-shape', id: string | null): void;
-    (e: 'shape-contextmenu', payload: {
+    }];
+    'finish-resize-shape': [];
+    'select-shape': [id: string | null];
+    'shape-contextmenu': [payload: {
         shapeId: string;
         clientX: number;
         clientY: number;
-    }): void;
+    }];
 }>();
 
 const svgRef = ref<SVGSVGElement | null>(null);

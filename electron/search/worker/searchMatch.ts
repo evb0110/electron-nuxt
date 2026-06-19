@@ -1,11 +1,8 @@
-import type { IPdfSearchExcerpt } from '@contracts/search';
+import type {
+    IPdfSearchExcerpt,
+    IResolvedSearchMatchOptions,
+} from '@contracts/search';
 import { EXCERPT_CONTEXT_CHARS } from '@electron/config/constants';
-
-export interface ISearchMatchOptions {
-    matchCase: boolean;
-    wholeWord: boolean;
-    useRegex: boolean;
-}
 
 export interface IPageSearchMatch {
     startOffset: number;
@@ -42,7 +39,7 @@ function escapeRegex(value: string) {
 
 function buildSearchRegex(
     query: string,
-    options: ISearchMatchOptions,
+    options: IResolvedSearchMatchOptions,
 ) {
     const basePattern = options.useRegex ? query : escapeRegex(query);
     const pattern = options.wholeWord
@@ -55,7 +52,7 @@ function buildSearchRegex(
 export function findPageMatches(
     pageText: string,
     query: string,
-    options: ISearchMatchOptions,
+    options: IResolvedSearchMatchOptions,
 ): IPageSearchMatch[] {
     return Array.from(iteratePageMatches(pageText, query, options));
 }
@@ -63,7 +60,7 @@ export function findPageMatches(
 export function* iteratePageMatches(
     pageText: string,
     query: string,
-    options: ISearchMatchOptions,
+    options: IResolvedSearchMatchOptions,
 ): Generator<IPageSearchMatch> {
     const matcher = buildSearchRegex(query, options);
 

@@ -32,7 +32,7 @@ export function createPdfRendererPageDom(options: ICreatePdfRendererPageDomOptio
         return findPdfPageContainer(containerRoot, pageNumber);
     }
 
-    function clearSelectionBeforePageLayerTeardown(pageNumber: number) {
+    function clearSelectionBeforePageLayerTeardown(pageNumber: number): boolean {
         const containerRoot = container.value;
         const pageContainer = getMountedPageContainer(pageNumber, containerRoot);
         return clearPdfSelectionForLayerTeardown({

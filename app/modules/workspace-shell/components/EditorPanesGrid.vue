@@ -168,7 +168,7 @@ import type {
     IEditorLayoutSplitNode,
     TEditorLayoutNode,
     TPaneOrientation,
-} from '@app/types/editorPanes';
+} from '@contracts/editorPanes';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import DeferredDocumentWorkspaceHost from '@app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue';

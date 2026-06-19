@@ -8,11 +8,12 @@ import type {
     IPdfSearchMatch,
 } from '@app/types/pdf';
 import { buildVisualMatchesWithCurrent } from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
+import { toPageIndex } from '@contracts/pageNumbers';
 
 describe('usePdfSearchHighlight', () => {
     it('remaps stale backend offsets to the rendered text layer', () => {
         const pageMatches: IPdfPageMatches = {
-            pageIndex: 0,
+            pageIndex: toPageIndex(0),
             pageText: '',
             searchQuery: 'alpha',
             searchOptions: {
@@ -34,7 +35,7 @@ describe('usePdfSearchHighlight', () => {
             ],
         };
         const currentMatch: IPdfSearchMatch = {
-            pageIndex: 0,
+            pageIndex: toPageIndex(0),
             pageMatchIndex: 1,
             matchIndex: 1,
             startOffset: 0,
@@ -59,7 +60,7 @@ describe('usePdfSearchHighlight', () => {
 
     it('keeps compatible backend offsets instead of adding extra local matches', () => {
         const pageMatches: IPdfPageMatches = {
-            pageIndex: 0,
+            pageIndex: toPageIndex(0),
             pageText: '',
             searchQuery: 'alpha',
             matches: [{

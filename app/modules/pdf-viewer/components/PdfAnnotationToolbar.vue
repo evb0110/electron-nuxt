@@ -41,6 +41,8 @@ interface IProps {
     stylePopoverOpen?: boolean;
 }
 
+interface IPdfAnnotationToolbarExpose {getButtonEl: (toolId: TAnnotationTool) => HTMLElement | null;}
+
 const { t } = useTypedI18n();
 
 const {
@@ -48,7 +50,7 @@ const {
     tool: toolProp,
 } = defineProps<IProps>();
 
-const emit = defineEmits<{ (e: 'set-tool', tool: TAnnotationTool): void }>();
+const emit = defineEmits<{ 'set-tool': [tool: TAnnotationTool] }>();
 
 const tool = computed(() => toolProp);
 
@@ -140,7 +142,7 @@ function getButtonEl(toolId: TAnnotationTool) {
     return toolButtonRefs.get(toolId) ?? null;
 }
 
-defineExpose({ getButtonEl });
+defineExpose<IPdfAnnotationToolbarExpose>({ getButtonEl });
 
 </script>
 

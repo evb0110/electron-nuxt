@@ -1,6 +1,7 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import type { IPdfNativeAnnotationDelete } from '@contracts/electronApiDocuments';
+import { parsePageIndex } from '@contracts/pageNumbers';
 import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
 import type {
     INativePdfMutationBuildResult,
@@ -66,20 +67,24 @@ export function buildNativeAnnotationDeletesForSave(
     for (const comment of opts.pendingDeletes) {
         const targetRef = resolveNativeAnnotationDeleteRef(comment);
         const stableKey = comment.stableKey?.trim();
+        const pageIndex = parsePageIndex(comment.pageIndex);
         if (
             !targetRef
             && stableKey
             && isReplayableEditorOnlyFreeTextNote(comment)
         ) {
+            if (pageIndex === null) {
+                return skip('pending-delete-not-native-eligible', {stableKey});
+            }
             const existing = deletesByStableKey.get(stableKey);
             if (existing) {
-                if (existing.pageIndex !== comment.pageIndex) {
+                if (existing.pageIndex !== pageIndex) {
                     return skip('conflicting-native-delete-pages', {stableKey});
                 }
                 continue;
             }
             deletesByStableKey.set(stableKey, {
-                pageIndex: comment.pageIndex,
+                pageIndex,
                 stableKey,
                 createdAt: typeof comment.createdAt === 'number' && Number.isFinite(comment.createdAt)
                     ? Math.trunc(comment.createdAt)
@@ -90,8 +95,7 @@ export function buildNativeAnnotationDeletesForSave(
         if (
             !targetRef
             || targetRef.generationNumber > 65_535
-            || !Number.isSafeInteger(comment.pageIndex)
-            || comment.pageIndex < 0
+            || pageIndex === null
         ) {
             return skip('pending-delete-not-native-eligible', {
                 stableKey: comment.stableKey,
@@ -104,7 +108,7 @@ export function buildNativeAnnotationDeletesForSave(
 
         const refKey = `${targetRef.objectNumber}R${targetRef.generationNumber}`;
         const deleteRequest = {
-            pageIndex: comment.pageIndex,
+            pageIndex,
             objectNumber: targetRef.objectNumber,
             generationNumber: targetRef.generationNumber,
         };

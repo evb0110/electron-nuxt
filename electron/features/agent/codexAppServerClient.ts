@@ -34,6 +34,8 @@ interface IPendingAppServerRequest {
     reject(error: Error): void;
 }
 
+type TAppServerResponseDecoder<T> = (value: unknown) => T | null;
+
 export class CodexAppServerClient {
     private readonly child: ChildProcessWithoutNullStreams;
     private readonly pending = new Map<TAppServerJsonRpcId, IPendingAppServerRequest>();
@@ -121,6 +123,20 @@ export class CodexAppServerClient {
                 pending.reject(new Error(`Failed to send ${method}: ${getErrorMessage(error)}`));
             });
         });
+    }
+
+    async requestDecoded<T>(
+        method: string,
+        params: unknown,
+        decode: TAppServerResponseDecoder<T>,
+        timeoutMs = APP_SERVER_REQUEST_TIMEOUT_MS,
+    ) {
+        const response = await this.request(method, params, timeoutMs);
+        const decoded = decode(response);
+        if (decoded === null) {
+            throw new Error(`Codex app-server returned an invalid ${method} response.`);
+        }
+        return decoded;
     }
 
     notify(method: string, params?: unknown) {

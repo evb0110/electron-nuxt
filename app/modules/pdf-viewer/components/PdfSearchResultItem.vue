@@ -43,7 +43,7 @@ const {
     result,
     showPageLabel: showPageLabelProp = true,
 } = defineProps<IProps>();
-const emit = defineEmits<{(e: 'activate'): void;}>();
+const emit = defineEmits<{activate: [];}>();
 
 const showPageLabel = computed(() => showPageLabelProp ?? true);
 const pageIndicator = computed(() => formatPageIndicatorWithOptions(result.pageIndex + 1, pageLabels ?? null));

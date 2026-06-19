@@ -31,8 +31,6 @@ export type {
     IDocumentsMenuCapability,
     IImageExportCapability,
     IPageOpsCapability,
-    IMenuEventCallback,
-    IMenuEventUnsubscribe,
     IOcrCapability,
     IPlatformApi,
     IRendererLogEntry,
@@ -49,6 +47,10 @@ export type {
     TAgentRecommendationId,
     TAppUpdateCheckOrigin,
     TAppUpdatePhase,
+    TDebugLogLevel,
+    TMenuEventCallback,
+    TMenuEventUnsubscribe,
+    TRendererLogLevel,
     TOpenFileResult,
 } from '@contracts/platformApi';
 export type { IElectronAPI } from '@contracts/electronApi';
@@ -121,8 +123,50 @@ export type {
     IPdfSearchRequestOptions,
     IPdfSearchResponse,
     IPdfSearchResult,
+    IResolvedSearchMatchOptions,
+    ISearchMatchOptions,
     ISearchPreloadClient,
 } from '@contracts/search';
+
+export type {
+    IMarkerRect,
+    IPageGeometry,
+    IPdfBox,
+    IPoint2D,
+} from '@contracts/geometry';
+
+export type {
+    TPageIndex,
+    TPageNumber,
+} from '@contracts/pageNumbers';
+export {
+    pageIndexToPageNumber,
+    pageNumberToPageIndex,
+    parsePageIndex,
+    parsePageNumber,
+    toPageIndex,
+    toPageNumber,
+} from '@contracts/pageNumbers';
+
+export { PDF_PAGE_LABEL_STYLE_VALUES } from '@contracts/pdfPageLabels';
+export type {
+    IPdfPageLabelRange,
+    IPdfPageLabelsMutation,
+    TPdfPageLabelStyle,
+} from '@contracts/pdfPageLabels';
+
+export {
+    PDF_ANNOTATION_LINE_END_STYLES,
+    PDF_ANNOTATION_MARKUP_SUBTYPES,
+    PDF_ANNOTATION_SHAPE_PDF_SUBTYPES,
+    PDF_ANNOTATION_SHAPE_TYPES,
+} from '@contracts/annotations';
+export type {
+    TPdfAnnotationLineEndStyle,
+    TPdfAnnotationMarkupSubtype,
+    TPdfAnnotationShapePdfSubtype,
+    TPdfAnnotationShapeType,
+} from '@contracts/annotations';
 
 export type {
     ILatestReleaseResponse,

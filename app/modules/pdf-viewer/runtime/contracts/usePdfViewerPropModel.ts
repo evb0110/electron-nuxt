@@ -21,7 +21,7 @@ function isPropProvided(...names: string[]) {
     return names.some(name => Object.prototype.hasOwnProperty.call(vnodeProps, name));
 }
 
-export function usePdfViewerPropModel(props: Readonly<IPdfViewerProps>) {
+export const usePdfViewerPropModel = (props: Readonly<IPdfViewerProps>) => {
     const performanceProfile = getPerformanceProfile();
     const fitMode = computed<TFitMode>(() => props.fitMode ?? 'width');
     const hasShowAnnotationsProp = isPropProvided('showAnnotations', 'show-annotations');
@@ -55,4 +55,4 @@ export function usePdfViewerPropModel(props: Readonly<IPdfViewerProps>) {
         isActive: computed(() => props.isActive ?? true),
         authorName: computed(() => props.authorName),
     };
-}
+};

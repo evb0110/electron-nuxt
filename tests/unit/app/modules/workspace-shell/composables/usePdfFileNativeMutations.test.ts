@@ -9,6 +9,7 @@ import { ref } from 'vue';
 import { usePdfFile } from '@app/modules/workspace-shell/composables/usePdfFile';
 import type { IPdfConformanceProfile } from '@app/types/pdf';
 import type { IPdfNativeMutationSet } from '@contracts/electronApiDocuments';
+import { toPageIndex } from '@contracts/pageNumbers';
 
 const analyticsMock = vi.hoisted(() => ({
     clearDocumentContext: vi.fn(),
@@ -71,7 +72,7 @@ describe('usePdfFile native mutations', () => {
             ]],
             hints: [{
                 subtype: 'Squiggly' as const,
-                pageIndex: 0,
+                pageIndex: toPageIndex(0),
                 markerRect: {
                     left: 0.1,
                     top: 0.2,

@@ -33,7 +33,7 @@ interface IUsePdfAnnotationCommentActionsOptions {
     emitForcedAnnotationMutation: () => void;
 }
 
-export function usePdfAnnotationCommentActions(options: IUsePdfAnnotationCommentActionsOptions) {
+export const usePdfAnnotationCommentActions = (options: IUsePdfAnnotationCommentActionsOptions) => {
     const {
         viewerContainer,
         numPages,
@@ -123,4 +123,4 @@ export function usePdfAnnotationCommentActions(options: IUsePdfAnnotationComment
         focusAnnotationComment,
         deleteAnnotationComment,
     };
-}
+};

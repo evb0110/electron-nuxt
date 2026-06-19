@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 export interface IPdfSearchExcerpt {
     prefix: boolean;
     suffix: boolean;
@@ -7,7 +9,7 @@ export interface IPdfSearchExcerpt {
 }
 
 export interface IPdfSearchResult {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     pageMatchIndex: number;
     matchIndex: number;
     startOffset: number;
@@ -28,12 +30,21 @@ export interface IPdfSearchProgress {
     truncated?: boolean | undefined;
 }
 
-export interface IPdfSearchRequestOptions {
-    requestId?: string | undefined;
-    pageCount?: number | undefined;
+export interface ISearchMatchOptions {
     matchCase?: boolean | undefined;
     wholeWord?: boolean | undefined;
     useRegex?: boolean | undefined;
+}
+
+export interface IResolvedSearchMatchOptions {
+    matchCase: boolean;
+    wholeWord: boolean;
+    useRegex: boolean;
+}
+
+export interface IPdfSearchRequestOptions extends ISearchMatchOptions {
+    requestId?: string | undefined;
+    pageCount?: number | undefined;
 }
 
 export function escapeSearchRegex(value: string) {
@@ -42,11 +53,7 @@ export function escapeSearchRegex(value: string) {
 
 export function buildPdfSearchRegex(
     query: string,
-    options: {
-        matchCase: boolean;
-        wholeWord: boolean;
-        useRegex: boolean;
-    },
+    options: IResolvedSearchMatchOptions,
 ) {
     const basePattern = options.useRegex ? query : escapeSearchRegex(query);
     const pattern = options.wholeWord
@@ -99,11 +106,7 @@ export function collapseRepeatedPdfSearchPageText(text: string) {
 export function findPdfSearchMatches(
     text: string,
     matcherOrQuery: RegExp | string,
-    options?: {
-        matchCase: boolean;
-        wholeWord: boolean;
-        useRegex: boolean;
-    },
+    options?: ISearchMatchOptions,
 ) {
     return Array.from(iteratePdfSearchMatches(text, matcherOrQuery, options));
 }
@@ -111,17 +114,13 @@ export function findPdfSearchMatches(
 export function* iteratePdfSearchMatches(
     text: string,
     matcherOrQuery: RegExp | string,
-    options?: {
-        matchCase: boolean;
-        wholeWord: boolean;
-        useRegex: boolean;
-    },
+    options?: ISearchMatchOptions,
 ) {
     const sourceMatcher = typeof matcherOrQuery === 'string'
-        ? buildPdfSearchRegex(matcherOrQuery, options ?? {
-            matchCase: false,
-            wholeWord: false,
-            useRegex: false,
+        ? buildPdfSearchRegex(matcherOrQuery, {
+            matchCase: Boolean(options?.matchCase),
+            wholeWord: Boolean(options?.wholeWord),
+            useRegex: Boolean(options?.useRegex),
         })
         : matcherOrQuery;
     const flags = sourceMatcher.flags.includes('g')

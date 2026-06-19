@@ -130,9 +130,9 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'update:modelValue', page: number): void;
-    (e: 'update:open', value: boolean): void;
-    (e: 'goToPage', page: number): void;
+    'update:modelValue': [page: number];
+    'update:open': [value: boolean];
+    goToPage: [page: number];
 }>();
 
 const isEditing = computed({

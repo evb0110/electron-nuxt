@@ -10,6 +10,7 @@ import {
     buildPdfSearchRegex,
     iteratePdfSearchMatches,
 } from '@contracts/search';
+import { toPageNumber } from '@contracts/pageNumbers';
 import type { ISearchCapability } from '@contracts/searchCapability';
 import {
     SEARCH_EXCERPT_CONTEXT_CHARS,
@@ -890,7 +891,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                             const pageMatchIndex = pageMatchCounts.get(pageNumber) ?? 0;
                             pageMatchCounts.set(pageNumber, pageMatchIndex + 1);
                             results.push({
-                                pageNumber,
+                                pageNumber: toPageNumber(pageNumber),
                                 pageMatchIndex,
                                 matchIndex: results.length,
                                 startOffset: match.startOffset,

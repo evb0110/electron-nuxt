@@ -1,7 +1,7 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
-    IMenuEventCallback,
-    IMenuEventUnsubscribe,
+    TMenuEventCallback,
+    TMenuEventUnsubscribe,
 } from '@contracts/electronApiCommon';
 
 export interface IDjvuProgress {
@@ -92,4 +92,4 @@ export interface IDjvuAPI {
     onViewingError: (callback: (data: IDjvuViewingErrorEvent) => void) => () => void;
 }
 
-export interface IDjvuCapability extends IDjvuAPI {onMenuConvertToPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;}
+export interface IDjvuCapability extends IDjvuAPI {onMenuConvertToPdf: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;}

@@ -8,7 +8,7 @@ import { ref } from 'vue';
 import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { IEditorPaneState } from '@app/types/editorPanes';
+import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IRecentFile } from '@contracts/shared';
 import { cast } from '@tests/helpers/cast';

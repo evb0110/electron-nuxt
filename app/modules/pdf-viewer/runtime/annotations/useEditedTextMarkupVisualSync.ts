@@ -20,7 +20,7 @@ interface IEditedTextMarkupVisualSyncOptions {
     annotationSettings: ComputedRef<IAnnotationSettings | null>;
 }
 
-export function useEditedTextMarkupVisualSync(options: IEditedTextMarkupVisualSyncOptions) {
+export const useEditedTextMarkupVisualSync = (options: IEditedTextMarkupVisualSyncOptions) => {
     const canvasHiddenAnnotationIds = computed(() => collectEditedTextMarkupCanvasSuppressionIds(
         options.annotationCommentsCache.value,
         options.hiddenEmbeddedAnnotationIds.value,
@@ -85,4 +85,4 @@ export function useEditedTextMarkupVisualSync(options: IEditedTextMarkupVisualSy
         canvasHiddenAnnotationIds,
         applyEditedTextMarkupColorsForRenderedPage,
     };
-}
+};

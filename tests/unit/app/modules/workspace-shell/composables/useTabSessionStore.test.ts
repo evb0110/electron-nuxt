@@ -5,7 +5,7 @@ import {
 } from 'vitest';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
-import type { IEditorPaneState } from '@app/types/editorPanes';
+import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 
 function tab(id: string): ITab {

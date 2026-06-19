@@ -6,7 +6,7 @@ import {
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
-} from '@app/types/editorPanes';
+} from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import { collectLayoutPaneOrder } from '@app/modules/workspace-shell/window-tabs/collectLayoutPaneOrder';
 import { collectMergeTabOrder } from '@app/modules/workspace-shell/window-tabs/collectMergeTabOrder';

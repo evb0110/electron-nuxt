@@ -54,7 +54,7 @@ interface IUsePdfViewerExposeControllersOptions {
     emitZoomMode: (mode: TZoomMode) => void;
 }
 
-export function usePdfViewerExposeControllers(options: IUsePdfViewerExposeControllersOptions) {
+export const usePdfViewerExposeControllers = (options: IUsePdfViewerExposeControllersOptions) => {
     const {
         captureViewerScrollSnapshot,
         restoreViewerScrollSnapshot,
@@ -103,4 +103,4 @@ export function usePdfViewerExposeControllers(options: IUsePdfViewerExposeContro
         saveViewerDocument,
         renderLoadedPdfPagesForBrowserPrint,
     };
-}
+};

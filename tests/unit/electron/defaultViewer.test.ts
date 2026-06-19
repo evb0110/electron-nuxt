@@ -76,6 +76,16 @@ describe('default viewer prompt', () => {
             type: 'info',
         });
     });
+
+    it('honors prompt suppression from known settings files only when explicitly true', async () => {
+        mocks.readFile.mockResolvedValueOnce(JSON.stringify({suppressDefaultViewerPrompt: true}));
+        const { promptSetDefaultViewer } = await loadDefaultViewerModule();
+
+        await promptSetDefaultViewer({} as never);
+
+        expect(mocks.dialog.showMessageBox).not.toHaveBeenCalled();
+        expect(mocks.saveSettings).toHaveBeenCalledWith({suppressDefaultViewerPrompt: true});
+    });
 });
 
 afterAll(() => {

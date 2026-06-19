@@ -10,7 +10,7 @@ export interface IDocumentOperationLease {
     runExclusive: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
 }
 
-export function useDocumentOperationLease(): IDocumentOperationLease {
+export const useDocumentOperationLease = (): IDocumentOperationLease => {
     const activeKind = ref<TDocumentOperationKind | null>(null);
     const pendingCount = ref(0);
     let queueTail: Promise<void> = Promise.resolve();
@@ -39,4 +39,4 @@ export function useDocumentOperationLease(): IDocumentOperationLease {
         isBusy: computed(() => pendingCount.value > 0),
         runExclusive,
     };
-}
+};

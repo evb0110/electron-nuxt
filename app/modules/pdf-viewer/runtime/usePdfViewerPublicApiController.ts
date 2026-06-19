@@ -39,7 +39,7 @@ interface IUsePdfViewerPublicApiControllerOptions {
     requestScrollToCurrentResult: IPdfViewerExpose['requestScrollToCurrentResult'];
 }
 
-export function usePdfViewerPublicApiController(options: IUsePdfViewerPublicApiControllerOptions) {
+export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiControllerOptions) => {
     const {
         annotationRuntime,
         viewerRuntime,
@@ -233,4 +233,4 @@ export function usePdfViewerPublicApiController(options: IUsePdfViewerPublicApiC
         isCropSelecting: options.isCropSelecting,
         requestScrollToCurrentResult: options.requestScrollToCurrentResult,
     });
-}
+};

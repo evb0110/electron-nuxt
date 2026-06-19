@@ -48,8 +48,8 @@ const {
 }>();
 
 const emit = defineEmits<{
-    (e: 'update-color', color: string): void;
-    (e: 'close'): void;
+    'update-color': [color: string];
+    close: [];
 }>();
 
 const markupLabel = computed(() => {

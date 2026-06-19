@@ -1,25 +1,21 @@
-import type { ICancelableRenderTask } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type {
+    IActivePdfRenderTask,
+    IActivePdfTextLayerTask,
+    TPdfTextLayerCleanup,
+} from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 
-export function usePdfRendererPageRegistry() {
+export const usePdfRendererPageRegistry = () => {
     const renderedPages = new Set<number>();
     const staleRenderedPages = new Set<number>();
     const renderingPages = new Map<number, number>();
     const renderingPageRequestIds = new Map<number, number>();
     const missingRenderTargetRetries = new Map<number, number>();
-    const activeRenderTasks = new Map<number, {
-        version: number;
-        requestId: number;
-        task: ICancelableRenderTask;
-    }>();
+    const activeRenderTasks = new Map<number, IActivePdfRenderTask>();
     const pageCanvases = new Map<number, HTMLCanvasElement>();
-    const textLayerCleanupFns = new Map<number, () => void>();
-    const activeTextLayerAbortControllers = new Map<number, {
-        version: number;
-        requestId: number;
-        controller: AbortController;
-    }>();
+    const textLayerCleanupFns = new Map<number, TPdfTextLayerCleanup>();
+    const activeTextLayerAbortControllers = new Map<number, IActivePdfTextLayerTask>();
 
     function cancelActiveRenderTask(pageNumber: number) {
         const activeRenderTask = activeRenderTasks.get(pageNumber);
@@ -157,4 +153,4 @@ export function usePdfRendererPageRegistry() {
         cancelObsoleteInFlightRenders,
         getTrackedPageNumbersForCleanup,
     };
-}
+};

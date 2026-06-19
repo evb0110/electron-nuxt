@@ -1,6 +1,6 @@
 import type {IpcRenderer} from 'electron';
 import type { IDjvuCapability } from '@contracts/electronApiDjvu';
-import type { IMenuEventUnsubscribe } from '@contracts/electronApiCommon';
+import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import {
     DJVU_CHANNELS,
     DJVU_EVENT_CHANNELS,
@@ -53,7 +53,7 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
             error: string;
             jobId?: string;
         }) => void): (() => void) => eventSubscriber.onPayload(DJVU_EVENT_CHANNELS.viewingError, callback),
-        onMenuConvertToPdf: (callback): IMenuEventUnsubscribe =>
+        onMenuConvertToPdf: (callback): TMenuEventUnsubscribe =>
             eventSubscriber.onNoArg(DJVU_EVENT_CHANNELS.menuConvertToPdf, callback),
     };
 }

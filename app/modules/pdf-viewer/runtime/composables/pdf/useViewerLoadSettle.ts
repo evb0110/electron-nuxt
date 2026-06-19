@@ -5,7 +5,7 @@ interface IViewerLoadSettleState {
     settled: boolean;
 }
 
-export function useViewerLoadSettle() {
+export const useViewerLoadSettle = () => {
     let viewerLoadSettleState: IViewerLoadSettleState = {
         token: 0,
         promise: Promise.resolve(),
@@ -51,4 +51,4 @@ export function useViewerLoadSettle() {
             return viewerLoadSettleState;
         },
     };
-}
+};

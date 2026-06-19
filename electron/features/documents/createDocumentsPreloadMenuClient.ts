@@ -11,8 +11,8 @@ import {
     createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
 import type {
-    IMenuEventCallback,
-    IMenuEventUnsubscribe,
+    TMenuEventCallback,
+    TMenuEventUnsubscribe,
 } from '@electron/features/documents/preloadShared';
 
 type TNoArgDocumentMenuSubscriptions = Pick<
@@ -57,7 +57,7 @@ export function createDocumentsPreloadMenuClient(
     const eventSubscriber = createTypedIpcEventSubscriber<IDocumentsEventMap>(ipcRenderer);
     const invoke = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer);
     const onNoArg = (channel: TNoArgDocumentMenuChannel) =>
-        (callback: IMenuEventCallback): IMenuEventUnsubscribe => eventSubscriber.onNoArg(channel, callback);
+        (callback: TMenuEventCallback): TMenuEventUnsubscribe => eventSubscriber.onNoArg(channel, callback);
     const noArgMenuSubscriptions = {
         onMenuOpenPdf: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuOpenPdf),
         onMenuInsertImageFromFile: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuInsertImageFromFile),
@@ -96,7 +96,7 @@ export function createDocumentsPreloadMenuClient(
         percent: number;
         elapsedMs: number;
         estimatedRemainingMs: number | null;
-    }) => void): IMenuEventUnsubscribe => eventSubscriber.onPayload(
+    }) => void): TMenuEventUnsubscribe => eventSubscriber.onPayload(
         DOCUMENTS_EVENT_CHANNELS.openDocumentDirectBatchProgress,
         callback,
     );
@@ -107,9 +107,9 @@ export function createDocumentsPreloadMenuClient(
         setMenuTabCount: (tabCount) =>
             invoke(DOCUMENTS_CHANNELS.menuSetTabCount, tabCount),
         ...noArgMenuSubscriptions,
-        onMenuOpenRecentFile: (callback: (filePath: string) => void): IMenuEventUnsubscribe =>
+        onMenuOpenRecentFile: (callback: (filePath: string) => void): TMenuEventUnsubscribe =>
             eventSubscriber.onPayload(DOCUMENTS_EVENT_CHANNELS.menuOpenRecentFile, callback),
-        onMenuOpenExternalPaths: (callback: (paths: string[]) => void): IMenuEventUnsubscribe =>
+        onMenuOpenExternalPaths: (callback: (paths: string[]) => void): TMenuEventUnsubscribe =>
             eventSubscriber.onPayload(DOCUMENTS_EVENT_CHANNELS.menuOpenExternalPaths, callback),
         onOpenDocumentDirectBatchProgress,
         onOpenPdfDirectBatchProgress: onOpenDocumentDirectBatchProgress,

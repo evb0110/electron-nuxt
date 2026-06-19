@@ -26,7 +26,7 @@ interface IUsePdfRendererAnnotationLayerControllerOptions {
     onAnnotationLayersRendered?: ((pageNumber: number, container: HTMLElement) => void) | undefined;
 }
 
-export function usePdfRendererAnnotationLayerController(options: IUsePdfRendererAnnotationLayerControllerOptions) {
+export const usePdfRendererAnnotationLayerController = (options: IUsePdfRendererAnnotationLayerControllerOptions) => {
     const {
         annotationLayerRenderer,
         showAnnotations,
@@ -157,5 +157,5 @@ export function usePdfRendererAnnotationLayerController(options: IUsePdfRenderer
         };
     }
 
-    return {renderAnnotationLayersForPage};
-}
+    return renderAnnotationLayersForPage;
+};

@@ -1,13 +1,14 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { Worker } from 'worker_threads';
+import { isRecord } from '@contracts/runtimeGuards';
 import { getErrorMessage } from '@electron/utils/error';
 
-type TResultWorkerPayload<T> =
+type TResultWorkerPayload =
     | {
         type: 'result';
         ok: true;
-        data?: T;
+        data?: unknown;
     }
     | {
         type: 'result';
@@ -15,7 +16,9 @@ type TResultWorkerPayload<T> =
         error: string;
     };
 
-interface IRunResultWorkerTaskOptions<T = unknown> {
+type TResultWorkerDecoder<T> = (data: unknown) => T | null;
+
+interface IRunResultWorkerTaskBaseOptions {
     workerPath: string;
     workerData: unknown;
     invalidPayloadMessage: string;
@@ -24,11 +27,18 @@ interface IRunResultWorkerTaskOptions<T = unknown> {
     createStartupExitError?: (code: number) => Error;
     createWorkerExitError: (code: number) => Error;
     onProgressMessage?: (payload: unknown) => boolean;
-    decodeResult?: (data: unknown) => T | null;
     invalidResultMessage?: string;
     signal?: AbortSignal;
     timeoutMs?: number;
 }
+
+interface IDecodedResultWorkerTaskOptions<T> extends IRunResultWorkerTaskBaseOptions {decodeResult: TResultWorkerDecoder<T>;}
+
+interface IUnknownResultWorkerTaskOptions extends IRunResultWorkerTaskBaseOptions {decodeResult?: undefined;}
+
+type TRunResultWorkerTaskOptions<T = unknown> =
+    | IDecodedResultWorkerTaskOptions<T>
+    | IUnknownResultWorkerTaskOptions;
 
 export interface IStreamingWorkerTaskHandle<T> {
     worker: Worker;
@@ -44,11 +54,28 @@ export function resolveUnpackedWorkerPath(baseDir: string, workerFileName: strin
     return defaultPath;
 }
 
-function isResultWorkerPayload<T>(payload: unknown): payload is TResultWorkerPayload<T> {
-    return typeof payload === 'object'
-        && payload !== null
-        && 'type' in payload
-        && payload.type === 'result';
+function parseResultWorkerPayload(payload: unknown): TResultWorkerPayload | null {
+    if (!isRecord(payload) || payload.type !== 'result') {
+        return null;
+    }
+
+    if (payload.ok === true) {
+        return {
+            type: 'result',
+            ok: true,
+            ...('data' in payload ? {data: payload.data} : {}),
+        };
+    }
+
+    if (payload.ok === false && typeof payload.error === 'string') {
+        return {
+            type: 'result',
+            ok: false,
+            error: payload.error,
+        };
+    }
+
+    return null;
 }
 
 function toError(error: unknown) {
@@ -77,7 +104,7 @@ function settleWorkerAfterTask(worker: Worker) {
 
 interface IAttachWorkerHandlersOptions<T> {
     worker: Worker;
-    options: IRunResultWorkerTaskOptions<T>;
+    options: TRunResultWorkerTaskOptions<T>;
     resolve: (value: T) => void;
     reject: (reason: unknown) => void;
 }
@@ -144,16 +171,17 @@ function attachWorkerHandlers<T>({
             return;
         }
         finalize(() => {
-            if (!isResultWorkerPayload<T>(payload)) {
+            const resultPayload = parseResultWorkerPayload(payload);
+            if (!resultPayload) {
                 reject(new Error(invalidPayloadMessage));
                 return;
             }
-            if (!payload.ok) {
-                reject(new Error(payload.error));
+            if (!resultPayload.ok) {
+                reject(new Error(resultPayload.error));
                 return;
             }
             if (decodeResult) {
-                const decoded = decodeResult(payload.data);
+                const decoded = decodeResult(resultPayload.data);
                 if (decoded === null) {
                     reject(new Error(invalidResultMessage ?? invalidPayloadMessage));
                     return;
@@ -161,7 +189,7 @@ function attachWorkerHandlers<T>({
                 resolve(decoded);
                 return;
             }
-            resolve(payload.data as T);
+            resolve(resultPayload.data as T);
         });
     };
 
@@ -199,14 +227,18 @@ function attachWorkerHandlers<T>({
     });
 }
 
-export async function runResultWorkerTask<T>(options: IRunResultWorkerTaskOptions<T>): Promise<T> {
+export function runResultWorkerTask<T>(options: IDecodedResultWorkerTaskOptions<T>): Promise<T>;
+export function runResultWorkerTask(options: IUnknownResultWorkerTaskOptions): Promise<unknown>;
+export async function runResultWorkerTask<T>(
+    options: TRunResultWorkerTaskOptions<T>,
+): Promise<T | unknown> {
     const {
         workerPath,
         workerData,
         createStartError,
         createStartupError,
     } = options;
-    return new Promise<T>((resolve, reject) => {
+    return new Promise<T | unknown>((resolve, reject) => {
         let worker: Worker;
         try {
             worker = new Worker(workerPath, { workerData });
@@ -217,7 +249,7 @@ export async function runResultWorkerTask<T>(options: IRunResultWorkerTaskOption
             reject(buildStartError ? buildStartError(getErrorMessage(error)) : toError(error));
             return;
         }
-        attachWorkerHandlers<T>({
+        attachWorkerHandlers<T | unknown>({
             worker,
             options,
             resolve,
@@ -227,8 +259,14 @@ export async function runResultWorkerTask<T>(options: IRunResultWorkerTaskOption
 }
 
 export function startStreamingWorkerTask<T>(
-    options: IRunResultWorkerTaskOptions<T> & { createStartupError: (message: string) => Error },
-): IStreamingWorkerTaskHandle<T> {
+    options: IDecodedResultWorkerTaskOptions<T> & { createStartupError: (message: string) => Error },
+): IStreamingWorkerTaskHandle<T>;
+export function startStreamingWorkerTask(
+    options: IUnknownResultWorkerTaskOptions & { createStartupError: (message: string) => Error },
+): IStreamingWorkerTaskHandle<unknown>;
+export function startStreamingWorkerTask<T>(
+    options: TRunResultWorkerTaskOptions<T> & { createStartupError: (message: string) => Error },
+): IStreamingWorkerTaskHandle<T | unknown> {
     const {
         workerPath,
         workerData,
@@ -238,8 +276,8 @@ export function startStreamingWorkerTask<T>(
         throw createStartupError(`Worker unavailable at path: ${workerPath}`);
     }
     const worker = new Worker(workerPath, { workerData });
-    const promise = new Promise<T>((resolve, reject) => {
-        attachWorkerHandlers<T>({
+    const promise = new Promise<T | unknown>((resolve, reject) => {
+        attachWorkerHandlers<T | unknown>({
             worker,
             options,
             resolve,

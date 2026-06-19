@@ -126,12 +126,12 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'set-tool', tool: TAnnotationTool): void;
-    (e: 'color-selected'): void;
-    (e: 'update-setting', payload: {
+    'set-tool': [tool: TAnnotationTool];
+    'color-selected': [];
+    'update-setting': [payload: {
         key: keyof IAnnotationSettings;
         value: IAnnotationSettings[keyof IAnnotationSettings];
-    }): void;
+    }];
 }>();
 
 const colorSwatches = ANNOTATION_COLOR_SWATCHES;

@@ -30,7 +30,7 @@ interface IUsePdfAnnotationColorCommandsOptions {
     refreshEditedTextMarkupPage?: ((pageNumber: number) => void) | undefined;
 }
 
-export function usePdfAnnotationColorCommands(options: IUsePdfAnnotationColorCommandsOptions) {
+export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCommandsOptions) => {
     const {
         viewerContainer,
         pdfDocument,
@@ -231,4 +231,4 @@ export function usePdfAnnotationColorCommands(options: IUsePdfAnnotationColorCom
         updateSelectedTextMarkupAnnotationColor,
         updateTextMarkupAnnotationColor,
     };
-}
+};

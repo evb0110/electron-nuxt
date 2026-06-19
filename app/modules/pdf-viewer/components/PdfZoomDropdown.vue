@@ -159,12 +159,12 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'update:zoom', level: number): void;
-    (e: 'update:effectiveZoom', level: number): void;
-    (e: 'update:zoomMode', mode: TZoomMode): void;
-    (e: 'update:fitMode', mode: TFitMode): void;
-    (e: 'update:viewMode', mode: TPdfViewMode): void;
-    (e: 'update:open', value: boolean): void;
+    'update:zoom': [level: number];
+    'update:effectiveZoom': [level: number];
+    'update:zoomMode': [mode: TZoomMode];
+    'update:fitMode': [mode: TFitMode];
+    'update:viewMode': [mode: TPdfViewMode];
+    'update:open': [value: boolean];
 }>();
 
 const isOpen = computed({

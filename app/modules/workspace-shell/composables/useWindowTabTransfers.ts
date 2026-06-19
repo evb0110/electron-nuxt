@@ -5,7 +5,7 @@ import type {
     TSplitPayload,
     TWindowTabTransferTarget,
 } from '@contracts/windowTabs';
-import type { TEditorLayoutNode } from '@app/types/editorPanes';
+import type { TEditorLayoutNode } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';

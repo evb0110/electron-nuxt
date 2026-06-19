@@ -9,7 +9,7 @@ interface IUseWorkspaceToolbarPageModelOptions {
     goToPage: (page: number) => void;
 }
 
-export function useWorkspaceToolbarPageModel(options: IUseWorkspaceToolbarPageModelOptions) {
+export const useWorkspaceToolbarPageModel = (options: IUseWorkspaceToolbarPageModelOptions) => {
     const pendingNavigationPage = ref<number | null>(null);
     let pendingNavigationSourcePage: number | null = null;
 
@@ -134,4 +134,4 @@ export function useWorkspaceToolbarPageModel(options: IUseWorkspaceToolbarPageMo
         navigationPage,
         handleGoToPage,
     };
-}
+};

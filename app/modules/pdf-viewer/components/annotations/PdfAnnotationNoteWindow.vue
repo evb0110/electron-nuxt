@@ -90,11 +90,11 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'update:text', value: string): void;
-    (e: 'update:position', value: IAnnotationNotePosition): void;
-    (e: 'minimize'): void;
-    (e: 'delete'): void;
-    (e: 'focus'): void;
+    'update:text': [value: string];
+    'update:position': [value: IAnnotationNotePosition];
+    minimize: [];
+    delete: [];
+    focus: [];
 }>();
 
 const { t } = useTypedI18n();

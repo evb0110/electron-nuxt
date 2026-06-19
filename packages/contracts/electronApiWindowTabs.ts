@@ -9,8 +9,8 @@ import type {
     TWindowTabsAction,
 } from '@contracts/windowTabs';
 import type {
-    IMenuEventCallback,
-    IMenuEventUnsubscribe,
+    TMenuEventCallback,
+    TMenuEventUnsubscribe,
 } from '@contracts/electronApiCommon';
 
 export interface IWindowTabsApi {
@@ -18,18 +18,18 @@ export interface IWindowTabsApi {
     transferAck: (ack: IWindowTabTransferAck) => Promise<boolean>;
     listTargetWindows: () => Promise<IWindowTabTargetWindow[]>;
     showContextMenu: (tabId: string) => Promise<void>;
-    onIncomingTransfer: (callback: (transfer: IWindowTabIncomingTransfer) => void) => IMenuEventUnsubscribe;
-    onWindowAction: (callback: (action: TWindowTabsAction) => void) => IMenuEventUnsubscribe;
+    onIncomingTransfer: (callback: (transfer: IWindowTabIncomingTransfer) => void) => TMenuEventUnsubscribe;
+    onWindowAction: (callback: (action: TWindowTabsAction) => void) => TMenuEventUnsubscribe;
 }
 
 export interface IWindowTabsCapability extends IWindowTabsApi {
     closeCurrentWindow: () => Promise<boolean>;
     notifyRendererReady: () => void;
     claimPendingExternalOpenPaths: () => Promise<TDocumentRef[]>;
-    onMenuNewTab: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuCloseTab: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuSplitEditor: (callback: (direction: TPaneDirection) => void) => IMenuEventUnsubscribe;
-    onMenuFocusEditorPane: (callback: (direction: TPaneDirection) => void) => IMenuEventUnsubscribe;
-    onMenuMoveTabToPane: (callback: (direction: TPaneDirection) => void) => IMenuEventUnsubscribe;
-    onMenuCopyTabToPane: (callback: (direction: TPaneDirection) => void) => IMenuEventUnsubscribe;
+    onMenuNewTab: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuCloseTab: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuSplitEditor: (callback: (direction: TPaneDirection) => void) => TMenuEventUnsubscribe;
+    onMenuFocusEditorPane: (callback: (direction: TPaneDirection) => void) => TMenuEventUnsubscribe;
+    onMenuMoveTabToPane: (callback: (direction: TPaneDirection) => void) => TMenuEventUnsubscribe;
+    onMenuCopyTabToPane: (callback: (direction: TPaneDirection) => void) => TMenuEventUnsubscribe;
 }

@@ -19,11 +19,11 @@ type TPdfAnnotationHistoryEntry =
 
 const MAX_HISTORY_DEPTH = 128;
 
-export function usePdfAppAnnotationHistory(options: {
+export const usePdfAppAnnotationHistory = (options: {
     pdfjsAnnotationState: Ref<IAnnotationEditorState>;
     emitAnnotationState: (state: IAnnotationEditorState) => void;
     markModified: () => void;
-}) {
+}) => {
     const undoStack: TPdfAnnotationHistoryEntry[] = [];
     const redoStack: TPdfAnnotationHistoryEntry[] = [];
     const undoDepth = ref(0);
@@ -268,4 +268,4 @@ export function usePdfAppAnnotationHistory(options: {
         discardPdfjsCommands,
         emitCombinedState,
     };
-}
+};

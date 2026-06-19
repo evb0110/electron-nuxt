@@ -1,4 +1,4 @@
-import type { TEditorLayoutNode } from '@app/types/editorPanes';
+import type { TEditorLayoutNode } from '@contracts/editorPanes';
 
 export function collectLayoutPaneOrder(node: TEditorLayoutNode | null): string[] {
     if (!node) {

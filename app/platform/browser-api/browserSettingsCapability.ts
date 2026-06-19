@@ -68,7 +68,8 @@ function readBrowserSettingsFromStorage() {
     }
 
     try {
-        return sanitizeSettings(JSON.parse(rawSettings));
+        const parsed: unknown = JSON.parse(rawSettings);
+        return sanitizeSettings(parsed);
     } catch {
         return null;
     }

@@ -286,7 +286,10 @@ import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
 import type { TTranslationKey } from '@i18n-app';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppSpinner from '@app/components/AppSpinner.vue';
-import type { IAgentOcrRunOptions } from '@app/types/ocrAgent';
+import type {
+    IAgentOcrRunOptions,
+    IOcrPopupAgentExpose,
+} from '@app/types/ocrAgent';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
@@ -323,10 +326,10 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'update:open', value: boolean): void;
-    (e: 'update:running', value: boolean): void;
-    (e: 'ocrComplete', payload: IOcrSearchablePdfResult & {sourceWorkingCopyPath: TDocumentRef;}): void;
-    (e: 'export-docx', selectedLanguages: string[]): void;
+    'update:open': [value: boolean];
+    'update:running': [value: boolean];
+    ocrComplete: [payload: IOcrSearchablePdfResult & {sourceWorkingCopyPath: TDocumentRef;}];
+    'export-docx': [selectedLanguages: string[]];
 }>();
 
 const {
@@ -667,7 +670,7 @@ watch(() => results.value.searchablePdfResult, (searchablePdfResult) => {
     }
 });
 
-defineExpose({
+defineExpose<IOcrPopupAgentExpose>({
     runOcrForAgent,
     cancelOcrForAgent,
     getAgentOcrSnapshot: createAgentOcrSnapshot,

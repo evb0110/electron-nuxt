@@ -17,6 +17,7 @@ import {
     isFiniteWorkerMessageNumber,
     isWorkerMessageRecord,
 } from '@electron/utils/workerMessage';
+import { parsePageNumber } from '@contracts/pageNumbers';
 
 interface IPendingSearchRequest {
     resolve: (response: ISearchResponse) => void;
@@ -30,6 +31,7 @@ interface ISenderSearchState {
     worker: Worker;
     activeRequestId: string | null;
     pendingByRequestId: Map<string, IPendingSearchRequest>;
+    pageCountsByRequestId: Map<string, number>;
     requestTimeouts: Map<string, NodeJS.Timeout>;
     idleCleanupTimer: NodeJS.Timeout | null;
     lastActivityAtMs: number;
@@ -133,7 +135,14 @@ function parseSearchExcerpt(value: unknown) {
     };
 }
 
-function parseSearchMatch(value: unknown) {
+function parseNonNegativeWorkerInteger(value: unknown) {
+    if (!isFiniteWorkerMessageNumber(value) || !Number.isSafeInteger(value) || value < 0) {
+        return null;
+    }
+    return value;
+}
+
+function parseSearchMatch(value: unknown, pageCount?: number) {
     if (!isWorkerMessageRecord(value)) {
         return null;
     }
@@ -141,32 +150,40 @@ function parseSearchMatch(value: unknown) {
     if (!excerpt) {
         return null;
     }
+    const pageNumber = isFiniteWorkerMessageNumber(value.pageNumber)
+        ? parsePageNumber(value.pageNumber, pageCount)
+        : null;
+    const pageMatchIndex = parseNonNegativeWorkerInteger(value.pageMatchIndex);
+    const matchIndex = parseNonNegativeWorkerInteger(value.matchIndex);
+    const startOffset = parseNonNegativeWorkerInteger(value.startOffset);
+    const endOffset = parseNonNegativeWorkerInteger(value.endOffset);
     if (
-        !isFiniteWorkerMessageNumber(value.pageNumber)
-        || !isFiniteWorkerMessageNumber(value.pageMatchIndex)
-        || !isFiniteWorkerMessageNumber(value.matchIndex)
-        || !isFiniteWorkerMessageNumber(value.startOffset)
-        || !isFiniteWorkerMessageNumber(value.endOffset)
+        pageNumber === null
+        || pageMatchIndex === null
+        || matchIndex === null
+        || startOffset === null
+        || endOffset === null
+        || endOffset < startOffset
     ) {
         return null;
     }
     return {
-        pageNumber: value.pageNumber,
-        pageMatchIndex: value.pageMatchIndex,
-        matchIndex: value.matchIndex,
-        startOffset: value.startOffset,
-        endOffset: value.endOffset,
+        pageNumber,
+        pageMatchIndex,
+        matchIndex,
+        startOffset,
+        endOffset,
         excerpt,
     };
 }
 
-function parseSearchResponse(value: unknown) {
+function parseSearchResponse(value: unknown, pageCount?: number) {
     if (!isWorkerMessageRecord(value) || !Array.isArray(value.results) || typeof value.truncated !== 'boolean') {
         return null;
     }
     const results: TSearchMatch[] = [];
     for (const result of value.results) {
-        const parsedResult = parseSearchMatch(result);
+        const parsedResult = parseSearchMatch(result, pageCount);
         if (!parsedResult) {
             return null;
         }
@@ -178,10 +195,14 @@ function parseSearchResponse(value: unknown) {
     };
 }
 
-function parseWorkerOutboundMessage(value: unknown): TSearchWorkerOutboundMessage | null {
+function parseWorkerOutboundMessage(
+    value: unknown,
+    resolvePageCount: (requestId: string) => number | undefined,
+): TSearchWorkerOutboundMessage | null {
     if (!isWorkerMessageRecord(value) || typeof value.type !== 'string' || typeof value.requestId !== 'string') {
         return null;
     }
+    const pageCount = resolvePageCount(value.requestId);
     switch (value.type) {
         case 'progress':
             if (!isFiniteWorkerMessageNumber(value.processed) || !isFiniteWorkerMessageNumber(value.total)) {
@@ -196,7 +217,7 @@ function parseWorkerOutboundMessage(value: unknown): TSearchWorkerOutboundMessag
             if (Array.isArray(value.results)) {
                 const results: TSearchMatch[] = [];
                 for (const result of value.results) {
-                    const parsedResult = parseSearchMatch(result);
+                    const parsedResult = parseSearchMatch(result, pageCount);
                     if (!parsedResult) {
                         return null;
                     }
@@ -218,7 +239,7 @@ function parseWorkerOutboundMessage(value: unknown): TSearchWorkerOutboundMessag
                 total: value.total,
             };
         case 'complete': {
-            const response = parseSearchResponse(value.response);
+            const response = parseSearchResponse(value.response, pageCount);
             if (!response) {
                 return null;
             }
@@ -245,6 +266,12 @@ function parseWorkerOutboundMessage(value: unknown): TSearchWorkerOutboundMessag
         default:
             return null;
     }
+}
+
+function getWorkerOutboundRequestId(value: unknown) {
+    return isWorkerMessageRecord(value) && typeof value.requestId === 'string'
+        ? value.requestId
+        : null;
 }
 
 export function getSearchWorkerServiceConfig() {
@@ -291,6 +318,9 @@ export class SearchWorkerService {
                 resolve,
                 reject,
             });
+            if (payload.pageCount !== undefined) {
+                state.pageCountsByRequestId.set(requestId, payload.pageCount);
+            }
             const requestTimeout = setTimeout(() => {
                 try {
                     state.worker.postMessage({
@@ -318,6 +348,7 @@ export class SearchWorkerService {
             } catch (error) {
                 this.clearRequestTimeout(state, requestId);
                 state.pendingByRequestId.delete(requestId);
+                state.pageCountsByRequestId.delete(requestId);
                 if (state.activeRequestId === requestId) {
                     state.activeRequestId = null;
                 }
@@ -479,6 +510,7 @@ export class SearchWorkerService {
         this.clearRequestTimeout(state, requestId);
         this.markStateActivity(state);
         state.pendingByRequestId.delete(requestId);
+        state.pageCountsByRequestId.delete(requestId);
         settle(pending);
         this.scheduleIdleCleanup(state);
     }
@@ -508,6 +540,7 @@ export class SearchWorkerService {
             pending.reject(new Error(reason));
         }
         state.pendingByRequestId.clear();
+        state.pageCountsByRequestId.clear();
         state.activeRequestId = null;
 
         if (options?.terminateWorker !== false) {
@@ -640,6 +673,7 @@ export class SearchWorkerService {
             worker,
             activeRequestId: null,
             pendingByRequestId: new Map(),
+            pageCountsByRequestId: new Map(),
             requestTimeouts: new Map(),
             idleCleanupTimer: null,
             lastActivityAtMs: Date.now(),
@@ -647,7 +681,15 @@ export class SearchWorkerService {
         log.info(`Search worker lifecycle: created worker for sender ${senderId}`);
 
         worker.on('message', (message: unknown) => {
-            const parsedMessage = parseWorkerOutboundMessage(message);
+            const requestId = getWorkerOutboundRequestId(message);
+            if (requestId !== null && !state.pendingByRequestId.has(requestId)) {
+                return;
+            }
+
+            const parsedMessage = parseWorkerOutboundMessage(
+                message,
+                requestId => state.pageCountsByRequestId.get(requestId),
+            );
             if (!parsedMessage) {
                 log.warn(`Search worker sent malformed message for sender ${state.senderId}`);
                 return;

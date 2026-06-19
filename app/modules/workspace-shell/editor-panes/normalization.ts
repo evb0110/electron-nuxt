@@ -6,7 +6,7 @@ import {
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
-} from '@app/types/editorPanes';
+} from '@contracts/editorPanes';
 import {
     appendPaneToLayout,
     collectLayoutPaneIds,

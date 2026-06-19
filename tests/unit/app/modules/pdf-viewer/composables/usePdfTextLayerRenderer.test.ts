@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { cast } from '@tests/helpers/cast';
+import { toPageIndex } from '@contracts/pageNumbers';
 
 type THighlightPageMock = (
     textLayer: HTMLElement,
@@ -93,7 +94,7 @@ describe('usePdfTextLayerRenderer', () => {
         const pageMatches = new Map([[
             0,
             {
-                pageIndex: 0,
+                pageIndex: toPageIndex(0),
                 pageText: 'foo foo',
                 searchQuery: 'foo',
                 matches: [{
@@ -151,7 +152,7 @@ describe('usePdfTextLayerRenderer', () => {
             [
                 40,
                 {
-                    pageIndex: 40,
+                    pageIndex: toPageIndex(40),
                     pageText: '',
                     searchQuery: 'what',
                     matches: [{
@@ -164,7 +165,7 @@ describe('usePdfTextLayerRenderer', () => {
             [
                 43,
                 {
-                    pageIndex: 43,
+                    pageIndex: toPageIndex(43),
                     pageText: '',
                     searchQuery: 'what',
                     matches: [{
@@ -219,7 +220,7 @@ describe('usePdfTextLayerRenderer', () => {
         const pageMatches = new Map([[
             0,
             {
-                pageIndex: 0,
+                pageIndex: toPageIndex(0),
                 pageText: '',
                 searchQuery: 'roma',
                 matches: [{
@@ -233,7 +234,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(pageMatches),
             currentSearchMatch: ref({
-                pageIndex: 0,
+                pageIndex: toPageIndex(0),
                 matchIndex: 0,
                 startOffset: 0,
                 endOffset: 4,
@@ -268,7 +269,7 @@ describe('usePdfTextLayerRenderer', () => {
         const pageMatches = new Map([[
             0,
             {
-                pageIndex: 0,
+                pageIndex: toPageIndex(0),
                 pageText: 'roma',
                 searchQuery: 'roma',
                 matches: [{
@@ -282,7 +283,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(pageMatches),
             currentSearchMatch: ref({
-                pageIndex: 0,
+                pageIndex: toPageIndex(0),
                 matchIndex: 0,
                 startOffset: 0,
                 endOffset: 4,
@@ -354,7 +355,7 @@ describe('usePdfTextLayerRenderer', () => {
         const pageMatches = new Map([[
             0,
             {
-                pageIndex: 0,
+                pageIndex: toPageIndex(0),
                 pageText: 'historia historia',
                 searchQuery: 'historia',
                 signatureToken: 'page-0-two-matches',
@@ -373,7 +374,7 @@ describe('usePdfTextLayerRenderer', () => {
             },
         ]]);
         const currentSearchMatch = ref({
-            pageIndex: 0,
+            pageIndex: toPageIndex(0),
             matchIndex: 0,
             pageMatchIndex: 0,
             startOffset: 0,
@@ -424,7 +425,7 @@ describe('usePdfTextLayerRenderer', () => {
             {} as HTMLCanvasElement,
         );
         currentSearchMatch.value = {
-            pageIndex: 0,
+            pageIndex: toPageIndex(0),
             matchIndex: 1,
             pageMatchIndex: 1,
             startOffset: 9,

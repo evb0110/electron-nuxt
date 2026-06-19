@@ -82,7 +82,7 @@ interface IUsePdfRendererVisibleRenderControllerOptions {
     throttleMs: number;
 }
 
-export function usePdfRendererVisibleRenderController(options: IUsePdfRendererVisibleRenderControllerOptions) {
+export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVisibleRenderControllerOptions) => {
     const {
         container,
         currentPage,
@@ -650,5 +650,5 @@ export function usePdfRendererVisibleRenderController(options: IUsePdfRendererVi
         });
     }
 
-    return {renderVisiblePages};
-}
+    return renderVisiblePages;
+};

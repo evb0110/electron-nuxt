@@ -73,7 +73,7 @@ function toContiguousPageRanges(pageNumbers: number[]) {
     return ranges;
 }
 
-export function usePdfMountedPageRenderRecovery(options: IUsePdfMountedPageRenderRecoveryOptions) {
+export const usePdfMountedPageRenderRecovery = (options: IUsePdfMountedPageRenderRecoveryOptions) => {
     const pendingPages = new Map<number, number>();
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let isRenderPassActive = false;
@@ -276,4 +276,4 @@ export function usePdfMountedPageRenderRecovery(options: IUsePdfMountedPageRende
         queueMountedPageRender,
         cleanupMountedPageRenderRecovery,
     };
-}
+};

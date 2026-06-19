@@ -13,6 +13,14 @@ import type {
     IPdfNativeWorkingCopyExpectation,
 } from '@contracts/electronApiDocuments';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import { toPageIndex } from '@contracts/pageNumbers';
+import { PDF_PAGE_LABEL_STYLE_VALUES } from '@contracts/pdfPageLabels';
+import {
+    PDF_ANNOTATION_LINE_END_STYLES,
+    PDF_ANNOTATION_MARKUP_SUBTYPES,
+    PDF_ANNOTATION_SHAPE_PDF_SUBTYPES,
+    PDF_ANNOTATION_SHAPE_TYPES,
+} from '@contracts/annotations';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     DOCUMENTS_CHANNELS,
@@ -49,40 +57,11 @@ const PDF_NATIVE_PLACED_IMAGE_MAX_ITEMS = 16;
 const PDF_NATIVE_PLACED_IMAGE_MAX_BYTES = 128 * 1024 * 1024;
 const PDF_DATE_PATTERN = /^D:\d{14}(?:Z|[+-]\d{2}'\d{2}')?$/u;
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/iu;
-const PDF_NATIVE_PAGE_LABEL_STYLES = new Set([
-    'D',
-    'R',
-    'r',
-    'A',
-    'a',
-]);
-const PDF_NATIVE_SHAPE_TYPES = new Set([
-    'rectangle',
-    'circle',
-    'line',
-    'arrow',
-    'polyline',
-    'polygon',
-]);
-const PDF_NATIVE_SHAPE_SUBTYPES = new Set([
-    'Square',
-    'Circle',
-    'Line',
-    'PolyLine',
-    'Polygon',
-    'Ink',
-]);
-const PDF_NATIVE_SHAPE_LINE_END_STYLES = new Set([
-    'none',
-    'openArrow',
-    'closedArrow',
-]);
-const PDF_NATIVE_MARKUP_SUBTYPES = new Set([
-    'Highlight',
-    'Underline',
-    'StrikeOut',
-    'Squiggly',
-]);
+const PDF_NATIVE_PAGE_LABEL_STYLES = new Set<string>(PDF_PAGE_LABEL_STYLE_VALUES);
+const PDF_NATIVE_SHAPE_TYPES = new Set<string>(PDF_ANNOTATION_SHAPE_TYPES);
+const PDF_NATIVE_SHAPE_SUBTYPES = new Set<string>(PDF_ANNOTATION_SHAPE_PDF_SUBTYPES);
+const PDF_NATIVE_SHAPE_LINE_END_STYLES = new Set<string>(PDF_ANNOTATION_LINE_END_STYLES);
+const PDF_NATIVE_MARKUP_SUBTYPES = new Set<string>(PDF_ANNOTATION_MARKUP_SUBTYPES);
 
 interface ISerializedPdfPersistencePortResult {
     path: string | null;
@@ -278,7 +257,7 @@ function assertPdfNativeFreeTextNotes(value: unknown, label: string) {
             throw new TypeError(`${label}[${index}].text must be a string`);
         }
         return {
-            pageIndex: note.pageIndex,
+            pageIndex: toPageIndex(note.pageIndex),
             stableKey,
             text: note.text,
             markerRect: assertPdfNativeFreeTextNoteMarkerRect(note.markerRect, `${label}[${index}].markerRect`),
@@ -327,7 +306,7 @@ function assertPdfNativeAnnotationDeletes(value: unknown, label: string) {
             throw new TypeError(`${label}[${index}] must contain a valid pageIndex and either a PDF object ref or stableKey`);
         }
         const normalizedDelete = {
-            pageIndex: item.pageIndex,
+            pageIndex: toPageIndex(item.pageIndex),
             ...(stableKey ? {stableKey} : {}),
             ...(createdAt !== null ? {createdAt: Math.trunc(createdAt)} : {}),
         };
@@ -583,7 +562,7 @@ function assertPdfNativeShapeAnnotation(
     const strokes = assertPdfNativeShapeStrokes(value.strokes, `${label}.strokes`, state);
     const shape: IPdfNativeShapeAnnotation = {
         type: type as IPdfNativeShapeAnnotation['type'],
-        pageIndex,
+        pageIndex: toPageIndex(pageIndex),
         x: assertFiniteUnitNumber(value.x, `${label}.x`),
         y: assertFiniteUnitNumber(value.y, `${label}.y`),
         width: assertFiniteNonNegativeNumber(value.width, `${label}.width`),
@@ -684,7 +663,7 @@ function assertPdfNativeMarkupHint(value: unknown, label: string): IPdfNativeMar
     }
     return {
         subtype: assertNativeMarkupSubtype(value.subtype, `${label}.subtype`),
-        pageIndex,
+        pageIndex: toPageIndex(pageIndex),
         markerRect: assertPdfNativeMarkupMarkerRect(value.markerRect, `${label}.markerRect`),
         annotationId: assertNativeMarkupOptionalString(value.annotationId, `${label}.annotationId`),
         color: assertNativeMarkupOptionalString(value.color, `${label}.color`),
@@ -748,7 +727,7 @@ function assertPdfNativePlacedImage(value: unknown, label: string): IPdfNativePl
         throw new TypeError(`${label}.bytes must be a non-empty Uint8Array`);
     }
     return {
-        pageIndex,
+        pageIndex: toPageIndex(pageIndex),
         x,
         y,
         width,
