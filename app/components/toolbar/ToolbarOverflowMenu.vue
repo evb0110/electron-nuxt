@@ -15,7 +15,8 @@
                     class="toolbar-icon-button"
                     :aria-label="t('toolbar.moreTools')"
                     aria-haspopup="menu"
-                    :aria-expanded="isOpen"
+                    :aria-expanded="hasOverflowMenuCommands ? isOpen : false"
+                    :disabled="!hasOverflowMenuCommands"
                 />
             </AppTooltip>
         </span>
@@ -179,8 +180,8 @@ const emitMenuCommand = {
 } satisfies Record<TToolbarOverflowMenuCommand, () => void>;
 
 const isOpen = computed({
-    get: () => open,
-    set: (value: boolean) => emit('update:open', value),
+    get: () => open && hasOverflowMenuCommands.value,
+    set: (value: boolean) => emit('update:open', value && hasOverflowMenuCommands.value),
 });
 const hasInteractiveDocument = computed(() => hasPdf && documentBusy !== true);
 const isFullscreen = computed(() => isFullscreenProp === true);
@@ -239,6 +240,13 @@ const overflowMenuItems = computed(() => {
     appendMenuSection(items, t('menu.view'), buildViewItems());
     appendMenuSection(items, t('toolbar.moreTools'), buildShellItems());
     return items;
+});
+const hasOverflowMenuCommands = computed(() => overflowMenuItems.value.some(item => 'onSelect' in item));
+
+watch(hasOverflowMenuCommands, (hasCommands) => {
+    if (!hasCommands && open) {
+        emit('update:open', false);
+    }
 });
 
 function close() {

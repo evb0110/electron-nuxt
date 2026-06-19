@@ -85,11 +85,14 @@ interface ICrudSync {
 
 interface ICrudFreeTextResize {ensureFreeTextEditorCanResize: (editor: IPdfjsEditor) => void;}
 
-interface ICrudToolManager {updateModeWithRetry: (
-    uiManager: AnnotationEditorUIManager,
-    mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
-    pageNumber?: number,
-) => Promise<unknown>;}
+interface ICrudToolManager {
+    updateModeWithRetry: (
+        uiManager: AnnotationEditorUIManager,
+        mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
+        pageNumber?: number,
+    ) => Promise<unknown>;
+    clearMarkupSubtypeEditorClass?: (editor: IPdfjsEditor) => void;
+}
 
 interface ICrudInlineIndicators {
     debouncedSyncInlineCommentIndicators: () => void;
@@ -625,6 +628,13 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         editor: IPdfjsEditor | null,
         deletedViaSelectionFallback: boolean,
     ) {
+        if (editor) {
+            try {
+                getToolManager().clearMarkupSubtypeEditorClass?.(editor);
+            } catch (error) {
+                logCrudDebug('Failed to clear markup subtype visuals before annotation delete', error);
+            }
+        }
         return deleteEditorWithUiManager(uiManager, editor, {
             alreadyDeleted: deletedViaSelectionFallback,
             logDebug: logCrudDebug,
