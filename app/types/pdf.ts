@@ -25,10 +25,7 @@ export type {
     IPdfSearchExcerpt,
     ISearchMatchOptions,
 } from '@contracts/search';
-export type {
-    TPageIndex,
-    TPageNumber,
-} from '@contracts/pageNumbers';
+export type { TPageIndex } from '@contracts/pageNumbers';
 export { PDF_PAGE_LABEL_STYLE_VALUES as PAGE_LABEL_STYLE_VALUES } from '@contracts/pdfPageLabels';
 export type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 export type {

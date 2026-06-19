@@ -12,6 +12,7 @@ import {
     shallowRef,
 } from 'vue';
 import type { Ref } from 'vue';
+import type { IPdfSearchMatch } from '@app/types/pdf';
 import { cast } from '@tests/helpers/cast';
 
 const loggerError = vi.fn();
@@ -37,7 +38,10 @@ interface INodeLike {
     dataset?: Record<string, string>;
     getAttribute?: (name: string) => string | null;
     offsetTop?: number;
+    offsetWidth?: number;
     offsetHeight?: number;
+    clientWidth?: number;
+    clientHeight?: number;
     innerHTML?: string;
     hidden?: boolean;
     dir?: string;
@@ -64,6 +68,7 @@ interface IRenderContext {
 
 const canvasRendererMock = {
     cleanupCanvas: vi.fn(),
+    estimateRequestedPixels: vi.fn(() => 100_000_000),
     renderCanvas: vi.fn(),
     prepareCanvasRender: vi.fn(async (...args: unknown[]) => {
         const renderResult = await canvasRendererMock.renderCanvas(...args);
@@ -162,6 +167,8 @@ function createPageContainer(overrides?: {
     annotationEditorLayerDiv?: INodeLike | null;
     hasShapeOverlay?: boolean;
     shapeOverlayAnnotationIds?: string[];
+    offsetWidth?: number;
+    offsetHeight?: number;
 }) {
     const pageNumber = overrides?.pageNumber ?? 1;
     let mountedCanvas: unknown = null;
@@ -235,7 +242,10 @@ function createPageContainer(overrides?: {
     const pageContainer: INodeLike = {
         dataset: { page: String(pageNumber) },
         offsetTop: 0,
-        offsetHeight: 180,
+        offsetWidth: overrides?.offsetWidth ?? 120,
+        offsetHeight: overrides?.offsetHeight ?? 180,
+        clientWidth: overrides?.offsetWidth ?? 120,
+        clientHeight: overrides?.offsetHeight ?? 180,
         style: {},
         classList: createClassList(),
         querySelector: vi.fn((selector: string) => selectorMap.get(selector) ?? null),
@@ -498,6 +508,65 @@ describe('usePdfPageRenderer resilience', () => {
 
         expect(renderer.isPageRendered(1)).toBe(true);
         expect(canvasRendererMock.renderCanvas).toHaveBeenCalledTimes(2);
+    });
+
+    it('renders search navigation targets at full canvas quality', async () => {
+        vi.stubGlobal('window', {});
+        try {
+            const { pageContainer } = createPageContainer({
+                pageNumber: 2,
+                offsetWidth: 6_000,
+                offsetHeight: 6_000,
+            });
+            const containerRoot = createContainerRoot(pageContainer);
+            const documentState = {
+                pdfDocument: shallowRef({} as object),
+                numPages: ref(2),
+                basePageWidth: ref(100),
+                basePageHeight: ref(100),
+                isLoading: ref(false),
+                getPage: vi.fn(async () => ({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
+                evictPage: vi.fn(),
+                cleanupPageCache: vi.fn(),
+            };
+
+            canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
+            textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
+            annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
+
+            const renderer = usePdfPageRenderer({
+                container: ref(containerRoot),
+                document: documentState as never,
+                currentPage: ref(1),
+                effectiveScale: ref(1),
+                bufferPages: ref(1),
+                showAnnotations: ref(true),
+                annotationUiManager: ref(null),
+                annotationL10n: ref(null),
+                searchPageMatches: ref(new Map()),
+                currentSearchMatch: ref(cast<IPdfSearchMatch>({
+                    pageIndex: 1,
+                    matchIndex: 0,
+                    startOffset: 0,
+                    endOffset: 4,
+                })),
+                currentSearchMatchNavigationId: ref(0),
+                workingCopyPath: ref(null),
+            });
+
+            renderer.requestScrollToCurrentResult();
+            renderer.cancelPendingSearchScroll();
+
+            await vi.waitFor(() => {
+                expect(canvasRendererMock.renderCanvas).toHaveBeenCalled();
+            });
+
+            const canvasOptions = canvasRendererMock.renderCanvas.mock.calls[0]?.[2] as { maxCanvasPixels?: number; } | undefined;
+            expect(canvasOptions).not.toHaveProperty('maxCanvasPixels');
+            expect(canvasRendererMock.estimateRequestedPixels).not.toHaveBeenCalled();
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 
     it('waits to mark the page rendered until page layers finish', async () => {

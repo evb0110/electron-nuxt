@@ -297,6 +297,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
             markUserViewportInteraction();
             singlePageScroll.beginSearchNavigation(pageNumber);
         },
+        revealSearchNavigationTarget: pageNumber => singlePageScroll.revealSearchNavigationTarget(pageNumber),
         endSearchNavigation: (settleMs?: number) => singlePageScroll.endSearchNavigation(settleMs),
         searchPageMatches,
         currentSearchMatch,
@@ -819,6 +820,10 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         isPageRenderedForClass,
         isPageRendering,
         hasMountedPageCanvas,
+        shouldShowSkeletonImmediately: pageNumber => (
+            navigationAnchorPage.value !== null
+            && shouldShowNavigationSkeleton(pageNumber)
+        ),
         shouldShowSkeleton: shouldShowNavigationSkeleton,
         visibleRange,
         pagedNavigationTargetPage: singlePageScroll.pagedNavigationTargetPage,

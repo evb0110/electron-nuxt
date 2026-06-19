@@ -17,6 +17,7 @@ interface IPdfSearchMatchScrollerDeps {
     ) => void;
     suppressSnap?: () => void;
     beginSearchNavigation?: (pageNumber: number) => void;
+    revealSearchNavigationTarget?: (pageNumber: number) => void;
     endSearchNavigation?: (settleMs?: number) => void;
     isPageRenderPending?: (pageNumber: number) => boolean;
 }
@@ -249,11 +250,14 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         return didScroll;
     }
 
-    function deferSearchMatchScroll(matchPageIndex: number) {
+    function beginTargetPageNavigation(matchPageIndex: number) {
+        const pageNumber = matchPageIndex + 1;
         logPdfNav(
-            `[PDF-NAV] deferring page jump; waiting for match-ready scroll on page=${matchPageIndex + 1}`,
+            `[PDF-NAV] revealing search target page=${pageNumber} before match-ready scroll`,
         );
-        deps.scheduleRenderForSinglePage(matchPageIndex + 1);
+        deps.beginSearchNavigation?.(pageNumber);
+        deps.revealSearchNavigationTarget?.(pageNumber);
+        deps.scheduleRenderForSinglePage(pageNumber);
         return Date.now();
     }
 
@@ -271,8 +275,8 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         token: IPendingRequestToken,
         requestId: number,
         matchPageIndex: number,
+        initialRenderRequestAt: number,
     ) {
-        const initialRenderRequestAt = deferSearchMatchScroll(matchPageIndex);
         const didScroll = await waitForMatchAndScroll(
             token,
             matchPageIndex,
@@ -295,6 +299,7 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         token: IPendingRequestToken,
         requestId: number,
         matchPageIndex: number,
+        initialRenderRequestAt: number,
     ) {
         if (!isTokenActive(token) || isStaleScrollRequest(requestId, matchPageIndex)) {
             return;
@@ -304,7 +309,7 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
             return;
         }
 
-        await finishDeferredSearchMatchScroll(token, requestId, matchPageIndex);
+        await finishDeferredSearchMatchScroll(token, requestId, matchPageIndex, initialRenderRequestAt);
     }
 
     function requestScrollToMatch(matchPageIndex: number | null) {
@@ -325,11 +330,11 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         };
         activeToken = token;
 
-        deps.beginSearchNavigation?.(matchPageIndex + 1);
+        const initialRenderRequestAt = beginTargetPageNavigation(matchPageIndex);
 
         void nextTick(async () => {
             try {
-                await processScrollToMatchRequest(token, requestId, matchPageIndex);
+                await processScrollToMatchRequest(token, requestId, matchPageIndex, initialRenderRequestAt);
             } catch (error) {
                 logPdfNav(
                     `[PDF-NAV] requestScrollToMatch failed requestId=${requestId}: ${getErrorMessage(error)}`,

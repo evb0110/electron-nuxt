@@ -61,6 +61,7 @@ export interface IUsePdfPageRendererOptions {
     ) => void;
     suppressSnap?: () => void;
     beginSearchNavigation?: (pageNumber: number) => void;
+    revealSearchNavigationTarget?: (pageNumber: number) => void;
     endSearchNavigation?: (settleMs?: number) => void;
     outputScale?: MaybeRefOrGetter<number>;
 
@@ -349,29 +350,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         return resolvedHiddenAnnotationIds;
     }
 
-    function resolveSearchNavigationRenderOptions(pageNumber: number): Partial<IRenderVisiblePagesOptions> {
-        const pageContainer = getMountedPageContainer(pageNumber, options.container.value);
-        if (!pageContainer) {
-            return {};
-        }
-
-        const width = pageContainer.offsetWidth || pageContainer.clientWidth;
-        const height = pageContainer.offsetHeight || pageContainer.clientHeight;
-        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-            return {};
-        }
-
-        const requestedPixels = canvasRenderer.estimateRequestedPixels(width, height);
-        if (requestedPixels <= performanceProfile.maxBufferCanvasPixels) {
-            return {};
-        }
-
-        return {
-            maxCanvasPixelsOverride: performanceProfile.maxBufferCanvasPixels,
-            markRenderedPageStale: true,
-        };
-    }
-
     const searchController = usePdfRendererSearchController({
         container: options.container,
         isActive,
@@ -386,12 +364,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 preserveRenderedPages: true,
                 bufferOverride: 0,
                 prioritizeTextLayer: true,
-                ...resolveSearchNavigationRenderOptions(pageNumber),
             });
         },
         ...(options.scrollToPage ? { scrollToPage: options.scrollToPage } : {}),
         ...(options.suppressSnap ? { suppressSnap: options.suppressSnap } : {}),
         ...(options.beginSearchNavigation ? { beginSearchNavigation: options.beginSearchNavigation } : {}),
+        ...(options.revealSearchNavigationTarget ? { revealSearchNavigationTarget: options.revealSearchNavigationTarget } : {}),
         ...(options.endSearchNavigation ? { endSearchNavigation: options.endSearchNavigation } : {}),
         isPageRenderPending: (pageNumber) => (
             renderingPages.has(pageNumber)

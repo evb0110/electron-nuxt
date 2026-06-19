@@ -37,6 +37,7 @@ function createRuntime() {
         scrollToPage: vi.fn(),
         suppressSnap: vi.fn(),
         beginSearchNavigation: vi.fn(),
+        revealSearchNavigationTarget: vi.fn(),
         endSearchNavigation: vi.fn(),
         searchPageMatches: computed(() => new Map()),
         currentSearchMatch: computed(() => null),

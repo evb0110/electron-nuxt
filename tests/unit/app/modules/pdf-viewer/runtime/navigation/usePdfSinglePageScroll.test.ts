@@ -746,7 +746,10 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
     it('walks search navigation state through navigating, settling, then idle', () => {
         vi.useFakeTimers();
         try {
-            const {singlePageScroll} = createSinglePageScrollHarness();
+            const {
+                emitNavigationFeedbackPage,
+                singlePageScroll,
+            } = createSinglePageScrollHarness();
 
             singlePageScroll.beginSearchNavigation(2, 500);
 
@@ -754,6 +757,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
             expect(singlePageScroll.searchNavigationTargetPage.value).toBe(2);
             expect(singlePageScroll.isSearchNavigationLocked.value).toBe(true);
             expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(true);
+            expect(emitNavigationFeedbackPage).toHaveBeenLastCalledWith(2);
 
             singlePageScroll.endSearchNavigation(80);
 
@@ -767,6 +771,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
             expect(singlePageScroll.searchNavigationTargetPage.value).toBeNull();
             expect(singlePageScroll.isSearchNavigationLocked.value).toBe(false);
             expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(true);
+            expect(emitNavigationFeedbackPage).toHaveBeenLastCalledWith(null);
 
             vi.advanceTimersByTime(421);
             singlePageScroll.handleScroll();
@@ -775,6 +780,93 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it('reveals a mounted paged search target without committing the current page', async () => {
+        const {
+            container,
+            currentPage,
+            emitCurrentPage,
+            singlePageScroll,
+            visibleRange,
+        } = createSinglePageScrollHarness();
+
+        singlePageScroll.beginSearchNavigation(3, 500);
+        expect(singlePageScroll.revealSearchNavigationTarget(3)).toBe(true);
+
+        expect(visibleRange.value).toEqual({
+            start: 3,
+            end: 3,
+        });
+
+        await nextTick();
+
+        expect(container.scrollTop).toBe(320);
+        expect(currentPage.value).toBe(1);
+        expect(emitCurrentPage).not.toHaveBeenCalledWith(3);
+    });
+
+    it('reveals a continuous search target with layout scrolling when the page is unmounted', () => {
+        const {
+            currentPage,
+            emitCurrentPage,
+            scrollToPageInternal,
+            singlePageScroll,
+            updateVisibleRange,
+            visibleRange,
+        } = createSinglePageScrollHarness({
+            continuousScroll: true,
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 140,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 260,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 380,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 500,
+                    offsetHeight: 100,
+                },
+            ],
+            mountedPageNumbers: [
+                10,
+                11,
+                12,
+                13,
+                14,
+            ],
+            getMostVisiblePage: () => 5,
+            updateVisibleRange: (_viewer, _pageCount, range) => {
+                range.value = {
+                    start: 5,
+                    end: 5,
+                };
+            },
+        });
+
+        singlePageScroll.beginSearchNavigation(5, 500);
+        expect(singlePageScroll.revealSearchNavigationTarget(5)).toBe(true);
+
+        expect(scrollToPageInternal).toHaveBeenCalledOnce();
+        expect(scrollToPageInternal.mock.calls[0]?.[1]).toBe(5);
+        expect(scrollToPageInternal.mock.calls[0]?.[4]).toBeUndefined();
+        expect(updateVisibleRange).toHaveBeenCalledOnce();
+        expect(visibleRange.value).toEqual({
+            start: 5,
+            end: 5,
+        });
+        expect(currentPage.value).toBe(5);
+        expect(emitCurrentPage).toHaveBeenCalledWith(5);
     });
 
     it('publishes a temporary continuous navigation anchor while jumping to an unmounted page', async () => {

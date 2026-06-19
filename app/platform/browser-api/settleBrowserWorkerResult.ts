@@ -7,7 +7,7 @@ export interface IPendingBrowserWorkerRequest {
     timeoutTimer?: ReturnType<typeof setTimeout> | null;
 }
 
-export type TBrowserWorkerResult<TData = unknown> =
+type TBrowserWorkerResult<TData = unknown> =
     | {
         id: number;
         ok: true;

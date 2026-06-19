@@ -45,6 +45,7 @@ interface IUsePdfRenderViewModelOptions {
     isPageRenderedForClass: (page: number) => boolean;
     isPageRendering: (page: number) => boolean;
     hasMountedPageCanvas: (page: number) => boolean;
+    shouldShowSkeletonImmediately?: ((page: number) => boolean) | undefined;
     shouldShowSkeleton: (page: number) => boolean;
     visibleRange: Ref<{
         start: number;
@@ -138,6 +139,10 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
         if (options.hasMountedPageCanvas(page) && options.isPageRendering(page)) {
             delayedSkeleton.markPageRendered(page);
             return false;
+        }
+        if (options.shouldShowSkeletonImmediately?.(page) === true) {
+            delayedSkeleton.hidePage(page);
+            return true;
         }
         const showSkeleton = delayedSkeleton.shouldShowSkeleton(page);
         const isVisiblePage = page >= options.visibleRange.value.start && page <= options.visibleRange.value.end;

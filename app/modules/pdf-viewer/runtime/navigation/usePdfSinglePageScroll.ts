@@ -990,24 +990,26 @@ export const usePdfSinglePageScroll = (
             source: 'search',
             targetPage,
         });
+        const runId = navigationRuntime.txn.value;
+        setNavigationFeedbackPage(targetPage, 'search-navigation-started', runId);
         markProgrammaticNavigation(Math.max(SEARCH_NAVIGATION_MIN_HOLD_MS, holdMs));
     }
 
     function endSearchNavigation(settleMs = SEARCH_NAVIGATION_DEFAULT_SETTLE_MS) {
         navigationEffects.clearSearchSettle();
+        const runId = getActiveSearchNavigationRunId();
 
         if (settleMs <= 0) {
-            const runId = getActiveSearchNavigationRunId();
             snapSuppressUntil.value = 0;
             isProgrammaticNavigationActive.value = false;
             clearProgrammaticNavigationReleaseTimer();
             if (runId !== null && isNavigationRunCurrent(runId)) {
+                clearNavigationFeedbackPage('search-navigation-canceled', runId);
                 dispatchNavigationMachine({ type: 'CANCEL' });
             }
             return;
         }
 
-        const runId = getActiveSearchNavigationRunId();
         const targetPage = searchNavigationTargetPage.value;
         if (runId !== null && targetPage !== null && isNavigationRunCurrent(runId)) {
             dispatchNavigationMachine({
@@ -1019,10 +1021,68 @@ export const usePdfSinglePageScroll = (
         markProgrammaticNavigation(Math.max(SEARCH_NAVIGATION_DEFAULT_SETTLE_MS, settleMs + PROGRAMMATIC_NAVIGATION_RELEASE_RETRY_MS));
         navigationEffects.armSearchSettle(settleMs, () => {
             if (runId !== null && isNavigationRunCurrent(runId)) {
+                clearNavigationFeedbackPage('search-navigation-finished', runId);
                 dispatchNavigationMachine({ type: 'CANCEL' });
             }
             maybeReleaseProgrammaticNavigation();
         });
+    }
+
+    function revealSearchNavigationTarget(pageNumber: number) {
+        if (!viewerContainer.value || numPages.value === 0) {
+            return false;
+        }
+
+        const targetPage = clamp(pageNumber, 1, numPages.value);
+        const runId = getActiveSearchNavigationRunId();
+        if (
+            runId === null
+            || searchNavigationTargetPage.value !== targetPage
+            || !isNavigationRunCurrent(runId)
+        ) {
+            return false;
+        }
+
+        if (continuousScroll.value) {
+            logPdfRenderTrace('single-page-search-reveal-continuous-target', {
+                runId,
+                targetPage,
+                currentPage: currentPage.value,
+            });
+            return applyContinuousNavigationTargetScroll(targetPage);
+        }
+
+        const rowRange = setVisibleRangeToPageRow(targetPage);
+        isSnapping.value = true;
+        logPdfRenderTrace('single-page-search-reveal-paged-target', {
+            runId,
+            targetPage,
+            rowRange,
+            currentPage: currentPage.value,
+        });
+
+        void nextTick(() => {
+            if (
+                !isNavigationRunCurrent(runId)
+                || searchNavigationTargetPage.value !== targetPage
+                || continuousScroll.value
+            ) {
+                isSnapping.value = false;
+                return;
+            }
+
+            const didSnap = applySnapToMountedPage(targetPage, 'top', undefined, { commitCurrentPage: false });
+            logPdfRenderTrace('single-page-search-reveal-paged-target-snap', {
+                runId,
+                targetPage,
+                didSnap,
+                currentPage: currentPage.value,
+            });
+            if (!didSnap) {
+                isSnapping.value = false;
+            }
+        });
+        return true;
     }
 
     const wheelAccumulator = ref<IWheelPageAccumulatorState>(createWheelPageAccumulatorState());
@@ -1546,6 +1606,7 @@ export const usePdfSinglePageScroll = (
             scaledMargin.value,
             options,
         );
+        updateVisibleRange(viewerContainer.value, numPages.value);
         const page = updateCurrentPage(
             viewerContainer.value,
             numPages.value,
@@ -2341,6 +2402,7 @@ export const usePdfSinglePageScroll = (
         snapToPage,
         suppressSnapFor,
         beginSearchNavigation,
+        revealSearchNavigationTarget,
         endSearchNavigation,
         isProgrammaticNavigationActive,
         isSearchNavigationLocked,

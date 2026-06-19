@@ -25,6 +25,7 @@ function createHarness(options?: {
     isPageBuffered?: (page: number) => boolean;
     isPageRendering?: (page: number) => boolean;
     pagedNavigationTargetPage?: Ref<number | null>;
+    shouldShowSkeletonImmediately?: (page: number) => boolean;
     shouldShowSkeleton?: (page: number) => boolean;
 }) {
     const scope = effectScope();
@@ -54,6 +55,7 @@ function createHarness(options?: {
         isPageRenderedForClass: vi.fn(() => false),
         isPageRendering: options?.isPageRendering ?? vi.fn(() => false),
         hasMountedPageCanvas: options?.hasMountedPageCanvas ?? vi.fn(() => false),
+        shouldShowSkeletonImmediately: options?.shouldShowSkeletonImmediately,
         shouldShowSkeleton: options?.shouldShowSkeleton ?? vi.fn(() => false),
         visibleRange,
         pagedNavigationTargetPage: options?.pagedNavigationTargetPage,
@@ -226,6 +228,29 @@ describe('usePdfRenderViewModel', () => {
             }
 
             vi.advanceTimersByTime(PDF_VIEWER_PAGE_SKELETON_DELAY_MS);
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
+
+            scope.stop();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('shows immediate navigation skeletons without waiting for the delayed timer', () => {
+        vi.useFakeTimers();
+        try {
+            const {
+                scope,
+                viewModel,
+            } = createHarness({
+                shouldShowSkeleton: () => true,
+                shouldShowSkeletonImmediately: () => true,
+            });
+
+            if (!viewModel) {
+                throw new Error('Failed to create PDF render view model');
+            }
+
             expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
 
             scope.stop();

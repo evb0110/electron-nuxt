@@ -29,6 +29,7 @@ interface IUsePdfRendererSearchControllerOptions {
     ) => void;
     suppressSnap?: () => void;
     beginSearchNavigation?: (pageNumber: number) => void;
+    revealSearchNavigationTarget?: (pageNumber: number) => void;
     endSearchNavigation?: (settleMs?: number) => void;
     isPageRenderPending?: (pageNumber: number) => boolean;
 }
@@ -94,6 +95,7 @@ export const usePdfRendererSearchController = (options: IUsePdfRendererSearchCon
         ...(options.scrollToPage ? { scrollToPage: options.scrollToPage } : {}),
         ...(options.suppressSnap ? { suppressSnap: options.suppressSnap } : {}),
         ...(options.beginSearchNavigation ? { beginSearchNavigation: options.beginSearchNavigation } : {}),
+        ...(options.revealSearchNavigationTarget ? { revealSearchNavigationTarget: options.revealSearchNavigationTarget } : {}),
         ...(options.endSearchNavigation ? { endSearchNavigation: options.endSearchNavigation } : {}),
         ...(options.isPageRenderPending ? { isPageRenderPending: options.isPageRenderPending } : {}),
     });

@@ -66,10 +66,11 @@ describe('createPdfSearchMatchScroller', () => {
         vi.unstubAllGlobals();
     });
 
-    it('waits for highlight-ready direct scroll without an intermediate page jump', async () => {
+    it('reveals the target page before waiting for highlight-ready direct scroll', async () => {
         const scrollToPage = vi.fn();
         const scheduleRenderForSinglePage = vi.fn();
         const beginSearchNavigation = vi.fn();
+        const revealSearchNavigationTarget = vi.fn();
         const endSearchNavigation = vi.fn();
 
         const currentMatch = {pageIndex: 4};
@@ -87,15 +88,19 @@ describe('createPdfSearchMatchScroller', () => {
             scrollToPage,
             suppressSnap: vi.fn(),
             beginSearchNavigation,
+            revealSearchNavigationTarget,
             endSearchNavigation,
         });
 
         scroller.requestScrollToMatch(4);
 
+        expect(beginSearchNavigation).toHaveBeenCalledWith(5);
+        expect(revealSearchNavigationTarget).toHaveBeenCalledWith(5);
+        expect(scheduleRenderForSinglePage).toHaveBeenCalledWith(5);
+
         await Promise.resolve();
         await vi.runAllTimersAsync();
 
-        expect(beginSearchNavigation).toHaveBeenCalledWith(5);
         expect(scrollToPage).not.toHaveBeenCalled();
         expect(scheduleRenderForSinglePage).toHaveBeenCalledWith(5);
         expect(scheduleRenderForSinglePage).toHaveBeenCalledTimes(1);
