@@ -11,6 +11,7 @@ import {
     getAgentStringInput,
     hasAgentInputKey,
     isAgentAnnotationTool,
+    isAgentOcrQualityProfile,
     isAgentOcrPageRange,
     isAgentRecord,
     isAgentSidebarTab,
@@ -304,11 +305,16 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
     function getAgentOcrRunOptions(input: Record<string, unknown>): IAgentOcrRunOptions {
         const pageRange = getAgentStringInput(input, 'pageRange');
         const customRange = getAgentStringInput(input, 'customRange');
+        const qualityProfile = getAgentStringInput(input, 'qualityProfile');
+        const parsedQualityProfile = isAgentOcrQualityProfile(qualityProfile)
+            ? qualityProfile
+            : undefined;
         const languages = getAgentStringArrayInput(input, 'languages')
             ?? getAgentStringArrayInput(input, 'selectedLanguages');
         return {
             ...(isAgentOcrPageRange(pageRange) ? {pageRange} : {}),
             ...(customRange === null ? {} : {customRange}),
+            ...(parsedQualityProfile === undefined ? {} : {qualityProfile: parsedQualityProfile}),
             ...(languages === undefined ? {} : {languages}),
             open: true,
         };

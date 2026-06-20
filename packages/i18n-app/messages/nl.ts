@@ -280,6 +280,14 @@ export default {
         'currentPage': 'Huidige pagina ({page})',
         'customRange': 'Aangepast bereik',
         'customRangePlaceholder': 'bijv. 1-5, 8, 10-12',
+        'qualityProfile': {
+            'label': 'Kwaliteit',
+            'options': {
+                'balanced': 'Gebalanceerd',
+                'accurate': 'Nauwkeurig',
+                'poor-scan': 'Slechte scan',
+            },
+        },
         'languages': 'Talen',
         'preparing': 'OCR voorbereiden...',
         'progressStage': {

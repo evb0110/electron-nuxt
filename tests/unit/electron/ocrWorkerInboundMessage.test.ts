@@ -27,6 +27,35 @@ describe('OCR worker inbound message parsing', () => {
         });
     });
 
+    it('parses searchable PDF options while keeping render DPI compatibility', () => {
+        expect(parseOcrWorkerStartPayload({
+            sourcePdfPath: '/tmp/source.pdf',
+            pages: [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            options: {
+                renderDpi: 360,
+                qualityProfile: 'poor-scan',
+                preprocessingMode: 'clean',
+                pageSegmentationMode: 6,
+            },
+        })).toEqual({
+            sourcePdfPath: '/tmp/source.pdf',
+            pages: [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            renderDpi: 360,
+            options: {
+                renderDpi: 360,
+                qualityProfile: 'poor-scan',
+                preprocessingMode: 'clean',
+                pageSegmentationMode: 6,
+            },
+        });
+    });
+
     it('rejects malformed start payloads', () => {
         expect(parseOcrWorkerStartPayload({
             sourcePdfPath: '',

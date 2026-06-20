@@ -257,6 +257,96 @@ describe('registerOcrHandlers', () => {
         });
     });
 
+    it('normalizes searchable PDF OCR options before queuing the worker job', async () => {
+        const handler = getHandler('ocr:createSearchablePdf');
+        const result = await handler(
+            {sender: createMockSender(16)},
+            '/tmp/working-copy.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-options',
+            {
+                renderDpi: 299.6,
+                qualityProfile: 'poor-scan',
+                preprocessingMode: 'clean',
+                pageSegmentationMode: 11,
+            },
+        ) as { started: boolean };
+
+        expect(result.started).toBe(true);
+        expect(mocks.handleOcrCreateSearchablePdfAsync).toHaveBeenCalledWith(
+            expect.anything(),
+            '/tmp/working-copy.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-options',
+            {
+                renderDpi: 300,
+                qualityProfile: 'poor-scan',
+                preprocessingMode: 'clean',
+                pageSegmentationMode: 11,
+            },
+        );
+    });
+
+    it('preserves legacy numeric render DPI for searchable PDF jobs', async () => {
+        const handler = getHandler('ocr:createSearchablePdf');
+        await handler(
+            {sender: createMockSender(17)},
+            '/tmp/working-copy.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-legacy-dpi',
+            240,
+        );
+
+        expect(mocks.handleOcrCreateSearchablePdfAsync).toHaveBeenCalledWith(
+            expect.anything(),
+            '/tmp/working-copy.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-legacy-dpi',
+            { renderDpi: 240 },
+        );
+    });
+
+    it('rejects invalid searchable PDF OCR options before queuing the worker job', async () => {
+        const handler = getHandler('ocr:createSearchablePdf');
+        const result = await handler(
+            {sender: createMockSender(18)},
+            '/tmp/working-copy.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-invalid-options',
+            { pageSegmentationMode: 99 },
+        ) as {
+            started: boolean;
+            error?: string;
+            errorEnvelope?: {
+                code: string;
+                retryable: boolean;
+            };
+        };
+
+        expect(result.started).toBe(false);
+        expect(result.error).toContain('pageSegmentationMode');
+        expect(result.errorEnvelope).toMatchObject({
+            code: 'OCR_INVALID_PAYLOAD',
+            retryable: false,
+        });
+        expect(mocks.handleOcrCreateSearchablePdfAsync).not.toHaveBeenCalled();
+    });
+
     it('rejects disallowed sourcePdfPath before queuing OCR worker job', async () => {
         mocks.requireManagedWorkingCopyPath.mockRejectedValue(new Error('sourcePdfPath is not a managed working copy'));
 

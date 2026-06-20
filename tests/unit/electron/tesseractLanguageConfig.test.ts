@@ -20,6 +20,16 @@ describe('resolveTesseractLanguageConfig', () => {
         ]);
         expect(config.hasRtl).toBe(false);
         expect(config.extraConfigArgs).toContain('preserve_interword_spaces=1');
+        expect(config.extraConfigArgs).toContain('load_system_dawg=0');
+    });
+
+    it('keeps Latin spacing config while preserving dictionaries for accurate profiles', () => {
+        const config = resolveTesseractLanguageConfig(['eng'], {preserveDictionaries: true});
+
+        expect(config.orderedLanguages).toEqual(['eng']);
+        expect(config.extraConfigArgs).toContain('preserve_interword_spaces=1');
+        expect(config.extraConfigArgs).not.toContain('load_system_dawg=0');
+        expect(config.extraConfigArgs).not.toContain('load_freq_dawg=0');
     });
 
     it('moves rtl languages before latin languages and skips latin config', () => {

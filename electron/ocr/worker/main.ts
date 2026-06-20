@@ -31,7 +31,10 @@ import {
     uniq,
 } from 'es-toolkit/array';
 import { PDFDocument } from 'pdf-lib';
-import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
+import type {
+    IOcrSearchablePdfOptions,
+    TOcrProgressPhase,
+} from '@contracts/electronApiOcr';
 import {
     getOcrConcurrency,
     getSequentialProgressPage,
@@ -53,6 +56,7 @@ import {
     getPngDimensionsFromFile,
     runOcrFileBased,
 } from '@electron/ocr/worker/tesseractRunner';
+import { tryPreprocessOcrImage } from '@electron/ocr/worker/tryPreprocessOcrImage';
 import {
     assembleSearchablePdf,
     getPageCount,
@@ -242,6 +246,7 @@ interface IOcrPageProcessingContext {
     tesseractThreads: number;
     pageSizeByNumber: Map<number, IOcrPageSizeInches>;
     pageSourceDpiByNumber: Map<number, number>;
+    options: IOcrSearchablePdfOptions;
     popplerEnv?: NodeJS.ProcessEnv;
     signal: AbortSignal;
     trackTempFile: (path: string) => string;
@@ -259,6 +264,7 @@ async function processOcrPage(
     log('debug', `Processing page ${page.pageNumber}`);
 
     const pageImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}.png`));
+    const preprocessedImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}-clean.png`));
     let resourceToken: string | null = null;
 
     try {
@@ -291,16 +297,43 @@ async function processOcrPage(
         );
 
         const dims = await readPngDimensions(pageImagePath);
+        let ocrImagePath = pageImagePath;
+        let ocrDims = dims;
+        if (context.options.preprocessingMode === 'clean') {
+            const candidateOcrImagePath = await tryPreprocessOcrImage(
+                paths.unpaperBinary,
+                pageImagePath,
+                preprocessedImagePath,
+                log,
+                context.signal,
+            );
+            if (candidateOcrImagePath !== pageImagePath) {
+                const candidateDims = await readPngDimensions(candidateOcrImagePath);
+                if (candidateDims.width === dims.width && candidateDims.height === dims.height) {
+                    ocrImagePath = candidateOcrImagePath;
+                    ocrDims = candidateDims;
+                } else {
+                    const rawSize = `${dims.width}x${dims.height}`;
+                    const cleanSize = `${candidateDims.width}x${candidateDims.height}`;
+                    log('warn', [
+                        `OCR preprocessing changed page ${page.pageNumber} image dimensions`,
+                        `from ${rawSize} to ${cleanSize};`,
+                        'using raw page render to preserve text-layer alignment',
+                    ].join(' '));
+                }
+            }
+        }
         const ocrResult = await runOcrFileBased(
-            pageImagePath,
+            ocrImagePath,
             page.languages,
-            dims.width,
-            dims.height,
+            ocrDims.width,
+            ocrDims.height,
             effectiveDpi,
             paths.tesseractBinary,
             paths.tessdataPath,
             context.tesseractThreads,
             context.signal,
+            context.options,
         );
 
         if (!ocrResult.success || !ocrResult.pageData) {
@@ -696,7 +729,7 @@ async function processOcrJob(
     jobId: string,
     sourcePdfPath: string,
     pages: IOcrPdfPageRequest[],
-    renderDpi?: number,
+    options: IOcrSearchablePdfOptions = {},
 ) {
     const abortController = new AbortController();
     activeJobControllers.set(jobId, abortController);
@@ -729,6 +762,7 @@ async function processOcrJob(
             jobId,
             popplerSourcePdfPath,
             signal: abortController.signal,
+            options,
             trackTempFile,
         };
         if (popplerEnv !== undefined) {
@@ -741,7 +775,7 @@ async function processOcrJob(
         } = await buildOcrPageProcessingPlan(
             pages,
             popplerSourcePdfPath,
-            renderDpi,
+            options.renderDpi,
             popplerEnv,
             planOptions,
             phase => sendStageProgress(jobId, pages, phase),
@@ -833,7 +867,7 @@ parentPort?.on('message', async (rawMessage: unknown) => {
                 message.jobId,
                 message.data.sourcePdfPath,
                 message.data.pages,
-                message.data.renderDpi,
+                message.data.options ?? (message.data.renderDpi !== undefined ? {renderDpi: message.data.renderDpi} : {}),
             );
             return;
         case 'cancel':

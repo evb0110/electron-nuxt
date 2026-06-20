@@ -3,7 +3,10 @@ import { useTimeoutFn } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
 import type { IOcrLanguage } from '@contracts/shared';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IOcrCapability } from '@contracts/electronApiOcr';
+import type {
+    IOcrCapability,
+    IOcrSearchablePdfOptions,
+} from '@contracts/electronApiOcr';
 import { createDocxFromText } from '@app/utils/docx';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -49,6 +52,7 @@ export const useOcr = () => {
         pageRange: 'current',
         customRange: '',
         selectedLanguages: ['eng'],
+        qualityProfile: 'balanced',
     });
     const progress = ref<IOcrUiProgress>({
         isRunning: false,
@@ -162,6 +166,7 @@ export const useOcr = () => {
             pageRange: source.pageRange,
             customRange: source.customRange,
             selectedLanguages: [...source.selectedLanguages],
+            qualityProfile: source.qualityProfile,
         };
     }
 
@@ -174,6 +179,7 @@ export const useOcr = () => {
                     .map(language => language.trim())
                     .filter(Boolean),
             ),
+            qualityProfile: source.qualityProfile,
         };
     }
 
@@ -274,6 +280,13 @@ export const useOcr = () => {
             pageNumber: pageNum,
             languages,
         }));
+    }
+
+    function buildSearchablePdfOptions(runSettings: IOcrSettings): IOcrSearchablePdfOptions {
+        return {
+            qualityProfile: runSettings.qualityProfile,
+            preprocessingMode: runSettings.qualityProfile === 'poor-scan' ? 'clean' : 'off',
+        };
     }
 
     function applyOcrResponseErrors(response: TOcrCompleteResult, requestId: string) {
@@ -427,7 +440,7 @@ export const useOcr = () => {
             workingCopyPath,
             pageRequests,
             requestId,
-            undefined,
+            buildSearchablePdfOptions(runSettings),
         );
         ensureRunActive();
 

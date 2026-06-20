@@ -103,6 +103,27 @@
                         </div>
                     </div>
 
+                    <!-- Quality Profile Selection -->
+                    <div class="section">
+                        <div class="label">{{ t('ocr.qualityProfile.label') }}</div>
+                        <div class="profile-options">
+                            <label
+                                v-for="profile in ocrQualityProfileOptions"
+                                :key="profile"
+                                class="profile-option"
+                                :class="{ 'is-selected': settings.qualityProfile === profile }"
+                            >
+                                <input
+                                    v-model="settings.qualityProfile"
+                                    type="radio"
+                                    name="ocrQualityProfile"
+                                    :value="profile"
+                                >
+                                <span>{{ t(getQualityProfileLabelKey(profile), undefined) }}</span>
+                            </label>
+                        </div>
+                    </div>
+
                     <!-- Language Selection -->
                     <div class="section">
                         <div class="label">{{ t('ocr.languages') }}</div>
@@ -276,7 +297,10 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
-import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
+import type {
+    TOcrProgressPhase,
+    TOcrQualityProfile,
+} from '@contracts/electronApiOcr';
 import type { TTranslationKey } from '@i18n-app';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppSpinner from '@app/components/AppSpinner.vue';
@@ -296,6 +320,13 @@ import type {
 const { t } = useTypedI18n();
 const { copy: copyClipboardText } = useClipboard();
 type TOcrLanguageTranslationKey = Extract<TTranslationKey, `ocr.languageName.${string}`>;
+type TOcrQualityProfileLabelKey = Extract<TTranslationKey, `ocr.qualityProfile.options.${string}`>;
+
+const ocrQualityProfileOptions = [
+    'balanced',
+    'accurate',
+    'poor-scan',
+] as const satisfies readonly TOcrQualityProfile[];
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -465,6 +496,14 @@ function isOcrPageRange(value: unknown): value is TOcrPageRange {
     return value === 'all' || value === 'current' || value === 'custom';
 }
 
+function isOcrQualityProfile(value: unknown): value is TOcrQualityProfile {
+    return value === 'balanced' || value === 'accurate' || value === 'poor-scan';
+}
+
+function getQualityProfileLabelKey(profile: TOcrQualityProfile): TOcrQualityProfileLabelKey {
+    return `ocr.qualityProfile.options.${profile}`;
+}
+
 function normalizeAgentLanguages(value: unknown) {
     if (!Array.isArray(value)) {
         return null;
@@ -495,6 +534,9 @@ function applyAgentOcrOptions(options: IAgentOcrRunOptions) {
     if (typeof options.customRange === 'string') {
         nextSettings.customRange = options.customRange;
     }
+    if (isOcrQualityProfile(options.qualityProfile)) {
+        nextSettings.qualityProfile = options.qualityProfile;
+    }
     const languages = normalizeAgentLanguages(options.languages);
     if (languages) {
         nextSettings.selectedLanguages = languages;
@@ -508,6 +550,7 @@ function cloneSettingsSnapshot(value: IOcrSettings | null) {
             pageRange: value.pageRange,
             customRange: value.customRange,
             selectedLanguages: [...value.selectedLanguages],
+            qualityProfile: value.qualityProfile,
         }
         : null;
 }
@@ -533,6 +576,7 @@ function createAgentOcrSnapshot() {
         selectedLanguages: [...settings.value.selectedLanguages],
         pageRange: settings.value.pageRange,
         customRange: settings.value.customRange,
+        qualityProfile: settings.value.qualityProfile,
         hasWorkingCopy: Boolean(workingCopyPath),
         error: effectiveError.value,
         hasResults: hasResults.value,
@@ -590,6 +634,9 @@ function buildOcrDiagnosticsLog(debugLogs: IDebugLogEntry[]) {
         `draftPageRange=${settings.value.pageRange}`,
         `activeRunPageRange=${activeRunSettings.value?.pageRange ?? '-'}`,
         `lastCompletedPageRange=${lastCompletedRunSettings.value?.pageRange ?? '-'}`,
+        `draftQualityProfile=${settings.value.qualityProfile}`,
+        `activeRunQualityProfile=${activeRunSettings.value?.qualityProfile ?? '-'}`,
+        `lastCompletedQualityProfile=${lastCompletedRunSettings.value?.qualityProfile ?? '-'}`,
         `uiError=${effectiveError.value}`,
         '',
         '--- debug:log stream ---',
@@ -806,6 +853,42 @@ defineExpose<IOcrPopupAgentExpose>({
 
 .radio-item input {
     accent-color: var(--ui-primary);
+}
+
+.profile-options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--app-space-sm);
+}
+
+.profile-option {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    min-height: calc(var(--app-toolbar-control-size) - var(--app-space-sm));
+    padding: 0 var(--app-space-lg);
+    border: 1px solid var(--app-toolbar-control-hover-border);
+    border-radius: var(--app-toolbar-button-radius);
+    background: transparent;
+    color: var(--app-toolbar-control-inactive-fg);
+    font-size: var(--app-text-size-body-sm);
+    line-height: var(--app-line-height-snug);
+    text-align: center;
+    cursor: pointer;
+}
+
+.profile-option input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.profile-option.is-selected {
+    border-color: var(--app-toolbar-control-active-border);
+    background: var(--app-toolbar-control-active-bg);
+    color: var(--app-toolbar-control-hover-fg);
 }
 
 .custom-range-reveal {

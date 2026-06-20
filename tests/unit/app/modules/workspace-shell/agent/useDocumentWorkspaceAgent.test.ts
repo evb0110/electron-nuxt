@@ -200,4 +200,43 @@ describe('useDocumentWorkspaceAgent', () => {
         expect(showSidebar.value).toBe(true);
         expect(sidebarTab.value).toBe('bookmarks');
     });
+
+    it('passes OCR quality profile through the OCR start action', async () => {
+        const runOcrForAgent = vi.fn(async () => ({ok: true}));
+        const handleDropdownOpen = vi.fn();
+        const ocrPopupRef = ref({
+            runOcrForAgent,
+            cancelOcrForAgent: vi.fn(),
+            getAgentOcrSnapshot: vi.fn(() => ({})),
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            handleDropdownOpen,
+            ocrPopupRef,
+        }));
+
+        await expect(agent.runAgentAction('ocr.start', {
+            pageRange: 'all',
+            languages: [
+                'eng',
+                'eng',
+                'rus',
+            ],
+            qualityProfile: 'poor-scan',
+        })).resolves.toMatchObject({
+            ok: true,
+            actionId: 'ocr.start',
+            tabId: 'tab-1',
+        });
+
+        expect(handleDropdownOpen).toHaveBeenCalledWith('ocr', true);
+        expect(runOcrForAgent).toHaveBeenCalledWith({
+            pageRange: 'all',
+            languages: [
+                'eng',
+                'rus',
+            ],
+            qualityProfile: 'poor-scan',
+            open: true,
+        });
+    });
 });

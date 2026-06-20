@@ -72,6 +72,7 @@
     "test:e2e:electron:watch": "vitest --project e2e-smoke --reporter verbose",
     "electron:run": "tsx scripts/electronRun.ts",
     "diag:pdf-navigation-blink-trace": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/pdfNavigationBlinkTrace.ts",
+    "diag:ocr-profile-benchmark": "python3 scripts/devkit/ocr-profile-benchmark.py",
     "diag:pdf-skeleton-navigation": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts",
     "diag:pdf-tabs": "pnpm exec tsx scripts/diagnostics/pdfTabPressure.ts",
     "diag:arnold-pdf-open": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/runArnoldPdfOpenDiagnostics.ts",

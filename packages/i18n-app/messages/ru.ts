@@ -286,6 +286,14 @@ export default {
         'currentPage': 'Текущая страница ({page})',
         'customRange': 'Свой диапазон',
         'customRangePlaceholder': 'напр., 1-5, 8, 10-12',
+        'qualityProfile': {
+            'label': 'Качество',
+            'options': {
+                'balanced': 'Баланс',
+                'accurate': 'Точно',
+                'poor-scan': 'Плохой скан',
+            },
+        },
         'languages': 'Языки',
         'preparing': 'Подготовка OCR...',
         'progressStage': {

@@ -63,6 +63,7 @@ Bundled OCR models currently include:
 - Ancient Greek
 - Kurdish (Kurmanji)
 - Russian
+- Arabic
 - Hebrew
 - Syriac
 
@@ -249,6 +250,23 @@ The desktop OCR pipeline supports two common concurrency knobs:
 
 There are also advanced queue/worker controls under `EVB_OCR_*` for release and stress scenarios.
 
+For manual OCR quality tuning, run the profile benchmark:
+
+```bash
+pnpm run diag:ocr-profile-benchmark -- tests/fixtures/electron/test-scanned.pdf --pages 1 --languages eng
+```
+
+It writes `.devkit/tmp/ocr-profile-benchmark/<timestamp>/summary.csv` plus TSV,
+text, render, preprocessing, and log artifacts for `balanced`, `accurate`,
+`poor-scan`, and `stock` profiles. Compare `text_length`, confidence, word
+count, preprocessing result, and runtime together; inspect the parsed text
+before accepting a profile change.
+
+Tesseract remains the default OCR backend. Improve wrapper profiles, language
+ordering, rendering, and preprocessing first; treat PaddleOCR or vision models
+as future optional backends only after they have a repeatable quality, packaging,
+privacy, and searchable-PDF story.
+
 ## Architecture Notes
 
 The root app is a shared Nuxt codebase used by both the browser workspace and the Electron shell:
@@ -269,6 +287,7 @@ Architecture boundaries are enforced in CI and local validation:
 - [Web build notes](docs/web-build.md)
 - [Vercel deploy notes](docs/vercel-deploy.md)
 - [Release process](docs/releasing.md)
+- [OCR notes](docs/ocr.md)
 - [PDF viewer architecture](docs/pdf-viewer-architecture.md)
 - [PDF viewer DOM contracts](docs/css-load-bearing-classes.md)
 - [EVB Viewer MCP architecture](docs/mcp/README.md)

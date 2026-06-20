@@ -280,6 +280,14 @@ export default {
         'currentPage': 'Current page ({page})',
         'customRange': 'Custom range',
         'customRangePlaceholder': 'e.g. 1-5, 8, 10-12',
+        'qualityProfile': {
+            'label': 'Quality',
+            'options': {
+                'balanced': 'Balanced',
+                'accurate': 'Accurate',
+                'poor-scan': 'Poor scan',
+            },
+        },
         'languages': 'Languages',
         'preparing': 'Preparing OCR...',
         'progressStage': {

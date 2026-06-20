@@ -74,13 +74,13 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
             sourcePdfPath,
             pages,
             requestId,
-            renderDpi?: number,
+            renderDpiOrOptions,
         ) => invoke(
             OCR_CHANNELS.createSearchablePdf,
             assertAbsolutePath(sourcePdfPath, 'ocrCreateSearchablePdf.sourcePdfPath'),
             pages,
             assertRequestId(requestId, 'ocrCreateSearchablePdf.requestId'),
-            renderDpi,
+            renderDpiOrOptions,
         ),
 
         onProgress: (callback: (progress: IOcrProgress) => void): (() => void) =>

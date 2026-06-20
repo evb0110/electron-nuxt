@@ -1,5 +1,8 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
+import type {
+    TOcrProgressPhase,
+    TOcrQualityProfile,
+} from '@contracts/electronApiOcr';
 
 export type TOcrPageRange = 'all' | 'current' | 'custom';
 
@@ -7,6 +10,7 @@ export interface IOcrSettings {
     pageRange: TOcrPageRange;
     customRange: string;
     selectedLanguages: string[];
+    qualityProfile: TOcrQualityProfile;
 }
 
 export interface IOcrUiProgress {

@@ -729,6 +729,15 @@ export const OCR_RUN_INPUT_SCHEMA = {
             items: {type: 'string'},
             description: 'OCR language codes such as eng, deu, tur. Defaults to the OCR popup current setting.',
         },
+        qualityProfile: {
+            type: 'string',
+            enum: [
+                'balanced',
+                'accurate',
+                'poor-scan',
+            ],
+            description: 'OCR quality profile. Defaults to the OCR popup current setting.',
+        },
     },
     additionalProperties: false,
 };

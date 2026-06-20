@@ -1,4 +1,5 @@
 import type { Worker } from 'worker_threads';
+import type { IOcrSearchablePdfOptions } from '@contracts/electronApiOcr';
 import type {
     IOcrPdfPageRequest,
     TOcrWorkerCompleteResult,
@@ -10,7 +11,7 @@ export interface IOcrQueuedJob {
     webContentsId: number;
     sourcePdfPath: string;
     pages: IOcrPdfPageRequest[];
-    renderDpi?: number;
+    options: IOcrSearchablePdfOptions;
     queuedAtMs: number;
     requestedBytes: number;
 }

@@ -234,10 +234,15 @@ describe('useOcr', () => {
             const call = mockOcr.createSearchablePdf.mock.calls[0] ?? [];
             const pageRequests = call[1];
             const requestId = call[2];
+            const options = call[3];
             expect(pageRequests).toEqual([{
                 pageNumber: 1,
                 languages: ['eng'],
             }]);
+            expect(options).toEqual({
+                qualityProfile: 'balanced',
+                preprocessingMode: 'off',
+            });
             emitComplete({
                 requestId: requestId as string,
                 success: true,
@@ -249,9 +254,46 @@ describe('useOcr', () => {
 
             expect(ocr.results.value.languages).toEqual(['eng']);
             expect(ocr.lastCompletedRunSettings.value?.selectedLanguages).toEqual(['eng']);
+            expect(ocr.lastCompletedRunSettings.value?.qualityProfile).toBe('balanced');
             expect(ocr.activeRunSettings.value).toBeNull();
         } finally {
             scope.stop();
+        }
+    });
+
+    it('passes poor scan OCR profile as clean searchable PDF options', async () => {
+        vi.stubGlobal('crypto', { randomUUID: () => '00000000-0000-4000-8000-000000000001' });
+        mockOcr.onComplete.mockImplementation((handler) => {
+            queueMicrotask(() => handler({
+                requestId: 'ocr-00000000-0000-4000-8000-000000000001',
+                success: true,
+                pdfPath: '/tmp/ocr-result.pdf',
+                requiresCleanupAck: true,
+                errors: [],
+            }));
+            return vi.fn();
+        });
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            ocr.settings.value = {
+                ...ocr.settings.value,
+                qualityProfile: 'poor-scan',
+            };
+
+            await ocr.runOcr(1, 1, '/tmp/work.pdf');
+
+            expect(mockOcr.createSearchablePdf.mock.calls[0]?.[3]).toEqual({
+                qualityProfile: 'poor-scan',
+                preprocessingMode: 'clean',
+            });
+        } finally {
+            scope.stop();
+            vi.unstubAllGlobals();
         }
     });
 

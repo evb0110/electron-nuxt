@@ -1,9 +1,24 @@
 import { isRecord } from '@contracts/runtimeGuards';
 import type {
+    IOcrSearchablePdfOptions,
+    TOcrPreprocessingMode,
+    TOcrQualityProfile,
+} from '@contracts/electronApiOcr';
+import type {
     IOcrPdfPageRequest,
     IOcrWorkerStartPayload,
     TOcrWorkerInboundMessage,
 } from '@electron/ocr/worker/types';
+
+const OCR_QUALITY_PROFILES = new Set<TOcrQualityProfile>([
+    'balanced',
+    'accurate',
+    'poor-scan',
+]);
+const OCR_PREPROCESSING_MODES = new Set<TOcrPreprocessingMode>([
+    'off',
+    'clean',
+]);
 
 function toStringArray(value: unknown) {
     if (!Array.isArray(value)) {
@@ -55,6 +70,45 @@ function parseOptionalDpi(value: unknown) {
         : undefined;
 }
 
+function parseOptionalPageSegmentationMode(value: unknown) {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 13
+        ? value
+        : undefined;
+}
+
+function parseOcrWorkerOptions(value: unknown): IOcrSearchablePdfOptions | undefined {
+    if (value === null || value === undefined) {
+        return undefined;
+    }
+    if (!isRecord(value)) {
+        return undefined;
+    }
+
+    const options: IOcrSearchablePdfOptions = {};
+    const renderDpi = parseOptionalDpi(value.renderDpi);
+    const qualityProfile = typeof value.qualityProfile === 'string' && OCR_QUALITY_PROFILES.has(value.qualityProfile as TOcrQualityProfile)
+        ? value.qualityProfile as TOcrQualityProfile
+        : undefined;
+    const preprocessingMode = typeof value.preprocessingMode === 'string' && OCR_PREPROCESSING_MODES.has(value.preprocessingMode as TOcrPreprocessingMode)
+        ? value.preprocessingMode as TOcrPreprocessingMode
+        : undefined;
+    const pageSegmentationMode = parseOptionalPageSegmentationMode(value.pageSegmentationMode);
+
+    if (renderDpi !== undefined) {
+        options.renderDpi = renderDpi;
+    }
+    if (qualityProfile !== undefined) {
+        options.qualityProfile = qualityProfile;
+    }
+    if (preprocessingMode !== undefined) {
+        options.preprocessingMode = preprocessingMode;
+    }
+    if (pageSegmentationMode !== undefined) {
+        options.pageSegmentationMode = pageSegmentationMode;
+    }
+    return options;
+}
+
 export function parseOcrWorkerStartPayload(value: unknown): IOcrWorkerStartPayload | null {
     if (!isRecord(value)) {
         return null;
@@ -72,9 +126,16 @@ export function parseOcrWorkerStartPayload(value: unknown): IOcrWorkerStartPaylo
         sourcePdfPath,
         pages,
     };
+    const options = parseOcrWorkerOptions(value.options);
     const renderDpi = parseOptionalDpi(value.renderDpi);
     if (renderDpi !== undefined) {
         payload.renderDpi = renderDpi;
+    }
+    if (options !== undefined) {
+        payload.options = options;
+        if (payload.renderDpi === undefined && options.renderDpi !== undefined) {
+            payload.renderDpi = options.renderDpi;
+        }
     }
     return payload;
 }

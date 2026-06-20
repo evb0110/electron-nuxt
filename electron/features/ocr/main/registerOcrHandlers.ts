@@ -275,7 +275,7 @@ async function handleOcrCreateSearchablePdf(
     sourcePdfPathPayload: unknown,
     pagesPayload: unknown,
     requestIdPayload: unknown,
-    renderDpiPayload?: unknown,
+    renderDpiOrOptionsPayload?: unknown,
 ): Promise<{
     started: boolean;
     jobId: string;
@@ -289,7 +289,7 @@ async function handleOcrCreateSearchablePdf(
             sourcePdfPathPayload,
             pagesPayload,
             requestIdPayload,
-            renderDpiPayload,
+            renderDpiOrOptionsPayload,
         );
 
         jobId = payload.requestId;
@@ -299,7 +299,7 @@ async function handleOcrCreateSearchablePdf(
             validatedSourcePdfPath,
             payload.pages,
             payload.requestId,
-            payload.renderDpi,
+            payload.options,
         );
 
         if (!result.started && result.error) {

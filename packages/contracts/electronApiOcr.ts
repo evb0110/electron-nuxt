@@ -26,6 +26,16 @@ export interface IOcrRecognizeRequest {
     imageHeight?: number;
 }
 
+export type TOcrQualityProfile = 'balanced' | 'accurate' | 'poor-scan';
+export type TOcrPreprocessingMode = 'off' | 'clean';
+
+export interface IOcrSearchablePdfOptions {
+    renderDpi?: number;
+    qualityProfile?: TOcrQualityProfile;
+    preprocessingMode?: TOcrPreprocessingMode;
+    pageSegmentationMode?: number;
+}
+
 export interface IOcrRecognizeResult extends IOcrErrorEnvelopeCarrier {
     pageNumber: number;
     success: boolean;
@@ -146,7 +156,7 @@ export interface IOcrCapability {
             languages: string[];
         }>,
         requestId: string,
-        renderDpi?: number,
+        renderDpiOrOptions?: number | IOcrSearchablePdfOptions,
     ) => Promise<IOcrJobStartResult>;
     onProgress: (callback: (progress: IOcrProgress) => void) => () => void;
     onComplete: (callback: (result: IOcrCompleteResult) => void) => () => void;

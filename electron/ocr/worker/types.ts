@@ -1,5 +1,8 @@
 import type { IOcrWord } from '@contracts/shared';
-import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
+import type {
+    IOcrSearchablePdfOptions,
+    TOcrProgressPhase,
+} from '@contracts/electronApiOcr';
 export type { IRunCommandResult } from '@electron/utils/runElectronCommand';
 
 export interface IWorkerPaths {
@@ -44,6 +47,7 @@ export interface IOcrWorkerStartPayload {
     sourcePdfPath: string;
     pages: IOcrPdfPageRequest[];
     renderDpi?: number;
+    options?: IOcrSearchablePdfOptions;
 }
 
 export type TOcrWorkerInboundMessage =

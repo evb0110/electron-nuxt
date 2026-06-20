@@ -24,7 +24,7 @@ class MockStdin extends EventEmitter {
 }
 
 class MockChildProcess extends EventEmitter {
-    public stdout = new EventEmitter();
+    public stdout = Object.assign(new EventEmitter(), { resume: vi.fn() });
     public stderr = new EventEmitter();
     public stdin: MockStdin | undefined;
     public kill = vi.fn((_signal: string) => true);
@@ -189,6 +189,90 @@ describe('Tesseract TSV geometry parsing', () => {
             ],
             text: 'First faint\nSecond',
         });
+    });
+});
+
+describe('file-based Tesseract arguments', () => {
+    beforeEach(() => {
+        vi.resetModules();
+        vi.clearAllMocks();
+
+        mocks.resolveTesseractLanguageConfig.mockReturnValue({
+            orderedLanguages: ['eng'],
+            extraConfigArgs: [
+                '-c',
+                'preserve_interword_spaces=1',
+            ],
+        });
+    });
+
+    it('adds public quality profile options without removing existing output config', async () => {
+        const child = new MockChildProcess();
+        mocks.spawn.mockReturnValue(child);
+
+        const { runOcrFileBased } = await import('@electron/ocr/worker/tesseractRunner');
+        const resultPromise = runOcrFileBased(
+            '/tmp/page.png',
+            ['eng'],
+            1000,
+            1500,
+            300,
+            '/mock/tesseract',
+            '/mock/tessdata',
+            1,
+            undefined,
+            {
+                qualityProfile: 'poor-scan',
+                pageSegmentationMode: 6,
+            },
+        );
+
+        await vi.waitFor(() => {
+            expect(mocks.spawn).toHaveBeenCalledTimes(1);
+        });
+        child.emit('close', 1);
+        await resultPromise;
+
+        expect(mocks.resolveTesseractLanguageConfig).toHaveBeenCalledWith(['eng'], {preserveDictionaries: false});
+        expect(mocks.spawn.mock.calls[0]?.[1]).toEqual(expect.arrayContaining([
+            '--psm',
+            '6',
+            '-c',
+            'thresholding_method=2',
+            '-c',
+            'tessedit_create_tsv=1',
+            '-c',
+            'tessedit_create_pdf=1',
+            '-c',
+            'textonly_pdf=1',
+        ]));
+    });
+
+    it('preserves dictionaries for the accurate quality profile', async () => {
+        const child = new MockChildProcess();
+        mocks.spawn.mockReturnValue(child);
+
+        const { runOcrFileBased } = await import('@electron/ocr/worker/tesseractRunner');
+        const resultPromise = runOcrFileBased(
+            '/tmp/page.png',
+            ['eng'],
+            1000,
+            1500,
+            300,
+            '/mock/tesseract',
+            '/mock/tessdata',
+            1,
+            undefined,
+            {qualityProfile: 'accurate'},
+        );
+
+        await vi.waitFor(() => {
+            expect(mocks.spawn).toHaveBeenCalledTimes(1);
+        });
+        child.emit('close', 1);
+        await resultPromise;
+
+        expect(mocks.resolveTesseractLanguageConfig).toHaveBeenCalledWith(['eng'], {preserveDictionaries: true});
     });
 });
 

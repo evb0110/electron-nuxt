@@ -3,6 +3,7 @@ import type {
     IOcrCompleteResult,
     IOcrProgress,
     IOcrRecognizeRequest,
+    IOcrSearchablePdfOptions,
     IOcrToolValidationResult,
 } from '@contracts/electronApiOcr';
 
@@ -36,7 +37,7 @@ export interface IOcrInvokeMap {
         result: Awaited<ReturnType<IOcrCapability['recognizeBatch']>>;
     };
     [OCR_CHANNELS.createSearchablePdf]: {
-        args: [sourcePdfPath: string, pages: TOcrCreateSearchablePdfPage[], requestId: string, renderDpi?: number];
+        args: [sourcePdfPath: string, pages: TOcrCreateSearchablePdfPage[], requestId: string, renderDpiOrOptions?: number | IOcrSearchablePdfOptions];
         result: Awaited<ReturnType<IOcrCapability['createSearchablePdf']>>;
     };
     [OCR_CHANNELS.cancel]: {

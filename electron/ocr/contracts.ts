@@ -3,7 +3,10 @@ import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/availableLanguages';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import type {
     IOcrErrorEnvelope,
+    IOcrSearchablePdfOptions,
+    TOcrPreprocessingMode,
     TOcrErrorCode,
+    TOcrQualityProfile,
 } from '@contracts/electronApiOcr';
 
 interface IOcrRecognizePageRequest {
@@ -26,7 +29,7 @@ interface IOcrCreateSearchablePdfPayload {
     sourcePdfPath: string;
     pages: IOcrCreatePdfPageRequest[];
     requestId: string;
-    renderDpi?: number;
+    options: IOcrSearchablePdfOptions;
 }
 
 const MAX_PAGE_NUMBER = 1_000_000;
@@ -35,6 +38,16 @@ const MAX_IMAGE_BYTES = 128 * 1024 * 1024;
 const MAX_BATCH_PAGES = 5_000;
 const MAX_REQUEST_ID_LENGTH = 128;
 const MAX_ERROR_DETAILS_LENGTH = 512;
+const MAX_TESSERACT_PSM = 13;
+const OCR_QUALITY_PROFILES = new Set<TOcrQualityProfile>([
+    'balanced',
+    'accurate',
+    'poor-scan',
+]);
+const OCR_PREPROCESSING_MODES = new Set<TOcrPreprocessingMode>([
+    'off',
+    'clean',
+]);
 const MAX_UNIQUE_LANGUAGES_PER_JOB = parseIntegerEnv(
     'EVB_OCR_MAX_UNIQUE_LANGUAGES_PER_JOB',
     AVAILABLE_OCR_LANGUAGE_CODES.size,
@@ -96,6 +109,75 @@ function asOptionalDpi(value: unknown, fieldName: string) {
         throw new OcrPayloadValidationError(`${fieldName} must be between 72 and 1200`);
     }
     return rounded;
+}
+
+function asOptionalOcrQualityProfile(value: unknown, fieldName: string) {
+    if (value === null || value === undefined) {
+        return undefined;
+    }
+    if (typeof value !== 'string' || !OCR_QUALITY_PROFILES.has(value as TOcrQualityProfile)) {
+        throw new OcrPayloadValidationError(`${fieldName} must be one of: balanced, accurate, poor-scan`);
+    }
+    return value as TOcrQualityProfile;
+}
+
+function asOptionalOcrPreprocessingMode(value: unknown, fieldName: string) {
+    if (value === null || value === undefined) {
+        return undefined;
+    }
+    if (typeof value !== 'string' || !OCR_PREPROCESSING_MODES.has(value as TOcrPreprocessingMode)) {
+        throw new OcrPayloadValidationError(`${fieldName} must be one of: off, clean`);
+    }
+    return value as TOcrPreprocessingMode;
+}
+
+function asOptionalPageSegmentationMode(value: unknown, fieldName: string) {
+    if (value === null || value === undefined) {
+        return undefined;
+    }
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > MAX_TESSERACT_PSM) {
+        throw new OcrPayloadValidationError(`${fieldName} must be an integer between 0 and ${MAX_TESSERACT_PSM}`);
+    }
+    return value;
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function asSearchablePdfOptions(value: unknown): IOcrSearchablePdfOptions {
+    if (value === null || value === undefined) {
+        return {};
+    }
+
+    if (typeof value === 'number') {
+        const renderDpi = asOptionalDpi(value, 'renderDpi');
+        return renderDpi === undefined ? {} : {renderDpi};
+    }
+
+    if (!isObjectRecord(value)) {
+        throw new OcrPayloadValidationError('ocrOptions must be an object or legacy renderDpi number');
+    }
+
+    const options: IOcrSearchablePdfOptions = {};
+    const renderDpi = asOptionalDpi(value.renderDpi, 'ocrOptions.renderDpi');
+    const qualityProfile = asOptionalOcrQualityProfile(value.qualityProfile, 'ocrOptions.qualityProfile');
+    const preprocessingMode = asOptionalOcrPreprocessingMode(value.preprocessingMode, 'ocrOptions.preprocessingMode');
+    const pageSegmentationMode = asOptionalPageSegmentationMode(value.pageSegmentationMode, 'ocrOptions.pageSegmentationMode');
+
+    if (renderDpi !== undefined) {
+        options.renderDpi = renderDpi;
+    }
+    if (qualityProfile !== undefined) {
+        options.qualityProfile = qualityProfile;
+    }
+    if (preprocessingMode !== undefined) {
+        options.preprocessingMode = preprocessingMode;
+    }
+    if (pageSegmentationMode !== undefined) {
+        options.pageSegmentationMode = pageSegmentationMode;
+    }
+    return options;
 }
 
 function toUint8Array(value: unknown, fieldName: string, maxBytes: number) {
@@ -215,19 +297,15 @@ export function validateCreateSearchablePdfPayload(
     sourcePdfPathPayload: unknown,
     pagesPayload: unknown,
     requestIdPayload: unknown,
-    renderDpiPayload?: unknown,
+    renderDpiOrOptionsPayload?: unknown,
 ): IOcrCreateSearchablePdfPayload {
     const pages = asPagesArray(pagesPayload, 'pages', asCreatePdfPageRequest);
-    const payload: IOcrCreateSearchablePdfPayload = {
+    return {
         sourcePdfPath: asString(sourcePdfPathPayload, 'sourcePdfPath', 4_096),
         pages,
         requestId: asRequestId(requestIdPayload, 'requestId'),
+        options: asSearchablePdfOptions(renderDpiOrOptionsPayload),
     };
-    const renderDpi = asOptionalDpi(renderDpiPayload, 'renderDpi');
-    if (renderDpi !== undefined) {
-        payload.renderDpi = renderDpi;
-    }
-    return payload;
 }
 
 export function validateCancelRequestId(requestIdPayload: unknown) {

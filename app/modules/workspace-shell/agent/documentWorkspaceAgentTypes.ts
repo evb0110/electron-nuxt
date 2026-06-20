@@ -18,6 +18,7 @@ export type {
     IAgentOcrRunOptions,
     IOcrPopupAgentExpose,
     TAgentOcrPageRange,
+    TOcrQualityProfile,
 } from '@app/types/ocrAgent';
 
 export type TWorkspaceAgentSidebarTab = 'annotations' | 'bookmarks' | 'thumbnails' | 'search';

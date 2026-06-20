@@ -283,6 +283,14 @@ export default {
         'currentPage': 'Página atual ({page})',
         'customRange': 'Intervalo personalizado',
         'customRangePlaceholder': 'ex.: 1-5, 8, 10-12',
+        'qualityProfile': {
+            'label': 'Qualidade',
+            'options': {
+                'balanced': 'Equilibrado',
+                'accurate': 'Preciso',
+                'poor-scan': 'Digitalização fraca',
+            },
+        },
         'languages': 'Idiomas',
         'preparing': 'A preparar OCR...',
         'progressStage': {

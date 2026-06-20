@@ -6,6 +6,7 @@ import {
     unlink,
 } from 'fs/promises';
 import type { IOcrWord } from '@contracts/shared';
+import type { IOcrSearchablePdfOptions } from '@contracts/electronApiOcr';
 import type { IOcrFileResult } from '@electron/ocr/worker/types';
 import { resolveTesseractLanguageConfig } from '@electron/ocr/resolveTesseractLanguageConfig';
 import { getErrorMessage } from '@electron/utils/error';
@@ -32,6 +33,21 @@ const PNG_SIGNATURE = Buffer.from([
 const FILE_BASED_OCR_TIMEOUT_MS = parseIntegerEnv('EVB_OCR_FILE_BASED_TIMEOUT_MS', 3 * 60 * 1000, 10_000);
 const FILE_BASED_OCR_KILL_GRACE_MS = parseIntegerEnv('EVB_OCR_FILE_BASED_KILL_GRACE_MS', 2_000, 250);
 const FILE_BASED_OCR_MAX_STDERR_BYTES = parseIntegerEnv('EVB_OCR_FILE_BASED_MAX_STDERR_BYTES', 262_144, 1_024);
+
+function shouldPreserveDictionaries(options: IOcrSearchablePdfOptions | undefined) {
+    return options?.qualityProfile === 'accurate';
+}
+
+function buildTesseractProfileArgs(options: IOcrSearchablePdfOptions | undefined) {
+    const args: string[] = [];
+    if (typeof options?.pageSegmentationMode === 'number') {
+        args.push('--psm', String(options.pageSegmentationMode));
+    }
+    if (options?.qualityProfile === 'poor-scan') {
+        args.push('-c', 'thresholding_method=2');
+    }
+    return args;
+}
 
 function getPngDimensions(imageBuffer: Buffer): {
     width: number;
@@ -86,9 +102,10 @@ export async function runOcrFileBased(
     tessdataPath: string,
     threads?: number,
     signal?: AbortSignal,
+    options?: IOcrSearchablePdfOptions,
 ): Promise<IOcrFileResult> {
     const outputBase = imagePath.replace(/\.png$/, '') + '-ocr';
-    const languageConfig = resolveTesseractLanguageConfig(languages);
+    const languageConfig = resolveTesseractLanguageConfig(languages, {preserveDictionaries: shouldPreserveDictionaries(options)});
     const tsvPath = `${outputBase}.tsv`;
     const pdfPath = `${outputBase}.pdf`;
 
@@ -102,6 +119,7 @@ export async function runOcrFileBased(
         '--dpi',
         String(extractionDpi),
         ...languageConfig.extraConfigArgs,
+        ...buildTesseractProfileArgs(options),
         '-c',
         'tessedit_create_tsv=1',
         '-c',

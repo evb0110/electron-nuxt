@@ -50,7 +50,10 @@ import {
     isErrnoException,
     isRecord,
 } from '@contracts/runtimeGuards';
-import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
+import type {
+    IOcrSearchablePdfOptions,
+    TOcrProgressPhase,
+} from '@contracts/electronApiOcr';
 import { createLogger } from '@electron/utils/createLogger';
 import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 import { getErrorMessage } from '@electron/utils/error';
@@ -656,9 +659,10 @@ function startQueuedJob(job: IOcrQueuedJob) {
         const data: Extract<TOcrWorkerInboundMessage, { type: 'start' }>['data'] = {
             sourcePdfPath: job.sourcePdfPath,
             pages: job.pages,
+            options: job.options,
         };
-        if (job.renderDpi !== undefined) {
-            data.renderDpi = job.renderDpi;
+        if (job.options.renderDpi !== undefined) {
+            data.renderDpi = job.options.renderDpi;
         }
         const startMessage: TOcrWorkerInboundMessage = {
             type: 'start',
@@ -805,7 +809,7 @@ function enqueuePreparedOcrJob(
     pages: IOcrPdfPageRequest[],
     requestId: string,
     requestBytes: number,
-    renderDpi?: number,
+    options: IOcrSearchablePdfOptions,
 ) {
     const queuedJob: IOcrQueuedJob = {
         scopedJobId,
@@ -813,9 +817,9 @@ function enqueuePreparedOcrJob(
         webContentsId: event.sender.id,
         sourcePdfPath,
         pages,
+        options,
         queuedAtMs: Date.now(),
         requestedBytes: requestBytes,
-        ...(renderDpi !== undefined ? { renderDpi } : {}),
     };
     preparingJobs.delete(scopedJobId);
     queuedJobs.splice(queuedJobs.length, 0, queuedJob);
@@ -840,9 +844,9 @@ export async function handleOcrCreateSearchablePdfAsync(
     sourcePdfPath: string,
     pages: IOcrPdfPageRequest[],
     requestId: string,
-    renderDpi?: number,
+    options: IOcrSearchablePdfOptions = {},
 ): Promise<IOcrQueueStartResult> {
-    log.debug(`handleOcrCreateSearchablePdfAsync called: sourcePdfPath=${sourcePdfPath}, pages=${pages.length}, reqId=${requestId}, dpi=${renderDpi}`);
+    log.debug(`handleOcrCreateSearchablePdfAsync called: sourcePdfPath=${sourcePdfPath}, pages=${pages.length}, reqId=${requestId}, dpi=${options.renderDpi}, profile=${options.qualityProfile ?? 'balanced'}, preprocessing=${options.preprocessingMode ?? 'off'}`);
     const scopedJobId = toScopedOcrJobId(event.sender.id, requestId);
     let isPreparingReserved = false;
 
@@ -906,7 +910,7 @@ export async function handleOcrCreateSearchablePdfAsync(
             pages,
             requestId,
             requestBytes,
-            renderDpi,
+            options,
         );
         isPreparingReserved = false;
 

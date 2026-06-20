@@ -25,6 +25,9 @@ const LATIN_WORD_BOUNDARY_CONFIG = [
     'tosp_kern_gap_factor1=1.5',
     '-c',
     'tosp_kern_gap_factor2=1.0',
+] as const satisfies readonly string[];
+
+const LATIN_DICTIONARY_DISABLED_CONFIG = [
     '-c',
     'load_system_dawg=0',
     '-c',
@@ -39,18 +42,26 @@ interface ITesseractLanguageConfig {
     hasRtl: boolean;
 }
 
+interface ITesseractLanguageConfigOptions { preserveDictionaries?: boolean; }
+
 function isRtlOcrLanguage(code: string) {
     return RTL_LANGUAGE_CODES.has(code);
 }
 
-export function resolveTesseractLanguageConfig(languages: string[]): ITesseractLanguageConfig {
+export function resolveTesseractLanguageConfig(
+    languages: string[],
+    options: ITesseractLanguageConfigOptions = {},
+): ITesseractLanguageConfig {
     const deduped = uniq(compact(languages));
     const hasRtl = deduped.some(isRtlOcrLanguage);
 
     if (!hasRtl) {
         return {
             orderedLanguages: deduped,
-            extraConfigArgs: [...LATIN_WORD_BOUNDARY_CONFIG],
+            extraConfigArgs: [
+                ...LATIN_WORD_BOUNDARY_CONFIG,
+                ...(options.preserveDictionaries ? [] : LATIN_DICTIONARY_DISABLED_CONFIG),
+            ],
             hasRtl: false,
         };
     }

@@ -6,6 +6,7 @@ import type {
 import { uniq } from 'es-toolkit/array';
 import type { TAgentTextMarkupKind } from '@app/modules/pdf-viewer/public';
 import type {
+    TOcrQualityProfile,
     TAgentOcrPageRange,
     TWorkspaceAgentSidebarTab,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
@@ -131,6 +132,10 @@ export function isAgentShapeTool(value: unknown): value is TDrawableShapeType {
 
 export function isAgentOcrPageRange(value: unknown): value is TAgentOcrPageRange {
     return value === 'all' || value === 'current' || value === 'custom';
+}
+
+export function isAgentOcrQualityProfile(value: unknown): value is TOcrQualityProfile {
+    return value === 'balanced' || value === 'accurate' || value === 'poor-scan';
 }
 
 export function getAgentNullableStringInput(input: Record<string, unknown> | undefined, key: string) {
