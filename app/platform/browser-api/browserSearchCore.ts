@@ -70,7 +70,7 @@ export async function extractBrowserSearchDocumentText(
     };
 }
 
-export async function iterateBrowserSearchDocumentText(
+async function iterateBrowserSearchDocumentText(
     pdfPath: string,
     onPage: (pageNumber: number, text: string, pageCount: number) => Promise<void> | void,
     options: Pick<IExtractBrowserSearchDocumentTextOptions, 'shouldContinue'> = {},

@@ -545,18 +545,22 @@ export class ClaudeAgentAssistantSession {
         this.currentEffort = options.effort;
     }
 
+    // fallow-ignore-next-line unused-class-member
     get model() {
         return this.currentModel;
     }
 
+    // fallow-ignore-next-line unused-class-member
     get effort() {
         return this.currentEffort;
     }
 
+    // fallow-ignore-next-line unused-class-member
     get id() {
         return this.sessionId;
     }
 
+    // fallow-ignore-next-line unused-class-member
     async sendMessage(
         text: string,
         attachments: IAgentAssistantImageAttachment[],
@@ -572,6 +576,7 @@ export class ClaudeAgentAssistantSession {
         return turnId;
     }
 
+    // fallow-ignore-next-line unused-class-member
     async interrupt() {
         if (!this.query || !this.currentTurnId) {
             return;
@@ -588,6 +593,7 @@ export class ClaudeAgentAssistantSession {
         }
     }
 
+    // fallow-ignore-next-line unused-class-member
     close(): Promise<void> {
         this.closing = true;
         this.promptQueue.close();
