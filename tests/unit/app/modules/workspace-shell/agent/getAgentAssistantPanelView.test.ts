@@ -10,6 +10,94 @@ function createStatus(overrides: Partial<IAgentAssistantStatus> = {}): IAgentAss
     return {
         supported: true,
         platform: 'darwin',
+        provider: 'codex',
+        providerLabel: 'Codex',
+        providers: [
+            {
+                id: 'codex',
+                label: 'Codex',
+                installState: 'installed',
+                authState: 'signed-in',
+                runtimeState: 'ready',
+                models: [
+                    {
+                        id: 'default',
+                        label: 'Codex default',
+                    },
+                    {
+                        id: 'gpt-5.5',
+                        label: 'GPT-5.5',
+                    },
+                ],
+                defaultModel: 'default',
+                activeModel: 'default',
+                modelSwitchMode: 'in-session',
+                availableEfforts: [
+                    'low',
+                    'medium',
+                    'high',
+                ],
+                defaultEffort: 'high',
+                activeEffort: 'high',
+                path: '/Applications/Codex.app/Contents/Resources/codex',
+                version: '0.133.0',
+                minimumVersion: '0.133.0',
+                versionSupported: true,
+                installUrl: 'https://developers.openai.com/codex/app',
+                account: {
+                    type: 'chatgpt',
+                    email: 'reader@example.com',
+                },
+            },
+            {
+                id: 'claude',
+                label: 'Claude',
+                installState: 'installed',
+                authState: 'signed-in',
+                runtimeState: 'ready',
+                models: [{
+                    id: 'default',
+                    label: 'Claude default',
+                }],
+                defaultModel: 'default',
+                activeModel: 'default',
+                modelSwitchMode: 'in-session',
+                availableEfforts: [
+                    'low',
+                    'medium',
+                    'high',
+                    'xhigh',
+                    'max',
+                ],
+                defaultEffort: 'high',
+                activeEffort: 'high',
+                path: '/usr/local/bin/claude',
+                version: '0.3.183',
+                minimumVersion: null,
+                versionSupported: true,
+                installUrl: 'https://code.claude.com/docs/en/agent-sdk/overview',
+                account: null,
+            },
+        ],
+        model: 'default',
+        modelLabel: 'Codex default',
+        models: [
+            {
+                id: 'default',
+                label: 'Codex default',
+            },
+            {
+                id: 'gpt-5.5',
+                label: 'GPT-5.5',
+            },
+        ],
+        modelSwitchMode: 'in-session',
+        effort: 'high',
+        availableEfforts: [
+            'low',
+            'medium',
+            'high',
+        ],
         installState: 'installed',
         codexInstalled: true,
         codexPath: '/Applications/Codex.app/Contents/Resources/codex',
@@ -82,6 +170,16 @@ describe('getAgentAssistantPanelView', () => {
 
     it('shows the ready assistant only for signed-in auth', () => {
         expect(getAgentAssistantPanelView(createStatus(), true)).toBe('ready');
+    });
+
+    it('lets an unauthenticated Claude provider reach the sign-in view', () => {
+        expect(getAgentAssistantPanelView(createStatus({
+            provider: 'claude',
+            installState: 'installed',
+            authState: 'signed-out',
+            runtimeState: 'stopped',
+            codexVersionSupported: false,
+        }), true)).toBe('sign-in');
     });
 
     it('keeps setup states ahead of auth states', () => {

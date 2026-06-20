@@ -83,15 +83,23 @@
                 <span class="agent-assistant-glyph">
                     <UIcon name="i-ph-download-simple" class="agent-assistant-glyph-icon" />
                 </span>
-                <h2>{{ t('assistant.installTitle') }}</h2>
-                <p>{{ t('assistant.installDescription') }}</p>
+                <h2>{{ installTitle }}</h2>
+                <p>{{ installDescription }}</p>
                 <UButton
+                    v-if="!isClaudeProvider"
                     :label="installButtonLabel"
                     icon="i-ph-download-simple"
                     color="primary"
                     :loading="isInstalling"
                     :disabled="isInstalling"
                     @click="installCodex"
+                />
+                <UButton
+                    v-else
+                    :label="t('assistant.refresh')"
+                    icon="i-ph-arrows-clockwise"
+                    color="primary"
+                    @click="refreshState"
                 />
                 <p
                     v-if="installProgress"
@@ -127,9 +135,23 @@
                 <span class="agent-assistant-glyph">
                     <UIcon name="i-ph-chat-circle-dots" class="agent-assistant-glyph-icon" />
                 </span>
-                <h2>{{ t('assistant.signInTitle') }}</h2>
-                <p>{{ t('assistant.signInDescription') }}</p>
-                <div class="agent-assistant-placeholder-actions">
+                <h2>{{ signInTitle }}</h2>
+                <p>{{ signInDescription }}</p>
+                <div
+                    v-if="isClaudeProvider"
+                    class="agent-assistant-placeholder-actions"
+                >
+                    <UButton
+                        :label="t('assistant.refresh')"
+                        icon="i-ph-arrows-clockwise"
+                        color="primary"
+                        @click="refreshState"
+                    />
+                </div>
+                <div
+                    v-else
+                    class="agent-assistant-placeholder-actions"
+                >
                     <UButton
                         :label="t('assistant.signInChatGpt')"
                         icon="i-ph-arrow-square-out"
@@ -496,6 +518,26 @@
                                 @paste="handleComposerPaste"
                             />
                             <div class="agent-assistant-composer-actions">
+                                <div class="agent-assistant-composer-switchers">
+                                    <AssistantModelSwitcher
+                                        v-if="hasLoadedState"
+                                        :providers="status.providers"
+                                        :selected-provider="selectedProvider"
+                                        :selected-model="selectedModel"
+                                        :is-switching="isSwitchingAssistant"
+                                        side="top"
+                                        @select-provider="updateProvider"
+                                        @select-model="updateModel"
+                                    />
+                                    <AssistantEffortSwitcher
+                                        v-if="hasLoadedState && status.availableEfforts.length > 0"
+                                        :efforts="status.availableEfforts"
+                                        :selected-effort="selectedEffort"
+                                        :disabled="isSending"
+                                        side="top"
+                                        @select-effort="updateEffort"
+                                    />
+                                </div>
                                 <UButton
                                     v-if="isSending"
                                     :aria-label="t('assistant.stop')"
@@ -536,8 +578,30 @@
                 </div>
             </div>
 
+            <div
+                v-if="hasLoadedState && !hasComposer && panelView !== 'unsupported'"
+                class="agent-assistant-setup-footer"
+            >
+                <AssistantModelSwitcher
+                    :providers="status.providers"
+                    :selected-provider="selectedProvider"
+                    :selected-model="selectedModel"
+                    :is-switching="isSwitchingAssistant"
+                    side="top"
+                    @select-provider="updateProvider"
+                    @select-model="updateModel"
+                />
+                <AssistantEffortSwitcher
+                    v-if="status.availableEfforts.length > 0"
+                    :efforts="status.availableEfforts"
+                    :selected-effort="selectedEffort"
+                    side="top"
+                    @select-effort="updateEffort"
+                />
+            </div>
+
             <p
-                v-if="status.error"
+                v-if="status.error && !hasMessages"
                 class="agent-assistant-error"
             >
                 {{ status.error }}
@@ -618,10 +682,23 @@ import type {
     IAgentAssistantChatScope,
     IAgentAssistantEvent,
     IAgentAssistantImageAttachment,
+    IAgentAssistantProviderStatus,
     IAgentAssistantState,
+    IAgentAssistantStatus,
+    TAgentAssistantEffort,
     TAgentAssistantLoginMode,
     TAgentAssistantMessageRole,
+    TAgentAssistantProviderId,
 } from '@contracts/agent';
+import {
+    ASSISTANT_DEFAULT_EFFORT,
+    CLAUDE_ASSISTANT_EFFORTS,
+    CLAUDE_ASSISTANT_MODELS,
+    CODEX_ASSISTANT_EFFORTS,
+    CODEX_ASSISTANT_FALLBACK_MODELS,
+} from '@contracts/agentModels';
+import AssistantEffortSwitcher from '@app/modules/agent-panel/components/AssistantEffortSwitcher.vue';
+import AssistantModelSwitcher from '@app/modules/agent-panel/components/AssistantModelSwitcher.vue';
 import { formatAssistantMessage } from '@app/modules/agent-panel/utils/formatAssistantMessage';
 import { getAgentAssistantPanelView } from '@app/modules/workspace-shell/public';
 import { guardAsync } from '@app/utils/asyncGuard';
@@ -679,8 +756,15 @@ const copiedMessageId = ref<string | null>(null);
 const panelRef = ref<HTMLElement | null>(null);
 const messagesRef = ref<HTMLElement | null>(null);
 const state = ref<IAgentAssistantState | null>(null);
+const selectedProvider = ref<TAgentAssistantProviderId>('codex');
+const selectedModel = ref('default');
+const hasLocalModelSelection = ref(false);
+const selectedEffort = ref<TAgentAssistantEffort>('high');
+const hasLocalEffortSelection = ref(false);
+const isSwitchingAssistant = ref(false);
 let sendGeneration = 0;
 let stateGeneration = 0;
+let assistantSwitchGeneration = 0;
 let lastRefreshStartedAt = 0;
 
 const {
@@ -705,6 +789,60 @@ const emptyState = computed<IAgentAssistantState>(() => ({
     status: {
         supported: true,
         platform: '',
+        provider: selectedProvider.value,
+        providerLabel: selectedProvider.value === 'claude' ? 'Claude' : 'Codex',
+        providers: [
+            {
+                id: 'codex',
+                label: 'Codex',
+                installState: 'missing',
+                authState: 'unknown',
+                runtimeState: 'stopped',
+                models: [...CODEX_ASSISTANT_FALLBACK_MODELS],
+                defaultModel: 'default',
+                activeModel: 'default',
+                modelSwitchMode: 'in-session',
+                availableEfforts: [...CODEX_ASSISTANT_EFFORTS],
+                defaultEffort: ASSISTANT_DEFAULT_EFFORT,
+                activeEffort: selectedProvider.value === 'codex' ? selectedEffort.value : ASSISTANT_DEFAULT_EFFORT,
+                path: null,
+                version: null,
+                minimumVersion: '0.133.0',
+                versionSupported: false,
+                installUrl: '',
+                account: null,
+            },
+            {
+                id: 'claude',
+                label: 'Claude',
+                installState: 'missing',
+                authState: 'unknown',
+                runtimeState: 'stopped',
+                models: [...CLAUDE_ASSISTANT_MODELS],
+                defaultModel: 'default',
+                activeModel: 'default',
+                modelSwitchMode: 'in-session',
+                availableEfforts: [...CLAUDE_ASSISTANT_EFFORTS],
+                defaultEffort: ASSISTANT_DEFAULT_EFFORT,
+                activeEffort: selectedProvider.value === 'claude' ? selectedEffort.value : ASSISTANT_DEFAULT_EFFORT,
+                path: null,
+                version: null,
+                minimumVersion: null,
+                versionSupported: false,
+                installUrl: '',
+                account: null,
+            },
+        ],
+        model: selectedModel.value,
+        modelLabel: selectedModel.value,
+        models: selectedProvider.value === 'claude'
+            ? [...CLAUDE_ASSISTANT_MODELS]
+            : [...CODEX_ASSISTANT_FALLBACK_MODELS],
+        modelSwitchMode: 'in-session',
+        effort: selectedEffort.value,
+        availableEfforts: selectedProvider.value === 'claude'
+            ? [...CLAUDE_ASSISTANT_EFFORTS]
+            : [...CODEX_ASSISTANT_EFFORTS],
         installState: 'missing',
         codexInstalled: false,
         codexPath: null,
@@ -732,9 +870,10 @@ const emptyState = computed<IAgentAssistantState>(() => ({
         lastCheckedAt: '',
     },
     messages: [],
-}));
+} satisfies IAgentAssistantState));
 const status = computed(() => (state.value ?? emptyState.value).status);
 const messages = computed(() => (state.value ?? emptyState.value).messages);
+const isClaudeProvider = computed(() => selectedProvider.value === 'claude');
 const panelView = computed(() => getAgentAssistantPanelView(status.value, hasLoadedState.value));
 const hasComposer = computed(() => panelView.value === 'ready' && Boolean(chatScope));
 const hasMessages = computed(() => messages.value.length > 0 || isTurnActive.value);
@@ -757,6 +896,18 @@ const canResetChat = computed(() => (
 const installButtonLabel = computed(() => isInstalling.value
     ? t('assistant.installingCodex')
     : t('assistant.installCodex'));
+const installTitle = computed(() => isClaudeProvider.value
+    ? t('assistant.installClaudeTitle')
+    : t('assistant.installTitle'));
+const installDescription = computed(() => isClaudeProvider.value
+    ? t('assistant.installClaudeDescription')
+    : t('assistant.installDescription'));
+const signInTitle = computed(() => isClaudeProvider.value
+    ? t('assistant.signInClaudeTitle')
+    : t('assistant.signInTitle'));
+const signInDescription = computed(() => isClaudeProvider.value
+    ? t('assistant.signInClaudeDescription')
+    : t('assistant.signInDescription'));
 const emptyTitle = computed(() => hasActiveDocument
     ? t('assistant.emptyDocumentTitle')
     : t('assistant.emptyWorkspaceTitle'));
@@ -921,8 +1072,122 @@ function cloneAssistantScope(scope: IAgentAssistantChatScope): IAgentAssistantCh
     };
 }
 
+function modelForSelection(
+    providerStatus: IAgentAssistantProviderStatus,
+    model: string,
+) {
+    return providerStatus.models.find(candidate => candidate.id === model)
+        ?? providerStatus.models.find(candidate => candidate.id === providerStatus.defaultModel)
+        ?? providerStatus.models[0]
+        ?? null;
+}
+
+function createSelectedAssistantStatus(
+    baseStatus: IAgentAssistantStatus,
+    providerStatus: IAgentAssistantProviderStatus,
+    model: string,
+    effort: TAgentAssistantEffort,
+) {
+    const selectedModelOption = modelForSelection(providerStatus, model);
+    const selectedModel = selectedModelOption?.id ?? model;
+    const selectedModelLabel = selectedModelOption?.label ?? selectedModel;
+    const selectedEffortValue = providerStatus.availableEfforts.includes(effort)
+        ? effort
+        : providerStatus.defaultEffort;
+    const providers = baseStatus.providers.map(candidate => (candidate.id === providerStatus.id
+        ? {
+            ...candidate,
+            activeModel: selectedModel,
+            activeEffort: selectedEffortValue,
+        }
+        : candidate));
+    const codexProvider = providerStatus.id === 'codex'
+        ? providerStatus
+        : providers.find(candidate => candidate.id === 'codex');
+    const preserveTurn = baseStatus.provider === providerStatus.id;
+    const {
+        error: _baseError,
+        ...baseStatusWithoutError
+    } = baseStatus;
+
+    return {
+        ...baseStatusWithoutError,
+        provider: providerStatus.id,
+        providerLabel: providerStatus.label,
+        providers,
+        model: selectedModel,
+        modelLabel: selectedModelLabel,
+        models: providerStatus.models,
+        modelSwitchMode: providerStatus.modelSwitchMode,
+        effort: selectedEffortValue,
+        availableEfforts: providerStatus.availableEfforts,
+        installState: providerStatus.installState,
+        codexInstalled: codexProvider?.installState === 'installed',
+        codexPath: codexProvider?.path ?? null,
+        codexVersion: codexProvider?.version ?? null,
+        minimumCodexVersion: codexProvider?.minimumVersion ?? baseStatus.minimumCodexVersion,
+        codexVersionSupported: codexProvider?.versionSupported ?? baseStatus.codexVersionSupported,
+        installUrl: providerStatus.installUrl,
+        authState: providerStatus.authState,
+        account: providerStatus.account,
+        runtimeState: providerStatus.runtimeState,
+        turn: preserveTurn
+            ? baseStatus.turn
+            : {
+                id: null,
+                phase: 'idle',
+            },
+        threadId: preserveTurn ? baseStatus.threadId : null,
+        activeTurnId: preserveTurn ? baseStatus.activeTurnId : null,
+        ...(providerStatus.error ? { error: providerStatus.error } : {}),
+    } satisfies IAgentAssistantStatus;
+}
+
+function createOptimisticAssistantState(
+    provider: TAgentAssistantProviderId,
+    model: string,
+    effort: TAgentAssistantEffort,
+    keepMessages: boolean,
+): IAgentAssistantState | null {
+    const baseState = state.value ?? emptyState.value;
+    const providerStatus = baseState.status.providers.find(candidate => candidate.id === provider);
+    if (!providerStatus) {
+        return null;
+    }
+
+    const shouldKeepMessages = keepMessages
+        && baseState.status.provider === provider
+        && getStateScopeKey(baseState) === (chatScope?.key ?? null);
+    return {
+        scope: chatScope ? cloneAssistantScope(chatScope) : null,
+        status: createSelectedAssistantStatus(baseState.status, providerStatus, model, effort),
+        messages: shouldKeepMessages ? baseState.messages : [],
+    };
+}
+
+function applyOptimisticSelection(
+    provider: TAgentAssistantProviderId,
+    model: string,
+    effort: TAgentAssistantEffort,
+    keepMessages: boolean,
+) {
+    const optimisticState = createOptimisticAssistantState(provider, model, effort, keepMessages);
+    if (!optimisticState) {
+        return;
+    }
+
+    state.value = optimisticState;
+    hasLoadedState.value = true;
+    isSending.value = optimisticState.status.runtimeState === 'busy';
+}
+
 function createAssistantStateRequest() {
-    return { scope: chatScope ? cloneAssistantScope(chatScope) : null };
+    return {
+        scope: chatScope ? cloneAssistantScope(chatScope) : null,
+        provider: selectedProvider.value,
+        model: selectedModel.value,
+        effort: selectedEffort.value,
+    };
 }
 
 function getStateScopeKey(nextState: IAgentAssistantState) {
@@ -930,16 +1195,34 @@ function getStateScopeKey(nextState: IAgentAssistantState) {
 }
 
 function isCurrentScopeState(nextState: IAgentAssistantState) {
-    return getStateScopeKey(nextState) === (chatScope?.key ?? null);
+    return nextState.status.provider === selectedProvider.value
+        && getStateScopeKey(nextState) === (chatScope?.key ?? null);
 }
 
 function applyState(nextState: IAgentAssistantState) {
     if (!isCurrentScopeState(nextState)) {
         return;
     }
-    state.value = nextState;
+    const providerStatus = nextState.status.providers.find(provider => provider.id === nextState.status.provider);
+    const needsModelOverride = hasLocalModelSelection.value && nextState.status.model !== selectedModel.value;
+    const needsEffortOverride = hasLocalEffortSelection.value && nextState.status.effort !== selectedEffort.value;
+    const adjustedState = providerStatus && (needsModelOverride || needsEffortOverride)
+        ? {
+            ...nextState,
+            status: createSelectedAssistantStatus(
+                nextState.status,
+                providerStatus,
+                needsModelOverride ? selectedModel.value : nextState.status.model,
+                needsEffortOverride ? selectedEffort.value : nextState.status.effort,
+            ),
+        }
+        : nextState;
+    selectedProvider.value = adjustedState.status.provider;
+    selectedModel.value = adjustedState.status.model;
+    selectedEffort.value = adjustedState.status.effort;
+    state.value = adjustedState;
     hasLoadedState.value = true;
-    isSending.value = nextState.status.runtimeState === 'busy';
+    isSending.value = adjustedState.status.runtimeState === 'busy';
     void nextTick(() => {
         const el = messagesRef.value;
         if (el) {
@@ -969,6 +1252,91 @@ async function refreshState() {
     if (generation === stateGeneration) {
         applyState(nextState);
     }
+}
+
+function providerDefaultModel(provider: TAgentAssistantProviderId) {
+    const providerStatus = status.value.providers.find(candidate => candidate.id === provider);
+    return providerStatus?.activeModel
+        ?? providerStatus?.defaultModel
+        ?? 'default';
+}
+
+function providerDefaultEffort(provider: TAgentAssistantProviderId): TAgentAssistantEffort {
+    const providerStatus = status.value.providers.find(candidate => candidate.id === provider);
+    return providerStatus?.activeEffort
+        ?? providerStatus?.defaultEffort
+        ?? 'high';
+}
+
+function normalizeEffortValue(value: unknown): TAgentAssistantEffort | null {
+    const id = typeof value === 'object' && value && 'value' in value
+        ? (value as { value?: unknown }).value
+        : value;
+    return id === 'low' || id === 'medium' || id === 'high' || id === 'xhigh' || id === 'max'
+        ? id
+        : null;
+}
+
+function normalizeProviderValue(value: unknown): TAgentAssistantProviderId {
+    const id = typeof value === 'object' && value && 'value' in value
+        ? (value as { value?: unknown }).value
+        : value;
+    return id === 'claude' ? 'claude' : 'codex';
+}
+
+function normalizeModelValue(value: unknown) {
+    const id = typeof value === 'object' && value && 'value' in value
+        ? (value as { value?: unknown }).value
+        : value;
+    return typeof id === 'string' ? id : null;
+}
+
+function updateProvider(value: unknown) {
+    const nextProvider = normalizeProviderValue(value);
+    if (nextProvider === selectedProvider.value) {
+        return;
+    }
+    const nextSwitchGeneration = ++assistantSwitchGeneration;
+    selectedProvider.value = nextProvider;
+    selectedModel.value = providerDefaultModel(nextProvider);
+    hasLocalModelSelection.value = false;
+    selectedEffort.value = providerDefaultEffort(nextProvider);
+    hasLocalEffortSelection.value = false;
+    sendGeneration += 1;
+    applyOptimisticSelection(nextProvider, selectedModel.value, selectedEffort.value, false);
+    draft.value = '';
+    composerImages.value = [];
+    composerError.value = '';
+    isSending.value = false;
+    isSwitchingAssistant.value = true;
+    guardAsync(refreshState().finally(() => {
+        if (nextSwitchGeneration === assistantSwitchGeneration) {
+            isSwitchingAssistant.value = false;
+        }
+    }), {
+        scope: 'assistant',
+        message: 'Failed to switch assistant provider',
+    });
+}
+
+function updateModel(value: unknown) {
+    const nextModel = normalizeModelValue(value);
+    if (!nextModel || nextModel === selectedModel.value) {
+        return;
+    }
+    selectedModel.value = nextModel;
+    hasLocalModelSelection.value = true;
+    applyOptimisticSelection(selectedProvider.value, nextModel, selectedEffort.value, true);
+}
+
+function updateEffort(value: unknown) {
+    const nextEffort = normalizeEffortValue(value);
+    if (!nextEffort || nextEffort === selectedEffort.value) {
+        return;
+    }
+    selectedEffort.value = nextEffort;
+    hasLocalEffortSelection.value = true;
+    applyOptimisticSelection(selectedProvider.value, selectedModel.value, nextEffort, true);
 }
 
 function refreshStateAfterWindowReturn() {
@@ -1215,6 +1583,9 @@ async function sendMessage() {
         const result = await getPlatformAPI().agent.sendAssistantMessage({
             text,
             scope: cloneAssistantScope(chatScope),
+            provider: selectedProvider.value,
+            model: selectedModel.value,
+            effort: selectedEffort.value,
             ...(attachments.length > 0 ? { attachments } : {}),
         });
         if (generation !== sendGeneration) {
@@ -1838,7 +2209,7 @@ onUnmounted(() => {
     width: 100%;
     min-height: 4.25rem;
     resize: none;
-    padding: 0.55rem 2.75rem 0.55rem 0.7rem;
+    padding: 0.55rem 0.7rem 0.3rem;
     border: 0;
     border-radius: 0.85rem;
     background: transparent;
@@ -1854,12 +2225,26 @@ onUnmounted(() => {
 }
 
 .agent-assistant-composer-actions {
-    position: absolute;
-    right: 0.4rem;
-    bottom: 0.4rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0 0.4rem 0.4rem;
+}
+
+.agent-assistant-composer-switchers {
     display: flex;
     align-items: center;
     gap: 0.35rem;
+    min-width: 0;
+}
+
+.agent-assistant-setup-footer {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.6rem 0.75rem;
+    border-top: 1px solid var(--ui-border);
 }
 
 .agent-assistant-device-code {

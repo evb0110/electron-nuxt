@@ -52,6 +52,31 @@ export function getSettingsAssistantStatusModel(
         ? getAgentAssistantPanelView(status, hasLoadedState)
         : 'checking';
 
+    // The assistant is usable if ANY configured provider is installed and signed in,
+    // even when the (Codex-defaulted) active provider still needs setup. This stops a
+    // Claude-only user from being told to install Codex.
+    const readyProvider = status?.providers.find(
+        provider => provider.installState === 'installed' && provider.authState === 'signed-in',
+    ) ?? null;
+    if (readyProvider && panelView !== 'checking' && panelView !== 'unsupported') {
+        const account = (readyProvider.account?.email ?? status?.account?.email)?.trim();
+        return {
+            tone: 'ready',
+            icon: 'i-ph-check-circle',
+            label: account
+                ? {
+                    key: 'settings.assistantPanelStatusReadyAccount',
+                    params: { account },
+                }
+                : { key: 'settings.assistantPanelStatusReady' },
+            hint: { key: 'settings.assistantPanelReadyHint' },
+            primaryAction: null,
+            primaryActionLabelKey: null,
+            primaryActionIcon: null,
+            showCancelLogin: false,
+        };
+    }
+
     if (panelView === 'unsupported') {
         return {
             tone: 'warning',

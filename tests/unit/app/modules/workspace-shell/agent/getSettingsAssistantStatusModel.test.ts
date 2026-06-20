@@ -10,6 +10,94 @@ function createStatus(overrides: Partial<IAgentAssistantStatus> = {}): IAgentAss
     return {
         supported: true,
         platform: 'darwin',
+        provider: 'codex',
+        providerLabel: 'Codex',
+        providers: [
+            {
+                id: 'codex',
+                label: 'Codex',
+                installState: 'installed',
+                authState: 'signed-in',
+                runtimeState: 'ready',
+                models: [
+                    {
+                        id: 'default',
+                        label: 'Codex default',
+                    },
+                    {
+                        id: 'gpt-5.5',
+                        label: 'GPT-5.5',
+                    },
+                ],
+                defaultModel: 'default',
+                activeModel: 'default',
+                modelSwitchMode: 'in-session',
+                availableEfforts: [
+                    'low',
+                    'medium',
+                    'high',
+                ],
+                defaultEffort: 'high',
+                activeEffort: 'high',
+                path: '/Applications/Codex.app/Contents/Resources/codex',
+                version: '0.133.0',
+                minimumVersion: '0.133.0',
+                versionSupported: true,
+                installUrl: 'https://developers.openai.com/codex/app',
+                account: {
+                    type: 'chatgpt',
+                    email: 'reader@example.com',
+                },
+            },
+            {
+                id: 'claude',
+                label: 'Claude',
+                installState: 'installed',
+                authState: 'signed-in',
+                runtimeState: 'ready',
+                models: [{
+                    id: 'default',
+                    label: 'Claude default',
+                }],
+                defaultModel: 'default',
+                activeModel: 'default',
+                modelSwitchMode: 'in-session',
+                availableEfforts: [
+                    'low',
+                    'medium',
+                    'high',
+                    'xhigh',
+                    'max',
+                ],
+                defaultEffort: 'high',
+                activeEffort: 'high',
+                path: '/usr/local/bin/claude',
+                version: '0.3.183',
+                minimumVersion: null,
+                versionSupported: true,
+                installUrl: 'https://code.claude.com/docs/en/agent-sdk/overview',
+                account: null,
+            },
+        ],
+        model: 'default',
+        modelLabel: 'Codex default',
+        models: [
+            {
+                id: 'default',
+                label: 'Codex default',
+            },
+            {
+                id: 'gpt-5.5',
+                label: 'GPT-5.5',
+            },
+        ],
+        modelSwitchMode: 'in-session',
+        effort: 'high',
+        availableEfforts: [
+            'low',
+            'medium',
+            'high',
+        ],
         installState: 'installed',
         codexInstalled: true,
         codexPath: '/Applications/Codex.app/Contents/Resources/codex',
@@ -42,6 +130,15 @@ function createStatus(overrides: Partial<IAgentAssistantStatus> = {}): IAgentAss
     };
 }
 
+function notReadyProviders(): IAgentAssistantStatus['providers'] {
+    return createStatus().providers.map(provider => ({
+        ...provider,
+        installState: 'missing',
+        authState: 'signed-out',
+        account: null,
+    }));
+}
+
 describe('getSettingsAssistantStatusModel', () => {
     it('shows setup checking before assistant state has loaded', () => {
         const model = getSettingsAssistantStatusModel(null, false);
@@ -57,6 +154,7 @@ describe('getSettingsAssistantStatusModel', () => {
             codexVersionSupported: false,
             authState: 'signed-out',
             account: null,
+            providers: notReadyProviders(),
         }), true).primaryAction).toBe('install');
 
         expect(getSettingsAssistantStatusModel(createStatus({
@@ -64,6 +162,7 @@ describe('getSettingsAssistantStatusModel', () => {
             minimumCodexVersion: '0.140.0',
             authState: 'signed-out',
             account: null,
+            providers: notReadyProviders(),
         }), true)).toMatchObject({
             primaryAction: 'update',
             hint: {
@@ -78,6 +177,7 @@ describe('getSettingsAssistantStatusModel', () => {
             authState: 'signed-out',
             account: null,
             runtimeState: 'stopped',
+            providers: notReadyProviders(),
         }), true);
 
         expect(model.label.key).toBe('settings.assistantPanelStatusSignedOut');
@@ -90,6 +190,7 @@ describe('getSettingsAssistantStatusModel', () => {
             authState: 'login-pending',
             account: null,
             runtimeState: 'stopped',
+            providers: notReadyProviders(),
         }), true);
 
         expect(model.label.key).toBe('settings.assistantPanelStatusLoginPending');
@@ -105,6 +206,33 @@ describe('getSettingsAssistantStatusModel', () => {
             key: 'settings.assistantPanelStatusReadyAccount',
             params: { account: 'reader@example.com' },
         });
+        expect(model.primaryAction).toBeNull();
+    });
+
+    it('reports ready when only Claude is set up and Codex still needs install', () => {
+        const claudeReadyProviders = createStatus().providers.map(provider => (
+            provider.id === 'claude'
+                ? {
+                    ...provider,
+                    installState: 'installed' as const,
+                    authState: 'signed-in' as const,
+                }
+                : {
+                    ...provider,
+                    installState: 'missing' as const,
+                    authState: 'signed-out' as const,
+                    account: null,
+                }
+        ));
+        const model = getSettingsAssistantStatusModel(createStatus({
+            installState: 'missing',
+            codexInstalled: false,
+            authState: 'signed-out',
+            account: null,
+            providers: claudeReadyProviders,
+        }), true);
+
+        expect(model.tone).toBe('ready');
         expect(model.primaryAction).toBeNull();
     });
 });

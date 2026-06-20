@@ -7,6 +7,7 @@ import {
     type Server,
 } from 'http';
 import type { AddressInfo } from 'net';
+import { randomBytes } from 'node:crypto';
 import type {
     ILocalMcpServerDescriptor,
     ILocalMcpServerIdentity,
@@ -39,6 +40,9 @@ const DEFAULT_DEV_MCP_PORT = 38672;
 let localMcpServer: Server | null = null;
 let embeddedMcpServer: Server | null = null;
 let embeddedMcpServerDescriptor: ILocalMcpServerDescriptor | null = null;
+// Stable for the server's lifetime so sessions opened earlier keep working; rotated only on full shutdown.
+let embeddedMcpToken: string | null = null;
+let embeddedMcpStartPromise: Promise<IEmbeddedMcpServerHandle> | null = null;
 
 function getDefaultAgentWindow() {
     const focusedWindow = BrowserWindow.getFocusedWindow();
@@ -184,37 +188,72 @@ export function getEmbeddedMcpServerDescriptor() {
     return embeddedMcpServerDescriptor;
 }
 
-export function startEmbeddedMcpServer(bearerToken: string): Promise<ILocalMcpServerDescriptor> {
-    if (embeddedMcpServer && embeddedMcpServerDescriptor) {
-        return Promise.resolve(embeddedMcpServerDescriptor);
+export interface IEmbeddedMcpServerHandle {
+    descriptor: ILocalMcpServerDescriptor;
+    token: string;
+}
+
+export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
+    if (embeddedMcpServer && embeddedMcpServerDescriptor && embeddedMcpToken) {
+        return Promise.resolve({
+            descriptor: embeddedMcpServerDescriptor,
+            token: embeddedMcpToken,
+        });
+    }
+    if (embeddedMcpStartPromise) {
+        return embeddedMcpStartPromise;
     }
 
-    return new Promise((resolve, reject) => {
+    const token = embeddedMcpToken ?? randomBytes(32).toString('hex');
+    embeddedMcpToken = token;
+
+    const startPromise = new Promise<IEmbeddedMcpServerHandle>((resolve, reject) => {
         const identity = createLocalMcpServerIdentity(0);
         identity.name = `${identity.name}_embedded`;
         identity.title = `${identity.title} Assistant`;
         const options = createDefaultMcpRequestOptions(identity);
-        const server = createServer(createHttpHandler(options, { bearerToken }));
+        const server = createServer(createHttpHandler(options, { bearerToken: token }));
+        // Track the binding server immediately so a shutdown racing the bind can always close it.
+        embeddedMcpServer = server;
         let settled = false;
+
+        const failStartup = (error: Error) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            if (embeddedMcpServer === server) {
+                embeddedMcpServer = null;
+                embeddedMcpServerDescriptor = null;
+            }
+            reject(error);
+        };
 
         server.on('error', (error) => {
             logger.error(`Embedded MCP server failed: ${getErrorMessage(error)}`);
-            if (!settled) {
-                settled = true;
-                embeddedMcpServer = null;
-                embeddedMcpServerDescriptor = null;
-                reject(error);
-            }
+            failStartup(error instanceof Error ? error : new Error(getErrorMessage(error)));
+        });
+        // If a shutdown closes the server mid-bind, Node aborts the bind and fires neither the
+        // listen callback nor 'error' — only 'close'. Settle here so awaiters don't hang forever.
+        server.on('close', () => {
+            failStartup(new Error('Embedded MCP server was shut down during startup.'));
         });
         server.listen(0, DEFAULT_MCP_HOST, () => {
+            if (settled) {
+                return;
+            }
+            // A shutdown that raced this bind has already detached the server.
+            if (embeddedMcpServer !== server) {
+                server.close();
+                failStartup(new Error('Embedded MCP server was shut down during startup.'));
+                return;
+            }
+
             const address = server.address() as AddressInfo | null;
             const port = address?.port;
             if (!port) {
-                embeddedMcpServer = null;
-                embeddedMcpServerDescriptor = null;
-                settled = true;
                 server.close();
-                reject(new Error('Embedded MCP server did not receive a port.'));
+                failStartup(new Error('Embedded MCP server did not receive a port.'));
                 return;
             }
 
@@ -226,23 +265,33 @@ export function startEmbeddedMcpServer(bearerToken: string): Promise<ILocalMcpSe
                 port,
                 url: `http://${identity.host}:${port}`,
             };
-            embeddedMcpServer = server;
             settled = true;
             logger.info(`Embedded MCP server ${identity.name} listening on ${embeddedMcpServerDescriptor.url}`);
-            resolve(embeddedMcpServerDescriptor);
+            resolve({
+                descriptor: embeddedMcpServerDescriptor,
+                token,
+            });
         });
+    }).finally(() => {
+        if (embeddedMcpStartPromise === startPromise) {
+            embeddedMcpStartPromise = null;
+        }
     });
+
+    embeddedMcpStartPromise = startPromise;
+    return startPromise;
 }
 
 export function shutdownEmbeddedMcpServer() {
     const server = embeddedMcpServer;
+    embeddedMcpServer = null;
+    embeddedMcpServerDescriptor = null;
+    embeddedMcpToken = null;
+    embeddedMcpStartPromise = null;
     if (!server) {
-        embeddedMcpServerDescriptor = null;
         return Promise.resolve();
     }
 
-    embeddedMcpServer = null;
-    embeddedMcpServerDescriptor = null;
     return new Promise<void>((resolve) => {
         server.close(() => resolve());
     });

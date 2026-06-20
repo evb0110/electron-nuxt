@@ -117,7 +117,10 @@ vi.mock('electron', () => ({
     shell: {openExternal: vi.fn()},
 }));
 
-vi.mock('child_process', () => ({spawn: mocks.spawn}));
+vi.mock('child_process', () => ({
+    spawn: mocks.spawn,
+    execFile: vi.fn(),
+}));
 
 vi.mock('@electron/settings', () => ({loadSettings: mocks.loadSettings}));
 
@@ -177,18 +180,18 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('keeps assistant chat messages scoped to the selected document', async () => {
-        const documentA: IAgentAssistantChatScope = {
+        const documentA = {
             kind: 'document',
             key: 'document:/tmp/a.pdf',
             title: 'a.pdf',
             documentRef: '/tmp/a.pdf',
-        };
-        const documentB: IAgentAssistantChatScope = {
+        } as const satisfies IAgentAssistantChatScope;
+        const documentB = {
             kind: 'document',
             key: 'document:/tmp/b.pdf',
             title: 'b.pdf',
             documentRef: '/tmp/b.pdf',
-        };
+        } as const satisfies IAgentAssistantChatScope;
         mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
         mocks.getCodexCliInfo.mockResolvedValue({
             installed: true,
@@ -199,8 +202,11 @@ describe('agent assistant opt-in gating', () => {
             managedInstallDir: '/tmp/codex',
         });
         mocks.startEmbeddedMcpServer.mockResolvedValue({
-            name: 'evb_viewer_embedded',
-            url: 'http://127.0.0.1:9876',
+            descriptor: {
+                name: 'evb_viewer_embedded',
+                url: 'http://127.0.0.1:9876',
+            },
+            token: 'test-mcp-token',
         });
         mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
 
@@ -237,24 +243,24 @@ describe('agent assistant opt-in gating', () => {
     it('evicts least-recently-used idle document chat sessions', async () => {
         vi.stubEnv('EVB_ASSISTANT_CHAT_SESSION_MAX_ENTRIES', '2');
         const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
-        const documentA: IAgentAssistantChatScope = {
+        const documentA = {
             kind: 'document',
             key: 'document:/tmp/a.pdf',
             title: 'a.pdf',
             documentRef: '/tmp/a.pdf',
-        };
-        const documentB: IAgentAssistantChatScope = {
+        } as const satisfies IAgentAssistantChatScope;
+        const documentB = {
             kind: 'document',
             key: 'document:/tmp/b.pdf',
             title: 'b.pdf',
             documentRef: '/tmp/b.pdf',
-        };
-        const documentC: IAgentAssistantChatScope = {
+        } as const satisfies IAgentAssistantChatScope;
+        const documentC = {
             kind: 'document',
             key: 'document:/tmp/c.pdf',
             title: 'c.pdf',
             documentRef: '/tmp/c.pdf',
-        };
+        } as const satisfies IAgentAssistantChatScope;
         mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
         mocks.getCodexCliInfo.mockResolvedValue({
             installed: true,
@@ -265,8 +271,11 @@ describe('agent assistant opt-in gating', () => {
             managedInstallDir: '/tmp/codex',
         });
         mocks.startEmbeddedMcpServer.mockResolvedValue({
-            name: 'evb_viewer_embedded',
-            url: 'http://127.0.0.1:9876',
+            descriptor: {
+                name: 'evb_viewer_embedded',
+                url: 'http://127.0.0.1:9876',
+            },
+            token: 'test-mcp-token',
         });
         mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
 

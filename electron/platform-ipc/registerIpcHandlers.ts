@@ -25,6 +25,7 @@ import type {
     IAgentAssistantImageAttachment,
     IAgentAssistantSendMessageRequest,
     IAgentAssistantStateRequest,
+    TAgentAssistantProviderId,
 } from '@contracts/agent';
 import { te } from '@electron/te';
 import {
@@ -138,6 +139,18 @@ function isAgentAssistantLoginRequest(request: unknown): request is IAgentAssist
     return isRecord(request) && (request.mode === 'chatgpt' || request.mode === 'device-code');
 }
 
+function isAgentAssistantProviderId(provider: unknown): provider is TAgentAssistantProviderId {
+    return provider === 'codex' || provider === 'claude';
+}
+
+function isOptionalAssistantSelection(request: Record<PropertyKey, unknown>) {
+    return (
+        (request.provider === undefined || isAgentAssistantProviderId(request.provider))
+        && (request.model === undefined || typeof request.model === 'string')
+        && (request.effort === undefined || typeof request.effort === 'string')
+    );
+}
+
 function isAgentAssistantChatScope(scope: unknown): scope is IAgentAssistantChatScope {
     return isRecord(scope)
         && scope.kind === 'document'
@@ -153,6 +166,7 @@ function isAgentAssistantStateRequest(request: unknown): request is IAgentAssist
         || request === null
         || (
             isRecord(request)
+            && isOptionalAssistantSelection(request)
             && (
                 request.scope === undefined
                 || request.scope === null
@@ -175,6 +189,7 @@ function isAgentAssistantImageAttachment(attachment: unknown): attachment is IAg
 function isAgentAssistantSendMessageRequest(request: unknown): request is IAgentAssistantSendMessageRequest {
     return isRecord(request)
         && typeof request.text === 'string'
+        && isOptionalAssistantSelection(request)
         && (
             request.scope === undefined
             || request.scope === null

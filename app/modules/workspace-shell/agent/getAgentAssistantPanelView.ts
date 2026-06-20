@@ -12,11 +12,11 @@ export function getAgentAssistantPanelView(
         return 'unsupported';
     }
 
-    if (!status.codexInstalled) {
+    if (status.installState !== 'installed') {
         return 'install';
     }
 
-    if (!status.codexVersionSupported) {
+    if (status.provider === 'codex' && !status.codexVersionSupported) {
         return 'update';
     }
 

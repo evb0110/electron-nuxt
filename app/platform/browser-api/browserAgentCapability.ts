@@ -1,8 +1,17 @@
 import type {
+    IAgentAssistantScopedRequest,
     IAgentAssistantState,
+    IAgentAssistantStateRequest,
     IAgentMcpIntegrationStatus,
 } from '@contracts/agent';
 import type { IAgentCapability } from '@contracts/agentCapability';
+import {
+    ASSISTANT_DEFAULT_EFFORT,
+    CLAUDE_ASSISTANT_EFFORTS,
+    CLAUDE_ASSISTANT_MODELS,
+    CODEX_ASSISTANT_EFFORTS,
+    CODEX_ASSISTANT_FALLBACK_MODELS,
+} from '@contracts/agentModels';
 
 export function createBrowserAgentMcpStatus(): IAgentMcpIntegrationStatus {
     return {
@@ -25,6 +34,56 @@ export function createBrowserAssistantState(): IAgentAssistantState {
         status: {
             supported: false,
             platform: 'browser',
+            provider: 'codex',
+            providerLabel: 'Codex',
+            providers: [
+                {
+                    id: 'codex',
+                    label: 'Codex',
+                    installState: 'unsupported',
+                    authState: 'unknown',
+                    runtimeState: 'stopped',
+                    models: [...CODEX_ASSISTANT_FALLBACK_MODELS],
+                    defaultModel: 'default',
+                    activeModel: 'default',
+                    modelSwitchMode: 'in-session',
+                    availableEfforts: [...CODEX_ASSISTANT_EFFORTS],
+                    defaultEffort: ASSISTANT_DEFAULT_EFFORT,
+                    activeEffort: ASSISTANT_DEFAULT_EFFORT,
+                    path: null,
+                    version: null,
+                    minimumVersion: '0.133.0',
+                    versionSupported: false,
+                    installUrl: 'https://developers.openai.com/codex/app',
+                    account: null,
+                },
+                {
+                    id: 'claude',
+                    label: 'Claude',
+                    installState: 'unsupported',
+                    authState: 'unknown',
+                    runtimeState: 'stopped',
+                    models: [...CLAUDE_ASSISTANT_MODELS],
+                    defaultModel: 'default',
+                    activeModel: 'default',
+                    modelSwitchMode: 'in-session',
+                    availableEfforts: [...CLAUDE_ASSISTANT_EFFORTS],
+                    defaultEffort: ASSISTANT_DEFAULT_EFFORT,
+                    activeEffort: ASSISTANT_DEFAULT_EFFORT,
+                    path: null,
+                    version: null,
+                    minimumVersion: null,
+                    versionSupported: false,
+                    installUrl: 'https://code.claude.com/docs/en/agent-sdk/overview',
+                    account: null,
+                },
+            ],
+            model: 'default',
+            modelLabel: 'Codex default',
+            models: [...CODEX_ASSISTANT_FALLBACK_MODELS],
+            modelSwitchMode: 'in-session',
+            effort: ASSISTANT_DEFAULT_EFFORT,
+            availableEfforts: [...CODEX_ASSISTANT_EFFORTS],
             installState: 'unsupported',
             codexInstalled: false,
             codexPath: null,
@@ -55,31 +114,31 @@ export function createBrowserAssistantState(): IAgentAssistantState {
     };
 }
 
-export const browserAgentCapability: IAgentCapability = {
-    onWorkspaceSnapshotRequest: () => () => {},
-    submitWorkspaceSnapshot: () => Promise.resolve(false),
-    onCommandRequest: () => () => {},
-    submitCommandResponse: () => Promise.resolve(false),
+export const browserAgentCapability = {
+    onWorkspaceSnapshotRequest: (_callback) => () => {},
+    submitWorkspaceSnapshot: (_response) => Promise.resolve(false),
+    onCommandRequest: (_callback) => () => {},
+    submitCommandResponse: (_response) => Promise.resolve(false),
     getMcpIntegrationStatus: () => Promise.resolve(createBrowserAgentMcpStatus()),
-    setMcpIntegrationEnabled: () => Promise.resolve({
+    setMcpIntegrationEnabled: (_enabled) => Promise.resolve({
         ok: false,
         status: createBrowserAgentMcpStatus(),
     }),
-    getAssistantState: () => Promise.resolve(createBrowserAssistantState()),
+    getAssistantState: (_request?: IAgentAssistantStateRequest) => Promise.resolve(createBrowserAssistantState()),
     installAssistantCodex: () => Promise.resolve({
         ok: false,
         state: createBrowserAssistantState(),
     }),
-    startAssistantLogin: () => Promise.resolve({
+    startAssistantLogin: (_request) => Promise.resolve({
         ok: false,
         state: createBrowserAssistantState(),
     }),
     cancelAssistantLogin: () => Promise.resolve(createBrowserAssistantState()),
-    sendAssistantMessage: () => Promise.resolve({
+    sendAssistantMessage: (_request) => Promise.resolve({
         ok: false,
         state: createBrowserAssistantState(),
     }),
-    interruptAssistant: () => Promise.resolve(createBrowserAssistantState()),
-    resetAssistantChat: () => Promise.resolve(createBrowserAssistantState()),
-    onAssistantEvent: () => () => {},
-};
+    interruptAssistant: (_request?: IAgentAssistantScopedRequest) => Promise.resolve(createBrowserAssistantState()),
+    resetAssistantChat: (_request?: IAgentAssistantScopedRequest) => Promise.resolve(createBrowserAssistantState()),
+    onAssistantEvent: (_callback) => () => {},
+} as const satisfies IAgentCapability;

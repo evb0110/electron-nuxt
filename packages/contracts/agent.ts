@@ -17,6 +17,9 @@ export type TAgentAssistantLoginMode = 'chatgpt' | 'device-code';
 export type TAgentAssistantMessageRole = 'user' | 'assistant' | 'system';
 export type TAgentAssistantEventType = 'state' | 'message' | 'message-delta' | 'turn-started' | 'turn-completed' | 'install-progress' | 'error';
 export type TAgentAssistantChatScopeKind = 'document';
+export type TAgentAssistantProviderId = 'codex' | 'claude';
+export type TAgentAssistantModelSwitchMode = 'none' | 'in-session';
+export type TAgentAssistantEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type TAgentWorkspaceMode = 'empty-workspace' | 'open-document' | 'documents-open-no-active-document';
 
 export interface IAgentDocumentOcrState {
@@ -220,6 +223,33 @@ export interface IAgentAssistantMcpStatus {
     toolCount: number;
 }
 
+export interface IAgentAssistantModelOption {
+    id: string;
+    label: string;
+}
+
+export interface IAgentAssistantProviderStatus {
+    id: TAgentAssistantProviderId;
+    label: string;
+    installState: TAgentAssistantInstallState;
+    authState: TAgentAssistantAuthState;
+    runtimeState: TAgentAssistantRuntimeState;
+    models: readonly IAgentAssistantModelOption[];
+    defaultModel: string;
+    activeModel: string;
+    modelSwitchMode: TAgentAssistantModelSwitchMode;
+    availableEfforts: readonly TAgentAssistantEffort[];
+    defaultEffort: TAgentAssistantEffort;
+    activeEffort: TAgentAssistantEffort;
+    path: string | null;
+    version: string | null;
+    minimumVersion: string | null;
+    versionSupported: boolean;
+    installUrl: string;
+    account: IAgentAssistantAccount | null;
+    error?: string;
+}
+
 export interface IAgentAssistantChatScope {
     kind: TAgentAssistantChatScopeKind;
     key: string;
@@ -231,6 +261,15 @@ export interface IAgentAssistantChatScope {
 export interface IAgentAssistantStatus {
     supported: boolean;
     platform: string;
+    provider: TAgentAssistantProviderId;
+    providerLabel: string;
+    providers: readonly IAgentAssistantProviderStatus[];
+    model: string;
+    modelLabel: string;
+    models: readonly IAgentAssistantModelOption[];
+    modelSwitchMode: TAgentAssistantModelSwitchMode;
+    effort: TAgentAssistantEffort;
+    availableEfforts: readonly TAgentAssistantEffort[];
     installState: TAgentAssistantInstallState;
     codexInstalled: boolean;
     codexPath: string | null;
@@ -281,7 +320,12 @@ export interface IAgentAssistantState {
     messages: IAgentAssistantChatMessage[];
 }
 
-export interface IAgentAssistantStateRequest {scope?: IAgentAssistantChatScope | null;}
+export interface IAgentAssistantStateRequest {
+    scope?: IAgentAssistantChatScope | null;
+    provider?: TAgentAssistantProviderId;
+    model?: string;
+    effort?: TAgentAssistantEffort;
+}
 
 export interface IAgentAssistantInstallResult {
     ok: boolean;
@@ -304,6 +348,9 @@ export interface IAgentAssistantLoginResult {
 export interface IAgentAssistantSendMessageRequest {
     text: string;
     scope?: IAgentAssistantChatScope | null;
+    provider?: TAgentAssistantProviderId;
+    model?: string;
+    effort?: TAgentAssistantEffort;
     attachments?: IAgentAssistantImageAttachment[];
 }
 
@@ -313,7 +360,12 @@ export interface IAgentAssistantSendMessageResult {
     error?: string;
 }
 
-export interface IAgentAssistantScopedRequest {scope?: IAgentAssistantChatScope | null;}
+export interface IAgentAssistantScopedRequest {
+    scope?: IAgentAssistantChatScope | null;
+    provider?: TAgentAssistantProviderId;
+    model?: string;
+    effort?: TAgentAssistantEffort;
+}
 
 export interface IAgentAssistantEvent {
     type: TAgentAssistantEventType;

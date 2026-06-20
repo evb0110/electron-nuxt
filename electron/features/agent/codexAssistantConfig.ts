@@ -29,11 +29,11 @@ function tomlString(value: string) {
     return JSON.stringify(value);
 }
 
-export function createAssistantCodexConfig(serverUrl: string) {
+export function createAssistantCodexConfig(serverUrl: string, reasoningEffort = 'high') {
     const enabledTools = ASSISTANT_MCP_TOOLS.map(tomlString).join(', ');
     return [
         'cli_auth_credentials_store = "file"',
-        'model_reasoning_effort = "low"',
+        `model_reasoning_effort = ${tomlString(reasoningEffort)}`,
         'web_search = "disabled"',
         'sandbox_mode = "read-only"',
         'approval_policy = "never"',
