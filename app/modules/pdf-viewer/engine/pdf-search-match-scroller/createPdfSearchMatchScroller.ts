@@ -4,7 +4,28 @@ import { logPdfNav } from '@app/utils/logPdfNav';
 import { delay } from 'es-toolkit/promise';
 import { getErrorMessage } from '@app/utils/error';
 
-interface ICurrentSearchMatch {pageIndex: number;}
+interface ICurrentSearchMatchWord {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+interface ICurrentSearchMatch {
+    pageIndex: number;
+    pageWidth?: number | undefined;
+    pageHeight?: number | undefined;
+    words?: ICurrentSearchMatchWord[] | undefined;
+}
+
+interface ICurrentSearchMatchMarkerRect {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}
+
+interface ISearchNavigationTargetOptions {markerRect?: ICurrentSearchMatchMarkerRect | null | undefined;}
 
 interface IPdfSearchMatchScrollerDeps {
     getContainer: () => HTMLElement | null;
@@ -13,11 +34,14 @@ interface IPdfSearchMatchScrollerDeps {
     scheduleRenderForSinglePage: (pageNumber: number) => void;
     scrollToPage?: (
         pageNumber: number,
-        options?: { preferExactDom?: boolean; },
+        options?: { preferExactDom?: boolean; } & ISearchNavigationTargetOptions,
     ) => void;
     suppressSnap?: () => void;
     beginSearchNavigation?: (pageNumber: number) => void;
-    revealSearchNavigationTarget?: (pageNumber: number) => void;
+    revealSearchNavigationTarget?: (
+        pageNumber: number,
+        options?: ISearchNavigationTargetOptions,
+    ) => void;
     endSearchNavigation?: (settleMs?: number) => void;
     isPageRenderPending?: (pageNumber: number) => boolean;
 }
@@ -38,6 +62,66 @@ const SEARCH_SCROLL_WAIT_EXTENSION_MS = 1000;
 const SEARCH_RENDER_REQUEST_RETRY_MS = 600;
 
 const SEARCH_SCROLL_SETTLE_MS = 120;
+
+function clampRatio(value: number) {
+    return Math.min(1, Math.max(0, value));
+}
+
+function resolveCurrentMatchMarkerRect(
+    currentMatch: ICurrentSearchMatch | null,
+    targetPageIndex: number,
+): ICurrentSearchMatchMarkerRect | null {
+    if (
+        !currentMatch
+        || currentMatch.pageIndex !== targetPageIndex
+        || !Array.isArray(currentMatch.words)
+        || currentMatch.words.length === 0
+        || typeof currentMatch.pageWidth !== 'number'
+        || !Number.isFinite(currentMatch.pageWidth)
+        || currentMatch.pageWidth <= 0
+        || typeof currentMatch.pageHeight !== 'number'
+        || !Number.isFinite(currentMatch.pageHeight)
+        || currentMatch.pageHeight <= 0
+    ) {
+        return null;
+    }
+
+    const boxes = currentMatch.words
+        .map((word) => ({
+            left: word.x,
+            top: word.y,
+            right: word.x + word.width,
+            bottom: word.y + word.height,
+        }))
+        .filter(box => (
+            Number.isFinite(box.left)
+            && Number.isFinite(box.top)
+            && Number.isFinite(box.right)
+            && Number.isFinite(box.bottom)
+            && box.right > box.left
+            && box.bottom > box.top
+        ));
+
+    if (boxes.length === 0) {
+        return null;
+    }
+
+    const left = Math.min(...boxes.map(box => box.left));
+    const top = Math.min(...boxes.map(box => box.top));
+    const right = Math.max(...boxes.map(box => box.right));
+    const bottom = Math.max(...boxes.map(box => box.bottom));
+    const normalizedLeft = clampRatio(left / currentMatch.pageWidth);
+    const normalizedTop = clampRatio(top / currentMatch.pageHeight);
+    const normalizedRight = clampRatio(right / currentMatch.pageWidth);
+    const normalizedBottom = clampRatio(bottom / currentMatch.pageHeight);
+
+    return {
+        left: normalizedLeft,
+        top: normalizedTop,
+        width: Math.max(0, normalizedRight - normalizedLeft),
+        height: Math.max(0, normalizedBottom - normalizedTop),
+    };
+}
 
 export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) {
     let requestCounter = 0;
@@ -252,11 +336,20 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
 
     function beginTargetPageNavigation(matchPageIndex: number) {
         const pageNumber = matchPageIndex + 1;
+        const markerRect = resolveCurrentMatchMarkerRect(
+            deps.getCurrentSearchMatch(),
+            matchPageIndex,
+        );
         logPdfNav(
-            `[PDF-NAV] revealing search target page=${pageNumber} before match-ready scroll`,
+            `[PDF-NAV] revealing search target page=${pageNumber} before match-ready scroll`
+            + ` marker=${markerRect ? 'true' : 'false'}`,
         );
         deps.beginSearchNavigation?.(pageNumber);
-        deps.revealSearchNavigationTarget?.(pageNumber);
+        if (markerRect) {
+            deps.revealSearchNavigationTarget?.(pageNumber, { markerRect });
+        } else {
+            deps.revealSearchNavigationTarget?.(pageNumber);
+        }
         deps.scheduleRenderForSinglePage(pageNumber);
         return Date.now();
     }
@@ -267,7 +360,14 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         );
         // Fallback keeps navigation deterministic even when highlight mapping is unavailable.
         deps.suppressSnap?.();
-        deps.scrollToPage?.(matchPageIndex + 1, { preferExactDom: true });
+        const markerRect = resolveCurrentMatchMarkerRect(
+            deps.getCurrentSearchMatch(),
+            matchPageIndex,
+        );
+        deps.scrollToPage?.(matchPageIndex + 1, {
+            preferExactDom: true,
+            ...(markerRect ? { markerRect } : {}),
+        });
         cancelActiveRequest(0);
     }
 

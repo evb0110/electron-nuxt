@@ -34,7 +34,10 @@ interface IUsePdfViewerRenderingRuntimeOptions {
     scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => void;
     suppressSnap: () => void;
     beginSearchNavigation: (pageNumber: number) => void;
-    revealSearchNavigationTarget: (pageNumber: number) => void;
+    revealSearchNavigationTarget: (
+        pageNumber: number,
+        options?: Pick<IScrollToPageOptions, 'markerRect'>,
+    ) => void;
     endSearchNavigation: (settleMs?: number) => void;
     searchPageMatches: ComputedRef<Map<number, IPdfPageMatches>>;
     currentSearchMatch: ComputedRef<IPdfSearchMatch | null>;

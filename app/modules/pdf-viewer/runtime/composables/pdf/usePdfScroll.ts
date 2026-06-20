@@ -11,6 +11,7 @@ import { getPageTop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPa
 import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
 
 type TPageLayoutMetrics = IPdfPageLayoutMetrics;
+type TMarkerTargetReapplyReason = 'arm' | 'mutation' | 'resize';
 
 export interface IScrollToPageOptions {
     preferExactDom?: boolean;
@@ -44,6 +45,20 @@ interface IViewportVisibilityCacheEntry {
     layoutMetrics: TPageLayoutMetrics | null;
     result: IViewportVisibilityResult;
 }
+
+interface IMarkerTargetReapplyState {
+    container: HTMLElement;
+    margin: number;
+    mutationObserver: MutationObserver | null;
+    observedTarget: HTMLElement | null;
+    options: IScrollToPageOptions;
+    pageNumber: number;
+    resizeObserver: ResizeObserver | null;
+    timer: ReturnType<typeof setTimeout> | null;
+    totalPages: number;
+}
+
+const MARKER_TARGET_REAPPLY_HOLD_MS = 2_000;
 
 function getLayoutPageTop(
     metrics: TPageLayoutMetrics,
@@ -92,10 +107,32 @@ function resolveMarkerScrollTop(options: {
         return Math.max(0, options.pageTop - options.margin);
     }
 
-    return Math.max(
-        0,
-        options.pageTop + markerCenter.y * options.pageHeight - options.containerHeight / 2,
+    return clampMarkerScrollTopToPageBounds({
+        desiredTop: Math.max(
+            0,
+            options.pageTop + markerCenter.y * options.pageHeight - options.containerHeight / 2,
+        ),
+        pageTop: options.pageTop,
+        pageHeight: options.pageHeight,
+        containerHeight: options.containerHeight,
+        margin: options.margin,
+    });
+}
+
+function clampMarkerScrollTopToPageBounds(options: {
+    desiredTop: number;
+    pageTop: number;
+    pageHeight: number;
+    containerHeight: number;
+    margin: number;
+}) {
+    const minTop = Math.max(0, options.pageTop - options.margin);
+    const maxTop = Math.max(
+        minTop,
+        options.pageTop + options.pageHeight + options.margin - options.containerHeight,
     );
+
+    return clamp(options.desiredTop, minTop, maxTop);
 }
 
 function resolveMarkerScrollLeft(options: {
@@ -177,6 +214,166 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
     });
     const pageLayoutMetrics = ref<TPageLayoutMetrics | null>(null);
     let viewportVisibilityCache: IViewportVisibilityCacheEntry | null = null;
+    let markerTargetReapplyState: IMarkerTargetReapplyState | null = null;
+
+    function clearMarkerTargetReapply() {
+        const state = markerTargetReapplyState;
+        if (!state) {
+            return;
+        }
+
+        state.mutationObserver?.disconnect();
+        state.resizeObserver?.disconnect();
+        if (state.timer !== null) {
+            clearTimeout(state.timer);
+        }
+        markerTargetReapplyState = null;
+    }
+
+    function applyDomScrollToPage(
+        container: HTMLElement,
+        targetPage: number,
+        margin: number,
+        options: IScrollToPageOptions | undefined,
+        reason: TMarkerTargetReapplyReason | 'scroll',
+    ) {
+        const targetEl = getPageContainerByNumber(container, targetPage);
+        if (!targetEl) {
+            return null;
+        }
+
+        const pageHeight = targetEl.offsetHeight || targetEl.clientHeight;
+        const pageWidth = targetEl.offsetWidth || targetEl.clientWidth;
+        const nextTop = resolveMarkerScrollTop({
+            pageTop: targetEl.offsetTop,
+            pageHeight,
+            containerHeight: container.clientHeight,
+            margin,
+            pageYRatio: options?.pageYRatio,
+            markerRect: options?.markerRect,
+        });
+        const nextLeft = resolveMarkerScrollLeft({
+            pageLeft: targetEl.offsetLeft,
+            pageWidth,
+            containerWidth: container.clientWidth,
+            margin,
+            markerRect: options?.markerRect,
+        });
+        logPdfNav(
+            `[PDF-NAV] usePdfScroll.scrollToPage source=dom targetPage=${targetPage}`
+            + ` reason=${reason}`
+            + ` offsetTop=${targetEl.offsetTop.toFixed(1)} margin=${margin.toFixed(1)}`
+            + ` marker=${options?.markerRect ? 'true' : 'false'}`
+            + ` pageY=${typeof options?.pageYRatio === 'number' ? options.pageYRatio.toFixed(3) : 'none'}`
+            + ` nextTop=${nextTop.toFixed(1)} scrollTop(before)=${container.scrollTop.toFixed(1)}`,
+        );
+        if (nextLeft !== null) {
+            container.scrollLeft = nextLeft;
+        }
+        container.scrollTop = nextTop;
+        currentPage.value = targetPage;
+        return targetEl;
+    }
+
+    function refreshMarkerTargetResizeObserver(
+        state: IMarkerTargetReapplyState,
+    ) {
+        const resizeObserver = state.resizeObserver;
+        if (!resizeObserver) {
+            return;
+        }
+
+        const targetEl = getPageContainerByNumber(state.container, state.pageNumber);
+        if (targetEl === state.observedTarget) {
+            return;
+        }
+
+        resizeObserver.disconnect();
+        state.observedTarget = targetEl;
+        if (targetEl) {
+            resizeObserver.observe(targetEl);
+        }
+    }
+
+    function reapplyMarkerTargetScroll(
+        state: IMarkerTargetReapplyState,
+        reason: TMarkerTargetReapplyReason,
+    ) {
+        if (markerTargetReapplyState !== state) {
+            return;
+        }
+
+        const targetEl = applyDomScrollToPage(
+            state.container,
+            state.pageNumber,
+            state.margin,
+            state.options,
+            reason,
+        );
+        if (targetEl) {
+            refreshMarkerTargetResizeObserver(state);
+        }
+    }
+
+    function armMarkerTargetReapply(
+        container: HTMLElement,
+        targetPage: number,
+        totalPages: number,
+        margin: number,
+        options?: IScrollToPageOptions,
+    ) {
+        if (!options?.markerRect) {
+            clearMarkerTargetReapply();
+            return;
+        }
+
+        clearMarkerTargetReapply();
+
+        const state: IMarkerTargetReapplyState = {
+            container,
+            margin,
+            mutationObserver: null,
+            observedTarget: null,
+            options,
+            pageNumber: targetPage,
+            resizeObserver: null,
+            timer: null,
+            totalPages,
+        };
+        markerTargetReapplyState = state;
+
+        if (typeof ResizeObserver !== 'undefined') {
+            state.resizeObserver = new ResizeObserver(() => {
+                reapplyMarkerTargetScroll(state, 'resize');
+            });
+        }
+        refreshMarkerTargetResizeObserver(state);
+
+        if (typeof MutationObserver !== 'undefined') {
+            state.mutationObserver = new MutationObserver(() => {
+                reapplyMarkerTargetScroll(state, 'mutation');
+            });
+            state.mutationObserver.observe(container, {
+                attributes: true,
+                attributeFilter: [
+                    'class',
+                    'data-page',
+                    'style',
+                ],
+                childList: true,
+                subtree: true,
+            });
+        }
+
+        state.timer = setTimeout(() => {
+            if (markerTargetReapplyState === state) {
+                clearMarkerTargetReapply();
+            }
+        }, MARKER_TARGET_REAPPLY_HOLD_MS);
+        (state.timer as { unref?: () => void }).unref?.();
+
+        reapplyMarkerTargetScroll(state, 'arm');
+    }
 
     function getPreviousPageFallback(totalPages: number) {
         return totalPages > 0
@@ -408,35 +605,8 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
         const targetEl = getPageContainerByNumber(container, targetPage);
 
         if (targetEl) {
-            const pageHeight = targetEl.offsetHeight || targetEl.clientHeight;
-            const pageWidth = targetEl.offsetWidth || targetEl.clientWidth;
-            const nextTop = resolveMarkerScrollTop({
-                pageTop: targetEl.offsetTop,
-                pageHeight,
-                containerHeight: container.clientHeight,
-                margin,
-                pageYRatio: options?.pageYRatio,
-                markerRect: options?.markerRect,
-            });
-            const nextLeft = resolveMarkerScrollLeft({
-                pageLeft: targetEl.offsetLeft,
-                pageWidth,
-                containerWidth: container.clientWidth,
-                margin,
-                markerRect: options?.markerRect,
-            });
-            logPdfNav(
-                `[PDF-NAV] usePdfScroll.scrollToPage source=dom targetPage=${targetPage}`
-                + ` offsetTop=${targetEl.offsetTop.toFixed(1)} margin=${margin.toFixed(1)}`
-                + ` marker=${options?.markerRect ? 'true' : 'false'}`
-                + ` pageY=${typeof options?.pageYRatio === 'number' ? options.pageYRatio.toFixed(3) : 'none'}`
-                + ` nextTop=${nextTop.toFixed(1)} scrollTop(before)=${container.scrollTop.toFixed(1)}`,
-            );
-            if (nextLeft !== null) {
-                container.scrollLeft = nextLeft;
-            }
-            container.scrollTop = nextTop;
-            currentPage.value = targetPage;
+            applyDomScrollToPage(container, targetPage, margin, options, 'scroll');
+            armMarkerTargetReapply(container, targetPage, totalPages, margin, options);
             return;
         }
 
@@ -473,9 +643,11 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
             );
             container.scrollTop = nextTop;
             currentPage.value = targetPage;
+            armMarkerTargetReapply(container, targetPage, totalPages, margin, options);
             return;
         }
 
+        clearMarkerTargetReapply();
         logPdfNav(
             '[PDF-NAV] usePdfScroll.scrollToPage failed: no DOM target and no layout metrics'
             + ` targetPage=${targetPage} totalPages=${totalPages}`,

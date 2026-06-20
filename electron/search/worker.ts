@@ -26,6 +26,7 @@ import { parsePageNumber } from '@contracts/pageNumbers';
 import type { IResolvedSearchMatchOptions } from '@contracts/search';
 import type { ICachedIndex } from '@electron/search/worker/ensureSearchIndex';
 import { ensureSearchIndex } from '@electron/search/worker/ensureSearchIndex';
+import { collectSearchMatchWords } from '@pdf-core';
 
 interface ISearchRequestContext extends IResolvedSearchMatchOptions {
     requestId: string;
@@ -478,6 +479,7 @@ function appendPageMatches(
         throwIfCancelled(context.requestId, context.signal);
         const startOffset = pageMatch.startOffset;
         const endOffset = pageMatch.endOffset;
+        const words = collectSearchMatchWords(page, startOffset, endOffset);
 
         results.push({
             pageNumber,
@@ -486,6 +488,9 @@ function appendPageMatches(
             startOffset,
             endOffset,
             excerpt: buildExcerpt(pageText, startOffset, endOffset),
+            ...(words !== undefined ? { words } : {}),
+            ...(words !== undefined && page.pageWidth !== undefined ? { pageWidth: page.pageWidth } : {}),
+            ...(words !== undefined && page.pageHeight !== undefined ? { pageHeight: page.pageHeight } : {}),
         });
 
         pageMatchIndex += 1;

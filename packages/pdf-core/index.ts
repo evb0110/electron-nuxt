@@ -27,6 +27,16 @@ export {
 export { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 export { iterateDecodedTiffFrames } from '@pdf-core/iterateDecodedTiffFrames';
 export {
+    extractPdfjsWordBoxesFromOperatorList,
+    getPdfjsPageViewBox,
+} from '@pdf-core/pdfjsTextGeometry';
+export type {
+    IPdfjsOperatorListLike,
+    IPdfjsPageViewBox,
+    TPdfjsTextOps,
+} from '@pdf-core/pdfjsTextGeometry';
+export { collectSearchMatchWords } from '@pdf-core/collectSearchMatchWords';
+export {
     buildTiffImageIfd,
     encodeTiffIfds,
     getTiffValueCount,

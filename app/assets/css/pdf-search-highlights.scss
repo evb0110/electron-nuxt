@@ -10,9 +10,33 @@
     margin: 0;
 }
 
+.pdfViewer :is(.textLayer, .text-layer) .pdf-search-highlight.appended {
+    position: initial;
+}
+
+.pdfViewer :is(.textLayer, .text-layer) .pdf-search-highlight.begin {
+    border-radius: 2px 0 0 2px;
+}
+
+.pdfViewer :is(.textLayer, .text-layer) .pdf-search-highlight.end {
+    border-radius: 0 2px 2px 0;
+}
+
+.pdfViewer :is(.textLayer, .text-layer) .pdf-search-highlight.middle {
+    border-radius: 0;
+}
+
 .pdfViewer .pdf-search-highlight--current {
     background-color: var(--app-pdf-search-highlight-current-bg);
     outline-offset: 0;
+}
+
+.pdf-word-box {
+    border-radius: 1px;
+}
+
+.pdf-word-box--current {
+    outline: none;
 }
 
 /* ── Dark Mode – Class-Based ───────────────────────────────────────── */
@@ -31,7 +55,6 @@
 
     .pdf-search-highlight--current {
         background-color: var(--app-pdf-search-highlight-current-bg);
-        outline: 2px solid var(--app-pdf-search-highlight-current-outline);
     }
 }
 

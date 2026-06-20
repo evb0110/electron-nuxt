@@ -27,7 +27,10 @@ import {
     buildOcrTextLayerIndexText,
 } from '@contracts/ocrText';
 import { extractTextFromPdf } from '@electron/search/extractTextFromPdf';
-import { extractTextWithPdfjs } from '@electron/search/extractTextWithPdfjs';
+import {
+    extractTextWithPdfjs,
+    extractTextWithPdfjsWordBoxes,
+} from '@electron/search/extractTextWithPdfjs';
 import {
     abortErrorFromSignal,
     isAbortError,
@@ -40,7 +43,6 @@ import {
 } from '@electron/utils/atomicReplace';
 import {
     COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
-    loadCompactSearchIndex,
     persistCompactSearchIndexBestEffort,
 } from '@electron/search/searchIndexSidecar';
 import { ensureNativeSearchIndexBestEffort } from '@electron/search/nativeSearchIndex';
@@ -68,8 +70,7 @@ export interface IPdfSearchIndex {
 
 const log = createLogger('indexBuilder');
 
-const STORE_WORD_BOXES = false;
-export const SEARCH_INDEX_SCHEMA_VERSION = 4;
+export const SEARCH_INDEX_SCHEMA_VERSION = 5;
 const SEARCH_PDFJS_FIRST_MAX_BYTES = (() => {
     const parsed = Number.parseInt(process.env.EVB_SEARCH_PDFJS_FIRST_MAX_MB ?? '96', 10);
     if (!Number.isFinite(parsed) || parsed < 16) {
@@ -124,15 +125,6 @@ function ocrWordsOrUndefined(value: unknown) {
     return Array.isArray(value) && value.every(isOcrWord)
         ? value
         : undefined;
-}
-
-async function statMtimeMs(filePath: string) {
-    try {
-        const fileStat = await stat(filePath);
-        return finiteNumberOrUndefined(fileStat.mtimeMs);
-    } catch {
-        return undefined;
-    }
 }
 
 function resolveManifestPagePath(
@@ -225,10 +217,16 @@ function parseOcrPagePayload(payload: unknown): IOcrIndexV2Page | null {
         pageNumber: isPositiveInteger(payload.pageNumber) ? payload.pageNumber : 0,
         rotation: 0,
         render: {
-            dpi: 0,
+            dpi: isRecord(payload.render)
+                ? finiteNumberOrUndefined(payload.render.dpi) ?? 0
+                : 0,
             imagePx: {
-                w: 0,
-                h: 0,
+                w: isRecord(payload.render) && isRecord(payload.render.imagePx)
+                    ? finiteNumberOrUndefined(payload.render.imagePx.w) ?? 0
+                    : 0,
+                h: isRecord(payload.render) && isRecord(payload.render.imagePx)
+                    ? finiteNumberOrUndefined(payload.render.imagePx.h) ?? 0
+                    : 0,
             },
         },
         text: typeof payload.text === 'string' ? payload.text : '',
@@ -237,87 +235,16 @@ function parseOcrPagePayload(payload: unknown): IOcrIndexV2Page | null {
     return page;
 }
 
-function getManifestPageNumbers(
-    manifest: IOcrIndexV2Manifest,
-    expectedCount: number | undefined,
-) {
-    return Object.keys(manifest.pages)
-        .map(rawPageNumber => Number.parseInt(rawPageNumber, 10))
-        .filter(pageNumber => (
-            Number.isInteger(pageNumber)
-            && isExpectedPageNumber(pageNumber, expectedCount)
-        ))
-        .sort((a, b) => a - b);
-}
-
-async function loadCompactOcrIndexText(
-    pdfPath: string,
-    manifest: IOcrIndexV2Manifest,
-    manifestMtimeMs: number | undefined,
-    expectedCount: number | undefined,
-    onPageIndexed?: (page: IPageIndex) => void,
-    signal?: AbortSignal,
-) {
-    const manifestPageNumbers = getManifestPageNumbers(manifest, expectedCount);
-    if (manifestPageNumbers.length === 0) {
-        return null;
-    }
-
-    const expectedPageCount = isPositiveInteger(expectedCount)
-        ? expectedCount
-        : manifest.pageCount;
-    const loadOptions: Parameters<typeof loadCompactSearchIndex>[1] = { expectedPageCount };
-    if (manifestMtimeMs !== undefined) {
-        loadOptions.minSourceMtimeMs = manifestMtimeMs;
-    }
-    loadOptions.requiredTextSource = {
-        kind: COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
-        version: OCR_TEXT_LAYER_INDEX_VERSION,
-    };
-    if (signal !== undefined) {
-        loadOptions.signal = signal;
-    }
-
-    const compactIndex = await loadCompactSearchIndex(pdfPath, loadOptions);
-    if (!compactIndex || compactIndex.pageCount !== manifest.pageCount) {
-        return null;
-    }
-
-    const expectedPageSet = new Set(manifestPageNumbers);
-    const pageTexts = new Map<number, string>();
-    for (const page of compactIndex.pages) {
-        throwIfAborted(signal);
-        if (expectedPageSet.has(page.pageNumber)) {
-            pageTexts.set(page.pageNumber, page.text);
-        }
-    }
-
-    if (pageTexts.size !== manifestPageNumbers.length) {
-        return null;
-    }
-
-    for (const pageNumber of manifestPageNumbers) {
-        const text = pageTexts.get(pageNumber) ?? '';
-        onPageIndexed?.({
-            pageNumber,
-            text,
-        });
-    }
-
-    log.debug(`Loaded compact OCR search index with ${pageTexts.size} pages for ${pdfPath}`);
-    return pageTexts;
-}
-
 /**
- * Load OCR v2 index text for all pages.
- * Returns a Map of pageNumber -> text, or null if no v2 index exists.
+ * Load OCR v2 index pages with geometry for all pages.
+ * Returns a Map of pageNumber -> page index, or null if no v2 index exists.
  */
-async function loadOcrIndexText(
+async function loadOcrIndexPages(
     pdfPath: string,
     expectedCount?: number,
     onPageIndexed?: (page: IPageIndex) => void,
     signal?: AbortSignal,
-): Promise<Map<number, string> | null> {
+): Promise<Map<number, IPageIndex> | null> {
     throwIfAborted(signal);
     const ocrDir = `${pdfPath}.ocr`;
     const manifestPath = join(ocrDir, 'manifest.json');
@@ -338,19 +265,7 @@ async function loadOcrIndexText(
             return null;
         }
 
-        const compactPageTexts = await loadCompactOcrIndexText(
-            pdfPath,
-            manifest,
-            await statMtimeMs(manifestPath),
-            expectedCount,
-            onPageIndexed,
-            signal,
-        );
-        if (compactPageTexts) {
-            return compactPageTexts;
-        }
-
-        const pageTexts = new Map<number, string>();
+        const pagesByNumber = new Map<number, IPageIndex>();
 
         for (const [
             pageNumStr,
@@ -400,16 +315,20 @@ async function loadOcrIndexText(
                 const text = words.length > 0
                     ? buildOcrTextLayerIndexText(words)
                     : pageData.text || '';
-                pageTexts.set(pageNum, text);
-                onPageIndexed?.({
+                const indexedPage: IPageIndex = {
                     pageNumber: pageNum,
                     text,
-                });
+                    ...(pageData.render.imagePx.w > 0 ? { pageWidth: pageData.render.imagePx.w } : {}),
+                    ...(pageData.render.imagePx.h > 0 ? { pageHeight: pageData.render.imagePx.h } : {}),
+                    ...(words.length > 0 ? { words } : {}),
+                };
+                pagesByNumber.set(pageNum, indexedPage);
+                onPageIndexed?.(indexedPage);
             }
         }
 
-        log.debug(`Loaded OCR v2 index with ${pageTexts.size} pages from ${ocrDir}`);
-        return pageTexts;
+        log.debug(`Loaded OCR v2 index with ${pagesByNumber.size} pages from ${ocrDir}`);
+        return pagesByNumber;
     } catch (err) {
         if (isAbortError(err)) {
             throw err;
@@ -508,20 +427,14 @@ function parseSearchIndexPayload(payload: unknown, expectedPdfPath: string): IPd
     return normalizedIndex;
 }
 
-function pagesFromOcrTexts(
-    ocrTexts: Map<number, string>,
+function pagesFromOcrIndexPages(
+    ocrPages: Map<number, IPageIndex>,
     signal?: AbortSignal,
 ): IPageIndex[] {
     const pages: IPageIndex[] = [];
-    for (const [
-        pageNumber,
-        text,
-    ] of ocrTexts) {
+    for (const page of ocrPages.values()) {
         throwIfAborted(signal);
-        pages.push({
-            pageNumber,
-            text,
-        });
+        pages.push(page);
     }
     return sortBy(pages, ['pageNumber']);
 }
@@ -561,14 +474,14 @@ async function persistIndexBestEffort(
     }
 }
 
-async function buildIndexFromOcrTexts(
+async function buildIndexFromOcrPages(
     pdfPath: string,
-    ocrTexts: Map<number, string>,
+    ocrPages: Map<number, IPageIndex>,
     expectedCount: number | undefined,
     signal?: AbortSignal,
 ): Promise<IPdfSearchIndex> {
-    log.debug(`Using OCR v2 index with ${ocrTexts.size} pages`);
-    const pages = pagesFromOcrTexts(ocrTexts, signal);
+    log.debug(`Using OCR v2 index with ${ocrPages.size} pages`);
+    const pages = pagesFromOcrIndexPages(ocrPages, signal);
 
     const index: IPdfSearchIndex = {
         schemaVersion: SEARCH_INDEX_SCHEMA_VERSION,
@@ -607,9 +520,22 @@ function seedFromExistingIndex(
             text: page.text ?? '',
             ...(page.pageWidth !== undefined ? { pageWidth: page.pageWidth } : {}),
             ...(page.pageHeight !== undefined ? { pageHeight: page.pageHeight } : {}),
-            ...(STORE_WORD_BOXES && page.words !== undefined ? { words: page.words } : {}),
+            ...(page.words !== undefined ? { words: page.words } : {}),
         },
     ]));
+}
+
+function hasAnyWordGeometry(pagesByNumber: Map<number, IPageIndex>) {
+    return Array.from(pagesByNumber.values()).some(page => (
+        Array.isArray(page.words)
+        && page.words.length > 0
+        && typeof page.pageWidth === 'number'
+        && Number.isFinite(page.pageWidth)
+        && page.pageWidth > 0
+        && typeof page.pageHeight === 'number'
+        && Number.isFinite(page.pageHeight)
+        && page.pageHeight > 0
+    ));
 }
 
 function shouldExtractPdfText(
@@ -620,11 +546,17 @@ function shouldExtractPdfText(
     if (!existing) {
         return true;
     }
+    if (existing.schemaVersion !== SEARCH_INDEX_SCHEMA_VERSION) {
+        return true;
+    }
     const hasAnyText = Array.from(pagesByNumber.values()).some(p => (p.text ?? '').length > 0);
     if (!hasAnyText) {
         return true;
     }
     if (isPositiveInteger(expectedCount) && pagesByNumber.size < expectedCount) {
+        return true;
+    }
+    if (!hasAnyWordGeometry(pagesByNumber)) {
         return true;
     }
     return false;
@@ -655,6 +587,75 @@ function applyExtractedTexts(
         }
     }
     return nextPages;
+}
+
+function applyExtractedPages(
+    pagesByNumber: Map<number, IPageIndex>,
+    extractedPages: IPageIndex[],
+    signal?: AbortSignal,
+): Map<number, IPageIndex> {
+    const nextPages = new Map(pagesByNumber);
+    for (const extractedPage of extractedPages) {
+        throwIfAborted(signal);
+        const previous = nextPages.get(extractedPage.pageNumber);
+        const text = extractedPage.text.length > 0
+            ? extractedPage.text
+            : previous?.text ?? '';
+        nextPages.set(extractedPage.pageNumber, {
+            pageNumber: extractedPage.pageNumber,
+            text,
+            ...(extractedPage.pageWidth !== undefined ? { pageWidth: extractedPage.pageWidth } : {}),
+            ...(extractedPage.pageHeight !== undefined ? { pageHeight: extractedPage.pageHeight } : {}),
+            ...(extractedPage.words !== undefined ? { words: extractedPage.words } : {}),
+        });
+    }
+    return nextPages;
+}
+
+async function seedFromPdfjsWordBoxes(
+    pdfPath: string,
+    pagesByNumber: Map<number, IPageIndex>,
+    expectedCount: number | undefined,
+    signal?: AbortSignal,
+    onPageIndexed?: (page: IPageIndex) => void,
+): Promise<{
+    pagesByNumber: Map<number, IPageIndex>;
+    hasText: boolean;
+}> {
+    try {
+        log.debug(`Seeding index with pdfjs-dist word geometry (pageCount=${expectedCount ?? 'unknown'})`);
+        let hasText = false;
+        let nextPagesByNumber = pagesByNumber;
+        const extractOptions: Parameters<typeof extractTextWithPdfjsWordBoxes>[1] = {
+            collectPages: false,
+            onPageText: (pageText) => {
+                hasText ||= pageText.text.length > 0;
+                nextPagesByNumber = applyExtractedPages(nextPagesByNumber, [pageText], signal);
+                const page = nextPagesByNumber.get(pageText.pageNumber);
+                if (page) {
+                    onPageIndexed?.(page);
+                }
+            },
+        };
+        if (signal !== undefined) {
+            extractOptions.signal = signal;
+        }
+        await extractTextWithPdfjsWordBoxes(pdfPath, extractOptions);
+        return {
+            pagesByNumber: nextPagesByNumber,
+            hasText,
+        };
+    } catch (pdfjsErr) {
+        if (isAbortError(pdfjsErr)) {
+            throw pdfjsErr;
+        }
+        const errMsg = getErrorMessage(pdfjsErr);
+        log.warn(`Failed to extract text geometry with pdfjs-dist: ${errMsg}`);
+        return {
+            pagesByNumber,
+            hasText: false,
+        };
+    }
 }
 
 async function seedFromPdfjs(
@@ -766,8 +767,19 @@ async function seedPagesFromPdfText(
     signal?: AbortSignal,
     onPageIndexed?: (page: IPageIndex) => void,
 ): Promise<Map<number, IPageIndex>> {
+    const seededWithWordBoxes = await seedFromPdfjsWordBoxes(
+        pdfPath,
+        pagesByNumber,
+        expectedCount,
+        signal,
+        onPageIndexed,
+    );
+    if (seededWithWordBoxes.hasText) {
+        return seededWithWordBoxes.pagesByNumber;
+    }
+
     if (await shouldPreferPdftotextFirst(pdfPath)) {
-        const seeded = await seedFromPdftotext(pdfPath, pagesByNumber, expectedCount, signal, onPageIndexed);
+        const seeded = await seedFromPdftotext(pdfPath, seededWithWordBoxes.pagesByNumber, expectedCount, signal, onPageIndexed);
         if (seeded.hasText) {
             return seeded.pagesByNumber;
         }
@@ -780,7 +792,7 @@ async function seedPagesFromPdfText(
         )).pagesByNumber;
     }
 
-    const seeded = await seedFromPdfjs(pdfPath, pagesByNumber, expectedCount, signal, onPageIndexed);
+    const seeded = await seedFromPdfjs(pdfPath, seededWithWordBoxes.pagesByNumber, expectedCount, signal, onPageIndexed);
     if (seeded.hasText) {
         return seeded.pagesByNumber;
     }
@@ -845,7 +857,7 @@ function mergePageData(
         if (page.pageHeight !== undefined) {
             indexedPage.pageHeight = page.pageHeight;
         }
-        if (STORE_WORD_BOXES) {
+        if (page.words.length > 0) {
             indexedPage.words = page.words;
         }
         onPageIndexed?.(indexedPage);
@@ -895,9 +907,9 @@ export async function buildSearchIndex(
 
     // Try OCR v2 index first - this is the preferred source for OCR'd PDFs
     // as it matches the text layer that PDF.js will display
-    const ocrTexts = await loadOcrIndexText(pdfPath, expectedCount, onPageIndexed, signal);
-    if (ocrTexts && ocrTexts.size > 0) {
-        return buildIndexFromOcrTexts(pdfPath, ocrTexts, expectedCount, signal);
+    const ocrPages = await loadOcrIndexPages(pdfPath, expectedCount, onPageIndexed, signal);
+    if (ocrPages && ocrPages.size > 0) {
+        return buildIndexFromOcrPages(pdfPath, ocrPages, expectedCount, signal);
     }
 
     throwIfAborted(signal);

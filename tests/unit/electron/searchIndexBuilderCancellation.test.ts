@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     atomicReplace: vi.fn(),
     extractTextFromPdf: vi.fn(),
     extractTextWithPdfjs: vi.fn(),
+    extractTextWithPdfjsWordBoxes: vi.fn(),
     loadCompactSearchIndex: vi.fn(),
     persistCompactSearchIndex: vi.fn(),
     persistCompactSearchIndexBestEffort: vi.fn(),
@@ -31,7 +32,10 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('@electron/search/extractTextFromPdf', () => ({extractTextFromPdf: mocks.extractTextFromPdf}));
 
-vi.mock('@electron/search/extractTextWithPdfjs', () => ({extractTextWithPdfjs: mocks.extractTextWithPdfjs}));
+vi.mock('@electron/search/extractTextWithPdfjs', () => ({
+    extractTextWithPdfjs: mocks.extractTextWithPdfjs,
+    extractTextWithPdfjsWordBoxes: mocks.extractTextWithPdfjsWordBoxes,
+}));
 
 vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: mocks.atomicReplace,
@@ -78,6 +82,7 @@ describe('buildSearchIndex cancellation', () => {
         mocks.loadCompactSearchIndex.mockResolvedValue(null);
         mocks.persistCompactSearchIndex.mockResolvedValue(undefined);
         mocks.persistCompactSearchIndexBestEffort.mockResolvedValue(undefined);
+        mocks.extractTextWithPdfjsWordBoxes.mockResolvedValue([]);
     });
 
     it('forwards signal to PDF text extractors', async () => {
@@ -98,7 +103,7 @@ describe('buildSearchIndex cancellation', () => {
             signal: controller.signal,
         });
 
-        expect(mocks.extractTextWithPdfjs).toHaveBeenCalledWith('/tmp/file.pdf', {
+        expect(mocks.extractTextWithPdfjsWordBoxes).toHaveBeenCalledWith('/tmp/file.pdf', {
             signal: controller.signal,
             collectPages: false,
             onPageText: expect.any(Function),
@@ -124,6 +129,7 @@ describe('buildSearchIndex cancellation', () => {
                 signal: controller.signal,
             }),
         ).rejects.toMatchObject({ name: 'AbortError' });
+        expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
         expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
         expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
     });
@@ -131,7 +137,7 @@ describe('buildSearchIndex cancellation', () => {
     it('rethrows AbortError from pdfjs extraction and skips fallback extraction', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         const abortError = createAbortError();
-        mocks.extractTextWithPdfjs.mockRejectedValue(abortError);
+        mocks.extractTextWithPdfjsWordBoxes.mockRejectedValue(abortError);
 
         await expect(
             buildSearchIndex('/tmp/file.pdf', [], {
@@ -139,6 +145,7 @@ describe('buildSearchIndex cancellation', () => {
                 signal: new AbortController().signal,
             }),
         ).rejects.toBe(abortError);
+        expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
         expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
     });
 });
@@ -152,22 +159,41 @@ describe('buildSearchIndex assembly', () => {
         mocks.writeFile.mockResolvedValue(undefined);
         mocks.loadCompactSearchIndex.mockResolvedValue(null);
         mocks.persistCompactSearchIndexBestEffort.mockResolvedValue(undefined);
+        mocks.extractTextWithPdfjsWordBoxes.mockResolvedValue([]);
     });
 
     it('skips PDF text extraction when existing index already covers expected pages', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         const cachedIndex = {
-            schemaVersion: 4,
+            schemaVersion: 5,
             pdfPath: '/tmp/file.pdf',
             createdAt: 1,
             pages: [
                 {
                     pageNumber: 1,
                     text: 'cached one',
+                    pageWidth: 100,
+                    pageHeight: 100,
+                    words: [{
+                        text: 'cached',
+                        x: 0,
+                        y: 0,
+                        width: 10,
+                        height: 10,
+                    }],
                 },
                 {
                     pageNumber: 2,
                     text: 'cached two',
+                    pageWidth: 100,
+                    pageHeight: 100,
+                    words: [{
+                        text: 'cached',
+                        x: 0,
+                        y: 0,
+                        width: 10,
+                        height: 10,
+                    }],
                 },
             ],
             pageCount: 2,
@@ -182,6 +208,7 @@ describe('buildSearchIndex assembly', () => {
         const result = await buildSearchIndex('/tmp/file.pdf', [], { pageCount: 2 });
 
         expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
+        expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
         expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
         expect(result.pages).toEqual([
             expect.objectContaining({
@@ -388,7 +415,7 @@ describe('buildSearchIndex assembly', () => {
             }),
         ]);
         expect(result.pageCount).toBe(2);
-        expect(result.schemaVersion).toBe(4);
+        expect(result.schemaVersion).toBe(5);
         expect(result.textSource).toEqual({
             kind: 'ocr-v2-text-layer',
             version: 1,
@@ -412,7 +439,7 @@ describe('buildSearchIndex assembly', () => {
         }, undefined);
     });
 
-    it('uses a fresh compact OCR search sidecar before reading page JSON', async () => {
+    it('reads OCR page JSON instead of compact text-only sidecar so geometry is preserved', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         mocks.existsSync.mockReturnValue(true);
         const manifest = {
@@ -435,7 +462,45 @@ describe('buildSearchIndex assembly', () => {
             if (path.endsWith('manifest.json')) {
                 return JSON.stringify(manifest);
             }
-            throw new Error(`Unexpected page JSON read: ${path}`);
+            if (path.endsWith('page-1.json')) {
+                return JSON.stringify({
+                    pageNumber: 1,
+                    render: {
+                        dpi: 300,
+                        imagePx: {
+                            w: 100,
+                            h: 200,
+                        },
+                    },
+                    words: [{
+                        text: 'json',
+                        x: 1,
+                        y: 2,
+                        width: 3,
+                        height: 4,
+                    }],
+                });
+            }
+            if (path.endsWith('page-2.json')) {
+                return JSON.stringify({
+                    pageNumber: 2,
+                    render: {
+                        dpi: 300,
+                        imagePx: {
+                            w: 100,
+                            h: 200,
+                        },
+                    },
+                    words: [{
+                        text: 'geometry',
+                        x: 5,
+                        y: 6,
+                        width: 7,
+                        height: 8,
+                    }],
+                });
+            }
+            throw new Error(`Unexpected JSON read: ${path}`);
         });
         mocks.stat.mockResolvedValue({
             size: 0,
@@ -461,35 +526,38 @@ describe('buildSearchIndex assembly', () => {
             onPageIndexed,
         });
 
-        expect(mocks.loadCompactSearchIndex).toHaveBeenCalledWith('/tmp/file.pdf', {
-            expectedPageCount: 2,
-            minSourceMtimeMs: 10,
-            requiredTextSource: {
-                kind: 1,
-                version: 1,
-            },
-        });
-        expect(mocks.readFile).toHaveBeenCalledOnce();
+        expect(mocks.loadCompactSearchIndex).not.toHaveBeenCalled();
+        expect(mocks.readFile).toHaveBeenCalledTimes(3);
         expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
         expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
         expect(result.pages).toEqual([
             expect.objectContaining({
                 pageNumber: 1,
-                text: 'compact one',
+                text: 'json \n',
+                pageWidth: 100,
+                pageHeight: 200,
+                words: [expect.objectContaining({ text: 'json' })],
             }),
             expect.objectContaining({
                 pageNumber: 2,
-                text: 'compact two',
+                text: 'geometry \n',
+                pageWidth: 100,
+                pageHeight: 200,
+                words: [expect.objectContaining({ text: 'geometry' })],
             }),
         ]);
-        expect(onPageIndexed).toHaveBeenCalledWith({
+        expect(onPageIndexed).toHaveBeenCalledWith(expect.objectContaining({
             pageNumber: 1,
-            text: 'compact one',
-        });
-        expect(onPageIndexed).toHaveBeenCalledWith({
+            text: 'json \n',
+            pageWidth: 100,
+            pageHeight: 200,
+        }));
+        expect(onPageIndexed).toHaveBeenCalledWith(expect.objectContaining({
             pageNumber: 2,
-            text: 'compact two',
-        });
+            text: 'geometry \n',
+            pageWidth: 100,
+            pageHeight: 200,
+        }));
     });
 
     it('ignores stale OCR v2 sidecar pages outside the current page count', async () => {

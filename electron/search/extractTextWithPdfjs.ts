@@ -17,12 +17,19 @@ import '@electron/search/domPolyfill';
 import {
     getDocument,
     GlobalWorkerOptions,
+    OPS,
 } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
 import { collapseRepeatedPdfSearchPageText } from '@contracts/search';
+import { buildOcrTextLayerIndexText } from '@contracts/ocrText';
 import type { IPageText } from '@electron/search/pageText';
+import type { IOcrWord } from '@contracts/shared';
+import {
+    extractPdfjsWordBoxesFromOperatorList,
+    getPdfjsPageViewBox,
+} from '@pdf-core';
 
 function resolvePdfjsFakeWorkerSrc() {
     // pdfjs's Node fallback dynamically imports workerSrc; the default
@@ -54,6 +61,18 @@ const PDFJS_MAX_INPUT_BYTES = (() => {
 interface IExtractPdfjsTextOptions {
     signal?: AbortSignal;
     onPageText?: (page: IPageText) => void;
+    collectPages?: boolean;
+}
+
+export interface IPageTextWithWordBoxes extends IPageText {
+    words: IOcrWord[];
+    pageWidth: number;
+    pageHeight: number;
+}
+
+interface IExtractPdfjsWordBoxOptions {
+    signal?: AbortSignal;
+    onPageText?: (page: IPageTextWithWordBoxes) => void;
     collectPages?: boolean;
 }
 
@@ -95,6 +114,74 @@ async function withAbortSignal<T>(
             },
         );
     });
+}
+
+export async function extractTextWithPdfjsWordBoxes(
+    pdfPath: string,
+    options: IExtractPdfjsWordBoxOptions = {},
+): Promise<IPageTextWithWordBoxes[]> {
+    const {
+        signal,
+        onPageText,
+        collectPages = !onPageText,
+    } = options;
+    log.debug(`Extracting pdfjs-dist text geometry: ${pdfPath}`);
+    throwIfAborted(signal);
+
+    const fileStat = await stat(pdfPath);
+    if (fileStat.size > PDFJS_MAX_INPUT_BYTES) {
+        throw new Error(`PDF is too large for pdfjs text geometry extraction (${fileStat.size} bytes)`);
+    }
+
+    const data = new Uint8Array(await readFile(pdfPath, signal ? {signal} : undefined));
+    throwIfAborted(signal);
+    const loadingTask = getDocument({data});
+    const doc = await withAbortSignal(loadingTask.promise, signal, () => {
+        void loadingTask.destroy();
+    });
+
+    try {
+        const pages: IPageTextWithWordBoxes[] = [];
+        let extractedPageCount = 0;
+
+        for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
+            throwIfAborted(signal);
+            const page = await withAbortSignal(doc.getPage(pageNumber), signal, () => {
+                void doc.destroy();
+            });
+            const pageBox = getPdfjsPageViewBox(page);
+            const operatorList = await withAbortSignal(page.getOperatorList(), signal, () => {
+                void doc.destroy();
+            });
+            throwIfAborted(signal);
+
+            const words = extractPdfjsWordBoxesFromOperatorList(
+                operatorList,
+                pageBox,
+                OPS,
+                {throwIfAborted: () => throwIfAborted(signal)},
+            );
+            const pageText = buildOcrTextLayerIndexText(words);
+            const pageWithGeometry: IPageTextWithWordBoxes = {
+                pageNumber,
+                text: pageText,
+                words,
+                pageWidth: pageBox.pageWidth,
+                pageHeight: pageBox.pageHeight,
+            };
+
+            extractedPageCount += 1;
+            if (collectPages) {
+                pages.push(pageWithGeometry);
+            }
+            onPageText?.(pageWithGeometry);
+        }
+
+        log.debug(`Extracted ${extractedPageCount} pages with pdfjs-dist geometry`);
+        return pages;
+    } finally {
+        await doc.destroy();
+    }
 }
 
 export async function extractTextWithPdfjs(

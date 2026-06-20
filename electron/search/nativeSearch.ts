@@ -30,6 +30,12 @@ import {
     NATIVE_SEARCH_INDEX_SCHEMA_VERSION,
     getNativeSearchIndexPath,
 } from '@electron/search/nativeSearchIndex';
+import {
+    SEARCH_INDEX_SCHEMA_VERSION,
+    loadSearchIndex,
+    type IPdfSearchIndex,
+} from '@electron/search/indexBuilder';
+import { collectSearchMatchWords } from '@pdf-core';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
@@ -298,6 +304,58 @@ function createNativeSearchArgs(indexPath: string, options: INativeSearchOptions
     return args;
 }
 
+function hasSearchIndexGeometry(index: IPdfSearchIndex | null) {
+    if (!index || index.schemaVersion !== SEARCH_INDEX_SCHEMA_VERSION) {
+        return false;
+    }
+
+    return index.pages.some(page => (
+        Array.isArray(page.words)
+        && page.words.length > 0
+        && typeof page.pageWidth === 'number'
+        && Number.isFinite(page.pageWidth)
+        && page.pageWidth > 0
+        && typeof page.pageHeight === 'number'
+        && Number.isFinite(page.pageHeight)
+        && page.pageHeight > 0
+    ));
+}
+
+function attachGeometryToNativeResponse(
+    nativeResult: INativeSearchResult,
+    searchIndex: IPdfSearchIndex,
+) {
+    const pagesByNumber = new Map(searchIndex.pages.map(page => [
+        page.pageNumber,
+        page,
+    ]));
+
+    return {
+        ...nativeResult,
+        response: {
+            ...nativeResult.response,
+            results: nativeResult.response.results.map((result) => {
+                const page = pagesByNumber.get(Number(result.pageNumber));
+                if (!page) {
+                    return result;
+                }
+
+                const words = collectSearchMatchWords(page, result.startOffset, result.endOffset);
+                if (!words) {
+                    return result;
+                }
+
+                return {
+                    ...result,
+                    words,
+                    ...(page.pageWidth !== undefined ? { pageWidth: page.pageWidth } : {}),
+                    ...(page.pageHeight !== undefined ? { pageHeight: page.pageHeight } : {}),
+                };
+            }),
+        },
+    };
+}
+
 export async function tryRunNativeSearch(options: INativeSearchOptions): Promise<INativeSearchResult | null> {
     if (isNativeSearchDisabled() || !isNativeSearchSupportedOptions(options)) {
         return null;
@@ -310,6 +368,11 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
 
     const freshIndex = await isNativeSearchIndexFresh(options.pdfPath, options.pageCount);
     if (!freshIndex) {
+        return null;
+    }
+
+    const searchIndex = await loadSearchIndex(options.pdfPath);
+    if (!hasSearchIndexGeometry(searchIndex)) {
         return null;
     }
 
@@ -328,5 +391,8 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
     );
 
     const parsed: unknown = JSON.parse(result.stdout ?? '');
-    return parseNativeSearchResponse(parsed);
+    const nativeResult = parseNativeSearchResponse(parsed);
+    return nativeResult && searchIndex
+        ? attachGeometryToNativeResponse(nativeResult, searchIndex)
+        : nativeResult;
 }

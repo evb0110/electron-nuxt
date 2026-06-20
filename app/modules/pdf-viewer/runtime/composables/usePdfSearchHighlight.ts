@@ -6,7 +6,8 @@ import {
     buildRunMatchOverlaps,
     clearDomHighlights,
     getCachedTextLayerIndex,
-    highlightTextInSpan,
+    highlightTextRunInPdfjsStyle,
+    resetTextLayerMappedText,
     scrollToHighlight,
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 import type {
@@ -28,7 +29,7 @@ import { buildVisualMatchesWithCurrent } from '@app/modules/pdf-viewer/engine/se
 const HIGHLIGHT_CLASS = 'pdf-search-highlight';
 const HIGHLIGHT_CURRENT_CLASS = 'pdf-search-highlight--current';
 
-const HIGHLIGHT_API_NAME = 'pdf-searchMatch';
+const HIGHLIGHT_API_NAME = 'pdf-search-match';
 const HIGHLIGHT_API_CURRENT_NAME = 'pdf-search-current-match';
 
 interface IHighlightResult {
@@ -114,9 +115,8 @@ function renderDomHighlights(
             continue;
         }
 
-        const elements = highlightTextInSpan(
-            run.span,
-            run.startOffset,
+        const elements = highlightTextRunInPdfjsStyle(
+            run,
             matchesWithCurrent,
             HIGHLIGHT_CLASS,
             HIGHLIGHT_CURRENT_CLASS,
@@ -138,6 +138,7 @@ export const usePdfSearchHighlight = () => {
     function clearHighlights(container: HTMLElement) {
         clearHighlightAPIForLayer(cssState, container, HIGHLIGHT_API_NAME, HIGHLIGHT_API_CURRENT_NAME);
         clearDomHighlights(container, HIGHLIGHT_CLASS);
+        resetTextLayerMappedText(container);
     }
 
     function highlightPage(

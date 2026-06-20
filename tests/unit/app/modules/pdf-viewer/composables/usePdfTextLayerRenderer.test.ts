@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {
     beforeEach,
     describe,
@@ -6,6 +8,7 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
+import type { PDFPageProxy } from 'pdfjs-dist';
 import { cast } from '@tests/helpers/cast';
 import { toPageIndex } from '@contracts/pageNumbers';
 
@@ -24,6 +27,11 @@ const highlightPageMock = vi.fn<THighlightPageMock>(() => ({
 }));
 const renderPageWordBoxesMock = vi.fn();
 const clearWordBoxesMock = vi.fn();
+const ocrTextContentMock = vi.hoisted(() => ({
+    getOcrTextContent: vi.fn(),
+    hasPageOcrData: vi.fn(),
+}));
+const textLayerRuntimeMock = vi.hoisted(() => ({sources: [] as unknown[]}));
 
 vi.stubGlobal('DOMMatrix', class {
     a = 1;
@@ -45,7 +53,33 @@ vi.mock('@app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes', () => ({u
     renderOcrDebugBoxes: vi.fn(),
 })}));
 
-vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent', () => ({useOcrTextContent: () => ({getOcrTextContent: vi.fn()})}));
+vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent', () => ({useOcrTextContent: () => ocrTextContentMock}));
+
+vi.mock('@app/services/pdfjs/runtimeLib', () => ({TextLayer: class {
+    textDivs: HTMLElement[] = [];
+    textContentItemsStr: string[] = [];
+
+    constructor(private readonly options: {
+        textContentSource: {items?: Array<{str?: unknown}>};
+        container: HTMLElement;
+    }) {
+        textLayerRuntimeMock.sources.push(options.textContentSource);
+    }
+
+    async render() {
+        const items = this.options.textContentSource.items ?? [];
+        for (const item of items) {
+            const text = String(item.str ?? '');
+            const span = document.createElement('span');
+            span.textContent = text;
+            this.options.container.append(span);
+            this.textDivs.push(span);
+            this.textContentItemsStr.push(text);
+        }
+    }
+
+    cancel() {}
+}}));
 
 vi.mock('@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss', () => ({
     getHighlightMode: () => 'dom',
@@ -84,13 +118,116 @@ function domRectLike(options: {
 describe('usePdfTextLayerRenderer', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        ocrTextContentMock.getOcrTextContent.mockReset();
+        ocrTextContentMock.hasPageOcrData.mockReset();
+        ocrTextContentMock.hasPageOcrData.mockResolvedValue(false);
+        vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+            callback(performance.now());
+            return 0;
+        });
+        vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+        textLayerRuntimeMock.sources.length = 0;
         highlightPageMock.mockReturnValue({
             elements: [],
             currentMatchRanges: [],
         });
     });
 
-    it('keeps repeated words with different geometry in fallback word-box rendering', () => {
+    it('prefers embedded pdf.js text content over OCR sidecar text when a page already has text', async () => {
+        const nativeTextContent = {
+            items: [{
+                str: 'native pdf text',
+                hasEOL: false,
+            }],
+            styles: {},
+        };
+        const ocrTextContent = {
+            items: [{
+                str: 'sidecar ocr text',
+                hasEOL: false,
+            }],
+            styles: {},
+        };
+        const pdfPage = cast<PDFPageProxy>({
+            pageNumber: 1,
+            getTextContent: vi.fn(async () => nativeTextContent),
+            streamTextContent: vi.fn(),
+        });
+        ocrTextContentMock.hasPageOcrData.mockResolvedValue(true);
+        ocrTextContentMock.getOcrTextContent.mockResolvedValue(ocrTextContent);
+
+        const renderer = usePdfTextLayerRenderer({
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref('/tmp/ocr.pdf'),
+            effectiveScale: ref(1),
+        });
+        const textLayerDiv = document.createElement('div');
+
+        await renderer.renderTextLayer(
+            pdfPage,
+            textLayerDiv,
+            cast({}),
+            1,
+            1,
+            1,
+        );
+
+        expect(pdfPage.getTextContent).toHaveBeenCalledWith({
+            includeMarkedContent: true,
+            disableNormalization: true,
+        });
+        expect(ocrTextContentMock.getOcrTextContent).not.toHaveBeenCalled();
+        expect(textLayerRuntimeMock.sources[0]).toBe(nativeTextContent);
+        expect(textLayerDiv.textContent).toBe('native pdf text');
+    });
+
+    it('uses OCR sidecar text only when pdf.js has no usable text for that page', async () => {
+        const nativeTextContent = {
+            items: [{
+                str: '   ',
+                hasEOL: false,
+            }],
+            styles: {},
+        };
+        const ocrTextContent = {
+            items: [{
+                str: 'sidecar ocr text',
+                hasEOL: false,
+            }],
+            styles: {},
+        };
+        const pdfPage = cast<PDFPageProxy>({
+            pageNumber: 1,
+            getTextContent: vi.fn(async () => nativeTextContent),
+            streamTextContent: vi.fn(),
+        });
+        ocrTextContentMock.hasPageOcrData.mockResolvedValue(true);
+        ocrTextContentMock.getOcrTextContent.mockResolvedValue(ocrTextContent);
+
+        const renderer = usePdfTextLayerRenderer({
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref('/tmp/scanned.pdf'),
+            effectiveScale: ref(1),
+        });
+        const textLayerDiv = document.createElement('div');
+
+        await renderer.renderTextLayer(
+            pdfPage,
+            textLayerDiv,
+            cast({}),
+            1,
+            1,
+            1,
+        );
+
+        expect(ocrTextContentMock.getOcrTextContent).toHaveBeenCalledTimes(1);
+        expect(textLayerRuntimeMock.sources[0]).toBe(ocrTextContent);
+        expect(textLayerDiv.textContent).toBe('sidecar ocr text');
+    });
+
+    it('prefers geometry word boxes and keeps repeated words with different boxes', () => {
         const pageMatches = new Map([[
             0,
             {
@@ -125,7 +262,19 @@ describe('usePdfTextLayerRenderer', () => {
 
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(pageMatches),
-            currentSearchMatch: ref(null),
+            currentSearchMatch: ref({
+                pageIndex: toPageIndex(0),
+                matchIndex: 0,
+                startOffset: 4,
+                endOffset: 7,
+                words: [{
+                    text: 'foo',
+                    x: 60,
+                    y: 20,
+                    width: 30,
+                    height: 12,
+                }],
+            }),
             workingCopyPath: ref(null),
             effectiveScale: ref(1),
         });
@@ -138,6 +287,7 @@ describe('usePdfTextLayerRenderer', () => {
         );
 
         expect(renderPageWordBoxesMock).toHaveBeenCalledTimes(1);
+        expect(highlightPageMock).not.toHaveBeenCalled();
         const words = renderPageWordBoxesMock.mock.calls[0]?.[1] as Array<{
             text: string;
             x: number;
@@ -145,6 +295,9 @@ describe('usePdfTextLayerRenderer', () => {
         expect(words).toHaveLength(2);
         expect(words[0]?.x).toBe(10);
         expect(words[1]?.x).toBe(60);
+        const currentWords = renderPageWordBoxesMock.mock.calls[0]?.[4] as Set<string>;
+        expect(currentWords.has('foo|10|20|30|12')).toBe(false);
+        expect(currentWords.has('foo|60|20|30|12')).toBe(true);
     });
 
     it('maps applyAllSearchHighlights by mounted page numbers instead of DOM order', () => {
@@ -322,11 +475,68 @@ describe('usePdfTextLayerRenderer', () => {
         expect(highlightPageMock).toHaveBeenCalledTimes(1);
     });
 
+    it('repaints geometry highlights when the page DOM loses word boxes without a signature change', () => {
+        const pageMatches = new Map([[
+            0,
+            {
+                pageIndex: toPageIndex(0),
+                pageText: 'История',
+                searchQuery: 'история',
+                signatureToken: 'page-0-geometry',
+                matches: [{
+                    matchIndex: 0,
+                    start: 0,
+                    end: 7,
+                    words: [{
+                        text: 'История',
+                        x: 10,
+                        y: 20,
+                        width: 90,
+                        height: 24,
+                    }],
+                    pageWidth: 600,
+                    pageHeight: 800,
+                }],
+            },
+        ]]);
+        const renderer = usePdfTextLayerRenderer({
+            searchPageMatches: ref(pageMatches),
+            currentSearchMatch: ref({
+                pageIndex: toPageIndex(0),
+                matchIndex: 0,
+                pageMatchIndex: 0,
+                startOffset: 0,
+                endOffset: 7,
+            }),
+            workingCopyPath: ref(null),
+            effectiveScale: ref(1),
+        });
+        const textLayer = cast<HTMLElement>({dataset: {pdfTextLayerReady: 'true'}});
+        const page = cast<HTMLElement>({
+            dataset: {page: '1'},
+            querySelector: (selector: string) => selector === '.text-layer'
+                ? textLayer
+                : null,
+        });
+        const root = cast<HTMLElement>({querySelectorAll: (selector: string) => (
+            selector === '.page_container'
+                ? [page]
+                : []
+        )});
+
+        renderer.applyAllSearchHighlights(root);
+        renderer.applyAllSearchHighlights(root);
+
+        expect(renderPageWordBoxesMock).toHaveBeenCalledTimes(2);
+        expect(highlightPageMock).not.toHaveBeenCalled();
+    });
+
     it('refreshes same-page current highlights before measuring scroll geometry', () => {
-        vi.stubGlobal('window', {getComputedStyle: () => ({
+        vi.spyOn(window, 'getComputedStyle').mockReturnValue(cast<CSSStyleDeclaration>({
             paddingTop: '20px',
             paddingBottom: '20px',
-        })});
+            getPropertyValue: () => '',
+        }));
 
         const oldCurrentMarkRect = domRectLike({
             top: 189,
@@ -437,5 +647,168 @@ describe('usePdfTextLayerRenderer', () => {
         expect(didScroll).toBe(true);
         expect(highlightPageMock).toHaveBeenCalledTimes(2);
         expect(root.scrollTop).toBeGreaterThan(7900);
+    });
+
+    it('reveals the current match horizontally when it is outside the viewport', () => {
+        const currentMark = cast<HTMLElement>({getBoundingClientRect: () => domRectLike({
+            left: 1500,
+            top: 500,
+            width: 80,
+            height: 20,
+        })});
+        const pageMatches = new Map([[
+            0,
+            {
+                pageIndex: toPageIndex(0),
+                pageText: 'История',
+                searchQuery: 'история',
+                matches: [{
+                    matchIndex: 0,
+                    start: 0,
+                    end: 7,
+                }],
+            },
+        ]]);
+        const renderer = usePdfTextLayerRenderer({
+            searchPageMatches: ref(pageMatches),
+            currentSearchMatch: ref({
+                pageIndex: toPageIndex(0),
+                matchIndex: 0,
+                pageMatchIndex: 0,
+                startOffset: 0,
+                endOffset: 7,
+            }),
+            workingCopyPath: ref(null),
+            effectiveScale: ref(1),
+        });
+
+        const textLayer = cast<HTMLElement>({
+            dataset: {pdfTextLayerReady: 'true'},
+            querySelector: (selector: string) => selector === '.pdf-search-highlight--current'
+                ? currentMark
+                : null,
+        });
+        const page = cast<HTMLElement>({
+            dataset: {page: '1'},
+            offsetTop: 1000,
+            offsetHeight: 2000,
+            querySelector: (selector: string) => selector === '.text-layer'
+                ? textLayer
+                : null,
+        });
+        const root = cast<HTMLElement>({
+            scrollTop: 1000,
+            scrollLeft: 0,
+            clientHeight: 800,
+            clientWidth: 1000,
+            scrollWidth: 2200,
+            querySelector: (selector: string) => selector === '.page_container[data-page="1"]'
+                ? page
+                : null,
+            querySelectorAll: (selector: string) => selector === '.page_container'
+                ? [page]
+                : [],
+            getBoundingClientRect: () => domRectLike({
+                left: 300,
+                top: 100,
+                width: 1000,
+                height: 800,
+            }),
+        });
+
+        const didScroll = renderer.scrollToCurrentMatch(root);
+
+        expect(didScroll).toBe(true);
+        expect(root.scrollLeft).toBeGreaterThan(0);
+    });
+
+    it('scrolls from current match word geometry when the current DOM marker is not rendered yet', () => {
+        const pageMatches = new Map([[
+            0,
+            {
+                pageIndex: toPageIndex(0),
+                pageText: 'История',
+                searchQuery: 'история',
+                matches: [{
+                    matchIndex: 0,
+                    start: 0,
+                    end: 7,
+                    words: [{
+                        text: 'История',
+                        x: 800,
+                        y: 100,
+                        width: 80,
+                        height: 20,
+                    }],
+                    pageWidth: 1000,
+                    pageHeight: 1000,
+                }],
+            },
+        ]]);
+        const renderer = usePdfTextLayerRenderer({
+            searchPageMatches: ref(pageMatches),
+            currentSearchMatch: ref({
+                pageIndex: toPageIndex(0),
+                matchIndex: 0,
+                pageMatchIndex: 0,
+                startOffset: 0,
+                endOffset: 7,
+            }),
+            workingCopyPath: ref(null),
+            effectiveScale: ref(1),
+        });
+
+        const canvas = cast<HTMLCanvasElement>({
+            offsetWidth: 2000,
+            offsetHeight: 2000,
+            getBoundingClientRect: () => domRectLike({
+                left: 300,
+                top: 100,
+                width: 2000,
+                height: 2000,
+            }),
+        });
+        const textLayer = cast<HTMLElement>({
+            dataset: {pdfTextLayerReady: 'true'},
+            querySelector: () => null,
+        });
+        const page = cast<HTMLElement>({
+            dataset: {page: '1'},
+            offsetTop: 0,
+            offsetHeight: 2000,
+            querySelector: (selector: string) => {
+                if (selector === '.text-layer') {
+                    return textLayer;
+                }
+                if (selector === 'canvas') {
+                    return canvas;
+                }
+                return null;
+            },
+        });
+        const root = cast<HTMLElement>({
+            scrollTop: 0,
+            scrollLeft: 0,
+            clientHeight: 800,
+            clientWidth: 1000,
+            scrollWidth: 2400,
+            querySelector: (selector: string) => selector === '.page_container[data-page="1"]'
+                ? page
+                : null,
+            querySelectorAll: (selector: string) => selector === '.page_container'
+                ? [page]
+                : [],
+            getBoundingClientRect: () => domRectLike({
+                left: 300,
+                top: 100,
+                width: 1000,
+                height: 800,
+            }),
+        });
+
+        const didScroll = renderer.scrollToCurrentMatch(root);
+
+        expect(didScroll).toBe(true);
+        expect(root.scrollLeft).toBeGreaterThan(1000);
     });
 });

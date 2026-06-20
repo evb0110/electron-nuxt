@@ -87,6 +87,12 @@ export const usePdfSearch = () => {
             mix(Math.round(match.pageWidth ?? 0));
             mix(Math.round(match.pageHeight ?? 0));
             mix(match.words?.length ?? 0);
+            match.words?.forEach((word) => {
+                mix(Math.round(word.x * 100));
+                mix(Math.round(word.y * 100));
+                mix(Math.round(word.width * 100));
+                mix(Math.round(word.height * 100));
+            });
         });
 
         return `${pageMatchData.pageIndex}:${pageMatchData.matches.length}:${hash >>> 0}`;
@@ -105,6 +111,37 @@ export const usePdfSearch = () => {
             && first.startOffset === second.startOffset
             && first.endOffset === second.endOffset
             && (first.pageMatchIndex ?? null) === (second.pageMatchIndex ?? null);
+    }
+
+    function buildSearchMatchGeometrySignature(match: IPdfSearchMatch | null) {
+        if (!match) {
+            return 'null';
+        }
+
+        let hash = 2166136261;
+        const mix = (value: number) => {
+            hash ^= value >>> 0;
+            hash = Math.imul(hash, 16777619);
+        };
+
+        mix(Math.round(match.pageWidth ?? 0));
+        mix(Math.round(match.pageHeight ?? 0));
+        mix(match.words?.length ?? 0);
+        match.words?.forEach((word) => {
+            mix(Math.round(word.x * 100));
+            mix(Math.round(word.y * 100));
+            mix(Math.round(word.width * 100));
+            mix(Math.round(word.height * 100));
+        });
+
+        return String(hash >>> 0);
+    }
+
+    function isSameSearchMatchGeometry(
+        first: IPdfSearchMatch | null,
+        second: IPdfSearchMatch | null,
+    ) {
+        return buildSearchMatchGeometrySignature(first) === buildSearchMatchGeometrySignature(second);
     }
 
     function findSearchMatchTargetIndex(
@@ -162,6 +199,9 @@ export const usePdfSearch = () => {
                 endOffset: result.endOffset,
                 ...(result.pageMatchIndex !== undefined ? { pageMatchIndex: result.pageMatchIndex } : {}),
                 ...(result.excerpt !== undefined ? { excerpt: result.excerpt } : {}),
+                ...(result.words !== undefined ? { words: result.words } : {}),
+                ...(result.pageWidth !== undefined ? { pageWidth: result.pageWidth } : {}),
+                ...(result.pageHeight !== undefined ? { pageHeight: result.pageHeight } : {}),
             };
         });
 
@@ -188,6 +228,9 @@ export const usePdfSearch = () => {
                     matchIndex: result.matchIndex,
                     start: result.startOffset,
                     end: result.endOffset,
+                    ...(result.words !== undefined ? { words: result.words } : {}),
+                    ...(result.pageWidth !== undefined ? { pageWidth: result.pageWidth } : {}),
+                    ...(result.pageHeight !== undefined ? { pageHeight: result.pageHeight } : {}),
                 })),
             };
 
@@ -236,6 +279,12 @@ export const usePdfSearch = () => {
         );
         if (preservedCurrentResultIndex >= 0) {
             currentResultIndex.value = preservedCurrentResultIndex;
+            if (!isSameSearchMatchGeometry(
+                previousCurrentResult,
+                normalizedResponse.results[preservedCurrentResultIndex] ?? null,
+            )) {
+                currentResultNavigationId.value += 1;
+            }
         } else if (currentResultIndex.value >= normalizedResponse.results.length) {
             currentResultIndex.value = normalizedResponse.results.length - 1;
             currentResultNavigationId.value += 1;

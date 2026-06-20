@@ -6,18 +6,25 @@ import { clamp } from 'es-toolkit/math';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
+    IOcrWord,
 } from '@app/types/pdf';
+import type { TextContent } from 'pdfjs-dist/types/src/display/api';
 import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
 import { useTextLayerSelection } from '@app/modules/pdf-viewer/runtime/composables/useTextLayerSelection';
 import { usePdfWordBoxes } from '@app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes';
 import { useOcrTextContent } from '@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent';
 import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
+import { transformWordBox } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox';
 import {
     getHighlightMode,
     isHighlightDebugEnabled as isHighlightDebugEnabledFromStorage,
     isHighlightDebugVerboseEnabled as isHighlightDebugVerboseEnabledFromStorage,
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss';
-import { clearTextLayerIndexCache } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
+import {
+    clearTextLayerIndexCache,
+    clearTextLayerTextMapping,
+    registerTextLayerTextMapping,
+} from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { measureDevPerf } from '@app/utils/devPerf';
 import { logPdfNav } from '@app/utils/logPdfNav';
@@ -49,6 +56,10 @@ interface IHighlightDebugGuard {
     query: string;
     scale: number;
 }
+
+type TTextLayerTextContentSource = TextContent | ReadableStream;
+
+type TPageMatchEntry = IPdfPageMatches['matches'][number];
 
 interface IHighlightDebugRects {
     canvasRect: DOMRect;
@@ -94,7 +105,10 @@ export const usePdfTextLayerRenderer = (deps: {
         clearOcrDebugBoxes,
         renderOcrDebugBoxes,
     } = usePdfWordBoxes();
-    const { getOcrTextContent } = useOcrTextContent();
+    const {
+        getOcrTextContent,
+        hasPageOcrData,
+    } = useOcrTextContent();
 
     let lastHighlightDebugKey: string | null = null;
     const pageHighlightState: IPageHighlightSignatureState = {
@@ -140,6 +154,87 @@ export const usePdfTextLayerRenderer = (deps: {
         return Array.from(wordsByKey.values());
     }
 
+    function isSamePageMatchEntry(
+        match: TPageMatchEntry,
+        matchIndex: number,
+        currentMatchValue: IPdfSearchMatch,
+    ) {
+        return matchIndex === currentMatchValue.pageMatchIndex
+            || match.matchIndex === currentMatchValue.matchIndex
+            || (
+                match.start === currentMatchValue.startOffset
+                && match.end === currentMatchValue.endOffset
+            );
+    }
+
+    function resolveCurrentMatchWords(
+        pageMatchData: IPdfPageMatches | null,
+        currentMatchValue: IPdfSearchMatch | null,
+        pageIndex: number,
+    ): IOcrWord[] {
+        if (!currentMatchValue || currentMatchValue.pageIndex !== pageIndex) {
+            return [];
+        }
+
+        if (Array.isArray(currentMatchValue.words) && currentMatchValue.words.length > 0) {
+            return currentMatchValue.words;
+        }
+
+        const currentPageMatch = pageMatchData?.matches.find((match, index) => (
+            isSamePageMatchEntry(match, index, currentMatchValue)
+        ));
+
+        return currentPageMatch?.words ?? [];
+    }
+
+    function hasRenderableGeometryMatch(match: TPageMatchEntry): match is TPageMatchEntry & {
+        pageHeight: number;
+        pageWidth: number;
+        words: IOcrWord[];
+    } {
+        return Array.isArray(match.words)
+            && match.words.length > 0
+            && typeof match.pageWidth === 'number'
+            && Number.isFinite(match.pageWidth)
+            && match.pageWidth > 0
+            && typeof match.pageHeight === 'number'
+            && Number.isFinite(match.pageHeight)
+            && match.pageHeight > 0;
+    }
+
+    function hasRenderableCurrentMatchGeometry(
+        currentMatchValue: IPdfSearchMatch | null,
+        pageIndex: number,
+    ): currentMatchValue is IPdfSearchMatch & {
+        pageWidth: number;
+        pageHeight: number;
+        words: IOcrWord[];
+    } {
+        return Boolean(
+            currentMatchValue
+            && currentMatchValue.pageIndex === pageIndex
+            && Array.isArray(currentMatchValue.words)
+            && currentMatchValue.words.length > 0
+            && typeof currentMatchValue.pageWidth === 'number'
+            && Number.isFinite(currentMatchValue.pageWidth)
+            && currentMatchValue.pageWidth > 0
+            && typeof currentMatchValue.pageHeight === 'number'
+            && Number.isFinite(currentMatchValue.pageHeight)
+            && currentMatchValue.pageHeight > 0,
+        );
+    }
+
+    function computeWordsGeometryHash(words: IOcrWord[] | undefined) {
+        return words?.reduce((hash, word) => {
+            let nextHash = hash;
+            nextHash = Math.imul(nextHash ^ Math.round(word.x * 100), 16777619);
+            nextHash = Math.imul(nextHash ^ Math.round(word.y * 100), 16777619);
+            nextHash = Math.imul(nextHash ^ Math.round(word.width * 100), 16777619);
+            nextHash = Math.imul(nextHash ^ Math.round(word.height * 100), 16777619);
+            return nextHash >>> 0;
+        }, 2166136261) ?? 0;
+    }
+
     function buildCurrentMatchSignature(currentMatchValue: IPdfSearchMatch) {
         return [
             'current',
@@ -148,6 +243,7 @@ export const usePdfTextLayerRenderer = (deps: {
             currentMatchValue.startOffset,
             currentMatchValue.endOffset,
             currentMatchValue.words?.length ?? 0,
+            computeWordsGeometryHash(currentMatchValue.words),
         ].join(':');
     }
 
@@ -189,27 +285,104 @@ export const usePdfTextLayerRenderer = (deps: {
             return;
         }
 
-        const firstMatch = pageMatchData.matches.at(0);
-        const firstMatchWords = firstMatch?.words ?? [];
-        if (!firstMatch || firstMatchWords.length === 0) {
+        const geometryMatch = pageMatchData.matches.find(hasRenderableGeometryMatch);
+        const currentGeometryMatch = hasRenderableCurrentMatchGeometry(currentMatchValue, pageIndex)
+            ? currentMatchValue
+            : null;
+        const geometrySource = geometryMatch ?? currentGeometryMatch;
+        if (!geometrySource) {
+            logPdfNav(
+                `[PDF-NAV] renderWordBoxesForPageMatch: page=${pageIndex + 1} no geometry source`
+                + ` pageMatches=${pageMatchData.matches.length}`
+                + ` pageWordMatches=${pageMatchData.matches.filter(match => Array.isArray(match.words) && match.words.length > 0).length}`
+                + ` currentWords=${currentMatchValue?.words?.length ?? 0}`
+                + ` currentPage=${currentMatchValue?.pageIndex ?? 'null'}`,
+            );
             return;
         }
 
-        const allWords = collectWordsFromPageMatches(pageMatchData);
+        const wordsByKey = new Map(collectWordsFromPageMatches(pageMatchData).map(word => [
+            buildWordKey(word),
+            word,
+        ]));
+        currentGeometryMatch?.words.forEach((word) => {
+            wordsByKey.set(buildWordKey(word), word);
+        });
+        const allWords = Array.from(wordsByKey.values());
         const currentMatchWords = new Set<string>();
-        if (currentMatchValue && currentMatchValue.pageIndex === pageIndex && currentMatchValue.words) {
-            currentMatchValue.words.forEach((word) => {
-                currentMatchWords.add(word.text);
-            });
-        }
+        resolveCurrentMatchWords(pageMatchData, currentMatchValue, pageIndex).forEach((word) => {
+            currentMatchWords.add(buildWordKey(word));
+        });
+
+        logPdfNav(
+            `[PDF-NAV] renderWordBoxesForPageMatch: page=${pageIndex + 1}`
+            + ` words=${allWords.length}`
+            + ` currentWords=${currentMatchWords.size}`
+            + ` source=${geometryMatch ? 'page' : 'current'}`
+            + ` pageSize=${geometrySource.pageWidth.toFixed(2)}x${geometrySource.pageHeight.toFixed(2)}`,
+        );
 
         renderPageWordBoxes(
             container,
             allWords,
-            firstMatch.pageWidth,
-            firstMatch.pageHeight,
+            geometrySource.pageWidth,
+            geometrySource.pageHeight,
             currentMatchWords.size > 0 ? currentMatchWords : undefined,
         );
+    }
+
+    function hasPageMatchWordBoxes(pageMatchData: IPdfPageMatches | null) {
+        return Boolean(pageMatchData?.matches.some(hasRenderableGeometryMatch));
+    }
+
+    function hasSearchGeometryForPage(
+        pageMatchData: IPdfPageMatches | null,
+        currentMatchValue: IPdfSearchMatch | null,
+        pageIndex: number,
+    ) {
+        return hasPageMatchWordBoxes(pageMatchData)
+            || hasRenderableCurrentMatchGeometry(currentMatchValue, pageIndex);
+    }
+
+    function hasRenderedSearchGeometry(
+        container: HTMLElement,
+        currentMatchValue: IPdfSearchMatch | null,
+        pageIndex: number,
+    ) {
+        if (!container.querySelector('.pdf-word-box')) {
+            return false;
+        }
+
+        if (currentMatchValue?.pageIndex === pageIndex) {
+            return Boolean(container.querySelector('.pdf-word-box--current'));
+        }
+
+        return true;
+    }
+
+    function hasUsablePdfTextContent(textContent: TextContent | null) {
+        return Boolean(textContent?.items.some(item => (
+            'str' in item
+            && String(item.str ?? '').trim().length > 0
+        )));
+    }
+
+    async function getPdfjsTextContent(pdfPage: PDFPageProxy) {
+        return pdfPage.getTextContent({
+            includeMarkedContent: true,
+            disableNormalization: true,
+        });
+    }
+
+    async function getPdfjsTextContentSource(pdfPage: PDFPageProxy): Promise<TTextLayerTextContentSource> {
+        if (typeof pdfPage.streamTextContent === 'function') {
+            return pdfPage.streamTextContent({
+                includeMarkedContent: true,
+                disableNormalization: true,
+            });
+        }
+
+        return getPdfjsTextContent(pdfPage);
     }
 
     function getCurrentTime() {
@@ -297,7 +470,12 @@ export const usePdfTextLayerRenderer = (deps: {
             return;
         }
 
-        if (deferSearchHighlightsUntilTextLayerReady(
+        const hasGeometryHighlights = hasSearchGeometryForPage(
+            pageMatchData,
+            currentMatchValue,
+            pageIndex,
+        );
+        if (!hasGeometryHighlights && deferSearchHighlightsUntilTextLayerReady(
             mountedPageNumber,
             textLayerDiv,
             pageMatchData,
@@ -307,23 +485,29 @@ export const usePdfTextLayerRenderer = (deps: {
 
         const signature = buildPageHighlightSignature(pageMatchData, currentMatchValue);
         const previousSignature = pageHighlightState.signatureByPage.get(mountedPageNumber);
-        if (previousSignature === signature) {
+        if (
+            previousSignature === signature
+            && (!hasGeometryHighlights || hasRenderedSearchGeometry(container, currentMatchValue, pageIndex))
+        ) {
             return;
         }
 
         const canvas = container.querySelector<HTMLCanvasElement>('canvas') ?? null;
         try {
-            if (pageMatchData && pageMatchData.matches.length > 0) {
+            if (hasGeometryHighlights) {
+                clearHighlights(textLayerDiv);
+                renderWordBoxesForPageMatch(container, pageMatchData, currentMatchValue, pageIndex);
+            } else if (pageMatchData && pageMatchData.matches.length > 0) {
                 highlightPage(
                     textLayerDiv,
                     pageMatchData,
                     currentMatchValue,
                 );
+                clearWordBoxes(container);
             } else {
                 clearHighlights(textLayerDiv);
+                clearWordBoxes(container);
             }
-
-            renderWordBoxesForPageMatch(container, pageMatchData, currentMatchValue, pageIndex);
 
             if (canvas) {
                 maybeLogHighlightDebug(pageIndex + 1, pageMatchData, canvas, textLayerDiv);
@@ -634,46 +818,58 @@ export const usePdfTextLayerRenderer = (deps: {
         throwIfAborted(signal);
         textLayerDiv.dataset.pdfTextLayerRendering = 'true';
         textLayerDiv.dataset.pdfTextLayerReady = 'false';
-        clearTextLayerIndexCache(textLayerDiv);
+        clearTextLayerTextMapping(textLayerDiv);
         textLayerDiv.innerHTML = '';
         textLayerDiv.style.setProperty('--scale-factor', String(scale));
         textLayerDiv.style.setProperty('--user-unit', String(userUnit));
         textLayerDiv.style.setProperty('--total-scale-factor', String(totalScaleFactor));
 
         const currentWorkingCopyPath = toValue(deps.workingCopyPath);
-        let textContent = null;
+        let textContentSource: TTextLayerTextContentSource | null = null;
+        let hasOcrFallbackForPage = false;
 
         if (currentWorkingCopyPath) {
             try {
-                const ocrTextContent = await getOcrTextContent(
+                hasOcrFallbackForPage = await hasPageOcrData(
                     currentWorkingCopyPath,
                     pdfPage.pageNumber,
-                    viewport,
                 );
                 throwIfAborted(signal);
-                if (ocrTextContent) {
-                    textContent = ocrTextContent;
-                }
-            } catch (ocrError) {
+            } catch (ocrAvailabilityError) {
                 if (signal?.aborted) {
-                    throw ocrError;
+                    throw ocrAvailabilityError;
                 }
-                BrowserLogger.warn('pdf-text-layer', 'OCR text content failed', ocrError);
+                BrowserLogger.warn('pdf-text-layer', 'OCR availability check failed', ocrAvailabilityError);
             }
         }
 
-        const textContentSource = textContent
-            ?? (
-                typeof pdfPage.streamTextContent === 'function'
-                    ? pdfPage.streamTextContent({
-                        includeMarkedContent: true,
-                        disableNormalization: true,
-                    })
-                    : await pdfPage.getTextContent({
-                        includeMarkedContent: true,
-                        disableNormalization: true,
-                    })
-            );
+        if (hasOcrFallbackForPage) {
+            const pdfjsTextContent = await getPdfjsTextContent(pdfPage);
+            throwIfAborted(signal);
+
+            if (hasUsablePdfTextContent(pdfjsTextContent)) {
+                textContentSource = pdfjsTextContent;
+            } else if (currentWorkingCopyPath) {
+                try {
+                    const ocrTextContent = await getOcrTextContent(
+                        currentWorkingCopyPath,
+                        pdfPage.pageNumber,
+                        viewport,
+                    );
+                    throwIfAborted(signal);
+                    if (ocrTextContent) {
+                        textContentSource = ocrTextContent;
+                    }
+                } catch (ocrError) {
+                    if (signal?.aborted) {
+                        throw ocrError;
+                    }
+                    BrowserLogger.warn('pdf-text-layer', 'OCR text content failed', ocrError);
+                }
+            }
+        }
+
+        textContentSource ??= await getPdfjsTextContentSource(pdfPage);
         throwIfAborted(signal);
 
         const textLayer = new TextLayer({
@@ -691,7 +887,10 @@ export const usePdfTextLayerRenderer = (deps: {
             signal?.removeEventListener('abort', abortTextLayer);
         }
         throwIfAborted(signal);
-        clearTextLayerIndexCache(textLayerDiv);
+        registerTextLayerTextMapping(textLayerDiv, {
+            textDivs: textLayer.textDivs,
+            textContentItemsStr: textLayer.textContentItemsStr,
+        });
         textLayerDiv.style.width = '';
         textLayerDiv.style.height = '';
         textLayerDiv.dataset.pdfTextLayerReady = 'true';
@@ -719,7 +918,19 @@ export const usePdfTextLayerRenderer = (deps: {
         }
 
         const pageMatchData = searchMatches.get(pageIndex) ?? null;
-        if (deferSearchHighlightsUntilTextLayerReady(
+        if (!pageMatchData || pageMatchData.matches.length === 0) {
+            clearHighlights(textLayerDiv);
+            clearWordBoxes(container);
+            pageHighlightState.signatureByPage.set(pageNumber, buildPageHighlightSignature(pageMatchData, currentMatch));
+            return;
+        }
+
+        const hasGeometryHighlights = hasSearchGeometryForPage(
+            pageMatchData,
+            currentMatch,
+            pageIndex,
+        );
+        if (!hasGeometryHighlights && deferSearchHighlightsUntilTextLayerReady(
             pageNumber,
             textLayerDiv,
             pageMatchData,
@@ -728,6 +939,16 @@ export const usePdfTextLayerRenderer = (deps: {
         }
 
         const signature = buildPageHighlightSignature(pageMatchData, currentMatch);
+        if (hasGeometryHighlights) {
+            clearHighlights(textLayerDiv);
+            renderWordBoxesForPageMatch(container, pageMatchData, currentMatch, pageIndex);
+            if (canvas) {
+                maybeLogHighlightDebug(pageNumber, pageMatchData, canvas, textLayerDiv, debugInfo);
+            }
+            pageHighlightState.signatureByPage.set(pageNumber, signature);
+            return;
+        }
+
         const highlightResult = highlightPage(
             textLayerDiv,
             pageMatchData,
@@ -786,8 +1007,18 @@ export const usePdfTextLayerRenderer = (deps: {
             source: 'range' | 'mark',
         ) {
             const containerRect = containerRoot.getBoundingClientRect();
-            const elementTop = rect.top - containerRect.top + containerRoot.scrollTop;
+            const scrollTop = Number.isFinite(containerRoot.scrollTop) ? containerRoot.scrollTop : 0;
+            const scrollLeft = Number.isFinite(containerRoot.scrollLeft) ? containerRoot.scrollLeft : 0;
+            const clientWidth = Number.isFinite(containerRoot.clientWidth) && containerRoot.clientWidth > 0
+                ? containerRoot.clientWidth
+                : containerRect.width;
+            const scrollWidth = Number.isFinite(containerRoot.scrollWidth) && containerRoot.scrollWidth > 0
+                ? containerRoot.scrollWidth
+                : clientWidth;
+            const elementTop = rect.top - containerRect.top + scrollTop;
+            const elementLeft = rect.left - containerRect.left + scrollLeft;
             const desiredTop = elementTop - containerRoot.clientHeight / 2 + rect.height / 2;
+            const desiredLeft = elementLeft - clientWidth / 2 + rect.width / 2;
             const {
                 clampedTop,
                 minTop,
@@ -795,17 +1026,80 @@ export const usePdfTextLayerRenderer = (deps: {
                 paddingTop,
                 paddingBottom,
             } = clampScrollTopToTargetPage(desiredTop, targetPageContainer);
+            const maxLeft = Math.max(0, scrollWidth - clientWidth);
+            const clampedLeft = clamp(desiredLeft, 0, maxLeft);
 
             logPdfNav(
-                `[PDF-NAV] scrollToCurrentMatch (${source}): scrollTop=${containerRoot.scrollTop.toFixed(1)}`
+                `[PDF-NAV] scrollToCurrentMatch (${source}): scrollTop=${scrollTop.toFixed(1)}`
+                + ` scrollLeft=${scrollLeft.toFixed(1)}`
                 + ` rect.top=${rect.top.toFixed(1)} containerRect.top=${containerRect.top.toFixed(1)}`
+                + ` rect.left=${rect.left.toFixed(1)} containerRect.left=${containerRect.left.toFixed(1)}`
                 + ` elementTop=${elementTop.toFixed(1)} desiredTop=${desiredTop.toFixed(1)}`
                 + ` clampedTop=${clampedTop.toFixed(1)} pageMin=${minTop.toFixed(1)}`
                 + ` pageMax=${maxTop.toFixed(1)} padTop=${paddingTop.toFixed(1)}`
-                + ` padBottom=${paddingBottom.toFixed(1)}`,
+                + ` padBottom=${paddingBottom.toFixed(1)}`
+                + ` elementLeft=${elementLeft.toFixed(1)} desiredLeft=${desiredLeft.toFixed(1)}`
+                + ` clampedLeft=${clampedLeft.toFixed(1)} maxLeft=${maxLeft.toFixed(1)}`,
             );
 
             containerRoot.scrollTop = clampedTop;
+            containerRoot.scrollLeft = clampedLeft;
+        }
+
+        function getCurrentGeometryMatchRect(
+            targetContainer: HTMLElement,
+            pageMatchData: IPdfPageMatches | null,
+            currentMatchValue: IPdfSearchMatch,
+            pageIndex: number,
+        ) {
+            const currentWords = resolveCurrentMatchWords(pageMatchData, currentMatchValue, pageIndex);
+            if (currentWords.length === 0) {
+                return null;
+            }
+
+            const canvas = targetContainer.querySelector<HTMLCanvasElement>('canvas');
+            if (!canvas) {
+                return null;
+            }
+
+            const geometryMatch = pageMatchData?.matches.find((match, index) => (
+                hasRenderableGeometryMatch(match)
+                && isSamePageMatchEntry(match, index, currentMatchValue)
+            )) ?? pageMatchData?.matches.find(hasRenderableGeometryMatch);
+            const pageWidth = currentMatchValue.pageWidth ?? geometryMatch?.pageWidth;
+            const pageHeight = currentMatchValue.pageHeight ?? geometryMatch?.pageHeight;
+            if (!pageWidth || !pageHeight) {
+                return null;
+            }
+
+            const canvasRect = canvas.getBoundingClientRect();
+            const renderedPageWidth = canvas.offsetWidth || canvasRect.width;
+            const renderedPageHeight = canvas.offsetHeight || canvasRect.height;
+            const boxes = currentWords
+                .map(word => transformWordBox(
+                    word,
+                    pageWidth,
+                    pageHeight,
+                    renderedPageWidth,
+                    renderedPageHeight,
+                ))
+                .filter(box => box.width > 0 || box.height > 0);
+
+            if (boxes.length === 0) {
+                return null;
+            }
+
+            const left = Math.min(...boxes.map(box => box.x));
+            const top = Math.min(...boxes.map(box => box.y));
+            const right = Math.max(...boxes.map(box => box.x + box.width));
+            const bottom = Math.max(...boxes.map(box => box.y + box.height));
+
+            return new DOMRect(
+                canvasRect.left + left,
+                canvasRect.top + top,
+                Math.max(0, right - left),
+                Math.max(0, bottom - top),
+            );
         }
 
         const currentMatchValue = toValue(deps.currentSearchMatch);
@@ -847,6 +1141,26 @@ export const usePdfTextLayerRenderer = (deps: {
             currentMatchValue,
         );
 
+        const currentWordBox = targetContainer.querySelector<HTMLElement>('.pdf-word-box--current');
+        if (currentWordBox) {
+            const wordBoxRect = currentWordBox.getBoundingClientRect();
+            if (wordBoxRect.width > 0 || wordBoxRect.height > 0) {
+                scrollMatchRectIntoView(wordBoxRect, targetContainer, 'mark');
+                return true;
+            }
+        }
+
+        const geometryRect = getCurrentGeometryMatchRect(
+            targetContainer,
+            pageMatchData,
+            currentMatchValue,
+            pageIndex,
+        );
+        if (geometryRect && (geometryRect.width > 0 || geometryRect.height > 0)) {
+            scrollMatchRectIntoView(geometryRect, targetContainer, 'mark');
+            return true;
+        }
+
         const currentHighlight = textLayerDiv.querySelector<HTMLElement>('.pdf-search-highlight--current');
         if (!currentHighlight) {
             const currentRanges = getCurrentMatchRanges(textLayerDiv);
@@ -885,7 +1199,7 @@ export const usePdfTextLayerRenderer = (deps: {
     function cleanupTextLayerDom(textLayerDiv: HTMLElement) {
         clearHighlights(textLayerDiv);
         textLayerDiv.innerHTML = '';
-        clearTextLayerIndexCache(textLayerDiv);
+        clearTextLayerTextMapping(textLayerDiv);
         delete textLayerDiv.dataset.pdfTextLayerRendering;
         delete textLayerDiv.dataset.pdfTextLayerReady;
 

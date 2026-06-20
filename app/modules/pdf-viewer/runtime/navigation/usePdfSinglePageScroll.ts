@@ -18,6 +18,7 @@ import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scr
 import { getPageScrollBounds as getPageScrollBoundsForContainer } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageScrollBounds';
 import type { IPageScrollBounds } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/pdfScrollVisibilityTypes';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
+import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type {
     IWheelPageAccumulatorState,
@@ -300,7 +301,7 @@ export const usePdfSinglePageScroll = (
     let pagedNavigationPrepareRunId = 0;
     let pagedNavigationPrepareTargetPage: number | null = null;
     let continuousNavigationTargetScrollOptions: IScrollToPageOptions | undefined;
-    let pagedNavigationTargetScrollOptions: Pick<IScrollToPageOptions, 'pageYRatio'> | undefined;
+    let pagedNavigationTargetScrollOptions: Pick<IScrollToPageOptions, 'pageYRatio' | 'markerRect'> | undefined;
     let navigationFeedbackState: INavigationFeedbackState = {
         page: null,
         runId: null,
@@ -814,10 +815,6 @@ export const usePdfSinglePageScroll = (
         pageNumber: number,
         scrollOptions?: IScrollToPageOptions,
     ) {
-        if (scrollOptions?.markerRect) {
-            return null;
-        }
-
         const container = viewerContainer.value;
         if (!container) {
             return null;
@@ -834,12 +831,37 @@ export const usePdfSinglePageScroll = (
             ? clamp(scrollOptions.pageYRatio, 0, 1)
             : 0;
         const maxTop = Math.max(0, container.scrollHeight - container.clientHeight);
+        if (typeof scrollOptions?.pageYRatio === 'number' && Number.isFinite(scrollOptions.pageYRatio)) {
+            return Math.min(
+                maxTop,
+                Math.max(
+                    0,
+                    targetPageElement.offsetTop + pageYRatio * pageHeight - scaledMargin.value,
+                ),
+            );
+        }
+
+        if (scrollOptions?.markerRect) {
+            const markerCenterY = clamp(
+                scrollOptions.markerRect.top + scrollOptions.markerRect.height / 2,
+                0,
+                1,
+            );
+            return clampMarkerScrollTopToPageBounds({
+                desiredTop: Math.max(
+                    0,
+                    targetPageElement.offsetTop + markerCenterY * pageHeight - container.clientHeight / 2,
+                ),
+                maxTop,
+                pageTop: targetPageElement.offsetTop,
+                pageHeight,
+                containerHeight: container.clientHeight,
+            });
+        }
+
         return Math.min(
             maxTop,
-            Math.max(
-                0,
-                targetPageElement.offsetTop + pageYRatio * pageHeight - scaledMargin.value,
-            ),
+            Math.max(0, targetPageElement.offsetTop - scaledMargin.value),
         );
     }
 
@@ -853,6 +875,28 @@ export const usePdfSinglePageScroll = (
             container
             && targetTop !== null
             && Math.abs(container.scrollTop - targetTop) <= CONTINUOUS_NAVIGATION_REAPPLY_EPSILON,
+        );
+    }
+
+    function clampMarkerScrollTopToPageBounds(options: {
+        desiredTop: number;
+        maxTop: number;
+        pageTop: number;
+        pageHeight: number;
+        containerHeight: number;
+    }) {
+        const minTop = Math.max(0, options.pageTop - scaledMargin.value);
+        const pageMaxTop = Math.max(
+            minTop,
+            options.pageTop + options.pageHeight + scaledMargin.value - options.containerHeight,
+        );
+        const boundedMaxTop = Math.min(options.maxTop, pageMaxTop);
+        const boundedMinTop = Math.min(minTop, boundedMaxTop);
+
+        return clamp(
+            options.desiredTop,
+            boundedMinTop,
+            Math.max(boundedMinTop, boundedMaxTop),
         );
     }
 
@@ -1028,7 +1072,10 @@ export const usePdfSinglePageScroll = (
         });
     }
 
-    function revealSearchNavigationTarget(pageNumber: number) {
+    function revealSearchNavigationTarget(
+        pageNumber: number,
+        options?: Pick<IScrollToPageOptions, 'markerRect'>,
+    ) {
         if (!viewerContainer.value || numPages.value === 0) {
             return false;
         }
@@ -1048,8 +1095,9 @@ export const usePdfSinglePageScroll = (
                 runId,
                 targetPage,
                 currentPage: currentPage.value,
+                hasMarkerRect: Boolean(options?.markerRect),
             });
-            return applyContinuousNavigationTargetScroll(targetPage);
+            return applyContinuousNavigationTargetScroll(targetPage, options);
         }
 
         const rowRange = setVisibleRangeToPageRow(targetPage);
@@ -1059,6 +1107,7 @@ export const usePdfSinglePageScroll = (
             targetPage,
             rowRange,
             currentPage: currentPage.value,
+            hasMarkerRect: Boolean(options?.markerRect),
         });
 
         void nextTick(() => {
@@ -1071,12 +1120,13 @@ export const usePdfSinglePageScroll = (
                 return;
             }
 
-            const didSnap = applySnapToMountedPage(targetPage, 'top', undefined, { commitCurrentPage: false });
+            const didSnap = applySnapToMountedPage(targetPage, 'top', options, { commitCurrentPage: false });
             logPdfRenderTrace('single-page-search-reveal-paged-target-snap', {
                 runId,
                 targetPage,
                 didSnap,
                 currentPage: currentPage.value,
+                hasMarkerRect: Boolean(options?.markerRect),
             });
             if (!didSnap) {
                 isSnapping.value = false;
@@ -1502,6 +1552,7 @@ export const usePdfSinglePageScroll = (
                 },
             );
             await nextTick();
+            reapplyContinuousNavigationTargetScroll(runId, pageNumber, scrollOptions);
             await waitForContinuousRenderFrame();
             reapplyContinuousNavigationTargetScroll(runId, pageNumber, scrollOptions);
         }, {
@@ -1685,8 +1736,9 @@ export const usePdfSinglePageScroll = (
             },
         );
         await nextTick();
-        await waitForContinuousRenderFrame();
         finishContinuousNavigationStart(runId, targetPage, options, true);
+        await waitForContinuousRenderFrame();
+        reapplyContinuousNavigationTargetScroll(runId, targetPage, options);
     }
 
     function getPageScrollBounds(pageNumber: number) {
@@ -1796,12 +1848,40 @@ export const usePdfSinglePageScroll = (
         targetHeight: number;
         containerHeight: number;
         pageYRatio?: number | null | undefined;
+        markerRect?: IScrollToPageOptions['markerRect'];
+        markerPageTop?: number | undefined;
+        markerPageHeight?: number | undefined;
     }) {
         if (typeof options.pageYRatio === 'number' && Number.isFinite(options.pageYRatio)) {
             return Math.min(
                 options.maxTop,
                 Math.max(0, options.baseTop + clamp(options.pageYRatio, 0, 1) * options.targetHeight),
             );
+        }
+
+        if (
+            options.markerRect
+            && typeof options.markerPageTop === 'number'
+            && Number.isFinite(options.markerPageTop)
+            && typeof options.markerPageHeight === 'number'
+            && Number.isFinite(options.markerPageHeight)
+            && options.markerPageHeight > 0
+        ) {
+            const markerCenterY = clamp(
+                options.markerRect.top + options.markerRect.height / 2,
+                0,
+                1,
+            );
+            return clampMarkerScrollTopToPageBounds({
+                desiredTop: Math.max(
+                    0,
+                    options.markerPageTop + markerCenterY * options.markerPageHeight - options.containerHeight / 2,
+                ),
+                maxTop: options.maxTop,
+                pageTop: options.markerPageTop,
+                pageHeight: options.markerPageHeight,
+                containerHeight: options.containerHeight,
+            });
         }
 
         const topTarget = Math.min(options.maxTop, Math.max(0, options.baseTop));
@@ -1821,10 +1901,48 @@ export const usePdfSinglePageScroll = (
         return centerTarget;
     }
 
+    function resolveMountedPageMarkerScrollLeft(options: {
+        containerWidth: number;
+        maxLeft: number;
+        markerRect?: IScrollToPageOptions['markerRect'];
+        pageLeft: number;
+        pageWidth: number;
+    }) {
+        if (
+            !options.markerRect
+            || !Number.isFinite(options.pageWidth)
+            || options.pageWidth <= 0
+        ) {
+            return null;
+        }
+
+        const markerCenterX = clamp(
+            options.markerRect.left + options.markerRect.width / 2,
+            0,
+            1,
+        );
+        const markerTargetLeft = Math.max(
+            0,
+            options.pageLeft + markerCenterX * options.pageWidth - options.containerWidth / 2,
+        );
+        const scrollClamp = resolvePageBoundedHorizontalScroll({
+            scrollLeft: markerTargetLeft,
+            viewportWidth: options.containerWidth,
+            pageLeft: options.pageLeft,
+            pageWidth: options.pageWidth,
+            margin: scaledMargin.value,
+        });
+
+        return Math.min(
+            options.maxLeft,
+            Math.max(0, scrollClamp?.scrollLeft ?? markerTargetLeft),
+        );
+    }
+
     function applySnapToMountedPage(
         pageNumber: number,
         anchor: TPageSnapAnchor,
-        options?: Pick<IScrollToPageOptions, 'pageYRatio'>,
+        options?: Pick<IScrollToPageOptions, 'pageYRatio' | 'markerRect'>,
         commitOptions?: IApplySnapToMountedPageCommitOptions,
     ) {
         if (!viewerContainer.value || numPages.value === 0) {
@@ -1842,13 +1960,22 @@ export const usePdfSinglePageScroll = (
 
         const container = viewerContainer.value;
         const containerHeight = container.clientHeight;
+        const containerWidth = Number.isFinite(container.clientWidth) && container.clientWidth > 0
+            ? container.clientWidth
+            : 0;
         const targetGeometry = getPageRowGeometry(container, targetPage) ?? {
             top: targetEl.offsetTop,
             height: targetEl.offsetHeight,
         };
+        const targetPageHeight = targetEl.offsetHeight || targetEl.clientHeight || targetGeometry.height;
+        const targetPageWidth = targetEl.offsetWidth || targetEl.clientWidth || 0;
         const targetHeight = targetGeometry.height;
         const baseTop = targetGeometry.top - scaledMargin.value;
         const maxTop = Math.max(0, container.scrollHeight - containerHeight);
+        const scrollWidth = Number.isFinite(container.scrollWidth) && container.scrollWidth > 0
+            ? container.scrollWidth
+            : containerWidth;
+        const maxLeft = Math.max(0, scrollWidth - containerWidth);
         const targetTop = resolveMountedPageSnapTop({
             anchor,
             baseTop,
@@ -1856,9 +1983,22 @@ export const usePdfSinglePageScroll = (
             targetHeight,
             containerHeight,
             pageYRatio: options?.pageYRatio,
+            markerRect: options?.markerRect,
+            markerPageTop: targetEl.offsetTop,
+            markerPageHeight: targetPageHeight,
+        });
+        const targetLeft = resolveMountedPageMarkerScrollLeft({
+            containerWidth,
+            maxLeft,
+            markerRect: options?.markerRect,
+            pageLeft: targetEl.offsetLeft,
+            pageWidth: targetPageWidth,
         });
         isSnapping.value = true;
         container.scrollTop = targetTop;
+        if (targetLeft !== null) {
+            container.scrollLeft = targetLeft;
+        }
         if (commitOptions?.commitCurrentPage !== false && currentPage.value !== targetPage) {
             currentPage.value = targetPage;
             emitCurrentPage(targetPage);
@@ -1874,7 +2014,7 @@ export const usePdfSinglePageScroll = (
         prepareRunId: number,
         targetPage: number,
         anchor: TPageSnapAnchor,
-        options?: Pick<IScrollToPageOptions, 'pageYRatio' | 'suppressRenderAfterSnap'>,
+        options?: Pick<IScrollToPageOptions, 'pageYRatio' | 'markerRect' | 'suppressRenderAfterSnap'>,
     ) {
         if (!isPagedNavigationPrepareRunCurrent(prepareRunId, targetPage)) {
             return false;
@@ -1969,7 +2109,7 @@ export const usePdfSinglePageScroll = (
     function snapToPage(
         pageNumber: number,
         anchor: TPageSnapAnchor = 'center',
-        options?: Pick<IScrollToPageOptions, 'pageYRatio' | 'suppressRenderAfterSnap'>,
+        options?: Pick<IScrollToPageOptions, 'pageYRatio' | 'markerRect' | 'suppressRenderAfterSnap'>,
     ) {
         if (!viewerContainer.value || numPages.value === 0) {
             return false;
@@ -1983,6 +2123,7 @@ export const usePdfSinglePageScroll = (
             continuousScroll: continuousScroll.value,
             suppressRenderAfterSnap: options?.suppressRenderAfterSnap === true,
             pageYRatio: typeof options?.pageYRatio === 'number' ? options.pageYRatio : null,
+            hasMarkerRect: Boolean(options?.markerRect),
             currentPage: currentPage.value,
             visibleRange: {
                 start: visibleRange.value.start,

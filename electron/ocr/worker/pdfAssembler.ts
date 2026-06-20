@@ -1,5 +1,4 @@
 import {
-    readFile,
     stat,
     writeFile,
 } from 'fs/promises';
@@ -98,55 +97,36 @@ async function runQpdf(
     await runOcrCommand(qpdfBinary, args, commandOptions);
 }
 
-async function createTextOnlyOcrOverlayPdf(
-    qpdfBinary: string,
-    ocrPdfPath: string,
-    pageNumber: number,
-    tempDir: string,
-    sessionId: string,
-    log: TWorkerLog,
-    trackTempFile: (path: string) => string,
-    signal?: AbortSignal,
+function formatPageRange(startPage: number, endPage: number) {
+    return startPage === endPage
+        ? String(startPage)
+        : `${startPage}-${endPage}`;
+}
+
+function buildReplacementPageSelectionArgs(
+    ocrPageEntries: Array<[number, string]>,
+    pageCount: number,
 ) {
-    const qdfPath = trackTempFile(join(tempDir, `${sessionId}-page-${pageNumber}-ocr.qdf.pdf`));
-    const strippedQdfPath = trackTempFile(join(tempDir, `${sessionId}-page-${pageNumber}-ocr-text.qdf.pdf`));
-    const textOnlyPdfPath = trackTempFile(join(tempDir, `${sessionId}-page-${pageNumber}-ocr-text.pdf`));
+    const args: string[] = [];
+    let nextOriginalPage = 1;
 
-    await runQpdf(
-        qpdfBinary,
-        [
-            '--qdf',
-            '--object-streams=disable',
-            ocrPdfPath,
-            qdfPath,
-        ],
-        'qpdf(ocr-text-qdf)',
-        log,
-        signal,
-    );
-    throwIfAborted(signal);
+    for (const [
+        pageNumber,
+        ocrPdfPath,
+    ] of ocrPageEntries) {
+        if (nextOriginalPage < pageNumber) {
+            args.push('.', formatPageRange(nextOriginalPage, pageNumber - 1));
+        }
 
-    const qdfSource = await readFile(qdfPath, 'latin1');
-    await writeFile(strippedQdfPath, stripTesseractImageLayer(qdfSource), 'latin1');
-    throwIfAborted(signal);
+        args.push(ocrPdfPath, '1');
+        nextOriginalPage = pageNumber + 1;
+    }
 
-    await runQpdf(
-        qpdfBinary,
-        [
-            '--stream-data=compress',
-            '--object-streams=generate',
-            '--compression-level=9',
-            strippedQdfPath,
-            textOnlyPdfPath,
-        ],
-        'qpdf(ocr-text-compress)',
-        log,
-        signal,
-    );
-    await assertNonEmptyFile(textOnlyPdfPath, `OCR text overlay page ${pageNumber}`);
-    throwIfAborted(signal);
+    if (nextOriginalPage <= pageCount) {
+        args.push('.', formatPageRange(nextOriginalPage, pageCount));
+    }
 
-    return textOnlyPdfPath;
+    return args;
 }
 
 export async function assembleSearchablePdf(
@@ -161,7 +141,7 @@ export async function assembleSearchablePdf(
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
-    log('debug', `Overlaying OCR text layer for ${ocrPdfMap.size} page(s) with qpdf`);
+    log('debug', `Replacing OCR text layer for ${ocrPdfMap.size} page(s) with qpdf`);
     await assertNonEmptyFile(originalPdfPath, 'Original PDF');
     await Promise.all(Array.from(ocrPdfMap.entries()).map(
         ([
@@ -171,52 +151,26 @@ export async function assembleSearchablePdf(
     ));
 
     const ocrPageEntries = buildValidOcrPageEntries(ocrPdfMap, pageCount);
-    const overlayEntries: Array<[
-        number,
-        string,
-    ]> = [];
-    for (const [
-        pageNumber,
-        ocrPdfPath,
-    ] of ocrPageEntries) {
-        overlayEntries.push([
-            pageNumber,
-            await createTextOnlyOcrOverlayPdf(
-                qpdfBinary,
-                ocrPdfPath,
-                pageNumber,
-                tempDir,
-                sessionId,
-                log,
-                trackTempFile,
-                signal,
-            ),
-        ]);
+    if (ocrPageEntries.length === 0) {
+        throw new Error('No valid OCR pages were available to assemble');
     }
 
     const replacementPdfPath = trackTempFile(join(tempDir, `${sessionId}-merged.pdf`));
-    const argFilePath = trackTempFile(join(tempDir, `${sessionId}-qpdf-overlay.args`));
+    const argFilePath = trackTempFile(join(tempDir, `${sessionId}-qpdf-replace.args`));
     const args = [
         originalPdfPath,
-        ...overlayEntries.flatMap(([
-            pageNumber,
-            overlayPdfPath,
-        ]) => [
-            '--overlay',
-            overlayPdfPath,
-            `--to=${pageNumber}`,
-            '--from=1',
-            '--',
-        ]),
         '--stream-data=compress',
         '--object-streams=generate',
         '--compression-level=9',
+        '--pages',
+        ...buildReplacementPageSelectionArgs(ocrPageEntries, pageCount),
+        '--',
         replacementPdfPath,
     ];
     await writeQpdfArgFile(argFilePath, args);
     throwIfAborted(signal);
 
-    await runQpdf(qpdfBinary, [`@${argFilePath}`], 'qpdf(ocr-assemble)', log, signal);
+    await runQpdf(qpdfBinary, [`@${argFilePath}`], 'qpdf(ocr-replace)', log, signal);
     await assertNonEmptyFile(replacementPdfPath, 'Assembled OCR PDF');
     throwIfAborted(signal);
 

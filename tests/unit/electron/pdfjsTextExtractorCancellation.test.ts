@@ -12,6 +12,26 @@ const mocks = vi.hoisted(() => ({
     getDocument: vi.fn(),
     loadingDestroy: vi.fn(),
     docDestroy: vi.fn(),
+    OPS: {
+        save: 10,
+        restore: 11,
+        transform: 12,
+        beginText: 31,
+        endText: 32,
+        setCharSpacing: 33,
+        setWordSpacing: 34,
+        setHScale: 35,
+        setLeading: 36,
+        setFont: 37,
+        moveText: 40,
+        setLeadingMoveText: 41,
+        setTextMatrix: 42,
+        nextLine: 43,
+        showText: 44,
+        showSpacedText: 45,
+        nextLineShowText: 46,
+        nextLineSetSpacingShowText: 47,
+    },
 }));
 
 vi.mock('@electron/search/domPolyfill', () => ({}));
@@ -26,6 +46,7 @@ vi.mock('fs/promises', () => ({
 vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
     getDocument: mocks.getDocument,
     GlobalWorkerOptions: { workerSrc: '' },
+    OPS: mocks.OPS,
 }));
 
 describe('extractTextWithPdfjs cancellation', () => {
@@ -158,5 +179,70 @@ describe('extractTextWithPdfjs cancellation', () => {
             pageNumber: 1,
             text: repeatedText,
         });
+    });
+
+    it('extracts pdfjs operator-list word boxes from nested text matrices', async () => {
+        const { extractTextWithPdfjsWordBoxes } = await import('@electron/search/extractTextWithPdfjs');
+        const pageOne = {
+            view: [
+                0,
+                0,
+                424,
+                640.4,
+            ],
+            getOperatorList: vi.fn().mockResolvedValue({
+                fnArray: [
+                    mocks.OPS.beginText,
+                    mocks.OPS.setTextMatrix,
+                    mocks.OPS.setFont,
+                    mocks.OPS.setHScale,
+                    mocks.OPS.showText,
+                    mocks.OPS.endText,
+                ],
+                argsArray: [
+                    null,
+                    [new Float32Array([
+                        1,
+                        0,
+                        0,
+                        1,
+                        74.6,
+                        259.4,
+                    ])],
+                    [
+                        'g_d0_f2',
+                        10,
+                    ],
+                    [110.286],
+                    [Array.from('История ').map(char => ({
+                        unicode: char,
+                        width: 500,
+                        isSpace: false,
+                    }))],
+                    null,
+                ],
+            }),
+        };
+        const doc = {
+            numPages: 1,
+            getPage: vi.fn(async () => pageOne),
+            destroy: mocks.docDestroy,
+        };
+
+        mocks.getDocument.mockReturnValue({
+            promise: Promise.resolve(doc),
+            destroy: mocks.loadingDestroy,
+        });
+
+        const result = await extractTextWithPdfjsWordBoxes('/tmp/file.pdf', { collectPages: true });
+
+        expect(result[0]?.text).toBe('История \n');
+        expect(result[0]?.words[0]).toMatchObject({
+            text: 'История',
+            height: 10,
+        });
+        expect(result[0]?.words[0]?.x).toBeCloseTo(74.6, 4);
+        expect(result[0]?.words[0]?.y).toBeCloseTo(371, 4);
+        expect(result[0]?.words[0]?.width).toBeCloseTo(38.6001, 4);
     });
 });

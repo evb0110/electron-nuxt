@@ -31,7 +31,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('worker_threads', () => ({parentPort: mocks.parentPort}));
 vi.mock('fs/promises', () => ({stat: mocks.stat}));
 vi.mock('@electron/search/indexBuilder', () => ({
-    SEARCH_INDEX_SCHEMA_VERSION: 4,
+    SEARCH_INDEX_SCHEMA_VERSION: 5,
     loadSearchIndex: mocks.loadSearchIndex,
     buildSearchIndex: mocks.buildSearchIndex,
 }));
@@ -77,7 +77,7 @@ describe('search worker warmup and cache behavior', () => {
         mocks.loadSearchIndex.mockResolvedValue(null);
         mocks.tryRunNativeSearch.mockResolvedValue(null);
         mocks.buildSearchIndex.mockResolvedValue({
-            schemaVersion: 4,
+            schemaVersion: 5,
             pdfPath: TEST_PDF_PATH,
             createdAt: Date.now(),
             pageCount: 1,
@@ -300,7 +300,7 @@ describe('search worker warmup and cache behavior', () => {
 
     it('rebuilds current-schema on-disk indexes when the PDF is newer', async () => {
         mocks.loadSearchIndex.mockResolvedValue({
-            schemaVersion: 4,
+            schemaVersion: 5,
             pdfPath: TEST_PDF_PATH,
             createdAt: Date.now(),
             pageCount: 1,
@@ -342,7 +342,7 @@ describe('search worker warmup and cache behavior', () => {
                 text: 'needle on the first page',
             });
             return {
-                schemaVersion: 4,
+                schemaVersion: 5,
                 pdfPath: TEST_PDF_PATH,
                 createdAt: Date.now(),
                 pageCount: 2,

@@ -101,7 +101,7 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
         }
     });
 
-    it('overlays OCR page contents while preserving the original page', async () => {
+    it('replaces original page text with OCR page contents', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
         const originalPath = join(tempDir, 'original.pdf');
         const ocrPath = join(tempDir, 'ocr.pdf');
@@ -124,10 +124,10 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
         const extractedText = await extractPdfText(outputPath);
 
         expect(extractedText).toContain('NEW OCR');
-        expect(extractedText).toContain('OLD TEXT');
+        expect(extractedText).not.toContain('OLD TEXT');
     });
 
-    it('keeps previous page content when applying another OCR text overlay', async () => {
+    it('replaces previous OCR page text when applying OCR again', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
         const originalPath = join(tempDir, 'original.pdf');
         const firstOcrPath = join(tempDir, 'ocr-first.pdf');
@@ -164,11 +164,11 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
         const extractedText = await extractPdfText(secondOutputPath);
 
         expect(extractedText).toContain('SECOND OCR');
-        expect(extractedText).toContain('FIRST OCR');
-        expect(extractedText).toContain('ORIGINAL TEXT');
+        expect(extractedText).not.toContain('FIRST OCR');
+        expect(extractedText).not.toContain('ORIGINAL TEXT');
     });
 
-    it('keeps original page ranges and overlays selected page text', async () => {
+    it('keeps original page ranges and replaces selected page text', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
         const originalPath = join(tempDir, 'original.pdf');
         const ocrPath = join(tempDir, 'ocr-page-2.pdf');
@@ -222,7 +222,7 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
 
         expect(extractedText).toContain('ONE ORIGINAL');
         expect(extractedText).toContain('TWO OCR');
-        expect(extractedText).toContain('TWO OLD');
+        expect(extractedText).not.toContain('TWO OLD');
         expect(extractedText).toContain('THREE ORIGINAL');
         expect(pageSizes).toEqual([
             [

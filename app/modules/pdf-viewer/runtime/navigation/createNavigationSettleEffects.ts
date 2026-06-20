@@ -143,7 +143,7 @@ export function createNavigationSettleEffects(deps: ICreateNavigationSettleEffec
         }
 
         isContinuousNavigationLayoutReapplyQueued = true;
-        void nextTick(() => {
+        const reapply = () => {
             isContinuousNavigationLayoutReapplyQueued = false;
             deps.onLayoutReapply({
                 pageNumber,
@@ -151,7 +151,14 @@ export function createNavigationSettleEffects(deps: ICreateNavigationSettleEffec
                 runId,
                 scrollOptions,
             });
-        });
+        };
+
+        if (reason === 'mutation' || reason === 'resize') {
+            reapply();
+            return;
+        }
+
+        void nextTick(reapply);
     }
 
     function clearLayoutObservers() {

@@ -35,8 +35,12 @@ function createContainerStub() {
 function createPageElementStub(pageNumber: number, top: number, height: number, buffered = false) {
     return cast<HTMLElement>({
         dataset: { page: String(pageNumber) },
+        offsetLeft: 0,
         offsetTop: top,
+        offsetWidth: 200,
         offsetHeight: height,
+        clientWidth: 200,
+        clientHeight: height,
         classList: { contains: (className: string) => buffered && className === 'page_container--buffered' },
     });
 }
@@ -137,6 +141,106 @@ describe('usePdfScroll page layout fallback', () => {
         scroll.scrollToPage(container, 3, 3, 20);
 
         expect(getScrollTop()).toBe(740);
+    });
+
+    it('reapplies marker scroll when a layout-scrolled target page mounts', () => {
+        const originalMutationObserver = globalThis.MutationObserver;
+        const mutationCallbackRef: { current: MutationCallback | null } = { current: null };
+        let mountedPage: HTMLElement | null = null;
+        let scrollTop = 0;
+        const mountedTarget = createPageElementStub(2, 1_000, 800);
+        const markerRect = {
+            left: 0.1,
+            top: 0.45,
+            width: 0.1,
+            height: 0.1,
+        };
+        const container = cast<HTMLElement>({
+            clientHeight: 200,
+            clientWidth: 200,
+            scrollHeight: 2_000,
+            scrollWidth: 200,
+            scrollLeft: 0,
+            querySelector: (selector: string) => (
+                selector === '.page_container[data-page="2"]'
+                    ? mountedPage
+                    : null
+            ),
+            querySelectorAll: () => mountedPage ? [mountedPage] : [],
+        });
+        Object.defineProperty(container, 'scrollTop', {
+            get: () => scrollTop,
+            set: (value: number) => {
+                scrollTop = value;
+            },
+        });
+
+        class FakeMutationObserver {
+            constructor(callback: MutationCallback) {
+                mutationCallbackRef.current = callback;
+            }
+
+            observe = vi.fn();
+            disconnect = vi.fn();
+        }
+
+        const getMutationCallback = () => {
+            if (!mutationCallbackRef.current) {
+                throw new Error('Expected marker scroll reapply to arm a mutation observer');
+            }
+            return mutationCallbackRef.current;
+        };
+
+        Object.defineProperty(globalThis, 'MutationObserver', {
+            configurable: true,
+            value: FakeMutationObserver,
+        });
+
+        try {
+            const scroll = usePdfScroll();
+            scroll.setPageLayoutMetrics(buildPageLayoutMetrics({
+                pageMetrics: [
+                    {
+                        width: 200,
+                        height: 100,
+                    },
+                    {
+                        width: 200,
+                        height: 500,
+                    },
+                    {
+                        width: 200,
+                        height: 100,
+                    },
+                ],
+                totalPages: 3,
+                viewMode: 'single',
+                scale: 1,
+                gap: 20,
+                paddingTop: 20,
+                paddingBottom: 20,
+                fallbackWidth: 200,
+                fallbackHeight: 100,
+            }));
+
+            scroll.scrollToPage(container, 2, 3, 20, { markerRect });
+
+            expect(scrollTop).not.toBe(1_300);
+
+            mountedPage = mountedTarget;
+            getMutationCallback()([], cast<MutationObserver>({}));
+
+            expect(scrollTop).toBe(1_300);
+        } finally {
+            if (originalMutationObserver) {
+                Object.defineProperty(globalThis, 'MutationObserver', {
+                    configurable: true,
+                    value: originalMutationObserver,
+                });
+            } else {
+                delete (globalThis as { MutationObserver?: unknown }).MutationObserver;
+            }
+        }
     });
 
     it('prefers mounted DOM visibility when layout metrics disagree during virtualization', () => {
@@ -267,6 +371,32 @@ describe('usePdfScroll page layout fallback', () => {
         scroll.scrollToPage(container, 2, 3, 20, { markerRect: rightSideMarkerRect });
 
         expect(getScrollLeft()).toBe(0);
+    });
+
+    it('bounds near-bottom marker navigation vertically to the mounted page', () => {
+        const {
+            container,
+            getScrollTop,
+        } = createMountedPageScrollHarness({
+            clientWidth: 1000,
+            clientHeight: 200,
+            pageNumber: 2,
+            pageLeft: 20,
+            pageTop: 400,
+            pageWidth: 960,
+            pageHeight: 800,
+        });
+        const scroll = usePdfScroll();
+        const nearBottomMarkerRect = {
+            left: 0.1,
+            top: 0.96,
+            width: 0.05,
+            height: 0.02,
+        };
+
+        scroll.scrollToPage(container, 2, 3, 20, { markerRect: nearBottomMarkerRect });
+
+        expect(getScrollTop()).toBe(1020);
     });
 
     it('aligns PDF destination y coordinates to the viewport top', () => {

@@ -18,6 +18,7 @@ import {
     isWorkerMessageRecord,
 } from '@electron/utils/workerMessage';
 import { parsePageNumber } from '@contracts/pageNumbers';
+import { isOcrWord } from '@contracts/shared';
 
 interface IPendingSearchRequest {
     resolve: (response: ISearchResponse) => void;
@@ -142,6 +143,12 @@ function parseNonNegativeWorkerInteger(value: unknown) {
     return value;
 }
 
+function parsePositiveWorkerNumber(value: unknown) {
+    return isFiniteWorkerMessageNumber(value) && value > 0
+        ? value
+        : undefined;
+}
+
 function parseSearchMatch(value: unknown, pageCount?: number) {
     if (!isWorkerMessageRecord(value)) {
         return null;
@@ -167,6 +174,11 @@ function parseSearchMatch(value: unknown, pageCount?: number) {
     ) {
         return null;
     }
+    const words = Array.isArray(value.words) && value.words.every(isOcrWord)
+        ? value.words
+        : undefined;
+    const pageWidth = parsePositiveWorkerNumber(value.pageWidth);
+    const pageHeight = parsePositiveWorkerNumber(value.pageHeight);
     return {
         pageNumber,
         pageMatchIndex,
@@ -174,6 +186,9 @@ function parseSearchMatch(value: unknown, pageCount?: number) {
         startOffset,
         endOffset,
         excerpt,
+        ...(words !== undefined ? { words } : {}),
+        ...(pageWidth !== undefined ? { pageWidth } : {}),
+        ...(pageHeight !== undefined ? { pageHeight } : {}),
     };
 }
 

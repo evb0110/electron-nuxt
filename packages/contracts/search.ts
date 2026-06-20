@@ -1,4 +1,5 @@
 import type { TPageNumber } from '@contracts/pageNumbers';
+import type { IOcrWord } from '@contracts/shared';
 
 export interface IPdfSearchExcerpt {
     prefix: boolean;
@@ -15,6 +16,9 @@ export interface IPdfSearchResult {
     startOffset: number;
     endOffset: number;
     excerpt: IPdfSearchExcerpt;
+    words?: IOcrWord[];
+    pageWidth?: number;
+    pageHeight?: number;
 }
 
 export interface IPdfSearchResponse {

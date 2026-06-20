@@ -29,7 +29,10 @@ interface IUsePdfRendererSearchControllerOptions {
     ) => void;
     suppressSnap?: () => void;
     beginSearchNavigation?: (pageNumber: number) => void;
-    revealSearchNavigationTarget?: (pageNumber: number) => void;
+    revealSearchNavigationTarget?: (
+        pageNumber: number,
+        options?: Pick<IScrollToPageOptions, 'markerRect'>,
+    ) => void;
     endSearchNavigation?: (settleMs?: number) => void;
     isPageRenderPending?: (pageNumber: number) => boolean;
 }

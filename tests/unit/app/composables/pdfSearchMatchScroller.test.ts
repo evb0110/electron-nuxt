@@ -107,6 +107,53 @@ describe('createPdfSearchMatchScroller', () => {
         expect(endSearchNavigation).toHaveBeenCalledWith(120);
     });
 
+    it('reveals a search target with current match geometry before the page is rendered', async () => {
+        const scheduleRenderForSinglePage = vi.fn();
+        const beginSearchNavigation = vi.fn();
+        const revealSearchNavigationTarget = vi.fn();
+
+        const currentMatch = {
+            pageIndex: 4,
+            pageWidth: 400,
+            pageHeight: 800,
+            words: [{
+                text: 'история',
+                x: 100,
+                y: 600,
+                width: 80,
+                height: 40,
+            }],
+        };
+
+        const scroller = createPdfSearchMatchScroller({
+            getContainer: () => createContainerWithMountedPage(5, {
+                hasCanvas: false,
+                rendered: false,
+                textLayerReady: false,
+            }),
+            getCurrentSearchMatch: () => currentMatch,
+            scrollToCurrentMatch: () => false,
+            scheduleRenderForSinglePage,
+            scrollToPage: vi.fn(),
+            suppressSnap: vi.fn(),
+            beginSearchNavigation,
+            revealSearchNavigationTarget,
+            endSearchNavigation: vi.fn(),
+        });
+
+        scroller.requestScrollToMatch(4);
+
+        expect(beginSearchNavigation).toHaveBeenCalledWith(5);
+        const revealOptions = revealSearchNavigationTarget.mock.calls[0]?.[1];
+        expect(revealOptions?.markerRect?.left).toBeCloseTo(0.25, 6);
+        expect(revealOptions?.markerRect?.top).toBeCloseTo(0.75, 6);
+        expect(revealOptions?.markerRect?.width).toBeCloseTo(0.2, 6);
+        expect(revealOptions?.markerRect?.height).toBeCloseTo(0.05, 6);
+        expect(scheduleRenderForSinglePage).toHaveBeenCalledWith(5);
+
+        scroller.invalidatePendingRequests();
+    });
+
     it('waits for the target page canvas before treating a match scroll as successful', async () => {
         const scrollToCurrentMatch = vi.fn(() => true);
         const scheduleRenderForSinglePage = vi.fn();
@@ -242,5 +289,44 @@ describe('createPdfSearchMatchScroller', () => {
         expect(scrollToPage).toHaveBeenCalledTimes(1);
         expect(scrollToPage).toHaveBeenNthCalledWith(1, 10, {preferExactDom: true});
         expect(endSearchNavigation).toHaveBeenCalledWith(0);
+    });
+
+    it('preserves current match geometry when falling back to page-level positioning', async () => {
+        const scrollToPage = vi.fn();
+
+        const scroller = createPdfSearchMatchScroller({
+            getContainer: () => createContainerWithMountedPage(10),
+            getCurrentSearchMatch: () => ({
+                pageIndex: 9,
+                pageWidth: 1000,
+                pageHeight: 2000,
+                words: [{
+                    text: 'история',
+                    x: 250,
+                    y: 1500,
+                    width: 100,
+                    height: 50,
+                }],
+            }),
+            scrollToCurrentMatch: () => false,
+            scheduleRenderForSinglePage: vi.fn(),
+            scrollToPage,
+            suppressSnap: vi.fn(),
+            beginSearchNavigation: vi.fn(),
+            endSearchNavigation: vi.fn(),
+        });
+
+        scroller.requestScrollToMatch(9);
+
+        await Promise.resolve();
+        await vi.runAllTimersAsync();
+
+        expect(scrollToPage).toHaveBeenCalledTimes(1);
+        const fallbackOptions = scrollToPage.mock.calls[0]?.[1];
+        expect(fallbackOptions?.preferExactDom).toBe(true);
+        expect(fallbackOptions?.markerRect?.left).toBeCloseTo(0.25, 6);
+        expect(fallbackOptions?.markerRect?.top).toBeCloseTo(0.75, 6);
+        expect(fallbackOptions?.markerRect?.width).toBeCloseTo(0.1, 6);
+        expect(fallbackOptions?.markerRect?.height).toBeCloseTo(0.025, 6);
     });
 });

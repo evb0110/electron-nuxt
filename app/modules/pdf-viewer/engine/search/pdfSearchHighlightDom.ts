@@ -7,6 +7,7 @@ export type TTextLayerRun =
         kind: 'span';
         span: HTMLSpanElement;
         textNode: Text | null;
+        text: string;
         startOffset: number;
         endOffset: number;
     }
@@ -23,7 +24,17 @@ export interface ITextLayerIndexCacheEntry {
     runs: TTextLayerRun[];
 }
 
+export interface ITextLayerTextMapping {
+    textDivs: readonly HTMLElement[];
+    textContentItemsStr: readonly string[];
+}
+
 const textLayerIndexCache = new WeakMap<HTMLElement, ITextLayerIndexCacheEntry>();
+const textLayerTextMappingCache = new WeakMap<HTMLElement, {
+    textBySpan: WeakMap<HTMLElement, string>;
+    textDivs: readonly HTMLElement[];
+    textContentItemsStr: readonly string[];
+}>();
 
 function buildTextLayerIndex(textLayerDiv: HTMLElement): {
     text: string;
@@ -31,6 +42,7 @@ function buildTextLayerIndex(textLayerDiv: HTMLElement): {
 } {
     const runs: TTextLayerRun[] = [];
     const textParts: string[] = [];
+    const mappedTextBySpan = textLayerTextMappingCache.get(textLayerDiv)?.textBySpan;
     let offset = 0;
 
     function visit(node: Node) {
@@ -53,7 +65,7 @@ function buildTextLayerIndex(textLayerDiv: HTMLElement): {
 
         if (element.tagName === 'SPAN' && element.children.length === 0) {
             const span = element;
-            const text = span.textContent ?? '';
+            const text = mappedTextBySpan?.get(span) ?? span.textContent ?? '';
             const textNode = span.firstChild && span.firstChild.nodeType === Node.TEXT_NODE
                 ? span.firstChild as Text
                 : null;
@@ -61,6 +73,7 @@ function buildTextLayerIndex(textLayerDiv: HTMLElement): {
                 kind: 'span',
                 span,
                 textNode,
+                text,
                 startOffset: offset,
                 endOffset: offset + text.length,
             });
@@ -117,6 +130,50 @@ export function clearTextLayerIndexCache(textLayerDiv: HTMLElement) {
     textLayerIndexCache.delete(textLayerDiv);
 }
 
+export function registerTextLayerTextMapping(
+    textLayerDiv: HTMLElement,
+    mapping: ITextLayerTextMapping,
+) {
+    const textBySpan = new WeakMap<HTMLElement, string>();
+
+    mapping.textDivs.forEach((span, index) => {
+        const text = mapping.textContentItemsStr[index];
+        if (text !== undefined) {
+            textBySpan.set(span, text);
+        }
+    });
+
+    textLayerTextMappingCache.set(textLayerDiv, {
+        textBySpan,
+        textDivs: mapping.textDivs,
+        textContentItemsStr: mapping.textContentItemsStr,
+    });
+    clearTextLayerIndexCache(textLayerDiv);
+}
+
+export function clearTextLayerTextMapping(textLayerDiv: HTMLElement) {
+    textLayerTextMappingCache.delete(textLayerDiv);
+    clearTextLayerIndexCache(textLayerDiv);
+}
+
+export function resetTextLayerMappedText(textLayerDiv: HTMLElement) {
+    const mapping = textLayerTextMappingCache.get(textLayerDiv);
+    if (!mapping) {
+        return false;
+    }
+
+    mapping.textDivs.forEach((span, index) => {
+        const text = mapping.textContentItemsStr[index];
+        if (text === undefined) {
+            return;
+        }
+
+        span.textContent = text;
+    });
+    clearTextLayerIndexCache(textLayerDiv);
+    return true;
+}
+
 export function buildRunMatchOverlaps(
     runs: TTextLayerRun[],
     matches: IHighlightMatchRange[],
@@ -165,16 +222,39 @@ export function buildRunMatchOverlaps(
     return overlaps;
 }
 
-export function highlightTextInSpan(
-    span: HTMLSpanElement,
-    spanStartOffset: number,
+function getPdfjsHighlightSegmentClass(
+    run: Extract<TTextLayerRun, { kind: 'span' }>,
+    match: IHighlightMatchRange,
+) {
+    const startsInRun = match.start >= run.startOffset && match.start < run.endOffset;
+    const endsInRun = match.end > run.startOffset && match.end <= run.endOffset;
+
+    if (startsInRun && endsInRun) {
+        return '';
+    }
+    if (startsInRun) {
+        return ' begin';
+    }
+    if (endsInRun) {
+        return ' end';
+    }
+    return ' middle';
+}
+
+export function highlightTextRunInPdfjsStyle(
+    run: Extract<TTextLayerRun, { kind: 'span' }>,
     matches: IHighlightMatchRange[],
     highlightClass: string,
     highlightCurrentClass: string,
     precomputedMatches?: IHighlightMatchRange[],
 ): HTMLElement[] {
-    const text = span.textContent ?? '';
-    const relevantMatches = getRelevantHighlightMatches(text.length, spanStartOffset, matches, precomputedMatches);
+    const text = run.text;
+    const relevantMatches = getRelevantHighlightMatches(
+        text.length,
+        run.startOffset,
+        matches,
+        precomputedMatches,
+    );
 
     if (relevantMatches.length === 0) {
         return [];
@@ -182,59 +262,44 @@ export function highlightTextInSpan(
 
     const highlightElements: HTMLElement[] = [];
     const fragmentNode = document.createDocumentFragment();
-    const fragments: Array<{
-        text: string;
-        isHighlight: boolean;
-        isCurrent: boolean;
-    }> = [];
-
     let currentPos = 0;
+
+    function appendPlainText(toOffset: number) {
+        if (toOffset <= currentPos) {
+            return;
+        }
+
+        fragmentNode.appendChild(document.createTextNode(text.slice(currentPos, toOffset)));
+        currentPos = toOffset;
+    }
+
     for (const match of relevantMatches) {
         const {
             start: matchStartInSpan,
             end: matchEndInSpan,
-        } = getHighlightMatchBoundsInSpan(text.length, spanStartOffset, match);
+        } = getHighlightMatchBoundsInSpan(text.length, run.startOffset, match);
 
-        if (matchStartInSpan > currentPos) {
-            fragments.push({
-                text: text.slice(currentPos, matchStartInSpan),
-                isHighlight: false,
-                isCurrent: false,
-            });
+        if (matchStartInSpan >= matchEndInSpan) {
+            continue;
         }
 
-        fragments.push({
-            text: text.slice(matchStartInSpan, matchEndInSpan),
-            isHighlight: true,
-            isCurrent: match.isCurrent,
-        });
+        appendPlainText(matchStartInSpan);
 
+        const highlight = document.createElement('span');
+        highlight.className = match.isCurrent
+            ? `${highlightClass} appended${getPdfjsHighlightSegmentClass(run, match)} ${highlightCurrentClass}`
+            : `${highlightClass} appended${getPdfjsHighlightSegmentClass(run, match)}`;
+        highlight.textContent = text.slice(matchStartInSpan, matchEndInSpan);
+        fragmentNode.appendChild(highlight);
+        highlightElements.push(highlight);
         currentPos = matchEndInSpan;
     }
 
-    if (currentPos < text.length) {
-        fragments.push({
-            text: text.slice(currentPos),
-            isHighlight: false,
-            isCurrent: false,
-        });
-    }
-
-    for (const fragment of fragments) {
-        if (fragment.isHighlight) {
-            const mark = document.createElement('mark');
-            mark.className = fragment.isCurrent
-                ? `${highlightClass} ${highlightCurrentClass}`
-                : highlightClass;
-            mark.textContent = fragment.text;
-            fragmentNode.appendChild(mark);
-            highlightElements.push(mark);
-        } else {
-            fragmentNode.appendChild(document.createTextNode(fragment.text));
-        }
-    }
-
-    span.replaceChildren(fragmentNode);
+    appendPlainText(text.length);
+    run.span.replaceChildren(fragmentNode);
+    run.textNode = run.span.firstChild && run.span.firstChild.nodeType === Node.TEXT_NODE
+        ? run.span.firstChild as Text
+        : null;
 
     return highlightElements;
 }
