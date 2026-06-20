@@ -284,9 +284,6 @@ export default {
         'customRange': 'Plage personnalisée',
         'customRangePlaceholder': 'ex. 1-5, 8, 10-12',
         'languages': 'Langues',
-        'latinCyrillic': 'Latin / Cyrillique',
-        'greek': 'Grec',
-        'rtlScripts': 'Écritures RTL',
         'preparing': 'Préparation de l’OCR...',
         'progressStage': {
             'modelPrep': 'Préparation des modèles de langue OCR...',
@@ -351,6 +348,7 @@ export default {
         'loading': 'Chargement...',
         'retry': 'Réessayer',
         'cancel': 'Annuler',
+        'close': 'Fermer',
         'back': 'Retour',
         'convert': 'Convertir',
         'unitDpi': 'DPI',

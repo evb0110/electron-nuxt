@@ -281,9 +281,6 @@ export default {
         'customRange': 'Intervallo personalizzato',
         'customRangePlaceholder': 'es. 1-5, 8, 10-12',
         'languages': 'Lingue',
-        'latinCyrillic': 'Latino / Cirillico',
-        'greek': 'Greco',
-        'rtlScripts': 'Scritture da destra a sinistra',
         'preparing': 'Preparazione OCR...',
         'progressStage': {
             'modelPrep': 'Preparazione dei modelli lingua OCR...',
@@ -348,6 +345,7 @@ export default {
         'loading': 'Caricamento...',
         'retry': 'Riprova',
         'cancel': 'Annulla',
+        'close': 'Chiudi',
         'back': 'Indietro',
         'convert': 'Converti',
         'unitDpi': 'DPI',

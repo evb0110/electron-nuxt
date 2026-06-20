@@ -34,171 +34,10 @@
 
         <template #body>
             <div class="ocr-body flex flex-col gap-4">
-                <!-- Page Range Selection -->
-                <div class="section">
-                    <div class="label">{{ t('ocr.pages') }}</div>
-                    <div class="flex flex-col gap-1.5">
-                        <label class="radio-item">
-                            <input
-                                v-model="settings.pageRange"
-                                type="radio"
-                                name="pageRange"
-                                value="all"
-                                :disabled="isRunSettingsLocked"
-                            >
-                            <span>{{ t('ocr.allPages', { total: totalPages }) }}</span>
-                        </label>
-                        <label class="radio-item">
-                            <input
-                                v-model="settings.pageRange"
-                                type="radio"
-                                name="pageRange"
-                                value="current"
-                                :disabled="isRunSettingsLocked"
-                            >
-                            <span>{{ t('ocr.currentPage', { page: currentPage }) }}</span>
-                        </label>
-                        <label class="radio-item">
-                            <input
-                                v-model="settings.pageRange"
-                                type="radio"
-                                name="pageRange"
-                                value="custom"
-                                :disabled="isRunSettingsLocked"
-                            >
-                            <span>{{ t('ocr.customRange') }}</span>
-                        </label>
-                    </div>
-                    <div class="custom-input-slot">
-                        <UInput
-                            v-show="settings.pageRange === 'custom'"
-                            v-model="settings.customRange"
-                            :placeholder="t('ocr.customRangePlaceholder')"
-                            size="sm"
-                            class="custom-input"
-                            :disabled="isRunSettingsLocked"
-                        />
-                    </div>
-                </div>
-
-                <!-- Language Selection -->
-                <div class="section">
-                    <div class="label">{{ t('ocr.languages') }}</div>
-                    <div class="flex flex-col gap-3">
-                        <div
-                            v-if="latinCyrillicLanguages.length > 0"
-                            class="flex flex-col gap-1"
-                        >
-                            <span class="group-label">{{ t('ocr.latinCyrillic') }}</span>
-                            <div class="checkboxes">
-                                <label
-                                    v-for="lang in latinCyrillicLanguages"
-                                    :key="lang.code"
-                                    class="checkbox-item"
-                                >
-                                    <input
-                                        type="checkbox"
-                                        :disabled="isRunSettingsLocked"
-                                        :checked="
-                                            settings.selectedLanguages.includes(
-                                                lang.code,
-                                            )
-                                        "
-                                        @change="
-                                            toggleLanguage(
-                                                lang.code,
-                                                ($event.target as HTMLInputElement)
-                                                    .checked,
-                                            )
-                                        "
-                                    >
-                                    <span>{{ translateLanguageName(lang.code) }}</span>
-                                </label>
-                            </div>
-                        </div>
-                        <div
-                            v-if="greekLanguages.length > 0"
-                            class="flex flex-col gap-1"
-                        >
-                            <span class="group-label">{{ t('ocr.greek') }}</span>
-                            <div class="checkboxes">
-                                <label
-                                    v-for="lang in greekLanguages"
-                                    :key="lang.code"
-                                    class="checkbox-item"
-                                >
-                                    <input
-                                        type="checkbox"
-                                        :disabled="isRunSettingsLocked"
-                                        :checked="
-                                            settings.selectedLanguages.includes(
-                                                lang.code,
-                                            )
-                                        "
-                                        @change="
-                                            toggleLanguage(
-                                                lang.code,
-                                                ($event.target as HTMLInputElement)
-                                                    .checked,
-                                            )
-                                        "
-                                    >
-                                    <span>{{ translateLanguageName(lang.code) }}</span>
-                                </label>
-                            </div>
-                        </div>
-                        <div
-                            v-if="rtlLanguages.length > 0"
-                            class="flex flex-col gap-1"
-                        >
-                            <span class="group-label">{{ t('ocr.rtlScripts') }}</span>
-                            <div class="checkboxes">
-                                <label
-                                    v-for="lang in rtlLanguages"
-                                    :key="lang.code"
-                                    class="checkbox-item"
-                                >
-                                    <input
-                                        type="checkbox"
-                                        :disabled="isRunSettingsLocked"
-                                        :checked="
-                                            settings.selectedLanguages.includes(
-                                                lang.code,
-                                            )
-                                        "
-                                        @change="
-                                            toggleLanguage(
-                                                lang.code,
-                                                ($event.target as HTMLInputElement)
-                                                    .checked,
-                                            )
-                                        "
-                                    >
-                                    <span>{{ translateLanguageName(lang.code) }}</span>
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Progress Display -->
-                <div class="status-slot">
-                    <!-- Progress Display -->
-                    <div
-                        v-if="progress.isRunning"
-                        class="progress flex flex-col gap-1.5"
-                    >
-                        <AppProgressBar :value="progressPercent" />
-                        <span class="progress-text">
-                            {{ progressStatusText }}
-                        </span>
-                    </div>
-
-                    <!-- Error Display -->
-                    <div
-                        v-else-if="effectiveError"
-                        class="error"
-                    >
+                <!-- CONFIGURE / ERROR STATE (config stays editable so errors stay recoverable) -->
+                <template v-if="viewState === 'configure' || viewState === 'error'">
+                    <!-- Error banner -->
+                    <div v-if="viewState === 'error'" class="error">
                         <UIcon name="i-ph-warning-circle" class="size-4" />
                         <div class="error-content flex flex-1 flex-col gap-2">
                             <span class="error-text">{{ effectiveError }}</span>
@@ -217,59 +56,214 @@
                         </div>
                     </div>
 
-                    <!-- Results Summary -->
-                    <div
-                        v-else-if="hasResults"
-                        class="results"
-                    >
-                        <UIcon name="i-ph-check-circle" class="size-4" />
-                        <span>{{ t('ocr.complete') }}</span>
+                    <!-- Page Range Selection -->
+                    <div class="section">
+                        <div class="label">{{ t('ocr.pages') }}</div>
+                        <div class="flex flex-col gap-1.5">
+                            <label class="radio-item">
+                                <input
+                                    v-model="settings.pageRange"
+                                    type="radio"
+                                    name="pageRange"
+                                    value="all"
+                                >
+                                <span>{{ t('ocr.allPages', { total: totalPages }) }}</span>
+                            </label>
+                            <label class="radio-item">
+                                <input
+                                    v-model="settings.pageRange"
+                                    type="radio"
+                                    name="pageRange"
+                                    value="current"
+                                >
+                                <span>{{ t('ocr.currentPage', { page: currentPage }) }}</span>
+                            </label>
+                            <label class="radio-item">
+                                <input
+                                    v-model="settings.pageRange"
+                                    type="radio"
+                                    name="pageRange"
+                                    value="custom"
+                                >
+                                <span>{{ t('ocr.customRange') }}</span>
+                            </label>
+                        </div>
+                        <div
+                            class="custom-range-reveal"
+                            :class="{ 'is-open': showCustomRange }"
+                        >
+                            <div class="custom-range-reveal-inner">
+                                <UInput
+                                    v-model="settings.customRange"
+                                    :placeholder="t('ocr.customRangePlaceholder')"
+                                    size="sm"
+                                    class="custom-input"
+                                />
+                            </div>
+                        </div>
                     </div>
+
+                    <!-- Language Selection -->
+                    <div class="section">
+                        <div class="label">{{ t('ocr.languages') }}</div>
+                        <div class="flex flex-col gap-3">
+                            <div
+                                v-if="latinCyrillicLanguages.length > 0"
+                                class="flex flex-col gap-1"
+                            >
+                                <div class="checkboxes">
+                                    <label
+                                        v-for="lang in latinCyrillicLanguages"
+                                        :key="lang.code"
+                                        class="checkbox-item"
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            :checked="
+                                                settings.selectedLanguages.includes(
+                                                    lang.code,
+                                                )
+                                            "
+                                            @change="
+                                                toggleLanguage(
+                                                    lang.code,
+                                                    ($event.target as HTMLInputElement)
+                                                        .checked,
+                                                )
+                                            "
+                                        >
+                                        <span>{{ translateLanguageName(lang.code) }}</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div
+                                v-if="greekLanguages.length > 0"
+                                class="flex flex-col gap-1"
+                            >
+                                <div class="checkboxes">
+                                    <label
+                                        v-for="lang in greekLanguages"
+                                        :key="lang.code"
+                                        class="checkbox-item"
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            :checked="
+                                                settings.selectedLanguages.includes(
+                                                    lang.code,
+                                                )
+                                            "
+                                            @change="
+                                                toggleLanguage(
+                                                    lang.code,
+                                                    ($event.target as HTMLInputElement)
+                                                        .checked,
+                                                )
+                                            "
+                                        >
+                                        <span>{{ translateLanguageName(lang.code) }}</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div
+                                v-if="rtlLanguages.length > 0"
+                                class="flex flex-col gap-1"
+                            >
+                                <div class="checkboxes">
+                                    <label
+                                        v-for="lang in rtlLanguages"
+                                        :key="lang.code"
+                                        class="checkbox-item"
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            :checked="
+                                                settings.selectedLanguages.includes(
+                                                    lang.code,
+                                                )
+                                            "
+                                            @change="
+                                                toggleLanguage(
+                                                    lang.code,
+                                                    ($event.target as HTMLInputElement)
+                                                        .checked,
+                                                )
+                                            "
+                                        >
+                                        <span>{{ translateLanguageName(lang.code) }}</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- RUNNING STATE -->
+                <div
+                    v-else-if="viewState === 'running'"
+                    class="ocr-progress-panel flex flex-col gap-3"
+                >
+                    <AppProgressBar :value="progressPercent" />
+                    <span class="progress-text">{{ progressStatusText }}</span>
+                </div>
+
+                <!-- RESULTS STATE -->
+                <div
+                    v-else
+                    class="ocr-results-panel flex flex-col items-center gap-3"
+                >
+                    <UIcon name="i-ph-check-circle" class="results-icon size-8" />
+                    <span class="results-text">{{ t('ocr.complete') }}</span>
                 </div>
             </div>
         </template>
 
         <template #footer>
-            <AppTooltip :text="t('ocr.exportDocx')" :delay-duration="1200">
+            <template v-if="viewState === 'running'">
                 <UButton
-                    icon="i-ph-file-text"
-                    variant="ghost"
-                    color="neutral"
-                    size="sm"
-                    :loading="isExporting"
-                    :disabled="isExporting || progress.isRunning || !workingCopyPath"
-                    :aria-label="t('ocr.exportDocx')"
-                    @click="handleExportDocx"
-                />
-            </AppTooltip>
-            <AppTooltip
-                v-if="!progress.isRunning"
-                :text="t('ocr.start')"
-                :delay-duration="1200"
-            >
-                <UButton
-                    icon="i-ph-play"
-                    color="primary"
-                    size="sm"
-                    :disabled="settings.selectedLanguages.length === 0"
-                    :aria-label="t('ocr.start')"
-                    @click="handleRunOcr"
-                />
-            </AppTooltip>
-            <AppTooltip
-                v-else
-                :text="t('ocr.cancel')"
-                :delay-duration="1200"
-            >
-                <UButton
-                    icon="i-ph-x"
                     color="neutral"
                     variant="soft"
                     size="sm"
-                    :aria-label="t('ocr.cancel')"
+                    icon="i-ph-x"
+                    :label="t('ocr.cancel')"
                     @click="handleCancel"
                 />
-            </AppTooltip>
+            </template>
+            <template v-else-if="viewState === 'results'">
+                <UButton
+                    variant="ghost"
+                    color="neutral"
+                    size="sm"
+                    icon="i-ph-file-text"
+                    :label="t('ocr.exportDocx')"
+                    :loading="isExporting"
+                    :disabled="isExporting || !workingCopyPath"
+                    @click="handleExportDocx"
+                />
+                <UButton
+                    color="primary"
+                    size="sm"
+                    :label="t('common.close')"
+                    @click="handleCloseResults"
+                />
+            </template>
+            <template v-else>
+                <UButton
+                    variant="ghost"
+                    color="neutral"
+                    size="sm"
+                    :label="t('common.cancel')"
+                    @click="isOpen = false"
+                />
+                <UButton
+                    color="primary"
+                    size="sm"
+                    icon="i-ph-play"
+                    :label="t('ocr.start')"
+                    :disabled="!canRunOcr"
+                    @click="handleRunOcr"
+                />
+            </template>
         </template>
     </UModal>
 </template>
@@ -355,6 +349,8 @@ const {
     toggleLanguage,
 } = useOcr();
 
+type TOcrViewState = 'configure' | 'running' | 'results' | 'error';
+
 const isOpen = computed({
     get: () => open,
     set: (value: boolean) => emit('update:open', value),
@@ -362,6 +358,38 @@ const isOpen = computed({
 const isExporting = computed(() => isExportingDocx ?? false);
 const effectiveError = computed(() => error.value ?? externalError ?? null);
 const isRunSettingsLocked = computed(() => progress.value.isRunning);
+
+const viewState = computed<TOcrViewState>(() => {
+    if (progress.value.isRunning) {
+        return 'running';
+    }
+    if (effectiveError.value !== null) {
+        return 'error';
+    }
+    if (hasResults.value) {
+        return 'results';
+    }
+    return 'configure';
+});
+
+const availableLanguageCodes = computed(() => new Set([
+    ...latinCyrillicLanguages.value,
+    ...greekLanguages.value,
+    ...rtlLanguages.value,
+].map(lang => lang.code)));
+
+const hasSelectedAvailableLanguage = computed(() =>
+    settings.value.selectedLanguages.some(code => availableLanguageCodes.value.has(code)),
+);
+
+const canRunOcr = computed(() =>
+    hasSelectedAvailableLanguage.value
+    && Boolean(pdfDocument)
+    && Boolean(workingCopyPath),
+);
+
+const showCustomRange = computed(() => settings.value.pageRange === 'custom');
+
 const isCopyingLogs = ref(false);
 const copyLogsState = ref<'idle' | 'copied' | 'failed'>('idle');
 const showSuccessState = ref(false);
@@ -652,6 +680,11 @@ function handleExportDocx() {
     emit('export-docx', getExportLanguages());
 }
 
+function handleCloseResults() {
+    clearResults();
+    isOpen.value = false;
+}
+
 watch(() => workingCopyPath, () => {
     if (progress.value.isRunning) {
         return;
@@ -666,7 +699,6 @@ watch(() => results.value.searchablePdfResult, (searchablePdfResult) => {
     const sourceWorkingCopyPath = activeOcrSourcePath.value;
     const sourcePageToRestore = activeOcrSourcePage.value ?? currentPage;
     if (searchablePdfResult && sourceWorkingCopyPath) {
-        isOpen.value = false;
         showSuccessState.value = true;
         stopSuccessStateReset();
         startSuccessStateReset();
@@ -677,7 +709,6 @@ watch(() => results.value.searchablePdfResult, (searchablePdfResult) => {
         });
         activeOcrSourcePath.value = null;
         activeOcrSourcePage.value = null;
-        clearResults();
     }
 });
 
@@ -777,27 +808,31 @@ defineExpose<IOcrPopupAgentExpose>({
     accent-color: var(--ui-primary);
 }
 
-.custom-input-slot {
-    min-height: 2.5rem;
-    padding-top: 0.5rem;
+.custom-range-reveal {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.18s ease;
+}
+
+.custom-range-reveal.is-open {
+    grid-template-rows: 1fr;
+    padding-top: var(--app-space-3xl);
+}
+
+.custom-range-reveal-inner {
+    overflow: hidden;
+    min-height: 0;
 }
 
 .custom-input {
     width: 100%;
 }
 
-.group-label {
-    font-size: 0.625rem;
-    color: var(--ui-text-dimmed);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
 .checkboxes {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
-    gap: 0.25rem 0.5rem;
-    padding-left: 0.25rem;
+    gap: var(--app-space-sm) var(--app-space-3xl);
+    padding-left: var(--app-space-sm);
 }
 
 .checkbox-item {
@@ -818,14 +853,28 @@ defineExpose<IOcrPopupAgentExpose>({
     accent-color: var(--ui-primary);
 }
 
+.ocr-progress-panel {
+    padding: var(--app-space-9xl) 0;
+}
+
 .progress-text {
     font-size: 0.75rem;
     color: var(--ui-text-muted);
     text-align: center;
 }
 
-.status-slot {
-    min-height: 2.75rem;
+.ocr-results-panel {
+    padding: var(--app-space-9xl) 0;
+    text-align: center;
+}
+
+.results-icon {
+    color: var(--ui-success);
+}
+
+.results-text {
+    font-size: 0.875rem;
+    color: var(--ui-text);
 }
 
 .error {
@@ -850,13 +899,5 @@ defineExpose<IOcrPopupAgentExpose>({
     align-self: flex-start;
     width: auto;
     flex: none;
-}
-
-.results {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: var(--ui-success);
-    font-size: 0.75rem;
 }
 </style>

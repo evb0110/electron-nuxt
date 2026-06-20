@@ -287,9 +287,6 @@ export default {
         'customRange': 'Свой диапазон',
         'customRangePlaceholder': 'напр., 1-5, 8, 10-12',
         'languages': 'Языки',
-        'latinCyrillic': 'Латиница / кириллица',
-        'greek': 'Греческий',
-        'rtlScripts': 'Письменности RTL',
         'preparing': 'Подготовка OCR...',
         'progressStage': {
             'modelPrep': 'Подготовка языковых моделей OCR...',
@@ -354,6 +351,7 @@ export default {
         'loading': 'Загрузка...',
         'retry': 'Повторить',
         'cancel': 'Отмена',
+        'close': 'Закрыть',
         'back': 'Назад',
         'convert': 'Конвертировать',
         'unitDpi': 'DPI',

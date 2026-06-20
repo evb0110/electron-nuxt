@@ -281,9 +281,6 @@ export default {
         'customRange': 'Benutzerdefinierter Bereich',
         'customRangePlaceholder': 'z. B. 1-5, 8, 10-12',
         'languages': 'Sprachen',
-        'latinCyrillic': 'Lateinisch / Kyrillisch',
-        'greek': 'Griechisch',
-        'rtlScripts': 'RTL-Schriften',
         'preparing': 'OCR wird vorbereitet...',
         'progressStage': {
             'modelPrep': 'OCR-Sprachmodelle werden vorbereitet...',
@@ -348,6 +345,7 @@ export default {
         'loading': 'Wird geladen...',
         'retry': 'Erneut versuchen',
         'cancel': 'Abbrechen',
+        'close': 'Schließen',
         'back': 'Zurück',
         'convert': 'Konvertieren',
         'unitDpi': 'DPI',

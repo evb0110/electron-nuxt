@@ -281,9 +281,6 @@ export default {
         'customRange': 'Aangepast bereik',
         'customRangePlaceholder': 'bijv. 1-5, 8, 10-12',
         'languages': 'Talen',
-        'latinCyrillic': 'Latijn / Cyrillisch',
-        'greek': 'Grieks',
-        'rtlScripts': 'RTL-schriften',
         'preparing': 'OCR voorbereiden...',
         'progressStage': {
             'modelPrep': 'OCR-taalmodellen voorbereiden...',
@@ -348,6 +345,7 @@ export default {
         'loading': 'Laden...',
         'retry': 'Opnieuw proberen',
         'cancel': 'Annuleren',
+        'close': 'Sluiten',
         'back': 'Terug',
         'convert': 'Converteren',
         'unitDpi': 'DPI',
