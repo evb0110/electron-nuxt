@@ -58,7 +58,10 @@ interface IPdfViewerForSave {
     hasShapes?: boolean | Ref<boolean>;
 }
 
-interface IOcrCompletePayload extends IOcrSearchablePdfResult {sourceWorkingCopyPath: TDocumentRef;}
+interface IOcrCompletePayload extends IOcrSearchablePdfResult {
+    sourceWorkingCopyPath: TDocumentRef;
+    sourcePageToRestore?: number;
+}
 
 interface IOcrApplyReloadResult {
     restorePromise: Promise<void>;
@@ -417,7 +420,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     }
 
     async function applyOcrCompleteResult(payload: IOcrCompletePayload) {
-        const pageToRestore = currentPage.value;
+        const pageToRestore = payload.sourcePageToRestore ?? currentPage.value;
         const warmupWorkingPath = payload.sourceWorkingCopyPath;
         const warmupPageCountHint = totalPages.value > 0 ? totalPages.value : undefined;
         const applyReloadResult = runWithDocumentOperationLease

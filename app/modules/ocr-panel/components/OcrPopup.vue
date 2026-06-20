@@ -328,7 +328,10 @@ const {
 const emit = defineEmits<{
     'update:open': [value: boolean];
     'update:running': [value: boolean];
-    ocrComplete: [payload: IOcrSearchablePdfResult & {sourceWorkingCopyPath: TDocumentRef;}];
+    ocrComplete: [payload: IOcrSearchablePdfResult & {
+        sourceWorkingCopyPath: TDocumentRef;
+        sourcePageToRestore: number;
+    }];
     'export-docx': [selectedLanguages: string[]];
 }>();
 
@@ -363,6 +366,7 @@ const isCopyingLogs = ref(false);
 const copyLogsState = ref<'idle' | 'copied' | 'failed'>('idle');
 const showSuccessState = ref(false);
 const activeOcrSourcePath = ref<TDocumentRef | null>(null);
+const activeOcrSourcePage = ref<number | null>(null);
 const {
     start: startCopyLogsStateReset,
     stop: stopCopyLogsStateReset,
@@ -593,6 +597,7 @@ function handleRunOcr() {
         return;
     }
     activeOcrSourcePath.value = workingCopyPath;
+    activeOcrSourcePage.value = currentPage;
     void runOcr(currentPage, totalPages, workingCopyPath);
 }
 
@@ -620,6 +625,7 @@ async function runOcrForAgent(options: IAgentOcrRunOptions = {}) {
     }
 
     activeOcrSourcePath.value = workingCopyPath;
+    activeOcrSourcePage.value = currentPage;
     void runOcr(currentPage, totalPages, workingCopyPath);
     await nextTick();
     return {
@@ -630,6 +636,7 @@ async function runOcrForAgent(options: IAgentOcrRunOptions = {}) {
 
 function handleCancel() {
     activeOcrSourcePath.value = null;
+    activeOcrSourcePage.value = null;
     cancelOcr();
 }
 
@@ -650,12 +657,14 @@ watch(() => workingCopyPath, () => {
         return;
     }
     activeOcrSourcePath.value = null;
+    activeOcrSourcePage.value = null;
     clearResults();
     clearRunSettingsHistory();
 });
 
 watch(() => results.value.searchablePdfResult, (searchablePdfResult) => {
     const sourceWorkingCopyPath = activeOcrSourcePath.value;
+    const sourcePageToRestore = activeOcrSourcePage.value ?? currentPage;
     if (searchablePdfResult && sourceWorkingCopyPath) {
         isOpen.value = false;
         showSuccessState.value = true;
@@ -664,8 +673,10 @@ watch(() => results.value.searchablePdfResult, (searchablePdfResult) => {
         emit('ocrComplete', {
             ...searchablePdfResult,
             sourceWorkingCopyPath,
+            sourcePageToRestore,
         });
         activeOcrSourcePath.value = null;
+        activeOcrSourcePage.value = null;
         clearResults();
     }
 });

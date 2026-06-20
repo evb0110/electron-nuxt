@@ -4,7 +4,6 @@ import {
     rm,
     writeFile,
 } from 'fs/promises';
-import { existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
@@ -14,46 +13,95 @@ import {
     it,
     vi,
 } from 'vitest';
-import { PDFDocument } from 'pdf-lib';
+import {
+    PDFDocument,
+    rgb,
+    StandardFonts,
+} from 'pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
     assembleSearchablePdf,
     stripTesseractImageLayer,
 } from '@electron/ocr/worker/pdfAssembler';
 
-const QPDF_BINARY = process.platform === 'win32'
-    ? join(process.cwd(), 'resources/qpdf/win32-x64/bin/qpdf.exe')
-    : join(process.cwd(), `resources/qpdf/${process.platform}-${process.arch}/bin/qpdf`);
-const HAS_QPDF = existsSync(QPDF_BINARY);
+async function addHiddenTextLayer(
+    pdf: PDFDocument,
+    page: ReturnType<PDFDocument['addPage']>,
+    text: string,
+) {
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    const fontName = page.node.newFontDictionary('OcrFont', font.ref);
+    const encodedText = font.encodeText(text).toString();
+    const stream = [
+        'BT',
+        `3 Tr 1 0 0 1 20 100 Tm ${fontName} 12 Tf ${encodedText} Tj`,
+        'ET',
+        '',
+    ].join('\n');
+    page.node.addContentStream(pdf.context.register(pdf.context.flateStream(stream)));
+}
 
-async function createPdfWithText(filePath: string, text: string) {
+async function createPdfWithVisibleAndHiddenText(filePath: string, spec: {
+    visibleText?: string;
+    hiddenText?: string;
+    size?: [number, number];
+}) {
     const pdf = await PDFDocument.create();
-    const page = pdf.addPage([
+    const page = pdf.addPage(spec.size ?? [
         200,
         200,
     ]);
-    page.drawText(text, {
-        x: 20,
-        y: 100,
-        size: 18,
+    page.drawRectangle({
+        x: 10,
+        y: 10,
+        width: 50,
+        height: 30,
+        color: rgb(0.8, 0.8, 0.8),
     });
+    if (spec.visibleText) {
+        page.drawText(spec.visibleText, {
+            x: 20,
+            y: 140,
+            size: 18,
+        });
+    }
+    if (spec.hiddenText) {
+        await addHiddenTextLayer(pdf, page, spec.hiddenText);
+    }
     await writeFile(filePath, await pdf.save());
 }
 
 async function createPdfWithPages(filePath: string, pages: Array<{
-    text: string;
+    text?: string;
+    hiddenText?: string;
     size: [number, number];
 }>) {
     const pdf = await PDFDocument.create();
     for (const pageSpec of pages) {
         const page = pdf.addPage(pageSpec.size);
-        page.drawText(pageSpec.text, {
-            x: 20,
-            y: Math.max(40, pageSpec.size[1] / 2),
-            size: 18,
+        page.drawRectangle({
+            x: 10,
+            y: 10,
+            width: 50,
+            height: 30,
+            color: rgb(0.8, 0.8, 0.8),
         });
+        if (pageSpec.text) {
+            page.drawText(pageSpec.text, {
+                x: 20,
+                y: Math.max(40, pageSpec.size[1] / 2),
+                size: 18,
+            });
+        }
+        if (pageSpec.hiddenText) {
+            await addHiddenTextLayer(pdf, page, pageSpec.hiddenText);
+        }
     }
     await writeFile(filePath, await pdf.save());
+}
+
+function countTextOccurrences(text: string, needle: string) {
+    return text.split(needle).length - 1;
 }
 
 async function getPdfPageSizes(filePath: string) {
@@ -88,7 +136,7 @@ async function extractPdfText(filePath: string) {
     }
 }
 
-describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
+describe('assembleSearchablePdf', () => {
     let tempDir: string | null = null;
 
     afterEach(async () => {
@@ -101,17 +149,20 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
         }
     });
 
-    it('replaces original page text with OCR page contents', async () => {
+    it('preserves visible page content while replacing the hidden OCR text layer', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
         const originalPath = join(tempDir, 'original.pdf');
         const ocrPath = join(tempDir, 'ocr.pdf');
-        await createPdfWithText(originalPath, 'OLD TEXT');
-        await createPdfWithText(ocrPath, 'NEW OCR');
+        await createPdfWithVisibleAndHiddenText(originalPath, {
+            visibleText: 'VISIBLE ORIGINAL',
+            hiddenText: 'OLD OCR',
+        });
+        await createPdfWithVisibleAndHiddenText(ocrPath, { hiddenText: 'NEW OCR' });
         const ocrPages = new Map<number, string>();
         ocrPages.set(1, ocrPath);
 
         const outputPath = await assembleSearchablePdf(
-            QPDF_BINARY,
+            'qpdf-not-used',
             originalPath,
             ocrPages,
             1,
@@ -123,8 +174,9 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
 
         const extractedText = await extractPdfText(outputPath);
 
+        expect(extractedText).toContain('VISIBLE ORIGINAL');
         expect(extractedText).toContain('NEW OCR');
-        expect(extractedText).not.toContain('OLD TEXT');
+        expect(extractedText).not.toContain('OLD OCR');
     });
 
     it('replaces previous OCR page text when applying OCR again', async () => {
@@ -132,16 +184,19 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
         const originalPath = join(tempDir, 'original.pdf');
         const firstOcrPath = join(tempDir, 'ocr-first.pdf');
         const secondOcrPath = join(tempDir, 'ocr-second.pdf');
-        await createPdfWithText(originalPath, 'ORIGINAL TEXT');
-        await createPdfWithText(firstOcrPath, 'FIRST OCR');
-        await createPdfWithText(secondOcrPath, 'SECOND OCR');
+        await createPdfWithVisibleAndHiddenText(originalPath, {
+            visibleText: 'VISIBLE ORIGINAL',
+            hiddenText: 'ORIGINAL OCR',
+        });
+        await createPdfWithVisibleAndHiddenText(firstOcrPath, { hiddenText: 'FIRST OCR' });
+        await createPdfWithVisibleAndHiddenText(secondOcrPath, { hiddenText: 'SECOND OCR' });
 
         const firstOcrPages = new Map<number, string>();
         firstOcrPages.set(1, firstOcrPath);
         const secondOcrPages = new Map<number, string>();
         secondOcrPages.set(1, secondOcrPath);
         const firstOutputPath = await assembleSearchablePdf(
-            QPDF_BINARY,
+            'qpdf-not-used',
             originalPath,
             firstOcrPages,
             1,
@@ -151,7 +206,7 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
             path => path,
         );
         const secondOutputPath = await assembleSearchablePdf(
-            QPDF_BINARY,
+            'qpdf-not-used',
             firstOutputPath,
             secondOcrPages,
             1,
@@ -163,12 +218,14 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
 
         const extractedText = await extractPdfText(secondOutputPath);
 
+        expect(extractedText).toContain('VISIBLE ORIGINAL');
         expect(extractedText).toContain('SECOND OCR');
+        expect(countTextOccurrences(extractedText, 'SECOND OCR')).toBe(1);
         expect(extractedText).not.toContain('FIRST OCR');
-        expect(extractedText).not.toContain('ORIGINAL TEXT');
+        expect(extractedText).not.toContain('ORIGINAL OCR');
     });
 
-    it('keeps original page ranges and replaces selected page text', async () => {
+    it('keeps original page ranges and replaces selected page OCR text', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
         const originalPath = join(tempDir, 'original.pdf');
         const ocrPath = join(tempDir, 'ocr-page-2.pdf');
@@ -181,7 +238,8 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
                 ],
             },
             {
-                text: 'TWO OLD',
+                text: 'TWO VISIBLE',
+                hiddenText: 'TWO OLD OCR',
                 size: [
                     220,
                     180,
@@ -196,7 +254,7 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
             },
         ]);
         await createPdfWithPages(ocrPath, [{
-            text: 'TWO OCR',
+            hiddenText: 'TWO OCR',
             size: [
                 220,
                 180,
@@ -207,7 +265,7 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
         ocrPages.set(2, ocrPath);
 
         const outputPath = await assembleSearchablePdf(
-            QPDF_BINARY,
+            'qpdf-not-used',
             originalPath,
             ocrPages,
             3,
@@ -221,8 +279,9 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
         const pageSizes = await getPdfPageSizes(outputPath);
 
         expect(extractedText).toContain('ONE ORIGINAL');
+        expect(extractedText).toContain('TWO VISIBLE');
         expect(extractedText).toContain('TWO OCR');
-        expect(extractedText).not.toContain('TWO OLD');
+        expect(extractedText).not.toContain('TWO OLD OCR');
         expect(extractedText).toContain('THREE ORIGINAL');
         expect(pageSizes).toEqual([
             [
