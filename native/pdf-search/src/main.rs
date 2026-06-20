@@ -437,7 +437,7 @@ fn collapse_whitespace(value: &str) -> String {
     let mut collapsed = String::with_capacity(value.len());
     let mut in_whitespace = false;
     for character in value.chars() {
-        if character.is_whitespace() {
+        if is_js_whitespace(character) {
             if !in_whitespace {
                 collapsed.push(' ');
                 in_whitespace = true;
@@ -448,6 +448,31 @@ fn collapse_whitespace(value: &str) -> String {
         in_whitespace = false;
     }
     collapsed
+}
+
+fn is_js_whitespace(character: char) -> bool {
+    character == '\u{feff}' || (character != '\u{85}' && character.is_whitespace())
+}
+
+fn trim_js_whitespace_start(value: &str) -> &str {
+    let Some((start, _)) = value
+        .char_indices()
+        .find(|(_, character)| !is_js_whitespace(*character))
+    else {
+        return "";
+    };
+    &value[start..]
+}
+
+fn trim_js_whitespace_end(value: &str) -> &str {
+    let Some((end_start, end_character)) = value
+        .char_indices()
+        .rev()
+        .find(|(_, character)| !is_js_whitespace(*character))
+    else {
+        return "";
+    };
+    &value[..end_start + end_character.len_utf8()]
 }
 
 fn build_excerpt(
@@ -464,12 +489,10 @@ fn build_excerpt(
     let excerpt_start_byte = byte_index_for_utf16_offset(text, excerpt_start_utf16);
     let excerpt_end_byte = byte_index_for_utf16_offset(text, excerpt_end_utf16);
 
-    let before = collapse_whitespace(&text[excerpt_start_byte..start_byte_offset])
-        .trim_start()
-        .to_string();
-    let after = collapse_whitespace(&text[end_byte_offset..excerpt_end_byte])
-        .trim_end()
-        .to_string();
+    let before_collapsed = collapse_whitespace(&text[excerpt_start_byte..start_byte_offset]);
+    let before = trim_js_whitespace_start(&before_collapsed).to_string();
+    let after_collapsed = collapse_whitespace(&text[end_byte_offset..excerpt_end_byte]);
+    let after = trim_js_whitespace_end(&after_collapsed).to_string();
 
     SearchExcerpt {
         prefix: excerpt_start_utf16 > 0,
@@ -496,6 +519,11 @@ fn search_index(
         let text = index.page_text(record)?;
         let mut page_match_index = 0usize;
         for (start_byte, end_byte) in find_matches(text, &options.query, options.match_case) {
+            if results.len() >= options.limit {
+                truncated = true;
+                break 'pages;
+            }
+
             let start_offset = utf16_offset_for_byte(text, start_byte);
             let end_offset = utf16_offset_for_byte(text, end_byte);
             results.push(SearchMatch {
@@ -514,11 +542,6 @@ fn search_index(
                 ),
             });
             page_match_index += 1;
-
-            if results.len() >= options.limit {
-                truncated = true;
-                break 'pages;
-            }
         }
     }
 
@@ -741,6 +764,55 @@ mod tests {
         assert!(response.truncated);
         assert_eq!(response.results.len(), 2);
         assert_eq!(response.results[1].match_index, 1);
+    }
+
+    #[test]
+    fn zero_limit_returns_no_matches_and_tracks_truncation() {
+        let index = test_index(&[(1, "alpha"), (2, "beta")]);
+        let mut search_options = options("alpha");
+        search_options.limit = 0;
+
+        let response = search_index(&index, &search_options).expect("search should succeed");
+
+        assert!(response.results.is_empty());
+        assert!(response.truncated);
+
+        search_options.query = "gamma".to_string();
+        let response = search_index(&index, &search_options).expect("search should succeed");
+
+        assert!(response.results.is_empty());
+        assert!(!response.truncated);
+    }
+
+    #[test]
+    fn does_not_truncate_when_result_count_equals_limit() {
+        let index = test_index(&[(1, "a a")]);
+        let mut search_options = options("a");
+        search_options.limit = 2;
+
+        let response = search_index(&index, &search_options).expect("search should succeed");
+
+        assert_eq!(response.results.len(), 2);
+        assert!(!response.truncated);
+    }
+
+    #[test]
+    fn builds_excerpt_with_javascript_whitespace_rules() {
+        let text = "\u{feff}\u{85}Needle\u{85}\u{feff}";
+        let start_byte = text.find("Needle").unwrap();
+        let end_byte = start_byte + "Needle".len();
+
+        let excerpt = build_excerpt(
+            text,
+            start_byte,
+            end_byte,
+            utf16_offset_for_byte(text, start_byte),
+            utf16_offset_for_byte(text, end_byte),
+            10,
+        );
+
+        assert_eq!(excerpt.before, "\u{85}");
+        assert_eq!(excerpt.after, "\u{85}");
     }
 
     #[test]

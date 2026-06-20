@@ -191,6 +191,9 @@ fn delete_browser_pdf_pages(data: &[u8], pages: &[u32]) -> Result<PageMutationBy
         true,
         false,
     )?;
+    if remove_pages.len() == source_pages.len() {
+        return Err("deletePages: cannot delete every page".into());
+    }
     let kept_pages = source_pages
         .iter()
         .filter_map(|(page_number, page_id)| {
@@ -289,6 +292,10 @@ fn build_browser_page_subset_pdf(
     sources: &[&Document],
     page_sequence: &[PageCloneSource],
 ) -> Result<PageMutationBytes> {
+    if page_sequence.is_empty() {
+        return Err("Browser page subset must contain at least one page".into());
+    }
+
     let version = sources
         .iter()
         .map(|document| document.version.as_str())
@@ -322,10 +329,14 @@ fn build_browser_page_subset_pdf(
         }
         .into(),
     );
-    let catalog_id = clone_context.target.add_object(dictionary! {
+    let mut catalog = dictionary! {
         "Type" => "Catalog",
         "Pages" => pages_id,
-    });
+    };
+    if let Some(source_index) = retained_single_source_index(sources, page_sequence) {
+        preserve_single_source_document_metadata(&mut clone_context, source_index, &mut catalog)?;
+    }
+    let catalog_id = clone_context.target.add_object(catalog);
     clone_context.target.trailer.set("Root", catalog_id);
     clone_context.target.prune_objects();
 
@@ -333,6 +344,70 @@ fn build_browser_page_subset_pdf(
         page_count: page_ids.len() as u32,
         data: save_document_to_bytes(&mut clone_context.target)?,
     })
+}
+
+fn retained_single_source_index(
+    sources: &[&Document],
+    page_sequence: &[PageCloneSource],
+) -> Option<usize> {
+    if sources.len() != 1 {
+        return None;
+    }
+    let source_index = 0;
+    let source_pages = sources[source_index].get_pages();
+    if page_sequence.len() != source_pages.len() {
+        return None;
+    }
+
+    let mut retained_pages = HashSet::new();
+    for source in page_sequence {
+        if source.document_index != source_index {
+            return None;
+        }
+        retained_pages.insert(source.page_id);
+    }
+
+    source_pages
+        .values()
+        .all(|page_id| retained_pages.contains(page_id))
+        .then_some(source_index)
+}
+
+fn preserve_single_source_document_metadata(
+    clone_context: &mut PageCloneContext,
+    source_index: usize,
+    catalog: &mut Dictionary,
+) -> Result<()> {
+    let source_catalog = clone_context.source(source_index)?.catalog()?.clone();
+    for (key, value) in source_catalog.iter() {
+        if key.as_slice() == b"Type" || key.as_slice() == b"Pages" {
+            continue;
+        }
+        catalog.set(
+            key.clone(),
+            clone_context.clone_object_references(source_index, value.clone())?,
+        );
+    }
+
+    let source_info = clone_context
+        .source(source_index)?
+        .trailer
+        .get(b"Info")
+        .ok()
+        .cloned();
+    match source_info {
+        Some(Object::Reference(info_id)) => {
+            let new_info_id = clone_context.clone_indirect_object(source_index, info_id)?;
+            clone_context.target.trailer.set("Info", new_info_id);
+        }
+        Some(info) => {
+            let info = clone_context.clone_object_references(source_index, info)?;
+            clone_context.target.trailer.set("Info", info);
+        }
+        None => {}
+    }
+
+    Ok(())
 }
 
 impl PageCloneContext<'_> {

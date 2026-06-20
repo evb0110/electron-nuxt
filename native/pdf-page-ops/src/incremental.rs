@@ -302,10 +302,18 @@ fn should_write_incremental_object(object: &Object) -> bool {
         .unwrap_or(true)
 }
 
+fn should_run_full_incremental_post_save_validation_for(value: Option<&str>) -> bool {
+    match value.map(str::trim) {
+        Some("0") => false,
+        Some(value) if value.eq_ignore_ascii_case("false") => false,
+        Some(value) if value.eq_ignore_ascii_case("no") => false,
+        _ => true,
+    }
+}
+
 fn should_run_full_incremental_post_save_validation() -> bool {
-    env::var("EVB_PDF_PAGE_OPS_FULL_INCREMENTAL_VALIDATE")
-        .map(|value| value == "1")
-        .unwrap_or(false)
+    let value = env::var("EVB_PDF_PAGE_OPS_FULL_INCREMENTAL_VALIDATE").ok();
+    should_run_full_incremental_post_save_validation_for(value.as_deref())
 }
 
 fn validate_incremental_append_output(

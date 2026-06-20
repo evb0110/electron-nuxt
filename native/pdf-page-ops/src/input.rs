@@ -192,6 +192,13 @@ fn validate_shape_geometry(shape: &ShapeAnnotation) -> Result<()> {
     {
         return Err("Invalid shape style or bounds".into());
     }
+    if shape.color.trim().is_empty()
+        || shape.color.eq_ignore_ascii_case("transparent")
+        || shape.color.eq_ignore_ascii_case("none")
+        || parse_pdf_color(Some(&shape.color)).is_none()
+    {
+        return Err("Invalid shape color".into());
+    }
     if let Some(fill_color) = shape.fill_color.as_deref() {
         if !fill_color.trim().is_empty()
             && !fill_color.eq_ignore_ascii_case("transparent")

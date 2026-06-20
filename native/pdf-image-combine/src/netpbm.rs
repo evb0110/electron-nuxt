@@ -22,8 +22,8 @@ pub(crate) fn parse_netpbm(data: &[u8]) -> Result<NetpbmData<'_>> {
     let width = read_netpbm_number(data, &mut offset, "width")?;
     let height = read_netpbm_number(data, &mut offset, "height")?;
     let maxval = read_netpbm_number(data, &mut offset, "maxval")?;
-    if maxval == 0 || maxval > 255 {
-        return Err(format!("Unsupported maxval {maxval} (only 8-bit supported)").into());
+    if maxval != 255 {
+        return Err(format!("Unsupported maxval {maxval} (only maxval 255 is supported)").into());
     }
     if offset >= data.len() || !is_whitespace_byte(data[offset]) {
         return Err("Invalid Netpbm header terminator".into());
@@ -95,14 +95,16 @@ fn is_whitespace_byte(byte: u8) -> bool {
 }
 
 pub(crate) fn is_rgb_data_grayscale(pixels: &[u8], total_pixels: usize) -> bool {
-    let step = std::cmp::max(1, total_pixels / 10_000);
-    for index in (0..total_pixels).step_by(step) {
-        let offset = index * 3;
-        if pixels[offset] != pixels[offset + 1] || pixels[offset] != pixels[offset + 2] {
-            return false;
-        }
-    }
-    true
+    let Some(expected_len) = total_pixels.checked_mul(3) else {
+        return false;
+    };
+    let Some(pixels) = pixels.get(..expected_len) else {
+        return false;
+    };
+
+    pixels
+        .chunks_exact(3)
+        .all(|pixel| pixel[0] == pixel[1] && pixel[0] == pixel[2])
 }
 
 #[cfg(test)]
@@ -118,5 +120,22 @@ mod tests {
         assert_eq!(netpbm.height, 1);
         assert_eq!(netpbm.channels, 3);
         assert_eq!(netpbm.pixels, &[1, 1, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn rejects_netpbm_maxval_below_255() {
+        let result = parse_netpbm(b"P5\n1 1\n15\n\x0f");
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn detects_sparse_rgb_color() {
+        let total_pixels = 20_000usize;
+        let mut pixels = vec![7u8; total_pixels * 3];
+        let sparse_color_offset = 1usize * 3;
+        pixels[sparse_color_offset + 1] = 8;
+
+        assert!(!is_rgb_data_grayscale(&pixels, total_pixels));
     }
 }

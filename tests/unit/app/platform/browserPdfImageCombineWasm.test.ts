@@ -8,6 +8,9 @@ import {
 
 const NativeWebAssembly = WebAssembly;
 const wasmGlobalMockBase = {Memory: NativeWebAssembly.Memory};
+const loggerWarn = vi.hoisted(() => vi.fn());
+
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: loggerWarn}}));
 
 function createFetchMock() {
     return vi.fn(async () => ({
@@ -87,6 +90,7 @@ function createWasmExportsMock(options: {
 describe('tryCombineImageInputsWithWasm', () => {
     beforeEach(() => {
         vi.resetModules();
+        vi.clearAllMocks();
         vi.unstubAllGlobals();
         vi.stubGlobal('location', {href: 'https://viewer.test/electron'});
     });
@@ -168,5 +172,13 @@ describe('tryCombineImageInputsWithWasm', () => {
 
         expect(result).toBeNull();
         expect(wasmMock.free).toHaveBeenCalledTimes(1);
+        expect(loggerWarn).toHaveBeenCalledWith(
+            'browser-wasm',
+            'PDF image combine WASM failed; falling back to pdf-lib',
+            {
+                error: 'wasm failed',
+                resultCode: -1,
+            },
+        );
     });
 });

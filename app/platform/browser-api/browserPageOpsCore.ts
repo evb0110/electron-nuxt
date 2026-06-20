@@ -192,6 +192,9 @@ export async function deletePdfPages(
         pageCount: sourcePdf.getPageCount(),
         requireUnique: true,
     });
+    if (removePages.size === sourcePdf.getPageCount()) {
+        throw new Error('deletePages: cannot delete every page');
+    }
     const keptIndexes = getKeptPageIndexes(sourcePdf.getPageCount(), removePages);
     const { targetPdf } = await copySelectedPages({
         sourcePdf,

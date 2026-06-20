@@ -18,6 +18,9 @@ import {
 } from '@pdf-core';
 
 const NativeWebAssembly = WebAssembly;
+const loggerWarn = vi.hoisted(() => vi.fn());
+
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: loggerWarn}}));
 
 interface IPdfPageSummary {
     mediaBox: IPageGeometry['mediaBox'];
@@ -78,6 +81,32 @@ async function stubSuccessfulWasmFetch() {
     return fetchMock;
 }
 
+function createFailingPageOpsWasmExports(errorText: string) {
+    const memory = new NativeWebAssembly.Memory({initial: 1});
+    const error = new TextEncoder().encode(errorText);
+    const errorPointer = 2048;
+    const free = vi.fn();
+    const run = vi.fn(() => {
+        new Uint8Array(memory.buffer, errorPointer, error.byteLength).set(error);
+        return -7;
+    });
+
+    return {
+        exports: {
+            memory,
+            evb_pdf_page_ops_alloc: vi.fn(() => 1024),
+            evb_pdf_page_ops_free: free,
+            evb_pdf_page_ops_run: run,
+            evb_pdf_page_ops_output_ptr: vi.fn(() => 0),
+            evb_pdf_page_ops_output_len: vi.fn(() => 0),
+            evb_pdf_page_ops_error_ptr: vi.fn(() => errorPointer),
+            evb_pdf_page_ops_error_len: vi.fn(() => error.byteLength),
+        },
+        free,
+        run,
+    };
+}
+
 async function loadWasmRunner() {
     vi.resetModules();
     vi.unstubAllGlobals();
@@ -110,6 +139,7 @@ async function loadPdfLibCore() {
 describe('browser page-ops WASM fast path', () => {
     beforeEach(() => {
         vi.resetModules();
+        vi.clearAllMocks();
         vi.unstubAllGlobals();
     });
 
@@ -236,6 +266,14 @@ describe('browser page-ops WASM fast path', () => {
         expect(core.fetchMock).toHaveBeenCalledWith('https://viewer.test/wasm/evb-pdf-page-ops.wasm');
     });
 
+    it('rejects browser fallback delete-all before saving a zero-page PDF', async () => {
+        const basePdf = await createPdf({pageWidths: [200]});
+        const pdfLibCore = await loadPdfLibCore();
+
+        await expect(pdfLibCore.deletePdfPages(basePdf, [1]))
+            .rejects.toThrow('deletePages: cannot delete every page');
+    });
+
     it('returns null when the WASM asset is unavailable', async () => {
         vi.resetModules();
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
@@ -251,5 +289,38 @@ describe('browser page-ops WASM fast path', () => {
             data: basePdf,
             pages: [1],
         })).resolves.toBeNull();
+    });
+
+    it('logs native WASM error strings when a page operation fails', async () => {
+        vi.resetModules();
+        vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: true,
+            arrayBuffer: async () => new ArrayBuffer(8),
+        })));
+        const wasmMock = createFailingPageOpsWasmExports('page wasm failed');
+        vi.stubGlobal('WebAssembly', {
+            Memory: NativeWebAssembly.Memory,
+            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+        });
+        const { tryRunBrowserPageOpsWithWasm } = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+        const basePdf = await createPdf({pageWidths: [200]});
+
+        await expect(tryRunBrowserPageOpsWithWasm('deletePages', {
+            data: basePdf,
+            pages: [1],
+        })).resolves.toBeNull();
+
+        expect(wasmMock.run).toHaveBeenCalledTimes(1);
+        expect(wasmMock.free).toHaveBeenCalledTimes(1);
+        expect(loggerWarn).toHaveBeenCalledWith(
+            'browser-wasm',
+            'PDF page operation WASM failed; falling back to pdf-lib',
+            {
+                error: 'page wasm failed',
+                resultCode: -7,
+                type: 'deletePages',
+            },
+        );
     });
 });

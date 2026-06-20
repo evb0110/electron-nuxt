@@ -51,6 +51,92 @@
     }
 
     #[test]
+    fn rejects_delete_all_browser_pages() {
+        let (mut document, _) = create_test_document();
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+
+        let error = match delete_browser_pdf_pages(&bytes, &[1]) {
+            Ok(_) => panic!("delete-all should be rejected"),
+            Err(error) => error.to_string(),
+        };
+
+        assert!(error.contains("cannot delete every page"));
+    }
+
+    #[test]
+    fn reorder_preserves_catalog_and_info_metadata() {
+        let (mut document, first_page_id) = create_test_document();
+        let pages_id = document
+            .catalog()
+            .unwrap()
+            .get(b"Pages")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let second_page_id = document.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 300.into(), 100.into()],
+        });
+        let pages = document.get_dictionary_mut(pages_id).unwrap();
+        pages.set(
+            "Kids",
+            vec![
+                Object::Reference(first_page_id),
+                Object::Reference(second_page_id),
+            ],
+        );
+        pages.set("Count", 2);
+
+        let info_id = document.add_object(dictionary! {
+            "Title" => Object::string_literal("Preserved title"),
+            "Author" => Object::string_literal("EVB"),
+        });
+        document.trailer.set("Info", info_id);
+        let catalog_id = catalog_id(&document).unwrap();
+        let catalog = document.get_dictionary_mut(catalog_id).unwrap();
+        catalog.set("PageMode", Object::Name(b"UseOutlines".to_vec()));
+        catalog.set("PageLayout", Object::Name(b"TwoColumnLeft".to_vec()));
+        catalog.set("Lang", Object::string_literal("en-US"));
+        catalog.set("OpenAction", Object::Reference(second_page_id));
+
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+
+        let result = reorder_browser_pdf_pages(&bytes, &[2, 1]).unwrap();
+        let reordered = Document::load_mem(&result.data).unwrap();
+        let reordered_pages = reordered.get_pages();
+        let catalog = reordered.catalog().unwrap();
+        let info_id = reordered
+            .trailer
+            .get(b"Info")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let info = reordered.get_dictionary(info_id).unwrap();
+
+        assert_eq!(catalog.get(b"PageMode").unwrap().as_name().unwrap(), b"UseOutlines");
+        assert_eq!(
+            catalog.get(b"PageLayout").unwrap().as_name().unwrap(),
+            b"TwoColumnLeft"
+        );
+        assert_eq!(
+            pdf_string_to_text(catalog.get(b"Lang").unwrap()).unwrap(),
+            "en-US"
+        );
+        assert_eq!(
+            catalog.get(b"OpenAction").unwrap().as_reference().unwrap(),
+            *reordered_pages.get(&1).unwrap()
+        );
+        assert_eq!(
+            pdf_string_to_text(info.get(b"Title").unwrap()).unwrap(),
+            "Preserved title"
+        );
+        assert_eq!(pdf_string_to_text(info.get(b"Author").unwrap()).unwrap(), "EVB");
+    }
+
+    #[test]
     fn inserts_pages_between_destination_pages() {
         let (mut destination, _) = create_test_document();
         let second_destination_page = destination.add_object(dictionary! {

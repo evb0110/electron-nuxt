@@ -53,6 +53,8 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('schedule:');
         expect(workflow).not.toContain('pull_request:');
         expect(workflow).toContain('name: Push Quality Gates');
+        expect(workflowJob(workflow, 'push_quality')).toContain('run: rustup target add wasm32-unknown-unknown');
+        expect(workflowJob(workflow, 'push_quality')).toContain('run: pnpm run check:wasm:freshness');
         expect(workflow).toContain('run: pnpm run lint');
         expect(workflow).toContain('run: pnpm run typecheck');
         expect(workflow).toContain('run: pnpm run test:release');
@@ -67,7 +69,8 @@ describe('CI topology policy', () => {
         const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
 
         expect(workflow).toContain('packages/(contracts|i18n-core|release-selection)/');
-        expect(workflow).toContain('scripts/(build-pdf-image-combine|build-pdf-page-ops|build-pdf-search|native-rust-targets)[.]mjs');
+        expect(workflow).toContain('public/wasm/');
+        expect(workflow).toContain('scripts/(build-pdf-image-combine|build-pdf-page-ops|build-pdf-search|check-wasm-freshness|native-rust-targets)[.]mjs');
         expect(workflow).toContain('Cargo[.]lock');
         expect(workflow).toContain('python/page-processor/');
         expect(workflow).toContain('bundle-page-processor-macos[.]sh');
@@ -119,6 +122,7 @@ describe('CI topology policy', () => {
 
         expect(workflow).toContain('github.event_name == \'schedule\'');
         expect(workflow).toContain('name: Nightly Maintenance Gates');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: rustup target add wasm32-unknown-unknown');
         expect(workflow).toContain('run: pnpm run validate');
         expect(workflow).toContain('run: pnpm run test:rust');
         expect(workflow).toContain('run: pnpm run test:coverage');
@@ -131,6 +135,7 @@ describe('CI topology policy', () => {
         expect(nvmrc.trim()).toBe('24.11.1');
         expect(workflow).toContain('NODE_VERSION: \'24.11.1\'');
         expect(buildWorkflow).toContain('NODE_VERSION: \'24.11.1\'');
+        expect(buildWorkflow).toContain('run: rustup target add wasm32-unknown-unknown');
     });
 
     it('keeps Electron desktop automation and PDF tab diagnostics nightly and non-blocking', async () => {

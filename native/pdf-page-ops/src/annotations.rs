@@ -884,10 +884,19 @@ fn annotation_subtype(dict: &Dictionary) -> String {
         .unwrap_or_default()
 }
 
-fn parse_hex_color_component(value: &str) -> Option<f64> {
-    u8::from_str_radix(value, 16)
-        .ok()
-        .map(|component| f64::from(component) / 255.0)
+fn parse_hex_digit(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn parse_hex_color_component(high: u8, low: u8) -> Option<f64> {
+    let high = parse_hex_digit(high)?;
+    let low = parse_hex_digit(low)?;
+    Some(f64::from(high * 16 + low) / 255.0)
 }
 
 fn parse_rgb_number(value: &str) -> Option<f64> {
@@ -908,21 +917,19 @@ fn parse_pdf_color(color: Option<&str>) -> Option<[f64; 3]> {
     }
 
     if let Some(hex) = trimmed.strip_prefix('#') {
-        if hex.len() == 3 {
-            let r = &hex[0..1];
-            let g = &hex[1..2];
-            let b = &hex[2..3];
+        let bytes = hex.as_bytes();
+        if bytes.len() == 3 {
             return Some([
-                parse_hex_color_component(&format!("{r}{r}"))?,
-                parse_hex_color_component(&format!("{g}{g}"))?,
-                parse_hex_color_component(&format!("{b}{b}"))?,
+                parse_hex_color_component(bytes[0], bytes[0])?,
+                parse_hex_color_component(bytes[1], bytes[1])?,
+                parse_hex_color_component(bytes[2], bytes[2])?,
             ]);
         }
-        if hex.len() == 6 {
+        if bytes.len() == 6 {
             return Some([
-                parse_hex_color_component(&hex[0..2])?,
-                parse_hex_color_component(&hex[2..4])?,
-                parse_hex_color_component(&hex[4..6])?,
+                parse_hex_color_component(bytes[0], bytes[1])?,
+                parse_hex_color_component(bytes[2], bytes[3])?,
+                parse_hex_color_component(bytes[4], bytes[5])?,
             ]);
         }
     }

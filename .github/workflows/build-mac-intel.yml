@@ -54,6 +54,9 @@ jobs:
           bash scripts/bundle-pdf-tools-macos.sh
           bash scripts/bundle-djvu-macos.sh
 
+      - name: Install Rust WASM target
+        run: rustup target add wasm32-unknown-unknown
+
       - name: Build (Nuxt + Electron)
         env:
           EVB_NATIVE_TARGET_ARCH: x64

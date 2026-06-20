@@ -150,6 +150,15 @@
     }
 
     #[test]
+    fn semantic_incremental_post_save_validation_runs_by_default() {
+        assert!(should_run_full_incremental_post_save_validation_for(None));
+        assert!(should_run_full_incremental_post_save_validation_for(Some("1")));
+        assert!(!should_run_full_incremental_post_save_validation_for(Some("0")));
+        assert!(!should_run_full_incremental_post_save_validation_for(Some("false")));
+        assert!(!should_run_full_incremental_post_save_validation_for(Some("no")));
+    }
+
+    #[test]
     fn rejects_incremental_append_tail_with_corrupt_object_header() {
         let (mut document, target_id, popup_id) = create_test_note_pdf();
         document.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;

@@ -187,9 +187,10 @@ fn next_page_count_with_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flate2::{write::ZlibEncoder, Compression};
     use std::{
         env, fs,
-        io::BufWriter,
+        io::{BufWriter, Write},
         path::Path,
         process,
         time::{SystemTime, UNIX_EPOCH},
@@ -206,10 +207,11 @@ mod tests {
         ihdr.extend_from_slice(&1u32.to_be_bytes());
         ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
 
+        let idat = zlib_bytes(&[0, 0, 0, 0]);
         let png = [
             b"\x89PNG\r\n\x1a\n".as_slice(),
             &png_chunk(b"IHDR", &ihdr),
-            &png_chunk(b"IDAT", b"x\x9cc``\0\0\0\x04\0\x01"),
+            &png_chunk(b"IDAT", &idat),
             &png_chunk(b"IEND", b""),
         ]
         .concat();
@@ -302,6 +304,12 @@ mod tests {
         chunk.extend_from_slice(data);
         chunk.extend_from_slice(&[0, 0, 0, 0]);
         chunk
+    }
+
+    fn zlib_bytes(data: &[u8]) -> Vec<u8> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
     }
 
     fn temp_path(label: &str) -> PathBuf {

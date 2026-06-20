@@ -183,6 +183,36 @@
     }
 
     #[test]
+    fn parse_pdf_color_rejects_non_ascii_hex_without_panic() {
+        let parsed = std::panic::catch_unwind(|| parse_pdf_color(Some("#\u{e9}a")));
+
+        assert!(parsed.is_ok());
+        assert!(parsed.unwrap().is_none());
+        assert!(parse_pdf_color(Some("#abc")).is_some());
+        assert!(parse_pdf_color(Some("#aabbcc")).is_some());
+    }
+
+    #[test]
+    fn validates_required_shape_color() {
+        for color in ["#\u{e9}a", "transparent", "none", ""] {
+            let mut shape = rectangle_shape("evb-shape:invalid-color", color);
+            shape.fill_color = Some("transparent".to_string());
+
+            let error = validate_shapes_mutation(&ShapesMutation {
+                total_pages: 1,
+                rewrite_shape_state: true,
+                shapes: vec![shape],
+                deleted_annotation_ids: Vec::new(),
+                deleted_stable_keys: Vec::new(),
+            })
+            .unwrap_err()
+            .to_string();
+
+            assert!(error.contains("Invalid shape color"));
+        }
+    }
+
+    #[test]
     fn updates_and_deletes_managed_shapes_as_incremental_revision() {
         let (mut document, page_id) = create_test_document();
         let pdf_path = temp_pdf_path("append-shape-update-delete");

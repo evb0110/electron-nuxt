@@ -94,9 +94,12 @@ describe('embedBookmarksIntoPdfFile native path', () => {
 
     afterEach(() => {
         vi.unstubAllEnvs();
+        vi.useRealTimers();
     });
 
     it('uses evb-pdf-page-ops save-mutations without loading the PDF into pdf-lib', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-02-03T04:05:06.789Z'));
         const expectedBookmarkMutation = {
             totalPages: 3,
             untitledLabel: 'Untitled',
@@ -107,7 +110,8 @@ describe('embedBookmarksIntoPdfFile native path', () => {
 
         expect(size).toBe(321);
         expect(mocks.getPdfPageCount).toHaveBeenCalledWith('/tmp/input.pdf');
-        expect(mocks.copyFile).toHaveBeenCalledWith('/tmp/input.pdf', '/tmp/djvu-bookmarks-native/input.pdf');
+        expect(mocks.copyFile).toHaveBeenNthCalledWith(1, '/tmp/input.pdf', '/tmp/djvu-bookmarks-native/input.pdf');
+        expect(mocks.copyFile).toHaveBeenNthCalledWith(2, '/tmp/input.pdf', '/tmp/output.pdf');
         expect(mocks.writeFile).toHaveBeenCalledWith(
             '/tmp/djvu-bookmarks-native/bookmarks.json',
             JSON.stringify({bookmarks: expectedBookmarkMutation}),
@@ -123,10 +127,15 @@ describe('embedBookmarksIntoPdfFile native path', () => {
                 '/tmp/output.pdf',
                 '--mutations-file',
                 '/tmp/djvu-bookmarks-native/bookmarks.json',
+                '--modified-at',
+                'D:20260203040506Z',
                 '--append',
             ]),
             expect.objectContaining({commandLabel: 'evb-pdf-page-ops(djvu-bookmarks)'}),
         );
+        const seedOutputOrder = mocks.copyFile.mock.invocationCallOrder[1] ?? Number.POSITIVE_INFINITY;
+        const commandOrder = mocks.runNativeToolCommand.mock.invocationCallOrder[0] ?? 0;
+        expect(seedOutputOrder).toBeLessThan(commandOrder);
         expect(mocks.load).not.toHaveBeenCalled();
         expect(mocks.readFile).not.toHaveBeenCalled();
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/djvu-bookmarks-native', {

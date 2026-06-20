@@ -1,12 +1,8 @@
-import { existsSync } from 'fs';
 import {
     open,
     stat,
 } from 'fs/promises';
-import {
-    dirname,
-    join,
-} from 'path';
+import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import type {
     ISearchMatch,
@@ -22,8 +18,7 @@ import {
     SEARCH_RESULT_LIMIT,
 } from '@electron/config/constants';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { resolveOcrResourcesBase } from '@electron/ocr/resolveOcrResourcesBase';
-import { resolvePlatformArchTag } from '@electron/utils/platformArch';
+import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     NATIVE_SEARCH_INDEX_MAGIC,
@@ -78,20 +73,13 @@ function isNativeSearchDisabled() {
 }
 
 function resolveNativeSearchPath() {
-    const overridePath = process.env.EVB_PDF_SEARCH_PATH?.trim();
-    if (overridePath && existsSync(overridePath)) {
-        return overridePath;
-    }
-
-    const binaryName = getBinaryName();
-    const platformArch = resolvePlatformArchTag();
-    const resourcesBase = resolveOcrResourcesBase(__dirname, isPackaged);
-    const candidates = [
-        join(resourcesBase, 'pdf-search', platformArch, 'bin', binaryName),
-        join(process.cwd(), 'native', 'pdf-search', 'target', 'release', binaryName),
-    ];
-
-    return candidates.find(candidate => existsSync(candidate)) ?? null;
+    return resolveNativeToolPath({
+        binaryName: getBinaryName(),
+        crateName: 'pdf-search',
+        currentDir: __dirname,
+        envOverridePath: process.env.EVB_PDF_SEARCH_PATH,
+        isPackaged,
+    });
 }
 
 export function isNativeSearchSupportedOptions(options: {

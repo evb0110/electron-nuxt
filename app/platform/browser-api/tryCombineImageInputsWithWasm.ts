@@ -1,6 +1,7 @@
 import type { IBrowserPdfCombineInput } from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import { getBrowserFileExtension } from '@app/platform/browser-api/browserPlatformHelpers';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 interface IPdfImageCombineWasmExports {
     memory: WebAssembly.Memory;
@@ -179,6 +180,13 @@ function readWasmError(exports: IPdfImageCombineWasmExports) {
     return new TextDecoder().decode(copyWasmBytes(exports, pointer, len));
 }
 
+function logWasmFailure(resultCode: number, exports: IPdfImageCombineWasmExports) {
+    BrowserLogger.warn('browser-wasm', 'PDF image combine WASM failed; falling back to pdf-lib', {
+        error: readWasmError(exports) ?? 'No WASM error detail returned',
+        resultCode,
+    });
+}
+
 export async function tryCombineImageInputsWithWasm(
     inputs: IBrowserPdfCombineInput[],
 ): Promise<Uint8Array | null> {
@@ -198,7 +206,7 @@ export async function tryCombineImageInputsWithWasm(
         new Uint8Array(exports.memory.buffer, pointer, request.byteLength).set(request);
         const resultCode = exports.evb_pdf_image_combine_build_pdf(pointer, request.byteLength);
         if (resultCode !== 0) {
-            readWasmError(exports);
+            logWasmFailure(resultCode, exports);
             return null;
         }
 

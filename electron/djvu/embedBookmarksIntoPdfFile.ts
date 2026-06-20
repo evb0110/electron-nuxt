@@ -45,8 +45,22 @@ function createNativeBookmarkMutation(totalPages: number, bookmarks: IPdfBookmar
     return {bookmarks: bookmarkMutation};
 }
 
+function padPdfDatePart(value: number, length = 2) {
+    return String(value).padStart(length, '0');
+}
+
 function createNativeModifiedAt() {
-    return new Date().toISOString();
+    const date = new Date();
+    return [
+        'D:',
+        padPdfDatePart(date.getUTCFullYear(), 4),
+        padPdfDatePart(date.getUTCMonth() + 1),
+        padPdfDatePart(date.getUTCDate()),
+        padPdfDatePart(date.getUTCHours()),
+        padPdfDatePart(date.getUTCMinutes()),
+        padPdfDatePart(date.getUTCSeconds()),
+        'Z',
+    ].join('');
 }
 
 async function tryEmbedBookmarksWithNativePageOps(
@@ -70,6 +84,7 @@ async function tryEmbedBookmarksWithNativePageOps(
     try {
         const totalPages = await getPdfPageCount(inputPdfPath);
         await copyFile(inputPdfPath, workingPath);
+        await copyFile(inputPdfPath, outputPdfPath);
         await writeFile(
             mutationsPath,
             JSON.stringify(createNativeBookmarkMutation(totalPages, bookmarks)),

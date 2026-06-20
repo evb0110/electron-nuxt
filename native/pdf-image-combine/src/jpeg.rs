@@ -50,6 +50,13 @@ pub(crate) fn parse_jpeg_metadata(bytes: &[u8]) -> Result<JpegMetadata> {
             if segment_length < 8 {
                 return Err("Invalid JPEG SOF segment".into());
             }
+            let precision = *bytes.get(offset + 2).ok_or("Missing JPEG precision")?;
+            if precision != 8 {
+                return Err(format!(
+                    "Unsupported JPEG SOF precision: {precision} (only 8-bit supported)"
+                )
+                .into());
+            }
             let height = read_u16_be(bytes, offset + 3).ok_or("Missing JPEG height")? as u32;
             let width = read_u16_be(bytes, offset + 5).ok_or("Missing JPEG width")? as u32;
             let components = *bytes
@@ -98,5 +105,32 @@ fn read_jfif_dpi(bytes: &[u8], offset: usize, segment_length: usize) -> Option<u
         1 => Some(density),
         2 => Some((density as f64 * CM_PER_INCH).round() as u32),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_eight_bit_jpeg_sof_precision() {
+        let metadata = parse_jpeg_metadata(&jpeg_with_sof_precision(8)).unwrap();
+
+        assert_eq!(metadata.width, 2);
+        assert_eq!(metadata.height, 1);
+        assert_eq!(metadata.components, 3);
+    }
+
+    #[test]
+    fn rejects_non_eight_bit_jpeg_sof_precision() {
+        let result = parse_jpeg_metadata(&jpeg_with_sof_precision(12));
+
+        assert!(result.is_err());
+    }
+
+    fn jpeg_with_sof_precision(precision: u8) -> Vec<u8> {
+        vec![
+            0xff, 0xd8, 0xff, 0xc0, 0x00, 0x08, precision, 0x00, 0x01, 0x00, 0x02, 0x03,
+        ]
     }
 }

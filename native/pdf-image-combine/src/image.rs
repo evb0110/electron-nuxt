@@ -230,4 +230,23 @@ mod tests {
             ImagePayload::Jpeg { .. } => panic!("expected flate payload"),
         }
     }
+
+    #[test]
+    fn preserves_sparse_color_netpbm_pdf_image_payload() {
+        let width = 20_000usize;
+        let mut data = format!("P6\n{width} 1\n255\n").into_bytes();
+        let mut pixels = vec![7u8; width * 3];
+        pixels[4] = 8;
+        data.extend_from_slice(&pixels);
+
+        let page = read_netpbm_page(&data, 1_000_000, 300).unwrap();
+
+        assert_eq!(page.color_space, "DeviceRGB");
+        match page.payload {
+            ImagePayload::RawFlate { decode_params, .. } => {
+                assert!(decode_params.contains("/Colors 3"));
+            }
+            ImagePayload::Jpeg { .. } => panic!("expected flate payload"),
+        }
+    }
 }

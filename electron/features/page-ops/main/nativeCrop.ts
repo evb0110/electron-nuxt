@@ -1,4 +1,3 @@
-import { existsSync } from 'fs';
 import {
     mkdtemp,
     rm,
@@ -13,8 +12,7 @@ import {
 import { fileURLToPath } from 'url';
 import type { ICropMargins } from '@contracts/shared';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { resolveOcrResourcesBase } from '@electron/ocr/resolveOcrResourcesBase';
-import { resolvePlatformArchTag } from '@electron/utils/platformArch';
+import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
 import {
@@ -42,20 +40,13 @@ export function isNativePageOpsDisabled() {
 }
 
 export function resolveNativePageOpsPath() {
-    const overridePath = process.env.EVB_PDF_PAGE_OPS_PATH?.trim();
-    if (overridePath && existsSync(overridePath)) {
-        return overridePath;
-    }
-
-    const binaryName = getBinaryName();
-    const platformArch = resolvePlatformArchTag();
-    const resourcesBase = resolveOcrResourcesBase(__dirname, isPackaged);
-    const candidates = [
-        join(resourcesBase, 'pdf-page-ops', platformArch, 'bin', binaryName),
-        join(process.cwd(), 'native', 'pdf-page-ops', 'target', 'release', binaryName),
-    ];
-
-    return candidates.find(candidate => existsSync(candidate)) ?? null;
+    return resolveNativeToolPath({
+        binaryName: getBinaryName(),
+        crateName: 'pdf-page-ops',
+        currentDir: __dirname,
+        envOverridePath: process.env.EVB_PDF_PAGE_OPS_PATH,
+        isPackaged,
+    });
 }
 
 function createPageFileContents(pages: number[]) {

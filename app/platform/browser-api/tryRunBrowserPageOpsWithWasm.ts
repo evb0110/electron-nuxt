@@ -5,6 +5,7 @@ import type {
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import type { ICropMargins } from '@contracts/shared';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 interface IPdfPageOpsWasmExports {
     memory: WebAssembly.Memory;
@@ -293,6 +294,18 @@ function readWasmError(exports: IPdfPageOpsWasmExports) {
     return new TextDecoder().decode(copyWasmBytes(exports, pointer, len));
 }
 
+function logWasmFailure(
+    type: TBrowserPageOpsWasmRequestType,
+    resultCode: number,
+    exports: IPdfPageOpsWasmExports,
+) {
+    BrowserLogger.warn('browser-wasm', 'PDF page operation WASM failed; falling back to pdf-lib', {
+        error: readWasmError(exports) ?? 'No WASM error detail returned',
+        resultCode,
+        type,
+    });
+}
+
 function readMutationResult(output: Uint8Array) {
     const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
     let offset = 4;
@@ -391,7 +404,7 @@ export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasm
         new Uint8Array(exports.memory.buffer, pointer, request.byteLength).set(request);
         const resultCode = exports.evb_pdf_page_ops_run(pointer, request.byteLength);
         if (resultCode !== 0) {
-            readWasmError(exports);
+            logWasmFailure(type, resultCode, exports);
             return null;
         }
 

@@ -1,5 +1,7 @@
 use std::io::Read;
 
+use flate2::read::ZlibDecoder;
+
 use crate::{binary::read_u32_be, Result, METERS_PER_INCH};
 
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
@@ -27,6 +29,7 @@ pub(crate) fn parse_png_reader<R: Read>(mut reader: R) -> Result<PngData> {
     let mut interlace_method = None;
     let mut dpi = None;
     let mut idat = Vec::new();
+    let mut saw_iend = false;
 
     while let Some(header) = read_png_chunk_header(&mut reader)? {
         let length = u32::from_be_bytes([header[0], header[1], header[2], header[3]]) as usize;
@@ -65,9 +68,13 @@ pub(crate) fn parse_png_reader<R: Read>(mut reader: R) -> Result<PngData> {
                 reader.read_exact(&mut idat[start..])?;
             }
             b"IEND" => {
+                if length != 0 {
+                    return Err("Invalid PNG IEND length".into());
+                }
                 skip_exact(&mut reader, length)?;
                 let mut crc = [0u8; 4];
                 reader.read_exact(&mut crc)?;
+                saw_iend = true;
                 break;
             }
             _ => skip_exact(&mut reader, length)?,
@@ -75,6 +82,10 @@ pub(crate) fn parse_png_reader<R: Read>(mut reader: R) -> Result<PngData> {
 
         let mut crc = [0u8; 4];
         reader.read_exact(&mut crc)?;
+    }
+
+    if !saw_iend {
+        return Err("Missing PNG IEND".into());
     }
 
     let width = width.ok_or("Missing PNG IHDR")?;
@@ -92,6 +103,7 @@ pub(crate) fn parse_png_reader<R: Read>(mut reader: R) -> Result<PngData> {
     if idat.is_empty() {
         return Err("Missing PNG image data".into());
     }
+    validate_png_idat_data_length(&idat, width, height, color_type)?;
 
     Ok(PngData {
         width,
@@ -110,6 +122,60 @@ fn read_png_chunk_header<R: Read>(reader: &mut R) -> Result<Option<[u8; 8]>> {
     }
     reader.read_exact(&mut header[1..])?;
     Ok(Some(header))
+}
+
+fn validate_png_idat_data_length(
+    idat: &[u8],
+    width: u32,
+    height: u32,
+    color_type: u8,
+) -> Result<()> {
+    let Some(channels) = supported_png_color_channels(color_type) else {
+        return Ok(());
+    };
+    let row_len = (width as usize)
+        .checked_mul(channels)
+        .and_then(|value| value.checked_add(1))
+        .ok_or("Invalid PNG image data length")?;
+    let expected_len = row_len
+        .checked_mul(height as usize)
+        .ok_or("Invalid PNG image data length")?;
+
+    let mut decoder = ZlibDecoder::new(idat);
+    let mut buffer = [0u8; 8192];
+    let mut decoded_len = 0usize;
+    loop {
+        let read = decoder.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        decoded_len = decoded_len
+            .checked_add(read)
+            .ok_or("Invalid PNG image data length")?;
+        if decoded_len > expected_len {
+            return Err(format!(
+                "PNG image data is longer than expected: expected {expected_len} bytes"
+            )
+            .into());
+        }
+    }
+
+    if decoded_len != expected_len {
+        return Err(format!(
+            "PNG image data length mismatch: expected {expected_len} bytes, got {decoded_len}"
+        )
+        .into());
+    }
+
+    Ok(())
+}
+
+fn supported_png_color_channels(color_type: u8) -> Option<usize> {
+    match color_type {
+        0 => Some(1),
+        2 => Some(3),
+        _ => None,
+    }
 }
 
 fn skip_exact<R: Read>(reader: &mut R, mut length: usize) -> Result<()> {
@@ -137,7 +203,9 @@ fn read_png_phys_dpi(bytes: &[u8], offset: usize) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flate2::{write::ZlibEncoder, Compression};
     use std::io::Cursor;
+    use std::io::Write;
 
     #[test]
     fn reads_png_phys_dpi() {
@@ -161,8 +229,10 @@ mod tests {
         bytes.extend_from_slice(PNG_SIGNATURE);
         bytes.extend_from_slice(&png_chunk(b"IHDR", &ihdr));
         bytes.extend_from_slice(&png_chunk(b"pHYs", &phys));
-        bytes.extend_from_slice(&png_chunk(b"IDAT", b"abc"));
-        bytes.extend_from_slice(&png_chunk(b"IDAT", b"def"));
+        let idat = zlib_bytes(&[0, 1, 2, 3, 4, 5, 6]);
+        let split_at = idat.len() / 2;
+        bytes.extend_from_slice(&png_chunk(b"IDAT", &idat[..split_at]));
+        bytes.extend_from_slice(&png_chunk(b"IDAT", &idat[split_at..]));
         bytes.extend_from_slice(&png_chunk(b"IEND", b""));
 
         let png = parse_png_reader(Cursor::new(bytes)).unwrap();
@@ -171,7 +241,42 @@ mod tests {
         assert_eq!(png.height, 1);
         assert_eq!(png.color_type, 2);
         assert_eq!(png.dpi, Some(300));
-        assert_eq!(png.idat, b"abcdef");
+        assert_eq!(png.idat, idat);
+    }
+
+    #[test]
+    fn rejects_png_without_iend() {
+        let mut ihdr = Vec::new();
+        ihdr.extend_from_slice(&1u32.to_be_bytes());
+        ihdr.extend_from_slice(&1u32.to_be_bytes());
+        ihdr.extend_from_slice(&[8, 0, 0, 0, 0]);
+
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(PNG_SIGNATURE);
+        bytes.extend_from_slice(&png_chunk(b"IHDR", &ihdr));
+        bytes.extend_from_slice(&png_chunk(b"IDAT", &zlib_bytes(&[0, 7])));
+
+        let result = parse_png_reader(Cursor::new(bytes));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_png_with_short_decompressed_image_data() {
+        let mut ihdr = Vec::new();
+        ihdr.extend_from_slice(&2u32.to_be_bytes());
+        ihdr.extend_from_slice(&1u32.to_be_bytes());
+        ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
+
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(PNG_SIGNATURE);
+        bytes.extend_from_slice(&png_chunk(b"IHDR", &ihdr));
+        bytes.extend_from_slice(&png_chunk(b"IDAT", &zlib_bytes(&[0, 1, 2, 3])));
+        bytes.extend_from_slice(&png_chunk(b"IEND", b""));
+
+        let result = parse_png_reader(Cursor::new(bytes));
+
+        assert!(result.is_err());
     }
 
     fn png_chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
@@ -181,5 +286,11 @@ mod tests {
         chunk.extend_from_slice(data);
         chunk.extend_from_slice(&[0, 0, 0, 0]);
         chunk
+    }
+
+    fn zlib_bytes(data: &[u8]) -> Vec<u8> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
     }
 }
