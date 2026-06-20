@@ -137,25 +137,25 @@ def detect_split(
     method_scores = {m[0]: m[1] * weights[m[0]] for m in methods}
     best_method = max(method_scores, key=method_scores.get)
 
-    should_split = total_confidence >= min_confidence
+    should_split = bool(total_confidence >= min_confidence)
 
     return SplitResult(
         should_split=should_split,
         split_type='vertical' if should_split else 'none',
-        position=weighted_position,
-        confidence=min(1.0, total_confidence),
+        position=float(weighted_position),
+        confidence=float(min(1.0, total_confidence)),
         method_used=best_method,
         debug={
-            'aspect_ratio': aspect_ratio,
-            'aspect_confidence': aspect_confidence,
-            'valley_confidence': valley_result.confidence,
-            'valley_position': valley_result.position,
-            'gutter_confidence': gutter_result.confidence,
-            'gutter_position': gutter_result.position,
-            'symmetry_confidence': symmetry_result.confidence,
-            'symmetry_position': symmetry_result.position,
-            'method_scores': method_scores,
-            'position_votes': [(p, w) for p, w in position_votes],
+            'aspect_ratio': float(aspect_ratio),
+            'aspect_confidence': float(aspect_confidence),
+            'valley_confidence': float(valley_result.confidence),
+            'valley_position': float(valley_result.position),
+            'gutter_confidence': float(gutter_result.confidence),
+            'gutter_position': float(gutter_result.position),
+            'symmetry_confidence': float(symmetry_result.confidence),
+            'symmetry_position': float(symmetry_result.position),
+            'method_scores': {k: float(v) for k, v in method_scores.items()},
+            'position_votes': [(float(p), float(w)) for p, w in position_votes],
             'image_size': {'width': w, 'height': h},
         }
     )
@@ -382,6 +382,22 @@ def apply_split(
 
     image = load_image(image_path)
     h, w = image.shape[:2]
+    if split_type not in ('none', 'vertical', 'horizontal'):
+        raise ValueError(f"Unknown split type: {split_type}")
+    position = float(position)
+    overlap = int(overlap)
+    if split_type != 'none' and (position <= 0.0 or position >= 1.0):
+        raise ValueError("Split position must be greater than 0 and less than 1")
+    if overlap < 0:
+        raise ValueError("Split overlap must be non-negative")
+    if split_type != 'none':
+        dimension = w if split_type == 'vertical' else h
+        split_pixel = int(dimension * position)
+        if split_pixel <= 0 or split_pixel >= dimension:
+            raise ValueError("Split position must leave at least one pixel on each side")
+        max_overlap = max(0, min(split_pixel, dimension - split_pixel) - 1)
+        if overlap > max_overlap:
+            raise ValueError(f"Split overlap must be at most {max_overlap}")
 
     output_dir_path = Path(output_dir)
     output_dir_path.mkdir(parents=True, exist_ok=True)

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 import json
 import sys
+import math
 
 
 def write_image_atomically(path: Path, image: np.ndarray, params: list[int]) -> None:
@@ -179,6 +180,35 @@ def get_aspect_ratio(image: np.ndarray) -> float:
     return w / h
 
 
+def _to_jsonable(value):
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(_to_jsonable(k)): _to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_jsonable(v) for v in value]
+
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            return _to_jsonable(item())
+        except Exception:
+            pass
+
+    tolist = getattr(value, "tolist", None)
+    if callable(tolist):
+        try:
+            return _to_jsonable(tolist())
+        except Exception:
+            pass
+
+    return value
+
+
 def send_json(data: dict, stream=sys.stdout):
     """
     Send JSON data to output stream.
@@ -187,7 +217,7 @@ def send_json(data: dict, stream=sys.stdout):
         data: Dictionary to serialize
         stream: Output stream (default: stdout)
     """
-    print(json.dumps(data), file=stream, flush=True)
+    print(json.dumps(_to_jsonable(data), allow_nan=False), file=stream, flush=True)
 
 
 def send_progress(stage: str, message: str, **kwargs):

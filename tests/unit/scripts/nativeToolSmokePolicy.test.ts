@@ -26,12 +26,14 @@ describe('native tool smoke policy', () => {
         expect(getMacPackagedToolSmokePolicy('evb-pdf-image-combine').allowedExitCodes).toEqual(new Set([0]));
         expect(getMacPackagedToolSmokePolicy('evb-pdf-page-ops').allowedExitCodes).toEqual(new Set([0]));
         expect(getMacPackagedToolSmokePolicy('evb-pdf-search').allowedExitCodes).toEqual(new Set([0]));
+        expect(getMacPackagedToolSmokePolicy('page-processor').allowedExitCodes).toEqual(new Set([0]));
     });
 
     it('requires both an allowed exit code and recognizable output', () => {
         expect(() => assertMacPackagedToolSmoke('qpdf', 0, 'qpdf version 12.0.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('evb-pdf-page-ops', 0, 'evb-pdf-page-ops 0.1.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('evb-pdf-search', 0, 'evb-pdf-search 0.1.0')).not.toThrow();
+        expect(() => assertMacPackagedToolSmoke('page-processor', 0, 'page-processor 2.0.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('ddjvu', 1, 'ddjvu usage')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('unpaper', 0, 'Usage: unpaper [options]')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('qpdf', 2, 'qpdf version 12.0.0')).toThrow(

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform as host_platform
 import random
 import re
 import subprocess
@@ -80,6 +81,39 @@ def safe_stem(path: Path) -> str:
 
 def now_tag() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
+
+
+def resolve_host_page_processing_tag() -> tuple[str, str]:
+    platform_key = sys.platform
+    machine = host_platform.machine().lower()
+
+    if platform_key == "darwin":
+        platform_tag = "darwin"
+    elif platform_key.startswith("linux"):
+        platform_tag = "linux"
+    elif platform_key.startswith(("win32", "cygwin", "msys")):
+        platform_tag = "win32"
+    else:
+        raise RuntimeError(f"Unsupported host platform for page-processor default: {platform_key}")
+
+    if machine in ("arm64", "aarch64"):
+        arch_tag = "arm64"
+    elif machine in ("x86_64", "amd64", "x64"):
+        arch_tag = "x64"
+    else:
+        raise RuntimeError(f"Unsupported host architecture for page-processor default: {machine}")
+
+    suffix = ".exe" if platform_tag == "win32" else ""
+    return f"{platform_tag}-{arch_tag}", suffix
+
+
+def default_page_processor_path() -> Path:
+    configured = os.environ.get("EVB_PAGE_PROCESSOR")
+    if configured:
+        return Path(configured)
+
+    tag, suffix = resolve_host_page_processing_tag()
+    return Path("resources/page-processing") / tag / "bin" / "page-processor" / f"page-processor{suffix}"
 
 
 @dataclass(frozen=True)
@@ -207,9 +241,9 @@ def main() -> int:
     ap.add_argument("--no-debug-split-overlay", action="store_true", help="Disable debug overlay image output")
     ap.add_argument(
         "--processor",
-        type=str,
-        default="resources/page-processing/darwin-arm64/bin/page-processor/page-processor",
-        help="Path to page-processor binary",
+        type=Path,
+        default=None,
+        help="Path to page-processor binary (default: EVB_PAGE_PROCESSOR or host resources/page-processing tag)",
     )
     ap.add_argument("--pdftoppm", type=str, default="pdftoppm", help="pdftoppm binary")
     ap.add_argument("--qpdf", type=str, default="qpdf", help="qpdf binary")
@@ -220,7 +254,7 @@ def main() -> int:
     if not pdf.exists():
         ap.error(f"PDF not found: {pdf}")
 
-    processor = Path(args.processor).resolve()
+    processor = (args.processor or default_page_processor_path()).resolve()
     if not processor.exists():
         ap.error(f"page-processor not found: {processor}")
 
@@ -278,6 +312,7 @@ def main() -> int:
     render_dir = out_root / "render"
     runs_dir = out_root / "runs"
     summary_path = out_root / "summary.ndjson"
+    failure_count = 0
 
     summary_f = summary_path.open("w", encoding="utf-8")
     try:
@@ -316,6 +351,9 @@ def main() -> int:
                         debug_split_overlay=bool(debug_overlay),
                     )
                     split_debug = result.get("split_debug") or {}
+                    success = bool(result.get("success", False))
+                    if not success:
+                        failure_count += 1
                     summary_f.write(json.dumps({
                         "type": "run",
                         "page": page,
@@ -323,7 +361,7 @@ def main() -> int:
                         "input_image": str(img),
                         "out_dir": str(run_dir),
                         "wall_s": wall_s,
-                        "success": bool(result.get("success", False)),
+                        "success": success,
                         "was_facing_pages": bool((result.get("detection") or {}).get("was_facing_pages", False)),
                         "output_count": len(result.get("output_paths") or []),
                         "gutter_x_norm": split_debug.get("gutter_x_norm"),
@@ -333,6 +371,7 @@ def main() -> int:
                         "timings_ms": result.get("timings_ms"),
                     }) + "\n")
                 except Exception as e:
+                    failure_count += 1
                     summary_f.write(json.dumps({
                         "type": "run",
                         "page": page,
@@ -349,9 +388,11 @@ def main() -> int:
 
     print(f"Wrote: {summary_path}")
     print(f"Artifacts: {out_root}")
+    if failure_count:
+        print(f"Failures: {failure_count}", file=sys.stderr)
+        return 1
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

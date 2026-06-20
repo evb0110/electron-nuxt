@@ -95,33 +95,33 @@ def detect_deskew(
 
     # Clamp angle to max_angle
     if abs(final_angle) > max_angle:
-        final_angle = np.sign(final_angle) * max_angle
+        final_angle = float(np.sign(final_angle) * max_angle)
         final_confidence *= 0.5  # Reduce confidence for clamped angles
 
     # Determine if correction is needed
-    needs_correction = abs(final_angle) >= min_angle
+    needs_correction = bool(abs(final_angle) >= min_angle)
 
     # Find best method
     method_scores = {m[0]: m[2] * weights[m[0]] for m in methods}
     best_method = max(method_scores, key=method_scores.get)
 
     return DeskewResult(
-        angle=round(final_angle, 3),
-        confidence=min(1.0, final_confidence),
+        angle=float(round(float(final_angle), 3)),
+        confidence=float(min(1.0, final_confidence)),
         method_used=best_method,
         needs_correction=needs_correction,
         debug={
-            'hough_angle': hough_result['angle'],
-            'hough_confidence': hough_result['confidence'],
-            'hough_lines_count': hough_result.get('lines_count', 0),
-            'projection_angle': projection_result['angle'],
-            'projection_confidence': projection_result['confidence'],
+            'hough_angle': float(hough_result['angle']),
+            'hough_confidence': float(hough_result['confidence']),
+            'hough_lines_count': int(hough_result.get('lines_count', 0)),
+            'projection_angle': float(projection_result['angle']),
+            'projection_confidence': float(projection_result['confidence']),
             'library_available': False,
             'library_angle': 0.0,
             'library_confidence': 0.0,
-            'method_scores': method_scores,
-            'min_angle_threshold': min_angle,
-            'max_angle_limit': max_angle,
+            'method_scores': {k: float(v) for k, v in method_scores.items()},
+            'min_angle_threshold': float(min_angle),
+            'max_angle_limit': float(max_angle),
             'image_size': {'width': w, 'height': h},
         }
     )
@@ -145,12 +145,14 @@ def detect_skew_hough(
         Dictionary with angle and confidence
     """
     h, w = gray.shape
+    if h < 2 or w < 2:
+        return {'angle': 0.0, 'confidence': 0.0, 'lines_count': 0}
 
     # Apply edge detection
     edges = cv2.Canny(gray, 50, 150, apertureSize=3)
 
     # Apply morphological operations to connect text
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (w // 30, 1))
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(1, w // 30), 1))
     dilated = cv2.dilate(edges, kernel, iterations=1)
 
     # Hough line detection
@@ -159,8 +161,8 @@ def detect_skew_hough(
         rho=1,
         theta=np.pi / 180,
         threshold=100,
-        minLineLength=w // 8,
-        maxLineGap=w // 20,
+        minLineLength=max(1, w // 8),
+        maxLineGap=max(1, w // 20),
     )
 
     if lines is None or len(lines) == 0:
@@ -192,12 +194,12 @@ def detect_skew_hough(
     # Weight by line length
     total_length = sum(line_lengths)
     if total_length == 0:
-        weighted_angle = np.median(angles)
+        weighted_angle = float(np.median(angles))
     else:
-        weighted_angle = sum(a * l for a, l in zip(angles, line_lengths)) / total_length
+        weighted_angle = float(sum(a * l for a, l in zip(angles, line_lengths)) / total_length)
 
     # Calculate confidence based on angle consistency
-    angle_std = np.std(angles) if len(angles) > 1 else 0.0
+    angle_std = float(np.std(angles)) if len(angles) > 1 else 0.0
     consistency_score = max(0, 1 - angle_std / 5)  # 5 degree std = 0 confidence
 
     # More lines = higher confidence
@@ -206,10 +208,10 @@ def detect_skew_hough(
     confidence = consistency_score * 0.7 + count_score * 0.3
 
     return {
-        'angle': weighted_angle,
-        'confidence': confidence,
-        'lines_count': len(angles),
-        'angle_std': angle_std,
+        'angle': float(weighted_angle),
+        'confidence': float(confidence),
+        'lines_count': int(len(angles)),
+        'angle_std': float(angle_std),
     }
 
 
@@ -231,6 +233,8 @@ def detect_skew_projection(
         Dictionary with angle and confidence
     """
     h, w = gray.shape
+    if h < 1 or w < 1:
+        return {'angle': 0.0, 'confidence': 0.0}
 
     # Binarize
     _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
@@ -283,8 +287,8 @@ def detect_skew_projection(
         confidence = min(1.0, (score_ratio - 1) / 0.5)  # 50% improvement = full confidence
 
     return {
-        'angle': best_angle,
-        'confidence': max(0, confidence),
+        'angle': float(best_angle),
+        'confidence': float(max(0, confidence)),
     }
 
 

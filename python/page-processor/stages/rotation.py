@@ -115,13 +115,15 @@ def detect_text_orientation(gray: np.ndarray) -> dict:
     """
     h, w = gray.shape
     scores = {0: 0.0, 90: 0.0, 180: 0.0, 270: 0.0}
+    if h < 1 or w < 1:
+        return scores
 
     # Binarize image
     _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
     # Create horizontal and vertical kernels for line detection
-    kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (w // 20, 1))
-    kernel_v = cv2.getStructuringElement(cv2.MORPH_RECT, (1, h // 20))
+    kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (max(1, w // 20), 1))
+    kernel_v = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(1, h // 20)))
 
     # Detect horizontal and vertical structures
     horizontal = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel_h)
@@ -184,12 +186,14 @@ def detect_edge_orientation(gray: np.ndarray) -> dict:
     """
     h, w = gray.shape
     scores = {0: 0.0, 90: 0.0, 180: 0.0, 270: 0.0}
+    if h < 1 or w < 1:
+        return scores
 
     # Detect edges
     edges = cv2.Canny(gray, 50, 150)
 
     # Calculate edge density in different regions
-    margin = int(min(h, w) * 0.1)  # 10% margin
+    margin = max(1, int(min(h, w) * 0.1))  # 10% margin
 
     top_region = edges[:margin, :]
     bottom_region = edges[-margin:, :]
@@ -243,6 +247,8 @@ def detect_content_orientation(gray: np.ndarray) -> dict:
     """
     h, w = gray.shape
     scores = {0: 0.0, 90: 0.0, 180: 0.0, 270: 0.0}
+    if h < 1 or w < 1:
+        return scores
 
     # Binarize
     _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
@@ -253,10 +259,11 @@ def detect_content_orientation(gray: np.ndarray) -> dict:
     left_half = binary[:, :w//2]
     right_half = binary[:, w//2:]
 
-    top_content = np.sum(top_half) / (h * w // 2)
-    bottom_content = np.sum(bottom_half) / (h * w // 2)
-    left_content = np.sum(left_half) / (h * w // 2)
-    right_content = np.sum(right_half) / (h * w // 2)
+    half_area = max(1, h * w // 2)
+    top_content = np.sum(top_half) / half_area
+    bottom_content = np.sum(bottom_half) / half_area
+    left_content = np.sum(left_half) / half_area
+    right_content = np.sum(right_half) / half_area
 
     # Normalize
     max_content = max(top_content, bottom_content, left_content, right_content, 1)

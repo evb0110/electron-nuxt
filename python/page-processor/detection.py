@@ -10,10 +10,16 @@ Detects properties of scanned book pages:
 
 import cv2
 import numpy as np
+import warnings
 from typing import Optional
 
 from split import find_gutter_position
 from stages.image_utils import _to_gray, _resize_for_analysis, _smooth_1d
+
+try:
+    from numpy.exceptions import RankWarning as NumpyRankWarning
+except Exception:
+    NumpyRankWarning = getattr(np, "RankWarning", Warning)
 
 
 def _detect_skew_hough(
@@ -84,8 +90,8 @@ def _detect_skew_hough(
     count_score = min(1.0, float(len(angles)) / 15.0)
     confidence = float(min(1.0, max(0.0, (consistency * 0.7) + (count_score * 0.3))))
 
-    # Hough finds the angle of the text lines; to deskew we rotate in the opposite direction.
-    return -line_angle, confidence
+    # OpenCV positive rotation subtracts the measured image-space line angle.
+    return line_angle, confidence
 
 
 def _best_saddle_valley(curve: np.ndarray) -> tuple[int, float]:
@@ -333,12 +339,14 @@ def detect_curvature(image: np.ndarray) -> float:
     gray, _ = _resize_for_analysis(gray, max_dim=1500)
 
     h, w = gray.shape
+    if h < 1 or w < 1:
+        return 0.0
 
     # Threshold to get binary image
     _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
     # Morphological operations to connect text into lines
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (w // 20, 1))
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(1, w // 20), 1))
     dilated = cv2.dilate(binary, kernel, iterations=1)
 
     # Find contours (text lines)
@@ -368,12 +376,14 @@ def detect_curvature(image: np.ndarray) -> float:
         y_coords = points[:, 1]
 
         try:
-            # Fit quadratic polynomial
-            coeffs = np.polyfit(x_coords, y_coords, 2)
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", NumpyRankWarning)
+                # Fit quadratic polynomial
+                coeffs = np.polyfit(x_coords, y_coords, 2)
             # Curvature is related to the quadratic coefficient
             curvature = abs(coeffs[0]) * w  # Normalize by width
             curvatures.append(curvature)
-        except np.RankWarning:
+        except (NumpyRankWarning, np.linalg.LinAlgError, ValueError):
             continue
 
     if not curvatures:

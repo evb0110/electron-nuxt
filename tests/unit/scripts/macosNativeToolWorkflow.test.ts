@@ -181,6 +181,26 @@ describe('macOS native tool workflow', () => {
         expect(bundleUnpaper).toContain('exit 1');
     });
 
+    it('wires optional page-processor resources into packaging, signing, and verification', async () => {
+        const electronBuilder = await readProjectFile('electron-builder.yml');
+        const afterPack = await readProjectFile('scripts/afterPack.cjs');
+        const afterSign = await readProjectFile('scripts/afterSign.cjs');
+        const sourceMatrix = await readProjectFile('scripts/check-native-tools-source-matrix.sh');
+        const verifier = await readProjectFile('scripts/verify-packaged-native-tools.sh');
+
+        expect(electronBuilder).not.toContain('from: resources/page-processing/');
+        expect(afterPack).toContain('copyOptionalPageProcessingResources(context)');
+        expect(afterPack).toContain('resources\', \'page-processing\', tag');
+        expect(afterPack).toContain('Optional page-processing resources not found');
+        expect(afterPack).toContain('fs.cpSync(src, dst, { recursive: true })');
+        expect(afterSign).toContain('path.join(resourcesDir, \'page-processing\')');
+        expect(sourceMatrix).toContain('resources/page-processing/$tag/bin/page-processor/page-processor$exe_suffix');
+        expect(sourceMatrix).toContain('SKIP    page-processor: resources/page-processing/$tag not present');
+        expect(verifier).toContain('page_processor_root="$resource_root/page-processing/$platform_arch"');
+        expect(verifier).toContain('page_processor_binary="$page_processor_root/bin/page-processor/page-processor$exe_suffix"');
+        expect(verifier).toContain('run_macos_packaged_tool_smoke "page-processor" "$page_processor_binary" --version');
+    });
+
     it('lets the release quality gate defer CI-generated host Linux resources explicitly', () => {
         const output = runSourceMatrixAsLinuxX64Host();
 

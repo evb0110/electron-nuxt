@@ -11,11 +11,17 @@ import cv2
 import numpy as np
 import tempfile
 import os
+import warnings
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional, Tuple
 
 from .io import load_image, load_grayscale, save_image
+
+try:
+    from numpy.exceptions import RankWarning as NumpyRankWarning
+except Exception:
+    NumpyRankWarning = getattr(np, "RankWarning", Warning)
 
 # Try to import page_dewarp
 try:
@@ -62,24 +68,24 @@ def detect_dewarp(
     # Detect curvature using text line analysis
     curvature_result = detect_curvature_lines(gray)
 
-    needs_dewarp = (
+    needs_dewarp = bool(
         curvature_result['score'] >= min_curvature and
         PAGE_DEWARP_AVAILABLE
     )
 
     return DewarpResult(
         needs_dewarp=needs_dewarp,
-        curvature_score=curvature_result['score'],
-        confidence=curvature_result['confidence'],
+        curvature_score=float(curvature_result['score']),
+        confidence=float(curvature_result['confidence']),
         method_used='text_line_curvature',
-        tool_available=PAGE_DEWARP_AVAILABLE,
+        tool_available=bool(PAGE_DEWARP_AVAILABLE),
         debug={
-            'curvature_score': curvature_result['score'],
-            'num_lines_analyzed': curvature_result['num_lines'],
-            'avg_curvature': curvature_result['avg_curvature'],
-            'max_curvature': curvature_result['max_curvature'],
-            'min_curvature_threshold': min_curvature,
-            'page_dewarp_available': PAGE_DEWARP_AVAILABLE,
+            'curvature_score': float(curvature_result['score']),
+            'num_lines_analyzed': int(curvature_result['num_lines']),
+            'avg_curvature': float(curvature_result['avg_curvature']),
+            'max_curvature': float(curvature_result['max_curvature']),
+            'min_curvature_threshold': float(min_curvature),
+            'page_dewarp_available': bool(PAGE_DEWARP_AVAILABLE),
             'image_size': {'width': w, 'height': h},
         }
     )
@@ -96,12 +102,20 @@ def detect_curvature_lines(gray: np.ndarray) -> dict:
         Dictionary with curvature analysis results
     """
     h, w = gray.shape
+    if h < 1 or w < 1:
+        return {
+            'score': 0.0,
+            'confidence': 0.0,
+            'num_lines': 0,
+            'avg_curvature': 0.0,
+            'max_curvature': 0.0,
+        }
 
     # Threshold to get binary image
     _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
     # Morphological operations to connect text into lines
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (w // 20, 1))
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(1, w // 20), 1))
     dilated = cv2.dilate(binary, kernel, iterations=1)
 
     # Find contours (text lines)
@@ -140,14 +154,16 @@ def detect_curvature_lines(gray: np.ndarray) -> dict:
         y_coords = points[:, 1].astype(np.float64)
 
         try:
-            # Fit quadratic polynomial (parabola)
-            coeffs = np.polyfit(x_coords, y_coords, 2)
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", NumpyRankWarning)
+                # Fit quadratic polynomial (parabola)
+                coeffs = np.polyfit(x_coords, y_coords, 2)
 
             # Curvature is related to the quadratic coefficient
             # Normalize by width for scale independence
             curvature = abs(coeffs[0]) * w
             curvatures.append(curvature)
-        except (np.RankWarning, np.linalg.LinAlgError):
+        except (NumpyRankWarning, np.linalg.LinAlgError, ValueError):
             continue
 
     if not curvatures:

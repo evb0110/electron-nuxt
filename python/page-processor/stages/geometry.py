@@ -56,6 +56,9 @@ def rotate_angle(
         return image.copy()
 
     h, w = image.shape[:2]
+    if h < 1 or w < 1:
+        return image.copy()
+
     center = (w / 2, h / 2)
 
     # Get rotation matrix
@@ -108,7 +111,13 @@ def split_horizontal(
         Tuple of (left_image, right_image)
     """
     h, w = image.shape[:2]
-    split_x = int(w * position)
+    overlap = max(0, int(overlap))
+
+    if w <= 1:
+        return image.copy(), image.copy()
+
+    split_x = int(round(w * max(0.0, min(1.0, float(position)))))
+    split_x = max(1, min(w - 1, split_x))
 
     left_end = min(split_x + overlap, w)
     right_start = max(split_x - overlap, 0)
@@ -136,7 +145,13 @@ def split_vertical(
         Tuple of (top_image, bottom_image)
     """
     h, w = image.shape[:2]
-    split_y = int(h * position)
+    overlap = max(0, int(overlap))
+
+    if h <= 1:
+        return image.copy(), image.copy()
+
+    split_y = int(round(h * max(0.0, min(1.0, float(position)))))
+    split_y = max(1, min(h - 1, split_y))
 
     top_end = min(split_y + overlap, h)
     bottom_start = max(split_y - overlap, 0)

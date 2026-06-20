@@ -275,6 +275,10 @@ describe('release policy', () => {
             ],
             [
                 'run',
+                'test:python-page-processor',
+            ],
+            [
+                'run',
                 'check:architecture:all',
             ],
             [

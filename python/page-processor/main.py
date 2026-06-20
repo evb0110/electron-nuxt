@@ -32,6 +32,7 @@ Communication:
 
 import argparse
 import json
+import math
 import sys
 import os
 import tempfile
@@ -43,23 +44,171 @@ VERSION = "2.0.0"
 STAGES = ['rotation', 'split', 'deskew', 'dewarp']
 
 
+class CommandError(Exception):
+    def __init__(self, message: str, code: str = "UNKNOWN_ERROR", details: Optional[dict] = None):
+        super().__init__(message)
+        self.code = code
+        self.details = details
+
+
+def to_jsonable(value):
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(to_jsonable(k)): to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [to_jsonable(v) for v in value]
+
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            return to_jsonable(item())
+        except Exception:
+            pass
+
+    tolist = getattr(value, "tolist", None)
+    if callable(tolist):
+        try:
+            return to_jsonable(tolist())
+        except Exception:
+            pass
+
+    return value
+
+
+def dumps_json(data: dict) -> str:
+    return json.dumps(to_jsonable(data), allow_nan=False)
+
+
 def send_progress(data: dict):
     """Send progress update as JSON line to stdout."""
-    print(json.dumps({"type": "progress", **data}), flush=True)
+    print(dumps_json({"type": "progress", **data}), flush=True)
 
 
 def send_result(data: dict):
     """Send result as JSON line to stdout."""
-    print(json.dumps({"type": "result", **data}), flush=True)
+    print(dumps_json({"type": "result", **data}), flush=True)
 
 
-def send_error(message: str, code: str = "UNKNOWN_ERROR"):
+def send_error(message: str, code: str = "UNKNOWN_ERROR", details: Optional[dict] = None):
     """Send error to stderr."""
-    print(json.dumps({
+    payload = {
         "type": "error",
         "message": message,
         "code": code
-    }), file=sys.stderr, flush=True)
+    }
+    if details is not None:
+        payload["details"] = details
+    print(dumps_json(payload), file=sys.stderr, flush=True)
+
+
+def invalid_param(field: str, value, expected: str) -> CommandError:
+    return CommandError(
+        f"Invalid {field}: expected {expected}",
+        "INVALID_PARAMS",
+        {
+            "field": field,
+            "value": value,
+            "expected": expected,
+        },
+    )
+
+
+def coerce_split_position(value) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise invalid_param("position", value, "number in the open interval (0, 1)")
+
+    position = float(value)
+    if not math.isfinite(position) or position <= 0.0 or position >= 1.0:
+        raise invalid_param("position", value, "number in the open interval (0, 1)")
+
+    return position
+
+
+def coerce_split_overlap(value) -> int:
+    if isinstance(value, bool):
+        raise invalid_param("overlap", value, "nonnegative integer")
+
+    if isinstance(value, int):
+        overlap = value
+    elif isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        overlap = int(value)
+    else:
+        raise invalid_param("overlap", value, "nonnegative integer")
+
+    if overlap < 0:
+        raise invalid_param("overlap", value, "nonnegative integer")
+
+    return overlap
+
+
+def read_image_dimensions(input_path: str) -> tuple[int, int]:
+    import cv2  # type: ignore
+
+    image = cv2.imread(input_path, cv2.IMREAD_UNCHANGED)
+    if image is None:
+        raise ValueError(f"Failed to load image: {input_path}")
+
+    h, w = image.shape[:2]
+    return int(w), int(h)
+
+
+def validate_apply_split_params(input_path: str, params: dict) -> tuple[str, float, int]:
+    split_type = params.get('split_type', 'none')
+    if split_type not in ('none', 'vertical', 'horizontal'):
+        raise invalid_param("split_type", split_type, "one of: none, vertical, horizontal")
+
+    if split_type == 'none':
+        return split_type, 0.5, 0
+
+    position = coerce_split_position(params.get('position', 0.5))
+    overlap = coerce_split_overlap(params.get('overlap', 0))
+
+    width, height = read_image_dimensions(input_path)
+    dimension = width if split_type == 'vertical' else height
+    split_pixel = int(dimension * position)
+
+    if split_pixel <= 0 or split_pixel >= dimension:
+        raise invalid_param(
+            "position",
+            position,
+            f"position that leaves at least 1 pixel on each side for {dimension}px input",
+        )
+
+    max_overlap = max(0, min(split_pixel, dimension - split_pixel) - 1)
+    if overlap > max_overlap:
+        raise invalid_param(
+            "overlap",
+            overlap,
+            f"integer between 0 and {max_overlap} for this {split_type} split",
+        )
+
+    return split_type, position, overlap
+
+
+def white_value_for_dtype(dtype):
+    kind = getattr(dtype, "kind", None)
+    itemsize = int(getattr(dtype, "itemsize", 0) or 0)
+
+    if kind == "b":
+        return True
+    if kind == "u" and itemsize > 0:
+        return (1 << (8 * itemsize)) - 1
+    if kind == "i" and itemsize > 0:
+        return (1 << (8 * itemsize - 1)) - 1
+    if kind == "f":
+        return 1.0
+
+    return 255
+
+
+def reencode_temp_path(input_path: str, work_dir: Path, index: int, suffix: str) -> Path:
+    stem = Path(input_path).stem or "page"
+    return work_dir / f"{index:06d}-{stem}{suffix}"
 
 
 def write_output_atomically(output_path: str, write_fn) -> None:
@@ -219,9 +368,7 @@ def run_stage_apply(
 
     elif stage == 'split':
         from stages.split import apply_split
-        split_type = params.get('split_type', 'none')
-        position = params.get('position', 0.5)
-        overlap = params.get('overlap', 0)
+        split_type, position, overlap = validate_apply_split_params(input_path, params)
         return apply_split(input_path, output_path, split_type, position, overlap)
 
     elif stage == 'deskew':
@@ -377,7 +524,18 @@ def main():
             try:
                 params = json.loads(args.params)
             except json.JSONDecodeError as e:
-                send_error(f"Invalid JSON params: {e}", "INVALID_PARAMS")
+                send_error(
+                    f"Invalid JSON params: {e}",
+                    "INVALID_PARAMS",
+                    {"field": "params", "expected": "JSON object"},
+                )
+                sys.exit(1)
+            if not isinstance(params, dict):
+                send_error(
+                    "Params must be a JSON object",
+                    "INVALID_PARAMS",
+                    {"field": "params", "value": params, "expected": "JSON object"},
+                )
                 sys.exit(1)
 
             result = run_stage_apply(
@@ -422,10 +580,11 @@ def main():
                 sys.exit(1)
 
             # Match channel count; always white padding.
+            white_value = white_value_for_dtype(image.dtype)
             if len(image.shape) == 3:
-                canvas = np.full((target_h, target_w, image.shape[2]), 255, dtype=image.dtype)
+                canvas = np.full((target_h, target_w, image.shape[2]), white_value, dtype=image.dtype)
             else:
-                canvas = np.full((target_h, target_w), 255, dtype=image.dtype)
+                canvas = np.full((target_h, target_w), white_value, dtype=image.dtype)
 
             x_off = max(0, (target_w - w) // 2)
             y_off = max(0, (target_h - h) // 2)
@@ -534,7 +693,7 @@ def main():
                         threshold = t
                 return int(threshold)
 
-            def _reencode_one(inp: str, mode: str, work_dir: Path) -> str:
+            def _reencode_one(inp: str, mode: str, work_dir: Path, index: int) -> str:
                 if mode == "none":
                     return inp
 
@@ -556,7 +715,7 @@ def main():
                         subs = int(args.jpeg_subsampling or 0)
                         subs = max(0, min(2, subs))
 
-                        outp = work_dir / (Path(inp).stem + ".jpg")
+                        outp = reencode_temp_path(inp, work_dir, index, ".jpg")
                         src_rgb.save(
                             str(outp),
                             format="JPEG",
@@ -586,7 +745,7 @@ def main():
                         bw_l = gray.point(lambda p: 255 if p > thr else 0)
                         bw = bw_l.convert("1", dither=Image.Dither.NONE)
 
-                        outp = work_dir / (Path(inp).stem + ".tif")
+                        outp = reencode_temp_path(inp, work_dir, index, ".tif")
                         bw.save(str(outp), format="TIFF", compression="group4")
                         return str(outp)
 
@@ -603,7 +762,10 @@ def main():
                     if args.reencode and args.reencode != "none":
                         tmp_dir = tempfile.TemporaryDirectory(prefix="pp-img2pdf-")
                         work_dir = Path(tmp_dir.name)
-                        inputs = [_reencode_one(p, args.reencode, work_dir) for p in args.images]
+                        inputs = [
+                            _reencode_one(p, args.reencode, work_dir, i)
+                            for i, p in enumerate(args.images)
+                        ]
                     else:
                         inputs = list(args.images)
 
@@ -626,6 +788,9 @@ def main():
                 "reencode": getattr(args, "reencode", "none"),
             })
 
+    except CommandError as e:
+        send_error(str(e), e.code, e.details)
+        sys.exit(1)
     except Exception as e:
         send_error(str(e), "PROCESSING_ERROR")
         sys.exit(1)

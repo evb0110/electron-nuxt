@@ -70,6 +70,9 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('scripts/(build-pdf-image-combine|build-pdf-page-ops|build-pdf-search|native-rust-targets)[.]mjs');
         expect(workflow).toContain('Cargo[.]lock');
         expect(workflow).toContain('python/page-processor/');
+        expect(workflow).toContain('bundle-page-processor-macos[.]sh');
+        expect(workflow).toContain('devkit/(page-processing-harness|process-pdf-split-pad)[.]py');
+        expect(workflow).toContain('electron-builder[.]yml');
         expect(workflow).toContain('name: Native Rust Tests');
         expect(workflow).toContain('run: pnpm run test:rust');
         expect(workflow).toContain('name: Landing Quality Gates');
@@ -82,6 +85,8 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('name: Python Page Processor Smoke');
         expect(workflowJob(workflow, 'python_page_processor_push')).toContain('python -m pip install');
         expect(workflowJob(workflow, 'python_page_processor_push')).toContain('opencv-python-headless');
+        expect(workflowJob(workflow, 'python_page_processor_push')).toContain('img2pdf');
+        expect(workflowJob(workflow, 'python_page_processor_push')).toContain('Pillow');
         expect(workflow).toContain('run: pnpm run test:python-page-processor');
     });
 
@@ -120,6 +125,8 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('run: pnpm run check:ocr-language-model-registry');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('python -m pip install');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('opencv-python-headless');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('img2pdf');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('Pillow');
         expect(workflow).toContain('run: pnpm run test:python-page-processor');
         expect(nvmrc.trim()).toBe('24.11.1');
         expect(workflow).toContain('NODE_VERSION: \'24.11.1\'');

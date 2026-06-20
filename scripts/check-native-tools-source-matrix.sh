@@ -161,6 +161,11 @@ check_tag() {
   check_file_for_tag "resources/qpdf/$tag/bin/qpdf$exe_suffix" "qpdf" "$tag"
   check_file_for_tag "resources/djvulibre/$tag/bin/ddjvu$exe_suffix" "ddjvu" "$tag"
   check_file_for_tag "resources/djvulibre/$tag/bin/djvused$exe_suffix" "djvused" "$tag"
+  if [ -d "resources/page-processing/$tag" ]; then
+    check_file_for_tag "resources/page-processing/$tag/bin/page-processor/page-processor$exe_suffix" "page-processor" "$tag"
+  else
+    echo "  SKIP    page-processor: resources/page-processing/$tag not present"
+  fi
 }
 
 if [ "$check_all" -eq 1 ]; then

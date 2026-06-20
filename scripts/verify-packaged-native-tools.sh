@@ -76,12 +76,19 @@ check_file "$resource_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-co
 check_file "$resource_root/pdf-page-ops/$platform_arch/bin/evb-pdf-page-ops$exe_suffix" "pdf page ops binary"
 check_file "$resource_root/pdf-search/$platform_arch/bin/evb-pdf-search$exe_suffix" "pdf search binary"
 
+page_processor_root="$resource_root/page-processing/$platform_arch"
+page_processor_binary="$page_processor_root/bin/page-processor/page-processor$exe_suffix"
+if [ -d "$page_processor_root" ]; then
+  check_file "$page_processor_binary" "page-processor binary"
+fi
+
 find_tool_files() {
   local tag="$1"
   local kind="$2"
   local dirs=(
     "$resource_root/tesseract/$tag/$kind"
     "$resource_root/poppler/$tag/$kind"
+    "$resource_root/page-processing/$tag/$kind"
     "$resource_root/pdf-image-combine/$tag/$kind"
     "$resource_root/pdf-page-ops/$tag/$kind"
     "$resource_root/pdf-search/$tag/$kind"
@@ -195,6 +202,9 @@ if [ "$platform" = "mac" ]; then
   run_macos_packaged_tool_smoke "evb-pdf-image-combine" "$resource_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --version
   run_macos_packaged_tool_smoke "evb-pdf-page-ops" "$resource_root/pdf-page-ops/$platform_arch/bin/evb-pdf-page-ops" --version
   run_macos_packaged_tool_smoke "evb-pdf-search" "$resource_root/pdf-search/$platform_arch/bin/evb-pdf-search" --version
+  if [ -f "$page_processor_binary" ]; then
+    run_macos_packaged_tool_smoke "page-processor" "$page_processor_binary" --version
+  fi
   run_macos_packaged_tool_smoke "tesseract" "$resource_root/tesseract/$platform_arch/bin/tesseract" --version
   run_macos_packaged_tool_smoke "unpaper" "$resource_root/tesseract/$platform_arch/bin/unpaper" --help
 fi
