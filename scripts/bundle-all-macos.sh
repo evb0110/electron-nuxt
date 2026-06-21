@@ -5,7 +5,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TOTAL_STEPS=5
+TOTAL_STEPS=4
 
 echo "=============================================="
 echo "  Bundling all native tools for Electron app"
@@ -54,14 +54,9 @@ echo ""
 "$SCRIPT_DIR/bundle-djvu-macos.sh"
 echo ""
 
-# Step 5: Bundle Python page processor
-echo "Step 5/$TOTAL_STEPS: Bundling Python page processor..."
-echo ""
-"$SCRIPT_DIR/bundle-page-processor-macos.sh"
-echo ""
-
 echo "=============================================="
 echo "  All native tools bundled successfully!"
 echo "=============================================="
 echo ""
 echo "You can now build the app with: pnpm dist:mac"
+echo "Optional page-processor experiments use: scripts/bundle-page-processor-macos.sh"

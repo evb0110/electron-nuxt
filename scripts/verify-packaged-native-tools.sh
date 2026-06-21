@@ -109,10 +109,6 @@ check_macos_file_arch() {
   esac
 }
 
-page_processor_required_for_platform() {
-  [ "$platform" = "mac" ]
-}
-
 check_file "$resource_root/tesseract/$platform_arch/bin/tesseract$exe_suffix" "tesseract binary"
 if [ "$platform" != "win" ]; then
   check_file "$resource_root/tesseract/$platform_arch/bin/unpaper$exe_suffix" "unpaper binary"
@@ -154,11 +150,8 @@ if [ -d "$page_processor_root" ]; then
     fi
     check_no_absolute_symlinks "$page_processor_internal_dir" "page-processor PyInstaller _internal directory"
   fi
-elif page_processor_required_for_platform; then
-  echo "Error: Missing required page-processor packaged resources ($page_processor_root)"
-  exit 1
 else
-  echo "Skipping page-processor packaged resource check for $platform_arch"
+  echo "Skipping optional dormant page-processor packaged resource check for $platform_arch"
 fi
 
 find_tool_files() {
@@ -299,7 +292,7 @@ if [ "$platform" = "mac" ]; then
   run_macos_packaged_tool_smoke "evb-pdf-image-combine" "$resource_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --version
   run_macos_packaged_tool_smoke "evb-pdf-page-ops" "$resource_root/pdf-page-ops/$platform_arch/bin/evb-pdf-page-ops" --version
   run_macos_packaged_tool_smoke "evb-pdf-search" "$resource_root/pdf-search/$platform_arch/bin/evb-pdf-search" --version
-  if page_processor_required_for_platform || [ -f "$page_processor_binary" ]; then
+  if [ -f "$page_processor_binary" ]; then
     run_macos_packaged_tool_smoke "page-processor" "$page_processor_binary" --version
   fi
   run_macos_packaged_tool_smoke "tesseract" "$resource_root/tesseract/$platform_arch/bin/tesseract" --version

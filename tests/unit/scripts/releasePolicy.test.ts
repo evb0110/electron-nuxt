@@ -411,14 +411,11 @@ describe('release policy', () => {
         });
     });
 
-    it('generates macOS page-processor resources during local release packaging', () => {
+    it('does not generate optional page-processor resources during local release packaging', () => {
         expect(getGeneratedNativeResourceCommands({
             arch: 'arm64',
             platform: 'mac',
-        })).toEqual([ {
-            args: [ 'scripts/bundle-page-processor-macos.sh' ],
-            command: 'bash',
-        } ]);
+        })).toEqual([]);
 
         expect(getGeneratedNativeResourceCommands({
             arch: 'x64',
@@ -426,7 +423,7 @@ describe('release policy', () => {
         })).toEqual([]);
     });
 
-    it('enables page-processor copying for local macOS packaging', () => {
+    it('leaves page-processor copying disabled during local macOS packaging by default', () => {
         const env: Record<string, string> = {};
         const calls: Array<{
             args: string[];
@@ -449,12 +446,8 @@ describe('release policy', () => {
             });
         });
 
-        expect(env.EVB_INCLUDE_PAGE_PROCESSOR).toBe('1');
-        expect(calls).toEqual([ {
-            args: [ 'scripts/bundle-page-processor-macos.sh' ],
-            command: 'bash',
-            env,
-        } ]);
+        expect(env.EVB_INCLUDE_PAGE_PROCESSOR).toBeUndefined();
+        expect(calls).toEqual([]);
     });
 
     it('uses a ZIP-only local package check for supplemental macOS Intel builds', () => {

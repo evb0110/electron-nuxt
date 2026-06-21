@@ -168,22 +168,12 @@ function verifyLocalPackageArtifacts(target) {
 }
 
 export function getGeneratedNativeResourceCommands(target) {
-    if (target.platform === 'mac') {
-        return [ {
-            args: [ 'scripts/bundle-page-processor-macos.sh' ],
-            command: 'bash',
-        } ];
-    }
-
+    void target;
     return [];
 }
 
 export function prepareGeneratedNativeResources(target, env, runCommand = run) {
     const commands = getGeneratedNativeResourceCommands(target);
-    if (target.platform === 'mac') {
-        env.EVB_INCLUDE_PAGE_PROCESSOR = '1';
-    }
-
     if (commands.length === 0) {
         return;
     }

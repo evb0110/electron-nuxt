@@ -14,9 +14,8 @@ Default mode:
 --all mode:
 - Validate source readiness for the full release matrix. Generated non-host
   native tool folders may be absent locally when a CI bundling script owns that
-  target. Page-processor resources are release-critical on macOS, where the
-  PyInstaller bundler exists, and remain dormant on Linux/Windows until those
-  platforms have functional bundle paths.
+  target. Optional page-processor folders are checked when present, but are not
+  release-critical until every release platform has a functional bundle path.
   Other host resources are still required unless
   EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN=1 is set for a pre-bundle CI quality gate.
 EOF
@@ -88,8 +87,7 @@ has_ci_bundler_for_tag() {
       [ -f "scripts/bundle-tesseract-macos.sh" ] \
         && [ -f "scripts/bundle-leptonica-unpaper-macos.sh" ] \
         && [ -f "scripts/bundle-pdf-tools-macos.sh" ] \
-        && [ -f "scripts/bundle-djvu-macos.sh" ] \
-        && [ -f "scripts/bundle-page-processor-macos.sh" ]
+        && [ -f "scripts/bundle-djvu-macos.sh" ]
       ;;
     linux-arm64|linux-x64)
       [ -f "scripts/bundle-tools-linux.sh" ]
@@ -141,18 +139,6 @@ check_dir_for_tag() {
   fi
 }
 
-page_processor_required_for_tag() {
-  local tag="$1"
-  case "$tag" in
-    darwin-arm64|darwin-x64)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
 check_page_processor_for_tag() {
   local tag="$1"
   local platform="${tag%-*}"
@@ -167,11 +153,8 @@ check_page_processor_for_tag() {
     if [ "$platform" = "darwin" ]; then
       check_dir_for_tag "$root/bin/page-processor/_internal" "page-processor PyInstaller _internal" "$tag"
     fi
-  elif page_processor_required_for_tag "$tag"; then
-    check_file_for_tag "$root/bin/page-processor/page-processor$exe_suffix" "page-processor" "$tag"
-    check_dir_for_tag "$root/bin/page-processor/_internal" "page-processor PyInstaller _internal" "$tag"
   else
-    echo "  SKIP    page-processor: not bundled for $tag"
+    echo "  SKIP    page-processor: optional dormant tool not bundled for $tag"
   fi
 }
 
