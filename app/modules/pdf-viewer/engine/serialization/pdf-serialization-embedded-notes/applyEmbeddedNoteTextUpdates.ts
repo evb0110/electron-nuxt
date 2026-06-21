@@ -55,23 +55,32 @@ export function applyEmbeddedNoteTextUpdates(
     });
 
     let modified = false;
+    const unresolvedStableKeys: string[] = [];
     for (const [
         stableKey,
         text,
     ] of pendingUpdates) {
         const comment = commentsByKey.get(stableKey) ?? buildCommentFromEmbeddedUpdateStableKey(stableKey);
         if (!comment) {
+            unresolvedStableKeys.push(stableKey);
             continue;
         }
 
         const targetRef = resolveCommentPdfRefInDocument(doc, comment);
         if (!targetRef) {
+            unresolvedStableKeys.push(stableKey);
             continue;
         }
 
         if (updateAnnotationTextByRef(doc, targetRef, text)) {
             modified = true;
+        } else {
+            unresolvedStableKeys.push(stableKey);
         }
+    }
+
+    if (unresolvedStableKeys.length > 0) {
+        throw new Error(`Unable to apply embedded note text updates for ${unresolvedStableKeys.length} annotation(s): ${unresolvedStableKeys.join(', ')}`);
     }
 
     return modified;

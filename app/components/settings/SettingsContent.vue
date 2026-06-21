@@ -78,6 +78,8 @@ import type {
 } from '@contracts/agent';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
 import { getPlatformAPI } from '@app/utils/platform';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { getErrorMessage } from '@app/utils/error';
 import SettingsAgentPanel from '@app/components/settings/SettingsAgentPanel.vue';
 import SettingsGeneralPanel from '@app/components/settings/SettingsGeneralPanel.vue';
 import SettingsShortcutsPanel from '@app/components/settings/SettingsShortcutsPanel.vue';
@@ -207,6 +209,7 @@ const {
     setLocale,
 } = useTypedI18n();
 const colorMode = useColorMode();
+const toast = useToast();
 const {
     settings,
     load,
@@ -501,6 +504,13 @@ async function refreshAgentMcpStatus() {
     isAgentMcpBusy.value = true;
     try {
         agentMcpStatus.value = await getPlatformAPI().agent.getMcpIntegrationStatus();
+    } catch (error) {
+        BrowserLogger.warn('settings', 'Failed to refresh agent MCP integration status', { error });
+        toast.add({
+            color: 'error',
+            title: t('settings.agentMcpStatusError'),
+            description: getErrorMessage(error),
+        });
     } finally {
         isAgentMcpBusy.value = false;
     }
@@ -516,6 +526,28 @@ async function setAgentMcpEnabled(enabled: boolean) {
         const result = await getPlatformAPI().agent.setMcpIntegrationEnabled(enabled);
         agentMcpStatus.value = result.status;
         await load();
+        if (!result.ok && result.error) {
+            toast.add({
+                color: 'error',
+                title: t('settings.agentMcpStatusError'),
+                description: result.error,
+            });
+        }
+    } catch (error) {
+        BrowserLogger.warn('settings', 'Failed to update agent MCP integration status', {
+            enabled,
+            error,
+        });
+        toast.add({
+            color: 'error',
+            title: t('settings.agentMcpStatusError'),
+            description: getErrorMessage(error),
+        });
+        try {
+            agentMcpStatus.value = await getPlatformAPI().agent.getMcpIntegrationStatus();
+        } catch (statusError) {
+            BrowserLogger.warn('settings', 'Failed to refresh agent MCP status after update failure', { statusError });
+        }
     } finally {
         isAgentMcpBusy.value = false;
     }

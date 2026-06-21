@@ -8,6 +8,7 @@ import { once } from 'node:events';
 
 interface IProxyClient {
     send(message: Record<string, unknown>): void;
+    sendRaw(payload: string): void;
     waitForResponse(id: string | number): Promise<IProxyResponse>;
     stop(): Promise<void>;
 }
@@ -64,6 +65,9 @@ function createProxyClient(): IProxyClient {
     return {
         send(message: Record<string, unknown>) {
             child.stdin.write(`${JSON.stringify(message)}\n`);
+        },
+        sendRaw(payload: string) {
+            child.stdin.write(payload);
         },
         async waitForResponse(id: string | number) {
             const existing = responses.find(response => response.id === id);
@@ -164,6 +168,26 @@ describe('evb-mcp-proxy', () => {
 
             expect(result.isError).toBe(true);
             expect(structuredContent.error).toContain('not reachable');
+        } finally {
+            await client.stop();
+        }
+    });
+
+    it('recovers after a malformed Content-Length frame', async () => {
+        const client = createProxyClient();
+
+        try {
+            client.sendRaw('Content-Length: nope\r\n\r\n');
+            client.send({
+                jsonrpc: '2.0',
+                id: 'after-bad-frame',
+                method: 'ping',
+            });
+
+            await expect(client.waitForResponse('after-bad-frame')).resolves.toMatchObject({
+                id: 'after-bad-frame',
+                result: {},
+            });
         } finally {
             await client.stop();
         }

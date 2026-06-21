@@ -139,6 +139,43 @@ describe('handleNativeNoteTextSave', () => {
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
     });
 
+    it('reports applied when post-commit working-copy sync fails after replacing the original', async () => {
+        const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
+        const originalPath = join(tempRoot, 'original.pdf');
+        const tempPath = `${originalPath}.tmp`;
+        writeFileSync(requestedWorkingPath, 'working-before');
+        writeFileSync(originalPath, 'original-before');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(requestedWorkingPath);
+        mocks.runNativeToolCommand.mockImplementation(async () => {
+            await appendFile(tempPath, '\n% native incremental update');
+        });
+        mocks.copyFileCopyOnWrite.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            if (sourcePath === originalPath && targetPath === requestedWorkingPath) {
+                throw new Error('sync failed');
+            }
+            await copyFile(sourcePath, targetPath);
+        });
+        const { handleNativeNoteTextSave } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
+
+        const result = await handleNativeNoteTextSave(event, requestedWorkingPath, [{
+            objectNumber: 42,
+            generationNumber: 0,
+            text: 'Updated note',
+        }], 'D:20260609133855+03\'00\'');
+
+        expect(result).toMatchObject({
+            applied: true,
+            syncError: 'sync failed',
+            validation: {
+                isValid: true,
+                tool: 'native',
+            },
+        });
+        expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
+        expect(readFileSyncUtf8(originalPath)).toContain('% native incremental update');
+    });
+
     it('runs the native note changes append command for FreeText note upserts', async () => {
         const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
         const latestWorkingPath = join(tempRoot, 'latest-working.pdf');

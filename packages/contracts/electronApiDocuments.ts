@@ -176,6 +176,7 @@ export interface IPdfNativeMutationSet extends IPdfNativeNoteChanges {
 export interface IPdfNativeNoteTextSaveResult {
     applied: boolean;
     validation: IPdfValidationResult | null;
+    syncError?: string;
 }
 
 export interface IPdfNativeSaveResult extends IPdfNativeNoteTextSaveResult {}

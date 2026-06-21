@@ -30,6 +30,7 @@ export interface IOcrActiveJob extends IOcrQueuedJob {
     completed: boolean;
     terminatedByUs: boolean;
     pendingCompletionResult: TOcrWorkerCompleteResult | null;
+    terminalResultSent: boolean;
     startedAtMs: number;
     watchdogTimer: NodeJS.Timeout | null;
 }

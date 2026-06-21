@@ -396,6 +396,26 @@ function trackPendingCompletionResultFile(job: IOcrActiveJob) {
     return true;
 }
 
+function sendPendingCompletionResult(job: IOcrActiveJob) {
+    const result = job.pendingCompletionResult;
+    if (!result || job.terminalResultSent) {
+        return false;
+    }
+
+    if (result.success) {
+        trackPendingCompletionResultFile(job);
+    } else {
+        job.pendingCompletionResult = null;
+    }
+    job.terminalResultSent = true;
+    clearJobWatchdog(job.scopedJobId);
+    safeSendToWindow(getJobWindow(job.webContentsId), OCR_EVENT_CHANNELS.complete, {
+        requestId: job.requestId,
+        ...result,
+    });
+    return true;
+}
+
 function removePendingCompletionResultFile(job: IOcrActiveJob) {
     const result = job.pendingCompletionResult;
     if (!result?.success) {
@@ -524,6 +544,7 @@ function handleWorkerMessage(
             const activeJob = activeJobs.get(scopedJobId);
             if (activeJob) {
                 activeJob.pendingCompletionResult = message.result;
+                sendPendingCompletionResult(activeJob);
             }
             return;
         }
@@ -537,29 +558,24 @@ function handleWorkerMessage(
                 return;
             }
 
-            const result = activeJobs.get(scopedJobId)?.pendingCompletionResult;
+            const activeJob = activeJobs.get(scopedJobId);
+            const result = activeJob?.pendingCompletionResult ?? null;
             if (!result) {
-                log.warn(`OCR cleanup completed before result for job "${requestId}"`);
-                safeSendToWindow(window, OCR_EVENT_CHANNELS.complete, {
-                    requestId,
-                    success: false,
-                    errors: ['OCR worker completed cleanup before sending a result'],
-                });
+                if (!activeJob?.terminalResultSent) {
+                    log.warn(`OCR cleanup completed before result for job "${requestId}"`);
+                    safeSendToWindow(window, OCR_EVENT_CHANNELS.complete, {
+                        requestId,
+                        success: false,
+                        errors: ['OCR worker completed cleanup before sending a result'],
+                    });
+                }
                 terminateAndFinalizeActiveJob(scopedJobId, { reason: 'worker cleanup completed without result' });
                 return;
             }
 
-            if (result.success) {
-                const activeJob = activeJobs.get(scopedJobId);
-                if (activeJob) {
-                    trackPendingCompletionResultFile(activeJob);
-                }
+            if (activeJob) {
+                sendPendingCompletionResult(activeJob);
             }
-
-            safeSendToWindow(window, OCR_EVENT_CHANNELS.complete, {
-                requestId,
-                ...result,
-            });
 
             terminateAndFinalizeActiveJob(scopedJobId, { reason: 'worker reported cleanup completion' });
             return;
@@ -594,6 +610,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
         completed: false,
         terminatedByUs: false,
         pendingCompletionResult: null,
+        terminalResultSent: false,
         startedAtMs: Date.now(),
         watchdogTimer: null,
     };
@@ -650,6 +667,8 @@ function startQueuedJob(job: IOcrQueuedJob) {
         if (code !== 0 && !wasCompletedOrTerminated) {
             log.error(`Worker exited with code ${code} for job ${job.requestId}`);
             sendJobFailure(job, `Worker exited unexpectedly with code ${code}`);
+        } else if (active.pendingCompletionResult && !active.terminalResultSent) {
+            sendPendingCompletionResult(active);
         }
 
         finalizeActiveJob(job.scopedJobId);

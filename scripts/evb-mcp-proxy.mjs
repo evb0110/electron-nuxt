@@ -769,7 +769,13 @@ async function processMcpRequest(rawRequest) {
 
 async function processInputBuffer() {
     while (true) {
-        const parsed = readNextMessage();
+        let parsed;
+        try {
+            parsed = readNextMessage();
+        } catch (error) {
+            writeMessage(createErrorResponse(null, JSON_RPC_PARSE_ERROR, getErrorMessage(error)));
+            continue;
+        }
         if (!parsed) {
             return;
         }
@@ -818,6 +824,7 @@ function readNextHeaderFramedMessage() {
     const headerText = inputBuffer.subarray(0, headerEnd.index).toString('utf8');
     const contentLengthMatch = /^Content-Length:\s*(\d+)$/imu.exec(headerText);
     if (!contentLengthMatch) {
+        inputBuffer = inputBuffer.subarray(headerEnd.index + headerEnd.length);
         throw new Error('MCP stdio message is missing Content-Length header.');
     }
 

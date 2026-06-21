@@ -39,6 +39,7 @@ const DEFAULT_DEV_MCP_PORT = 38672;
 
 let localMcpServer: Server | null = null;
 let localMcpToken: string | null = null;
+let localMcpStartPromise: Promise<void> | null = null;
 let embeddedMcpServer: Server | null = null;
 let embeddedMcpServerDescriptor: ILocalMcpServerDescriptor | null = null;
 // Stable for the server's lifetime so sessions opened earlier keep working; rotated only on full shutdown.
@@ -159,7 +160,10 @@ function createDefaultMcpRequestOptions(identity: ILocalMcpServerIdentity): IPro
 
 export function startLocalMcpServer() {
     if (localMcpServer) {
-        return;
+        return Promise.resolve();
+    }
+    if (localMcpStartPromise) {
+        return localMcpStartPromise;
     }
 
     const port = resolveConfiguredLocalMcpPort();
@@ -167,14 +171,47 @@ export function startLocalMcpServer() {
     const options = createDefaultMcpRequestOptions(identity);
 
     const server = createServer(createHttpHandler(options, { bearerToken: getLocalMcpServerBearerToken() }));
-    server.on('error', (error) => {
-        logger.error(`Local MCP server failed: ${getErrorMessage(error)}`);
-    });
-    server.listen(port, DEFAULT_MCP_HOST, () => {
-        const address = server.address() as AddressInfo | null;
-        logger.info(`Local MCP server ${identity.name} listening on http://${DEFAULT_MCP_HOST}:${address?.port ?? port}`);
-    });
     localMcpServer = server;
+    const startPromise = new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const failStartup = (error: Error) => {
+            logger.error(`Local MCP server failed: ${getErrorMessage(error)}`);
+            if (settled) {
+                return;
+            }
+            settled = true;
+            if (localMcpServer === server) {
+                localMcpServer = null;
+            }
+            reject(error);
+        };
+
+        server.on('error', error => failStartup(error instanceof Error ? error : new Error(getErrorMessage(error))));
+        server.on('close', () => {
+            failStartup(new Error('Local MCP server was shut down during startup.'));
+        });
+        server.listen(port, DEFAULT_MCP_HOST, () => {
+            if (settled) {
+                return;
+            }
+            if (localMcpServer !== server) {
+                server.close();
+                failStartup(new Error('Local MCP server was shut down during startup.'));
+                return;
+            }
+
+            settled = true;
+            const address = server.address() as AddressInfo | null;
+            logger.info(`Local MCP server ${identity.name} listening on http://${DEFAULT_MCP_HOST}:${address?.port ?? port}`);
+            resolve();
+        });
+    }).finally(() => {
+        if (localMcpStartPromise === startPromise) {
+            localMcpStartPromise = null;
+        }
+    });
+    localMcpStartPromise = startPromise;
+    return startPromise;
 }
 
 export function shutdownLocalMcpServer() {
@@ -184,6 +221,7 @@ export function shutdownLocalMcpServer() {
     }
 
     localMcpServer = null;
+    localMcpStartPromise = null;
     return new Promise<void>((resolve) => {
         server.close(() => resolve());
     });

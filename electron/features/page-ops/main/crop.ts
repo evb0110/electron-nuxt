@@ -216,6 +216,7 @@ export async function getPageGeometry(
         if (!shouldFallbackToLocalCrop(error)) {
             throw error;
         }
+        await assertLocalCropFallbackAllowed(workingCopyPath, 1);
         log.warn(`Crop worker unavailable, falling back to in-process page geometry: ${getErrorMessage(error)}`);
         return getPageGeometryLocal(workingCopyPath, pageNumber);
     }

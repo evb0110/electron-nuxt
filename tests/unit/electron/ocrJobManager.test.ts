@@ -377,6 +377,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         });
         const worker = mocks.workerInstances[0];
         expect(worker).toBeDefined();
+        mocks.sendToLiveWindow.mockClear();
 
         worker?.emit('message', {
             type: 'complete',
@@ -407,7 +408,60 @@ describe('ocr job manager preparing-stage robustness', () => {
         );
     });
 
-    it('removes a successful result file when canceled before worker cleanup completes', async () => {
+    it('forwards successful completion even when cleanup completion never arrives', async () => {
+        mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
+
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+
+        await expect(handleOcrCreateSearchablePdfAsync(
+            createEvent(177) as never,
+            '/tmp/work-177.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-177',
+        )).resolves.toMatchObject({
+            started: true,
+            jobId: 'job-177',
+        });
+
+        const worker = mocks.workerInstances[0];
+        expect(worker).toBeDefined();
+        mocks.sendToLiveWindow.mockClear();
+
+        worker?.emit('message', {
+            type: 'complete',
+            jobId: 'job-177',
+            result: {
+                success: true,
+                pdfPath: '/tmp/work-177-ocr.pdf',
+                requiresCleanupAck: true,
+                errors: [],
+            },
+        });
+        worker?.emit('exit', 0);
+
+        const completeCalls = mocks.sendToLiveWindow.mock.calls.filter(([
+            ,
+            channel,
+        ]) => channel === 'ocr:complete');
+        expect(completeCalls).toHaveLength(1);
+        expect(mocks.sendToLiveWindow).toHaveBeenCalledWith(
+            undefined,
+            'ocr:complete',
+            [{
+                requestId: 'job-177',
+                success: true,
+                pdfPath: '/tmp/work-177-ocr.pdf',
+                requiresCleanupAck: true,
+                errors: [],
+            }],
+            expect.any(Function),
+        );
+    });
+
+    it('keeps a delivered successful result file when canceled before worker cleanup completes', async () => {
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 
         const {
@@ -445,7 +499,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         });
 
         expect(handleOcrCancel(event as never, 'job-78')).toEqual({ canceled: true });
-        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/work-78-ocr.pdf');
+        expect(mocks.unlink).not.toHaveBeenCalledWith('/tmp/work-78-ocr.pdf');
     });
 
     it('sends renderer request ids when canceling active jobs during shutdown', async () => {

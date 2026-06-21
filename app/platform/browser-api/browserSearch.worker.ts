@@ -14,10 +14,27 @@ const canceledRequestIds = new Set<number>();
 async function handleExtractDocumentTextRequest(
     request: IBrowserSearchWorkerRequest<'extractDocumentText'>,
 ) {
-    const loadingTask = pdfjsLib.getDocument(
-        await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, request.payload.pdfPath),
-    );
-    const pdfDocument = await loadingTask.promise;
+    let rejectRangeReadFailure: ((error: Error) => void) | null = null;
+    const rangeReadFailure = new Promise<never>((_resolve, reject) => {
+        rejectRangeReadFailure = reject;
+    });
+    const loadingTask = pdfjsLib.getDocument(await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, request.payload.pdfPath, {onRangeReadFailure: (error) => {
+        const reject = rejectRangeReadFailure;
+        rejectRangeReadFailure = null;
+        reject?.(error);
+    }}));
+    let pdfDocument: Awaited<typeof loadingTask.promise>;
+    try {
+        pdfDocument = await Promise.race([
+            loadingTask.promise,
+            rangeReadFailure,
+        ]);
+    } catch (error) {
+        await loadingTask.destroy();
+        throw error;
+    } finally {
+        rejectRangeReadFailure = null;
+    }
     const pageTexts = Array.from({ length: pdfDocument.numPages }, () => '');
 
     try {

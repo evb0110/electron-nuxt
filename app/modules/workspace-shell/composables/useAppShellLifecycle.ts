@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type { IWindowTabIncomingTransfer } from '@contracts/windowTabs';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 interface IUseAppShellLifecycleOptions {
     dirtyTabCloseDialogOpen: Ref<boolean>;
@@ -43,7 +44,12 @@ export const useAppShellLifecycle = (options: IUseAppShellLifecycleOptions) => {
         void ensureUpdatesInitialized();
 
         incomingTabTransferCleanup = getWindowTabsCapability().onIncomingTransfer((transfer) => {
-            void handleIncomingTabTransfer(transfer);
+            void handleIncomingTabTransfer(transfer).catch((error: unknown) => {
+                BrowserLogger.error('tabs', 'Incoming tab transfer handler rejected', {
+                    transferId: transfer.transferId,
+                    error: error instanceof Error ? error : String(error),
+                });
+            });
         });
         traceRendererStartup('index.vue onMounted finished', {durationMs: Math.round(performance.now() - start)});
     });

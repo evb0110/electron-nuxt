@@ -16,6 +16,8 @@ type TPdfjsDocumentInit = Parameters<TPdfjsLib['getDocument']>[0];
 
 let pdfjsLibPromise: Promise<TPdfjsLib> | null = null;
 
+interface ICreateBrowserPdfjsDocumentInitOptions { onRangeReadFailure?: (error: Error) => void; }
+
 async function getPdfjsLib() {
     pdfjsLibPromise ??= import('pdfjs-dist');
     const pdfjsLib = await pdfjsLibPromise;
@@ -46,6 +48,7 @@ function createPdfjsDocumentInit(pdfjsLib: TPdfjsLib, data: Uint8Array) {
 async function createPdfjsDocumentInitFromBrowserDocument(
     pdfjsLib: TPdfjsLib,
     path: string,
+    options: ICreateBrowserPdfjsDocumentInitOptions = {},
 ) {
     const { size } = await browserDocumentStore.stat(path);
     const initialData = await browserDocumentStore.readRange(
@@ -89,10 +92,11 @@ async function createPdfjsDocumentInitFromBrowserDocument(
                 }
 
                 this.onDataRange(begin, chunk);
-            } catch {
+            } catch (error) {
                 if (!this.aborted) {
                     this.aborted = true;
-                    this.onDataRange(begin, null);
+                    options.onRangeReadFailure?.(error instanceof Error ? error : new Error(String(error)));
+                    this.abort();
                 }
             }
         }

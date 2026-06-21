@@ -456,9 +456,11 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         }
         const restoreError = getRestoreError();
         if (restoreError) {
-            throw restoreError instanceof Error
-                ? restoreError
-                : new Error(String(restoreError));
+            BrowserLogger.warn('ocr', 'OCR result was applied but page restore failed', {
+                sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
+                pageToRestore,
+                error: restoreError,
+            });
         }
 
         if (warmupWorkingPath) {

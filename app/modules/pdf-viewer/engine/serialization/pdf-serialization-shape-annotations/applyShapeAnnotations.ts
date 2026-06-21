@@ -590,17 +590,17 @@ function appendRemainingShapeAnnotations(
     for (const shape of remainingShapes) {
         const page = pages[shape.pageIndex];
         if (!page) {
-            continue;
+            throw new Error(`Unable to serialize shape annotation ${shape.stableKey}: page ${shape.pageIndex + 1} is missing`);
         }
 
         const context = resolveShapePageContext(page);
         if (!context) {
-            continue;
+            throw new Error(`Unable to serialize shape annotation ${shape.stableKey}: page geometry is unavailable`);
         }
 
         const annotDict = createShapeAnnotationDict(doc, shape, context.pageView, context.pageRotation);
         if (!annotDict) {
-            continue;
+            throw new Error(`Unable to serialize shape annotation ${shape.stableKey}: annotation geometry is invalid`);
         }
 
         writeManagedShapeStableKey(annotDict, shape.stableKey);

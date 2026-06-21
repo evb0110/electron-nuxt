@@ -254,7 +254,7 @@ export async function setAgentMcpIntegrationEnabled(
 
     try {
         if (enabled) {
-            startLocalMcpServer();
+            await startLocalMcpServer();
             await registerCodexMcp(codexPath);
             await setAgentMcpSetting(true);
         } else {
@@ -282,7 +282,7 @@ export async function setAgentMcpIntegrationEnabled(
 export async function syncAgentMcpServerWithSettings() {
     const settings = await loadSettings();
     if (settings.agentMcpEnabled) {
-        startLocalMcpServer();
+        await startLocalMcpServer();
     } else {
         await shutdownLocalMcpServer();
     }

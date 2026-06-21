@@ -410,10 +410,27 @@ async function encodeTiffToBytes(
 
 async function loadPdfDocument(path: string) {
     const pdfjsLib = await getPdfjsLib();
-    const loadingTask = pdfjsLib.getDocument(
-        await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, path),
-    );
-    const pdfDocument = await loadingTask.promise;
+    let rejectRangeReadFailure: ((error: Error) => void) | null = null;
+    const rangeReadFailure = new Promise<never>((_resolve, reject) => {
+        rejectRangeReadFailure = reject;
+    });
+    const loadingTask = pdfjsLib.getDocument(await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, path, {onRangeReadFailure: (error) => {
+        const reject = rejectRangeReadFailure;
+        rejectRangeReadFailure = null;
+        reject?.(error);
+    }}));
+    let pdfDocument: Awaited<typeof loadingTask.promise>;
+    try {
+        pdfDocument = await Promise.race([
+            loadingTask.promise,
+            rangeReadFailure,
+        ]);
+    } catch (error) {
+        await loadingTask.destroy();
+        throw error;
+    } finally {
+        rejectRangeReadFailure = null;
+    }
     return {
         pdfDocument,
         destroy: async () => {

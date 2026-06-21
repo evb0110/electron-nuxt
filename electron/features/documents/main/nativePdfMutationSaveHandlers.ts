@@ -1066,6 +1066,8 @@ async function runNativeNoteCommand(
         const tempPath = makeSiblingTempPath(originalPath);
         const tempDir = await mkdtemp(join(tmpdir(), 'pdf-note-text-'));
         const payloadFilePath = join(tempDir, options.payloadFileName);
+        let committedValidation: IPdfNativeNoteTextSaveResult['validation'] = null;
+        let committed = false;
         try {
             await measureNativeNotePhase(phaseTimings, 'write-payload', () =>
                 writeFile(payloadFilePath, JSON.stringify(options.payload)));
@@ -1102,8 +1104,24 @@ async function runNativeNoteCommand(
 
             await measureNativeNotePhase(phaseTimings, 'atomic-replace-original', () =>
                 atomicReplace(tempPath, originalPath));
-            await measureNativeNotePhase(phaseTimings, 'sync-requesting-working-copy', () =>
-                syncNativeOutputToRequestingWorkingCopy(originalPath, normalizedWorkingPath, event.sender.id));
+            committed = true;
+            committedValidation = validation;
+            try {
+                await measureNativeNotePhase(phaseTimings, 'sync-requesting-working-copy', () =>
+                    syncNativeOutputToRequestingWorkingCopy(originalPath, normalizedWorkingPath, event.sender.id));
+            } catch (syncError) {
+                log.warn(`Native note save committed, but working copy sync failed: ${JSON.stringify({
+                    command: options.command,
+                    totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
+                    phases: phaseTimings,
+                    error: getErrorMessage(syncError),
+                })}`);
+                return {
+                    applied: true,
+                    validation,
+                    syncError: getErrorMessage(syncError),
+                };
+            }
             log.debug(`Native note save phase timings: ${JSON.stringify({
                 command: options.command,
                 totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
@@ -1120,6 +1138,13 @@ async function runNativeNoteCommand(
                 phases: phaseTimings,
                 error: getErrorMessage(error),
             })}`);
+            if (committed) {
+                return {
+                    applied: true,
+                    validation: committedValidation,
+                    syncError: getErrorMessage(error),
+                };
+            }
             return createNotAppliedResult();
         } finally {
             await cleanupTempPath(tempPath);

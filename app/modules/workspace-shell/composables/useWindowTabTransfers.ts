@@ -159,18 +159,42 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
     }
 
     async function ackIncomingTransferFailure(transferId: string, error: string) {
-        await getWindowTabsCapability().transferAck({
-            transferId,
-            success: false,
-            error,
-        });
+        try {
+            const acked = await getWindowTabsCapability().transferAck({
+                transferId,
+                success: false,
+                error,
+            });
+            if (!acked) {
+                BrowserLogger.warn('tabs', 'Incoming tab transfer failure ack was not accepted', {
+                    transferId,
+                    error,
+                });
+            }
+        } catch (ackError) {
+            BrowserLogger.warn('tabs', 'Failed to ack incoming tab transfer failure', {
+                transferId,
+                error,
+                ackError,
+            });
+        }
     }
 
     async function ackIncomingTransferSuccess(transferId: string) {
-        await getWindowTabsCapability().transferAck({
-            transferId,
-            success: true,
-        });
+        try {
+            const acked = await getWindowTabsCapability().transferAck({
+                transferId,
+                success: true,
+            });
+            if (!acked) {
+                BrowserLogger.warn('tabs', 'Incoming tab transfer success ack was not accepted', { transferId });
+            }
+        } catch (ackError) {
+            BrowserLogger.warn('tabs', 'Failed to ack incoming tab transfer success', {
+                transferId,
+                ackError,
+            });
+        }
     }
 
     function resolveIncomingTransferTargetPane() {
@@ -273,6 +297,10 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         if (!payload) {
             return false;
         }
+        if (payload.kind === 'empty') {
+            BrowserLogger.warn('tabs', 'Rejected empty split payload for workspace restore', { tabId });
+            return false;
+        }
 
         options.workspaceRestoreTracker.start(tabId);
         let restored = false;
@@ -372,9 +400,29 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         return finalizeTransferredSourceTab(sourcePane.paneId, tab.id);
     }
 
+    function tabRequiresNonEmptyTransferPayload(tab: ITab | null) {
+        return Boolean(tab?.originalPath ?? tab?.fileName ?? tab?.isDirty ?? tab?.isDjvu);
+    }
+
+    function isValidTransferPayloadForTab(tab: ITab | null, payload: TSplitPayload) {
+        return !(tabRequiresNonEmptyTransferPayload(tab) && payload.kind === 'empty');
+    }
+
     async function transferTabToTarget(tabId: string, target: TWindowTabTransferTarget): Promise<TSourceTransferOutcome> {
         const payload = await captureWorkspacePayload(tabId);
         if (!payload) {
+            return 'failed';
+        }
+        const tab = options.getTabById(tabId);
+        if (!isValidTransferPayloadForTab(tab, payload)) {
+            BrowserLogger.warn('tabs', 'Rejected empty split payload for document tab transfer', {
+                tabId,
+                target,
+                fileName: tab?.fileName ?? null,
+                originalPath: tab?.originalPath ?? null,
+                isDirty: tab?.isDirty ?? false,
+                isDjvu: tab?.isDjvu ?? false,
+            });
             return 'failed';
         }
 

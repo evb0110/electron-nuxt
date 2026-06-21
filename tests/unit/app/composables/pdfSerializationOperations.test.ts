@@ -333,6 +333,32 @@ describe('serializePdfEdits embedded geometric shapes', () => {
             .toBe('evb-shape:managed-square');
     });
 
+    it('fails when a remaining shape cannot be serialized to a document page', async () => {
+        const doc = await PDFDocument.create();
+        doc.addPage([
+            600,
+            800,
+        ]);
+        const payload = createEmptyPayload();
+        payload.shapes = [{
+            id: 'shape-missing-page',
+            stableKey: 'shape-missing-page',
+            type: 'rectangle',
+            pageIndex: 1,
+            x: 0.2,
+            y: 0.15,
+            width: 0.25,
+            height: 0.3,
+            color: '#336699',
+            opacity: 0.6,
+            strokeWidth: 4,
+            source: 'local',
+        } satisfies IShapeAnnotation];
+
+        await expect(serializePdfEdits(new Uint8Array(await doc.save()), payload))
+            .rejects.toThrow(/Unable to serialize shape annotation/u);
+    });
+
     it('updates imported geometric annotations in place and deletes removed ones by ref', async () => {
         const {
             bytes,
@@ -1676,6 +1702,27 @@ describe('serializePdfEdits markup subtype rewrites', () => {
 });
 
 describe('serializePdfEdits free-text note rect application', () => {
+    it('fails when a pending embedded note text update cannot resolve its target', async () => {
+        const { bytes } = await createPdfWithFreeTextNotes([{
+            pageIndex: 0,
+            rect: [
+                100,
+                500,
+                200,
+                600,
+            ],
+            contents: 'note',
+        }]);
+        const payload = createEmptyPayload();
+        payload.pendingEmbeddedTextUpdates = [[
+            'missing-stable-key',
+            'updated note',
+        ]];
+
+        await expect(serializePdfEdits(bytes, payload))
+            .rejects.toThrow(/Unable to apply embedded note text updates/u);
+    });
+
     it('normalizes a large comment marker rect before applying it to a FreeText note', async () => {
         const {
             bytes,
