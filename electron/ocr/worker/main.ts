@@ -563,7 +563,7 @@ function parseNativePageSizesPayload(payload: unknown) {
     return pageSizes;
 }
 
-async function readPdfPageSizesInchesNative(pdfPath: string) {
+async function readPdfPageSizesInchesNative(pdfPath: string, signal?: AbortSignal) {
     if (!paths.pdfPageOpsBinary) {
         return null;
     }
@@ -581,6 +581,7 @@ async function readPdfPageSizesInchesNative(pdfPath: string) {
         ], {
             timeoutMs: OCR_PAGE_SIZES_TIMEOUT_MS,
             commandLabel: 'evb-pdf-page-ops(page-sizes)',
+            ...(signal ? { signal } : {}),
         });
         const payload: unknown = JSON.parse(await readFile(outputPath, 'utf8'));
         return parseNativePageSizesPayload(payload);
@@ -597,14 +598,20 @@ async function readPdfPageSizesInchesNative(pdfPath: string) {
     }
 }
 
-async function readPdfPageSizesInches(pdfPath: string) {
-    const nativePageSizes = await readPdfPageSizesInchesNative(pdfPath);
+async function readPdfPageSizesInches(pdfPath: string, signal?: AbortSignal) {
+    const nativePageSizes = await readPdfPageSizesInchesNative(pdfPath, signal);
     if (nativePageSizes) {
         return nativePageSizes;
     }
 
     try {
+        if (signal?.aborted) {
+            throw signal.reason instanceof Error ? signal.reason : new Error('OCR job canceled');
+        }
         const pdfBytes = await readFile(pdfPath);
+        if (signal?.aborted) {
+            throw signal.reason instanceof Error ? signal.reason : new Error('OCR job canceled');
+        }
         const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
         const pageSizes = new Map<number, IOcrPageSizeInches>();
         pdfDoc.getPages().forEach((page, index) => {
@@ -651,7 +658,7 @@ async function buildOcrPageProcessingPlan(
     const concurrency = getOcrConcurrency(targetPages.length);
     const tesseractThreads = getTesseractThreadLimit(concurrency);
     sendStage('page-size-probing');
-    const pageSizeByNumber = await readPdfPageSizesInches(popplerSourcePdfPath);
+    const pageSizeByNumber = await readPdfPageSizesInches(popplerSourcePdfPath, baseContext.signal);
 
     log('debug', `OCR PDF: pages=${targetPages.length}, dpi=${extractionDpi}, concurrency=${concurrency}, threads=${tesseractThreads}`);
 

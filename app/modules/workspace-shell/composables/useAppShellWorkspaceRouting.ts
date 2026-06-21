@@ -271,7 +271,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     async function beginOpenPathsInAppropriateTab(paths: TDocumentRef[]) {
         const normalizedPaths = normalizeOpenPaths(paths);
         if (normalizedPaths.length === 0) {
-            return;
+            return [];
         }
 
         const startupOpenTasks: Array<Promise<void>> = [];
@@ -318,14 +318,19 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         }
 
         const startupOpenResults = await Promise.allSettled(startupOpenTasks);
+        const failedPaths: TDocumentRef[] = [];
         for (const [
             index,
             result,
         ] of startupOpenResults.entries()) {
             if (result.status === 'rejected') {
                 const reason: unknown = result.reason;
+                const failedPath = normalizedPaths[index];
+                if (failedPath) {
+                    failedPaths.push(failedPath);
+                }
                 BrowserLogger.warn('workspace-routing', 'Failed to begin startup external path open', {
-                    path: normalizedPaths[index],
+                    path: failedPath,
                     pathIndex: index,
                     error: reason,
                 });
@@ -333,6 +338,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         }
 
         await nextTick();
+        return failedPaths;
     }
 
     async function handleWindowTabsAction(action: TWindowTabsAction) {

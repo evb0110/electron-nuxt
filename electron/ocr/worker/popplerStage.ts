@@ -9,28 +9,10 @@ import {
     type TOcrRunCommandOptions,
 } from '@electron/ocr/worker/runOcrCommand';
 import { getErrorMessage } from '@electron/utils/error';
+export { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
-
-export function buildPopplerEnv(paths: IWorkerPaths) {
-    const env: NodeJS.ProcessEnv = {};
-
-    if (paths.popplerDataDir) {
-        env.POPPLER_DATADIR = paths.popplerDataDir;
-    }
-
-    if (paths.popplerFontConfigDir) {
-        env.FONTCONFIG_PATH = paths.popplerFontConfigDir;
-        env.FONTCONFIG_FILE = join(paths.popplerFontConfigDir, 'fonts.conf');
-    }
-
-    if (Object.keys(env).length === 0) {
-        return undefined;
-    }
-
-    return env;
-}
 
 export async function renderPdfPageToPng(
     paths: IWorkerPaths,

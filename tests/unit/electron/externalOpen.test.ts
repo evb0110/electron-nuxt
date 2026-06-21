@@ -201,6 +201,25 @@ describe('createExternalOpenManager', () => {
         expect(harness.dispatchOpenPaths).not.toHaveBeenCalled();
     });
 
+    it('requeues failed startup claims for later renderer dispatch', async () => {
+        vi.useFakeTimers();
+        const harness = createManagerHarness({ isRendererReady: false });
+
+        harness.manager.markBootstrapReady();
+        harness.manager.queueOpenRequest(['/docs/startup.pdf']);
+
+        await expect(harness.manager.claimPendingOpenPaths()).resolves.toEqual(['/docs/startup.pdf']);
+
+        harness.manager.acknowledgeClaimedOpenPaths(['/docs/startup.pdf']);
+        harness.setRendererReady(true);
+        harness.manager.scheduleFlushPendingFiles();
+        await vi.advanceTimersByTimeAsync(800);
+
+        expect(harness.dispatchOpenPaths).toHaveBeenCalledTimes(1);
+        expect(harness.dispatchOpenPaths).toHaveBeenCalledWith(['/docs/startup.pdf']);
+        expect(harness.logger.warn).toHaveBeenCalledWith('Requeued 1 failed startup external open path(s)');
+    });
+
     it('briefly waits for a startup open-file event before returning an empty initial claim', async () => {
         vi.useFakeTimers();
         const harness = createManagerHarness({ isRendererReady: false });

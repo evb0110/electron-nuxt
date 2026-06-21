@@ -98,6 +98,7 @@ async function tryRunNativeCropOperation(
     workingCopyPath: string,
     pages: number[],
     margins?: ICropMargins,
+    signal?: AbortSignal,
 ) {
     if (isNativePageOpsDisabled()) {
         return false;
@@ -123,6 +124,7 @@ async function tryRunNativeCropOperation(
         ), {
             timeoutMs: NATIVE_PAGE_OPS_TIMEOUT_MS,
             commandLabel: `evb-pdf-page-ops(${operation})`,
+            ...(signal ? { signal } : {}),
         });
         await assertNativeOutputReady(tempPath);
         await replaceTempOutput(tempPath, workingCopyPath);
@@ -143,13 +145,15 @@ export function tryCropPagesWithNativePageOps(
     workingCopyPath: string,
     pages: number[],
     margins: ICropMargins,
+    signal?: AbortSignal,
 ) {
-    return tryRunNativeCropOperation('crop', workingCopyPath, pages, margins);
+    return tryRunNativeCropOperation('crop', workingCopyPath, pages, margins, signal);
 }
 
 export function tryRemoveCropWithNativePageOps(
     workingCopyPath: string,
     pages: number[],
+    signal?: AbortSignal,
 ) {
-    return tryRunNativeCropOperation('remove-crop', workingCopyPath, pages);
+    return tryRunNativeCropOperation('remove-crop', workingCopyPath, pages, undefined, signal);
 }

@@ -24,6 +24,8 @@ export type TCropWorkerInput =
         senderWebContentsId?: number;
     };
 
+export interface ICropWorkerCancelMessage {type: 'cancel';}
+
 export type TCropWorkerResult =
     | {
         type: 'result';

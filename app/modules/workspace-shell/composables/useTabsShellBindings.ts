@@ -36,7 +36,7 @@ interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     isStartupOpenClaimPending: Ref<boolean>;
     activateTab: (tabId: string) => void;
-    beginOpenPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
+    beginOpenPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<TDocumentRef[]>;
 }
 
 export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
@@ -417,7 +417,8 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             dispatchStartupOpenClaimed(startupExternalPaths.length);
             if (startupExternalPaths.length > 0) {
                 traceRendererStartup('tabs shell claimed startup external paths', {pathCount: startupExternalPaths.length});
-                await beginOpenPathsInAppropriateTab(startupExternalPaths);
+                const failedPaths = await beginOpenPathsInAppropriateTab(startupExternalPaths);
+                await getWindowTabsCapability().acknowledgePendingExternalOpenPaths(failedPaths);
                 if (isDisposed) {
                     return;
                 }

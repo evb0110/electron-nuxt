@@ -44,6 +44,7 @@ export const CORE_IPC_CHANNELS = {
     windowCloseCurrent: 'window:closeCurrent',
     rendererReady: 'app:rendererReady',
     claimPendingExternalOpenPaths: 'app:claimPendingExternalOpenPaths',
+    acknowledgePendingExternalOpenPaths: 'app:acknowledgePendingExternalOpenPaths',
     tabsTransfer: 'tabs:transfer',
     tabsTransferAck: 'tabs:transferAck',
     tabsListTargets: 'tabs:listTargets',
@@ -128,6 +129,10 @@ export interface ICoreInvokeMap {
     [CORE_IPC_CHANNELS.claimPendingExternalOpenPaths]: {
         args: [];
         result: string[];
+    };
+    [CORE_IPC_CHANNELS.acknowledgePendingExternalOpenPaths]: {
+        args: [failedPaths: string[]];
+        result: TNoIpcResult;
     };
     [CORE_IPC_CHANNELS.tabsTransfer]: {
         args: [request: IWindowTabTransferRequest];

@@ -728,6 +728,10 @@ const lazyWindowTabsCapability: IWindowTabsCapability = {
         'windowTabs',
         'claimPendingExternalOpenPaths',
     ]),
+    acknowledgePendingExternalOpenPaths: lazyAsync<IWindowTabsCapability['acknowledgePendingExternalOpenPaths']>([
+        'windowTabs',
+        'acknowledgePendingExternalOpenPaths',
+    ]),
     onMenuNewTab: lazyEvent<IWindowTabsCapability['onMenuNewTab']>([
         'windowTabs',
         'onMenuNewTab',

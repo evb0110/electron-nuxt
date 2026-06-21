@@ -55,7 +55,20 @@ function normalizeServerHost(raw: string | undefined, fallback: string) {
         return fallback;
     }
 
+    if (process.env.EVB_ALLOW_UNSAFE_REMOTE_DEV_SERVER !== '1' && !isLoopbackHost(trimmed)) {
+        return fallback;
+    }
+
     return trimmed;
+}
+
+function isLoopbackHost(host: string) {
+    const normalized = host.toLowerCase();
+    return normalized === 'localhost'
+        || normalized === '127.0.0.1'
+        || normalized === '::1'
+        || normalized === '[::1]'
+        || normalized.startsWith('127.');
 }
 
 export const config = {

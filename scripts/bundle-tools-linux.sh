@@ -176,6 +176,18 @@ POPPLER_DIR="$RESOURCES_DIR/poppler/$PLATFORM_ARCH"
 for tool in pdftoppm pdftotext pdfimages; do
   bundle_tool "$tool" "$POPPLER_DIR"
 done
+if [ -d /usr/share/poppler ]; then
+  mkdir -p "$POPPLER_DIR/share"
+  cp -a /usr/share/poppler "$POPPLER_DIR/share/"
+else
+  echo "Warning: /usr/share/poppler not found; bundled Poppler data directory will be absent"
+fi
+if [ -d /etc/fonts ]; then
+  mkdir -p "$POPPLER_DIR/etc"
+  cp -a /etc/fonts "$POPPLER_DIR/etc/"
+else
+  echo "Warning: /etc/fonts not found; bundled Fontconfig directory will be absent"
+fi
 bundle_lib_deps "$POPPLER_DIR/lib"
 fix_lib_rpaths "$POPPLER_DIR/lib"
 
@@ -245,6 +257,8 @@ verify_tool "$TESSERACT_DIR/bin/unpaper" "unpaper"
 verify_tool "$POPPLER_DIR/bin/pdftoppm" "pdftoppm"
 verify_tool "$POPPLER_DIR/bin/pdftotext" "pdftotext"
 verify_tool "$POPPLER_DIR/bin/pdfimages" "pdfimages"
+verify_dir "$POPPLER_DIR/share/poppler" "poppler data directory"
+verify_dir "$POPPLER_DIR/etc/fonts" "fontconfig directory"
 verify_tool "$QPDF_DIR/bin/qpdf" "qpdf"
 verify_tool "$DJVU_DIR/bin/ddjvu" "ddjvu"
 verify_tool "$DJVU_DIR/bin/djvused" "djvused"

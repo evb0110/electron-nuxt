@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
     shouldPreferDesktopPlatform: vi.fn(() => false),
     waitForDesktopPlatformBridge: vi.fn(async () => true),
     claimPendingExternalOpenPaths: vi.fn(async (): Promise<string[]> => []),
+    acknowledgePendingExternalOpenPaths: vi.fn(async () => {}),
     notifyRendererReady: vi.fn(),
 }));
 
@@ -41,6 +42,7 @@ vi.mock('@app/utils/platform', () => ({
 }));
 vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({
     claimPendingExternalOpenPaths: mocks.claimPendingExternalOpenPaths,
+    acknowledgePendingExternalOpenPaths: mocks.acknowledgePendingExternalOpenPaths,
     notifyRendererReady: mocks.notifyRendererReady,
 })}));
 
@@ -180,6 +182,7 @@ describe('useTabsShellBindings', () => {
         mocks.shouldPreferDesktopPlatform.mockReturnValue(false);
         mocks.waitForDesktopPlatformBridge.mockResolvedValue(true);
         mocks.claimPendingExternalOpenPaths.mockResolvedValue([]);
+        mocks.acknowledgePendingExternalOpenPaths.mockResolvedValue(undefined);
         mocks.useEventListener.mockImplementation((_target, event, listener) => {
             if (event === 'keydown') {
                 capturedKeydown = listener;
@@ -266,8 +269,8 @@ describe('useTabsShellBindings', () => {
     it('waits for claimed startup external paths before notifying renderer readiness', async () => {
         const options = createOptions();
         let resolveStartupOpen: (() => void) | undefined;
-        options.beginOpenPathsInAppropriateTab = vi.fn(() => new Promise<void>((resolve) => {
-            resolveStartupOpen = resolve;
+        options.beginOpenPathsInAppropriateTab = vi.fn(() => new Promise<string[]>((resolve) => {
+            resolveStartupOpen = () => resolve([]);
         }));
         mocks.claimPendingExternalOpenPaths.mockResolvedValue(['/tmp/startup.pdf']);
 
@@ -277,11 +280,26 @@ describe('useTabsShellBindings', () => {
         expect(options.beginOpenPathsInAppropriateTab).toHaveBeenCalledWith(['/tmp/startup.pdf']);
         expect(options.isStartupOpenClaimPending.value).toBe(true);
         expect(mocks.notifyRendererReady).not.toHaveBeenCalled();
+        expect(mocks.acknowledgePendingExternalOpenPaths).not.toHaveBeenCalled();
 
         resolveStartupOpen?.();
         await flushMountedStartupClaim();
 
+        expect(mocks.acknowledgePendingExternalOpenPaths).toHaveBeenCalledWith([]);
         expect(options.isStartupOpenClaimPending.value).toBe(false);
+        expect(mocks.notifyRendererReady).toHaveBeenCalledOnce();
+        unmount();
+    });
+
+    it('acknowledges failed startup external paths before renderer readiness', async () => {
+        const options = createOptions();
+        options.beginOpenPathsInAppropriateTab = vi.fn(async () => ['/tmp/missing.pdf']);
+        mocks.claimPendingExternalOpenPaths.mockResolvedValue(['/tmp/missing.pdf']);
+
+        const unmount = await mountBindingsClient(options);
+        await flushMountedStartupClaim();
+
+        expect(mocks.acknowledgePendingExternalOpenPaths).toHaveBeenCalledWith(['/tmp/missing.pdf']);
         expect(mocks.notifyRendererReady).toHaveBeenCalledOnce();
         unmount();
     });

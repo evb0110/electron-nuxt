@@ -30,6 +30,8 @@ interface IRunResultWorkerTaskBaseOptions {
     invalidResultMessage?: string;
     signal?: AbortSignal;
     timeoutMs?: number;
+    createCancelMessage?: (reason: 'abort' | 'timeout') => unknown;
+    cooperativeCancelDelayMs?: number;
 }
 
 interface IDecodedResultWorkerTaskOptions<T> extends IRunResultWorkerTaskBaseOptions {decodeResult: TResultWorkerDecoder<T>;}
@@ -90,7 +92,7 @@ function getAbortReason(signal: AbortSignal) {
     return new DOMException('The operation was aborted', 'AbortError');
 }
 
-function settleWorkerAfterTask(worker: Worker) {
+function terminateWorkerAfterTask(worker: Worker) {
     const ignoreLateWorkerError = () => undefined;
     worker.removeAllListeners('message');
     worker.removeAllListeners('online');
@@ -100,6 +102,14 @@ function settleWorkerAfterTask(worker: Worker) {
     void worker.terminate().catch(() => undefined).finally(() => {
         worker.removeListener('error', ignoreLateWorkerError);
     });
+}
+
+function postWorkerCancelMessage(worker: Worker, message: unknown) {
+    try {
+        worker.postMessage(message);
+    } catch {
+        // Worker may already be exiting.
+    }
 }
 
 interface IAttachWorkerHandlersOptions<T> {
@@ -127,25 +137,56 @@ function attachWorkerHandlers<T>({
     let settled = false;
     let online = false;
     let timeout: NodeJS.Timeout | null = null;
+    let cooperativeCancelTimer: NodeJS.Timeout | null = null;
+    let pendingCancelError: unknown = null;
+
+    const cleanup = () => {
+        if (timeout) {
+            clearTimeout(timeout);
+            timeout = null;
+        }
+        if (cooperativeCancelTimer) {
+            clearTimeout(cooperativeCancelTimer);
+            cooperativeCancelTimer = null;
+        }
+        options.signal?.removeEventListener('abort', handleAbort);
+    };
 
     const finalize = (callback: () => void) => {
         if (settled) {
             return;
         }
         settled = true;
-        if (timeout) {
-            clearTimeout(timeout);
-            timeout = null;
-        }
-        options.signal?.removeEventListener('abort', handleAbort);
-        settleWorkerAfterTask(worker);
+        cleanup();
+        terminateWorkerAfterTask(worker);
         callback();
     };
 
+    const requestCancel = (reason: 'abort' | 'timeout', error: unknown) => {
+        if (settled || pendingCancelError !== null) {
+            return;
+        }
+        const cancelMessage = options.createCancelMessage?.(reason);
+        if (cancelMessage === undefined) {
+            finalize(() => {
+                reject(error);
+            });
+            return;
+        }
+
+        pendingCancelError = error;
+        cleanup();
+        postWorkerCancelMessage(worker, cancelMessage);
+        cooperativeCancelTimer = setTimeout(() => {
+            finalize(() => {
+                reject(error);
+            });
+        }, options.cooperativeCancelDelayMs ?? 1_000);
+        cooperativeCancelTimer.unref?.();
+    };
+
     const handleAbort = () => {
-        finalize(() => {
-            reject(getAbortReason(options.signal!));
-        });
+        requestCancel('abort', getAbortReason(options.signal!));
     };
 
     if (options.signal?.aborted) {
@@ -156,9 +197,7 @@ function attachWorkerHandlers<T>({
 
     if (options.timeoutMs !== undefined) {
         timeout = setTimeout(() => {
-            finalize(() => {
-                reject(new Error(`Worker task timed out after ${options.timeoutMs}ms`));
-            });
+            requestCancel('timeout', new Error(`Worker task timed out after ${options.timeoutMs}ms`));
         }, options.timeoutMs);
     }
 
@@ -171,6 +210,10 @@ function attachWorkerHandlers<T>({
             return;
         }
         finalize(() => {
+            if (pendingCancelError !== null) {
+                reject(pendingCancelError);
+                return;
+            }
             const resultPayload = parseResultWorkerPayload(payload);
             if (!resultPayload) {
                 reject(new Error(invalidPayloadMessage));

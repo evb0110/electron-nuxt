@@ -2,6 +2,7 @@ import { existsSync } from 'fs';
 import { createLogger } from '@electron/utils/createLogger';
 import { runElectronCommand } from '@electron/utils/runElectronCommand';
 import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
+import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 import {
     abortErrorFromSignal,
     isAbortError,
@@ -49,7 +50,9 @@ export async function extractTextFromPdf(
     const { signal } = options;
     throwIfAborted(signal);
 
-    const { pdftotext } = getNativeToolPaths();
+    const paths = getNativeToolPaths();
+    const { pdftotext } = paths;
+    const popplerEnv = buildPopplerEnv(paths);
     log.debug(`Using pdftotext at: ${pdftotext}`);
 
     // Check if the resolved path exists (if it's an absolute path)
@@ -70,6 +73,9 @@ export async function extractTextFromPdf(
             maxStdoutBytes: PDFTOTEXT_MAX_STDOUT_BYTES,
             rejectOnStdoutTruncation: true,
         };
+        if (popplerEnv !== undefined) {
+            commandOptions.env = popplerEnv;
+        }
         if (signal !== undefined) {
             commandOptions.signal = signal;
         }

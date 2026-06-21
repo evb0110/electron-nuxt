@@ -29,6 +29,8 @@ const mocks = vi.hoisted(() => ({
     pdfPageCount: 2,
     nativeImageCombinePath: null as string | null,
     pdfimagesPath: undefined as string | undefined,
+    popplerDataDir: undefined as string | undefined,
+    popplerFontConfigDir: undefined as string | undefined,
 }));
 
 vi.mock('fs/promises', async () => {
@@ -50,6 +52,8 @@ vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths:
     pdftoppm: '/mock/pdftoppm',
     qpdf: '/mock/qpdf',
     pdfimages: mocks.pdfimagesPath,
+    popplerDataDir: mocks.popplerDataDir,
+    popplerFontConfigDir: mocks.popplerFontConfigDir,
 })}));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runCommand}));
@@ -124,6 +128,8 @@ describe('image export', () => {
         mocks.pdfPageCount = 2;
         mocks.nativeImageCombinePath = null;
         mocks.pdfimagesPath = undefined;
+        mocks.popplerDataDir = undefined;
+        mocks.popplerFontConfigDir = undefined;
         mocks.stat.mockImplementation(async () => ({
             isFile: () => true,
             size: 1024,
@@ -381,6 +387,27 @@ describe('image export', () => {
         const pdftoppmCall = mocks.runCommand.mock.calls.find(([command]) => command === '/mock/pdftoppm');
         const pdftoppmArgs = pdftoppmCall?.[1];
         expect(pdftoppmArgs?.[pdftoppmArgs.indexOf('-r') + 1]).toBe('300');
+    });
+
+    it('passes bundled Poppler runtime environment to export Poppler commands', async () => {
+        mocks.pdfimagesPath = '/mock/pdfimages';
+        mocks.popplerDataDir = '/mock/poppler/share/poppler';
+        mocks.popplerFontConfigDir = '/mock/poppler/etc/fonts';
+        mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 1;
+
+        const outputPath = join(tempDir, 'poppler-env.png');
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([outputPath]);
+
+        const expectedEnv = {
+            POPPLER_DATADIR: '/mock/poppler/share/poppler',
+            FONTCONFIG_PATH: '/mock/poppler/etc/fonts',
+            FONTCONFIG_FILE: '/mock/poppler/etc/fonts/fonts.conf',
+        };
+        const pdfimagesCall = mocks.runCommand.mock.calls.find(([command]) => command === '/mock/pdfimages');
+        expect(pdfimagesCall?.[2]).toMatchObject({env: expectedEnv});
+        const pdftoppmCall = mocks.runCommand.mock.calls.find(([command]) => command === '/mock/pdftoppm');
+        expect(pdftoppmCall?.[2]).toMatchObject({env: expectedEnv});
     });
 
     it('keeps the full TIFF directory chain intact well past the legacy UTIF header limit', async () => {

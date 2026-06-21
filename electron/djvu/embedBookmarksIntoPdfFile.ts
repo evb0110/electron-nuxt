@@ -67,6 +67,7 @@ async function tryEmbedBookmarksWithNativePageOps(
     inputPdfPath: string,
     outputPdfPath: string,
     bookmarks: IPdfBookmarkEntry[],
+    signal?: AbortSignal,
 ) {
     if (bookmarks.length === 0 || isNativePageOpsDisabled()) {
         return null;
@@ -104,6 +105,7 @@ async function tryEmbedBookmarksWithNativePageOps(
         ], {
             timeoutMs: NATIVE_DJVU_BOOKMARK_TIMEOUT_MS,
             commandLabel: 'evb-pdf-page-ops(djvu-bookmarks)',
+            ...(signal ? { signal } : {}),
         });
         const outputStats = await stat(outputPdfPath);
         return outputStats.size;
@@ -122,8 +124,9 @@ export async function embedBookmarksIntoPdfFile(
     inputPdfPath: string,
     outputPdfPath: string,
     bookmarks: IPdfBookmarkEntry[],
+    signal?: AbortSignal,
 ) {
-    const nativeSize = await tryEmbedBookmarksWithNativePageOps(inputPdfPath, outputPdfPath, bookmarks);
+    const nativeSize = await tryEmbedBookmarksWithNativePageOps(inputPdfPath, outputPdfPath, bookmarks, signal);
     if (nativeSize !== null) {
         return nativeSize;
     }

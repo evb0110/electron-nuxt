@@ -1,4 +1,3 @@
-import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import {
     mkdtemp,
@@ -9,6 +8,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import {
     atomicReplace,
     makeSiblingTempPath,
@@ -30,7 +30,7 @@ function isNativeTiffCombineDisabled() {
         || (process.env.VITEST === 'true' && process.env.EVB_TIFF_COMBINE_NATIVE_ENABLE !== '1');
 }
 
-export async function tryCombinePagesWithNativeTiffCombiner(pagePaths: string[], outputPath: string) {
+export async function tryCombinePagesWithNativeTiffCombiner(pagePaths: string[], outputPath: string, signal?: AbortSignal) {
     if (isNativeTiffCombineDisabled() || pagePaths.length === 0) {
         return false;
     }
@@ -46,8 +46,8 @@ export async function tryCombinePagesWithNativeTiffCombiner(pagePaths: string[],
     let replacedOutput = false;
 
     try {
-        await writeFile(inputsPath, `${pagePaths.join('\n')}\n`, 'utf8');
-        const ok = await runNativeTiffCombine(binaryPath, tempOutputPath, inputsPath);
+        await writeFile(inputsPath, createNativeInputsFileContents(pagePaths), 'utf8');
+        const ok = await runNativeTiffCombine(binaryPath, tempOutputPath, inputsPath, signal);
         if (!ok || !existsSync(tempOutputPath)) {
             return false;
         }
@@ -66,9 +66,22 @@ export async function tryCombinePagesWithNativeTiffCombiner(pagePaths: string[],
     }
 }
 
-function runNativeTiffCombine(binaryPath: string, outputPath: string, inputsPath: string) {
-    return new Promise<boolean>((resolve) => {
-        const proc = spawn(binaryPath, [
+function canRepresentPathInNativeInputsFile(inputPath: string) {
+    return inputPath.length > 0
+        && inputPath.trim() === inputPath
+        && !/[\r\n]/u.test(inputPath);
+}
+
+function createNativeInputsFileContents(pagePaths: string[]) {
+    if (!pagePaths.every(canRepresentPathInNativeInputsFile)) {
+        throw new Error('Native TIFF combine input paths must not contain leading/trailing whitespace or line breaks');
+    }
+    return `${pagePaths.join('\n')}\n`;
+}
+
+async function runNativeTiffCombine(binaryPath: string, outputPath: string, inputsPath: string, signal?: AbortSignal) {
+    try {
+        await runNativeCommand(binaryPath, [
             '--output',
             outputPath,
             '--format',
@@ -76,56 +89,17 @@ function runNativeTiffCombine(binaryPath: string, outputPath: string, inputsPath
             '--inputs-file',
             inputsPath,
         ], {
-            shell: false,
-            windowsHide: true,
-            stdio: [
-                'ignore',
-                'ignore',
-                'pipe',
-            ],
+            timeoutMs: NATIVE_TIFF_COMBINE_TIMEOUT_MS,
+            commandLabel: 'evb-pdf-image-combine(tiff)',
+            maxStdoutBytes: 1024,
+            maxStderrBytes: 8_192,
+            defaultCwdToCommandDir: true,
+            prependCommandDirToPath: true,
+            ...(signal ? { signal } : {}),
         });
-
-        let settled = false;
-        let stderr = '';
-        let timedOut = false;
-
-        const finish = (ok: boolean) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            clearTimeout(timeoutHandle);
-            resolve(ok);
-        };
-
-        const timeoutHandle = setTimeout(() => {
-            timedOut = true;
-            proc.kill('SIGKILL');
-        }, NATIVE_TIFF_COMBINE_TIMEOUT_MS);
-        timeoutHandle.unref?.();
-
-        proc.stderr?.on('data', (data: Buffer) => {
-            stderr = `${stderr}${data.toString('utf8')}`.slice(-8_192);
-        });
-
-        proc.on('error', (error) => {
-            logger.warn(`Native TIFF combine failed to start: ${getErrorMessage(error)}`);
-            finish(false);
-        });
-
-        proc.on('close', (code) => {
-            if (timedOut) {
-                logger.warn(`Native TIFF combine timed out after ${NATIVE_TIFF_COMBINE_TIMEOUT_MS}ms`);
-                finish(false);
-                return;
-            }
-            if (code !== 0) {
-                const detail = stderr.trim();
-                logger.debug(`Native TIFF combine exited with code ${code}${detail ? `: ${detail}` : ''}`);
-                finish(false);
-                return;
-            }
-            finish(true);
-        });
-    });
+        return true;
+    } catch (error) {
+        logger.debug(`Native TIFF combine failed: ${getErrorMessage(error)}`);
+        return false;
+    }
 }

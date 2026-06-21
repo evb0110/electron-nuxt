@@ -278,8 +278,13 @@ function validateTessdata(path: string, errors: string[]) {
 function validatePopplerRuntime(paths: IOcrToolPaths, errors: string[]) {
     const dataDirFound = !!paths.popplerDataDir && existsSync(paths.popplerDataDir);
     const fontConfigDirFound = !!paths.popplerFontConfigDir && existsSync(paths.popplerFontConfigDir);
-    if (process.platform === 'win32' && !dataDirFound) {
+    const requiresBundledDataDir = process.platform === 'win32' || (isPackaged && process.platform === 'linux');
+    const requiresBundledFontConfig = isPackaged && process.platform === 'linux';
+    if (requiresBundledDataDir && !dataDirFound) {
         errors.push(`Poppler data directory not found: ${paths.popplerDataDir?.length ? paths.popplerDataDir : '(unset)'} (expected <resources>/poppler/<platform>/share/poppler)`);
+    }
+    if (requiresBundledFontConfig && !fontConfigDirFound) {
+        errors.push(`Poppler fontconfig directory not found: ${paths.popplerFontConfigDir?.length ? paths.popplerFontConfigDir : '(unset)'} (expected <resources>/poppler/<platform>/etc/fonts)`);
     }
     const result: {
         dataDirFound: boolean;
@@ -290,7 +295,7 @@ function validatePopplerRuntime(paths: IOcrToolPaths, errors: string[]) {
     } = {
         dataDirFound,
         fontConfigDirFound,
-        valid: process.platform !== 'win32' || dataDirFound,
+        valid: (!requiresBundledDataDir || dataDirFound) && (!requiresBundledFontConfig || fontConfigDirFound),
     };
     if (paths.popplerDataDir !== undefined) {
         result.dataDir = paths.popplerDataDir;

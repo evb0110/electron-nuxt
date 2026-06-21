@@ -43,6 +43,24 @@ describe('createElectronApi', () => {
         expect(typeof api.system.getMemoryInfo).toBe('function');
     });
 
+    it('routes window tab context menu through the preload IPC contract', async () => {
+        const ipcRenderer = {
+            invoke: vi.fn(async () => undefined),
+            on: vi.fn(),
+            send: vi.fn(),
+        };
+        const { createElectronApi } = await import('@electron/preload/createElectronApi');
+        const { CORE_IPC_CHANNELS } = await import('@electron/platform-ipc/coreContract');
+        const api = createElectronApi(
+            ipcRenderer as never,
+            { getPathForFile: () => '' },
+        );
+
+        await api.windowTabs.showContextMenu('tab-1');
+
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(CORE_IPC_CHANNELS.tabsShowContextMenu, 'tab-1');
+    });
+
     it('awaits renderer file-open authorization before single-file direct open', async () => {
         vi.stubGlobal('crypto', { randomUUID: () => '00000000-0000-4000-8000-000000000001' });
         const invocations: string[] = [];

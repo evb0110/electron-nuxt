@@ -1,4 +1,3 @@
-import { EventEmitter } from 'events';
 import {
     mkdtemp,
     readFile,
@@ -17,14 +16,14 @@ import {
 } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-    spawn: vi.fn(),
+    runNativeCommand: vi.fn(),
     atomicReplace: vi.fn(),
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
     nativePath: '/mock/evb-pdf-image-combine',
 }));
 
-vi.mock('child_process', () => ({spawn: mocks.spawn}));
 vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({resolveNativePdfImageCombinePath: () => mocks.nativePath}));
+vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     warn: vi.fn(),
@@ -68,7 +67,7 @@ describe('native TIFF combine wrapper', () => {
         let recordedInputsFile = '';
         let recordedInputs = '';
 
-        mocks.spawn.mockImplementation((binaryPath: string, args: string[]) => {
+        mocks.runNativeCommand.mockImplementation(async (binaryPath: string, args: string[]) => {
             expect(binaryPath).toBe('/mock/evb-pdf-image-combine');
             expect(args).toContain('--format');
             expect(args[args.indexOf('--format') + 1]).toBe('tiff');
@@ -76,21 +75,14 @@ describe('native TIFF combine wrapper', () => {
             recordedInputsFile = args[args.indexOf('--inputs-file') + 1]!;
             expect(args).not.toContain(inputPaths[0]);
 
-            const proc = new EventEmitter() as EventEmitter & {
-                stderr: EventEmitter;
-                kill: () => void;
+            recordedInputs = await readFile(recordedInputsFile, 'utf8');
+            const nativeOutputPath = args[args.indexOf('--output') + 1]!;
+            await writeFile(nativeOutputPath, Buffer.from('native-tiff'));
+            return {
+                stdout: '',
+                stderr: '',
+                exitCode: 0,
             };
-            proc.stderr = new EventEmitter();
-            proc.kill = vi.fn();
-
-            queueMicrotask(async () => {
-                recordedInputs = await readFile(recordedInputsFile, 'utf8');
-                const nativeOutputPath = args[args.indexOf('--output') + 1]!;
-                await writeFile(nativeOutputPath, Buffer.from('native-tiff'));
-                proc.emit('close', 0);
-            });
-
-            return proc;
         });
 
         await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath)).resolves.toBe(true);

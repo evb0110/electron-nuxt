@@ -53,6 +53,7 @@ const NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS = (() => {
     }
     return parsed;
 })();
+const NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES = 64 * 1024;
 
 function getBinaryName() {
     return process.platform === 'win32'
@@ -78,7 +79,8 @@ export function resolveNativePdfImageCombinePath() {
 function canUseNativePdfImageCombine(inputPaths: string[], supportedExtensions: Set<string>) {
     return !isNativePdfImageCombineDisabled()
         && inputPaths.length > 0
-        && inputPaths.every(path => supportedExtensions.has(extname(path).toLowerCase()));
+        && inputPaths.every(path => supportedExtensions.has(extname(path).toLowerCase()))
+        && inputPaths.every(canRepresentPathInNativeInputsFile);
 }
 
 export function isNativePdfImageCombineBitmapPath(inputPath: string) {
@@ -112,6 +114,19 @@ function parseProgressPayload(value: unknown): TNativeProgressPayload | null {
             ? payload.estimatedRemainingMs
             : null,
     };
+}
+
+function canRepresentPathInNativeInputsFile(inputPath: string) {
+    return inputPath.length > 0
+        && inputPath.trim() === inputPath
+        && !/[\r\n]/u.test(inputPath);
+}
+
+function createNativeInputsFileContents(inputPaths: string[]) {
+    if (!inputPaths.every(canRepresentPathInNativeInputsFile)) {
+        throw new Error('Native image combine input paths must not contain leading/trailing whitespace or line breaks');
+    }
+    return `${inputPaths.join('\n')}\n`;
 }
 
 export async function tryCreatePdfWithNativeImageCombiner(
@@ -169,7 +184,7 @@ async function createPdfWithNativeImageCombiner(
     const inputsPath = join(tempDir, 'inputs.txt');
 
     try {
-        await writeFile(inputsPath, `${inputPaths.join('\n')}\n`, 'utf8');
+        await writeFile(inputsPath, createNativeInputsFileContents(inputPaths), 'utf8');
         const ok = await runNativePdfImageCombine(binaryPath, outputPath, [], options, [
             ...extraArgs,
             '--inputs-file',
@@ -201,7 +216,7 @@ async function writePdfWithNativeImageCombiner(
     const inputsPath = join(tempDir, 'inputs.txt');
 
     try {
-        await writeFile(inputsPath, `${inputPaths.join('\n')}\n`, 'utf8');
+        await writeFile(inputsPath, createNativeInputsFileContents(inputPaths), 'utf8');
         return await runNativePdfImageCombine(binaryPath, outputPath, [], options, [
             '--inputs-file',
             inputsPath,
@@ -289,6 +304,12 @@ function runNativePdfImageCombine(
 
         proc.stdout?.on('data', (data: Buffer) => {
             stdoutBuffer += data.toString('utf8');
+            if (Buffer.byteLength(stdoutBuffer, 'utf8') > NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES) {
+                logger.warn(`Native image PDF combine stdout line exceeded ${NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES} bytes`);
+                proc.kill('SIGKILL');
+                finish(false);
+                return;
+            }
             let lineBreak = stdoutBuffer.indexOf('\n');
             while (lineBreak >= 0) {
                 const line = stdoutBuffer.slice(0, lineBreak);

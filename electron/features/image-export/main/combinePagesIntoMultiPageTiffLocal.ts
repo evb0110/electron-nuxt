@@ -294,11 +294,11 @@ async function closeWriteStream(stream: WriteStream) {
     });
 }
 
-export async function combinePagesIntoMultiPageTiffLocal(pagePaths: string[], outputPath: string) {
+export async function combinePagesIntoMultiPageTiffLocal(pagePaths: string[], outputPath: string, signal?: AbortSignal) {
     if (pagePaths.length === 0) {
         throw new Error('No pages available for TIFF export');
     }
-    if (await tryCombinePagesWithNativeTiffCombiner(pagePaths, outputPath)) {
+    if (await tryCombinePagesWithNativeTiffCombiner(pagePaths, outputPath, signal)) {
         return;
     }
 

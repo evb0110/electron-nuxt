@@ -66,8 +66,15 @@ async function savePdfAtomically(pdfDoc: PDFDocument, workingCopyPath: string) {
 async function mutatePdfPages(
     workingCopyPath: string,
     mutate: (pages: ReturnType<PDFDocument['getPages']>) => void,
+    signal?: AbortSignal,
 ) {
+    if (signal?.aborted) {
+        throw signal.reason instanceof Error ? signal.reason : new DOMException('Operation aborted', 'AbortError');
+    }
     const pdfBytes = await readFile(workingCopyPath);
+    if (signal?.aborted) {
+        throw signal.reason instanceof Error ? signal.reason : new DOMException('Operation aborted', 'AbortError');
+    }
     const pdfDoc = await PDFDocument.load(pdfBytes);
     const pages = pdfDoc.getPages();
     mutate(pages);
@@ -78,10 +85,11 @@ export async function cropPagesLocal(
     workingCopyPath: string,
     pages: number[],
     margins: ICropMargins,
+    signal?: AbortSignal,
 ) {
     assertValidMargins(margins);
 
-    if (await tryCropPagesWithNativePageOps(workingCopyPath, pages, margins)) {
+    if (await tryCropPagesWithNativePageOps(workingCopyPath, pages, margins, signal)) {
         return;
     }
 
@@ -103,14 +111,15 @@ export async function cropPagesLocal(
 
             page.setCropBox(cropX, cropY, cropWidth, cropHeight);
         }
-    });
+    }, signal);
 }
 
 export async function removeCropFromPagesLocal(
     workingCopyPath: string,
     pages: number[],
+    signal?: AbortSignal,
 ) {
-    if (await tryRemoveCropWithNativePageOps(workingCopyPath, pages)) {
+    if (await tryRemoveCropWithNativePageOps(workingCopyPath, pages, signal)) {
         return;
     }
 
@@ -122,7 +131,7 @@ export async function removeCropFromPagesLocal(
             const mediaBox = resolvePdfLibMediaBox(page);
             page.setCropBox(mediaBox.x, mediaBox.y, mediaBox.width, mediaBox.height);
         }
-    });
+    }, signal);
 }
 
 export async function getPageGeometryLocal(

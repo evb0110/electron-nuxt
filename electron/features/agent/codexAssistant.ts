@@ -9,6 +9,7 @@ import {
     app,
     shell,
 } from 'electron';
+import { sanitizeAllowedExternalUrl } from '@contracts/externalUrl';
 import { config } from '@electron/config';
 import type {
     IAgentAssistantAccount,
@@ -1740,7 +1741,7 @@ export async function startAgentAssistantLogin(
         const verificationUrl = typeof response.verificationUrl === 'string' ? response.verificationUrl : undefined;
         const urlToOpen = authUrl ?? verificationUrl;
         if (urlToOpen) {
-            await shell.openExternal(urlToOpen);
+            await shell.openExternal(sanitizeAllowedExternalUrl(urlToOpen));
         }
         publishState();
         return {

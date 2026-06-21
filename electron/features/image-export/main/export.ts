@@ -32,6 +32,10 @@ import { encode as encodePng } from 'fast-png';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import type { TImageExportProgressPhase } from '@contracts/electronApiDocuments';
 import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
+import {
+    buildPopplerEnv,
+    type IPopplerRuntimePaths,
+} from '@electron/native-tools/buildPopplerEnv';
 import { clampDpi } from '@electron/ocr/worker/dpiDetection';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { createLogger } from '@electron/utils/createLogger';
@@ -433,6 +437,7 @@ function parsePdfImagesListDpi(output: string) {
 async function detectExportDpi(
     pdfPath: string,
     pdfimagesBinary: string | undefined,
+    popplerRuntimePaths: IPopplerRuntimePaths,
     pageRange: IExportPageRange,
     signal?: AbortSignal,
 ) {
@@ -442,6 +447,16 @@ async function detectExportDpi(
 
     throwIfAborted(signal);
     try {
+        const popplerEnv = buildPopplerEnv(popplerRuntimePaths);
+        const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
+            timeoutMs: PDFIMAGES_DPI_PROBE_TIMEOUT_MS,
+            commandLabel: 'pdfimages(export-dpi)',
+            ...(signal ? { signal } : {}),
+        };
+        if (popplerEnv !== undefined) {
+            commandOptions.env = popplerEnv;
+        }
+
         const result = await runNativeToolCommand(pdfimagesBinary, [
             '-f',
             String(pageRange.firstPage),
@@ -449,11 +464,7 @@ async function detectExportDpi(
             String(pageRange.lastPage),
             '-list',
             pdfPath,
-        ], {
-            timeoutMs: PDFIMAGES_DPI_PROBE_TIMEOUT_MS,
-            commandLabel: 'pdfimages(export-dpi)',
-            ...(signal ? { signal } : {}),
-        });
+        ], commandOptions);
         return parsePdfImagesListDpi(result.stdout);
     } catch (error) {
         if (signal?.aborted) {
@@ -517,6 +528,7 @@ async function renderPdfToTempPages(
         const detectedDpi = await detectExportDpi(
             pdfPath,
             paths.pdfimages,
+            paths,
             pageRange,
             signal,
         );
@@ -524,6 +536,16 @@ async function renderPdfToTempPages(
 
         throwIfAborted(signal);
         const renderFormat: TPageRenderFormat = format === 'png' ? 'ppm' : format;
+        const popplerEnv = buildPopplerEnv(paths);
+        const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
+            timeoutMs: PDFTOPPM_TIMEOUT_MS,
+            commandLabel: `pdftoppm(export-${format})`,
+            ...(signal ? { signal } : {}),
+        };
+        if (popplerEnv !== undefined) {
+            commandOptions.env = popplerEnv;
+        }
+
         await runNativeToolCommand(paths.pdftoppm, [
             ...toPdftoppmFormatArgs(renderFormat),
             '-r',
@@ -534,11 +556,7 @@ async function renderPdfToTempPages(
             String(pageRange.lastPage),
             pdfPath,
             prefix,
-        ], {
-            timeoutMs: PDFTOPPM_TIMEOUT_MS,
-            commandLabel: `pdftoppm(export-${format})`,
-            ...(signal ? { signal } : {}),
-        });
+        ], commandOptions);
         throwIfAborted(signal);
 
         const fileNames = await readdir(tempDir);
@@ -865,7 +883,7 @@ function buildMultiPageTiffOutputPaths(targetPath: string, partCount: number) {
 
 async function runLocalTiffCombine(pagePaths: string[], outputPath: string, signal?: AbortSignal) {
     throwIfAborted(signal);
-    await measureElectronPerfAsync('image-export:tiffCombineLocal', () => combinePagesIntoMultiPageTiffLocal(pagePaths, outputPath), {
+    await measureElectronPerfAsync('image-export:tiffCombineLocal', () => combinePagesIntoMultiPageTiffLocal(pagePaths, outputPath, signal), {
         thresholdMs: 25,
         details: {
             pageCount: pagePaths.length,
@@ -918,6 +936,8 @@ async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: st
                 decodeResult: decodeUndefinedWorkerResult,
                 invalidResultMessage: 'TIFF combine worker returned an invalid result',
                 ...(signal ? { signal } : {}),
+                createCancelMessage: () => ({type: 'cancel'}),
+                cooperativeCancelDelayMs: 1_500,
                 timeoutMs: TIFF_COMBINE_WORKER_TIMEOUT_MS,
             }), {
                 thresholdMs: 25,

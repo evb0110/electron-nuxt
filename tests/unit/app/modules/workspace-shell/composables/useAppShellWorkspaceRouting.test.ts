@@ -597,9 +597,10 @@ describe('useAppShellWorkspaceRouting', () => {
         });
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
-        await routing.beginOpenPathsInAppropriateTab(['/docs/startup-failed.pdf']);
+        const failedPaths = await routing.beginOpenPathsInAppropriateTab(['/docs/startup-failed.pdf']);
 
         expect(routingOptions.removeTabFromState).toHaveBeenCalledWith('tab-2');
+        expect(failedPaths).toEqual(['/docs/startup-failed.pdf']);
     });
 
     it('keeps startup path opening pending until the active placeholder open settles', async () => {

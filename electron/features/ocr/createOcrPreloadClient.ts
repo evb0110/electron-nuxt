@@ -20,6 +20,8 @@ import {
     createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
 
+const OCR_LANGUAGE_INSTALL_UNAVAILABLE = 'OCR language installation is not available from the renderer; validateTools only reports installed languages.';
+
 function assertRequestId(value: unknown, fieldName: string) {
     return assertNonEmptyString(value, fieldName, 128);
 }
@@ -54,12 +56,15 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
             const checkedRequestId = assertRequestId(requestId, 'ocrInstallLanguages.requestId');
             const validation = await invoke(OCR_CHANNELS.validateTools);
             return {
-                started: validation.valid,
+                started: false,
                 jobId: checkedRequestId,
-                installed: validation.valid ? languages : [],
-                errors: validation.errors,
+                installed: [],
+                errors: [
+                    OCR_LANGUAGE_INSTALL_UNAVAILABLE,
+                    ...validation.errors,
+                ],
+                error: OCR_LANGUAGE_INSTALL_UNAVAILABLE,
                 ...(validation.errorEnvelope ? { errorEnvelope: validation.errorEnvelope } : {}),
-                ...(!validation.valid && validation.errors[0] ? { error: validation.errors[0] } : {}),
             };
         },
 

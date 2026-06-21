@@ -9,6 +9,7 @@ import {
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import type { IAgentAssistantChatScope } from '@contracts/agent';
+import type * as CodexAssistantModule from '@electron/features/agent/codexAssistant';
 
 const mocks = vi.hoisted(() => ({
     loadSettings: vi.fn(async () => ({assistantPanelEnabled: false})),
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => ({
     assistantDisabledMessage: 'Enable EVB Assistant in Settings to use assistant chat.',
     startEmbeddedMcpServer: vi.fn(),
     shutdownEmbeddedMcpServer: vi.fn(async () => undefined),
+    openExternal: vi.fn(),
     logger: {
         info: vi.fn(),
         warn: vi.fn(),
@@ -64,6 +66,13 @@ class FakeCodexAppServerProcess extends EventEmitter {
                     type: 'chatgpt',
                     email: 'reader@example.com',
                 }});
+                return;
+            case 'account/login/start':
+                this.respond(request.id, {
+                    type: 'chatgpt',
+                    loginId: 'login-1',
+                    authUrl: 'https://auth.example.test/start',
+                });
                 return;
             case 'mcpServerStatus/list':
                 this.respond(request.id, {data: [{
@@ -114,7 +123,7 @@ vi.mock('electron', () => ({
         getAllWindows: vi.fn(() => []),
         getFocusedWindow: vi.fn(() => null),
     },
-    shell: {openExternal: vi.fn()},
+    shell: {openExternal: mocks.openExternal},
 }));
 
 vi.mock('child_process', () => ({
@@ -156,7 +165,7 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('does not discover Codex or start MCP when disabled state is requested', async () => {
-        const { getAgentAssistantState } = await import('@electron/features/agent/codexAssistant');
+        const { getAgentAssistantState }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
 
         const state = await getAgentAssistantState();
 
@@ -168,7 +177,7 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('rejects assistant chat actions while disabled', async () => {
-        const { sendAgentAssistantMessage } = await import('@electron/features/agent/codexAssistant');
+        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
 
         const result = await sendAgentAssistantMessage({text: 'Summarize this document'});
 
@@ -210,10 +219,11 @@ describe('agent assistant opt-in gating', () => {
         });
         mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
 
+        const codexAssistantModule: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
         const {
             getAgentAssistantState,
             sendAgentAssistantMessage,
-        } = await import('@electron/features/agent/codexAssistant');
+        } = codexAssistantModule;
 
         const firstResult = await sendAgentAssistantMessage({
             text: 'Question for A',
@@ -280,11 +290,12 @@ describe('agent assistant opt-in gating', () => {
         mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
 
         try {
+            const codexAssistantModule: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
             const {
                 getAgentAssistantState,
                 interruptAgentAssistant,
                 sendAgentAssistantMessage,
-            } = await import('@electron/features/agent/codexAssistant');
+            } = codexAssistantModule;
 
             await sendAgentAssistantMessage({
                 text: 'Question for A',
@@ -315,5 +326,32 @@ describe('agent assistant opt-in gating', () => {
         } finally {
             nowSpy.mockRestore();
         }
+    });
+
+    it('sanitizes assistant login URLs before opening them externally', async () => {
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+        mocks.getCodexCliInfo.mockResolvedValue({
+            installed: true,
+            path: '/Applications/Codex.app/Contents/Resources/codex',
+            version: '0.133.0',
+            minimumVersion: '0.133.0',
+            isVersionSupported: true,
+            managedInstallDir: '/tmp/codex',
+        });
+        mocks.startEmbeddedMcpServer.mockResolvedValue({
+            descriptor: {
+                name: 'evb_viewer_embedded',
+                url: 'http://127.0.0.1:9876',
+            },
+            token: 'test-mcp-token',
+        });
+        mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
+
+        const { startAgentAssistantLogin }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const result = await startAgentAssistantLogin({mode: 'chatgpt'});
+
+        expect(result.ok).toBe(true);
+        expect(mocks.openExternal).toHaveBeenCalledWith('https://auth.example.test/start');
     });
 });

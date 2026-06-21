@@ -26,6 +26,7 @@ export interface IWindowTabsCapability extends IWindowTabsApi {
     closeCurrentWindow: () => Promise<boolean>;
     notifyRendererReady: () => void;
     claimPendingExternalOpenPaths: () => Promise<TDocumentRef[]>;
+    acknowledgePendingExternalOpenPaths: (failedPaths: TDocumentRef[]) => Promise<void>;
     onMenuNewTab: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuCloseTab: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuSplitEditor: (callback: (direction: TPaneDirection) => void) => TMenuEventUnsubscribe;

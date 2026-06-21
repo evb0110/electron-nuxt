@@ -920,6 +920,9 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
     claimPendingExternalOpenPaths() {
         return Promise.resolve([]);
     },
+    acknowledgePendingExternalOpenPaths() {
+        return Promise.resolve();
+    },
     onMenuNewTab: noopUnsubscribe,
     onMenuCloseTab: noopUnsubscribe,
     onMenuSplitEditor: noopUnsubscribe,

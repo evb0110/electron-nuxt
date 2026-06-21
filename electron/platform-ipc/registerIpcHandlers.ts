@@ -102,6 +102,7 @@ export { normalizeRendererLogEntry } from '@electron/platform-ipc/rendererLogBri
 interface ICoreIpcHandlerOptions {
     onRendererReady?: (event: Electron.IpcMainEvent) => void;
     claimPendingExternalOpenPaths?: (event: Electron.IpcMainInvokeEvent) => Promise<string[]>;
+    acknowledgePendingExternalOpenPaths?: (event: Electron.IpcMainInvokeEvent, failedPaths: string[]) => void;
 }
 
 const logger = createLogger('ipc');
@@ -317,6 +318,13 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
     registrar.handle(CORE_IPC_CHANNELS.claimPendingExternalOpenPaths, (event) =>
         options.claimPendingExternalOpenPaths?.(event) ?? [],
     );
+
+    registrar.handle(CORE_IPC_CHANNELS.acknowledgePendingExternalOpenPaths, (event, failedPaths: unknown) => {
+        const normalizedFailedPaths = Array.isArray(failedPaths)
+            ? failedPaths.filter((path): path is string => typeof path === 'string' && path.trim().length > 0)
+            : [];
+        options.acknowledgePendingExternalOpenPaths?.(event, normalizedFailedPaths);
+    });
 
     registrar.handle(CORE_IPC_CHANNELS.tabsTransfer, async (event, request: unknown) => {
         if (!isValidTransferRequest(request)) {

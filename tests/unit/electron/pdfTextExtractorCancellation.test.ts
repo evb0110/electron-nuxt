@@ -81,6 +81,41 @@ describe('extractTextFromPdf cancellation', () => {
         ]);
     });
 
+    it('passes bundled Poppler runtime environment to pdftotext', async () => {
+        const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
+        mocks.getOcrToolPaths.mockReturnValue({
+            pdftotext: 'pdftotext',
+            popplerDataDir: '/mock/poppler/share/poppler',
+            popplerFontConfigDir: '/mock/poppler/etc/fonts',
+        });
+        mocks.runCommand.mockResolvedValue({
+            stdout: 'page-1',
+            stderr: '',
+            exitCode: 0,
+        });
+
+        await extractTextFromPdf('/tmp/file.pdf');
+
+        expect(mocks.runCommand).toHaveBeenCalledWith(
+            'pdftotext',
+            [
+                '-layout',
+                '/tmp/file.pdf',
+                '-',
+            ],
+            {
+                env: {
+                    POPPLER_DATADIR: '/mock/poppler/share/poppler',
+                    FONTCONFIG_PATH: '/mock/poppler/etc/fonts',
+                    FONTCONFIG_FILE: '/mock/poppler/etc/fonts/fonts.conf',
+                },
+                timeoutMs: 120000,
+                maxStdoutBytes: 67108864,
+                rejectOnStdoutTruncation: true,
+            },
+        );
+    });
+
     it('rethrows AbortError from runCommand without wrapping', async () => {
         const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
         const abortError = createAbortError();

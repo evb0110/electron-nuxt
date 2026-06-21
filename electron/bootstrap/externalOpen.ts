@@ -324,6 +324,19 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         return paths;
     }
 
+    function acknowledgeClaimedOpenPaths(failedPaths: string[]) {
+        const normalizedFailedPaths = normalizeOpenRequestPaths(failedPaths);
+        if (normalizedFailedPaths.length === 0) {
+            return;
+        }
+
+        for (const path of normalizedFailedPaths) {
+            enqueueExternalOpenPath(path);
+        }
+        pendingFlushRequested = true;
+        options.logger.warn(`Requeued ${normalizedFailedPaths.length} failed startup external open path(s)`);
+    }
+
     function queueOpenRequestFromArgs(args: string[]) {
         const parsedPaths = collectSupportedPathsFromArgs(args);
         if (parsedPaths.length > 0) {
@@ -505,6 +518,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         queueOpenRequest,
         queueOpenRequestFromArgs,
         claimPendingOpenPaths,
+        acknowledgeClaimedOpenPaths,
         requestMainWindowForExternalOpen,
         scheduleFlushPendingFiles,
     };

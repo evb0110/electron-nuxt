@@ -12,6 +12,8 @@ import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import { isRecord } from '@contracts/runtimeGuards';
 import { getErrorMessage } from '@electron/utils/error';
 
+interface IDjvuPdfWorkerCancelMessage {type: 'cancel';}
+
 function isStringArray(value: unknown): value is string[] {
     return Array.isArray(value) && value.every(item => typeof item === 'string');
 }
@@ -105,11 +107,15 @@ async function runTask(task: TDjvuPdfWorkerTask) {
             const pdfBytes = await buildOptimizedPdf([task.imagePath], task.dpi);
             return pdfBytes.length;
         }
-        case 'embedBookmarksInFile':
-            return embedBookmarksIntoPdfFile(task.inputPdfPath, task.outputPdfPath, task.bookmarks);
         default:
             throw new Error(`Unsupported DjVu PDF worker task: ${(task as { type: string }).type}`);
     }
+}
+
+function isCancelMessage(message: unknown): message is IDjvuPdfWorkerCancelMessage {
+    return Boolean(message)
+        && typeof message === 'object'
+        && (message as {type?: unknown}).type === 'cancel';
 }
 
 async function run() {
@@ -117,9 +123,18 @@ async function run() {
         throw new Error('DjVu PDF worker started without a parentPort');
     }
 
+    const abortController = new AbortController();
+    parentPort.on('message', (message: unknown) => {
+        if (isCancelMessage(message)) {
+            abortController.abort(new DOMException('DjVu PDF worker canceled', 'AbortError'));
+        }
+    });
+
     try {
         const task = getTask();
-        const result = await runTask(task);
+        const result = task.type === 'embedBookmarksInFile'
+            ? await embedBookmarksIntoPdfFile(task.inputPdfPath, task.outputPdfPath, task.bookmarks, abortController.signal)
+            : await runTask(task);
         if (typeof result === 'number') {
             parentPort.postMessage({
                 type: 'result',

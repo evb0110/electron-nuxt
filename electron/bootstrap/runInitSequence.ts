@@ -22,12 +22,14 @@ interface IExternalOpenManager {
     requestMainWindowForExternalOpen(): void;
     scheduleFlushPendingFiles(): void;
     claimPendingOpenPaths(): Promise<string[]>;
+    acknowledgeClaimedOpenPaths(failedPaths: string[]): void;
     markBootstrapReady(): void;
 }
 
 interface IRegisterIpcHandlersOptions {
     onRendererReady?: (event: IpcMainEvent) => void;
     claimPendingExternalOpenPaths?: (event: IpcMainInvokeEvent) => Promise<string[]>;
+    acknowledgePendingExternalOpenPaths?: (event: IpcMainInvokeEvent, failedPaths: string[]) => void;
 }
 
 function shouldWaitForInitialRendererReady() {
@@ -195,6 +197,9 @@ function bootIpc(options: IRunInitSequenceOptions) {
             const paths = await externalOpenManager.claimPendingOpenPaths();
             allowOpenPaths(paths, event.sender);
             return paths;
+        },
+        acknowledgePendingExternalOpenPaths: (_event, failedPaths) => {
+            externalOpenManager.acknowledgeClaimedOpenPaths(failedPaths);
         },
     });
     logStartupPhase('IPC handlers registered');

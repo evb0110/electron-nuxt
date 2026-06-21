@@ -97,6 +97,7 @@ function decodePageGeometryResult(data: unknown): IPageGeometry | null {
 async function runCropWorkerTask<T>(
     workerInput: TCropWorkerInput,
     decodeResult: (data: unknown) => T | null,
+    signal?: AbortSignal,
 ): Promise<T> {
     const workerPath = resolveCropWorkerPath();
     if (!existsSync(workerPath)) {
@@ -112,6 +113,8 @@ async function runCropWorkerTask<T>(
         createStartupExitError: code => new CropWorkerUnavailableError(`Crop worker exited before startup with code ${code}`),
         createWorkerExitError: code => new Error(`Crop worker exited with code ${code}`),
         timeoutMs: CROP_WORKER_TIMEOUT_MS,
+        ...(signal ? { signal } : {}),
+        createCancelMessage: () => ({type: 'cancel'}),
         decodeResult,
     }), {
         thresholdMs: 25,
@@ -151,6 +154,7 @@ export async function cropPages(
     pages: number[],
     margins: ICropMargins,
     senderWebContentsId?: number,
+    signal?: AbortSignal,
 ) {
     await ensureManagedWorkingCopy(workingCopyPath, senderWebContentsId);
     try {
@@ -160,14 +164,14 @@ export async function cropPages(
             pages,
             margins,
             ...(senderWebContentsId !== undefined ? { senderWebContentsId } : {}),
-        }, decodeUndefinedResult);
+        }, decodeUndefinedResult, signal);
     } catch (error) {
         if (!shouldFallbackToLocalCrop(error)) {
             throw error;
         }
         await assertLocalCropFallbackAllowed(workingCopyPath, pages.length);
         log.warn(`Crop worker unavailable, falling back to in-process crop: ${getErrorMessage(error)}`);
-        await cropPagesLocal(workingCopyPath, pages, margins);
+        await cropPagesLocal(workingCopyPath, pages, margins, signal);
     }
 }
 
@@ -175,6 +179,7 @@ export async function removeCropFromPages(
     workingCopyPath: string,
     pages: number[],
     senderWebContentsId?: number,
+    signal?: AbortSignal,
 ) {
     await ensureManagedWorkingCopy(workingCopyPath, senderWebContentsId);
     try {
@@ -183,14 +188,14 @@ export async function removeCropFromPages(
             workingCopyPath,
             pages,
             ...(senderWebContentsId !== undefined ? { senderWebContentsId } : {}),
-        }, decodeUndefinedResult);
+        }, decodeUndefinedResult, signal);
     } catch (error) {
         if (!shouldFallbackToLocalCrop(error)) {
             throw error;
         }
         await assertLocalCropFallbackAllowed(workingCopyPath, pages.length);
         log.warn(`Crop worker unavailable, falling back to in-process crop reset: ${getErrorMessage(error)}`);
-        await removeCropFromPagesLocal(workingCopyPath, pages);
+        await removeCropFromPagesLocal(workingCopyPath, pages, signal);
     }
 }
 

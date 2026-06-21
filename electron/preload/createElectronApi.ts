@@ -249,6 +249,10 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 'app:claimPendingExternalOpenPaths',
                 () => invokeCore(CORE_IPC_CHANNELS.claimPendingExternalOpenPaths),
             ),
+            acknowledgePendingExternalOpenPaths: (failedPaths) => invokeCore(
+                CORE_IPC_CHANNELS.acknowledgePendingExternalOpenPaths,
+                failedPaths,
+            ),
             transfer: (request) => invokeCore(CORE_IPC_CHANNELS.tabsTransfer, request),
             transferAck: (ack) => invokeCore(CORE_IPC_CHANNELS.tabsTransferAck, ack),
             listTargetWindows: () => invokeCore(CORE_IPC_CHANNELS.tabsListTargets),
