@@ -55,6 +55,7 @@ import {
 const SLOW_SAVE_PHASE_WARN_MS = 5_000;
 const SLOW_SAVE_TOTAL_WARN_MS = 10_000;
 const PDF_SAVE_TIMEOUT_QUIESCE_MS = 2_000;
+const RENDERER_SERIALIZED_SAVE_MAX_WORKING_COPY_BYTES = 512 * 1024 * 1024;
 
 interface IPersistSerializedOptions {
     saveMode: TPdfSaveMode;
@@ -101,10 +102,15 @@ export interface IFileOperationsDeps {
         saveMode?: TPdfSaveMode;
         expectedWorkingPath?: TDocumentRef | null;
     }) => Promise<IPdfPersistResult>;
+    repairWorkingCopy?: (opts?: {
+        saveMode?: TPdfSaveMode;
+        expectedWorkingPath?: TDocumentRef | null;
+    }) => Promise<IPdfPersistResult>;
     saveWorkingCopyAs: (data?: Uint8Array, opts?: {
         saveMode?: TPdfSaveMode;
         expectedWorkingPath?: TDocumentRef | null;
     }) => Promise<IPdfPersistResult>;
+    getWorkingCopySize?: (path: TDocumentRef) => Promise<number | null>;
     trySaveEmbeddedNoteTextUpdates?: (
         updates: IPdfNoteTextUpdate[],
         opts: {
@@ -195,6 +201,10 @@ interface ISaveFlowConfig {
         saveMode: TPdfSaveMode;
         expectedWorkingPath?: TDocumentRef | null;
     }) => Promise<IPdfPersistResult>;
+    persistRepair?: (opts: {
+        saveMode: TPdfSaveMode;
+        expectedWorkingPath?: TDocumentRef | null;
+    }) => Promise<IPdfPersistResult>;
     shouldPreferWorkingCopy: boolean;
     forceSerialize?: boolean;
     forceRewrite?: boolean;
@@ -225,6 +235,7 @@ interface ISaveFlowContext {
     savedPdfjsAnnotationBaselineDirty: boolean;
     shapeStateDirty: boolean;
     shouldSerialize: boolean;
+    shouldSerializeDirtyState: boolean;
 }
 
 type TSavePath = 'working-copy' | 'native-mutations';
@@ -251,8 +262,10 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         getSourcePdfData,
         validatePdfPath,
         saveFile,
+        repairWorkingCopy,
         saveWorkingCopy,
         saveWorkingCopyAs,
+        getWorkingCopySize,
         trySaveEmbeddedNoteTextUpdates,
         trySavePdfNativeMutations,
         markNativeFreeTextNotesSaved,
@@ -1051,7 +1064,8 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             hasPendingDeletes: pendingChanges.hasPendingDeletes,
             shapeStateDirty,
         });
-        const shouldSerialize = computeShouldSerializeFlag(dirtyState) || config.forceSerialize === true;
+        const shouldSerializeDirtyState = computeShouldSerializeFlag(dirtyState);
+        const shouldSerialize = shouldSerializeDirtyState || config.forceSerialize === true;
         const preserveLivePdfjsAnnotationSession = shouldPreserveLiveAnnotationSession({
             mode: config.mode,
             shouldSerialize,
@@ -1077,6 +1091,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             savedPdfjsAnnotationBaselineDirty: dirtyState.savedPdfjsAnnotationBaseline,
             shapeStateDirty,
             shouldSerialize,
+            shouldSerializeDirtyState,
         };
         logSaveFlowStart(config, context);
         return context;
@@ -1117,9 +1132,21 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         return 'native-mutations';
     }
 
+    function shouldUseRepairWorkingCopySave(config: ISaveFlowConfig, context: ISaveFlowContext) {
+        return config.forceSerialize === true
+            && config.forceRewrite === true
+            && !context.shouldSerializeDirtyState
+            && Boolean(context.expectedOriginalPath)
+            && Boolean(context.expectedWorkingPath)
+            && Boolean(config.persistRepair);
+    }
+
     async function executeSelectedSavePath(config: ISaveFlowConfig, context: ISaveFlowContext) {
         if (selectSavePath(config, context) === 'working-copy') {
             return executeWorkingCopySave(config, context);
+        }
+        if (shouldUseRepairWorkingCopySave(config, context)) {
+            return executeRepairWorkingCopySave(config, context);
         }
 
         const nativeOutcome = await executeNativeMutationSave(config, context);
@@ -1136,6 +1163,27 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             context.reloadWaiter.current,
             config.mode,
             config.persistUnserialized,
+            context.expectedWorkingPath,
+        );
+        clearSaveIndicator(config.mode);
+        await finalizeSaveReload(context.reloadWaiter.current, saveSucceeded, {
+            completeSaveStateOnSuccess: Boolean(context.reloadWaiter.current),
+            markShapeStateSavedOnSuccess: Boolean(context.reloadWaiter.current),
+            resetAnnotationStorageOnSuccess: false,
+        });
+        context.reloadWaiter.markFinalized();
+        return saveSucceeded;
+    }
+
+    async function executeRepairWorkingCopySave(config: ISaveFlowConfig, context: ISaveFlowContext) {
+        if (!config.persistRepair) {
+            return false;
+        }
+        const saveSucceeded = await saveRepairedWorkingCopy(
+            config.saveMode,
+            context.reloadWaiter.current,
+            config.mode,
+            config.persistRepair,
             context.expectedWorkingPath,
         );
         clearSaveIndicator(config.mode);
@@ -1326,7 +1374,47 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         }
     }
 
+    function formatStorageSize(bytes: number) {
+        if (!Number.isFinite(bytes) || bytes < 0) {
+            return `${bytes} bytes`;
+        }
+        const mib = bytes / (1024 * 1024);
+        if (mib < 1024) {
+            return `${Math.round(mib * 10) / 10} MiB`;
+        }
+        const gib = mib / 1024;
+        return `${Math.round(gib * 10) / 10} GiB`;
+    }
+
+    async function assertRendererSerializedSaveAllowed(context: ISaveFlowContext) {
+        if (!getWorkingCopySize || !context.expectedWorkingPath) {
+            return;
+        }
+
+        const workingCopySize = await timedSavePhase(
+            'stat-working-copy-for-serialization',
+            () => getWorkingCopySize(context.expectedWorkingPath as TDocumentRef),
+            result => ({
+                bytes: result,
+                maxBytes: RENDERER_SERIALIZED_SAVE_MAX_WORKING_COPY_BYTES,
+            }),
+        );
+        if (
+            typeof workingCopySize !== 'number'
+            || workingCopySize <= RENDERER_SERIALIZED_SAVE_MAX_WORKING_COPY_BYTES
+        ) {
+            return;
+        }
+
+        throw new Error(
+            'Large PDF save requires a native save path; renderer full-PDF serialization is disabled for files '
+            + `above ${formatStorageSize(RENDERER_SERIALIZED_SAVE_MAX_WORKING_COPY_BYTES)} `
+            + `(working copy is ${formatStorageSize(workingCopySize)}).`,
+        );
+    }
+
     async function executeSerializedSave(config: ISaveFlowConfig, context: ISaveFlowContext) {
+        await assertRendererSerializedSaveAllowed(context);
         const rawData = await getSerializationBasePdfBytes({
             forcePdfjsMaterialize: context.forcePdfjsMaterialize || context.savedPdfjsAnnotationBaselineDirty,
             pendingDeletes: context.pendingDeletes,
@@ -1518,6 +1606,49 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         return true;
     }
 
+    async function saveRepairedWorkingCopy(
+        saveMode: TPdfSaveMode,
+        reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null,
+        mode: 'save' | 'save_as',
+        persist: (opts: {
+            saveMode: TPdfSaveMode;
+            expectedWorkingPath?: TDocumentRef | null;
+        }) => Promise<IPdfPersistResult>,
+        expectedWorkingPath: TDocumentRef | null,
+    ) {
+        if (!expectedWorkingPath || workingCopyPath.value !== expectedWorkingPath) {
+            BrowserLogger.debug('workspace', 'Skipped stale repair persistence before native repair', {
+                expectedWorkingPath,
+                currentWorkingPath: workingCopyPath.value,
+                saveMode,
+            });
+            return false;
+        }
+
+        const persisted = await timedSavePhase(
+            `persist-${mode}-repair`,
+            () => persist({
+                saveMode,
+                expectedWorkingPath,
+            }),
+            result => ({
+                saveMode,
+                success: result.success,
+                didSaveAs: result.didSaveAs,
+            }),
+        );
+        if (!finalizeSuccessfulSave(persisted, {
+            completeSaveState: !reloadWaiter,
+            markShapeStateSaved: !reloadWaiter,
+            resetAnnotationStorage: false,
+        })) {
+            return false;
+        }
+
+        trackSaveCompleted(mode, persisted, false);
+        return true;
+    }
+
     async function runSerializedSaveFlow(
         rawData: Uint8Array | null,
         pendingTexts: Map<string, string> | null,
@@ -1609,6 +1740,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             saveIndicator: isSaving,
             persistSerialized: saveFile,
             persistUnserialized: saveWorkingCopy,
+            ...(repairWorkingCopy ? { persistRepair: repairWorkingCopy } : {}),
             shouldPreferWorkingCopy: true,
             forceSerialize: true,
             forceRewrite: true,

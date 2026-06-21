@@ -1156,6 +1156,11 @@ export function createDocumentsPreloadFileClient(
                 assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromPath.originalPath'),
             ),
         saveFile: (path) => invoke(DOCUMENTS_CHANNELS.fileSave, path),
+        repairPdf: (path) =>
+            invoke(
+                DOCUMENTS_CHANNELS.fileRepairPdf,
+                assertAbsolutePath(path, 'repairPdf.path'),
+            ),
         savePdfData: async (path, data) => {
             const checkedPath = assertAbsolutePath(path, 'savePdfData.path');
             const checkedData = assertPersistenceData(data, 'savePdfData.data');

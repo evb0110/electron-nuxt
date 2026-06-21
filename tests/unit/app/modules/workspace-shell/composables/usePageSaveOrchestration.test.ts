@@ -29,6 +29,7 @@ const fileOperationMocks = vi.hoisted((): {
 const platformMocks = vi.hoisted(() => ({
     replaceWorkingCopyFromPath: vi.fn(),
     cleanupOcrTemp: vi.fn(),
+    statFile: vi.fn(),
     acknowledgeResultFile: vi.fn(),
     warmIndex: vi.fn(),
 }));
@@ -44,6 +45,7 @@ vi.mock('@app/modules/workspace-shell/composables/useFileOperations', () => ({us
 vi.mock('@app/utils/platformDocuments', () => ({getDocumentsCapability: () => ({
     replaceWorkingCopyFromPath: platformMocks.replaceWorkingCopyFromPath,
     cleanupOcrTemp: platformMocks.cleanupOcrTemp,
+    statFile: platformMocks.statFile,
 })}));
 vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ({acknowledgeResultFile: platformMocks.acknowledgeResultFile})}));
 vi.mock('@app/utils/getSearchCapability', () => ({getSearchCapability: () => ({warmIndex: platformMocks.warmIndex})}));
@@ -65,6 +67,7 @@ describe('usePageSaveOrchestration', () => {
         vi.clearAllMocks();
         platformMocks.replaceWorkingCopyFromPath.mockResolvedValue(true);
         platformMocks.cleanupOcrTemp.mockResolvedValue(undefined);
+        platformMocks.statFile.mockResolvedValue({size: 1});
         platformMocks.acknowledgeResultFile.mockResolvedValue({ cleaned: true });
         platformMocks.warmIndex.mockResolvedValue(undefined);
         vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));

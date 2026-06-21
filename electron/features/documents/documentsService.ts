@@ -86,6 +86,7 @@ export interface IDocumentsService {
     ) => Promise<boolean>;
     writeDocxFile: (event: IpcMainInvokeEvent, filePath: string, data: Uint8Array) => Promise<boolean>;
     saveFile: (event: IpcMainInvokeEvent, workingPath: string) => Promise<boolean>;
+    repairPdf: (event: IpcMainInvokeEvent, workingPath: string) => Promise<IPdfValidationResult>;
     savePdfData: (event: IpcMainInvokeEvent, workingPath: string, data: Uint8Array) => Promise<IPdfValidationResult>;
     savePdfNoteTextUpdates: (
         event: IpcMainInvokeEvent,

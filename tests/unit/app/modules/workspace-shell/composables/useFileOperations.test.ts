@@ -387,7 +387,7 @@ describe('useFileOperations', () => {
         expect(saveFile).toHaveBeenCalledOnce();
     });
 
-    it('repair-saves by forcing a serialized rewrite even when the document is clean', async () => {
+    it('repair-saves by forcing a serialized rewrite when native repair is unavailable', async () => {
         const {
             deps,
             saveFile,
@@ -406,6 +406,59 @@ describe('useFileOperations', () => {
         );
         expect(saveFile).toHaveBeenCalledOnce();
         expectWorkspaceSaveMarked(deps);
+    });
+
+    it('repair-saves clean documents through the native working-copy repair path when available', async () => {
+        const repairWorkingCopy = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({repairWorkingCopy});
+        const { handleRepairSave } = useFileOperations(deps);
+
+        await handleRepairSave();
+
+        expect(repairWorkingCopy).toHaveBeenCalledWith({
+            saveMode: 'rewrite',
+            expectedWorkingPath: '/tmp/work.pdf',
+        });
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.validatePdfPath).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+        expectWorkspaceSaveMarked(deps);
+    });
+
+    it('blocks large unsupported serialized saves before reading or materializing full PDF bytes', async () => {
+        const getWorkingCopySize = vi.fn(async () => 512 * 1024 * 1024 + 1);
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            getWorkingCopySize,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await expect(handleSave()).resolves.toBe(false);
+
+        expect(getWorkingCopySize).toHaveBeenCalledWith('/tmp/work.pdf');
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'error',
+            title: 'errors.file.save',
+            description: expect.stringContaining('Large PDF save requires a native save path'),
+        }));
     });
 
     it('preserves annotation undo history after a successful save', async () => {

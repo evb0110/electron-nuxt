@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
     getWorkingCopyOriginalFileExpectation: vi.fn(),
     getWorkingCopyOriginalPath: vi.fn(),
     isAllowedOriginalSavePath: vi.fn(),
+    getNativeToolPaths: vi.fn(),
+    runNativeToolCommand: vi.fn(),
 }));
 
 vi.mock('@electron/utils/atomicReplace', () => ({
@@ -46,6 +48,8 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     normalizePathForLookup: (path: string) => path.trim(),
 }));
 vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args)}));
+vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths: (...args: unknown[]) => mocks.getNativeToolPaths(...args)}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 
 describe('workingCopySave', () => {
     let tempRoot = '';
@@ -63,6 +67,13 @@ describe('workingCopySave', () => {
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(null);
         mocks.isAllowedOriginalSavePath.mockReturnValue(true);
+        mocks.getNativeToolPaths.mockReturnValue({qpdf: '/mock/qpdf'});
+        mocks.runNativeToolCommand.mockResolvedValue({
+            code: 0,
+            signal: null,
+            stdout: '',
+            stderr: '',
+        });
     });
 
     afterEach(() => {
@@ -142,6 +153,39 @@ describe('workingCopySave', () => {
         expect(readFileSyncUtf8(workingPath)).toBe('old-original');
         expect(readFileSyncUtf8(originalPath)).toBe('external-change');
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
+    });
+
+    it('repairs through qpdf before atomically replacing the original and working copy', async () => {
+        const workingPath = join(tempRoot, 'repair-working.pdf');
+        const originalPath = join(tempRoot, 'repair-original.pdf');
+        writeFileSync(workingPath, 'damaged-working');
+        writeFileSync(originalPath, 'old-original');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        mocks.runNativeToolCommand.mockImplementationOnce(async (_qpdf: string, args: string[]) => {
+            await writeFile(args[1] ?? '', 'repaired-pdf');
+            return {
+                code: 0,
+                signal: null,
+                stdout: '',
+                stderr: '',
+            };
+        });
+        const { handleRepairPdfSave } = await import('@electron/features/documents/main/workingCopySave');
+
+        await expect(handleRepairPdfSave(event, workingPath)).resolves.toMatchObject({isValid: true});
+
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith('/mock/qpdf', [
+            workingPath,
+            `${originalPath}.tmp`,
+        ], expect.objectContaining({
+            allowedExitCodes: [
+                0,
+                3,
+            ],
+            commandLabel: 'qpdf(repair-save)',
+        }));
+        expect(readFileSyncUtf8(originalPath)).toBe('repaired-pdf');
+        expect(readFileSyncUtf8(workingPath)).toBe('repaired-pdf');
     });
 });
 

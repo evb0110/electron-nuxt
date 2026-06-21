@@ -44,6 +44,7 @@ export const DOCUMENTS_CHANNELS = {
     fileReplaceWorkingCopyFromPath: 'file:replaceWorkingCopyFromPath',
     fileWriteDocx: 'file:writeDocx',
     fileSave: 'file:save',
+    fileRepairPdf: 'file:repairPdf',
     fileSavePdfData: 'file:savePdfData',
     fileSavePdfDataBegin: 'file:savePdfData:begin',
     fileSavePdfDataPort: 'file:savePdfData:port',
@@ -226,6 +227,10 @@ export interface IDocumentsInvokeMap {
     [DOCUMENTS_CHANNELS.fileSave]: {
         args: [path: string];
         result: Awaited<ReturnType<IDocumentsFileCapability['saveFile']>>;
+    };
+    [DOCUMENTS_CHANNELS.fileRepairPdf]: {
+        args: [path: string];
+        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['repairPdf']>>>;
     };
     [DOCUMENTS_CHANNELS.fileSavePdfData]: {
         args: [path: string, data: Uint8Array];

@@ -91,6 +91,27 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(port1.close).toHaveBeenCalledTimes(1);
     });
 
+    it('invokes the native repair channel with a checked absolute working path', async () => {
+        const validation = {
+            isValid: true,
+            tool: 'qpdf' as const,
+            errors: [],
+            warnings: [],
+        };
+        const ipcRenderer = {
+            invoke: vi.fn(async () => validation),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        await expect(client.repairPdf?.('/tmp/working.pdf')).resolves.toBe(validation);
+
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.fileRepairPdf,
+            '/tmp/working.pdf',
+        );
+    });
+
     it('streams PDF persistence chunks with tight backing buffers', async () => {
         const port1 = new FakeMessagePort();
         const port2 = new FakeMessagePort();

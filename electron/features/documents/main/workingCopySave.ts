@@ -17,6 +17,15 @@ import { validatePdfFile } from '@electron/features/documents/main/pdfConformanc
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
+import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
+import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+
+const QPDF_REPAIR_SAVE_TIMEOUT_MS = parseIntegerEnv(
+    'EVB_QPDF_REPAIR_SAVE_TIMEOUT_MS',
+    10 * 60 * 1000,
+    1_000,
+);
 
 function createOriginalChangedValidationResult(): IPdfValidationResult {
     return {
@@ -67,6 +76,23 @@ async function replaceOriginalWithValidatedTemp(
             await rm(tempPath, { force: true }).catch(() => undefined);
         }
     }
+}
+
+async function repairPdfWithQpdf(
+    inputPath: string,
+    outputPath: string,
+) {
+    await runNativeToolCommand(getNativeToolPaths().qpdf, [
+        inputPath,
+        outputPath,
+    ], {
+        allowedExitCodes: [
+            0,
+            3,
+        ],
+        commandLabel: 'qpdf(repair-save)',
+        timeoutMs: QPDF_REPAIR_SAVE_TIMEOUT_MS,
+    });
 }
 
 export async function handleFileSave(
@@ -146,5 +172,47 @@ export async function handleSerializedPdfSave(
             throw err;
         }
         throw new Error(`Failed to save: ${getErrorMessage(err)}`);
+    }
+}
+
+export async function handleRepairPdfSave(
+    event: Electron.IpcMainInvokeEvent,
+    workingPath: string,
+): Promise<IPdfValidationResult> {
+    if (!workingPath || workingPath.trim() === '') {
+        throw new Error('Invalid file path');
+    }
+
+    const normalizedWorkingPath = workingPath.trim();
+    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, event.sender.id);
+
+    try {
+        const validation = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+            if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+                throw new Error('Working copy path is not managed');
+            }
+
+            const queuedValidation = await replaceOriginalWithValidatedTemp(
+                originalPath,
+                normalizedWorkingPath,
+                event.sender.id,
+                tempPath => repairPdfWithQpdf(normalizedWorkingPath, tempPath),
+            );
+            if (queuedValidation.isValid) {
+                await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
+            }
+
+            return queuedValidation;
+        });
+        if (!validation.isValid) {
+            return validation;
+        }
+
+        return validation;
+    } catch (err) {
+        if (err instanceof WorkingCopyMissingError) {
+            throw err;
+        }
+        throw new Error(`Failed to repair and save: ${getErrorMessage(err)}`);
     }
 }

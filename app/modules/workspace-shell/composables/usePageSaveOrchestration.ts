@@ -72,6 +72,7 @@ type TSharedSaveOperationDeps = Pick<
     IFileOperationsDeps,
     | 'validatePdfPath'
     | 'saveFile'
+    | 'repairWorkingCopy'
     | 'saveWorkingCopy'
     | 'trySavePdfNativeMutations'
     | 'trySaveEmbeddedNoteTextUpdates'
@@ -162,6 +163,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         hasPendingUnsavedChanges,
         validatePdfPath,
         saveFile,
+        repairWorkingCopy,
         saveWorkingCopy,
         trySavePdfNativeMutations,
         trySaveEmbeddedNoteTextUpdates,
@@ -230,7 +232,9 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         getSourcePdfData,
         validatePdfPath,
         saveFile,
+        ...(repairWorkingCopy ? { repairWorkingCopy } : {}),
         saveWorkingCopy,
+        getWorkingCopySize: async path => (await getDocumentsCapability().statFile(path)).size,
         ...(trySavePdfNativeMutations !== undefined ? { trySavePdfNativeMutations } : {}),
         ...(trySaveEmbeddedNoteTextUpdates !== undefined ? { trySaveEmbeddedNoteTextUpdates } : {}),
         saveWorkingCopyAs,

@@ -49,6 +49,7 @@ import {
 import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
 import {
     handleFileSave,
+    handleRepairPdfSave,
     handleSerializedPdfSave,
 } from '@electron/features/documents/main/workingCopySave';
 import {
@@ -122,6 +123,7 @@ export function createDocumentsService(): IDocumentsService {
             handleReplaceWorkingCopyFromPath(...args),
         writeDocxFile: (...args: TDocumentsServiceArgs<'writeDocxFile'>) => handleFileWriteDocx(...args),
         saveFile: (...args: TDocumentsServiceArgs<'saveFile'>) => handleFileSave(...args),
+        repairPdf: (...args: TDocumentsServiceArgs<'repairPdf'>) => handleRepairPdfSave(...args),
         savePdfData: (...args: TDocumentsServiceArgs<'savePdfData'>) => handleSerializedPdfSave(...args),
         savePdfNoteTextUpdates: (...args: TDocumentsServiceArgs<'savePdfNoteTextUpdates'>) =>
             handleNativeNoteTextSave(...args),

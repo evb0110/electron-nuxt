@@ -299,6 +299,7 @@ export interface IDocumentsFileCapability {
     createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
     saveFile: (path: TDocumentRef) => Promise<boolean>;
     savePdfData: (path: TDocumentRef, data: Uint8Array) => Promise<IPdfValidationResult>;
+    repairPdf?: (path: TDocumentRef) => Promise<IPdfValidationResult>;
     savePdfNoteTextUpdates?: (
         path: TDocumentRef,
         updates: IPdfNoteTextUpdate[],

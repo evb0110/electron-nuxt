@@ -336,6 +336,55 @@ export function createDocumentPersistence(
         }, opts?.expectedWorkingPath);
     }
 
+    async function repairWorkingCopy(
+        opts?: {
+            saveMode?: TPdfSaveMode;
+            expectedWorkingPath?: TDocumentRef | null;
+        },
+    ): Promise<IPdfPersistResult> {
+        const requestedSaveMode = opts?.saveMode ?? 'rewrite';
+        return runPersistOperation(requestedSaveMode, false, async (workingPath) => {
+            const forceSaveAs = await deps.shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath);
+            if (!state.isActiveWorkingCopy(workingPath)) {
+                BrowserLogger.debug('workspace', 'Skipped stale working-copy repair before write', {
+                    workingPath,
+                    currentWorkingPath: state.workingCopyPath.value,
+                    saveMode: requestedSaveMode,
+                });
+                return createStalePersistResult(requestedSaveMode, false);
+            }
+            if (forceSaveAs) {
+                return saveWorkingCopyAs(undefined, {
+                    saveMode: 'save_as_rewrite',
+                    expectedWorkingPath: workingPath,
+                });
+            }
+
+            const repairPdf = getDocumentsCapability().repairPdf;
+            if (!repairPdf) {
+                return createFailedPersistResult(requestedSaveMode, false);
+            }
+            const validation = await repairPdf(workingPath);
+            if (!state.isActiveWorkingCopy(workingPath)) {
+                BrowserLogger.debug('workspace', 'Skipped stale working-copy repair completion', {
+                    workingPath,
+                    currentWorkingPath: state.workingCopyPath.value,
+                    saveMode: requestedSaveMode,
+                });
+                return createStalePersistResult(requestedSaveMode, false);
+            }
+            if (!validation.isValid) {
+                state.error.value = validation.errors.join('\n') || deps.t('errors.file.save');
+                return createFailedPersistResult(requestedSaveMode, false);
+            }
+            if (!await commitPersistedPdfState(undefined, workingPath)) {
+                return createStalePersistResult(requestedSaveMode, false);
+            }
+            state.lastSaveMode.value = requestedSaveMode;
+            return createPersistResult(true, requestedSaveMode, false);
+        }, opts?.expectedWorkingPath);
+    }
+
     async function trySaveEmbeddedNoteTextUpdates(
         updates: IPdfNoteTextUpdate[],
         opts: {
@@ -628,6 +677,7 @@ export function createDocumentPersistence(
         persistPdfDataSilently,
         readWorkingCopyBytes,
         saveFile,
+        repairWorkingCopy,
         saveWorkingCopy,
         saveWorkingCopyAs,
         trySaveEmbeddedNoteTextUpdates,
