@@ -118,7 +118,7 @@ describe('useDocumentWorkspaceSplitRestore', () => {
                 fitMode: ref(null),
                 viewMode: ref(null),
                 zoom: ref(1),
-                pdfViewerRef: ref(null),
+                documentViewerRef: ref(null),
                 initFromStorage: vi.fn(),
                 cleanupSidebarResizeListeners: vi.fn(),
                 captureSplitPayload: vi.fn(),
@@ -143,5 +143,76 @@ describe('useDocumentWorkspaceSplitRestore', () => {
                 payloadKind: 'pdfSnapshot',
             },
         });
+    });
+
+    it('preseeds DjVu cached payload paging before restore', async () => {
+        const payload: TSplitPayload = {
+            kind: 'djvu',
+            sourcePath: '/tmp/sample.djvu',
+            currentPage: 5,
+            totalPages: 12,
+        };
+        const currentPage = ref(1);
+        const totalPages = ref(0);
+        let cachedPresent = true;
+        const workspaceSplitCache = {
+            has: vi.fn(() => cachedPresent),
+            peek: vi.fn(() => ({
+                id: 'entry-1',
+                payload,
+            })),
+            consume: vi.fn(() => {
+                cachedPresent = false;
+                return payload;
+            }),
+            clear: vi.fn(),
+            set: vi.fn(),
+        };
+        const restoreSplitPayload = vi.fn(async () => {});
+        const { useDocumentWorkspaceSplitRestore } = await import(
+            '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore'
+        );
+
+        const app = createNoopApp({setup() {
+            useDocumentWorkspaceSplitRestore({
+                tabId: 'tab-1',
+                pendingDocumentOpen: computed(() => false),
+                isTabTransitionBusy: computed(() => false),
+                workspaceSplitCache,
+                workspaceRestoreTracker: {
+                    has: vi.fn(() => false),
+                    start: vi.fn(),
+                    finish: vi.fn(),
+                },
+                hasPdf: ref(false),
+                currentPage,
+                totalPages,
+                showSidebar: ref(false),
+                sidebarTab: ref(null),
+                isResizingSidebar: ref(false),
+                isLoading: ref(false),
+                continuousScroll: ref(false),
+                fitMode: ref(null),
+                viewMode: ref(null),
+                zoom: ref(1),
+                documentViewerRef: ref(null),
+                initFromStorage: vi.fn(),
+                cleanupSidebarResizeListeners: vi.fn(),
+                captureSplitPayload: vi.fn(),
+                restoreSplitPayload,
+                isRestoringSplitPayload: ref(false),
+                currentPageTransitionHistory: ref([]),
+            });
+            return () => null;
+        }});
+
+        app.mount({});
+        await flushPromises();
+        app.unmount();
+
+        expect(currentPage.value).toBe(5);
+        expect(totalPages.value).toBe(12);
+        expect(restoreSplitPayload).toHaveBeenCalledWith(payload);
+        expect(workspaceSplitCache.consume).toHaveBeenCalledWith('tab-1', 'entry-1');
     });
 });

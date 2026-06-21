@@ -181,9 +181,9 @@ export const useOcrTextContent = () => {
         viewport: PageViewport,
         isLastInLine: boolean,
         textDir: TOcrTextDirection,
+        ascentRatio: number,
     ) {
         const { render } = ocrPage;
-        const ascentRatio = getAscentRatio();
 
         // Get raw page dimensions from viewport
         // PDF.js viewport includes a rawDims property with the original page size
@@ -274,6 +274,7 @@ export const useOcrTextContent = () => {
                 viewport,
                 isLastOcrWordInLine(words, idx),
                 textDir,
+                ascentRatio,
             ),
         );
 

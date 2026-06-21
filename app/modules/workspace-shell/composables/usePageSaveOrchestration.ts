@@ -296,6 +296,10 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             : (
                 isDirty.value
                 || annotationDirty.value
+                || hasAnnotationChanges()
+                || (hasLivePdfJsAnnotationChanges?.() ?? false)
+                || (hasSavedPdfJsAnnotationBaselineChanges?.() ?? false)
+                || (hasPreservedAnnotationSourceChanges?.() ?? false)
                 || pageLabelsDirty.value
                 || bookmarksDirty.value
             )
@@ -375,13 +379,10 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         }
 
         let restoreError: unknown = null;
+        let restorePromise: Promise<void> | null = null;
 
         clearOcrCache(payload.sourceWorkingCopyPath);
         resetSearchCache();
-
-        const restorePromise = waitForPdfReload(pageToRestore).catch((error) => {
-            restoreError = error;
-        });
 
         try {
             await getDocumentsCapability().replaceWorkingCopyFromPath(
@@ -393,10 +394,12 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                     sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
                     currentWorkingCopyPath: workingCopyPath.value,
                 });
-                void restorePromise;
                 return null;
             }
 
+            restorePromise = waitForPdfReload(pageToRestore).catch((error) => {
+                restoreError = error;
+            });
             const didReload = await reloadWorkingCopyIntoHistory({ markDirty: true });
             if (!didReload) {
                 BrowserLogger.debug('ocr', 'Skipped stale OCR reload after working copy replacement', {
@@ -411,6 +414,10 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             throw error;
         } finally {
             await acknowledgeOcrResultFile(payload);
+        }
+
+        if (restorePromise === null) {
+            return null;
         }
 
         return {

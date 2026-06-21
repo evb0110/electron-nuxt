@@ -24,5 +24,3 @@ export interface ICropApplyPayload {
 export interface ICropRemovePayload { pages: number[]; }
 
 export type TCropUnit = 'pt' | 'mm' | 'in';
-
-export type TCropScope = 'all' | 'current' | 'even' | 'odd' | 'range' | 'selected';

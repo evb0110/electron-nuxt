@@ -107,6 +107,11 @@ const emit = defineEmits<{
 const { t } = useTypedI18n();
 const frameRef = ref<HTMLElement | null>(null);
 const GLOBAL_CURSOR_ATTRIBUTE = 'data-pdf-image-placement-cursor';
+const placementKeyboardTarget = computed(() => (
+    placement && !busy && typeof window !== 'undefined'
+        ? window
+        : null
+));
 const resizeHandles: TImagePlacementResizeHandle[] = [
     'nw',
     'n',
@@ -466,6 +471,18 @@ useEventListener(interactionWindowTarget, 'pointermove', handleWindowPointerMove
 useEventListener(interactionWindowTarget, 'pointerup', handleWindowPointerUp);
 useEventListener(interactionWindowTarget, 'pointercancel', handleWindowPointerUp);
 
+watch(() => [
+    placement !== null,
+    busy,
+] as const, ([
+    hasPlacement,
+    isBusy,
+]) => {
+    if (!hasPlacement || isBusy) {
+        stopInteraction();
+    }
+});
+
 function isEditableTarget(target: EventTarget | null) {
     if (!(target instanceof HTMLElement)) {
         return false;
@@ -482,13 +499,14 @@ function isEditableTarget(target: EventTarget | null) {
     ].includes(target.tagName);
 }
 
-useEventListener('keydown', (event: KeyboardEvent) => {
+function handlePlacementKeydown(event: KeyboardEvent) {
     if (!placement || busy || event.defaultPrevented || isEditableTarget(event.target)) {
         return;
     }
 
     if (event.key === 'Escape') {
         event.preventDefault();
+        stopInteraction();
         emit('cancel');
         return;
     }
@@ -500,15 +518,20 @@ useEventListener('keydown', (event: KeyboardEvent) => {
         && !event.altKey
     ) {
         event.preventDefault();
+        stopInteraction();
         emit('finalize');
     }
-});
+}
+
+useEventListener(placementKeyboardTarget, 'keydown', handlePlacementKeydown);
 
 function cancelPlacement() {
+    stopInteraction();
     emit('cancel');
 }
 
 function finalizePlacement() {
+    stopInteraction();
     emit('finalize');
 }
 

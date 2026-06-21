@@ -66,7 +66,9 @@ export const usePdfFile = () => {
         undo,
     } = createDocumentHistory(sessionState, {
         applyLoadedPdfState: (...args) => getDocumentOpenFlow().applyLoadedPdfState(...args),
+        clearPdfConformanceProfile,
         clearOcrCache,
+        deferPdfConformanceProfile,
         documents: getDocumentsCapability,
         getOpenEpoch: () => openEpoch.current(),
         isCurrentOpenEpoch: token => openEpoch.isCurrent(token),

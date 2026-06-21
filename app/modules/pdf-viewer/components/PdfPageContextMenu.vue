@@ -107,17 +107,20 @@
 <script setup lang="ts">
 import PdfContextMenuBase from '@app/modules/pdf-viewer/components/PdfContextMenuBase.vue';
 import type { IPageContextMenuState } from '@app/types/pdfContextMenu';
+import { formatPageIndicatorWithOptions } from '@app/utils/pdfPageLabels';
 
 const {
     isDjvuMode = false,
     isOperationInProgress,
     menu,
+    pageLabels = undefined,
     style,
 } = defineProps<{
     menu: IPageContextMenuState;
     style: Record<string, string>;
     isOperationInProgress: boolean;
     isDjvuMode?: boolean;
+    pageLabels?: string[] | null | undefined;
 }>();
 
 const emit = defineEmits<{
@@ -134,10 +137,33 @@ const emit = defineEmits<{
 
 const { t } = useTypedI18n();
 
+function getRenderedPageIndicator(page: number) {
+    if (typeof document === 'undefined') {
+        return String(page);
+    }
+
+    const renderedLabel = document.querySelector<HTMLElement>(`.pdf-thumbnail[data-page="${page}"] .pdf-thumbnail-number`)
+        ?.textContent
+        ?.trim();
+    if (renderedLabel === undefined || renderedLabel.length === 0) {
+        return String(page);
+    }
+
+    return renderedLabel;
+}
+
+function getPageIndicator(page: number) {
+    if (pageLabels) {
+        return formatPageIndicatorWithOptions(page, pageLabels);
+    }
+
+    return getRenderedPageIndicator(page);
+}
+
 const menuTitle = computed(() => {
     const [page] = menu.pages;
     if (menu.pages.length === 1 && page !== undefined) {
-        return t('pageOps.pageTarget', { page });
+        return t('pageOps.pageTarget', { page: getPageIndicator(page) });
     }
 
     return t('pageOps.pagesSelected', menu.pages.length);

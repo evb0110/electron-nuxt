@@ -145,6 +145,9 @@
     --app-font-weight-medium: 500;
     --app-font-weight-semibold: 600;
     --app-font-weight-heading: 650;
+    --app-transition-fast: 0.1s ease;
+    --app-transition-quick: 0.12s ease;
+    --app-transition-standard: 0.15s ease;
     --app-line-height-tight: 1;
     --app-line-height-snug: 1.18;
     --app-line-height-text: 1.35;
@@ -436,6 +439,7 @@
     --app-file-icon-image-stroke: oklch(82% 0.04 150);
     --app-file-icon-image-fold: oklch(92% 0.04 150);
     --app-file-icon-image-badge: oklch(56% 0.14 150);
+    --app-file-icon-badge-fg: var(--ui-primary-fg);
     --app-file-icon-doc-fill: oklch(97% 0.005 235);
     --app-file-icon-doc-stroke: oklch(82% 0.012 235);
     --app-file-icon-doc-fold: oklch(91% 0.012 235);

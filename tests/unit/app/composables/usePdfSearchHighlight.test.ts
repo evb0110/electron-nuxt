@@ -86,6 +86,58 @@ describe('usePdfSearchHighlight', () => {
             isCurrent: false,
         }]);
     });
+
+    it('uses offset proximity for the current layer-search fallback when match counts differ', () => {
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: toPageIndex(0),
+            pageText: '',
+            searchQuery: 'alpha',
+            searchOptions: {
+                matchCase: false,
+                wholeWord: false,
+                useRegex: false,
+            },
+            matches: [
+                {
+                    matchIndex: 10,
+                    start: 100,
+                    end: 105,
+                },
+                {
+                    matchIndex: 11,
+                    start: 12,
+                    end: 17,
+                },
+            ],
+        };
+        const currentMatch: IPdfSearchMatch = {
+            pageIndex: toPageIndex(0),
+            pageMatchIndex: 1,
+            matchIndex: 11,
+            startOffset: 12,
+            endOffset: 17,
+        };
+
+        const result = buildVisualMatchesWithCurrent(pageMatches, currentMatch, 'alpha alpha alpha');
+
+        expect(result).toEqual([
+            {
+                start: 0,
+                end: 5,
+                isCurrent: false,
+            },
+            {
+                start: 6,
+                end: 11,
+                isCurrent: false,
+            },
+            {
+                start: 12,
+                end: 17,
+                isCurrent: true,
+            },
+        ]);
+    });
 });
 
 describe('pdfSearchHighlightDom text-layer mapping', () => {

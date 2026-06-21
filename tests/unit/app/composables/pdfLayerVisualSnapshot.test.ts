@@ -5,6 +5,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { hasPdfPageAnnotationVisualContent } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/hasPdfPageAnnotationVisualContent';
 import { hasPdfPageAnnotationVisualContentForSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/hasPdfPageAnnotationVisualContentForSnapshotRelease';
@@ -14,6 +15,7 @@ import { pdfLayerVisualSnapshotSourceClass } from '@app/modules/pdf-viewer/engin
 import { preservePdfDrawLayerVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/preservePdfDrawLayerVisualSnapshot';
 import { preservePdfLayerVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/preservePdfLayerVisualSnapshot';
 import { preservePdfPageAnnotationVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/preservePdfPageAnnotationVisualSnapshot';
+import { schedulePdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/schedulePdfLayerVisualSnapshotRelease';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
@@ -48,9 +50,91 @@ function createSvg(className: string) {
     return svg;
 }
 
+function installRequestAnimationFrameQueue() {
+    const callbacks: FrameRequestCallback[] = [];
+    const hadRequestAnimationFrame = 'requestAnimationFrame' in window;
+    const originalRequestAnimationFrame = window.requestAnimationFrame;
+
+    Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        value: vi.fn((callback: FrameRequestCallback) => {
+            callbacks.push(callback);
+            return callbacks.length;
+        }),
+    });
+
+    return {
+        callbacks,
+        restore: () => {
+            if (hadRequestAnimationFrame) {
+                Object.defineProperty(window, 'requestAnimationFrame', {
+                    configurable: true,
+                    value: originalRequestAnimationFrame,
+                });
+                return;
+            }
+            Reflect.deleteProperty(window, 'requestAnimationFrame');
+        },
+        runNextFrame: () => callbacks.shift()?.(Date.now()),
+    };
+}
+
 describe('pdfLayerVisualSnapshot', () => {
     beforeEach(() => {
         document.body.replaceChildren();
+    });
+
+    it('releases after the minimum frame count when waitFor stays false without a max delay', () => {
+        const animationFrame = installRequestAnimationFrameQueue();
+        try {
+            const release = vi.fn();
+            const waitFor = vi.fn(() => false);
+
+            schedulePdfLayerVisualSnapshotRelease(release, { waitFor });
+
+            expect(release).not.toHaveBeenCalled();
+            expect(animationFrame.callbacks).toHaveLength(1);
+
+            animationFrame.runNextFrame();
+
+            expect(waitFor).toHaveBeenCalledTimes(1);
+            expect(release).toHaveBeenCalledTimes(1);
+            expect(animationFrame.callbacks).toHaveLength(0);
+        } finally {
+            animationFrame.restore();
+        }
+    });
+
+    it('keeps waiting for false predicates until a positive max delay elapses', () => {
+        const animationFrame = installRequestAnimationFrameQueue();
+        const dateNow = vi.spyOn(Date, 'now');
+        let now = 0;
+        dateNow.mockImplementation(() => now);
+        try {
+            const release = vi.fn();
+
+            schedulePdfLayerVisualSnapshotRelease(release, {
+                maxDelayMs: 100,
+                waitFor: () => false,
+            });
+
+            animationFrame.runNextFrame();
+            expect(release).not.toHaveBeenCalled();
+            expect(animationFrame.callbacks).toHaveLength(1);
+
+            now = 99;
+            animationFrame.runNextFrame();
+            expect(release).not.toHaveBeenCalled();
+            expect(animationFrame.callbacks).toHaveLength(1);
+
+            now = 100;
+            animationFrame.runNextFrame();
+            expect(release).toHaveBeenCalledTimes(1);
+            expect(animationFrame.callbacks).toHaveLength(0);
+        } finally {
+            dateNow.mockRestore();
+            animationFrame.restore();
+        }
     });
 
     it('keeps a non-interactive layer clone until released', () => {

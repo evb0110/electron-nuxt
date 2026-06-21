@@ -77,11 +77,12 @@
                 @enable-drag="handleFallbackEnableDragMode"
                 @disable-drag="handleFallbackDisableDragMode"
                 @capture-region="handleFallbackCaptureRegion"
+                @crop="handleFallbackCrop"
                 @quick-note="handleFallbackQuickNote"
                 @toggle-fullscreen="handleToggleFullscreen"
                 @set-view-mode="handleShellToolbarOverflowSetViewMode"
-                @go-to-page="noopFallbackAction"
-                @ocr-complete="noopFallbackAction"
+                @go-to-page="handleFallbackGoToPage"
+                @ocr-complete="handleFallbackOcrComplete"
             />
             <div
                 v-show="!showShellToolbar"
@@ -407,8 +408,6 @@ watchEffect(() => {
     hasTeleportedToolbarContentState.value = hasTeleportedToolbarContent.value;
 });
 
-function noopFallbackAction() {}
-
 function runFallbackWorkspaceAction(action: (workspace: IWorkspaceExpose) => unknown) {
     const workspace = activeWorkspace.value;
     if (!workspace) {
@@ -524,8 +523,20 @@ function handleFallbackCaptureRegion() {
     runFallbackWorkspaceAction(workspace => workspace.handleCaptureRegion());
 }
 
+function handleFallbackCrop() {
+    runFallbackWorkspaceAction(workspace => workspace.handleCrop());
+}
+
 function handleFallbackQuickNote() {
     runFallbackWorkspaceAction(workspace => workspace.handleQuickNote());
+}
+
+function handleFallbackGoToPage(page: number) {
+    runFallbackWorkspaceAction(workspace => workspace.handleGoToPage(page));
+}
+
+function handleFallbackOcrComplete(payload: unknown) {
+    runFallbackWorkspaceAction(workspace => workspace.handleOcrComplete?.(payload));
 }
 
 function activeWorkspaceHasDocument() {
@@ -711,6 +722,7 @@ const {
     closeTabInState,
     workspaceRefs,
     waitForWorkspace,
+    updateTab,
     workspaceRestoreTracker,
     handleCloseTab,
     handoffActiveTabBeforeClose,
@@ -1230,8 +1242,8 @@ useAppShellLifecycle({
 
 @media (width <= 900px) {
     .browser-install-hint {
-        right: 0.75rem;
-        bottom: 0.75rem;
+        right: var(--app-space-9xl);
+        bottom: var(--app-space-9xl);
     }
 }
 </style>

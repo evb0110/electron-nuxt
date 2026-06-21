@@ -280,12 +280,12 @@ const canSubmit = computed(() => (
 ));
 
 function handleSubmit() {
-    if (!canSubmit.value) {
+    const pageNumbers = resolveScopedPageNumbers();
+    if (!canSubmit.value || pageNumbers === null) {
         rangeTouched.value = true;
         return;
     }
 
-    const pageNumbers = resolveScopedPageNumbers();
     emit('submit', {
         ...(pageNumbers !== undefined ? { pageNumbers } : {}),
         viewMode: viewMode.value,

@@ -4,8 +4,8 @@ import type {
 } from '@app/types/tabs';
 import { moveArrayItem } from '@app/utils/moveArrayItem';
 
-// Intentional client-wide singleton: the workspace shell, toolbar, and tab
-// transfer flows share one tab collection within the renderer process.
+// Legacy compatibility singleton. The current workspace shell owns pane-aware
+// tab state in useEditorPanesManager; keep this helper for older callers/tests.
 const tabs = ref<ITab[]>([]);
 const activeTabId = ref<string | null>(null);
 

@@ -11,7 +11,9 @@
         </template>
 
         <template #body>
-            <SettingsContent />
+            <div class="settings-dialog-content">
+                <SettingsContent />
+            </div>
         </template>
 
         <template #footer="{ close }">
@@ -32,7 +34,13 @@ const open = defineModel<boolean>('open', { required: true });
 const { isDesktopRuntime } = useRuntimeEnvironment();
 const { t } = useTypedI18n();
 
-const settingsDialogDescription = computed(() => isDesktopRuntime
+const settingsDialogDescription = computed(() => isDesktopRuntime.value
     ? t('settings.dialogDescription')
     : t('settings.browserDialogDescription'));
 </script>
+
+<style scoped>
+.settings-dialog-content {
+    container-type: inline-size;
+}
+</style>

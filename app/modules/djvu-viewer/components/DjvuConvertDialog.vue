@@ -263,10 +263,10 @@ function handleConvert() {
 <style lang="scss" scoped>
 .convert-info-row {
     display: grid;
-    grid-template-columns: minmax(0, 8rem) minmax(0, 1fr);
+    grid-template-columns: max-content minmax(0, 1fr);
     align-items: start;
-    gap: 8px;
-    font-size: 13px;
+    gap: var(--app-space-3xl);
+    font-size: var(--app-text-size-body-sm);
 }
 
 .convert-info-label {
@@ -277,25 +277,25 @@ function handleConvert() {
 .convert-info-value {
     min-width: 0;
     color: var(--ui-text);
-    font-weight: 500;
+    font-weight: var(--app-font-weight-medium);
     overflow-wrap: anywhere;
 }
 
 .convert-presets-title {
-    font-size: 13px;
-    font-weight: 600;
+    font-size: var(--app-text-size-body-sm);
+    font-weight: var(--app-font-weight-semibold);
     color: var(--ui-text);
 }
 
 .convert-preset {
     display: flex;
     align-items: flex-start;
-    gap: 10px;
-    padding: 10px 12px;
-    border: 1px solid var(--ui-border);
-    border-radius: 8px;
+    gap: var(--app-space-6xl);
+    padding: var(--app-space-6xl) var(--app-space-9xl);
+    border: thin solid var(--ui-border);
+    border-radius: var(--app-radius-2xl);
     cursor: pointer;
-    transition: border-color $ease-standard;
+    transition: border-color var(--app-transition-standard);
 }
 
 .convert-preset:hover {
@@ -308,12 +308,12 @@ function handleConvert() {
 }
 
 .convert-preset-radio {
-    width: 16px;
-    height: 16px;
-    border: 2px solid var(--ui-border);
-    border-radius: 50%;
+    width: var(--app-space-12xl);
+    height: var(--app-space-12xl);
+    border: var(--app-crop-selection-border-width) solid var(--ui-border);
+    border-radius: var(--app-radius-full);
     flex-shrink: 0;
-    margin-top: 1px;
+    margin-top: calc(var(--app-space-3xs) / 2);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -324,9 +324,9 @@ function handleConvert() {
 }
 
 .convert-preset-radio-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
+    width: var(--app-space-3xl);
+    height: var(--app-space-3xl);
+    border-radius: var(--app-radius-full);
     background: var(--ui-primary);
 }
 
@@ -335,39 +335,39 @@ function handleConvert() {
 }
 
 .convert-preset-label {
-    font-size: 13px;
-    font-weight: 500;
+    font-size: var(--app-text-size-body-sm);
+    font-weight: var(--app-font-weight-medium);
     color: var(--ui-text);
 }
 
 .convert-preset-dpi {
     color: var(--ui-text-muted);
-    font-weight: 400;
-    margin-left: 4px;
-    font-size: 12px;
+    font-weight: normal;
+    margin-left: var(--app-space-sm);
+    font-size: var(--app-text-size-kicker);
 }
 
 .convert-preset-description {
-    font-size: 12px;
+    font-size: var(--app-text-size-kicker);
     color: var(--ui-text-muted);
-    margin-top: 2px;
+    margin-top: var(--app-space-3xs);
 }
 
 .convert-preset-loading {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 12px;
+    gap: var(--app-space-3xl);
+    font-size: var(--app-text-size-kicker);
     color: var(--ui-text-muted);
-    padding: 8px 0;
+    padding: var(--app-space-3xl) 0;
 }
 
 .convert-option {
-    padding-top: 4px;
+    padding-top: var(--app-space-sm);
 }
 
 .convert-checkbox-label {
-    font-size: 13px;
+    font-size: var(--app-text-size-body-sm);
     color: var(--ui-text);
     cursor: pointer;
 }

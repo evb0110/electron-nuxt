@@ -283,7 +283,7 @@ import ToolbarButton from '@app/components/ToolbarButton.vue';
 import ToolbarSaveSplitButton from '@app/components/toolbar/ToolbarSaveSplitButton.vue';
 import { AssistantToolbarToggle } from '@app/modules/agent-panel/public/component-exports/assistantToolbarToggle';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
-import { getShortcutLabels } from '@app/constants/shortcuts';
+import { useShortcutLabels } from '@app/constants/shortcuts';
 import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
 import {
     isReaderCommandInline,
@@ -376,7 +376,7 @@ type TToolbarCommand =
 
 const { t } = useTypedI18n();
 
-const shortcutLabels = getShortcutLabels();
+const shortcutLabels = useShortcutLabels();
 const hasInteractiveDocument = computed(() => hasPdf && !documentBusy && !isOpeningDocument);
 const {
     toolbarRef,

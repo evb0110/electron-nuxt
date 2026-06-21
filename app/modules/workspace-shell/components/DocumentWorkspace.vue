@@ -216,7 +216,7 @@
                     />
                     <DjvuViewer
                         v-else-if="showNativeDjvuViewer"
-                        ref="pdfViewerRef"
+                        ref="djvuViewerRef"
                         :src="djvuSourcePath!"
                         :zoom="zoom"
                         :zoom-mode="zoomMode"
@@ -278,7 +278,6 @@
         </Teleport>
         <WorkspaceAnnotationOverlays
             :sorted-annotation-note-windows="sortedAnnotationNoteWindows"
-            :annotation-comments="annotationComments"
             :annotation-note-positions="annotationNotePositions"
             :annotation-viewport-root="pdfViewerRef?.getViewerContainer?.() ?? null"
             :annotation-zoom="effectiveZoom"
@@ -385,7 +384,6 @@ import '@app/assets/css/pdf-comment-ui.scss';
 import '@app/assets/css/pdf-search-highlights.scss';
 import '@app/assets/css/pdf-animations.scss';
 import '@app/assets/css/pdf-debug-overlays.scss';
-import { useMutationObserver } from '@vueuse/core';
 import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
 import { PdfSidebar } from '@app/modules/pdf-viewer/public/component-exports/pdfSidebar';
 import { PdfStatusBar } from '@app/modules/pdf-viewer/public/component-exports/pdfStatusBar';
@@ -476,16 +474,10 @@ function refreshTeleportHosts() {
     canTeleportStatus.value = Boolean(document.getElementById('editor-global-status-host'));
 }
 
-onMounted(refreshTeleportHosts);
-
-useMutationObserver(
-    () => import.meta.client ? document.body : null,
-    refreshTeleportHosts,
-    {
-        childList: true,
-        subtree: true,
-    },
-);
+onMounted(() => {
+    refreshTeleportHosts();
+    void nextTick(refreshTeleportHosts);
+});
 const { isDesktopRuntime } = useRuntimeEnvironment();
 const hasDesktopRuntime = computed(() => isDesktopRuntime.value);
 const canUseOcr = hasDesktopRuntime;
@@ -572,6 +564,8 @@ const {
     removeRecentFile,
     clearRecentFiles,
     pdfViewerRef,
+    djvuViewerRef,
+    documentViewerRef,
     zoomDropdownOpen,
     pageDropdownOpen,
     ocrPopupOpen,
@@ -816,7 +810,7 @@ const {
     scheduleStartupOpenVisualReady,
     dispatchStartupOpenVisualReady,
 } = useWorkspaceStartupReadiness({
-    pdfViewerRef,
+    documentViewerRef,
     showNativeDjvuViewer,
 });
 const isDjvuOpening = computed(() => (
@@ -1055,7 +1049,7 @@ function handleInsertPages() {
 
 function handleViewerCurrentPageUpdate(page: number) {
     const previousPage = currentPage.value;
-    const viewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
+    const viewer = documentViewerRef.value?.getViewerContainer?.() ?? null;
     if (!shouldAcceptViewerCurrentPageUpdate(page)) {
         BrowserLogger.diagnostic('pdf-nav', `[workspace-page-update] ignored stale viewer page ${previousPage}->${page}`, {
             previousPage,
@@ -1140,7 +1134,7 @@ const {
     fitMode,
     viewMode,
     zoom,
-    pdfViewerRef,
+    documentViewerRef,
     initFromStorage,
     cleanupSidebarResizeListeners,
     captureSplitPayload,
@@ -1392,6 +1386,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     viewMode,
     currentPage,
     pdfViewerRef,
+    documentViewerRef,
     handleFitMode,
     handleGoToPage,
     handleToggleSidebar: () => {
@@ -1408,6 +1403,9 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     },
     handleCaptureRegion: () => {
         void handleCaptureRegion();
+    },
+    handleCrop: () => {
+        void handleToolbarCrop();
     },
     handleQuickNote: () => {
         void handleQuickNoteAction();

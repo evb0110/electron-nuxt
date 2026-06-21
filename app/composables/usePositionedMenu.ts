@@ -39,16 +39,23 @@ export const usePositionedMenu = <TMenuState extends IPositionedMenuState>(
     const windowTarget = typeof window === 'undefined' ? undefined : window;
 
     const menu = ref(createInitialState()) as Ref<TMenuState>;
-    const menuElement = computed(() => (
-        typeof window === 'undefined'
-            ? null
-            : document.querySelector<HTMLElement>(selector)
-    ));
+    const menuElementQueryVersion = ref(0);
+    const menuElement = computed(() => {
+        const _queryVersion = menuElementQueryVersion.value;
+        if (typeof window === 'undefined' || !menu.value.visible) {
+            return null;
+        }
+        return document.querySelector<HTMLElement>(selector);
+    });
 
     const menuStyle = computed(() => ({
         left: `${menu.value.x}px`,
         top: `${menu.value.y}px`,
     }));
+
+    function refreshMenuElement() {
+        menuElementQueryVersion.value += 1;
+    }
 
     function positionMenu(
         x: number,
@@ -82,6 +89,7 @@ export const usePositionedMenu = <TMenuState extends IPositionedMenuState>(
             if (!menu.value.visible) {
                 return;
             }
+            refreshMenuElement();
             positionMenu(
                 options.x,
                 options.y,

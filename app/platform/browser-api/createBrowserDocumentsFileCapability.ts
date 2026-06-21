@@ -285,10 +285,22 @@ export function createBrowserDocumentsFileCapability(
             }
         },
         async openDocumentDirectBatch(paths, requestId) {
-            return openDocumentPaths(
-                paths,
-                requestId ? { requestId } : undefined,
-            );
+            if (paths.some((path) => !isBrowserDocumentRef(path))) {
+                return null;
+            }
+
+            try {
+                return await openDocumentPaths(
+                    paths,
+                    requestId ? { requestId } : undefined,
+                );
+            } catch (error) {
+                if (isFileSystemAccessDeniedError(error)) {
+                    return null;
+                }
+
+                throw error;
+            }
         },
         async savePdfAs(workingCopyPath) {
             return savePdfAsWithOptionalData(workingCopyPath);
@@ -532,8 +544,7 @@ export function createBrowserDocumentsFileCapability(
         },
         recentFiles: {
             async get() {
-                await browserDocumentStore.recoverRecentFilesIfStorageMissing();
-                const recentFiles = browserDocumentStore.getRecentFiles();
+                const recentFiles = await browserDocumentStore.recoverRecentFilesIfStorageMissing();
                 const validatedFiles: IRecentFile[] = [];
                 let shouldBackfillStorage = false;
 

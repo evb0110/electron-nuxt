@@ -29,7 +29,6 @@ function createScaleComposable(options: {
     zoom?: number;
     viewMode?: TPdfViewMode;
     currentPage?: number;
-    continuousScroll?: boolean;
 }) {
     const zoom = ref(options.zoom ?? 1);
     const fitMode = ref<TFitMode>(options.mode ?? 'width');
@@ -43,14 +42,12 @@ function createScaleComposable(options: {
     const baseWidth = ref(options.width);
     const baseHeight = ref(options.height);
     const currentPage = ref(options.currentPage ?? 1);
-    const continuousScroll = ref(options.continuousScroll ?? true);
 
     return {
         baseWidth,
         baseHeight,
         pageMetrics,
         currentPage,
-        continuousScroll,
         scale: usePdfScale(
             zoom,
             fitMode,
@@ -61,7 +58,6 @@ function createScaleComposable(options: {
             baseWidth,
             baseHeight,
             currentPage,
-            continuousScroll,
         ),
     };
 }
@@ -124,49 +120,6 @@ describe('usePdfScale', () => {
             padding: '20px',
             gap: '20px',
         });
-    });
-
-    it('keeps fit-height scale stable when continuous scroll toggles on mixed-height PDFs', () => {
-        const pageMetrics = [
-            {
-                width: 600,
-                height: 800,
-            },
-            {
-                width: 600,
-                height: 900,
-            },
-            {
-                width: 600,
-                height: 800,
-            },
-        ] satisfies IPdfPageMetric[];
-        const container = createContainer(1536, 900);
-        const paged = createScaleComposable({
-            width: 600,
-            height: 900,
-            pageMetrics,
-            mode: 'height',
-            currentPage: 1,
-            continuousScroll: false,
-        });
-        const continuous = createScaleComposable({
-            width: 600,
-            height: 900,
-            pageMetrics,
-            mode: 'height',
-            currentPage: 1,
-            continuousScroll: true,
-        });
-
-        paged.scale.computeFitWidthScale(container);
-        continuous.scale.computeFitWidthScale(container);
-
-        expect(paged.scale.effectiveScale.value).toBeCloseTo(
-            continuous.scale.effectiveScale.value,
-            6,
-        );
-        expect(continuous.scale.effectiveScale.value * pageMetrics[0]!.height).toBeCloseTo(860, 6);
     });
 
     it('fits the current page width instead of the widest page in single-page mode', () => {
@@ -255,7 +208,6 @@ describe('usePdfScale', () => {
             mode: 'height',
             viewMode: 'facing-first-single',
             currentPage: 2,
-            continuousScroll: false,
         });
         const container = createContainer(1536, 900);
 
@@ -288,7 +240,6 @@ describe('usePdfScale', () => {
             pageMetrics,
             mode: 'height',
             currentPage: 1,
-            continuousScroll: false,
         });
         const container = createContainer(1536, 900);
 

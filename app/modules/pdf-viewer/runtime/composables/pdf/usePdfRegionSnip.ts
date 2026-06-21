@@ -39,6 +39,7 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
 
     let dragStartPoint: IClientPoint | null = null;
     let pendingResolver: ((result: boolean) => void) | null = null;
+    let captureSessionEpoch = 0;
     const isEscapeCancelActive = ref(false);
     const escapeKeyTarget = computed(() => (
         isEscapeCancelActive.value && typeof window !== 'undefined'
@@ -61,10 +62,11 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
         isEscapeCancelActive.value = false;
     }
 
-    function resolveSession(result: boolean) {
+    function resolveSession(result: boolean, options: { nextState?: TSnipState } = {}) {
+        captureSessionEpoch += 1;
         detachEscapeListener();
         dragStartPoint = null;
-        state.value = 'idle';
+        state.value = options.nextState ?? 'idle';
 
         const resolver = pendingResolver;
         pendingResolver = null;
@@ -133,6 +135,8 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
     }
 
     async function completeSelection(payload: ISnipPointerPayload) {
+        const sessionEpoch = captureSessionEpoch;
+        const isCurrentSession = () => captureSessionEpoch === sessionEpoch;
         const viewerContainer = options.viewerContainer.value;
         if (!dragStartPoint || !viewerContainer) {
             cancelCapture();
@@ -150,12 +154,18 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
         state.value = 'copying';
         try {
             const capture = await capturePdfRegionAsPngBlob(viewerContainer, selection);
+            if (!isCurrentSession()) {
+                return;
+            }
             if (!capture) {
                 cancelCapture();
                 return;
             }
 
             await writePngBlobToClipboard(capture.blob);
+            if (!isCurrentSession()) {
+                return;
+            }
 
             selectionRect.value = null;
             state.value = 'success';
@@ -164,10 +174,12 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
             clearSuccessTimer();
             startSuccessTimer();
         } catch (error) {
+            if (!isCurrentSession()) {
+                return;
+            }
             BrowserLogger.debug('pdf-snip', 'Failed to copy selected PDF region', error);
-            state.value = 'error';
             resetOverlayVisuals();
-            resolveSession(false);
+            resolveSession(false, { nextState: 'error' });
         }
     }
 
@@ -201,6 +213,7 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
         clearSuccessTimer();
         resetOverlayVisuals();
         dragStartPoint = null;
+        captureSessionEpoch += 1;
         state.value = 'selecting';
         attachEscapeCancel();
 

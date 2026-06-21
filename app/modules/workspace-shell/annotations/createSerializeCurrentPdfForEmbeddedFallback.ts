@@ -1,9 +1,12 @@
-import type { ISerializeEmbeddedFallbackDeps } from '@app/modules/workspace-shell/annotations/workspaceAnnotationTypes';
+import type {
+    ISerializeEmbeddedFallbackDeps,
+    TSerializeEmbeddedFallbackResult,
+} from '@app/modules/workspace-shell/annotations/workspaceAnnotationTypes';
 
 export function createSerializeCurrentPdfForEmbeddedFallback(deps: ISerializeEmbeddedFallbackDeps) {
-    return async function serializeCurrentPdfForEmbeddedFallback() {
+    return async function serializeCurrentPdfForEmbeddedFallback(): Promise<TSerializeEmbeddedFallbackResult> {
         if (!deps.pdfViewerRef.value) {
-            return false;
+            return null;
         }
 
         const capturedWorkingCopy = deps.workingCopyPath.value;
@@ -13,10 +16,10 @@ export function createSerializeCurrentPdfForEmbeddedFallback(deps: ISerializeEmb
         );
         const rawData = await deps.pdfViewerRef.value.saveDocument();
         if (!rawData) {
-            return false;
+            return null;
         }
         if (!isCapturedWorkingCopyActive()) {
-            return false;
+            return null;
         }
 
         const pageToRestore = deps.currentPage.value;
@@ -27,12 +30,12 @@ export function createSerializeCurrentPdfForEmbeddedFallback(deps: ISerializeEmb
         });
         if (!isCapturedWorkingCopyActive()) {
             void restorePromise.catch(() => {});
-            return false;
+            return null;
         }
         await restorePromise;
         if (!isCapturedWorkingCopyActive()) {
-            return false;
+            return null;
         }
-        return true;
+        return rawData;
     };
 }

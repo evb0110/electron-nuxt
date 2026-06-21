@@ -192,7 +192,6 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         currentPage: options.currentPage,
         effectiveScale: options.effectiveScale,
         annotationTool: options.annotationTool,
-        annotationCursorMode: options.annotationCursorMode,
         annotationKeepActive: options.annotationKeepActive,
         annotationSettings: options.annotationSettings,
         annotationUiManager: options.annotationUiManager,

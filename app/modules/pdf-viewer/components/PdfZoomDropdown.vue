@@ -132,7 +132,7 @@ import type {
     TPdfViewMode,
 } from '@contracts/shared';
 import { ZOOM } from '@app/constants/pdfLayout';
-import { getShortcutLabels } from '@app/constants/shortcuts';
+import { useShortcutLabels } from '@app/constants/shortcuts';
 import ToolbarButton from '@app/components/ToolbarButton.vue';
 
 const { t } = useTypedI18n();
@@ -177,7 +177,7 @@ const customInputRef = ref<HTMLInputElement | null>(null);
 const effectiveCompactLevel = useClamp(() => compactLevel, 0, 2);
 
 const showStepButtons = computed(() => true);
-const shortcutLabels = getShortcutLabels();
+const shortcutLabels = useShortcutLabels();
 
 function normalizeZoomLevel(value: number) {
     if (!Number.isFinite(value)) {
@@ -200,6 +200,7 @@ function close() {
 
 watch(isOpen, (open) => {
     if (open) {
+        customZoomValue.value = formatZoomValue(normalizedEffectiveZoom.value);
         void nextTick(() => {
             customInputRef.value?.focus();
             customInputRef.value?.select();
@@ -290,14 +291,18 @@ function handleSetViewMode(mode: TPdfViewMode) {
 
 function applyCustomZoom() {
     const parsed = Number.parseFloat(customZoomValue.value);
-
-    const minPercent = ZOOM.MIN * 100;
-    const maxPercent = ZOOM.MAX * 100;
-    if (Number.isFinite(parsed) && parsed >= minPercent && parsed <= maxPercent) {
-        setCustomZoomFromDisplay(parsed / 100);
-        customZoomValue.value = '';
-        close();
+    if (!Number.isFinite(parsed)) {
+        customZoomValue.value = formatZoomValue(normalizedEffectiveZoom.value);
+        void nextTick(() => {
+            customInputRef.value?.select();
+        });
+        return;
     }
+
+    const displayZoom = normalizeZoomLevel(parsed / 100);
+    setCustomZoomFromDisplay(displayZoom);
+    customZoomValue.value = formatZoomValue(displayZoom);
+    close();
 }
 
 function selectCustomZoomInput(event: FocusEvent) {

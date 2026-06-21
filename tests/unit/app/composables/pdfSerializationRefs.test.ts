@@ -209,6 +209,22 @@ describe('resolveCommentPdfRefInDocument', () => {
         expect(resolved?.toString()).toBe(targetRef.toString());
     });
 
+    it('does not clamp generated pdf-page-index ids to an unrelated page', async () => {
+        const { doc } = await createPdfWithFixtures([{ contents: '' }]);
+
+        const resolved = resolveCommentPdfRefInDocument(
+            doc,
+            createPdfComment({
+                id: 'pdf-99-0',
+                pageIndex: 98,
+                pageNumber: 99,
+                text: '',
+            }),
+        );
+
+        expect(resolved).toBeNull();
+    });
+
     it('chooses by exact text match when explicit and generated lookups fail', async () => {
         const {
             doc,

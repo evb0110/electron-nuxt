@@ -190,35 +190,41 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         scrollPageIntoKeyboardView(nextFocusPage);
     }
 
+    function syncInternalSelection(normalized: number[]) {
+        multiSelection.selected.value = new Set(normalized);
+
+        if (normalized.length === 0) {
+            multiSelection.anchor.value = null;
+            selectionFocusPage.value = null;
+            return;
+        }
+
+        if (
+            multiSelection.anchor.value === null ||
+            !normalized.includes(multiSelection.anchor.value)
+        ) {
+            multiSelection.anchor.value = normalized[normalized.length - 1] ?? null;
+        }
+        if (
+            selectionFocusPage.value === null ||
+            !normalized.includes(selectionFocusPage.value)
+        ) {
+            selectionFocusPage.value = normalized[normalized.length - 1] ?? null;
+        }
+    }
+
     watch(
-        selectedPages,
-        (pages) => {
+        [
+            selectedPages,
+            totalPages,
+        ],
+        ([pages]) => {
             const normalized = normalizeSelectedPageNumbers(pages, totalPages.value);
             if (!arePageNumberListsEqual(normalized, pages)) {
                 onSelectedPagesChange(normalized);
-                return;
             }
 
-            multiSelection.selected.value = new Set(normalized);
-
-            if (normalized.length === 0) {
-                multiSelection.anchor.value = null;
-                selectionFocusPage.value = null;
-                return;
-            }
-
-            if (
-                multiSelection.anchor.value === null ||
-                !normalized.includes(multiSelection.anchor.value)
-            ) {
-                multiSelection.anchor.value = normalized[normalized.length - 1] ?? null;
-            }
-            if (
-                selectionFocusPage.value === null ||
-                !normalized.includes(selectionFocusPage.value)
-            ) {
-                selectionFocusPage.value = normalized[normalized.length - 1] ?? null;
-            }
+            syncInternalSelection(normalized);
         },
         {
             immediate: true,

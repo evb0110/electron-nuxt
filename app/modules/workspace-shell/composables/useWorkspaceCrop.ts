@@ -37,23 +37,35 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
 
     const isCropSelecting = computed(() => options.pdfViewerRef.value?.isCropSelecting ?? false);
 
+    function isCurrentCropRequest(
+        requestToken: number,
+        viewer: IPdfViewerExpose,
+        workingCopyPath: TDocumentRef,
+    ) {
+        return requestToken === cropRequestToken
+            && options.pdfViewerRef.value === viewer
+            && options.workingCopyPath.value === workingCopyPath;
+    }
+
     async function handleCrop() {
-        if (!options.pdfViewerRef.value || !options.workingCopyPath.value) {
+        const viewer = options.pdfViewerRef.value;
+        const workingCopyPath = options.workingCopyPath.value;
+        if (!viewer || !workingCopyPath) {
             return;
         }
 
-        if (isCropSelecting.value) {
-            options.pdfViewerRef.value.cancelCropSelection();
-            return;
-        }
-
-        const result = await options.pdfViewerRef.value.startCropSelection();
-        if (!result) {
+        if (viewer.isCropSelecting) {
+            viewer.cancelCropSelection();
             return;
         }
 
         cropRequestToken += 1;
         const requestToken = cropRequestToken;
+        const result = await viewer.startCropSelection();
+        if (!result || !isCurrentCropRequest(requestToken, viewer, workingCopyPath)) {
+            return;
+        }
+
         cropDialogCurrentBox.value = null;
         cropDialogPageNumber.value = result.pageNumber;
         cropDialogRotation.value = 0;
@@ -63,13 +75,13 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
         let geometry: IPageGeometry | null = null;
         try {
             geometry = await getPageOpsCapability().getPageGeometry(
-                options.workingCopyPath.value,
+                workingCopyPath,
                 result.pageNumber,
             );
         } catch (error) {
             BrowserLogger.warn('crop', 'Failed to initialize crop dialog geometry', {
                 pageNumber: result.pageNumber,
-                path: options.workingCopyPath.value,
+                path: workingCopyPath,
                 error: getErrorMessage(error),
             });
             if (requestToken === cropRequestToken) {
@@ -78,7 +90,7 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
             return;
         }
 
-        if (!geometry || requestToken !== cropRequestToken) {
+        if (!geometry || !isCurrentCropRequest(requestToken, viewer, workingCopyPath)) {
             if (requestToken === cropRequestToken) {
                 cropDialogLoading.value = false;
             }
@@ -104,7 +116,10 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
         cropDialogCurrentBox.value = geometry.cropBox;
         cropDialogRotation.value = geometry.rotation;
         await nextTick();
-        if (requestToken !== cropRequestToken) {
+        if (!isCurrentCropRequest(requestToken, viewer, workingCopyPath)) {
+            if (requestToken === cropRequestToken) {
+                cropDialogLoading.value = false;
+            }
             return;
         }
         cropDialogOpen.value = true;

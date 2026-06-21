@@ -5,7 +5,7 @@
             v-if="fatalRuntimeError"
             class="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--app-window-bg)]/96 p-6 backdrop-blur-sm"
         >
-            <div class="w-full max-w-xl rounded-2xl border border-[color:var(--ui-border)] bg-[color:var(--ui-bg)] p-6 shadow-[var(--shadow-popup)]">
+            <div class="w-full max-w-xl rounded-2xl border border-default bg-default p-6 shadow-[var(--shadow-popup)]">
                 <UAlert
                     color="error"
                     variant="soft"
@@ -15,9 +15,9 @@
                 />
                 <div
                     v-if="fatalRuntimeError.detail"
-                    class="mt-4 rounded-xl border border-[color:var(--ui-border)] bg-[color:var(--ui-bg-elevated)] p-4 text-sm text-[color:var(--ui-text-dimmed)]"
+                    class="mt-4 rounded-xl border border-default bg-elevated p-4 text-sm text-dimmed"
                 >
-                    <p class="font-medium text-[color:var(--ui-text)]">
+                    <p class="font-medium text-default">
                         {{ t('errors.runtime.details') }}
                     </p>
                     <p class="mt-2 break-words">
@@ -36,8 +36,8 @@
                         v-if="fatalRuntimeError.detail"
                         color="neutral"
                         variant="soft"
-                        icon="i-ph-copy"
-                        @click="copyText(fatalRuntimeError.detail)"
+                        :icon="recentlyCopiedFatalDetail ? 'i-ph-check' : 'i-ph-copy'"
+                        @click="handleCopyFatalRuntimeDetail"
                     >
                         {{ t('errors.runtime.copy') }}
                     </UButton>
@@ -49,13 +49,13 @@
             class="fixed bottom-4 right-4 z-40 w-[min(32rem,calc(100vw-2rem))]"
         >
             <div
-                class="max-h-[min(32rem,calc(100vh-2rem))] overflow-hidden rounded-lg border border-[color:var(--ui-border)] bg-[color:var(--ui-bg)] p-4 shadow-[var(--shadow-popup)]"
+                class="max-h-[min(32rem,calc(100vh-2rem))] overflow-hidden rounded-lg border border-default bg-default p-4 shadow-[var(--shadow-popup)]"
             >
                 <div class="flex items-start gap-3">
                     <UIcon name="i-ph-x-circle" class="mt-0.5 size-5 shrink-0 text-[color:var(--ui-error)]" />
                     <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2">
-                            <p class="truncate text-sm font-medium text-[color:var(--ui-text)]">
+                            <p class="truncate text-sm font-medium text-default">
                                 {{ t('errors.runtime.reportReady') }}
                             </p>
                             <UBadge
@@ -66,7 +66,7 @@
                                 {{ runtimeErrorReportCount }}
                             </UBadge>
                         </div>
-                        <p class="mt-1 text-xs text-[color:var(--ui-text-dimmed)]">
+                        <p class="mt-1 text-xs text-dimmed">
                             {{ t('errors.runtime.reportDescription') }}
                         </p>
                         <div
@@ -76,10 +76,10 @@
                             <div
                                 v-for="report in runtimeErrorReports"
                                 :key="report.id"
-                                class="rounded-md bg-[color:var(--ui-bg-elevated)] p-3"
+                                class="rounded-md bg-elevated p-3"
                             >
                                 <div class="flex items-center gap-2">
-                                    <p class="min-w-0 flex-1 truncate text-xs font-medium text-[color:var(--ui-text)]">
+                                    <p class="min-w-0 flex-1 truncate text-xs font-medium text-default">
                                         {{ report.title }}
                                     </p>
                                     <UBadge
@@ -101,10 +101,10 @@
                                         />
                                     </AppTooltip>
                                 </div>
-                                <p class="mt-1 text-xs text-[color:var(--ui-text-dimmed)]">
+                                <p class="mt-1 text-xs text-dimmed">
                                     {{ report.source }}
                                 </p>
-                                <pre class="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words text-xs text-[color:var(--ui-text-muted)]">{{ report.detail }}</pre>
+                                <pre class="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words text-xs text-muted">{{ report.detail }}</pre>
                             </div>
                         </div>
                     </div>
@@ -197,11 +197,11 @@ const {
 const {
     fatalRuntimeError,
     setFatalRuntimeError,
-    clearFatalRuntimeError,
     reloadAfterFatalRuntimeError,
 } = useFatalRuntimeError();
 const {
     reports: runtimeErrorReports,
+    reportRuntimeError,
     dismissRuntimeErrorReport,
     clearRuntimeErrorReports,
 } = useRuntimeErrorReports();
@@ -224,9 +224,14 @@ const fatalRuntimeDescription = computed(() => fatalRuntimeError.value?.kind ===
     : t('errors.runtime.description'));
 const runtimeErrorReportCount = computed(() => sumBy(runtimeErrorReports.value, report => report.count));
 const {
+    copied: recentlyCopiedFatalDetail,
+    copy: copyFatalDetailToClipboard,
+    isSupported: isFatalDetailClipboardSupported,
+} = useClipboard({ copiedDuring: 1500 });
+const {
     copied: recentlyCopiedReports,
-    copy: copyToClipboard,
-    isSupported: isClipboardSupported,
+    copy: copyReportsToClipboard,
+    isSupported: isReportsClipboardSupported,
 } = useClipboard({ copiedDuring: 1500 });
 
 function formatRuntimeErrorReport(report: {
@@ -248,8 +253,12 @@ function formatRuntimeErrorReports() {
     return runtimeErrorReports.value.map(formatRuntimeErrorReport).join('\n\n---\n\n');
 }
 
-async function copyText(value: string) {
-    if (!import.meta.client || !isClipboardSupported.value) {
+async function copyText(
+    value: string,
+    copyToClipboard: (value: string) => Promise<void>,
+    isClipboardSupported: boolean,
+) {
+    if (!import.meta.client || !isClipboardSupported) {
         return false;
     }
     try {
@@ -261,8 +270,29 @@ async function copyText(value: string) {
     }
 }
 
+async function handleCopyFatalRuntimeDetail() {
+    const detail = fatalRuntimeError.value?.detail;
+    if (!detail) {
+        return;
+    }
+    await copyText(detail, copyFatalDetailToClipboard, isFatalDetailClipboardSupported.value);
+}
+
 async function handleCopyReports() {
-    await copyText(formatRuntimeErrorReports());
+    await copyText(formatRuntimeErrorReports(), copyReportsToClipboard, isReportsClipboardSupported.value);
+}
+
+function reportStartupWarmupFailure(title: string, error: unknown) {
+    BrowserLogger.warn('loader', title, error);
+    reportRuntimeError({
+        title,
+        source: 'loader',
+        error,
+    });
+}
+
+function guardStartupWarmup(promise: Promise<unknown>, title: string) {
+    void promise.catch(error => reportStartupWarmupFailure(title, error));
 }
 
 onBeforeUnmount(() => {
@@ -325,11 +355,18 @@ async function preloadStartupContent() {
         shouldBlockOnWorkspacePreload,
     });
 
-    const warmupTasks: Array<Promise<unknown>> = [];
+    const warmupTasks: Array<{
+        title: string;
+        promise: Promise<unknown>;
+    }> = [];
+    const recentFilesWarmup = loadRecentFiles();
     if (shouldBlockOnRecentFiles) {
-        warmupTasks.push(loadRecentFiles());
+        warmupTasks.push({
+            title: 'Recent files warmup failed',
+            promise: recentFilesWarmup,
+        });
     } else {
-        void loadRecentFiles();
+        guardStartupWarmup(recentFilesWarmup, 'Recent files warmup failed');
     }
     const preloadSignals = {
         isDesktopRuntime: isDesktopRuntime.value,
@@ -342,13 +379,24 @@ async function preloadStartupContent() {
         : null;
     if (workspacePreload) {
         if (shouldBlockOnWorkspacePreload) {
-            warmupTasks.unshift(workspacePreload);
+            warmupTasks.unshift({
+                title: 'Workspace preload failed',
+                promise: workspacePreload,
+            });
         } else {
-            void workspacePreload;
+            guardStartupWarmup(workspacePreload, 'Workspace preload failed');
         }
     }
 
-    const results = await Promise.allSettled(warmupTasks);
+    const results = await Promise.allSettled(warmupTasks.map(task => task.promise));
+    for (const [
+        index,
+        result,
+    ] of results.entries()) {
+        if (result.status === 'rejected') {
+            reportStartupWarmupFailure(warmupTasks[index]?.title ?? 'Startup warmup failed', result.reason);
+        }
+    }
     BrowserLogger.debug('loader', 'Startup content warmup settled', {
         durationMs: Math.round(performance.now() - warmupStartedAt),
         taskStates: results.map(result => result.status),
@@ -402,7 +450,6 @@ installViteReloadDiagnostics();
 onMounted(async () => {
     const mountTime = Date.now();
     try {
-        clearFatalRuntimeError();
         applyUiScaleToDocument(uiEffectiveScale.value, uiHostSnapshot.value);
         const unsubscribeHostEnvironment = attachHostEnvironmentListener();
         hostEnvironmentUnsubscribers.push(unsubscribeHostEnvironment);

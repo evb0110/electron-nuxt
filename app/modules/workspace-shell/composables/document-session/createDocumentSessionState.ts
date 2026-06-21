@@ -68,6 +68,7 @@ export function createDocumentSessionState(
         pendingDjvu.value = null;
         openBatchProgress.value = null;
         requiresSaveAsOnFirstSave.value = false;
+        lastSaveMode.value = 'rewrite';
     }
 
     return {

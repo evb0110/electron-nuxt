@@ -8,6 +8,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     BROWSER_LOCALE_COOKIE_KEY,
     BROWSER_SETTINGS_COOKIE_KEY,
+    BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS,
     BROWSER_THEME_COOKIE_KEY,
     parseBrowserSettingsPayload,
     serializeBrowserSettingsPayload,
@@ -17,17 +18,29 @@ import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedSt
 
 const SETTINGS_SAVE_RETRY_INITIAL_DELAY_MS = 1_000;
 const SETTINGS_SAVE_RETRY_MAX_DELAY_MS = 30_000;
+const PERSISTENT_SETTINGS_COOKIE_OPTIONS = {
+    watch: false,
+    maxAge: BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS,
+    sameSite: 'lax' as const,
+    path: '/',
+};
 
 export const useSettings = () => {
     const settingsCookie = useCookie<string | Partial<ISettingsData> | null>(BROWSER_SETTINGS_COOKIE_KEY, {
+        ...PERSISTENT_SETTINGS_COOKIE_OPTIONS,
         default: () => null,
-        watch: false,
         decode: value => typeof value === 'string'
             ? decodeURIComponent(value)
             : null,
     });
-    const localeCookie = useCookie<string | null | undefined>(BROWSER_LOCALE_COOKIE_KEY, { watch: false });
-    const themeCookie = useCookie<string | null | undefined>(BROWSER_THEME_COOKIE_KEY, { watch: false });
+    const localeCookie = useCookie<string | null | undefined>(
+        BROWSER_LOCALE_COOKIE_KEY,
+        PERSISTENT_SETTINGS_COOKIE_OPTIONS,
+    );
+    const themeCookie = useCookie<string | null | undefined>(
+        BROWSER_THEME_COOKIE_KEY,
+        PERSISTENT_SETTINGS_COOKIE_OPTIONS,
+    );
     const hasSettingsCookie = settingsCookie.value !== null;
     const hasSettingsCookieSnapshot = useState(
         'settings:has-cookie-snapshot',
@@ -43,6 +56,13 @@ export const useSettings = () => {
         fallbackSettings.theme = normalizeTheme(themeCookie.value);
     }
     const initialSettings = parseBrowserSettingsPayload(settingsCookie.value, fallbackSettings);
+    let lastSavedSettings: ISettingsData | null = hasSettingsCookieSnapshot.value
+        ? sanitizeSettings(initialSettings)
+        : null;
+
+    function rememberSavedSettings(nextSettings: ISettingsData) {
+        lastSavedSettings = sanitizeSettings(nextSettings);
+    }
 
     function syncSettingsCookies(nextSettings: ISettingsData) {
         settingsCookie.value = serializeBrowserSettingsPayload(nextSettings);
@@ -86,8 +106,9 @@ export const useSettings = () => {
             return sanitizeSettings(loadedSettings);
         },
         onLoaded(nextSettings) {
-            syncSettingsCookies(nextSettings);
-            lastSavedSettings = nextSettings;
+            const sanitizedSettings = sanitizeSettings(nextSettings);
+            syncSettingsCookies(sanitizedSettings);
+            rememberSavedSettings(sanitizedSettings);
         },
         onError(loadError) {
             BrowserLogger.error('settings', 'Failed to load settings', loadError);
@@ -95,16 +116,18 @@ export const useSettings = () => {
     });
 
     async function load() {
-        await loadSettingsState();
+        const loadedSettings = await loadSettingsState();
+        if (loadedSettings) {
+            const sanitizedSettings = sanitizeSettings(loadedSettings);
+            syncSettingsCookies(sanitizedSettings);
+            rememberSavedSettings(sanitizedSettings);
+        }
     }
 
     let saveInFlight: Promise<void> | null = null;
     let saveDirty = false;
     let saveRetryTimer: ReturnType<typeof setTimeout> | null = null;
     let saveRetryDelayMs = SETTINGS_SAVE_RETRY_INITIAL_DELAY_MS;
-    let lastSavedSettings: ISettingsData | null = hasSettingsCookieSnapshot.value
-        ? initialSettings
-        : null;
 
     function clearSaveRetryTimer() {
         if (!saveRetryTimer) {
@@ -134,7 +157,7 @@ export const useSettings = () => {
                 if (Object.keys(patch).length > 0) {
                     await getPlatformAPI().settings.save(patch);
                 }
-                lastSavedSettings = payload;
+                rememberSavedSettings(payload);
                 syncSettingsCookies(payload);
                 saveRetryDelayMs = SETTINGS_SAVE_RETRY_INITIAL_DELAY_MS;
             } catch (e) {

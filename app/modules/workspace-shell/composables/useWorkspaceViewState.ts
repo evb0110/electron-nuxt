@@ -8,8 +8,11 @@ import type {
     IAnnotationEditorState,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
-import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type {
+    IDocumentViewerExpose,
+    IScrollToPageOptions,
+    TPdfSidebarTab,
+} from '@app/modules/pdf-viewer/public';
 import { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/public';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
@@ -31,13 +34,12 @@ interface IWorkspaceViewStateDeps {
     currentPage: Ref<number>;
     totalPages: Ref<number>;
     beginProgrammaticPageNavigation?: ((page: number) => void) | undefined;
-    pdfViewerRef: Ref<{
-        scrollToPage: (page: number, options?: IScrollToPageOptions) => void;
-        cancelProgrammaticNavigation?: () => void;
-        getPendingNavigationTargetPage?: () => number | null;
-        cancelCommentPlacement: () => void;
-        applyFitWidthToCurrentPage?: () => Promise<boolean>;
-    } | null>;
+    documentViewerRef: Ref<(
+        IDocumentViewerExpose & {
+            applyFitWidthToCurrentPage?: () => Promise<boolean>;
+            cancelCommentPlacement?: () => void;
+        }
+    ) | null>;
 }
 
 export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
@@ -96,26 +98,25 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
                     deps.annotationEditorState.value.hasSomethingToRedo
                     && deps.hasLivePdfJsAnnotationChanges.value
                 )
-                || deps.annotationEditorState.value.hasSomethingToRedo
                 || deps.annotationEditorState.value.hasAppAnnotationRedoHistory === true
             )
             : deps.canRedoHistory.value
     ));
 
     function handleFitMode(mode: TFitMode) {
-        deps.pdfViewerRef.value?.cancelProgrammaticNavigation?.();
+        deps.documentViewerRef.value?.cancelProgrammaticNavigation?.();
         deps.zoom.value = 1;
         deps.fitMode.value = mode;
         deps.zoomMode.value = mode === 'height' ? 'fit-height' : 'fit-width';
 
         if (mode === 'width') {
-            void nextTick(() => deps.pdfViewerRef.value?.applyFitWidthToCurrentPage?.());
+            void nextTick(() => deps.documentViewerRef.value?.applyFitWidthToCurrentPage?.());
         }
     }
 
     function enableDragMode() {
         deps.dragMode.value = true;
-        deps.pdfViewerRef.value?.cancelCommentPlacement();
+        deps.documentViewerRef.value?.cancelCommentPlacement?.();
         deps.annotationPlacingPageNote.value = false;
         if (deps.annotationTool.value !== 'none') {
             deps.annotationTool.value = 'none';
@@ -132,7 +133,7 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         const targetPage = normalizeNavigationPage(page);
         const wasAlreadyCurrentPage = deps.currentPage.value === targetPage;
         const hasExplicitScrollTarget = options !== undefined;
-        const pendingNavigationTargetPage = deps.pdfViewerRef.value?.getPendingNavigationTargetPage?.() ?? null;
+        const pendingNavigationTargetPage = deps.documentViewerRef.value?.getPendingNavigationTargetPage?.() ?? null;
         const hasConflictingPendingNavigation = pendingNavigationTargetPage !== null
             && pendingNavigationTargetPage !== targetPage;
         BrowserLogger.diagnostic('pdf-nav', `[workspace-go-to-page] requested=${page}`, {
@@ -142,7 +143,7 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
             hasExplicitScrollTarget,
             pendingNavigationTargetPage,
             hasConflictingPendingNavigation,
-            hasViewer: Boolean(deps.pdfViewerRef.value),
+            hasViewer: Boolean(deps.documentViewerRef.value),
             sidebarOpen: deps.showSidebar.value,
             sidebarTab: deps.sidebarTab.value,
             dragMode: deps.dragMode.value,
@@ -157,7 +158,7 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
             hasExplicitScrollTarget,
             pendingNavigationTargetPage,
             hasConflictingPendingNavigation,
-            hasViewer: Boolean(deps.pdfViewerRef.value),
+            hasViewer: Boolean(deps.documentViewerRef.value),
         });
         // A same-page request is not a duplicate when the viewer is still
         // navigating toward another page; in that case it is a cancellation of
@@ -170,7 +171,7 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
             return;
         }
         deps.beginProgrammaticPageNavigation?.(targetPage);
-        deps.pdfViewerRef.value?.scrollToPage(targetPage, options);
+        deps.documentViewerRef.value?.scrollToPage(targetPage, options);
     }
 
     return {

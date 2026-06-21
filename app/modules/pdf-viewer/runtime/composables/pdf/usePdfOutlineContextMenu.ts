@@ -177,10 +177,18 @@ export const usePdfOutlineContextMenu = (
     }
 
     function handleGlobalKeydown(event: KeyboardEvent) {
-        if (event.key === 'Escape') {
-            closeBookmarkContextMenu();
-            onEscape();
+        if (event.key !== 'Escape') {
+            return;
         }
+
+        const hasActiveOutlineContext = bookmarkContextMenu.value.visible || styleRangeStartId.value !== null;
+        if (!hasActiveOutlineContext) {
+            return;
+        }
+
+        closeBookmarkContextMenu();
+        styleRangeStartId.value = null;
+        onEscape();
     }
     useEventListener(windowTarget, 'keydown', handleGlobalKeydown);
 

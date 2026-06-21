@@ -322,6 +322,7 @@ describe('usePdfViewerRuntimeLifecycle inactive lifecycle', () => {
         await nextTick();
 
         expect(lifecycleMocks.cleanupRenderedPages).toHaveBeenCalledTimes(1);
+        expect(lifecycleMocks.invalidateDocumentLoad).toHaveBeenCalledTimes(1);
         expect(lifecycleMocks.resetZoomRerenderQueueState).toHaveBeenCalledWith('inactive-tab');
         expect(lifecycleMocks.cleanupResizeLifecycle).toHaveBeenCalledTimes(1);
         expect(harness.highlight.clearSelectionCache).toHaveBeenCalledTimes(1);

@@ -525,12 +525,14 @@ export const useEditorPanesManager = () => {
             return true;
         }
 
+        const sourceTabIndex = sourcePane.tabIds.indexOf(tabId);
         const nextSourceTabIds = sourcePane.tabIds.filter((candidate: string) => candidate !== tabId);
+        const sourceReplacementTabId = nextSourceTabIds[sourceTabIndex] ?? nextSourceTabIds[sourceTabIndex - 1] ?? null;
         updatePaneTabIds(
             sourcePane.paneId,
             () => nextSourceTabIds,
             currentPane => currentPane.activeTabId === tabId
-                ? nextSourceTabIds[nextSourceTabIds.length - 1] ?? null
+                ? sourceReplacementTabId
                 : currentPane.activeTabId,
         );
         updatePaneTabIds(
@@ -646,8 +648,6 @@ export const useEditorPanesManager = () => {
 
     const activePane = computed(() => getPaneById(activePaneId.value));
     const activeTabId = computed(() => activePane.value?.activeTabId ?? null);
-
-    ensureAtLeastOneTab();
 
     return {
         panes,

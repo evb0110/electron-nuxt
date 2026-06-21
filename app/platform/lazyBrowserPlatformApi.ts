@@ -93,6 +93,19 @@ async function callBrowserMethod<TResult>(path: TPropertyPath, args: unknown[]) 
 function subscribeToBrowserEvent(path: TPropertyPath, args: unknown[]): TUnsubscribe {
     let active = true;
     let unsubscribe: TUnsubscribe | null = null;
+    const guardedArgs = args.map((arg) => {
+        if (typeof arg !== 'function') {
+            return arg;
+        }
+
+        return (...callbackArgs: unknown[]) => {
+            if (!active) {
+                return undefined;
+            }
+
+            return (arg as (...args: unknown[]) => unknown)(...callbackArgs);
+        };
+    });
 
     void resolveBrowserMethod(path).then(({
         callable,
@@ -101,13 +114,13 @@ function subscribeToBrowserEvent(path: TPropertyPath, args: unknown[]): TUnsubsc
         if (!active) {
             return;
         }
-        const cleanup: unknown = callable.apply(owner, args);
+        const cleanup: unknown = callable.apply(owner, guardedArgs);
         if (active && typeof cleanup === 'function') {
             unsubscribe = cleanup as TUnsubscribe;
         } else if (!active && typeof cleanup === 'function') {
             (cleanup as TUnsubscribe)();
         }
-    });
+    }).catch(() => undefined);
 
     return () => {
         active = false;

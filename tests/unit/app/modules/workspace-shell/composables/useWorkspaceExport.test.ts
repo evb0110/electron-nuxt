@@ -443,6 +443,37 @@ describe('useWorkspaceExport', () => {
             expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
             expect(exportImagesMock).not.toHaveBeenCalled();
             expect(state.exportOverlay.value).toBeNull();
+            expect(toastAddMock).toHaveBeenCalledWith({
+                color: 'error',
+                title: 'errors.export.images',
+                description: 'errors.file.save',
+            });
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('shows a TIFF export error when pending changes cannot be persisted', async () => {
+        const ensureWorkingCopyFreshForRead = vi.fn(async () => false);
+
+        const {
+            scope,
+            state,
+        } = createComposable({ ensureWorkingCopyFreshForRead });
+
+        try {
+            const exportPromise = state.handleExportMultiPageTiff([1]);
+            state.handleExportScopeDialogSubmit({pageNumbers: [1]});
+            await exportPromise;
+
+            expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
+            expect(exportTiffMock).not.toHaveBeenCalled();
+            expect(state.exportOverlay.value).toBeNull();
+            expect(toastAddMock).toHaveBeenCalledWith({
+                color: 'error',
+                title: 'errors.export.multiPageTiff',
+                description: 'errors.file.save',
+            });
         } finally {
             scope.stop();
         }

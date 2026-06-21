@@ -7,12 +7,17 @@ import type {
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import { useDropdownManager } from '@app/modules/workspace-shell/composables/useDropdownManager';
 import type {
+    IDocumentViewerExpose,
     IPdfViewerExpose,
     TPdfSidebarTab,
-} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+} from '@app/modules/pdf-viewer/public';
 
 export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState | null) => {
     const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
+    const djvuViewerRef = ref<IDocumentViewerExpose | null>(null);
+    const documentViewerRef = computed<IDocumentViewerExpose | null>(() => (
+        pdfViewerRef.value ?? djvuViewerRef.value
+    ));
     const zoomDropdownOpen = ref(false);
     const pageDropdownOpen = ref(false);
     const ocrPopupOpen = ref(false);
@@ -75,6 +80,8 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
 
     return {
         pdfViewerRef,
+        djvuViewerRef,
+        documentViewerRef,
         zoomDropdownOpen,
         pageDropdownOpen,
         ocrPopupOpen,

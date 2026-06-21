@@ -2,7 +2,6 @@
     <template v-for="[pageNum, markers] in markersByPage" :key="`markers-${pageNum}`">
         <Teleport v-if="markerLayerTargets.get(pageNum)" :to="markerLayerTargets.get(pageNum)!">
             <PdfCommentMarkerLayer
-                :page-number="pageNum"
                 :markers="markers"
                 @open-note="handleOpenNote"
                 @context-menu="handleContextMenu"

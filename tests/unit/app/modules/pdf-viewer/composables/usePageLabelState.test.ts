@@ -4,13 +4,27 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    nextTick,
+    ref,
+} from 'vue';
 import type { Ref } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
 import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-viewer/engine/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
 import type { IPdfPageLabelRange } from '@app/types/pdf';
 import { cast } from '@tests/helpers/cast';
+
+function createDeferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((resolvePromise) => {
+        resolve = resolvePromise;
+    });
+    return {
+        promise,
+        resolve,
+    };
+}
 
 function createPdfDocumentRef(
     numPages: number,
@@ -115,6 +129,48 @@ describe('usePageLabelState', () => {
             prefix: '',
             startNumber: 1,
         }]);
+    });
+
+    it('ignores label sync results from a document that has been replaced', async () => {
+        const staleLabels = createDeferred<string[] | null>();
+        const staleDocument = cast<PDFDocumentProxy>({
+            numPages: 2,
+            getPageLabels: vi.fn(() => staleLabels.promise),
+        });
+        const freshDocument = cast<PDFDocumentProxy>({
+            numPages: 2,
+            getPageLabels: vi.fn(async () => [
+                'Cover',
+                'Body',
+            ]),
+        });
+        const pdfDocument = cast<Ref<PDFDocumentProxy | null>>(ref(staleDocument));
+        const state = usePageLabelState({
+            pdfDocument,
+            totalPages: ref(2),
+            markDirty: vi.fn(),
+        });
+
+        pdfDocument.value = freshDocument;
+        await nextTick();
+        await state.syncPageLabelsFromDocument(freshDocument);
+
+        expect(state.pageLabels.value).toEqual([
+            'Cover',
+            'Body',
+        ]);
+
+        staleLabels.resolve([
+            'old-1',
+            'old-2',
+        ]);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(state.pageLabels.value).toEqual([
+            'Cover',
+            'Body',
+        ]);
     });
 
     it('marks dirty only when label ranges actually change', () => {

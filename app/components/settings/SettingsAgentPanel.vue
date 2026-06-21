@@ -519,8 +519,8 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
 .settings-agent-card {
     display: flex;
     align-items: flex-start;
-    gap: 0.75rem;
-    padding: 0.75rem;
+    gap: var(--app-space-9xl);
+    padding: var(--app-space-9xl);
     border: 1px solid var(--ui-border);
     border-radius: var(--ui-radius);
     background: var(--ui-bg-elevated);
@@ -533,7 +533,7 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
 .settings-agent-card-row {
     display: flex;
     align-items: flex-start;
-    gap: 0.75rem;
+    gap: var(--app-space-9xl);
     width: 100%;
 }
 
@@ -545,13 +545,13 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
 .settings-agent-status {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: var(--app-space-xl);
     color: var(--ui-text);
 }
 
 .settings-agent-status-icon {
-    width: 1rem;
-    height: 1rem;
+    width: var(--app-icon-size-md);
+    height: var(--app-icon-size-md);
     flex-shrink: 0;
     color: var(--ui-text-dimmed);
 }
@@ -567,9 +567,9 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
 .settings-agent-auth {
     display: flex;
     align-items: flex-start;
-    gap: 0.75rem;
+    gap: var(--app-space-9xl);
     width: 100%;
-    padding-top: 0.7rem;
+    padding-top: var(--app-space-8xl);
     border-top: 1px solid var(--ui-border);
 }
 
@@ -579,14 +579,14 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
 }
 
 .settings-agent-status-label {
-    font-size: 0.875rem;
-    font-weight: 600;
+    font-size: var(--app-text-size-body);
+    font-weight: var(--app-font-weight-semibold);
 }
 
 .settings-agent-actions {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: var(--app-space-md);
     flex-shrink: 0;
 }
 
@@ -598,15 +598,15 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
 .settings-agent-device-code {
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: var(--app-space-md);
     flex: 0 0 auto;
     max-width: 100%;
-    padding: 0.3rem 0.45rem;
+    padding: 0.3rem var(--app-space-2xl);
     border: 1px solid var(--ui-border);
     border-radius: var(--ui-radius);
     background: var(--ui-bg-muted);
     color: var(--ui-text-muted);
-    font-size: 0.75rem;
+    font-size: var(--app-text-size-kicker);
 }
 
 .settings-agent-device-code strong {
@@ -619,46 +619,46 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
 .settings-agent-switch-row {
     display: inline-flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: var(--app-space-5xl);
     flex-shrink: 0;
     cursor: pointer;
 }
 
 .settings-agent-switch-label {
     color: var(--ui-text-muted);
-    font-size: 0.8125rem;
-    font-weight: 500;
+    font-size: var(--app-text-size-body-sm);
+    font-weight: var(--app-font-weight-medium);
 }
 
 .settings-agent-details {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 0.35rem;
+    gap: var(--app-space-md);
     margin: 0;
 }
 
 .settings-agent-details div {
     display: grid;
     grid-template-columns: minmax(5.5rem, 0.35fr) minmax(0, 1fr);
-    gap: 0.5rem;
+    gap: var(--app-space-3xl);
     min-width: 0;
 }
 
 .settings-agent-details dt {
     color: var(--ui-text-dimmed);
-    font-size: 0.75rem;
+    font-size: var(--app-text-size-kicker);
 }
 
 .settings-agent-details dd {
     margin: 0;
     min-width: 0;
     color: var(--ui-text);
-    font-size: 0.75rem;
+    font-size: var(--app-text-size-kicker);
     overflow-wrap: anywhere;
 }
 
 .settings-agent-details--guide {
-    padding: 0.65rem;
+    padding: var(--app-space-7xl);
     border: 1px solid var(--ui-border);
     border-radius: var(--ui-radius);
     background: var(--ui-bg-muted);
@@ -668,7 +668,7 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
+    gap: var(--app-space-9xl);
 }
 
 @container (max-width: 42rem) {
@@ -692,35 +692,35 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
 .settings-agent-guide {
     display: flex;
     flex-direction: column;
-    gap: 0.9rem;
+    gap: var(--app-space-11xl);
 }
 
 .settings-agent-guide-section {
     display: flex;
     flex-direction: column;
-    gap: 0.45rem;
+    gap: var(--app-space-2xl);
 }
 
 .settings-agent-guide-section h3 {
     margin: 0;
     color: var(--ui-text);
-    font-size: 0.875rem;
-    font-weight: 650;
+    font-size: var(--app-text-size-body);
+    font-weight: var(--app-font-weight-heading);
 }
 
 .settings-agent-guide-section ol {
     margin: 0;
-    padding-left: 1.25rem;
+    padding-left: var(--app-space-15xl);
     color: var(--ui-text-muted);
-    font-size: 0.8125rem;
-    line-height: 1.45;
+    font-size: var(--app-text-size-body-sm);
+    line-height: var(--app-line-height-body);
 }
 
 .settings-agent-code-block {
     display: flex;
     align-items: stretch;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--app-space-3xl);
     min-width: 0;
 }
 
@@ -728,14 +728,14 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     flex: 1 1 auto;
     min-width: 0;
     margin: 0;
-    padding: 0.65rem;
+    padding: var(--app-space-7xl);
     overflow-x: auto;
     border: 1px solid var(--ui-border);
     border-radius: var(--ui-radius);
     background: var(--ui-bg-elevated);
     color: var(--ui-text);
-    font-size: 0.75rem;
-    line-height: 1.45;
+    font-size: var(--app-text-size-kicker);
+    line-height: var(--app-line-height-body);
     user-select: text;
 }
 

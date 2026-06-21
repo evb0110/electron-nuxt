@@ -43,4 +43,5 @@ export type THighlightCompositeSource = IHighlightPaintFragment;
 export interface IHighlightCompositeHost extends HTMLElement {
     __evbHighlightCompositeObserver?: MutationObserver | undefined;
     __evbHighlightCompositeScheduled?: boolean | undefined;
+    __evbHighlightCompositeRefreshRafId?: number | undefined;
 }

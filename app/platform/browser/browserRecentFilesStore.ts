@@ -138,7 +138,7 @@ export class BrowserRecentFilesStore {
 
     public async recoverRecentFilesIfStorageMissing() {
         if (hasRecentFilesStorageSnapshot()) {
-            return readRecentFilesFromStorage();
+            return this.getRecentFiles();
         }
 
         const records = await this.repository.getAllPersistedRecords();

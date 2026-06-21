@@ -300,7 +300,7 @@ export function registerTabsMenuBindings(
         api.windowTabs?.onMenuCopyTabToPane?.((direction) => {
             runMenuAction('copy-tab-to-pane', () => deps.copyActiveTab(direction));
         }),
-        api.windowTabs?.onWindowAction((action) => {
+        api.windowTabs?.onWindowAction?.((action) => {
             runMenuAction('window-action', () => deps.handleWindowTabsAction(action));
         }),
     ].flatMap(cleanup => typeof cleanup === 'function' ? [cleanup] : []);

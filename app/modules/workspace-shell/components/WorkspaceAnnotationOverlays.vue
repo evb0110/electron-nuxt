@@ -196,7 +196,6 @@ const {
     sortedAnnotationNoteWindows,
 } = defineProps<{
     sortedAnnotationNoteWindows: IAnnotationNoteWindowEntry[];
-    annotationComments: IAnnotationCommentSummary[];
     annotationNotePositions: Record<string, IAnnotationNotePosition>;
     annotationViewportRoot?: HTMLElement | null;
     annotationZoom?: number;
@@ -258,7 +257,7 @@ const anchoredAnnotationNoteWindows = computed(() => {
 const indicatorDomTick = ref(0);
 const annotationViewportRootElement = computed(() => annotationViewportRoot ?? null);
 
-function logAnchor(message: string, payload: Record<string, unknown>) {
+function logAnchor(message: string, payload: Record<string, unknown> | (() => Record<string, unknown>)) {
     BrowserLogger.debug('note-anchor', message, payload);
 }
 
@@ -829,23 +828,23 @@ function handleAnchorPointerEvent(
     if (eventName !== 'focus') {
         return;
     }
-    logAnchor('anchor pointer event', {
+    logAnchor('anchor pointer event', () => ({
         eventName,
         stableKey: note.comment.stableKey,
         pageNumber: note.comment.pageNumber,
         markerRect: getNoteMarkerRect(note),
         preview: getMinimizedNotePreview(note),
         isMinimized: note.isMinimized,
-    });
+    }));
 }
 
 function handleAnchorClick(note: IAnnotationNoteWindowEntry) {
-    logAnchor('anchor clicked', {
+    logAnchor('anchor clicked', () => ({
         stableKey: note.comment.stableKey,
         pageNumber: note.comment.pageNumber,
         markerRect: getNoteMarkerRect(note),
         isMinimized: note.isMinimized,
-    });
+    }));
     emit('restore-note', note.comment.stableKey);
 }
 

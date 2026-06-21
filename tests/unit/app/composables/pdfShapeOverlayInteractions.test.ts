@@ -1,12 +1,21 @@
+// @vitest-environment happy-dom
+
 import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
+import {
+    createApp,
+    ref,
+    shallowRef,
+} from 'vue';
 import { findShapeAtPoint } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/findShapeAtPoint';
 import { getNormalizedSvgPointerCoords } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/getNormalizedSvgPointerCoords';
 import { hasPointerMovedPastThreshold } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/hasPointerMovedPastThreshold';
 import { resolveSvgPointerTarget } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/resolveSvgPointerTarget';
+import { usePdfShapeOverlayInteractions } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/usePdfShapeOverlayInteractions';
 import type { IShapeAnnotation } from '@app/types/annotations';
 
 function createRect(left: number, top: number, width: number, height: number) {
@@ -27,7 +36,69 @@ function createEventTarget<T extends object>(value: T): T & EventTarget {
     };
 }
 
+interface IOverlayInteractionHandlersBox { current: ReturnType<typeof usePdfShapeOverlayInteractions> | null; }
+
 describe('pdfShapeOverlayInteractions', () => {
+    it('keeps pointerleave pending when captured pointer id is zero', () => {
+        const hasPointerCapture = vi.fn(() => true);
+        const releasePointerCapture = vi.fn();
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        Object.defineProperties(svg, {
+            hasPointerCapture: { value: hasPointerCapture },
+            releasePointerCapture: { value: releasePointerCapture },
+            setPointerCapture: { value: vi.fn() },
+        });
+        const emit = {
+            startDrawing: vi.fn(),
+            continueDrawing: vi.fn(),
+            finishDrawing: vi.fn(),
+            startDragShape: vi.fn(),
+            continueDragShape: vi.fn(),
+            finishDragShape: vi.fn(),
+            startResizeShape: vi.fn(),
+            continueResizeShape: vi.fn(),
+            finishResizeShape: vi.fn(),
+            selectShape: vi.fn(),
+            shapeContextmenu: vi.fn(),
+        };
+        const handlersBox: IOverlayInteractionHandlersBox = { current: null };
+        const root = document.createElement('div');
+        document.body.append(root);
+        const app = createApp({ setup() {
+            handlersBox.current = usePdfShapeOverlayInteractions({
+                svgRef: ref(svg),
+                svgWidth: ref(100),
+                svgHeight: ref(100),
+                props: {
+                    shapes: [],
+                    selectedShapeId: null,
+                    isActive: false,
+                    selectionEnabled: true,
+                    tool: null,
+                },
+                selectedShape: shallowRef(null),
+                selectedShapeBounds: shallowRef(null),
+                emit,
+            });
+            return () => null;
+        }});
+
+        app.mount(root);
+        const handlers = handlersBox.current;
+        if (!handlers) {
+            throw new Error('expected overlay interaction handlers');
+        }
+        handlers.handlePointerUp(new PointerEvent('pointerleave', { pointerId: 0 }));
+        app.unmount();
+        root.remove();
+
+        expect(hasPointerCapture).toHaveBeenCalledWith(0);
+        expect(releasePointerCapture).not.toHaveBeenCalled();
+        expect(emit.finishDrawing).not.toHaveBeenCalled();
+        expect(emit.finishDragShape).not.toHaveBeenCalled();
+        expect(emit.finishResizeShape).not.toHaveBeenCalled();
+    });
+
     it('resolves pointer coordinates against the ancestor svg instead of the shape group bounds', () => {
         const svg = createEventTarget({
             closest: () => null,

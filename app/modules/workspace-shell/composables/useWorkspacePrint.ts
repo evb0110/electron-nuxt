@@ -175,13 +175,14 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         } satisfies IPrintDialogSubmitPayload;
 
         const { shouldPrintPageMetricsDirectly } = await import('@app/utils/pdfPrint');
-        shouldPrintPageMetricsDirectly(
+        const printSourceDirectly = shouldPrintPageMetricsDirectly(
             await deps.getQuickPrintPageMetrics() ?? [],
             defaultPayload,
-        );
+        ) === true;
 
         await handlePrintDialogSubmit(defaultPayload, {
             action: 'default',
+            printSourceDirectly,
             reopenDialogOnError: false,
         });
     }
@@ -514,6 +515,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         payload: IPrintDialogSubmitPayload,
         options: {
             action?: 'default' | 'current-page';
+            printSourceDirectly?: boolean;
             reopenDialogOnError?: boolean;
         } = {},
     ) {
@@ -538,6 +540,11 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             throwIfPrintAborted(signal);
             if (!sourceData) {
                 throw new Error('Missing printable PDF source data');
+            }
+
+            if (options.printSourceDirectly === true) {
+                await tryPrintInBrowserWithNativeFallback(sourceData, signal);
+                return;
             }
 
             const { buildPrintablePdfData } = await import('@app/utils/pdfPrint');

@@ -7,7 +7,6 @@ import {
     collectBookmarkIds,
     findBookmarkById,
     findBookmarkLocation,
-    flattenBookmarks,
     normalizeBookmarkColor,
 } from '@app/utils/pdfOutlineHelpers';
 
@@ -31,10 +30,6 @@ export const usePdfOutlineEditing = (
 ) => {
     const { t } = useTypedI18n();
     const editingItemId = ref<string | null>(null);
-
-    const flatBookmarks = computed(() => flattenBookmarks(bookmarks.value));
-
-    // Keep flatBookmarks for internal use (pruneStaleState)
 
     function createDraftBookmark(): IBookmarkItem {
         return {
@@ -273,10 +268,23 @@ export const usePdfOutlineEditing = (
 
     function getValidBookmarkIds() {
         const validIds = new Set<string>();
-        for (const item of flatBookmarks.value) {
-            validIds.add(item.id);
+        function visit(items: IBookmarkItem[]) {
+            for (const item of items) {
+                validIds.add(item.id);
+                visit(item.items);
+            }
         }
+        visit(bookmarks.value);
         return validIds;
+    }
+
+    function hasInvalidId(source: Set<string>, validIds: Set<string>) {
+        for (const id of source) {
+            if (!validIds.has(id)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     function retainValidIds(source: Set<string>, validIds: Set<string>) {
@@ -287,15 +295,6 @@ export const usePdfOutlineEditing = (
             }
         }
         return next;
-    }
-
-    function hasInvalidId(source: Set<string>, validIds: Set<string>) {
-        for (const id of source) {
-            if (!validIds.has(id)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     function pruneActiveAndEditingState(validIds: Set<string>) {
@@ -348,9 +347,18 @@ export const usePdfOutlineEditing = (
         });
     }
 
+    watch(isEditMode, (enabled) => {
+        if (enabled) {
+            return;
+        }
+        editingItemId.value = null;
+        styleRangeStartId.value = null;
+        closeBookmarkContextMenu();
+        resetDragState();
+    });
+
     return {
         editingItemId,
-        flatBookmarks,
         createDraftBookmark,
         startEditingBookmark,
         cancelEditingBookmark,

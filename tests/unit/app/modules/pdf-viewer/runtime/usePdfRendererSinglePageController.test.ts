@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { ref } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { usePdfRendererSinglePageController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSinglePageController';
 
@@ -124,5 +125,65 @@ describe('usePdfRendererSinglePageController', () => {
         expect(cleanupPageIfCurrentRender).toHaveBeenCalledWith(1, 1, 1);
         expect(releasePageResources).toHaveBeenCalledWith(1, pdfPage);
         expect(renderingPages.has(1)).toBe(false);
+    });
+
+    it('uses the invocation scale for standalone annotation-editor layer renders', async () => {
+        const { root } = createPageRoot();
+        const renderVersion = 1;
+        const effectiveScale = ref(1);
+        const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
+        const releasePageResources = vi.fn();
+        const getViewportForAnnotationEditorLayer = vi.fn(() => ({}) as never);
+        const renderAnnotationEditorLayer = vi.fn(async () => true);
+
+        const controller = usePdfRendererSinglePageController({
+            isActive: true,
+            effectiveScale,
+            annotationUiManager: {},
+            getContainerRoot: () => root,
+            renderedPages: new Set<number>(),
+            staleRenderedPages: new Set<number>(),
+            renderingPages: new Map(),
+            renderingPageRequestIds: new Map(),
+            activeRenderTasks: new Map(),
+            getRenderVersion: () => renderVersion,
+            getVisibleRenderRequestId: () => 1,
+            summarizePageDom: () => ({}),
+            clearSelectionBeforePageLayerTeardown: vi.fn(),
+            cleanupPageIfCurrentRender: vi.fn(),
+            cleanupCanvasRenderResult: vi.fn(),
+            releasePageResources,
+            loadPageForRender: vi.fn(async () => {
+                effectiveScale.value = 2;
+                return pdfPage;
+            }),
+            prepareCanvasRenderForPage: vi.fn(async () => ({
+                canvas: document.createElement('canvas'),
+                startRender: vi.fn(),
+            })),
+            renderPreparedCanvasForPage: vi.fn(async prepared => ({ canvas: prepared.canvas })),
+            prepareCanvasForRender: vi.fn(async () => ({ canvas: document.createElement('canvas') })),
+            applyContainerDimensions: vi.fn(),
+            mountRenderedCanvas: vi.fn(),
+            scheduleRenderForSinglePage: vi.fn(),
+            scheduleMissingRenderTargetRetry: vi.fn(),
+            clearMissingRenderTargetRetry: vi.fn(),
+            renderTextLayerForPage: vi.fn(async () => true),
+            renderAnnotationLayersForPage: vi.fn(async () => ({
+                shouldContinue: true,
+                annotationLayerInstance: null,
+            })),
+            renderAnnotationEditorLayer,
+            getViewportForAnnotationEditorLayer,
+            scheduleOcrDebugForPage: vi.fn(),
+            logNonCriticalStageError: vi.fn(),
+        });
+
+        const rendered = await controller.renderAnnotationEditorLayerForPage(1);
+
+        expect(rendered).toBe(true);
+        expect(getViewportForAnnotationEditorLayer).toHaveBeenCalledWith(pdfPage, 1);
+        expect(renderAnnotationEditorLayer).toHaveBeenCalledOnce();
+        expect(releasePageResources).toHaveBeenCalledWith(1, pdfPage);
     });
 });

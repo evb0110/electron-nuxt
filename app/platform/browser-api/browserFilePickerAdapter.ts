@@ -22,6 +22,9 @@ const BROWSER_OPEN_PICKER_MODE_SESSION_KEY = 'evb-viewer:browser:open-picker-mod
 const BROWSER_OPEN_PICKER_MODE_INPUT = 'input';
 const BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS = 120_000;
 const BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS = 180_000;
+const BROWSER_INPUT_PICKER_FOCUS_CANCEL_INITIAL_DELAY_MS = 2_000;
+const BROWSER_INPUT_PICKER_FOCUS_CANCEL_RETRY_DELAY_MS = 1_000;
+const BROWSER_INPUT_PICKER_FOCUS_CANCEL_RETRIES = 3;
 
 type TFileSystemPermissionMode = 'read' | 'readwrite';
 type TFileSystemPermissionState = 'granted' | 'denied' | 'prompt';
@@ -237,13 +240,40 @@ export async function pickFiles(options: {
             );
         };
 
-        const handleFocus = () => {
+        const finishSelectedInputFiles = () => {
+            const files = Array.from(input.files ?? []);
+            if (files.length === 0) {
+                return false;
+            }
+
+            finish(files);
+            return true;
+        };
+
+        const scheduleFocusFallbackCancel = (remainingRetries: number, delayMs: number) => {
             focusFallbackTimer = window.setTimeout(() => {
                 focusFallbackTimer = null;
-                if (!settled) {
-                    finish([]);
+                if (settled || finishSelectedInputFiles()) {
+                    return;
                 }
-            }, 2_000);
+
+                if (remainingRetries > 0) {
+                    scheduleFocusFallbackCancel(
+                        remainingRetries - 1,
+                        BROWSER_INPUT_PICKER_FOCUS_CANCEL_RETRY_DELAY_MS,
+                    );
+                    return;
+                }
+
+                finish([]);
+            }, delayMs);
+        };
+
+        const handleFocus = () => {
+            scheduleFocusFallbackCancel(
+                BROWSER_INPUT_PICKER_FOCUS_CANCEL_RETRIES,
+                BROWSER_INPUT_PICKER_FOCUS_CANCEL_INITIAL_DELAY_MS,
+            );
         };
 
         input.type = 'file';

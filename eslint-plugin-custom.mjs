@@ -952,7 +952,15 @@ export default {rules: {
                     'text-dimmed',
                 ],
                 [
+                    'text-[color:var(--ui-text-dimmed)]',
+                    'text-dimmed',
+                ],
+                [
                     'text-(--ui-text-muted)',
+                    'text-muted',
+                ],
+                [
+                    'text-[color:var(--ui-text-muted)]',
                     'text-muted',
                 ],
                 [
@@ -960,7 +968,15 @@ export default {rules: {
                     'text-toned',
                 ],
                 [
+                    'text-[color:var(--ui-text-toned)]',
+                    'text-toned',
+                ],
+                [
                     'text-(--ui-text)',
+                    'text-default',
+                ],
+                [
+                    'text-[color:var(--ui-text)]',
                     'text-default',
                 ],
                 [
@@ -968,7 +984,15 @@ export default {rules: {
                     'text-highlighted',
                 ],
                 [
+                    'text-[color:var(--ui-text-highlighted)]',
+                    'text-highlighted',
+                ],
+                [
                     'text-(--ui-text-inverted)',
+                    'text-inverted',
+                ],
+                [
+                    'text-[color:var(--ui-text-inverted)]',
                     'text-inverted',
                 ],
                 [
@@ -976,7 +1000,15 @@ export default {rules: {
                     'bg-default',
                 ],
                 [
+                    'bg-[color:var(--ui-bg)]',
+                    'bg-default',
+                ],
+                [
                     'bg-(--ui-bg-muted)',
+                    'bg-muted',
+                ],
+                [
+                    'bg-[color:var(--ui-bg-muted)]',
                     'bg-muted',
                 ],
                 [
@@ -984,7 +1016,15 @@ export default {rules: {
                     'bg-elevated',
                 ],
                 [
+                    'bg-[color:var(--ui-bg-elevated)]',
+                    'bg-elevated',
+                ],
+                [
                     'bg-(--ui-bg-accented)',
+                    'bg-accented',
+                ],
+                [
+                    'bg-[color:var(--ui-bg-accented)]',
                     'bg-accented',
                 ],
                 [
@@ -992,7 +1032,15 @@ export default {rules: {
                     'bg-inverted',
                 ],
                 [
+                    'bg-[color:var(--ui-bg-inverted)]',
+                    'bg-inverted',
+                ],
+                [
                     'border-(--ui-border)',
+                    'border-default',
+                ],
+                [
+                    'border-[color:var(--ui-border)]',
                     'border-default',
                 ],
                 [
@@ -1000,11 +1048,23 @@ export default {rules: {
                     'border-muted',
                 ],
                 [
+                    'border-[color:var(--ui-border-muted)]',
+                    'border-muted',
+                ],
+                [
                     'border-(--ui-border-accented)',
                     'border-accented',
                 ],
                 [
+                    'border-[color:var(--ui-border-accented)]',
+                    'border-accented',
+                ],
+                [
                     'border-(--ui-border-inverted)',
+                    'border-inverted',
+                ],
+                [
+                    'border-[color:var(--ui-border-inverted)]',
                     'border-inverted',
                 ],
             ];

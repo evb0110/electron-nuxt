@@ -29,9 +29,11 @@ export const usePdfViewerOutputScale = () => {
 
     function updateOutputScale() {
         const nextScale = readWindowOutputScale();
-        if (outputScale.value !== nextScale) {
-            outputScale.value = nextScale;
+        if (outputScale.value === nextScale) {
+            return;
         }
+
+        outputScale.value = nextScale;
         installMediaListener();
     }
 

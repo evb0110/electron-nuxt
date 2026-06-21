@@ -15,7 +15,7 @@ export async function updateEmbeddedAnnotationText(
     data: Uint8Array,
     comment: IAnnotationCommentSummary,
     text: string,
-) {
+): Promise<Uint8Array | null> {
     const doc = await PDFDocument.load(data, { updateMetadata: false });
     const targetRef = resolveCommentPdfRefInDocument(doc, comment);
     if (!targetRef) {

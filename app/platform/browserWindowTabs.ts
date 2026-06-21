@@ -14,6 +14,7 @@ const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
 const WINDOW_ID_QUERY_PARAM = 'evbWindowId';
 const WINDOW_TABS_STATE_KEY = '__evbBrowserWindowTabsState';
 const DEFAULT_TRANSFER_TIMEOUT_MS = 12_000;
+const INCOMING_TRANSFER_NONCE_TTL_MS = 60_000;
 const DISCOVERY_SETTLE_DELAY_MS = 60;
 const FALLBACK_WINDOW_TITLE = 'EVB Viewer';
 const CLOSE_CURRENT_WINDOW_TIMEOUT_MS = 150;
@@ -41,6 +42,11 @@ interface IPendingBrowserTransfer {
     nonce: string;
     payload: TBrowserTransferEnvelope;
     resolve: (result: IWindowTabTransferResult) => void;
+    timeoutHandle: ReturnType<typeof setTimeout>;
+}
+
+interface IIncomingBrowserTransferNonce {
+    nonce: string;
     timeoutHandle: ReturnType<typeof setTimeout>;
 }
 
@@ -82,7 +88,7 @@ type TBrowserWindowTabsMessage =
 const incomingTransferListeners = new Set<TIncomingTransferListener>();
 const knownWindows = new Map<number, IKnownBrowserWindow>();
 const pendingTransfers = new Map<string, IPendingBrowserTransfer>();
-const incomingTransferNonces = new Map<string, string>();
+const incomingTransferNonces = new Map<string, IIncomingBrowserTransferNonce>();
 const queuedTransfersByWindow = new Map<number, string[]>();
 
 const browserWindowTabsInstanceId = Symbol('browserWindowTabsInstance');
@@ -358,6 +364,7 @@ function cleanupBrowserWindowTabsInstance(unregister: boolean) {
     }
     cleanupRegistered = false;
     cleanupChannel();
+    clearIncomingTransferNonces();
 
     const state = getBrowserWindowTabsState();
     if (state?.instanceId === browserWindowTabsInstanceId) {
@@ -473,6 +480,37 @@ function finishTransfer(
     });
 }
 
+function forgetIncomingTransferNonce(transferId: string) {
+    const entry = incomingTransferNonces.get(transferId);
+    if (!entry) {
+        return;
+    }
+
+    clearTimeout(entry.timeoutHandle);
+    incomingTransferNonces.delete(transferId);
+}
+
+function rememberIncomingTransferNonce(transferId: string, nonce: string) {
+    forgetIncomingTransferNonce(transferId);
+    const timeoutHandle = setTimeout(() => {
+        const currentEntry = incomingTransferNonces.get(transferId);
+        if (currentEntry?.timeoutHandle === timeoutHandle) {
+            incomingTransferNonces.delete(transferId);
+        }
+    }, INCOMING_TRANSFER_NONCE_TTL_MS);
+    incomingTransferNonces.set(transferId, {
+        nonce,
+        timeoutHandle,
+    });
+}
+
+function clearIncomingTransferNonces() {
+    incomingTransferNonces.forEach((entry) => {
+        clearTimeout(entry.timeoutHandle);
+    });
+    incomingTransferNonces.clear();
+}
+
 function dispatchQueuedTransfers(windowId: number) {
     const queued = queuedTransfersByWindow.get(windowId) ?? [];
     if (queued.length === 0) {
@@ -557,7 +595,10 @@ function handleIncomingTransferMessage(message: Extract<TBrowserWindowTabsMessag
         return;
     }
 
-    incomingTransferNonces.set(message.transfer.transferId, message.transfer.nonce);
+    rememberIncomingTransferNonce(
+        message.transfer.transferId,
+        message.transfer.nonce,
+    );
     incomingTransferListeners.forEach((listener) => {
         listener(message.transfer);
     });
@@ -804,19 +845,19 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
     },
     transferAck(ack: IWindowTabTransferAck) {
         initializeBrowserWindowTabs();
-        const nonce = incomingTransferNonces.get(ack.transferId);
-        if (!nonce) {
+        const nonceEntry = incomingTransferNonces.get(ack.transferId);
+        if (!nonceEntry) {
             return Promise.resolve(false);
         }
 
-        incomingTransferNonces.delete(ack.transferId);
+        forgetIncomingTransferNonce(ack.transferId);
         postMessage({
             type: 'ack',
             windowId: currentWindowId,
             ack: {
                 ...ack,
                 schemaVersion: TRANSFER_MESSAGE_SCHEMA_VERSION,
-                nonce,
+                nonce: nonceEntry.nonce,
             },
         });
         return Promise.resolve(true);

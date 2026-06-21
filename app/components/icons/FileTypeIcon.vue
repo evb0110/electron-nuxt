@@ -30,7 +30,7 @@
             font-family="ui-sans-serif, system-ui, sans-serif"
             font-size="6.4"
             font-weight="700"
-            fill="#ffffff"
+            fill="var(--app-file-icon-badge-fg)"
             letter-spacing="0.02em"
         >PDF</text>
     </svg>
@@ -65,7 +65,7 @@
             font-family="ui-sans-serif, system-ui, sans-serif"
             font-size="5.6"
             font-weight="700"
-            fill="#ffffff"
+            fill="var(--app-file-icon-badge-fg)"
             letter-spacing="0.02em"
         >DjVu</text>
     </svg>
@@ -100,7 +100,7 @@
             font-family="ui-sans-serif, system-ui, sans-serif"
             font-size="5.6"
             font-weight="700"
-            fill="#ffffff"
+            fill="var(--app-file-icon-badge-fg)"
             letter-spacing="0.02em"
         >IMG</text>
     </svg>

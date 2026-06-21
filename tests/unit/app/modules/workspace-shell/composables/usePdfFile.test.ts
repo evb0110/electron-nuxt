@@ -152,6 +152,17 @@ describe('usePdfFile', () => {
         mockDocuments.createWorkingCopyFromData.mockReset();
         mockDocuments.createWorkingCopyFromPath.mockReset();
         mockDocuments.openPdfDirectBatch.mockResolvedValue(null);
+        mockDocuments.analyzePdfConformance.mockReset();
+        mockDocuments.analyzePdfConformance.mockResolvedValue({
+            isSigned: false,
+            isEncrypted: false,
+            isTagged: false,
+            pdfaLevel: null,
+            hasAcroForm: false,
+            hasXfa: false,
+            canIncrementalSave: true,
+            saveRestrictions: [] as string[],
+        });
         mockDocuments.validatePdfData.mockResolvedValue({
             isValid: true,
             tool: 'qpdf',
@@ -710,6 +721,59 @@ describe('usePdfFile', () => {
             expect(result).toBe(true);
         });
 
+        it('refreshes conformance after byte-history undo restores the working copy', async () => {
+            const bytes1 = new Uint8Array([1]);
+            const bytes2 = new Uint8Array([2]);
+            const staleProfile = {
+                isSigned: true,
+                isEncrypted: false,
+                isTagged: false,
+                pdfaLevel: null,
+                hasAcroForm: true,
+                hasXfa: false,
+                canIncrementalSave: false,
+                saveRestrictions: ['signed_original_requires_save_as'] as string[],
+            };
+            const restoredProfile = {
+                ...staleProfile,
+                isSigned: false,
+                hasAcroForm: false,
+                canIncrementalSave: true,
+                saveRestrictions: [] as string[],
+            };
+            const conformanceGate = deferred<typeof restoredProfile>();
+
+            mockDocuments.openPdfDialog.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: '/undo.pdf',
+                workingPath: '/tmp/undo.pdf',
+            });
+            mockDocuments.statFile.mockResolvedValue({ size: bytes1.length });
+            mockDocuments.readFile.mockResolvedValue(bytes1.buffer);
+            mockDocuments.writeFile.mockResolvedValue(undefined);
+            mockDocuments.analyzePdfConformance.mockResolvedValue(staleProfile);
+
+            const file = createTestPdfFile();
+            await file.openFile();
+            await vi.waitFor(() => {
+                expect(file.pdfConformanceProfile.value).toEqual(staleProfile);
+            });
+            await file.loadPdfFromData(bytes2);
+            file.pdfConformanceProfile.value = staleProfile;
+            mockDocuments.analyzePdfConformance.mockClear();
+            mockDocuments.analyzePdfConformance.mockImplementationOnce(() => conformanceGate.promise);
+
+            await expect(file.undo()).resolves.toBe(true);
+
+            expect(file.pdfConformanceProfile.value).toBeNull();
+            expect(mockDocuments.analyzePdfConformance).toHaveBeenCalledWith('/tmp/undo.pdf');
+
+            conformanceGate.resolve(restoredProfile);
+            await vi.waitFor(() => {
+                expect(file.pdfConformanceProfile.value).toEqual(restoredProfile);
+            });
+        });
+
         it('does not apply a history restore after the file is closed', async () => {
             const bytes1 = new Uint8Array([1]);
             const bytes2 = new Uint8Array([2]);
@@ -991,6 +1055,33 @@ describe('usePdfFile', () => {
             });
             expect(file.isDirty.value).toBe(false);
             expect(file.pdfData.value).toEqual(savedBytes);
+        });
+
+        it('resets lastSaveMode when the current document is closed', async () => {
+            const pdfBytes = new Uint8Array([1]);
+            const savedBytes = new Uint8Array([2]);
+            mockDocuments.openPdfDialog.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: '/save.pdf',
+                workingPath: '/tmp/save.pdf',
+            });
+            mockDocuments.statFile.mockResolvedValue({ size: pdfBytes.length });
+            mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
+            mockDocuments.writeFile.mockResolvedValue(undefined);
+            mockDocuments.saveFile.mockResolvedValue(undefined);
+
+            const file = createTestPdfFile();
+            await file.openFile();
+
+            await expect(file.saveFile(savedBytes, { saveMode: 'incremental' })).resolves.toMatchObject({
+                success: true,
+                saveMode: 'incremental',
+            });
+            expect(file.lastSaveMode.value).toBe('incremental');
+
+            file.closeFile();
+
+            expect(file.lastSaveMode.value).toBe('rewrite');
         });
 
         it('resolves after committing saved bytes without waiting for deferred conformance analysis', async () => {

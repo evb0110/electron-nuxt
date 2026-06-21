@@ -53,6 +53,7 @@ describe('useEditorPanesManager', () => {
     it('repairs duplicate tab assignment and invalid active tab references', async () => {
         const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
         const manager = useEditorPanesManager();
+        manager.ensureAtLeastOneTab();
 
         const firstPane = manager.panes.value[0]!;
         const firstTab = manager.createTab({
@@ -131,6 +132,7 @@ describe('useEditorPanesManager', () => {
     it('keeps key refs stable when normalization is a no-op', async () => {
         const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
         const manager = useEditorPanesManager();
+        manager.ensureAtLeastOneTab();
 
         const panesRef = manager.panes.value;
         const tabsRef = manager.tabs.value;
@@ -145,5 +147,32 @@ describe('useEditorPanesManager', () => {
         expect(manager.layout.value).toBe(layoutRef);
         expect(manager.panes.value[0]).toBe(firstPaneRef);
         expect(manager.panes.value[0]?.tabIds).toBe(firstPaneTabIdsRef);
+    });
+
+    it('selects the adjacent source tab after moving the active tab to another pane', async () => {
+        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
+        const manager = useEditorPanesManager();
+        manager.ensureAtLeastOneTab();
+
+        const sourcePane = manager.activePane.value!;
+        const firstTabId = sourcePane.activeTabId!;
+        const secondTab = manager.createTab({
+            paneId: sourcePane.paneId,
+            activate: true,
+        });
+        const thirdTab = manager.createTab({
+            paneId: sourcePane.paneId,
+            activate: true,
+        });
+        const targetPaneId = manager.splitPane(sourcePane.paneId, 'right');
+        expect(targetPaneId).toBeTruthy();
+
+        manager.activateTab(sourcePane.paneId, secondTab.id);
+        expect(manager.moveTabToPane(secondTab.id, targetPaneId!, false)).toBe(true);
+        expect(manager.getPaneById(sourcePane.paneId)?.activeTabId).toBe(thirdTab.id);
+
+        manager.activateTab(sourcePane.paneId, thirdTab.id);
+        expect(manager.moveTabToPane(thirdTab.id, targetPaneId!, false)).toBe(true);
+        expect(manager.getPaneById(sourcePane.paneId)?.activeTabId).toBe(firstTabId);
     });
 });

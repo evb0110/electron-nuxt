@@ -72,6 +72,7 @@ interface IPdfSearchTestApi {
     searchError: Ref<string | null>;
     searchProgress: Ref<IPdfSearchTestProgress | undefined>;
     searchQuery: Ref<string>;
+    submittedSearchQuery: Ref<string>;
     setResultIndex: (index: number) => void;
     totalMatches: Ref<number>;
 }
@@ -114,7 +115,35 @@ describe('usePdfSearch', () => {
         expect(search.results.value).toEqual([]);
         expect(search.currentResultIndex.value).toBe(-1);
         expect(search.isSearching.value).toBe(false);
+        expect(search.submittedSearchQuery.value).toBe('a');
         expect(mockSearch.run).not.toHaveBeenCalled();
+    });
+
+    it('replaces the previous submitted query when the next submitted query is too short', async () => {
+        mockSearch.run.mockResolvedValue({
+            results: [{
+                pageNumber: 1,
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                startOffset: 0,
+                endOffset: 5,
+            }],
+            truncated: false,
+        });
+        const search = await createPdfSearch();
+
+        const firstSearch = search.search('alpha', '/tmp/work.pdf');
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await firstSearch;
+
+        expect(search.submittedSearchQuery.value).toBe('alpha');
+        expect(search.results.value).toHaveLength(1);
+
+        const applied = await search.search('a', '/tmp/work.pdf');
+
+        expect(applied).toBe(false);
+        expect(search.submittedSearchQuery.value).toBe('a');
+        expect(search.results.value).toEqual([]);
     });
 
     it('maps backend matches to result and page match state', async () => {

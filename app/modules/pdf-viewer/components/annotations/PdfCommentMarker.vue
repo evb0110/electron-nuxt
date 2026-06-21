@@ -91,6 +91,8 @@ let activePointerId: number | null = null;
 let suppressTooltipUntilPointerLeave = false;
 let dragSettleFrameId: number | null = null;
 let dragSettleSecondFrameId: number | null = null;
+let dragCommitFallbackFrameId: number | null = null;
+let dragCommitFallbackSecondFrameId: number | null = null;
 
 const hasDragOffset = computed(() =>
     dragOffsetX.value !== 0 || dragOffsetY.value !== 0);
@@ -117,6 +119,17 @@ function cancelDragSettleFrames() {
     if (dragSettleSecondFrameId !== null) {
         cancelAnimationFrame(dragSettleSecondFrameId);
         dragSettleSecondFrameId = null;
+    }
+}
+
+function cancelDragCommitFallbackFrames() {
+    if (dragCommitFallbackFrameId !== null) {
+        cancelAnimationFrame(dragCommitFallbackFrameId);
+        dragCommitFallbackFrameId = null;
+    }
+    if (dragCommitFallbackSecondFrameId !== null) {
+        cancelAnimationFrame(dragCommitFallbackSecondFrameId);
+        dragCommitFallbackSecondFrameId = null;
     }
 }
 
@@ -181,6 +194,30 @@ function scheduleDragSettledCleanup() {
     });
 }
 
+function completePendingDragCommit() {
+    if (!pendingDragCommit) {
+        return;
+    }
+    pendingDragCommit = false;
+    dragOffsetX.value = 0;
+    dragOffsetY.value = 0;
+    cancelDragCommitFallbackFrames();
+    scheduleDragSettledCleanup();
+}
+
+function schedulePendingDragCommitFallback() {
+    cancelDragCommitFallbackFrames();
+    dragCommitFallbackFrameId = requestAnimationFrame(() => {
+        dragCommitFallbackFrameId = null;
+        dragCommitFallbackSecondFrameId = requestAnimationFrame(() => {
+            dragCommitFallbackSecondFrameId = null;
+            if (!isUnmounted) {
+                completePendingDragCommit();
+            }
+        });
+    });
+}
+
 function suppressTooltipUntilPointerExit() {
     // Reka keeps an already-open hover tooltip alive until hover state changes.
     // Own its open state here so the portal closes as soon as the note opens.
@@ -197,12 +234,7 @@ watch([
     () => leftPercent,
     () => topPercent,
 ], () => {
-    if (pendingDragCommit) {
-        pendingDragCommit = false;
-        dragOffsetX.value = 0;
-        dragOffsetY.value = 0;
-        scheduleDragSettledCleanup();
-    }
+    completePendingDragCommit();
 });
 
 watch(() => isActive, (active) => {
@@ -356,6 +388,7 @@ function commitDrag(clientX: number, clientY: number) {
 
     pendingDragCommit = true;
     emit('moveMarker', annotation, markerRect);
+    schedulePendingDragCommitFallback();
 }
 
 function cleanup(pointerId?: number) {
@@ -384,6 +417,8 @@ useEventListener(import.meta.client ? window : undefined, 'pointercancel', handl
 onBeforeUnmount(() => {
     isUnmounted = true;
     cancelDragSettleFrames();
+    cancelDragCommitFallbackFrames();
+    pendingDragCommit = false;
     dispatchMarkerDragState(false);
     // Unmount can interrupt an active drag path before pointerup/lostcapture.
     cleanup();

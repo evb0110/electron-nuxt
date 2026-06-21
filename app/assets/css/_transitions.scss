@@ -1,7 +1,7 @@
 // Transition timing constants
-$ease-fast: 0.1s ease;
-$ease-quick: 0.12s ease;
-$ease-standard: 0.15s ease;
+$ease-fast: var(--app-transition-fast);
+$ease-quick: var(--app-transition-quick);
+$ease-standard: var(--app-transition-standard);
 
 // Semantic transition mixins
 @mixin reveal-transition {

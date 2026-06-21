@@ -40,7 +40,6 @@ export const usePdfViewerPropModel = (props: Readonly<IPdfViewerProps>) => {
         )),
         viewMode: computed<TPdfViewMode>(() => props.viewMode ?? 'single'),
         isResizing: computed(() => props.isResizing ?? false),
-        invertColors: computed(() => props.invertColors ?? false),
         showAnnotations: computed(() => !hasShowAnnotationsProp || props.showAnnotations !== false),
         annotationTool: computed<TAnnotationTool>(() => props.annotationTool ?? 'none'),
         annotationCursorMode: computed(() => props.annotationCursorMode ?? false),

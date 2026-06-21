@@ -103,7 +103,6 @@ function createToolStateOptions(uiManager: ReturnType<typeof createUiManager>, o
         annotationUiManager: mockUiManagerRef(uiManager),
         currentPage: ref(1),
         annotationTool: computed(() => (overrides.tool as string) ?? 'none'),
-        annotationCursorMode: computed(() => false),
         annotationKeepActive: computed(() => (overrides.keepActive as boolean) ?? false),
         annotationSettings: computed(() => createAnnotationSettings()),
         numPages: ref(10),
@@ -253,17 +252,6 @@ describe('useAnnotationToolState', () => {
             expect(emitAnnotationToolAutoReset).not.toHaveBeenCalled();
         },
     );
-
-    it('keeps idle mode at none even when annotation cursor mode is enabled', async () => {
-        const useAnnotationToolState = await loadUseAnnotationToolState();
-        const manager = useAnnotationToolState(createToolStateOptions(
-            createUiManager(),
-            { annotationCursorMode: computed(() => true) },
-        ));
-
-        expect(manager.getAnnotationMode('none')).toBe(0);
-        expect(manager.getAnnotationMode('select')).toBe(0);
-    });
 
     it('uses an opaque preblended display color for text highlights', async () => {
         const useAnnotationToolState = await loadUseAnnotationToolState();

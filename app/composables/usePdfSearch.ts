@@ -482,6 +482,7 @@ export const usePdfSearch = () => {
             isSearching.value = false;
             isTruncated.value = false;
             searchError.value = null;
+            submittedSearchQuery.value = trimmedQuery;
             results.value = [];
             pageMatches.value = new Map();
             currentResultIndex.value = -1;

@@ -6,7 +6,9 @@ import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
 import {
     OPEN_PDF_IMAGE_ACCEPT,
     buildOpenPdfImagePickerTypes,
+    configureBrowserFilePickerDescriptions,
 } from '@app/platform/browser-api/browserFileAccepts';
+import type { TBrowserFilePickerDescriptionKey } from '@app/platform/browser-api/browserFileAccepts';
 import {
     createBrowserCombinedPdfFromPaths,
     createBrowserDocumentsFileCapability,
@@ -28,6 +30,7 @@ import {
 import type {
     TLocale,
     TTranslateFn,
+    TTranslationKey,
 } from '@i18n-app';
 import {
     formatTranslationLeaf,
@@ -75,11 +78,24 @@ const translateBrowserMessage: TTranslateFn = (key, ...args) => {
     return formatTranslationLeaf(leaf, params, locale);
 };
 
+const BROWSER_FILE_PICKER_DESCRIPTION_MESSAGE_KEYS = {
+    documents: 'browser.filePicker.documents',
+    images: 'browser.filePicker.images',
+    pdfDocuments: 'browser.filePicker.pdfDocuments',
+    wordDocuments: 'browser.filePicker.wordDocuments',
+    jpegImages: 'browser.filePicker.jpegImages',
+    pngImages: 'browser.filePicker.pngImages',
+    tiffImages: 'browser.filePicker.tiffImages',
+} as const satisfies Record<TBrowserFilePickerDescriptionKey, TTranslationKey>;
+
 export function createBrowserDocumentsCapability(
     options: ICreateBrowserDocumentsCapabilityOptions,
 ): IBrowserDocumentCapabilities {
     const errorMessageProvider = { largeSaveHandleHint: () => translateBrowserMessage('errors.browser.largeSaveHandleHint') };
     configureBrowserFilePickerMessages(errorMessageProvider);
+    configureBrowserFilePickerDescriptions((key) =>
+        translateBrowserMessage(BROWSER_FILE_PICKER_DESCRIPTION_MESSAGE_KEYS[key]),
+    );
     const fileCapability = createBrowserDocumentsFileCapability({
         ...options,
         errorMessageProvider,

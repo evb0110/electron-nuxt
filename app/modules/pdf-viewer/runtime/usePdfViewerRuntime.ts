@@ -48,7 +48,6 @@ export const usePdfViewerRuntime = (options: IUsePdfViewerRuntimeOptions) => {
         basePageWidth,
         basePageHeight,
         scroll.currentPage,
-        options.continuousScroll,
     );
 
     const reloadTransition = usePdfViewerReloadTransition({

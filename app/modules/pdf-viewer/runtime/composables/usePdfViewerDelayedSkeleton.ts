@@ -94,21 +94,11 @@ export const usePdfViewerDelayedSkeleton = (options: IUsePdfViewerDelayedSkeleto
     }
 
     function shouldShowSkeleton(pageNumber: number) {
-        if (!shouldStillShow(pageNumber)) {
-            hidePage(pageNumber);
-            return false;
-        }
-
         if (options.delayMs <= 0) {
-            return true;
+            return shouldStillShow(pageNumber);
         }
 
-        if (visiblePages.value.has(pageNumber)) {
-            return true;
-        }
-
-        schedulePage(pageNumber);
-        return false;
+        return visiblePages.value.has(pageNumber) && shouldStillShow(pageNumber);
     }
 
     function markPageRendered(pageNumber: number) {

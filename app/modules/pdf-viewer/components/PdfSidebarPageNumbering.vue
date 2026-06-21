@@ -185,7 +185,6 @@ const {
 
 const emit = defineEmits<{
     'update:selectedPages': [pages: number[]];
-    'update:pageRangeInput': [value: string];
     'update:pageLabelRanges': [ranges: IPdfPageLabelRange[]];
     clear: [];
 }>();
@@ -193,7 +192,8 @@ const emit = defineEmits<{
 const { t } = useTypedI18n();
 
 const isExpanded = ref(false);
-const pageNumberingSyncSource = ref<'selection' | 'range' | null>(null);
+const pendingSelectionSyncCount = ref(0);
+const pendingRangeSyncCount = ref(0);
 const pageRangeInput = ref('');
 const numberingScope = ref<TNumberingScope>('all');
 const pageLabelStyle = ref<'' | Exclude<TPageLabelStyle, null>>('D');
@@ -360,6 +360,24 @@ const rangeErrorMessage = computed(() => {
     return t('pageNumbering.rangeError');
 });
 
+function queueSelectionSyncSuppression() {
+    pendingSelectionSyncCount.value += 1;
+    void nextTick(() => {
+        if (pendingSelectionSyncCount.value > 0) {
+            pendingSelectionSyncCount.value -= 1;
+        }
+    });
+}
+
+function queueRangeSyncSuppression() {
+    pendingRangeSyncCount.value += 1;
+    void nextTick(() => {
+        if (pendingRangeSyncCount.value > 0) {
+            pendingRangeSyncCount.value -= 1;
+        }
+    });
+}
+
 function readEventValue(event: Event) {
     const target = event.target;
     if (target instanceof HTMLInputElement) {
@@ -389,7 +407,7 @@ function setSelectedPagesSilently(pages: number[]) {
     if (arePageNumberListsEqual(selectedPages, pages)) {
         return;
     }
-    pageNumberingSyncSource.value = 'range';
+    queueSelectionSyncSuppression();
     emit('update:selectedPages', pages);
 }
 
@@ -397,7 +415,7 @@ function setPageRangeInputSilently(value: string) {
     if (pageRangeInput.value === value) {
         return;
     }
-    pageNumberingSyncSource.value = 'selection';
+    queueRangeSyncSuppression();
     pageRangeInput.value = value;
 }
 
@@ -474,8 +492,8 @@ function clearAll() {
 watch(
     () => selectedPages,
     (pages) => {
-        if (pageNumberingSyncSource.value === 'range') {
-            pageNumberingSyncSource.value = null;
+        if (pendingSelectionSyncCount.value > 0) {
+            pendingSelectionSyncCount.value -= 1;
             return;
         }
 
@@ -503,8 +521,8 @@ watch(
 watch(
     () => pageRangeInput.value,
     (inputValue) => {
-        if (pageNumberingSyncSource.value === 'selection') {
-            pageNumberingSyncSource.value = null;
+        if (pendingRangeSyncCount.value > 0) {
+            pendingRangeSyncCount.value -= 1;
             return;
         }
 

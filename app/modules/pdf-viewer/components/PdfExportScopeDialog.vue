@@ -182,6 +182,11 @@ function handleSubmit() {
     }
 
     const pageNumbers = resolveScopedPageNumbers();
+    if (pageNumbers === null) {
+        rangeTouched.value = true;
+        return;
+    }
+
     emit('submit', {...(pageNumbers !== undefined ? { pageNumbers } : {})});
     open.value = false;
 }

@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { tryOnScopeDispose } from '@vueuse/core';
 import { annotationCommentsMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/annotationCommentsMatch';
 import { selectPreferredAnnotationComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/selectPreferredAnnotationComment';
 import { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
@@ -211,6 +212,16 @@ export const usePdfAnnotationCommentModel = (options: IUsePdfAnnotationCommentMo
     const pendingMarkerMoves = new Map<string, IPendingAnnotationMarkerMove>();
     const locallyDeletedAnnotationComments: IAnnotationCommentSummary[] = [];
     let annotationReloadCacheGraceUntil = 0;
+    let annotationReloadTimer: ReturnType<typeof setTimeout> | null = null;
+    let annotationReloadGeneration = 0;
+
+    function clearAnnotationReloadTimer() {
+        if (annotationReloadTimer === null) {
+            return;
+        }
+        clearTimeout(annotationReloadTimer);
+        annotationReloadTimer = null;
+    }
 
     function isAnnotationReloadCacheGraceActive() {
         return options.isAnySaving.value || Date.now() <= annotationReloadCacheGraceUntil;
@@ -682,6 +693,8 @@ export const usePdfAnnotationCommentModel = (options: IUsePdfAnnotationCommentMo
         if (nextSource === previousSource) {
             return;
         }
+        annotationReloadGeneration += 1;
+        clearAnnotationReloadTimer();
         activeCommentStableKey.value = null;
         pendingMarkerMoves.clear();
         locallyDeletedAnnotationComments.length = 0;
@@ -692,7 +705,12 @@ export const usePdfAnnotationCommentModel = (options: IUsePdfAnnotationCommentMo
             return;
         }
         annotationReloadCacheGraceUntil = Date.now() + ANNOTATION_RELOAD_CACHE_GRACE_MS;
-        globalThis.setTimeout(() => {
+        const reloadGeneration = annotationReloadGeneration;
+        annotationReloadTimer = globalThis.setTimeout(() => {
+            if (annotationReloadGeneration !== reloadGeneration) {
+                return;
+            }
+            annotationReloadTimer = null;
             if (!isAnnotationReloadCacheGraceActive()) {
                 pendingMarkerMoves.clear();
                 const next = normalizeAnnotationComments(annotationCommentsCache.value);
@@ -704,6 +722,11 @@ export const usePdfAnnotationCommentModel = (options: IUsePdfAnnotationCommentMo
             }
         }, ANNOTATION_RELOAD_CACHE_GRACE_MS + 100);
     }
+
+    tryOnScopeDispose(() => {
+        annotationReloadGeneration += 1;
+        clearAnnotationReloadTimer();
+    });
 
     return {
         annotationCommentsCache,

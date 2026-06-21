@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -70,6 +71,10 @@ describe('usePdfAnnotationCommentModel', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-05-27T00:00:00Z'));
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     it('preserves text markup display text through reload grace', () => {
@@ -227,5 +232,16 @@ describe('usePdfAnnotationCommentModel', () => {
 
         expect(model.annotationCommentsCache.value).toEqual([]);
         expect(emitted.at(-1)).toEqual([]);
+    });
+
+    it('replaces the annotation reload grace timer on source changes', () => {
+        const { model } = createModel();
+        const syncAnnotationComments = vi.fn();
+
+        model.handleSourceChanged('second.pdf', 'first.pdf', { syncAnnotationComments });
+        model.handleSourceChanged('third.pdf', 'second.pdf', { syncAnnotationComments });
+        vi.advanceTimersByTime(5_101);
+
+        expect(syncAnnotationComments).toHaveBeenCalledOnce();
     });
 });

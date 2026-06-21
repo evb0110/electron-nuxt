@@ -109,6 +109,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     });
     const {
         pdfViewerRef,
+        documentViewerRef,
         closeAllDropdowns,
         handleDropdownOpenChange,
         openDropdown,
@@ -559,7 +560,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         currentPage,
         totalPages,
         beginProgrammaticPageNavigation,
-        pdfViewerRef,
+        documentViewerRef,
     });
     const {
         isAnnotationUndoContext,
@@ -817,6 +818,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationTool,
         annotationPlacingPageNote,
         pdfViewerRef,
+        documentViewerRef,
         shapePropertiesPopoverVisible: computed(() => shapePropertiesPopover.value.visible),
         annotationContextMenuVisible: computed(() => annotationContextMenu.value.visible),
         pageContextMenuVisible: computed(() => pageContextMenu.value.visible),

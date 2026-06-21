@@ -1,5 +1,4 @@
 import type { Ref } from 'vue';
-import { delay } from 'es-toolkit/promise';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 const DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS = 4_000;
@@ -54,6 +53,7 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
             options.pdfSrc.value
             && options.pdfDocument.value
             && options.totalPages.value > 0
+            && options.pageLabelsResolved.value
             && !options.isLoading.value
             && initialDocumentVisualReady.value,
         );
@@ -75,8 +75,24 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         resetDocumentOpenVisualSettleWaiter();
     }
 
-    function waitForDocumentOpenVisualSettleTimeout() {
-        return delay(DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS).then(() => 'timeout' as const);
+    function createDocumentOpenVisualSettleTimeout() {
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        const promise = new Promise<'timeout'>((resolve) => {
+            timeoutId = setTimeout(() => {
+                timeoutId = null;
+                resolve('timeout');
+            }, DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS);
+        });
+
+        return {
+            promise,
+            cancel: () => {
+                if (timeoutId !== null) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                }
+            },
+        };
     }
 
     async function waitForDocumentOpenSettled() {
@@ -86,10 +102,15 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
             return;
         }
 
-        await Promise.race([
-            ensureDocumentOpenVisualSettlePromise(),
-            waitForDocumentOpenVisualSettleTimeout(),
-        ]);
+        const timeout = createDocumentOpenVisualSettleTimeout();
+        try {
+            await Promise.race([
+                ensureDocumentOpenVisualSettlePromise(),
+                timeout.promise,
+            ]);
+        } finally {
+            timeout.cancel();
+        }
         await nextTick();
 
         if (hasSettledDocumentOpenVisualState()) {
@@ -116,6 +137,8 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         options.totalPages,
         options.pageLabelsResolved,
         options.isLoading,
+        options.pdfError,
+        options.djvuError,
         options.showNativeDjvuViewer,
         initialDocumentVisualReady,
     ], () => {

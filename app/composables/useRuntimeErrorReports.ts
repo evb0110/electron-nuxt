@@ -48,9 +48,15 @@ export const useRuntimeErrorReports = () => {
             : createReportKey(options.source, options.title, detail);
         const existing = reports.value.find(report => report.id === key);
         if (existing) {
-            existing.count += 1;
-            existing.detail = detail;
-            existing.occurredAt = Date.now();
+            reports.value = [
+                {
+                    ...existing,
+                    count: existing.count + 1,
+                    detail,
+                    occurredAt: Date.now(),
+                },
+                ...reports.value.filter(report => report.id !== key),
+            ].slice(0, 6);
             return;
         }
 

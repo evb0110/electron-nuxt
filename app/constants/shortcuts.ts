@@ -97,12 +97,21 @@ export const SHORTCUTS = {
 
 export type TShortcutName = keyof typeof SHORTCUTS;
 
-function isMacPlatform() {
-    return typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
-}
-
 export function isMacPlatformHint(value: string) {
     return /mac|macintosh|mac os|macos|darwin/iu.test(value);
+}
+
+function isMacPlatform() {
+    if (typeof navigator === 'undefined') {
+        return false;
+    }
+
+    const userAgentNavigator = navigator as Navigator & {userAgentData?: {platform?: string;};};
+    return [
+        userAgentNavigator.userAgentData?.platform,
+        userAgentNavigator.platform,
+        userAgentNavigator.userAgent,
+    ].some(value => typeof value === 'string' && isMacPlatformHint(value));
 }
 
 function resolveModifierLabel(m: TModifier, isMac: boolean): string {
@@ -149,3 +158,11 @@ export function getShortcutLabels(isMac = isMacPlatform()) {
         ]),
     ) as Record<TShortcutName, string>;
 }
+
+export const useShortcutLabels = () => {
+    const isMac = ref(false);
+    onMounted(() => {
+        isMac.value = isMacPlatform();
+    });
+    return computed(() => getShortcutLabels(isMac.value));
+};

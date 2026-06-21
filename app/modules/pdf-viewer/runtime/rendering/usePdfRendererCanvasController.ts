@@ -80,6 +80,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
             startRender,
             ...preparedRenderResult
         } = preparedCanvasRender;
+        let renderStageTimedOut = false;
 
         return withPageStageTimeout(
             new Promise<typeof preparedRenderResult>((resolve, reject) => {
@@ -111,7 +112,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
                     pageNumber,
                     pdfPage,
                     priority: 100,
-                    shouldStart: () => getRenderVersion() === version && shouldContinue(),
+                    shouldStart: () => !renderStageTimedOut && getRenderVersion() === version && shouldContinue(),
                     startRender: () => {
                         logPdfRenderTrace('renderer-canvas-render-start', {
                             pageNumber,
@@ -164,6 +165,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
             },
             () => getRenderVersion() === version && shouldContinue(),
             () => {
+                renderStageTimedOut = true;
                 cancelActiveRenderTaskIfCurrent(pageNumber, version, requestId);
             },
             onRenderStall,

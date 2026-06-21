@@ -233,8 +233,29 @@
                     v-else
                     class="ocr-results-panel flex flex-col items-center gap-3"
                 >
-                    <UIcon name="i-ph-check-circle" class="results-icon size-8" />
-                    <span class="results-text">{{ t('ocr.complete') }}</span>
+                    <UIcon
+                        :name="hasResultWarning ? 'i-ph-warning-circle' : 'i-ph-check-circle'"
+                        :class="[
+                            'results-icon size-8',
+                            { 'is-warning': hasResultWarning },
+                        ]"
+                    />
+                    <span class="results-text">{{ resultStatusText }}</span>
+                    <div v-if="hasResultWarning" class="results-warning">
+                        <span class="results-warning-text">{{ effectiveError }}</span>
+                        <AppTooltip :text="copyLogsTooltip" :delay-duration="1200">
+                            <UButton
+                                icon="i-ph-copy"
+                                variant="ghost"
+                                color="neutral"
+                                size="xs"
+                                class="copy-logs"
+                                :loading="isCopyingLogs"
+                                :aria-label="t('ocr.copyLogs')"
+                                @click="handleCopyLogs"
+                            />
+                        </AppTooltip>
+                    </div>
                 </div>
             </div>
         </template>
@@ -394,11 +415,11 @@ const viewState = computed<TOcrViewState>(() => {
     if (progress.value.isRunning) {
         return 'running';
     }
-    if (effectiveError.value !== null) {
-        return 'error';
-    }
     if (hasResults.value) {
         return 'results';
+    }
+    if (effectiveError.value !== null) {
+        return 'error';
     }
     return 'configure';
 });
@@ -426,6 +447,7 @@ const copyLogsState = ref<'idle' | 'copied' | 'failed'>('idle');
 const showSuccessState = ref(false);
 const activeOcrSourcePath = ref<TDocumentRef | null>(null);
 const activeOcrSourcePage = ref<number | null>(null);
+const pendingAppliedOcrRequestId = ref<string | null>(null);
 const {
     start: startCopyLogsStateReset,
     stop: stopCopyLogsStateReset,
@@ -483,6 +505,10 @@ const copyLogsTooltip = computed(() => {
     }
     return t('ocr.copyLogs');
 });
+const hasResultWarning = computed(() => hasResults.value && effectiveError.value !== null);
+const resultStatusText = computed(() => (
+    hasResultWarning.value ? t('ocr.partialComplete') : t('ocr.complete')
+));
 
 function getLanguageNameKey(code: string): TOcrLanguageTranslationKey {
     return `ocr.languageName.${code}` as TOcrLanguageTranslationKey;
@@ -586,6 +612,11 @@ function createAgentOcrSnapshot() {
 watch(isOpen, (value) => {
     if (value) {
         void loadLanguages();
+        return;
+    }
+
+    if (!progress.value.isRunning) {
+        resetCompletedOcrState();
     }
 });
 
@@ -701,11 +732,22 @@ async function runOcrForAgent(options: IAgentOcrRunOptions = {}) {
 
     activeOcrSourcePath.value = workingCopyPath;
     activeOcrSourcePage.value = currentPage;
-    void runOcr(currentPage, totalPages, workingCopyPath);
+    await runOcr(currentPage, totalPages, workingCopyPath);
     await nextTick();
+
+    const agentSnapshot = createAgentOcrSnapshot();
+    if (hasResults.value) {
+        return {
+            ok: true,
+            ...(effectiveError.value ? { warning: effectiveError.value } : {}),
+            ocr: agentSnapshot,
+        };
+    }
+
     return {
-        ok: effectiveError.value === null,
-        ocr: createAgentOcrSnapshot(),
+        ok: false,
+        error: effectiveError.value ?? 'OCR did not complete.',
+        ocr: agentSnapshot,
     };
 }
 
@@ -728,18 +770,39 @@ function handleExportDocx() {
 }
 
 function handleCloseResults() {
-    clearResults();
+    resetCompletedOcrState();
     isOpen.value = false;
 }
 
-watch(() => workingCopyPath, () => {
-    if (progress.value.isRunning) {
-        return;
-    }
+function resetCompletedOcrState() {
     activeOcrSourcePath.value = null;
     activeOcrSourcePage.value = null;
+    pendingAppliedOcrRequestId.value = null;
     clearResults();
     clearRunSettingsHistory();
+}
+
+watch(() => workingCopyPath, (nextPath, previousPath) => {
+    if (nextPath === previousPath) {
+        return;
+    }
+    if (progress.value.isRunning) {
+        cancelOcr();
+    }
+    resetCompletedOcrState();
+});
+
+watch(() => pdfDocument, (nextDocument, previousDocument) => {
+    if (
+        !nextDocument
+        || nextDocument === previousDocument
+        || pendingAppliedOcrRequestId.value === null
+        || progress.value.isRunning
+    ) {
+        return;
+    }
+
+    resetCompletedOcrState();
 });
 
 watch(() => results.value.searchablePdfResult, (searchablePdfResult) => {
@@ -749,6 +812,7 @@ watch(() => results.value.searchablePdfResult, (searchablePdfResult) => {
         showSuccessState.value = true;
         stopSuccessStateReset();
         startSuccessStateReset();
+        pendingAppliedOcrRequestId.value = searchablePdfResult.requestId;
         emit('ocrComplete', {
             ...searchablePdfResult,
             sourceWorkingCopyPath,
@@ -955,9 +1019,26 @@ defineExpose<IOcrPopupAgentExpose>({
     color: var(--ui-success);
 }
 
+.results-icon.is-warning {
+    color: var(--ui-warning);
+}
+
 .results-text {
     font-size: 0.875rem;
     color: var(--ui-text);
+}
+
+.results-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--app-space-sm);
+    color: var(--ui-warning);
+    font-size: 0.75rem;
+    text-align: left;
+}
+
+.results-warning-text {
+    overflow-wrap: anywhere;
 }
 
 .error {

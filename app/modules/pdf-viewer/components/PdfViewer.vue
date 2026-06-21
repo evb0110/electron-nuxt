@@ -2,7 +2,7 @@
     <div
         ref="viewerHost"
         class="relative h-full w-full"
-        :class="{ 'pdf-viewer-container--dark': viewerInvertColors }"
+        :class="{ 'pdf-viewer-container--dark': props.invertColors === true }"
     >
         <PdfViewerViewport
             :set-viewer-container="handleViewerContainerRef"
@@ -87,7 +87,6 @@ const {
     viewerHost,
     viewerContainer,
     annotationUiManager,
-    invertColors: viewerInvertColors,
     viewerClass,
     containerStyle,
     pagesToRender,

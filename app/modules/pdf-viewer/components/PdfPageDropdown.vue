@@ -130,7 +130,6 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    'update:modelValue': [page: number];
     'update:open': [value: boolean];
     goToPage: [page: number];
 }>();

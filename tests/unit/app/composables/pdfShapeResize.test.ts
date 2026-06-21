@@ -136,6 +136,23 @@ describe('pdfShapeResize', () => {
         });
     });
 
+    it('normalizes inverted baseline bounds before resizing', () => {
+        const bounds = getResizedBoundsForHandle({
+            minX: 0.7,
+            minY: 0.6,
+            maxX: 0.2,
+            maxY: 0.1,
+        }, 'se', {
+            x: 0,
+            y: 0,
+        });
+
+        expect(bounds.minX).toBeCloseTo(0.2);
+        expect(bounds.minY).toBeCloseTo(0.1);
+        expect(bounds.maxX).toBeCloseTo(0.21);
+        expect(bounds.maxY).toBeCloseTo(0.11);
+    });
+
     it('computes min/max bounds from polyline points', () => {
         const shape: IShapeAnnotation = {
             id: 'shape-polyline',

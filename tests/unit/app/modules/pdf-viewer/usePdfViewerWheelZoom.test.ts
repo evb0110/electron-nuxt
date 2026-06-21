@@ -147,6 +147,7 @@ describe('usePdfViewerWheelZoom', () => {
         return {
             scope,
             zoom,
+            effectiveScale,
             viewerContainer,
             zoomVirtualizationFreeze,
             singlePageScroll,
@@ -306,6 +307,42 @@ describe('usePdfViewerWheelZoom', () => {
             vi.advanceTimersByTime(2500);
 
             expect(setup.zoomVirtualizationFreeze.value).toBeNull();
+        } finally {
+            setup.scope.stop();
+        }
+    });
+
+    it('clears an already-applied immediate restore intent when a later zoom packet is unchanged', async () => {
+        const setup = setupWheelZoom();
+
+        try {
+            const zoomEvent = createWheelEvent({
+                deltaY: -120,
+                ctrlKey: true,
+                clientX: 120,
+                clientY: 160,
+            });
+            setup.wheelZoom.handleViewerWheel(zoomEvent);
+            const emittedEffectiveZoom = setup.emit.mock.calls.find(
+                call => call[0] === 'update:effectiveZoom',
+            )?.[1] as number | undefined;
+            if (typeof emittedEffectiveZoom !== 'number') {
+                throw new Error('Expected effective zoom emit');
+            }
+            setup.effectiveScale.value = emittedEffectiveZoom;
+
+            const noChangeZoomEvent = createWheelEvent({
+                deltaY: 0.001,
+                ctrlKey: true,
+                clientX: 120,
+                clientY: 160,
+            });
+            setup.wheelZoom.handleViewerWheel(noChangeZoomEvent);
+
+            setup.zoom.value = 1.1;
+            await nextTick();
+
+            expect(restoreScrollFromSnapshot).not.toHaveBeenCalled();
         } finally {
             setup.scope.stop();
         }

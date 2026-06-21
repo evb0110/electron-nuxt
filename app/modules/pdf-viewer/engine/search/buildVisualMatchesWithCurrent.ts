@@ -10,6 +10,7 @@ interface IVisualSearchMatch {
     end: number;
     matchIndex: number;
     pageMatchIndex: number;
+    canUseBackendIdentity: boolean;
 }
 
 function buildBackendVisualMatches(
@@ -22,6 +23,7 @@ function buildBackendVisualMatches(
             end: match.end,
             matchIndex: match.matchIndex,
             pageMatchIndex: index,
+            canUseBackendIdentity: true,
         }))
         .filter(match => match.end > match.start && match.end <= layerTextLength);
 }
@@ -36,15 +38,21 @@ function buildLayerSearchVisualMatches(
     }
 
     try {
-        return findPdfSearchMatches(layerText, query, {
+        const matches = findPdfSearchMatches(layerText, query, {
             matchCase: Boolean(pageMatches.searchOptions?.matchCase),
             wholeWord: Boolean(pageMatches.searchOptions?.wholeWord),
             useRegex: Boolean(pageMatches.searchOptions?.useRegex),
-        }).map((match, index): IVisualSearchMatch => ({
+        });
+        const canUseBackendIdentity = matches.length === pageMatches.matches.length;
+
+        return matches.map((match, index): IVisualSearchMatch => ({
             start: match.startOffset,
             end: match.endOffset,
-            matchIndex: pageMatches.matches[index]?.matchIndex ?? index,
+            matchIndex: canUseBackendIdentity
+                ? pageMatches.matches[index]?.matchIndex ?? index
+                : index,
             pageMatchIndex: index,
+            canUseBackendIdentity,
         }));
     } catch {
         return [];
@@ -86,10 +94,19 @@ function isCurrentVisualMatch(
 ) {
     return currentMatch !== null
         && currentMatch.pageIndex === pageMatches.pageIndex
+        && match.canUseBackendIdentity
         && (
             currentMatch.pageMatchIndex === match.pageMatchIndex
             || currentMatch.matchIndex === match.matchIndex
         );
+}
+
+function getCurrentMatchOffsetDistance(
+    match: IVisualSearchMatch,
+    currentMatch: IPdfSearchMatch,
+) {
+    return Math.abs(match.start - currentMatch.startOffset)
+        + Math.abs(match.end - currentMatch.endOffset);
 }
 
 function getFallbackCurrentMatchIndex(
@@ -98,6 +115,24 @@ function getFallbackCurrentMatchIndex(
 ) {
     if (!currentMatch || matches.length === 0) {
         return -1;
+    }
+
+    const shouldUseBackendIdentity = matches.every(match => match.canUseBackendIdentity);
+    if (!shouldUseBackendIdentity) {
+        return matches.reduce((bestIndex, match, index) => {
+            if (bestIndex < 0) {
+                return index;
+            }
+
+            const bestMatch = matches[bestIndex];
+            if (!bestMatch) {
+                return index;
+            }
+
+            return getCurrentMatchOffsetDistance(match, currentMatch) < getCurrentMatchOffsetDistance(bestMatch, currentMatch)
+                ? index
+                : bestIndex;
+        }, -1);
     }
 
     const requestedPageMatchIndex = currentMatch.pageMatchIndex;

@@ -1,12 +1,37 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
 import { usePdfRendererCanvasController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererCanvasController';
+import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
+import {
+    resetCoordinatedPdfPageRendersForTest,
+    runCoordinatedPdfPageRender,
+} from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
+
+function createDeferredRenderTask() {
+    let resolve!: () => void;
+    const promise = new Promise<void>((resolvePromise) => {
+        resolve = resolvePromise;
+    });
+    return {
+        task: {
+            cancel: vi.fn(),
+            promise,
+        },
+        resolve,
+    };
+}
 
 describe('usePdfRendererCanvasController', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+        resetCoordinatedPdfPageRendersForTest();
+    });
+
     it('passes page-specific hidden annotation ids into canvas preparation', async () => {
         const hiddenAnnotationIds = vi.fn((pageNumber: number) => new Set([`hidden-${pageNumber}`]));
         const renderTask = {
@@ -150,5 +175,87 @@ describe('usePdfRendererCanvasController', () => {
         ]);
         expect(cancelActiveRenderTask).toHaveBeenCalledWith(928);
         expect(activeRenderTasks.get(928)?.task).toBe(nextTask);
+    });
+
+    it('does not start a canvas render after its stage timeout fires while waiting for the page coordinator', async () => {
+        vi.useFakeTimers();
+        const pdfPage = {} as never;
+        const blockingRender = createDeferredRenderTask();
+        const blockedRun = runCoordinatedPdfPageRender({
+            owner: 'thumbnail',
+            pageNumber: 7,
+            pdfPage,
+            priority: 100,
+            startRender: () => blockingRender.task,
+        });
+        await Promise.resolve();
+
+        const replacementTask = {
+            cancel: vi.fn(),
+            promise: Promise.resolve(),
+        };
+        const preparedCanvasRender = {
+            canvas: {} as HTMLCanvasElement,
+            viewport: {} as never,
+            annotationCanvasMap: new Map<string, HTMLCanvasElement>(),
+            scaleX: 1,
+            scaleY: 1,
+            rawDims: {
+                pageWidth: 1,
+                pageHeight: 1,
+            },
+            userUnit: 1,
+            totalScaleFactor: 1,
+            requestedPixels: 1,
+            grantedPixels: 1,
+            pixelScaleFactor: 1,
+            wasClamped: false,
+            startRender: vi.fn(() => replacementTask),
+        };
+        const activeRenderTasks = new Map();
+        const onRenderStall = vi.fn();
+        const controller = usePdfRendererCanvasController({
+            canvasRenderer: {
+                prepareCanvasRender: vi.fn(),
+                renderCanvas: vi.fn(),
+                cleanupCanvas: vi.fn(),
+                cleanupCanvasRenderResult: vi.fn(),
+                estimateRequestedPixels: vi.fn(),
+                applyContainerDimensions: vi.fn(),
+                mountCanvas: vi.fn(),
+            },
+            activeRenderTasks,
+            pageCanvases: new Map(),
+            hiddenAnnotationIds: (_pageNumber: number) => undefined,
+            getRenderVersion: () => 5,
+            getPage: vi.fn(),
+            cancelActiveRenderTask: vi.fn(),
+            cancelActiveRenderTaskIfCurrent: vi.fn(),
+            onRenderStall,
+        });
+
+        const renderPromise = controller.renderPreparedCanvasResult(
+            pdfPage,
+            7,
+            5,
+            144,
+            preparedCanvasRender,
+            () => true,
+        );
+        const renderExpectation = expect(renderPromise).rejects.toMatchObject({
+            pageNumber: 7,
+            stage: 'canvas-render',
+        });
+
+        vi.advanceTimersByTime(PDF_PAGE_RENDER_TIMEOUT_MS);
+        await renderExpectation;
+
+        blockingRender.resolve();
+        await blockedRun;
+        await Promise.resolve();
+
+        expect(onRenderStall).toHaveBeenCalledOnce();
+        expect(preparedCanvasRender.startRender).not.toHaveBeenCalled();
+        expect(activeRenderTasks.has(7)).toBe(false);
     });
 });

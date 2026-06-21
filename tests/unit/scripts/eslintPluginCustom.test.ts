@@ -336,8 +336,18 @@ describe('nuxt-ui-semantic-utilities rule', () => {
                         errors: 1,
                     },
                     {
+                        code: '<template><div class="text-[color:var(--ui-text)]" /></template>',
+                        output: '<template><div class="text-default" /></template>',
+                        errors: 1,
+                    },
+                    {
                         code: '<template><div :class="`bg-(--ui-bg-muted)`" /></template>',
                         output: '<template><div :class="`bg-muted`" /></template>',
+                        errors: 1,
+                    },
+                    {
+                        code: '<template><div :class="`border-[color:var(--ui-border)] bg-[color:var(--ui-bg-elevated)]`" /></template>',
+                        output: '<template><div :class="`border-default bg-elevated`" /></template>',
                         errors: 1,
                     },
                 ],

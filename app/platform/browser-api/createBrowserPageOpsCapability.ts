@@ -215,6 +215,7 @@ export function createBrowserPageOpsCapability(
         }
 
         const data = await readWorkingCopyBytes(options.path);
+        let directData = data;
         if (workerAvailable) {
             try {
                 return await runBrowserPageOpsWorkerRequest(
@@ -225,6 +226,7 @@ export function createBrowserPageOpsCapability(
                 if (!(error instanceof BrowserPageOpsWorkerUnavailableError)) {
                     throw error;
                 }
+                directData = await readWorkingCopyBytes(options.path);
             }
         }
 
@@ -235,7 +237,7 @@ export function createBrowserPageOpsCapability(
             );
         }
 
-        return runDirectPdfOperation(() => options.runDirect(data));
+        return runDirectPdfOperation(() => options.runDirect(directData));
     }
 
     async function writePageMutationResult(
@@ -465,11 +467,13 @@ export function createBrowserPageOpsCapability(
                                 BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
                             );
                         }
+                        const directDestinationData = await readWorkingCopyBytes(workingCopyPath);
+                        const directInsertionData = await readInsertionBytes(sourcePaths, requestId);
                         result = await runDirectPdfOperation(async () => {
                             const { insertPdfPages } = await loadBrowserPageOpsCore();
                             return insertPdfPages(
-                                destinationData,
-                                insertionData,
+                                directDestinationData,
+                                directInsertionData,
                                 afterPage,
                             );
                         });

@@ -204,6 +204,7 @@
 </template>
 
 <script setup lang="ts">
+import { useEventListener } from '@vueuse/core';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppToolPageShell from '@app/components/AppToolPageShell.vue';
@@ -348,6 +349,11 @@ function handleFileInputChange(event: Event) {
     }
 }
 
+function resetDragOverlay() {
+    dragDepth.value = 0;
+    isDraggingOver.value = false;
+}
+
 function handleDragEnter() {
     dragDepth.value += 1;
     isDraggingOver.value = true;
@@ -367,12 +373,39 @@ function handleDragLeave() {
 }
 
 function handleDrop(event: DragEvent) {
-    dragDepth.value = 0;
-    isDraggingOver.value = false;
+    resetDragOverlay();
     if (event.dataTransfer?.files) {
         addFiles(event.dataTransfer.files);
     }
 }
+
+function handleWindowDragLeave(event: DragEvent) {
+    if (
+        typeof window !== 'undefined'
+        && (
+            event.clientX <= 0
+            || event.clientY <= 0
+            || event.clientX >= window.innerWidth
+            || event.clientY >= window.innerHeight
+        )
+    ) {
+        resetDragOverlay();
+    }
+}
+
+function handleDragCancelKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+        resetDragOverlay();
+    }
+}
+
+const dragCancelTarget = import.meta.client ? window : undefined;
+
+useEventListener(dragCancelTarget, 'dragend', resetDragOverlay);
+useEventListener(dragCancelTarget, 'drop', resetDragOverlay);
+useEventListener(dragCancelTarget, 'blur', resetDragOverlay);
+useEventListener(dragCancelTarget, 'dragleave', handleWindowDragLeave);
+useEventListener(dragCancelTarget, 'keydown', handleDragCancelKeydown);
 
 function clearFiles() {
     files.value = [];

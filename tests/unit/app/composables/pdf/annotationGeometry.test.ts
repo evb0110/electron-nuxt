@@ -65,8 +65,8 @@ describe('toMarkerRectFromEditorRect', () => {
     const baseRect: IAnnotationMarkerRect = {
         left: 0.2,
         top: 0.3,
-        width: 0.1,
-        height: 0.1,
+        width: 0.12,
+        height: 0.07,
     };
 
     it('returns null when the input rect is null or undefined', () => {
@@ -94,28 +94,28 @@ describe('toMarkerRectFromEditorRect', () => {
         expect(result).toEqual(baseRect);
     });
 
-    it('rotates 90 degrees by mapping (left, top) -> (1 - top, left)', () => {
+    it('rotates 90 degrees by mapping the full rect into the rotated page space', () => {
         const result = toMarkerRectFromEditorRect(baseRect, 90);
-        expect(result?.left).toBeCloseTo(1 - baseRect.top, 10);
+        expect(result?.left).toBeCloseTo(1 - (baseRect.top + baseRect.height), 10);
         expect(result?.top).toBeCloseTo(baseRect.left, 10);
-        expect(result?.width).toBeCloseTo(baseRect.width, 10);
-        expect(result?.height).toBeCloseTo(baseRect.height, 10);
+        expect(result?.width).toBeCloseTo(baseRect.height, 10);
+        expect(result?.height).toBeCloseTo(baseRect.width, 10);
     });
 
     it('rotates 180 degrees by flipping both axes', () => {
         const result = toMarkerRectFromEditorRect(baseRect, 180);
-        expect(result?.left).toBeCloseTo(1 - baseRect.left, 10);
-        expect(result?.top).toBeCloseTo(1 - baseRect.top, 10);
+        expect(result?.left).toBeCloseTo(1 - (baseRect.left + baseRect.width), 10);
+        expect(result?.top).toBeCloseTo(1 - (baseRect.top + baseRect.height), 10);
         expect(result?.width).toBeCloseTo(baseRect.width, 10);
         expect(result?.height).toBeCloseTo(baseRect.height, 10);
     });
 
-    it('rotates 270 degrees by mapping (left, top) -> (top, 1 - left)', () => {
+    it('rotates 270 degrees by mapping the full rect into the rotated page space', () => {
         const result = toMarkerRectFromEditorRect(baseRect, 270);
         expect(result?.left).toBeCloseTo(baseRect.top, 10);
-        expect(result?.top).toBeCloseTo(1 - baseRect.left, 10);
-        expect(result?.width).toBeCloseTo(baseRect.width, 10);
-        expect(result?.height).toBeCloseTo(baseRect.height, 10);
+        expect(result?.top).toBeCloseTo(1 - (baseRect.left + baseRect.width), 10);
+        expect(result?.width).toBeCloseTo(baseRect.height, 10);
+        expect(result?.height).toBeCloseTo(baseRect.width, 10);
     });
 
     it('treats non-finite rotation as 0', () => {

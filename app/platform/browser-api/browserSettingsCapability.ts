@@ -25,7 +25,7 @@ import {
 import { SETTINGS_STORAGE_KEY } from '@app/platform/browser-api/browserApiStorageKeys';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 
-const settingsState = ref<ISettingsData>({ ...DEFAULT_SETTINGS });
+let settingsState: ISettingsData = { ...DEFAULT_SETTINGS };
 let browserSettingsLoaded = false;
 
 function writeBrowserSettingsToStorage(nextSettings: ISettingsData) {
@@ -89,17 +89,17 @@ function writeBrowserSettingsToCookie(nextSettings: ISettingsData) {
 export const browserSettingsCapability: ISettingsCapability = {
     get() {
         if (!browserSettingsLoaded) {
-            settingsState.value = readBrowserSettingsFromCookie()
+            settingsState = readBrowserSettingsFromCookie()
                 ?? readBrowserSettingsFromStorage()
                 ?? { ...DEFAULT_SETTINGS };
             browserSettingsLoaded = true;
         }
 
-        return Promise.resolve(sanitizeSettings(settingsState.value));
+        return Promise.resolve(sanitizeSettings(settingsState));
     },
     save(settings) {
         const currentSettings = browserSettingsLoaded
-            ? settingsState.value
+            ? settingsState
             : readBrowserSettingsFromCookie()
                 ?? readBrowserSettingsFromStorage()
                 ?? { ...DEFAULT_SETTINGS };
@@ -107,7 +107,7 @@ export const browserSettingsCapability: ISettingsCapability = {
             ...currentSettings,
             ...settings,
         });
-        settingsState.value = nextSettings;
+        settingsState = nextSettings;
         browserSettingsLoaded = true;
         writeBrowserSettingsToStorage(nextSettings);
         writeBrowserSettingsToCookie(nextSettings);

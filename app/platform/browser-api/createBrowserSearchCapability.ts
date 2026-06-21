@@ -573,6 +573,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
     const searchProgressListeners = new Set<TSearchListener>();
     const searchDocumentCache = new Map<string, IPreparedSearchDocumentCache>();
     const canceledSearchRequests = new Set<string>();
+    const activeSearchRequests = new Set<string>();
     const activeWorkerSearchRequests = new Map<string, number>();
 
     function getMemoryCacheKey(pdfPath: string, contentSignature: string) {
@@ -627,6 +628,12 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         }
     }
 
+    function startSearchRequest(requestId: string | undefined) {
+        if (requestId) {
+            activeSearchRequests.add(requestId);
+        }
+    }
+
     function consumeCancellation(requestId: string | undefined) {
         if (requestId && canceledSearchRequests.has(requestId)) {
             return true;
@@ -637,6 +644,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
     function finishSearchRequest(requestId: string | undefined) {
         if (requestId) {
             canceledSearchRequests.delete(requestId);
+            activeSearchRequests.delete(requestId);
             activeWorkerSearchRequests.delete(requestId);
         }
     }
@@ -965,9 +973,6 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 };
             }
 
-            await assertSearchWithinBrowserBudget(pdfPath);
-            const { size } = await browserDocumentStore.stat(pdfPath);
-            const contentSignature = await browserDocumentStore.getContentSignature(pdfPath);
             const requestId = options.requestId ?? crypto.randomUUID();
             const results: IPdfSearchResult[] = [];
             const pageMatchCounts = new Map<number, number>();
@@ -977,7 +982,11 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 useRegex: Boolean(options.useRegex),
             });
 
+            startSearchRequest(requestId);
             try {
+                await assertSearchWithinBrowserBudget(pdfPath);
+                const { size } = await browserDocumentStore.stat(pdfPath);
+                const contentSignature = await browserDocumentStore.getContentSignature(pdfPath);
                 await iterateSearchPages(pdfPath, size, contentSignature, {
                     requestId,
                     ...(options.pageCount !== undefined ? {expectedPageCount: options.pageCount} : {}),
@@ -1048,11 +1057,12 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             }
         },
         async warmIndex(pdfPath, options = {}) {
-            await assertSearchWithinBrowserBudget(pdfPath);
-            const { size } = await browserDocumentStore.stat(pdfPath);
-            const contentSignature = await browserDocumentStore.getContentSignature(pdfPath);
             const requestId = options.requestId;
+            startSearchRequest(requestId);
             try {
+                await assertSearchWithinBrowserBudget(pdfPath);
+                const { size } = await browserDocumentStore.stat(pdfPath);
+                const contentSignature = await browserDocumentStore.getContentSignature(pdfPath);
                 const completed = await iterateSearchPages(pdfPath, size, contentSignature, {
                     ...(requestId !== undefined ? {requestId} : {}),
                     ...(options.pageCount !== undefined ? {expectedPageCount: options.pageCount} : {}),
@@ -1067,10 +1077,12 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         },
         cancel(requestId) {
             if (requestId) {
-                canceledSearchRequests.add(requestId);
                 const workerRequestId = activeWorkerSearchRequests.get(requestId);
                 if (typeof workerRequestId === 'number') {
                     void cancelBrowserSearchWorkerRequest(workerRequestId);
+                }
+                if (activeSearchRequests.has(requestId)) {
+                    canceledSearchRequests.add(requestId);
                 }
             }
             return Promise.resolve({ canceled: true });

@@ -75,7 +75,11 @@ export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInterac
     }
 
     function handleViewerMouseUp(event: MouseEvent) {
-        if (isSnipActive() || isImagePlacementTarget(event.target)) {
+        const snipActive = isSnipActive();
+        if (!snipActive) {
+            stopDrag();
+        }
+        if (snipActive || isImagePlacementTarget(event.target)) {
             return;
         }
         handleViewerMouseUpAnnotation();

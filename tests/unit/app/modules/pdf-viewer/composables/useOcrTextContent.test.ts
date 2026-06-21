@@ -204,4 +204,64 @@ describe('useOcrTextContent', () => {
         expect(textContent?.items[1]?.height).toBe(30);
         expect(textContent?.items[1]?.transform[3]).toBe(30);
     });
+
+    it('reuses the resolved ascent ratio for all OCR text items', async () => {
+        const createElement = vi.fn(() => ({getContext: () => null}));
+        vi.stubGlobal('document', {createElement});
+        mockDocuments.readTextFile.mockImplementation(async (path: string) => {
+            if (path.endsWith('manifest.json')) {
+                return JSON.stringify({
+                    version: 2,
+                    createdAt: 1,
+                    source: {pdfPath: '/tmp/fallback.pdf'},
+                    pageCount: 1,
+                    pageBox: 'crop',
+                    ocr: {
+                        engine: 'tesseract',
+                        languages: ['eng'],
+                        renderDpi: 300,
+                    },
+                    pages: {1: {path: 'page-1.json'}},
+                });
+            }
+            if (path.endsWith('page-1.json')) {
+                return JSON.stringify({
+                    pageNumber: 1,
+                    rotation: 0,
+                    render: {
+                        dpi: 300,
+                        imagePx: {
+                            w: 100,
+                            h: 100,
+                        },
+                    },
+                    text: 'hello world',
+                    words: [
+                        {
+                            text: 'hello',
+                            x: 10,
+                            y: 10,
+                            width: 20,
+                            height: 10,
+                        },
+                        {
+                            text: 'world',
+                            x: 35,
+                            y: 10,
+                            width: 20,
+                            height: 10,
+                        },
+                    ],
+                });
+            }
+            throw new Error(`Unexpected path: ${path}`);
+        });
+
+        const {useOcrTextContent} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent');
+        const textContent = await useOcrTextContent().getOcrTextContent('/tmp/fallback.pdf', 1, createViewport());
+
+        expect(textContent?.items).toHaveLength(2);
+        expect(textContent?.styles['ocr-sans']?.ascent).toBe(0.8);
+        expect(createElement).toHaveBeenCalledTimes(1);
+    });
 });

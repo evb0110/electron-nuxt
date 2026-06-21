@@ -8,16 +8,12 @@ import type { TAnnotationTool } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdf';
 import { shouldHandleRendererMenuAccelerators } from '@app/utils/shouldHandleRendererMenuAccelerators';
 
-interface IPdfViewerForShortcuts {
-    cancelCommentPlacement: () => void;
-    deleteSelectedShape: () => void;
-}
+interface IPdfViewerForShortcuts {deleteSelectedShape: () => void;}
 
 interface IPageShortcutsDeps {
     isActive: Ref<boolean>;
     pdfSrc: Ref<TPdfSource | null>;
     canSave: Ref<boolean>;
-    showSettings: Ref<boolean>;
     annotationTool: Ref<TAnnotationTool>;
     annotationPlacingPageNote: Ref<boolean>;
     pdfViewerRef: Ref<IPdfViewerForShortcuts | null>;
@@ -28,7 +24,6 @@ interface IPageShortcutsDeps {
     closePageContextMenu: () => void;
     closeShapeProperties: () => void;
     openSearch: () => void;
-    openAnnotations: () => void;
     handleAnnotationToolChange: (tool: TAnnotationTool) => void;
     handleZoomIn: () => void;
     handleZoomOut: () => void;
@@ -71,7 +66,7 @@ function targetAsElement(target: EventTarget | null) {
         : null;
 }
 
-export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
+export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) => {
     const {
         isActive,
         pdfSrc,

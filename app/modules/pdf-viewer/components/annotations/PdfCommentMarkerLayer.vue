@@ -28,10 +28,7 @@ import type {
 import type { IMarkerViewModel } from '@app/modules/pdf-viewer/engine/annotations/types';
 import PdfCommentMarker from '@app/modules/pdf-viewer/components/annotations/PdfCommentMarker.vue';
 
-defineProps<{
-    pageNumber: number;
-    markers: IMarkerViewModel[];
-}>();
+defineProps<{ markers: IMarkerViewModel[] }>();
 
 const emit = defineEmits<{
     openNote: [comment: IAnnotationCommentSummary];

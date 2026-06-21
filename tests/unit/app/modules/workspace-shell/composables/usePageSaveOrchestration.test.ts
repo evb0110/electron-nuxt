@@ -174,6 +174,75 @@ describe('usePageSaveOrchestration', () => {
         });
     });
 
+    it('uses live annotation predicates in the canSave fallback', () => {
+        const orchestration = usePageSaveOrchestration(cast({
+            pdfData: ref(null),
+            pdfDocument: shallowRef({ numPages: 1 } as PDFDocumentProxy),
+            pdfViewerRef: ref({
+                scrollToPage: vi.fn(),
+                saveDocument: vi.fn(async () => new Uint8Array([1])),
+                getMarkupSubtypeOverrides: vi.fn(() => undefined),
+                getAllShapes: vi.fn(() => []),
+                getDeletedEmbeddedShapeAnnotationIds: vi.fn(() => []),
+            }),
+            requestDocxExport: vi.fn(async () => true),
+            openOcrPopup: vi.fn(),
+            isExportingDocx: ref(false),
+            workingCopyPath: ref('/tmp/document.pdf'),
+            annotationComments: ref([]),
+            totalPages: ref(1),
+            pageLabelsDirty: ref(false),
+            pageLabelRanges: ref([]),
+            bookmarksDirty: ref(false),
+            bookmarkItems: ref([]),
+            isSaving: ref(false),
+            isSavingAs: ref(false),
+            annotationDirty: ref(false),
+            annotationNoteWindowsCount: ref(0),
+            hasAnnotationChanges: vi.fn(() => false),
+            hasLivePdfJsAnnotationChanges: vi.fn(() => true),
+            markAnnotationSaved: vi.fn(),
+            markPageLabelsSaved: vi.fn(),
+            markBookmarksSaved: vi.fn(),
+            isDirty: ref(false),
+            persistAllAnnotationNotes: vi.fn(async () => true),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => null),
+            consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
+            loadRecentFiles: vi.fn(),
+            clearOcrCache: vi.fn(),
+            reloadWorkingCopyIntoHistory: vi.fn(async () => true),
+            currentPage: ref(1),
+            waitForPdfReload: vi.fn(async () => {}),
+            resetSearchCache: vi.fn(),
+            validatePdfPath: vi.fn(async () => ({
+                isValid: true,
+                tool: 'qpdf',
+                errors: [],
+                warnings: [],
+            })),
+            saveFile: vi.fn(async () => ({
+                success: true,
+                outPath: '/tmp/document.pdf',
+                saveMode: 'rewrite',
+                didSaveAs: false,
+            })),
+            saveWorkingCopy: vi.fn(async () => ({
+                success: true,
+                outPath: '/tmp/document.pdf',
+                saveMode: 'rewrite',
+                didSaveAs: false,
+            })),
+            saveWorkingCopyAs: vi.fn(async () => ({
+                success: true,
+                outPath: '/tmp/document-copy.pdf',
+                saveMode: 'save_as_rewrite',
+                didSaveAs: true,
+            })),
+        }));
+
+        expect(orchestration.canSave.value).toBe(true);
+    });
+
     it('applies OCR results by replacing the working copy from the temp PDF path', async () => {
         const clearOcrCache = vi.fn();
         const resetSearchCache = vi.fn();

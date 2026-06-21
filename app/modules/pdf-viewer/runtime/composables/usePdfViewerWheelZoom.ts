@@ -354,6 +354,25 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         };
     }
 
+    function clearAppliedPendingImmediateZoomRestoreIntent(
+        sessionId: number,
+        nextEffectiveZoom: number,
+        nextZoom: number,
+    ) {
+        const pendingIntent = pendingImmediateZoomRestoreIntent.value;
+        if (!pendingIntent || pendingIntent.sessionId !== sessionId) {
+            return;
+        }
+        if (
+            Math.abs(effectiveScale.value - nextEffectiveZoom) >= 0.001
+            && Math.abs(zoom.value - nextZoom) >= 0.001
+        ) {
+            return;
+        }
+
+        pendingImmediateZoomRestoreIntent.value = null;
+    }
+
     function suppressSinglePageSnapForWheelZoom() {
         singlePageScroll.suppressSnapFor(
             Math.max(
@@ -659,6 +678,11 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
 
         const previousEmittedZoom = session.lastEmittedZoom;
         if (Math.abs(zoomTarget.nextEffectiveZoom - previousEmittedZoom) < 0.001) {
+            clearAppliedPendingImmediateZoomRestoreIntent(
+                session.id,
+                zoomTarget.nextEffectiveZoom,
+                zoomTarget.nextZoom,
+            );
             BrowserLogger.diagnosticThrottled(
                 'pdf-zoom-debug',
                 'wheel-zoom-ignored-no-change',

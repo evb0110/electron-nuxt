@@ -127,12 +127,18 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     function handlePageContextMenuInsertBefore() {
         const pages = pageContextMenu.value.pages;
         closePageContextMenu();
+        if (pages.length === 0) {
+            return;
+        }
         void pageOpsInsert(totalPages.value, Math.min(...pages) - 1);
     }
 
     function handlePageContextMenuInsertAfter() {
         const pages = pageContextMenu.value.pages;
         closePageContextMenu();
+        if (pages.length === 0) {
+            return;
+        }
         void pageOpsInsert(totalPages.value, Math.max(...pages));
     }
 

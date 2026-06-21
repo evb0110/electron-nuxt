@@ -8,14 +8,27 @@ interface IUseWorkspaceRefRegistryOptions { activeTabId: Ref<string | null>; }
 
 export const useWorkspaceRefRegistry = (options: IUseWorkspaceRefRegistryOptions) => {
     const workspaceRefs = shallowRef<Map<string, IWorkspaceExpose>>(new Map());
-    const pendingWorkspaceWaiters = new Map<string, Set<(workspace: IWorkspaceExpose) => void>>();
+    type TWorkspaceWaiter = (workspace: IWorkspaceExpose | null) => void;
+    const pendingWorkspaceWaiters = new Map<string, Set<TWorkspaceWaiter>>();
     const WORKSPACE_REF_WAIT_TIMEOUT_MS = 4000;
 
-    function removePendingWaiter(tabId: string, waiter: (workspace: IWorkspaceExpose) => void) {
+    function removePendingWaiter(tabId: string, waiter: TWorkspaceWaiter) {
         const waiters = pendingWorkspaceWaiters.get(tabId);
         waiters?.delete(waiter);
         if (waiters && waiters.size === 0) {
             pendingWorkspaceWaiters.delete(tabId);
+        }
+    }
+
+    function resolvePendingWaiters(tabId: string, workspace: IWorkspaceExpose | null) {
+        const waiters = pendingWorkspaceWaiters.get(tabId);
+        if (!waiters || waiters.size === 0) {
+            return;
+        }
+
+        pendingWorkspaceWaiters.delete(tabId);
+        for (const waiter of waiters) {
+            waiter(workspace);
         }
     }
 
@@ -25,13 +38,7 @@ export const useWorkspaceRefRegistry = (options: IUseWorkspaceRefRegistryOptions
                 return;
             }
             workspaceRefs.value.set(tabId, el);
-            const waiters = pendingWorkspaceWaiters.get(tabId);
-            if (waiters && waiters.size > 0) {
-                pendingWorkspaceWaiters.delete(tabId);
-                for (const waiter of waiters) {
-                    waiter(el);
-                }
-            }
+            resolvePendingWaiters(tabId, el);
             triggerRef(workspaceRefs);
             return;
         }
@@ -43,9 +50,11 @@ export const useWorkspaceRefRegistry = (options: IUseWorkspaceRefRegistryOptions
             });
         }
         if (!workspaceRefs.value.has(tabId)) {
+            resolvePendingWaiters(tabId, null);
             return;
         }
         workspaceRefs.value.delete(tabId);
+        resolvePendingWaiters(tabId, null);
         triggerRef(workspaceRefs);
     }
 
@@ -54,7 +63,7 @@ export const useWorkspaceRefRegistry = (options: IUseWorkspaceRefRegistryOptions
         if (existingWorkspace) {
             return existingWorkspace;
         }
-        let waiter: ((workspace: IWorkspaceExpose) => void) | null = null;
+        let waiter: TWorkspaceWaiter | null = null;
 
         const cleanupWaiter = () => {
             if (!waiter) {
@@ -64,8 +73,8 @@ export const useWorkspaceRefRegistry = (options: IUseWorkspaceRefRegistryOptions
             waiter = null;
         };
 
-        const waiterPromise = new Promise<IWorkspaceExpose>((resolve) => {
-            waiter = (workspace: IWorkspaceExpose) => {
+        const waiterPromise = new Promise<IWorkspaceExpose | null>((resolve) => {
+            waiter = (workspace: IWorkspaceExpose | null) => {
                 resolve(workspace);
             };
 

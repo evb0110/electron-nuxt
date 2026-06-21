@@ -120,7 +120,11 @@ export class BrowserWorkerClient<
                 this.clearRequestTimeout(pendingRequest);
                 const timeoutError = createTimeoutError();
                 pendingRequest.reject(timeoutError);
-                this.resetWorker(timeoutError);
+                if (this.pendingRequests.size === 0) {
+                    this.resetWorker();
+                } else {
+                    this.scheduleIdleWorkerTermination();
+                }
             }, timeoutMs);
         }
 

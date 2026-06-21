@@ -111,7 +111,6 @@ import type {
     ICropMargins,
     ICropRemovePayload,
     IPdfBox,
-    TCropScope,
     TCropUnit,
 } from '@app/types/crop';
 import {
@@ -123,11 +122,8 @@ import {
     unitToPoints,
 } from '@app/utils/pdfCropCoordinates';
 import { parsePageRangeInput } from '@app/utils/pdfPageLabels';
-import {
-    createAllPageNumbers,
-    expandPageRange,
-    normalizeSelectedPageNumbers,
-} from '@app/utils/pdfPageSelection';
+import { expandPageRange } from '@app/utils/pdfPageSelection';
+import { usePdfPageScopeSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
 
 interface ICropMarginField {
     side: keyof ICropMargins;
@@ -193,12 +189,6 @@ const margins = reactive<ICropMargins>({
 const marginsDirty = ref(false);
 
 const unit = ref<TCropUnit>('pt');
-const scope = ref<TCropScope>('current');
-const rangeInput = ref('');
-
-const normalizedSelectedPages = computed(() =>
-    normalizeSelectedPageNumbers(selectedPages, totalPages),
-);
 
 const currentStep = computed(() => unitStep(unit.value));
 
@@ -246,6 +236,23 @@ const unitOptions = computed(() => [
         label: t('crop.unitInches'),
     },
 ]);
+
+function resolveRangePages() {
+    return expandPageRange(parsePageRangeInput(rangeInput.value, totalPages));
+}
+
+const {
+    scope,
+    rangeInput,
+    normalizedSelectedPages,
+    resetScopeForOpen,
+    resolveScopedPageNumbers,
+} = usePdfPageScopeSelection({
+    totalPages: () => totalPages,
+    currentPage: () => currentPage,
+    selectedPages: () => selectedPages,
+    resolveRangePages,
+});
 
 const scopeOptions = computed(() => {
     const options = [
@@ -341,20 +348,8 @@ const isValid = computed(() => {
     return cropWidth > 0 && cropHeight > 0 && cropPages.value.length > 0;
 });
 
-const rangePages = computed(() => {
-    return expandPageRange(parsePageRangeInput(rangeInput.value, totalPages));
-});
-
 const cropPages = computed((): number[] => {
-    switch (scope.value) {
-        case 'all': return createAllPageNumbers(totalPages);
-        case 'current': return [currentPage];
-        case 'even': return createAllPageNumbers(totalPages).filter(page => page % 2 === 0);
-        case 'odd': return createAllPageNumbers(totalPages).filter(page => page % 2 !== 0);
-        case 'range': return rangePages.value ?? [];
-        case 'selected': return normalizedSelectedPages.value;
-        default: return [];
-    }
+    return resolveScopedPageNumbers({ includeAllPages: true }) ?? [];
 });
 
 function syncMarginsFromProps() {
@@ -393,9 +388,8 @@ watch(open, (isOpen) => {
         return;
     }
     syncMarginsFromProps();
-    scope.value = 'current';
-    rangeInput.value = '';
-});
+    resetScopeForOpen('current');
+}, { immediate: true });
 
 watch(() => loading, (loading, previousLoading) => {
     if (!open.value || loading || !previousLoading) {
@@ -411,11 +405,6 @@ watch(() => initialMargins, () => {
     syncMarginsFromProps();
 }, { deep: true });
 
-watch(normalizedSelectedPages, (pages) => {
-    if (scope.value === 'selected' && pages.length === 0) {
-        scope.value = 'all';
-    }
-});
 </script>
 
 <style scoped>

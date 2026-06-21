@@ -5,6 +5,8 @@ export interface IEmptySplitPayload {kind: 'empty';}
 export interface IDjvuSplitPayload {
     kind: 'djvu';
     sourcePath: TDocumentRef;
+    currentPage?: number;
+    totalPages?: number;
 }
 
 export interface IPdfSnapshotSplitPayload {

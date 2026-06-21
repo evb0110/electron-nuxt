@@ -17,6 +17,14 @@ export default {
         'refresh': 'Обновить статус ассистента',
         'provider': 'Провайдер ассистента',
         'model': 'Модель ассистента',
+        'reasoning': 'Рассуждение',
+        'reasoningEffort': 'Уровень рассуждения',
+        'reasoningEffortAria': 'Уровень рассуждения: {label}',
+        'effortLow': 'Низкий',
+        'effortMedium': 'Средний',
+        'effortHigh': 'Высокий',
+        'effortXHigh': 'Очень высокий',
+        'effortMax': 'Максимум',
         'newChat': 'Новый чат',
         'checkingTitle': 'Проверка EVB Assistant',
         'checkingDescription': 'Загружаем локальную сессию Codex и инструменты EVB.',
@@ -306,6 +314,7 @@ export default {
         },
         'processingPage': 'Обработка страницы {page} ({processed}/{total})',
         'complete': 'OCR завершён — PDF теперь доступен для поиска',
+        'partialComplete': 'OCR завершён с предупреждениями',
         'exportDocx': 'Экспорт DOCX',
         'start': 'Запустить OCR',
         'cancel': 'Отменить OCR',
@@ -536,6 +545,8 @@ export default {
         'listTitle': 'Порядок вывода',
         'fileCount': plural({
             one: '{count} файл в очереди',
+            few: '{count} файла в очереди',
+            many: '{count} файлов в очереди',
             other: '{count} файлов в очереди',
         }),
         'clear': 'Очистить',
@@ -544,6 +555,8 @@ export default {
         'combineAction': 'Объединить в PDF',
         'combineCountAction': plural({
             one: 'Объединить {count} файл',
+            few: 'Объединить {count} файла',
+            many: 'Объединить {count} файлов',
             other: 'Объединить {count} файлов',
         }),
         'combining': 'Объединение...',
@@ -557,6 +570,8 @@ export default {
         'outputHint': 'Объединённый PDF открывается как несохранённый документ, чтобы вы могли просмотреть его перед сохранением.',
         'unsupportedFiles': plural({
             one: '{count} неподдерживаемый файл пропущен.',
+            few: '{count} неподдерживаемых файла пропущено.',
+            many: '{count} неподдерживаемых файлов пропущено.',
             other: '{count} неподдерживаемых файлов пропущено.',
         }),
     },
@@ -977,6 +992,15 @@ export default {
         'unknownVersion': 'неизвестная версия',
         'unknownError': 'неизвестная ошибка',
     },
+    'browser': {'filePicker': {
+        'documents': 'Документы',
+        'images': 'Изображения',
+        'pdfDocuments': 'PDF-документы',
+        'wordDocuments': 'Документы Word',
+        'jpegImages': 'JPEG-изображения',
+        'pngImages': 'PNG-изображения',
+        'tiffImages': 'TIFF-изображения',
+    }},
     'errors': {
         'recent': {
             'load': 'Не удалось загрузить недавние файлы',
@@ -993,7 +1017,10 @@ export default {
             'folderEmpty': 'В выбранной папке нет поддерживаемых документов',
             'save': 'Не удалось сохранить файл',
         },
-        'export': { 'multiPageTiff': 'Не удалось экспортировать TIFF' },
+        'export': {
+            'images': 'Не удалось экспортировать изображения',
+            'multiPageTiff': 'Не удалось экспортировать TIFF',
+        },
         'browser': { 'largeSaveHandleHint': 'Используйте браузер с включённым локальным доступом к файловой системе, чтобы сохранять большие документы.' },
         'search': {
             'browserTooLarge': 'Поиск недоступен в браузере для очень больших документов.',

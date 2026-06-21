@@ -814,6 +814,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                 return false;
             }
             const version = getRenderVersion();
+            const scale = toValue(effectiveScale);
             const pdfPage = await loadPageForRender(
                 pageNumber,
                 version,
@@ -840,7 +841,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                 if (!annotationEditorLayerDiv) {
                     return false;
                 }
-                const viewport = getViewportForAnnotationEditorLayer(pdfPage, toValue(effectiveScale));
+                const viewport = getViewportForAnnotationEditorLayer(pdfPage, scale);
                 await renderAnnotationEditorLayer(
                     target.container,
                     annotationEditorLayerDiv,

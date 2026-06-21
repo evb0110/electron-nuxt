@@ -32,7 +32,7 @@ interface IUseDocumentWorkspaceSplitRestoreOptions {
     fitMode: Ref<unknown>;
     viewMode: Ref<unknown>;
     zoom: Ref<number>;
-    pdfViewerRef: Ref<{ getViewerContainer?: () => HTMLElement | null; } | null>;
+    documentViewerRef: Ref<{ getViewerContainer?: () => HTMLElement | null; } | null>;
     initFromStorage: () => void;
     cleanupSidebarResizeListeners: () => void;
     captureSplitPayload: () => Promise<TSplitPayload>;
@@ -83,7 +83,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
         && !options.pendingDocumentOpen.value
     ));
 
-    function preseedPdfSnapshotPaging(payload: Extract<TSplitPayload, { kind: 'pdfSnapshot' }>) {
+    function preseedSplitPayloadPaging(payload: Extract<TSplitPayload, { kind: 'pdfSnapshot' | 'djvu' }>) {
         const restoredPage = normalizeRestoredPage(payload.currentPage);
         if (restoredPage) {
             options.currentPage.value = restoredPage;
@@ -99,9 +99,29 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
     }
 
     function preseedCachedSplitPayload(payload: TSplitPayload) {
-        if (payload.kind === 'pdfSnapshot') {
-            preseedPdfSnapshotPaging(payload);
+        if (payload.kind === 'pdfSnapshot' || payload.kind === 'djvu') {
+            preseedSplitPayloadPaging(payload);
         }
+    }
+
+    function pushPageTransitionHistory(entry: IPageTransitionHistoryEntry, now: number) {
+        const history = options.currentPageTransitionHistory.value;
+        history.push(entry);
+
+        let writeIndex = 0;
+        for (const candidate of history) {
+            if (now - candidate.at <= 2000) {
+                history[writeIndex] = candidate;
+                writeIndex += 1;
+            }
+        }
+
+        const keepFrom = Math.max(0, writeIndex - 8);
+        if (keepFrom > 0) {
+            history.copyWithin(0, keepFrom, writeIndex);
+            writeIndex -= keepFrom;
+        }
+        history.length = writeIndex;
     }
 
     async function restoreCachedSplitPayloadIfNeeded() {
@@ -122,8 +142,8 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
                 tabId: options.tabId,
                 payloadKind: payload.kind,
                 hadPdfBeforeRestore: options.hasPdf.value,
-                payloadCurrentPage: payload.kind === 'pdfSnapshot' ? payload.currentPage : null,
-                payloadTotalPages: payload.kind === 'pdfSnapshot' ? payload.totalPages : null,
+                payloadCurrentPage: payload.kind === 'pdfSnapshot' || payload.kind === 'djvu' ? payload.currentPage : null,
+                payloadTotalPages: payload.kind === 'pdfSnapshot' || payload.kind === 'djvu' ? payload.totalPages : null,
                 preseededCurrentPage: options.currentPage.value,
                 preseededTotalPages: options.totalPages.value,
             });
@@ -261,7 +281,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
         if (next === previous) {
             return;
         }
-        const viewer = options.pdfViewerRef.value?.getViewerContainer?.() ?? null;
+        const viewer = options.documentViewerRef.value?.getViewerContainer?.() ?? null;
         BrowserLogger.diagnostic('pdf-nav', `[workspace-sidebar] ${previous ? 'open' : 'closed'} -> ${next ? 'open' : 'closed'}`, {
             previous,
             next,
@@ -278,7 +298,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
         if (next === previous) {
             return;
         }
-        const viewer = options.pdfViewerRef.value?.getViewerContainer?.() ?? null;
+        const viewer = options.documentViewerRef.value?.getViewerContainer?.() ?? null;
         BrowserLogger.diagnostic('pdf-nav', `[workspace-page-ref] ${previous}->${next}`, {
             previous,
             next,
@@ -294,13 +314,10 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
         });
 
         const now = Date.now();
-        options.currentPageTransitionHistory.value = [
-            ...options.currentPageTransitionHistory.value,
-            {
-                page: next,
-                at: now,
-            },
-        ].filter((entry) => now - entry.at <= 2000).slice(-8);
+        pushPageTransitionHistory({
+            page: next,
+            at: now,
+        }, now);
 
         const history: IPageTransitionHistoryEntry[] = options.currentPageTransitionHistory.value;
         if (history.length >= 3) {

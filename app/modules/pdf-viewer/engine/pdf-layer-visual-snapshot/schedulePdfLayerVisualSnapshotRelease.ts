@@ -6,6 +6,28 @@ interface IPdfLayerVisualSnapshotReleaseOptions {
     waitFor?: () => boolean;
 }
 
+function normalizeMaxDelayMs(maxDelayMs: number | undefined) {
+    if (
+        typeof maxDelayMs !== 'number'
+        || !Number.isFinite(maxDelayMs)
+        || maxDelayMs <= 0
+    ) {
+        return 0;
+    }
+    return maxDelayMs;
+}
+
+function normalizeMinFrames(minFrames: number | undefined) {
+    if (
+        typeof minFrames !== 'number'
+        || !Number.isFinite(minFrames)
+        || minFrames < 1
+    ) {
+        return 1;
+    }
+    return Math.ceil(minFrames);
+}
+
 export function schedulePdfLayerVisualSnapshotRelease(
     release: TPdfLayerVisualSnapshotRelease | null | undefined,
     options: IPdfLayerVisualSnapshotReleaseOptions = {},
@@ -14,8 +36,8 @@ export function schedulePdfLayerVisualSnapshotRelease(
         return;
     }
 
-    const maxDelayMs = options.maxDelayMs ?? 0;
-    const minFrames = options.minFrames ?? 1;
+    const maxDelayMs = normalizeMaxDelayMs(options.maxDelayMs);
+    const minFrames = normalizeMinFrames(options.minFrames);
     const startTime = Date.now();
     let frameCount = 0;
 
@@ -27,7 +49,7 @@ export function schedulePdfLayerVisualSnapshotRelease(
         if (!options.waitFor || options.waitFor()) {
             return true;
         }
-        return maxDelayMs > 0 && Date.now() - startTime >= maxDelayMs;
+        return Date.now() - startTime >= maxDelayMs;
     };
 
     if (

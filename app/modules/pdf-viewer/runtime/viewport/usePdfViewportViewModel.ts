@@ -53,6 +53,27 @@ const HORIZONTAL_SCROLL_CLAMP_EPSILON_PX = 1.5;
 
 export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions) => {
     const fitWidthHorizontalScrollLocked = ref(false);
+    const viewportDimensionVersion = ref(0);
+
+    watch(
+        () => options.viewerContainer.value,
+        (container, _previousContainer, onCleanup) => {
+            viewportDimensionVersion.value += 1;
+            if (typeof ResizeObserver === 'undefined' || !container) {
+                return;
+            }
+
+            const resizeObserver = new ResizeObserver(() => {
+                viewportDimensionVersion.value += 1;
+            });
+            resizeObserver.observe(container);
+            onCleanup(() => resizeObserver.disconnect());
+        },
+        {
+            immediate: true,
+            flush: 'post',
+        },
+    );
 
     const virtualization = usePdfViewerVirtualization({
         bufferPages: options.bufferPages,
@@ -78,6 +99,7 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
     }));
 
     const isActiveSpreadHorizontalScrollLocked = computed(() => {
+        void viewportDimensionVersion.value;
         const container = options.viewerContainer.value;
         if (!container) {
             return false;

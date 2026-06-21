@@ -16,13 +16,11 @@ import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { getErrorMessage } from '@app/utils/error';
 
 type TExportDialogMode = 'images' | 'multipage-tiff';
-type TExportOverlayKind = 'images' | 'multipage-tiff';
-type TExportOverlayState = 'running' | 'success';
 
-interface IExportOverlayStatus {
-    kind: TExportOverlayKind;
+export interface IWorkspaceExportOverlay {
+    kind: 'images' | 'multipage-tiff';
     pageCount: number;
-    state: TExportOverlayState;
+    state: 'running' | 'success';
     progressPercent?: number;
 }
 
@@ -43,7 +41,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     } = deps;
 
     const isExportInProgress = ref(false);
-    const exportOverlay = ref<IExportOverlayStatus | null>(null);
+    const exportOverlay = ref<IWorkspaceExportOverlay | null>(null);
     const exportScopeDialogOpen = ref(false);
     const exportScopeDialogMode = ref<TExportDialogMode>('images');
     const exportScopeDialogSelectedPages = ref<number[]>([]);
@@ -53,7 +51,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     const {
         start: startExportOverlayResetTimer,
         stop: stopExportOverlayResetTimer,
-    } = useTimeoutFn((kind: TExportOverlayKind, pageCount: number) => {
+    } = useTimeoutFn((kind: IWorkspaceExportOverlay['kind'], pageCount: number) => {
         if (
             exportOverlay.value?.kind === kind
             && exportOverlay.value.state === 'success'
@@ -67,7 +65,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         stopExportOverlayResetTimer();
     }
 
-    function setExportOverlay(status: IExportOverlayStatus | null) {
+    function setExportOverlay(status: IWorkspaceExportOverlay | null) {
         clearExportOverlayTimer();
         exportOverlay.value = status;
     }
@@ -103,7 +101,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         });
     }
 
-    function showExportRunning(kind: TExportOverlayKind, pageCount: number) {
+    function showExportRunning(kind: IWorkspaceExportOverlay['kind'], pageCount: number) {
         setExportOverlay({
             kind,
             pageCount,
@@ -111,13 +109,29 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         });
     }
 
-    function showExportSuccess(kind: TExportOverlayKind, pageCount: number) {
+    function showExportSuccess(kind: IWorkspaceExportOverlay['kind'], pageCount: number) {
         setExportOverlay({
             kind,
             pageCount,
             state: 'success',
         });
         startExportOverlayResetTimer(kind, pageCount);
+    }
+
+    function showImageExportFailureToast(description?: string) {
+        toast.add({
+            color: 'error',
+            title: t('errors.export.images'),
+            ...(description ? { description } : {}),
+        });
+    }
+
+    function showFreshReadFailureToast() {
+        toast.add({
+            color: 'error',
+            title: t('errors.export.images'),
+            description: t('errors.file.save'),
+        });
     }
 
     function normalizeExportSelectedPages(selectedPages: number[]) {
@@ -169,6 +183,9 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     ) {
         if (!result.success) {
             setExportOverlay(null);
+            if (!result.canceled) {
+                showImageExportFailureToast();
+            }
             return;
         }
 
@@ -235,6 +252,9 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                 : true;
             if (!isFreshForRead || !workingCopyPath.value) {
                 setExportOverlay(null);
+                if (!isFreshForRead) {
+                    showFreshReadFailureToast();
+                }
                 return;
             }
 
@@ -258,6 +278,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         } catch (error) {
             setExportOverlay(null);
             BrowserLogger.error('workspace', 'export images failed', error);
+            showImageExportFailureToast(getErrorMessage(error));
         } finally {
             clearExportProgressSubscription();
             isExportInProgress.value = false;
@@ -277,6 +298,13 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                 : true;
             if (!isFreshForRead || !workingCopyPath.value) {
                 setExportOverlay(null);
+                if (!isFreshForRead) {
+                    toast.add({
+                        color: 'error',
+                        title: t('errors.export.multiPageTiff'),
+                        description: t('errors.file.save'),
+                    });
+                }
                 return;
             }
 

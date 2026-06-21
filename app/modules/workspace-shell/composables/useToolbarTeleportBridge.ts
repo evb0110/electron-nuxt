@@ -116,7 +116,7 @@ export const useToolbarTeleportBridge = (isTabTransitionBusy: Readonly<Ref<boole
 
     function disposeToolbarTeleportBridge() {
         stopToolbarHostObserver();
-        clearGhostExpiryTimer();
+        clearToolbarGhostNodes();
     }
 
     return {

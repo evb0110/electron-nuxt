@@ -37,6 +37,10 @@ function createHarness() {
     const invalidateThumbnailPages = vi.fn();
     const invalidatePages = vi.fn();
     const reloadWaiterCancel = vi.fn();
+    const pageContextMenu = ref({
+        visible: false,
+        pages: [] as number[],
+    });
     const preparePdfReloadWaiter = vi.fn(() => ({
         promise: Promise.resolve(),
         cancel: reloadWaiterCancel,
@@ -50,10 +54,7 @@ function createHarness() {
         setSelectedThumbnailPages: vi.fn(),
         invalidateThumbnailPages,
         pdfViewerRef: ref({ invalidatePages }),
-        pageContextMenu: ref({
-            visible: false,
-            pages: [],
-        }),
+        pageContextMenu,
         closePageContextMenu: vi.fn(),
         onExportPages: vi.fn(),
         ensureHistoryBaselineForExternalMutation: vi.fn(async () => true),
@@ -67,6 +68,7 @@ function createHarness() {
         handlers,
         invalidateThumbnailPages,
         invalidatePages,
+        pageContextMenu,
         preparePdfReloadWaiter,
         reloadWaiterCancel,
     };
@@ -157,5 +159,14 @@ describe('usePageOpsHandlers crop reload strategy', () => {
 
         expect(result).toBe(false);
         expect(reloadWaiterCancel).toHaveBeenCalledOnce();
+    });
+
+    it('ignores empty insert-before and insert-after page context sets', () => {
+        const { handlers } = createHarness();
+
+        handlers.handlePageContextMenuInsertBefore();
+        handlers.handlePageContextMenuInsertAfter();
+
+        expect(operationMocks.insertPages).not.toHaveBeenCalled();
     });
 });

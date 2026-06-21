@@ -1,5 +1,6 @@
 import type { IScrollSnapshot } from '@app/types/pdf';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
+import { tryOnScopeDispose } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import { logPdfNav } from '@app/utils/logPdfNav';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
@@ -382,6 +383,12 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
     }
 
     function setPageLayoutMetrics(metrics: TPageLayoutMetrics | null) {
+        if (
+            markerTargetReapplyState
+            && (!metrics || metrics.totalPages !== markerTargetReapplyState.totalPages)
+        ) {
+            clearMarkerTargetReapply();
+        }
         pageLayoutMetrics.value = metrics;
         viewportVisibilityCache = null;
     }
@@ -600,6 +607,9 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
         if (!container || totalPages === 0) {
             return;
         }
+        if (markerTargetReapplyState && markerTargetReapplyState.totalPages !== totalPages) {
+            clearMarkerTargetReapply();
+        }
 
         const targetPage = clamp(pageNumber, 1, totalPages);
         const targetEl = getPageContainerByNumber(container, targetPage);
@@ -717,6 +727,10 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
         }
         return page;
     }
+
+    tryOnScopeDispose(() => {
+        clearMarkerTargetReapply();
+    });
 
     return {
         currentPage,

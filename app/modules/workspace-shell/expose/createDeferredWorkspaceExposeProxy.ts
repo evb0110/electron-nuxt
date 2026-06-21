@@ -148,6 +148,7 @@ export function createDeferredWorkspaceExposeProxy(
         handleEnableDragMode: mountWaitSyncVoid('handleEnableDragMode', workspace => workspace.handleEnableDragMode()),
         handleDisableDragMode: mountWaitSyncVoid('handleDisableDragMode', workspace => workspace.handleDisableDragMode()),
         handleCaptureRegion: mountWaitSyncVoid('handleCaptureRegion', workspace => workspace.handleCaptureRegion()),
+        handleCrop: mountWaitSyncVoid('handleCrop', workspace => workspace.handleCrop()),
         handleQuickNote: mountWaitSyncVoid('handleQuickNote', workspace => workspace.handleQuickNote()),
         handleInsertImageFromFile: mountWaitVoid('handleInsertImageFromFile', workspace => workspace.handleInsertImageFromFile()),
         handlePasteImageFromClipboard: mountWaitVoid('handlePasteImageFromClipboard', workspace => workspace.handlePasteImageFromClipboard()),

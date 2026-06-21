@@ -186,7 +186,7 @@ describe('pdfSerializationWorkerClient', () => {
         expect(terminateSpy).toHaveBeenCalledTimes(1);
     });
 
-    it('times out and falls back to direct execution when the worker never replies', async () => {
+    it('times out visibly when the worker never replies', async () => {
         vi.useFakeTimers();
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
         // Override postMessage so the worker silently swallows the request
@@ -232,16 +232,17 @@ describe('pdfSerializationWorkerClient', () => {
             };
 
             const pending = serializePdfEditsOffThread(data, payload);
+            const rejection = expect(pending).rejects.toThrow(
+                'PDF serialization worker did not reply within 30000ms (type=save)',
+            );
 
             // Advance past the 30s hard ceiling — without the timeout fix
             // this promise would hang forever.
             await vi.advanceTimersByTimeAsync(30_000);
-            await vi.runAllTimersAsync();
 
-            // The catch-handler falls back to direct execution; with an
-            // empty payload (no save work) it returns the original bytes.
-            const result = await pending;
-            expect(result).toEqual(data);
+            await rejection;
+            expect(serializePdfEditsMock).not.toHaveBeenCalled();
+            expect(yieldToBrowserMock).not.toHaveBeenCalled();
             // The wedged worker is torn down so subsequent saves get a
             // fresh instance.
             expect(terminateSpy).toHaveBeenCalled();
@@ -250,7 +251,7 @@ describe('pdfSerializationWorkerClient', () => {
         }
     });
 
-    it('settles sibling serialization requests when a timed-out worker is reset', async () => {
+    it('keeps sibling serialization requests pending when one request times out', async () => {
         vi.useFakeTimers();
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
         const originalPostMessage = FakeWorker.prototype.postMessage;
@@ -289,15 +290,37 @@ describe('pdfSerializationWorkerClient', () => {
             const firstData = new Uint8Array([1]);
             const secondData = new Uint8Array([2]);
             const first = serializePdfEditsOffThread(firstData, payload);
+            const firstRejection = expect(first).rejects.toThrow(
+                'PDF serialization worker did not reply within 30000ms (type=save)',
+            );
+            await vi.advanceTimersByTimeAsync(1_000);
             const second = serializePdfEditsOffThread(secondData, payload);
+            const terminateCallsBeforeTimeout = terminateSpy.mock.calls.length;
 
-            await vi.advanceTimersByTimeAsync(30_000);
-            await vi.runAllTimersAsync();
+            await vi.advanceTimersByTimeAsync(29_000);
+            await firstRejection;
+            expect(terminateSpy).toHaveBeenCalledTimes(terminateCallsBeforeTimeout);
 
-            await expect(first).resolves.toEqual(firstData);
+            const worker = FakeWorker.lastInstance;
+            const secondCall = worker?.postMessageCalls[1];
+            const secondRequest = secondCall?.message as {
+                id: number;
+                payload: { data: Uint8Array };
+            } | undefined;
+            if (!worker || !secondRequest) {
+                throw new Error('Expected a second serialization worker request');
+            }
+            worker.emitMessage({
+                id: secondRequest.id,
+                ok: true,
+                data: secondRequest.payload.data,
+            });
+
             await expect(second).resolves.toEqual(secondData);
-            expect(terminateSpy).toHaveBeenCalled();
-            expect(serializePdfEditsMock).toHaveBeenCalled();
+            expect(serializePdfEditsMock).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(15_000);
+            expect(terminateSpy).toHaveBeenCalledTimes(terminateCallsBeforeTimeout + 1);
         } finally {
             FakeWorker.prototype.postMessage = originalPostMessage;
         }

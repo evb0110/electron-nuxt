@@ -13,13 +13,7 @@
 <script setup lang="ts">
 import { clamp } from 'es-toolkit/math';
 import AppProgressChip from '@app/components/AppProgressChip.vue';
-
-interface IWorkspaceExportOverlay {
-    kind: 'images' | 'multipage-tiff';
-    state: 'running' | 'success';
-    pageCount: number;
-    progressPercent?: number;
-}
+import type { IWorkspaceExportOverlay } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
 
 const { overlay } = defineProps<{overlay: IWorkspaceExportOverlay | null;}>();
 

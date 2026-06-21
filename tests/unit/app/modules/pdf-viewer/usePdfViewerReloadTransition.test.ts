@@ -45,4 +45,21 @@ describe('usePdfViewerReloadTransition', () => {
         expect(transition.isVisualReloadTransitionActive.value).toBe(false);
         expect(emitEffectiveZoom).toHaveBeenCalledWith(1.5);
     });
+
+    it('preserves a deferred effective zoom when a newer reload transition starts', () => {
+        const emitEffectiveZoom = vi.fn();
+        const transition = usePdfViewerReloadTransition({ emitEffectiveZoom });
+
+        const firstToken = transition.beginVisualReloadTransition('first');
+        transition.emitEffectiveZoom(1.75);
+        const secondToken = transition.beginVisualReloadTransition('second');
+
+        transition.endVisualReloadTransition(firstToken, 'stale');
+        expect(emitEffectiveZoom).not.toHaveBeenCalled();
+
+        transition.endVisualReloadTransition(secondToken, 'complete');
+
+        expect(emitEffectiveZoom).toHaveBeenCalledOnce();
+        expect(emitEffectiveZoom).toHaveBeenCalledWith(1.75);
+    });
 });

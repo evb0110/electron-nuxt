@@ -10,6 +10,8 @@ const OBSERVER_KEY = '__evbHighlightCompositeObserver';
 
 const SCHEDULED_KEY = '__evbHighlightCompositeScheduled';
 
+const RAF_ID_KEY = '__evbHighlightCompositeRefreshRafId';
+
 function queryAll<T extends Element>(
     root: ParentNode | null | undefined,
     selector: string,
@@ -35,8 +37,13 @@ export function disconnectHighlightCompositeOverlay(pageContainer: HTMLElement) 
     const host = pageContainer.querySelector<IHighlightCompositeHost>('.page_canvas, .canvasWrapper');
     host?.[OBSERVER_KEY]?.disconnect();
     if (host) {
+        const rafId = host[RAF_ID_KEY];
+        if (typeof rafId === 'number' && typeof window !== 'undefined') {
+            window.cancelAnimationFrame(rafId);
+        }
         host[OBSERVER_KEY] = undefined;
         host[SCHEDULED_KEY] = undefined;
+        host[RAF_ID_KEY] = undefined;
         removeCompositeOverlay(host);
     }
 }

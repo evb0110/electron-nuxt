@@ -35,7 +35,7 @@
 </template>
 
 <script setup lang="ts">
-import { getShortcutLabels } from '@app/constants/shortcuts';
+import { useShortcutLabels } from '@app/constants/shortcuts';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { getReaderCommandMenuIcon } from '@app/utils/readerCommandIcons';
@@ -134,7 +134,7 @@ const emitMenuCommand = {
     'paste-image-from-clipboard': () => emit('paste-image-from-clipboard'),
 } satisfies Record<TToolbarAppMenuCommand, () => void>;
 
-const shortcutLabels = getShortcutLabels();
+const shortcutLabels = useShortcutLabels();
 const hasInteractiveDocument = computed(() => hasPdf && documentBusy !== true);
 const menuContentOptions = {
     side: 'bottom' as const,
@@ -164,15 +164,15 @@ const appMenuItems = computed(() => {
             type: 'label',
             label: t('menu.file'),
         },
-        createCommandItem('open-file', t('menu.openFile'), getReaderCommandMenuIcon('open-file'), {shortcut: shortcutLabels.openFile}),
+        createCommandItem('open-file', t('menu.openFile'), getReaderCommandMenuIcon('open-file'), {shortcut: shortcutLabels.value.openFile}),
         createCommandItem('save', t('menu.save'), getReaderCommandMenuIcon('save'), {
             disabled: !hasInteractiveDocument.value || !canSave || isAnySaving || isHistoryBusy || isDjvuMode,
-            shortcut: shortcutLabels.save,
+            shortcut: shortcutLabels.value.save,
         }),
         createCommandItem('repair-save', t('menu.repairAndSave'), 'i-ph-arrows-clockwise', {disabled: !hasInteractiveDocument.value || !canRepairSave || isAnySaving || isHistoryBusy || isDjvuMode}),
         createCommandItem('save-as', t('menu.saveAs'), getReaderCommandMenuIcon('save-as'), {
             disabled: !hasInteractiveDocument.value || isAnySaving || isHistoryBusy || isDjvuMode,
-            shortcut: shortcutLabels.saveAs,
+            shortcut: shortcutLabels.value.saveAs,
         }),
         createCommandItem(
             'print',
@@ -181,7 +181,7 @@ const appMenuItems = computed(() => {
             {
                 disabled: !hasInteractiveDocument.value || isPreparingPrint,
                 loading: isPreparingPrint && !isPreparingCurrentPagePrint,
-                shortcut: shortcutLabels.print,
+                shortcut: shortcutLabels.value.print,
             },
         ),
         createCommandItem('print-current-page', t('menu.printCurrentPage'), undefined, {
@@ -193,7 +193,7 @@ const appMenuItems = computed(() => {
         { type: 'separator' },
         createCommandItem('export-docx', t('menu.exportDocx'), getReaderCommandMenuIcon('export-docx'), {
             disabled: !hasInteractiveDocument.value || !canExportDocx || isExportingDocx,
-            shortcut: shortcutLabels.exportDocx,
+            shortcut: shortcutLabels.value.exportDocx,
         }),
         createCommandItem('export-images', t('menu.exportImages'), 'i-ph-image', {disabled: !hasInteractiveDocument.value}),
         createCommandItem('export-multi-page-tiff', t('menu.exportMultiPageTiff'), 'i-ph-images', {disabled: !hasInteractiveDocument.value}),
@@ -214,11 +214,11 @@ const appMenuItems = computed(() => {
         },
         createCommandItem('undo', t('menu.undo'), getReaderCommandMenuIcon('undo'), {
             disabled: !hasInteractiveDocument.value || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode,
-            shortcut: shortcutLabels.undo,
+            shortcut: shortcutLabels.value.undo,
         }),
         createCommandItem('redo', t('menu.redo'), getReaderCommandMenuIcon('redo'), {
             disabled: !hasInteractiveDocument.value || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode,
-            shortcut: shortcutLabels.redo,
+            shortcut: shortcutLabels.value.redo,
         }),
         { type: 'separator' },
         createCommandItem('insert-image-from-file', t('menu.insertImageFromFile'), 'i-ph-image', {disabled: !hasInteractiveDocument.value || isDjvuMode}),

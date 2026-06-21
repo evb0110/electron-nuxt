@@ -16,7 +16,6 @@ import {
     getPdfjsAssetDir,
     getViewerAssetResolver,
 } from '@app/utils/viewerAssets';
-import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { maxCachedPdfPages } from '@app/modules/pdf-viewer/engine/maxCachedPdfPages';
 
@@ -807,34 +806,6 @@ export const usePdfDocument = () => {
         pdfPageCache.clear();
     }
 
-    async function saveDocument() {
-        const document = pdfDocument.value;
-        const version = renderVersion;
-        if (!document || !isPdfDocumentUsable(document)) {
-            return null;
-        }
-        try {
-            const savedBytes = await document.saveDocument();
-            if (
-                document !== pdfDocument.value
-                || version !== renderVersion
-                || !isPdfDocumentUsable(document)
-            ) {
-                return null;
-            }
-            return savedBytes;
-        } catch (error) {
-            if (
-                document !== pdfDocument.value
-                || version !== renderVersion
-                || !isPdfDocumentUsable(document)
-            ) {
-                return null;
-            }
-            throw error;
-        }
-    }
-
     function cleanup() {
         incrementRenderVersion();
         isLoading.value = false;
@@ -877,7 +848,6 @@ export const usePdfDocument = () => {
         getPage,
         evictPage,
         cleanupPageCache,
-        saveDocument,
         cleanup,
     };
 };

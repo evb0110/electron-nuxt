@@ -6,6 +6,12 @@ import {
 import { useMultiSelection } from '@app/composables/useMultiSelection';
 
 describe('useMultiSelection', () => {
+    it('does not expose a stale-anchor select-all helper', () => {
+        const selection = useMultiSelection<number>();
+
+        expect('selectAll' in selection).toBe(false);
+    });
+
     it('uses a fallback anchor for an initial shift range selection', () => {
         const selection = useMultiSelection<number>();
 

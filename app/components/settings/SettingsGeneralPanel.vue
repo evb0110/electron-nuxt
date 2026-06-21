@@ -174,8 +174,8 @@ function updateUiScale(value: TUiScalePreference) {
 }
 
 .settings-radio-icon {
-    width: 0.875rem;
-    height: 0.875rem;
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
     flex-shrink: 0;
 }
 </style>

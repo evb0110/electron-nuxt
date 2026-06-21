@@ -45,7 +45,11 @@
             :label="t('settings.defaultAnnotationColor')"
             :ui="settingsFormFieldUi"
         >
-            <div class="settings-swatch-track">
+            <div
+                class="settings-swatch-track"
+                role="radiogroup"
+                :aria-label="t('settings.defaultAnnotationColor')"
+            >
                 <button
                     v-for="swatch in annotationColorSwatches"
                     :key="swatch"
@@ -54,6 +58,8 @@
                     :class="{ 'is-active': settings.defaultAnnotationColor === swatch }"
                     :style="{ '--swatch-color': swatch }"
                     :aria-label="t('settings.annotationColorLabel', { color: swatch })"
+                    :aria-checked="settings.defaultAnnotationColor === swatch"
+                    role="radio"
                     @click="emit('update:annotation-color', swatch)"
                 />
             </div>
@@ -114,9 +120,9 @@ const settingsFormFieldUi = { label: 'settings-field-label' };
 @use '@app/assets/css/settings-panel-shared';
 
 .settings-swatch {
-    width: 1.5rem;
-    height: 1.5rem;
-    border-radius: 50%;
+    width: var(--app-space-16xl);
+    height: var(--app-space-16xl);
+    border-radius: var(--app-radius-full);
     border: none;
     background: var(--swatch-color);
     cursor: pointer;
@@ -144,8 +150,8 @@ const settingsFormFieldUi = { label: 'settings-field-label' };
     display: inline-flex;
     align-items: center;
     align-self: flex-start;
-    gap: 0.5rem;
-    padding: 0.5rem 0.625rem;
+    gap: var(--app-space-3xl);
+    padding: var(--app-space-3xl) var(--app-space-6xl);
     border-radius: calc(var(--ui-radius) * 1.5);
     background: var(--ui-bg-muted);
 }

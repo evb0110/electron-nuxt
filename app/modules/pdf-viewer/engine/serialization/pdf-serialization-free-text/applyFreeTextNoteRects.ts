@@ -6,20 +6,12 @@ import {
     PDFRef,
 } from 'pdf-lib';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
-import { markerRectIoU } from '@app/modules/pdf-viewer/engine/annotation-geometry/markerRectIoU';
-import { toMarkerRectFromPdfRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
 import { toPdfRectFromMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toPdfRectFromMarkerRect';
-import { getPdfDictContents } from '@app/utils/pdfDict';
-import {
-    formatPdfJsAnnotationRef,
-    normalizePdfJsAnnotationId,
-} from '@app/utils/pdfAnnotationRefs';
-import { readPdfRectFromDict } from '@pdf-core';
 import { iterateAnnotationRefDicts } from '@app/modules/pdf-viewer/engine/pdf-page-annotation-iteration/iterateAnnotationRefDicts';
 import { resolvePageAnnotationContext } from '@app/modules/pdf-viewer/engine/pdf-page-annotation-iteration/resolvePageAnnotationContext';
 import { isAnnotationMarkerRect } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shared/isAnnotationMarkerRect';
 import { toFreeTextNoteMarkerRect } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shared/toFreeTextNoteMarkerRect';
+import { findFreeTextCommentMatch } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-free-text/findFreeTextCommentMatch';
 
 function forEachPageAnnotationContext(
     doc: PDFDocument,
@@ -39,65 +31,6 @@ function forEachPageAnnotationContext(
         }
         callback(pageIndex, context);
     }
-}
-
-function findFreeTextCommentMatch(
-    dict: PDFDict,
-    ref: PDFRef,
-    pageComments: IAnnotationCommentSummary[],
-    pageFreeTextPopupCount: number,
-    pageView: number[],
-    pageRotation: ReturnType<typeof normalizePageRotation>,
-): IAnnotationCommentSummary | null {
-    const dictRect = toMarkerRectFromPdfRect(
-        readPdfRectFromDict(dict),
-        pageView,
-        pageRotation,
-    );
-    const refTag = formatPdfJsAnnotationRef(ref);
-    const dictText = getPdfDictContents(dict).trim().toLowerCase();
-
-    let bestMatch: {
-        comment: IAnnotationCommentSummary;
-        score: number;
-    } | null = null;
-    for (const comment of pageComments) {
-        if (!isAnnotationMarkerRect(comment.markerRect)) {
-            continue;
-        }
-
-        if (normalizePdfJsAnnotationId(comment.annotationId) === refTag) {
-            return comment;
-        }
-
-        const iou = dictRect ? markerRectIoU(dictRect, comment.markerRect) : 0;
-        if (iou > 0.05) {
-            if (!bestMatch || iou > bestMatch.score) {
-                bestMatch = {
-                    comment,
-                    score: iou,
-                };
-            }
-            continue;
-        }
-
-        if (dictText.length > 0 && comment.text) {
-            const commentText = comment.text.trim().toLowerCase();
-            if (dictText === commentText) {
-                return comment;
-            }
-        }
-    }
-
-    if (bestMatch) {
-        return bestMatch.comment;
-    }
-
-    const singleComment = pageFreeTextPopupCount === 1 && pageComments.length === 1 ? pageComments[0] : null;
-    if (singleComment && isAnnotationMarkerRect(singleComment.markerRect)) {
-        return singleComment;
-    }
-    return null;
 }
 
 function toPdfRectArray(
@@ -138,6 +71,7 @@ export function applyFreeTextNoteRects(doc: PDFDocument, comments: IAnnotationCo
                     && currentSubtype === freeTextName
                     && Boolean(dict.get(popupName));
             });
+        const claimedComments = new Set<IAnnotationCommentSummary>();
 
         for (const {
             dict,
@@ -150,10 +84,13 @@ export function applyFreeTextNoteRects(doc: PDFDocument, comments: IAnnotationCo
                 freeTextPopupAnnotations.length,
                 context.pageView,
                 context.pageRotation,
+                { claimedComments },
             );
-            const markerRect = matchedComment
-                ? toFreeTextNoteMarkerRect(matchedComment.markerRect)
-                : null;
+            if (!matchedComment) {
+                continue;
+            }
+
+            const markerRect = toFreeTextNoteMarkerRect(matchedComment.markerRect);
             if (!markerRect) {
                 continue;
             }
@@ -166,6 +103,7 @@ export function applyFreeTextNoteRects(doc: PDFDocument, comments: IAnnotationCo
             if (!pdfRect) {
                 continue;
             }
+            claimedComments.add(matchedComment);
 
             const rectArray = toPdfRectArray(doc, pdfRect);
             dict.set(rectName, rectArray);

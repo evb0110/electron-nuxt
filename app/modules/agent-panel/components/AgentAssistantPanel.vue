@@ -36,7 +36,7 @@
                         size="xs"
                         :loading="isResetting"
                         :disabled="!canResetChat"
-                        @click="resetChat"
+                        @click="handleResetChat"
                     />
                 </AppTooltip>
                 <AppTooltip :text="t('assistant.close')" :delay-duration="300">
@@ -92,14 +92,14 @@
                     color="primary"
                     :loading="isInstalling"
                     :disabled="isInstalling"
-                    @click="installCodex"
+                    @click="handleInstallCodex"
                 />
                 <UButton
                     v-else
                     :label="t('assistant.refresh')"
                     icon="i-ph-arrows-clockwise"
                     color="primary"
-                    @click="refreshState"
+                    @click="handleRefreshState"
                 />
                 <p
                     v-if="installProgress"
@@ -124,7 +124,7 @@
                     color="primary"
                     :loading="isInstalling"
                     :disabled="isInstalling"
-                    @click="installCodex"
+                    @click="handleInstallCodex"
                 />
             </section>
 
@@ -145,7 +145,7 @@
                         :label="t('assistant.refresh')"
                         icon="i-ph-arrows-clockwise"
                         color="primary"
-                        @click="refreshState"
+                        @click="handleRefreshState"
                     />
                 </div>
                 <div
@@ -158,7 +158,7 @@
                         color="primary"
                         :loading="isLoggingIn && loginMode === 'chatgpt'"
                         :disabled="isLoggingIn || status.authState === 'login-pending'"
-                        @click="startLogin('chatgpt')"
+                        @click="handleStartLogin('chatgpt')"
                     />
                     <UButton
                         v-if="status.authState === 'login-pending'"
@@ -167,7 +167,7 @@
                         color="neutral"
                         variant="outline"
                         :disabled="isLoggingIn"
-                        @click="cancelLogin"
+                        @click="handleCancelLogin"
                     />
                 </div>
                 <div
@@ -215,7 +215,7 @@
                         class="agent-assistant-messages"
                     >
                         <article
-                            v-for="message in messages"
+                            v-for="{ message, blocks } in renderedMessages"
                             :key="message.id"
                             class="agent-assistant-message"
                             :class="[
@@ -251,7 +251,7 @@
                                 <div class="agent-assistant-message-bubble">
                                     <template v-if="message.text">
                                         <template
-                                            v-for="(block, blockIndex) in formatAssistantMessage(message.text)"
+                                            v-for="(block, blockIndex) in blocks"
                                             :key="`${message.id}-${blockIndex}`"
                                         >
                                             <pre
@@ -447,7 +447,7 @@
                                         variant="ghost"
                                         size="xs"
                                         type="button"
-                                        @click="copyMessageText(message.id, message.text)"
+                                        @click="handleCopyMessageText(message.id, message.text)"
                                     />
                                 </AppTooltip>
                             </div>
@@ -464,7 +464,7 @@
 
                     <form
                         class="agent-assistant-composer"
-                        @submit.prevent="sendMessage()"
+                        @submit.prevent="handleSendMessage"
                     >
                         <div class="agent-assistant-composer-field">
                             <div
@@ -514,7 +514,7 @@
                                 :placeholder="placeholderText"
                                 rows="3"
                                 :disabled="isSending"
-                                @keydown.enter.exact.prevent="sendMessage()"
+                                @keydown.enter.exact.prevent="handleSendMessage"
                                 @paste="handleComposerPaste"
                             />
                             <div class="agent-assistant-composer-actions">
@@ -545,7 +545,7 @@
                                     color="neutral"
                                     variant="outline"
                                     size="sm"
-                                    @click="interrupt"
+                                    @click="handleInterrupt"
                                 />
                                 <UButton
                                     v-else
@@ -680,6 +680,7 @@
 <script setup lang="ts">
 import type {
     IAgentAssistantChatScope,
+    IAgentAssistantChatMessage,
     IAgentAssistantEvent,
     IAgentAssistantImageAttachment,
     IAgentAssistantProviderStatus,
@@ -703,6 +704,7 @@ import { formatAssistantMessage } from '@app/modules/agent-panel/utils/formatAss
 import { getAgentAssistantPanelView } from '@app/modules/workspace-shell/public';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { getErrorMessage } from '@app/utils/error';
 import { getPlatformAPI } from '@app/utils/platform';
 import {
     defaultDocument,
@@ -736,11 +738,14 @@ const emit = defineEmits<{
 const widthVar = computed(() => (width != null ? `${width}px` : undefined));
 
 const { t } = useTypedI18n();
+const { reportRuntimeError } = useRuntimeErrorReports();
 const { copy: copyClipboardText } = useClipboard();
 const ASSISTANT_MAX_IMAGE_ATTACHMENTS = 8;
 const ASSISTANT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const ASSISTANT_IMAGE_SIZE_LIMIT_LABEL = `${Math.round(ASSISTANT_MAX_IMAGE_BYTES / (1024 * 1024))} MB`;
 const ASSISTANT_AUTO_REFRESH_MIN_INTERVAL_MS = 2500;
+const ASSISTANT_SCROLL_STICKY_THRESHOLD_PX = 96;
+const EMPTY_ASSISTANT_MESSAGE_BLOCKS: ReturnType<typeof formatAssistantMessage> = [];
 const isInstalling = ref(false);
 const isLoggingIn = ref(false);
 const loginMode = ref<TAgentAssistantLoginMode | null>(null);
@@ -783,6 +788,21 @@ interface IExpandedImagePreview {
     images: IExpandedImageItem[];
     index: number;
 }
+
+type TAssistantActionErrorTarget = 'status' | 'composer' | 'none';
+
+interface IAssistantActionErrorOptions {
+    title: string;
+    target?: TAssistantActionErrorTarget;
+    log?: boolean;
+}
+
+interface IAssistantMarkdownCacheEntry {
+    text: string;
+    blocks: ReturnType<typeof formatAssistantMessage>;
+}
+
+const assistantMarkdownCache = new Map<string, IAssistantMarkdownCacheEntry>();
 
 const emptyState = computed<IAgentAssistantState>(() => ({
     scope: chatScope ? cloneAssistantScope(chatScope) : null,
@@ -873,6 +893,18 @@ const emptyState = computed<IAgentAssistantState>(() => ({
 } satisfies IAgentAssistantState));
 const status = computed(() => (state.value ?? emptyState.value).status);
 const messages = computed(() => (state.value ?? emptyState.value).messages);
+const renderedMessages = computed(() => {
+    const activeMessageIds = new Set<string>();
+    const rendered = messages.value.map((message) => {
+        activeMessageIds.add(message.id);
+        return {
+            message,
+            blocks: getCachedAssistantMessageBlocks(message),
+        };
+    });
+    pruneAssistantMarkdownCache(activeMessageIds);
+    return rendered;
+});
 const isClaudeProvider = computed(() => selectedProvider.value === 'claude');
 const panelView = computed(() => getAgentAssistantPanelView(status.value, hasLoadedState.value));
 const hasComposer = computed(() => panelView.value === 'ready' && Boolean(chatScope));
@@ -961,6 +993,88 @@ const expandedImageCaption = computed(() => {
     });
 });
 
+function getCachedAssistantMessageBlocks(message: IAgentAssistantChatMessage) {
+    if (message.text.length === 0) {
+        return EMPTY_ASSISTANT_MESSAGE_BLOCKS;
+    }
+
+    const cached = assistantMarkdownCache.get(message.id);
+    if (cached?.text === message.text) {
+        return cached.blocks;
+    }
+
+    const blocks = formatAssistantMessage(message.text);
+    assistantMarkdownCache.set(message.id, {
+        text: message.text,
+        blocks,
+    });
+    return blocks;
+}
+
+function pruneAssistantMarkdownCache(activeMessageIds: Set<string>) {
+    assistantMarkdownCache.forEach((_entry, messageId) => {
+        if (!activeMessageIds.has(messageId)) {
+            assistantMarkdownCache.delete(messageId);
+        }
+    });
+}
+
+function getAssistantActionErrorMessage(error: unknown) {
+    const message = getErrorMessage(error).trim();
+    return message.length > 0 && message !== 'undefined' && message !== 'null'
+        ? message
+        : t('errors.runtime.description');
+}
+
+function applyAssistantStatusError(message: string) {
+    const baseState = state.value ?? emptyState.value;
+    state.value = {
+        ...baseState,
+        status: {
+            ...baseState.status,
+            runtimeState: baseState.status.runtimeState === 'starting' ? 'error' : baseState.status.runtimeState,
+            error: message,
+        },
+    };
+    hasLoadedState.value = true;
+}
+
+function reportAssistantActionError(error: unknown, options: IAssistantActionErrorOptions) {
+    if (options.log !== false) {
+        BrowserLogger.error('assistant', options.title, error);
+    }
+    reportRuntimeError({
+        title: options.title,
+        source: 'assistant',
+        error,
+    });
+}
+
+function handleAssistantActionError(error: unknown, options: IAssistantActionErrorOptions) {
+    const message = getAssistantActionErrorMessage(error);
+    const target = options.target ?? 'status';
+    reportAssistantActionError(error, options);
+    if (target === 'status') {
+        applyAssistantStatusError(message);
+    } else if (target === 'composer') {
+        composerError.value = message;
+    }
+    return message;
+}
+
+function runAssistantUiAction(
+    task: () => Promise<unknown>,
+    options: IAssistantActionErrorOptions,
+) {
+    void (async () => {
+        try {
+            await task();
+        } catch (error) {
+            handleAssistantActionError(error, options);
+        }
+    })();
+}
+
 function isCopyShortcut(event: KeyboardEvent) {
     return (event.metaKey || event.ctrlKey)
         && !event.altKey
@@ -1045,6 +1159,10 @@ async function copyMessageText(messageId: string, text: string) {
     stopCopiedMessageReset();
     copiedMessageId.value = messageId;
     startCopiedMessageReset();
+}
+
+function handleCopyMessageText(messageId: string, text: string) {
+    void copyMessageText(messageId, text);
 }
 
 function handleAssistantCopyShortcut(event: KeyboardEvent) {
@@ -1199,10 +1317,28 @@ function isCurrentScopeState(nextState: IAgentAssistantState) {
         && getStateScopeKey(nextState) === (chatScope?.key ?? null);
 }
 
+function isAssistantMessagesNearBottom() {
+    const el = messagesRef.value;
+    if (!el) {
+        return true;
+    }
+
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    return distanceFromBottom <= ASSISTANT_SCROLL_STICKY_THRESHOLD_PX;
+}
+
+function scrollAssistantMessagesToBottom() {
+    const el = messagesRef.value;
+    if (el) {
+        el.scrollTop = el.scrollHeight;
+    }
+}
+
 function applyState(nextState: IAgentAssistantState) {
     if (!isCurrentScopeState(nextState)) {
         return;
     }
+    const shouldScrollToBottom = isAssistantMessagesNearBottom();
     const providerStatus = nextState.status.providers.find(provider => provider.id === nextState.status.provider);
     const needsModelOverride = hasLocalModelSelection.value && nextState.status.model !== selectedModel.value;
     const needsEffortOverride = hasLocalEffortSelection.value && nextState.status.effort !== selectedEffort.value;
@@ -1223,12 +1359,9 @@ function applyState(nextState: IAgentAssistantState) {
     state.value = adjustedState;
     hasLoadedState.value = true;
     isSending.value = adjustedState.status.runtimeState === 'busy';
-    void nextTick(() => {
-        const el = messagesRef.value;
-        if (el) {
-            el.scrollTop = el.scrollHeight;
-        }
-    });
+    if (shouldScrollToBottom) {
+        void nextTick(scrollAssistantMessagesToBottom);
+    }
 }
 
 function handleAssistantEvent(event: IAgentAssistantEvent) {
@@ -1316,6 +1449,10 @@ function updateProvider(value: unknown) {
     }), {
         scope: 'assistant',
         message: 'Failed to switch assistant provider',
+        onError: error => handleAssistantActionError(error, {
+            title: 'Failed to switch assistant provider',
+            log: false,
+        }),
     });
 }
 
@@ -1383,6 +1520,22 @@ async function startLogin(mode: TAgentAssistantLoginMode) {
 async function cancelLogin() {
     applyState(await getPlatformAPI().agent.cancelAssistantLogin());
     deviceCode.value = '';
+}
+
+function handleInstallCodex() {
+    runAssistantUiAction(installCodex, { title: 'Failed to install assistant Codex' });
+}
+
+function handleStartLogin(mode: TAgentAssistantLoginMode) {
+    runAssistantUiAction(() => startLogin(mode), { title: 'Failed to start assistant login' });
+}
+
+function handleCancelLogin() {
+    runAssistantUiAction(cancelLogin, { title: 'Failed to cancel assistant login' });
+}
+
+function handleRefreshState() {
+    runAssistantUiAction(refreshState, { title: 'Failed to refresh assistant state' });
 }
 
 function createAttachmentId() {
@@ -1592,11 +1745,26 @@ async function sendMessage() {
             return;
         }
         applyState(result.state);
+    } catch (error) {
+        if (generation === sendGeneration) {
+            draft.value = text;
+            composerImages.value = attachments;
+            handleAssistantActionError(error, {
+                title: 'Failed to send assistant message',
+                target: 'composer',
+            });
+        } else {
+            reportAssistantActionError(error, { title: 'Stale assistant message request failed' });
+        }
     } finally {
         if (generation === sendGeneration) {
             isSending.value = status.value.runtimeState === 'busy';
         }
     }
+}
+
+function handleSendMessage() {
+    void sendMessage();
 }
 
 async function interrupt() {
@@ -1605,6 +1773,10 @@ async function interrupt() {
     }
     sendGeneration += 1;
     applyState(await getPlatformAPI().agent.interruptAssistant(createAssistantStateRequest()));
+}
+
+function handleInterrupt() {
+    runAssistantUiAction(interrupt, { title: 'Failed to interrupt assistant turn' });
 }
 
 async function resetChat() {
@@ -1622,6 +1794,10 @@ async function resetChat() {
         isResetting.value = false;
         isSending.value = status.value.runtimeState === 'busy';
     }
+}
+
+function handleResetChat() {
+    runAssistantUiAction(resetChat, { title: 'Failed to reset assistant chat' });
 }
 
 function roleLabel(role: TAgentAssistantMessageRole) {

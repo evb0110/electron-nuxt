@@ -15,6 +15,7 @@ import { drawEditedTextMarkupCanvasVisual } from '@app/modules/pdf-viewer/engine
 import { removeAnnotationCommentDom } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/removeAnnotationCommentDom';
 import { resolveAnnotationCommentTextMarkupColor } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor';
 import { resolveCommentWithRenderedTextMarkupColorAtPoint } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveCommentWithRenderedTextMarkupColorAtPoint';
+import { scoreTextMarkupVisualCandidate } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/scoreTextMarkupVisualCandidate';
 import { syncAnnotationCommentTextMarkupVisualOverlays } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/syncAnnotationCommentTextMarkupVisualOverlays';
 import { refreshHighlightCompositeOverlay } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay';
 
@@ -221,6 +222,27 @@ function resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics(
         }},
     );
 }
+
+describe('scoreTextMarkupVisualCandidate', () => {
+    it('rejects zero-height text markup candidates', () => {
+        expect(scoreTextMarkupVisualCandidate({
+            left: 0.1,
+            top: 0.2,
+            width: 0.2,
+            height: 0,
+        }, {
+            left: 0.1,
+            top: 0.2,
+            width: 0.2,
+            height: 0.05,
+        })).toEqual({
+            axisOverlap: false,
+            distance: Number.POSITIVE_INFINITY,
+            iou: 0,
+            matched: false,
+        });
+    });
+});
 
 describe('removeAnnotationCommentDom', () => {
     it('removes annotation layer elements using normalized PDF.js annotation ids', () => {

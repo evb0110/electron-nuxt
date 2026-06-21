@@ -35,6 +35,23 @@ interface ICloseHandoffTarget {
     tabId: string;
 }
 
+interface ITabTransitionReportContext {
+    action: string;
+    paneId?: string;
+    tabId?: string;
+}
+
+function serializeTransitionError(error: unknown) {
+    if (error instanceof Error) {
+        return {
+            name: error.name,
+            message: error.message,
+            stack: error.stack,
+        };
+    }
+    return error;
+}
+
 export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions) => {
     const {
         panes,
@@ -55,6 +72,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
         requestDirtyTabCloseConfirmation,
     } = options;
 
+    const { reportRuntimeError } = useRuntimeErrorReports();
     const activeTabTransitions = ref(0);
     let tabTransitionQueue: Promise<void> = Promise.resolve();
     let afterTransitionHook: (() => void) | null = null;
@@ -104,7 +122,23 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
         });
     }
 
-    function enqueueTabTransition<T>(task: () => Promise<T>): Promise<T> {
+    function reportTabTransitionError(error: unknown, context: ITabTransitionReportContext | undefined) {
+        const details = {
+            context: context ?? null,
+            error: serializeTransitionError(error),
+        };
+        BrowserLogger.error('toolbar-transition', 'Tab transition failed', details);
+        reportRuntimeError({
+            title: 'Tab transition failed',
+            source: 'toolbar-transition',
+            error: details,
+        });
+    }
+
+    function enqueueTabTransition<T>(
+        task: () => Promise<T>,
+        context?: ITabTransitionReportContext,
+    ): Promise<T> {
         const chained = tabTransitionQueue.then(async () => {
             activeTabTransitions.value += 1;
             try {
@@ -115,13 +149,17 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
                 afterTransitionHook?.();
             }
         });
+        const guarded = chained.catch((error) => {
+            reportTabTransitionError(error, context);
+            return undefined as T;
+        });
 
-        tabTransitionQueue = chained.then(
+        tabTransitionQueue = guarded.then(
             () => undefined,
             () => undefined,
         );
 
-        return chained;
+        return guarded;
     }
 
     function updateTab(tabId: string, updates: Partial<ITab>) {
@@ -444,7 +482,14 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
             return;
         }
 
-        await enqueueTabTransition(() => closeTabDuringTransition(paneId, tabId));
+        await enqueueTabTransition(
+            () => closeTabDuringTransition(paneId, tabId),
+            {
+                action: 'close-tab',
+                paneId,
+                tabId,
+            },
+        );
     }
 
     return {

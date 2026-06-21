@@ -319,10 +319,7 @@ describe('useWorkspacePrint', () => {
 
             expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
             expect(getPrintableSourceData).toHaveBeenCalledTimes(1);
-            expect(buildPrintablePdfDataMock).toHaveBeenCalledWith(Uint8Array.of(9, 8, 7), {
-                viewMode: 'single',
-                orientation: 'auto',
-            });
+            expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
             expect(document.body.append).toHaveBeenCalledWith(appFrame.frame);
             appFrame.frame.trigger('load');
             await printPromise;
@@ -626,10 +623,7 @@ describe('useWorkspacePrint', () => {
             expect(document.body.append).toHaveBeenCalledWith(appFrame.frame);
             expect(getQuickPrintPageMetrics).toHaveBeenCalledTimes(1);
             expect(getPrintableSourceData).toHaveBeenCalledTimes(1);
-            expect(buildPrintablePdfDataMock).toHaveBeenCalledWith(Uint8Array.of(9, 8, 7), {
-                viewMode: 'single',
-                orientation: 'auto',
-            });
+            expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
             expect(shouldPrintSourcePdfDirectlyMock).not.toHaveBeenCalled();
 
             appFrame.frame.trigger('load');

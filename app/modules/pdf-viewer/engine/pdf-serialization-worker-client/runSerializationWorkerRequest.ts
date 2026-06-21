@@ -27,8 +27,19 @@ class PdfSerializationWorkerOperationError extends Error {
     }
 }
 
+class PdfSerializationWorkerTimeoutError extends Error {
+    public constructor(message: string) {
+        super(message);
+        this.name = 'PdfSerializationWorkerTimeoutError';
+    }
+}
+
 function isPdfSerializationWorkerOperationError(error: unknown) {
     return error instanceof PdfSerializationWorkerOperationError;
+}
+
+function isPdfSerializationWorkerTimeoutError(error: unknown) {
+    return error instanceof PdfSerializationWorkerTimeoutError;
 }
 
 function settleSerializationWorkerResult(
@@ -231,7 +242,7 @@ export async function runSerializationWorkerRequest<K extends TSerializationWork
                 return true;
             },
             reject,
-        }, () => new Error(
+        }, () => new PdfSerializationWorkerTimeoutError(
             `PDF serialization worker did not reply within ${SERIALIZATION_WORKER_REQUEST_TIMEOUT_MS}ms (type=${request.type})`,
         ));
 
@@ -239,10 +250,16 @@ export async function runSerializationWorkerRequest<K extends TSerializationWork
             const workerRequest = buildWorkerRequestWithTransfers(typedRequest);
             worker.postMessage(workerRequest.request, workerRequest.transfer);
         } catch (error) {
-            serializationWorkerClient.resetWorker(error instanceof Error ? error : new Error(String(error)));
+            serializationWorkerClient.cancelPendingRequest(
+                request.id,
+                error instanceof Error ? error : new Error(String(error)),
+            );
         }
     }).catch(async (error: unknown) => {
-        if (isPdfSerializationWorkerOperationError(error)) {
+        if (
+            isPdfSerializationWorkerOperationError(error)
+            || isPdfSerializationWorkerTimeoutError(error)
+        ) {
             throw error;
         }
 

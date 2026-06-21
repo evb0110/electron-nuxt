@@ -71,10 +71,6 @@ export const useMultiSelection = <T extends string | number>() => {
         anchor.value = null;
     }
 
-    function selectAll(ids: T[]) {
-        selected.value = new Set<T>(ids);
-    }
-
     function isSelected(id: T) {
         return selected.value.has(id);
     }
@@ -84,7 +80,6 @@ export const useMultiSelection = <T extends string | number>() => {
         anchor,
         toggle,
         clear,
-        selectAll,
-        isSelected, 
+        isSelected,
     };
 };

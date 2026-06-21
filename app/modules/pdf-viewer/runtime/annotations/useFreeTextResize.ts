@@ -1,5 +1,8 @@
 import { AnnotationEditorParamsType } from '@app/services/pdfjs/runtimeLib';
-import { useEventListener } from '@vueuse/core';
+import {
+    tryOnScopeDispose,
+    useEventListener,
+} from '@vueuse/core';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import { clamp } from 'es-toolkit/math';
 import type { IAnnotationSettings } from '@app/types/annotations';
@@ -47,14 +50,26 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
         scheduleAnnotationCommentsSync,
     } = options;
     const resizeCursorCleanupTarget = ref<Window | null>(null);
+    const pendingFreeTextResizeSyncEditors = new Set<TFreeTextResizeHookEditor>();
     let activeResizeCursorClass: string | null = null;
+    let disposed = false;
 
     function cleanupResizeCursor() {
-        if (activeResizeCursorClass) {
+        if (activeResizeCursorClass && typeof document !== 'undefined') {
             document.documentElement.classList.remove(activeResizeCursorClass);
             activeResizeCursorClass = null;
         }
         resizeCursorCleanupTarget.value = null;
+    }
+
+    function cancelPendingFreeTextFontSyncs() {
+        for (const editor of pendingFreeTextResizeSyncEditors) {
+            if (editor.__freeTextResizeSyncRaf !== undefined) {
+                cancelAnimationFrame(editor.__freeTextResizeSyncRaf);
+                editor.__freeTextResizeSyncRaf = undefined;
+            }
+        }
+        pendingFreeTextResizeSyncEditors.clear();
     }
 
     useEventListener(resizeCursorCleanupTarget, 'pointerup', cleanupResizeCursor);
@@ -408,16 +423,25 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
         tagged: TFreeTextResizeHookEditor,
         targetFont: number,
     ) {
-        if (tagged.__freeTextResizeSyncRaf) {
+        if (disposed) {
+            return;
+        }
+        if (tagged.__freeTextResizeSyncRaf !== undefined) {
             cancelAnimationFrame(tagged.__freeTextResizeSyncRaf);
         }
+        pendingFreeTextResizeSyncEditors.add(tagged);
         tagged.__freeTextResizeSyncRaf = requestAnimationFrame(() => {
             tagged.__freeTextResizeSyncRaf = undefined;
-            syncInternalFontSize(editor, tagged, targetFont);
-            emitAnnotationSetting({
-                key: 'textSize',
-                value: targetFont,
-            });
+            pendingFreeTextResizeSyncEditors.delete(tagged);
+            if (
+                !disposed
+                && syncInternalFontSize(editor, tagged, targetFont)
+            ) {
+                emitAnnotationSetting({
+                    key: 'textSize',
+                    value: targetFont,
+                });
+            }
         });
     }
 
@@ -427,8 +451,8 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
         targetFont: number,
     ) {
         const uiManager = getAnnotationUiManager();
-        if (!editor.div?.isConnected || !uiManager) {
-            return;
+        if (disposed || !editor.div?.isConnected || !uiManager) {
+            return false;
         }
 
         try {
@@ -466,8 +490,10 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
 
             emitAnnotationModified();
             scheduleAnnotationCommentsSync();
+            return true;
         } catch (error) {
             BrowserLogger.warn('pdf-viewer', 'Failed to sync FreeText font size', error);
+            return false;
         }
     }
 
@@ -521,6 +547,12 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
             }
         }
     }
+
+    tryOnScopeDispose(() => {
+        disposed = true;
+        cancelPendingFreeTextFontSyncs();
+        cleanupResizeCursor();
+    });
 
     return {
         ensureFreeTextEditorCanResize,

@@ -275,6 +275,7 @@ export const usePdfOutlineDragDrop = (
         }
 
         const targetLocationBeforeExtraction = findBookmarkLocation(bookmarks.value, payload.targetId);
+        let moved = false;
         if (targetLocationBeforeExtraction) {
             const result = moveBookmarkNodes(bookmarks.value, draggingRoots, {
                 kind: 'target',
@@ -282,6 +283,7 @@ export const usePdfOutlineDragDrop = (
             });
             if (result.moved) {
                 bookmarks.value = result.bookmarks;
+                moved = true;
             }
             if (result.expandedBookmarkId) {
                 expandedBookmarkIds.value = new Set([
@@ -291,8 +293,10 @@ export const usePdfOutlineDragDrop = (
             }
         }
 
-        activeItemId.value = draggingRoots[0] ?? null;
-        emitBookmarksChange();
+        if (moved) {
+            activeItemId.value = draggingRoots[0] ?? null;
+            emitBookmarksChange();
+        }
         resetDragState();
     }
 

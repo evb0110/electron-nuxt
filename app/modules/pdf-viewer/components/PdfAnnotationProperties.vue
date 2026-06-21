@@ -139,6 +139,9 @@ function getShapeLabel(type: IShapeAnnotation['type'] | undefined) {
     if (type === 'arrow') {
         return t('annotationProperties.arrow');
     }
+    if (type === 'polygon') {
+        return t('annotations.polygonLabel');
+    }
     return t('annotationProperties.shape');
 }
 
@@ -164,6 +167,9 @@ const positionStyle = computed(() => ({
 }));
 
 function updateProperty<K extends keyof IShapeAnnotation>(key: K, value: IShapeAnnotation[K]) {
+    if (!shape || shape[key] === value) {
+        return;
+    }
     emit('update', { [key]: value });
 }
 
@@ -193,9 +199,9 @@ function deleteAnnotation() {
 
 function toggleFill() {
     if (hasFill.value) {
-        emit('update', { fillColor: 'transparent' });
+        updateProperty('fillColor', 'transparent');
     } else {
-        emit('update', { fillColor: shape?.color ?? DEFAULT_ANNOTATION_SETTINGS.shapeColor });
+        updateProperty('fillColor', shape?.color ?? DEFAULT_ANNOTATION_SETTINGS.shapeColor);
     }
 }
 

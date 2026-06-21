@@ -44,6 +44,17 @@ function createReRenderAllVisiblePagesMock() {
     return vi.fn<TReRenderAllVisiblePagesMock>(async () => {});
 }
 
+function createDeferred() {
+    let resolve!: () => void;
+    const promise = new Promise<void>((resolver) => {
+        resolve = resolver;
+    });
+    return {
+        promise,
+        resolve,
+    };
+}
+
 function getRenderedRangeFromFirstCall(
     reRenderAllVisiblePages: ReturnType<typeof createReRenderAllVisiblePagesMock>,
 ) {
@@ -477,6 +488,51 @@ describe('usePdfViewerRerenderCoordinator', () => {
                     renderBufferOverride: 0,
                 }),
             );
+            expect(setCurrentPageFitRerenderTransitionActive.mock.calls).toEqual([
+                [true],
+                [false],
+            ]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps fit-rerender suppression active until an overlapping paged target finishes', async () => {
+        vi.useFakeTimers();
+        try {
+            const currentPage = ref(1);
+            const pagedNavigationTargetPage = ref<number | null>(null);
+            const renderBlocker = createDeferred();
+            const reRenderAllVisiblePages = vi.fn<TReRenderAllVisiblePagesMock>(async () => {
+                await renderBlocker.promise;
+            });
+            const setCurrentPageFitRerenderTransitionActive = vi.fn();
+
+            usePdfViewerRerenderCoordinator(createDeps({
+                currentPage,
+                pagedNavigationTargetPage,
+                zoomMode: computed(() => 'fit-height' as const),
+                fitMode: computed(() => 'height' as const),
+                reRenderAllVisiblePages,
+                scrollToPage: vi.fn(() => true),
+                ensurePageMetricsInRange: vi.fn(async () => true),
+                computeFitWidthScale: vi.fn(() => true),
+                setCurrentPageFitRerenderTransitionActive,
+            }));
+
+            currentPage.value = 4;
+            await nextTick();
+            pagedNavigationTargetPage.value = 6;
+            await vi.advanceTimersByTimeAsync(300);
+            await nextTick();
+
+            expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
+            expect(setCurrentPageFitRerenderTransitionActive.mock.calls).toEqual([[true]]);
+
+            renderBlocker.resolve();
+            await Promise.resolve();
+            await nextTick();
+
             expect(setCurrentPageFitRerenderTransitionActive.mock.calls).toEqual([
                 [true],
                 [false],

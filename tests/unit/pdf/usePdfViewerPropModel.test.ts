@@ -24,7 +24,6 @@ describe('usePdfViewerPropModel', () => {
         expect(model.zoomMode.value).toBe('fit-width');
         expect(model.viewMode.value).toBe('single');
         expect(model.isResizing.value).toBe(false);
-        expect(model.invertColors.value).toBe(false);
         expect(model.showAnnotations.value).toBe(true);
         expect(model.annotationTool.value).toBe('none');
         expect(model.annotationCursorMode.value).toBe(false);
@@ -52,5 +51,17 @@ describe('usePdfViewerPropModel', () => {
         props.zoomMode = 'custom';
 
         expect(model.zoomMode.value).toBe('custom');
+    });
+
+    it('keeps invertColors as a public component prop instead of feature-model state', () => {
+        const props = reactive<IPdfViewerProps>({
+            src: null,
+            invertColors: true,
+        });
+
+        const model = usePdfViewerPropModel(props);
+
+        expect(props.invertColors).toBe(true);
+        expect('invertColors' in model).toBe(false);
     });
 });

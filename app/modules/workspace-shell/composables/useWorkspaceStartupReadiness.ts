@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import { delay } from 'es-toolkit/promise';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/public';
+import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 const STARTUP_OPEN_VISUAL_READY_EVENT_NAME = 'evb:startup-open-visual-ready';
@@ -9,7 +9,7 @@ const STARTUP_OPEN_VISUAL_READY_POLL_MS = 50;
 const STARTUP_OPEN_VISUAL_READY_FRAME_COUNT = 2;
 
 interface IWorkspaceStartupReadinessOptions {
-    pdfViewerRef: Ref<IPdfViewerExpose | null>;
+    documentViewerRef: Ref<(IDocumentViewerExpose & { waitForViewerLoadSettled?: () => Promise<void>; }) | null>;
     showNativeDjvuViewer: Ref<boolean>;
 }
 
@@ -36,15 +36,35 @@ async function waitForStartupVisualFrames() {
     }
 }
 
+function createStartupTimeout(timeoutMs: number) {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const promise = new Promise<'timeout'>((resolve) => {
+        timeoutId = setTimeout(() => {
+            timeoutId = null;
+            resolve('timeout');
+        }, timeoutMs);
+    });
+
+    return {
+        promise,
+        cancel: () => {
+            if (timeoutId !== null) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+        },
+    };
+}
+
 export const useWorkspaceStartupReadiness = (options: IWorkspaceStartupReadinessOptions) => {
     const {
-        pdfViewerRef,
+        documentViewerRef,
         showNativeDjvuViewer,
     } = options;
     let startupOpenVisualReadyToken = 0;
 
     function hasRenderedStartupDocument() {
-        const viewer = pdfViewerRef.value;
+        const viewer = documentViewerRef.value;
         const container = viewer?.getViewerContainer?.() ?? null;
         if (container?.querySelector('.page_container--rendered .page_canvas canvas')) {
             return true;
@@ -67,17 +87,20 @@ export const useWorkspaceStartupReadiness = (options: IWorkspaceStartupReadiness
                     }
 
                     await nextTick();
-                    const viewer = pdfViewerRef.value;
+                    const viewer = documentViewerRef.value;
                     const waitForViewerLoadSettled = viewer?.waitForViewerLoadSettled;
                     if (typeof waitForViewerLoadSettled === 'function') {
                         const remainingMs = Math.max(0, STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS - (Date.now() - startedAt));
+                        const timeout = createStartupTimeout(remainingMs);
                         let settleTimedOut = false;
-                        await Promise.race([
-                            waitForViewerLoadSettled.call(viewer),
-                            delay(remainingMs).then(() => {
-                                settleTimedOut = true;
-                            }),
-                        ]);
+                        try {
+                            settleTimedOut = await Promise.race([
+                                waitForViewerLoadSettled.call(viewer).then(() => false),
+                                timeout.promise.then(() => true),
+                            ]);
+                        } finally {
+                            timeout.cancel();
+                        }
 
                         if (settleTimedOut) {
                             timedOut = true;

@@ -29,7 +29,9 @@ interface ICreateDocumentHistoryDeps {
         nextState: IPdfLoadedState,
         options?: IApplyLoadedPdfStateOptions,
     ) => Promise<void>;
+    clearPdfConformanceProfile: () => void;
     clearOcrCache: (path: TDocumentRef) => void;
+    deferPdfConformanceProfile: (path: TDocumentRef) => void;
     documents: () => {
         cleanupFile: (path: TDocumentRef) => Promise<void>;
         createWorkingCopyFromData: (
@@ -406,6 +408,11 @@ export function createDocumentHistory(
             }
             state.pdfData.value = entry.snapshot;
             state.pdfSrc.value = deps.toPdfBlob(entry.snapshot);
+            if (workingPath && state.isActiveWorkingCopy(workingPath)) {
+                deps.deferPdfConformanceProfile(workingPath);
+            } else {
+                deps.clearPdfConformanceProfile();
+            }
             return;
         }
 

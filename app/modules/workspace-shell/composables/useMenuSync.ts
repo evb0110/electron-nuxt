@@ -10,8 +10,7 @@ import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHas
 interface IUseMenuSyncDeps extends IUseWorkspaceShellStateOptions {shellState?: IWorkspaceShellState;}
 
 export const useMenuSync = (deps: IUseMenuSyncDeps) => {
-    const autoShellState = useWorkspaceShellState(deps);
-    const shellState = deps.shellState ?? autoShellState;
+    const shellState = deps.shellState ?? useWorkspaceShellState(deps);
     let lastSyncedMenuDocumentState: {
         hasDocument: boolean;
         canSave: boolean;

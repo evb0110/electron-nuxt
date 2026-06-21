@@ -402,7 +402,7 @@ export const useOcr = () => {
     ) {
         applyOcrResponseErrors(response, requestId);
 
-        if (response.success && response.pdfPath) {
+        if (response.pdfPath) {
             ensureRunActive();
             storeOcrPdfResult(requestId, response, runSettings);
         } else if (response.success) {
@@ -598,6 +598,9 @@ export const useOcr = () => {
         availableLanguages.value.filter(l => l.script === 'rtl'),
     );
 
+    /**
+     * @deprecated OCR popup exports are routed through the workspace-level DOCX export path.
+     */
     async function exportDocx(
         workingCopyPath: TDocumentRef | null,
         pdfDocument: PDFDocumentProxy | null = null,

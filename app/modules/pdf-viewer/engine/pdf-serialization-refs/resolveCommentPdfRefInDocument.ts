@@ -80,8 +80,11 @@ function findCommentRefByGeneratedId(doc: PDFDocument, comment: IAnnotationComme
     if (pageNumber !== comment.pageNumber || annotationIndex < 0) {
         return null;
     }
+    if (pageNumber < 1 || pageNumber > doc.getPageCount()) {
+        return null;
+    }
 
-    const pageIndex = clamp(pageNumber - 1, 0, doc.getPageCount() - 1);
+    const pageIndex = pageNumber - 1;
     const page = doc.getPages()[pageIndex];
     if (!page) {
         return null;

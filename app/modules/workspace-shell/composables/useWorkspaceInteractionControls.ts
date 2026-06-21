@@ -7,7 +7,10 @@ import { usePageShortcuts } from '@app/modules/workspace-shell/composables/usePa
 import { useWorkspaceCrop } from '@app/modules/workspace-shell/composables/useWorkspaceCrop';
 import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
 import { useWorkspaceViewerDefaults } from '@app/modules/workspace-shell/composables/useWorkspaceViewerDefaults';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type {
+    IDocumentViewerExpose,
+    IPdfViewerExpose,
+} from '@app/modules/pdf-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
@@ -40,6 +43,7 @@ interface IWorkspaceInteractionControlsOptions {
     annotationTool: Ref<TAnnotationTool>;
     annotationPlacingPageNote: Ref<boolean>;
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
+    documentViewerRef: Ref<IDocumentViewerExpose | null>;
     shapePropertiesPopoverVisible: ComputedRef<boolean>;
     annotationContextMenuVisible: ComputedRef<boolean>;
     pageContextMenuVisible: ComputedRef<boolean>;
@@ -91,6 +95,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         annotationTool,
         annotationPlacingPageNote,
         pdfViewerRef,
+        documentViewerRef,
         shapePropertiesPopoverVisible,
         annotationContextMenuVisible,
         pageContextMenuVisible,
@@ -224,6 +229,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         workingCopyPath,
         hasPendingTabChanges,
         pdfViewerRef,
+        documentViewerRef,
         pdfData,
         openFileWithDjvuCleanup,
         waitForPdfReload,

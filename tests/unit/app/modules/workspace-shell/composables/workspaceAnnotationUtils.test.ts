@@ -98,11 +98,12 @@ describe('hasAnnotationChanges', () => {
 
 describe('createSerializeCurrentPdfForEmbeddedFallback', () => {
     it('saves, reloads and restores current page', async () => {
-        const saveDocument = vi.fn(async () => new Uint8Array([
+        const savedBytes = new Uint8Array([
             1,
             2,
             3,
-        ]));
+        ]);
+        const saveDocument = vi.fn(async () => savedBytes);
         const waitForPdfReload = vi.fn(async () => undefined);
         const loadPdfFromData = vi.fn(async () => undefined);
 
@@ -119,7 +120,7 @@ describe('createSerializeCurrentPdfForEmbeddedFallback', () => {
 
         const result = await serialize();
 
-        expect(result).toBe(true);
+        expect(result).toBe(savedBytes);
         expect(saveDocument).toHaveBeenCalledTimes(1);
         expect(waitForPdfReload).toHaveBeenCalledWith(7);
         expect(loadPdfFromData).toHaveBeenCalledWith(new Uint8Array([
@@ -144,6 +145,6 @@ describe('createSerializeCurrentPdfForEmbeddedFallback', () => {
             loadPdfFromData: async () => undefined,
         });
 
-        await expect(serialize()).resolves.toBe(false);
+        await expect(serialize()).resolves.toBeNull();
     });
 });

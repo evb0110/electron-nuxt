@@ -33,7 +33,8 @@ function createState(options?: { dragMode?: boolean; }) {
         canRedoHistory: ref(false),
         currentPage: ref(1),
         totalPages: ref(1),
-        pdfViewerRef: ref({
+        documentViewerRef: ref({
+            getViewerContainer: () => null,
             scrollToPage: () => {},
             cancelCommentPlacement: () => {},
         }),
@@ -80,7 +81,8 @@ describe('useWorkspaceViewState', () => {
             canRedoHistory: ref(false),
             currentPage: ref(1),
             totalPages: ref(1),
-            pdfViewerRef: ref({
+            documentViewerRef: ref({
+                getViewerContainer: () => null,
                 scrollToPage: () => {},
                 cancelProgrammaticNavigation,
                 cancelCommentPlacement: () => {},
@@ -127,7 +129,8 @@ describe('useWorkspaceViewState', () => {
             canRedoHistory: ref(false),
             currentPage: ref(1),
             totalPages: ref(1),
-            pdfViewerRef: ref({
+            documentViewerRef: ref({
+                getViewerContainer: () => null,
                 scrollToPage: () => {},
                 cancelCommentPlacement: () => {},
             }),
@@ -164,7 +167,8 @@ describe('useWorkspaceViewState', () => {
             canRedoHistory: ref(false),
             currentPage: ref(1),
             totalPages: ref(1),
-            pdfViewerRef: ref({
+            documentViewerRef: ref({
+                getViewerContainer: () => null,
                 scrollToPage: () => {},
                 cancelCommentPlacement: () => {},
             }),
@@ -199,7 +203,8 @@ describe('useWorkspaceViewState', () => {
             canRedoHistory: ref(false),
             currentPage: ref(1),
             totalPages: ref(1),
-            pdfViewerRef: ref({
+            documentViewerRef: ref({
+                getViewerContainer: () => null,
                 scrollToPage: () => {},
                 cancelCommentPlacement: () => {},
             }),
@@ -234,7 +239,8 @@ describe('useWorkspaceViewState', () => {
             canRedoHistory: ref(false),
             currentPage: ref(3),
             totalPages: ref(10),
-            pdfViewerRef: ref({
+            documentViewerRef: ref({
+                getViewerContainer: () => null,
                 scrollToPage,
                 cancelCommentPlacement: () => {},
             }),
@@ -273,7 +279,8 @@ describe('useWorkspaceViewState', () => {
             currentPage: ref(3),
             totalPages: ref(10),
             beginProgrammaticPageNavigation,
-            pdfViewerRef: ref({
+            documentViewerRef: ref({
+                getViewerContainer: () => null,
                 scrollToPage,
                 cancelCommentPlacement: () => {},
             }),
@@ -312,7 +319,8 @@ describe('useWorkspaceViewState', () => {
             currentPage: ref(1),
             totalPages: ref(10),
             beginProgrammaticPageNavigation,
-            pdfViewerRef: ref({
+            documentViewerRef: ref({
+                getViewerContainer: () => null,
                 scrollToPage,
                 getPendingNavigationTargetPage: () => 6,
                 cancelCommentPlacement: () => {},

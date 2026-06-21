@@ -6,18 +6,18 @@
             role="status"
             aria-live="polite"
         >
-            <div class="flex items-center gap-2 text-sm text-[var(--ui-text)]">
+            <div class="batch-progress-status">
                 <AppSpinner size="sm" tone="inherit" />
                 <span>{{ t('emptyState.preparingBatch') }}</span>
             </div>
-            <p class="mt-2 text-xs text-[var(--ui-text-muted)]">
+            <p class="batch-progress-detail">
                 {{ t('emptyState.preparingBatchProgress', {
                     processed: displayProcessedCount(openBatchProgress.processed, openBatchProgress.total),
                     total: openBatchProgress.total,
                 }) }}
             </p>
             <AppProgressBar :value="openBatchProgress.percent" class="mt-2" />
-            <p v-if="batchEtaText" class="mt-2 text-xs text-[var(--ui-text-dimmed)]">
+            <p v-if="batchEtaText" class="batch-progress-eta">
                 {{ t('emptyState.preparingBatchEta', { eta: batchEtaText }) }}
             </p>
         </div>
@@ -499,6 +499,28 @@ watch(() => startSection, (section) => {
     padding: var(--app-space-9xl) var(--app-space-12xl);
 }
 
+.batch-progress-status {
+    display: flex;
+    align-items: center;
+    gap: var(--app-space-3xl);
+    color: var(--ui-text);
+    font-size: var(--app-text-size-body);
+}
+
+.batch-progress-detail,
+.batch-progress-eta {
+    margin: var(--app-space-3xl) 0 0;
+    font-size: var(--app-text-size-kicker);
+}
+
+.batch-progress-detail {
+    color: var(--ui-text-muted);
+}
+
+.batch-progress-eta {
+    color: var(--ui-text-dimmed);
+}
+
 .clear-history-confirm {
     display: flex;
     align-items: flex-start;
@@ -562,7 +584,10 @@ watch(() => startSection, (section) => {
     font-weight: var(--app-font-weight-medium);
     text-align: left;
     cursor: pointer;
-    transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+    transition:
+        background-color var(--app-transition-quick),
+        border-color var(--app-transition-quick),
+        color var(--app-transition-quick);
 }
 
 .rail-item span:not(.rail-shortcut, .rail-count) {
@@ -740,7 +765,9 @@ watch(() => startSection, (section) => {
     border-radius: var(--app-control-radius);
     background: var(--ui-bg);
     color: var(--ui-text-muted);
-    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+    transition:
+        border-color var(--app-transition-quick),
+        box-shadow var(--app-transition-quick);
 }
 
 .recent-search:focus-within {
@@ -795,7 +822,7 @@ watch(() => startSection, (section) => {
     border-bottom: 1px solid var(--app-start-row-divider);
     text-align: left;
     background: transparent;
-    transition: background-color 0.1s ease;
+    transition: background-color var(--app-transition-fast);
 }
 
 .recent-row:last-child {
@@ -880,7 +907,9 @@ watch(() => startSection, (section) => {
 
 .recent-location--reveal {
     cursor: pointer;
-    transition: background-color 0.12s ease, color 0.12s ease;
+    transition:
+        background-color var(--app-transition-quick),
+        color var(--app-transition-quick);
 }
 
 .recent-location--reveal:hover {
@@ -1001,7 +1030,9 @@ watch(() => startSection, (section) => {
     background: transparent;
     color: var(--ui-text-dimmed);
     cursor: pointer;
-    transition: background-color 0.12s ease, color 0.12s ease;
+    transition:
+        background-color var(--app-transition-quick),
+        color var(--app-transition-quick);
 }
 
 .recent-action :deep(.iconify) {

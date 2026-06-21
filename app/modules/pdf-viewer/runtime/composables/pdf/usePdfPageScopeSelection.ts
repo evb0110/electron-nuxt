@@ -1,6 +1,9 @@
-import { normalizeSelectedPageNumbers } from '@app/utils/pdfPageSelection';
+import {
+    createAllPageNumbers,
+    normalizeSelectedPageNumbers,
+} from '@app/utils/pdfPageSelection';
 
-type TPdfPageScope = 'all' | 'current' | 'selected' | 'range';
+type TPdfPageScope = 'all' | 'current' | 'selected' | 'range' | 'even' | 'odd';
 
 interface IPdfPageScopeSelectionOptions {
     totalPages: () => number;
@@ -8,6 +11,8 @@ interface IPdfPageScopeSelectionOptions {
     selectedPages: () => number[];
     resolveRangePages: () => number[] | null;
 }
+
+interface IResolveScopedPageNumbersOptions { includeAllPages?: boolean; }
 
 export const usePdfPageScopeSelection = (options: IPdfPageScopeSelectionOptions) => {
     const scope = ref<TPdfPageScope>('all');
@@ -17,21 +22,33 @@ export const usePdfPageScopeSelection = (options: IPdfPageScopeSelectionOptions)
     const normalizedSelectedPages = computed(() =>
         normalizeSelectedPageNumbers(options.selectedPages(), options.totalPages()));
 
-    function resetScopeForOpen() {
-        scope.value = normalizedSelectedPages.value.length > 0 ? 'selected' : 'all';
+    function resetScopeForOpen(defaultScope?: TPdfPageScope) {
+        scope.value = defaultScope ?? (normalizedSelectedPages.value.length > 0 ? 'selected' : 'all');
         rangeInput.value = '';
         rangeTouched.value = false;
     }
 
-    function resolveScopedPageNumbers() {
+    function resolveScopedPageNumbers(
+        resolveOptions: IResolveScopedPageNumbersOptions = {},
+    ): number[] | undefined | null {
+        if (scope.value === 'all') {
+            return resolveOptions.includeAllPages ? createAllPageNumbers(options.totalPages()) : undefined;
+        }
         if (scope.value === 'current') {
-            return [options.currentPage()];
+            const page = options.currentPage();
+            return page >= 1 && page <= options.totalPages() ? [page] : null;
+        }
+        if (scope.value === 'even') {
+            return createAllPageNumbers(options.totalPages()).filter(page => page % 2 === 0);
+        }
+        if (scope.value === 'odd') {
+            return createAllPageNumbers(options.totalPages()).filter(page => page % 2 !== 0);
         }
         if (scope.value === 'selected') {
-            return normalizedSelectedPages.value;
+            return normalizedSelectedPages.value.length > 0 ? normalizedSelectedPages.value : null;
         }
         if (scope.value === 'range') {
-            return options.resolveRangePages() ?? undefined;
+            return options.resolveRangePages();
         }
         return undefined;
     }

@@ -4,7 +4,10 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TSplitPayload } from '@contracts/windowTabs';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { readDocumentBytes } from '@app/utils/documentBytes';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type {
+    IDocumentViewerExpose,
+    IPdfViewerExpose,
+} from '@app/modules/pdf-viewer/public';
 import type { TPdfSource } from '@app/types/pdf';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
@@ -22,6 +25,7 @@ interface IUseWorkspaceSplitPayloadOptions {
     workingCopyPath: Ref<TDocumentRef | null>;
     hasPendingTabChanges: Ref<boolean>;
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
+    documentViewerRef: Ref<IDocumentViewerExpose | null>;
     pdfData: Ref<Uint8Array | null>;
     openFileWithDjvuCleanup: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     waitForPdfReload: (page: number) => Promise<void>;
@@ -136,9 +140,14 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
     async function captureSplitPayload(): Promise<TSplitPayload> {
         // DjVu check must precede pdfSrc guard: DjVu mode has pdfSrc=null.
         if (options.isDjvuMode.value && options.djvuSourcePath.value) {
+            const normalizedCurrentPage = normalizeSplitPayloadPage(
+                options.documentViewerRef.value?.getCurrentPage?.() ?? options.currentPage.value,
+            ) ?? 1;
             return {
                 kind: 'djvu',
                 sourcePath: options.djvuSourcePath.value,
+                currentPage: normalizedCurrentPage,
+                totalPages: normalizeSplitPayloadTotalPages(options.totalPages.value, normalizedCurrentPage),
             };
         }
 
@@ -155,11 +164,26 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
         }
 
         if (payload.kind === 'djvu') {
+            const pageToRestore = normalizeSplitPayloadPage(payload.currentPage);
+            if (pageToRestore) {
+                options.currentPage.value = pageToRestore;
+            }
+            if (payload.totalPages && Number.isFinite(payload.totalPages)) {
+                options.totalPages.value = Math.max(
+                    options.totalPages.value,
+                    Math.floor(payload.totalPages),
+                    pageToRestore ?? 1,
+                );
+            }
             await options.openFileWithDjvuCleanup({
                 kind: 'djvu',
                 workingPath: '',
                 originalPath: payload.sourcePath,
             });
+            if (pageToRestore) {
+                await nextTick();
+                options.documentViewerRef.value?.scrollToPage(pageToRestore);
+            }
             return;
         }
 

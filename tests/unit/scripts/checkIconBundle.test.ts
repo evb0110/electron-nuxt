@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     createCollectionHints,
+    extractBundledIconsFromConfig,
     extractIconsFromScriptContent,
     extractIconsFromTemplateContent,
     extractIconsFromVueSfcContent,
@@ -77,6 +78,35 @@ describe('checkIconBundle extractors', () => {
             'ph:circle-notch',
             'ph:play',
             'simple-icons:github',
+        ]);
+    });
+
+    it('extracts bundled icons only from clientBundle.icons', () => {
+        const configContent = `
+            const strayIcon = 'ph:trash';
+
+            export default defineNuxtConfig({
+                app: { head: { link: [{ href: 'ph:file' }] } },
+                runtimeConfig: {
+                    clientBundle: { icons: ['ph:warning'] },
+                },
+                icon: {
+                    provider: 'iconify',
+                    clientBundle: {
+                        scan: true,
+                        icons: [
+                            'ph:file-text',
+                            \`ph:check\`,
+                            dynamicIcon,
+                        ],
+                    },
+                },
+            });
+        `;
+
+        expect(Array.from(extractBundledIconsFromConfig(configContent)).sort()).toEqual([
+            'ph:check',
+            'ph:file-text',
         ]);
     });
 });

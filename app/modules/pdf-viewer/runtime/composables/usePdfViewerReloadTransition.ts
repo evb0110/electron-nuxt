@@ -17,7 +17,6 @@ export const usePdfViewerReloadTransition = (
         const token = lastTransitionToken.value + 1;
         lastTransitionToken.value = token;
         activeTransitionToken.value = token;
-        pendingEffectiveZoom.value = null;
         isVisualReloadTransitionActive.value = true;
 
         BrowserLogger.diagnostic('pdf-nav', `[viewer-reload-transition] begin token=${token} reason=${reason}`, {

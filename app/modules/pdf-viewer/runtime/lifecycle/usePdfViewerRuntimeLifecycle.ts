@@ -20,6 +20,7 @@ import type {
     TZoomMode,
 } from '@app/types/pdf';
 import type { usePdfDocument } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
+import type { IFitScalePageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScale';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { TAnnotationOrchestrator } from '@app/modules/pdf-viewer/runtime/annotations/annotationOrchestrator';
 import { runGuardedTask } from '@app/utils/asyncGuard';
@@ -69,7 +70,7 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     effectiveScale: Ref<number>;
     basePageWidth: Ref<number | null>;
     basePageHeight: Ref<number | null>;
-    computeFitWidthScale: (container: HTMLElement | null) => boolean;
+    computeFitWidthScale: (container: HTMLElement | null, options?: IFitScalePageOptions) => boolean;
     syncHorizontalScrollForZoomMode?: () => boolean;
     invalidateScaleCache: () => void;
     resetScale: () => void;
@@ -555,6 +556,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
             }
             return;
         }
+        invalidateDocumentLoad();
         cancelPendingSearchScroll?.();
         cancelInFlightPageRenders?.();
         cleanupRenderedPages();

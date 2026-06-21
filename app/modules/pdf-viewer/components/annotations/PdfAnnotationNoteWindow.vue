@@ -316,6 +316,22 @@ function emitPositionUpdate() {
     });
 }
 
+function getCurrentPosition(): IAnnotationNotePosition {
+    return {
+        x: offsetX.value,
+        y: offsetY.value,
+        width: width.value,
+        height: height.value,
+    };
+}
+
+function positionChanged(previous: IAnnotationNotePosition) {
+    return previous.x !== offsetX.value
+        || previous.y !== offsetY.value
+        || previous.width !== width.value
+        || previous.height !== height.value;
+}
+
 function clampSize(nextWidth: number, nextHeight: number) {
     return clampAnnotationNoteWindowSize(nextWidth, nextHeight, getWindowBounds());
 }
@@ -391,13 +407,16 @@ function startDrag(event: MouseEvent) {
 }
 
 function handleViewportResize() {
+    const previous = getCurrentPosition();
     const clampedSize = clampSize(width.value, height.value);
     width.value = clampedSize.width;
     height.value = clampedSize.height;
     const clampedPosition = clampPosition(offsetX.value, offsetY.value, clampedSize.width, clampedSize.height);
     offsetX.value = clampedPosition.x;
     offsetY.value = clampedPosition.y;
-    emitPositionUpdate();
+    if (positionChanged(previous)) {
+        emitPositionUpdate();
+    }
 }
 
 function measureObservedWindowSize(entry: ResizeObserverEntry) {
@@ -436,12 +455,15 @@ useResizeObserver(noteWindowRef, (entries) => {
     if (nextSize.width === width.value && nextSize.height === height.value) {
         return;
     }
+    const previous = getCurrentPosition();
     width.value = nextSize.width;
     height.value = nextSize.height;
     const clampedPosition = clampPosition(offsetX.value, offsetY.value, nextSize.width, nextSize.height);
     offsetX.value = clampedPosition.x;
     offsetY.value = clampedPosition.y;
-    emitPositionUpdate();
+    if (positionChanged(previous)) {
+        emitPositionUpdate();
+    }
 }, { box: 'border-box' });
 
 useResizeObserver(boundsRootElement, () => {

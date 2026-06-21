@@ -64,6 +64,7 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         handleEnableDragMode: vi.fn(),
         handleDisableDragMode: vi.fn(),
         handleCaptureRegion: vi.fn(),
+        handleCrop: vi.fn(),
         handleQuickNote: vi.fn(),
         handleInsertImageFromFile: vi.fn(async () => {}),
         handlePasteImageFromClipboard: vi.fn(async () => {}),
@@ -264,6 +265,18 @@ describe('createWorkspaceExpose', () => {
         deps.isDjvuMode.value = false;
         exposed.handleCaptureRegion();
         expect(deps.handleCaptureRegion).toHaveBeenCalledOnce();
+    });
+
+    it('suppresses crop in DjVu mode', () => {
+        const deps = createDeps({ isDjvuMode: ref(true) });
+        const exposed = createWorkspaceExpose(deps);
+
+        exposed.handleCrop();
+        expect(deps.handleCrop).not.toHaveBeenCalled();
+
+        deps.isDjvuMode.value = false;
+        exposed.handleCrop();
+        expect(deps.handleCrop).toHaveBeenCalledOnce();
     });
 
     it('delegates print through the exposed workspace command surface', async () => {

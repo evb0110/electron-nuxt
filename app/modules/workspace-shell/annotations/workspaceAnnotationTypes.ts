@@ -26,6 +26,8 @@ export interface ISerializeEmbeddedFallbackDeps {
     ) => Promise<void>;
 }
 
+export type TSerializeEmbeddedFallbackResult = Uint8Array | null;
+
 export interface IHasAnnotationChangesDeps {
     pdfViewerRef: Ref<IWorkspacePdfViewerForAnnotationUtils | null>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;

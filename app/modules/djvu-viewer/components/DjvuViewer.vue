@@ -339,17 +339,26 @@ function measureIntersectionHeight(
     return Math.max(0, Math.min(bottom, viewportBottom) - Math.max(top, viewportTop));
 }
 
+function getFitHeightAvailableHeight() {
+    return Math.max(1, containerHeight.value - DJVU_BASE_MARGIN * 2);
+}
+
+function resolveFitHeightZoomForPageSize(pageSize: IDjvuPageSize | null | undefined) {
+    const baseHeight = pageSize?.height;
+    if (!baseHeight || baseHeight <= 0) {
+        return manualZoom.value;
+    }
+
+    return Math.max(0.1, getFitHeightAvailableHeight() / baseHeight);
+}
+
 function getContinuousPageHeight(pageNumber: number) {
     const pageSize = pageSizes.value[pageNumber - 1];
     if (!pageSize) {
         return 0;
     }
 
-    const scale = zoomMode.value === 'fit-width' && pageSize.width > 0
-        ? Math.max(0.1, fitWidthAvailable() / pageSize.width)
-        : effectiveZoom.value;
-
-    return Math.max(1, Math.round(pageSize.height * scale));
+    return Math.max(1, Math.round(pageSize.height * getPageDisplayScale(pageNumber)));
 }
 
 function getContinuousPagesHeight(startPage: number, endPage: number) {
@@ -566,13 +575,7 @@ function fitWidthAvailable() {
 
 function resolveFitHeightZoom() {
     const currentPageSize = pageSizes.value[currentPage.value - 1] ?? pageSizes.value[0] ?? null;
-    const baseHeight = currentPageSize?.height;
-    if (!baseHeight || baseHeight <= 0) {
-        return manualZoom.value;
-    }
-
-    const availableHeight = Math.max(1, containerHeight.value - DJVU_BASE_MARGIN * 2);
-    return Math.max(0.1, availableHeight / baseHeight);
+    return resolveFitHeightZoomForPageSize(currentPageSize);
 }
 
 function resolveFitWidthBaseWidth() {
@@ -654,11 +657,7 @@ function getPageShellStyle(pageNumber: number) {
         return {};
     }
 
-    // In continuous scroll + fit-width, each page fills the container
-    // width independently so outlier pages don't shrink everything.
-    const scale = (isContinuousScroll.value && zoomMode.value === 'fit-width' && pageSize.width > 0)
-        ? Math.max(0.1, fitWidthAvailable() / pageSize.width)
-        : effectiveZoom.value;
+    const scale = getPageDisplayScale(pageNumber);
 
     return {
         width: `${Math.max(1, Math.round(pageSize.width * scale))}px`,
@@ -672,9 +671,16 @@ function getPageDisplayScale(pageNumber: number) {
         return 1;
     }
 
-    return (isContinuousScroll.value && zoomMode.value === 'fit-width' && pageSize.width > 0)
-        ? Math.max(0.1, fitWidthAvailable() / pageSize.width)
-        : effectiveZoom.value;
+    if (isContinuousScroll.value) {
+        if (zoomMode.value === 'fit-width' && pageSize.width > 0) {
+            return Math.max(0.1, fitWidthAvailable() / pageSize.width);
+        }
+        if (zoomMode.value === 'fit-height') {
+            return resolveFitHeightZoomForPageSize(pageSize);
+        }
+    }
+
+    return effectiveZoom.value;
 }
 
 function getNeededDeviceWidth(pageNumber: number) {

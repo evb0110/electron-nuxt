@@ -838,13 +838,85 @@ async function collectFilesRecursively(directoryPath: string): Promise<string[]>
     return filePaths;
 }
 
-function extractBundledIconsFromConfig(configContent: string): Set<string> {
-    const bundledIcons = new Set<string>();
-    for (const { token } of extractQuotedTokenMatches(configContent)) {
-        if (ICON_NAME_PATTERN.test(token)) {
-            bundledIcons.add(token.toLowerCase());
+function getObjectExpressionPropertyValue(node: unknown, propertyName: string) {
+    if (!isBabelNodeLike(node) || node.type !== 'ObjectExpression' || !Array.isArray(node.properties)) {
+        return null;
+    }
+
+    for (const property of node.properties) {
+        if (!isBabelNodeLike(property) || property.type !== 'ObjectProperty') {
+            continue;
+        }
+        if (getStaticObjectPropertyName(property) === propertyName) {
+            return property.value;
         }
     }
+
+    return null;
+}
+
+function getStaticStringValue(node: unknown) {
+    if (!isBabelNodeLike(node)) {
+        return null;
+    }
+
+    if (node.type === 'StringLiteral' && typeof node.value === 'string') {
+        return node.value;
+    }
+
+    return getStaticTemplateLiteralValue(node);
+}
+
+function addBundledIcon(icons: Set<string>, rawIcon: string) {
+    const icon = rawIcon.trim().toLowerCase();
+    if (ICON_NAME_PATTERN.test(icon)) {
+        icons.add(icon);
+    }
+}
+
+function collectIconArrayValues(node: unknown, icons: Set<string>) {
+    if (!isBabelNodeLike(node) || node.type !== 'ArrayExpression' || !Array.isArray(node.elements)) {
+        return;
+    }
+
+    for (const element of node.elements) {
+        const icon = getStaticStringValue(element);
+        if (icon !== null) {
+            addBundledIcon(icons, icon);
+        }
+    }
+}
+
+function collectIconClientBundleIcons(node: unknown, icons: Set<string>) {
+    if (!isBabelNodeLike(node)) {
+        return;
+    }
+
+    if (node.type === 'ObjectProperty' && getStaticObjectPropertyName(node) === 'icon') {
+        const clientBundleNode = getObjectExpressionPropertyValue(node.value, 'clientBundle');
+        const iconsNode = getObjectExpressionPropertyValue(clientBundleNode, 'icons');
+        collectIconArrayValues(iconsNode, icons);
+    }
+
+    for (const value of Object.values(node)) {
+        if (Array.isArray(value)) {
+            for (const item of value) {
+                collectIconClientBundleIcons(item, icons);
+            }
+            continue;
+        }
+
+        collectIconClientBundleIcons(value, icons);
+    }
+}
+
+export function extractBundledIconsFromConfig(configContent: string): Set<string> {
+    const bundledIcons = new Set<string>();
+    const parsedAst = parseBabelScriptAst(configContent);
+    if (!parsedAst) {
+        return bundledIcons;
+    }
+    collectIconClientBundleIcons(parsedAst, bundledIcons);
     return bundledIcons;
 }
 

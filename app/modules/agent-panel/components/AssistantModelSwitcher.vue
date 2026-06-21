@@ -170,19 +170,19 @@ function onSelectModel(model: string) {
     max-width: 100%;
     min-width: 0;
     height: 1.85rem;
-    padding: 0 0.5rem;
+    padding: 0 var(--app-space-3xl);
     border: 1px solid var(--app-toolbar-group-border);
-    border-radius: 6px;
+    border-radius: var(--app-radius-md);
     background: var(--app-toolbar-group-bg);
     color: var(--ui-text);
-    font-size: 0.8125rem;
-    line-height: 1;
+    font-size: var(--app-text-size-body-sm);
+    line-height: var(--app-line-height-tight);
     cursor: pointer;
     user-select: none;
     transition:
-        background-color 0.1s ease,
-        border-color 0.1s ease,
-        box-shadow 0.1s ease;
+        background-color var(--app-transition-fast),
+        border-color var(--app-transition-fast),
+        box-shadow var(--app-transition-fast);
 }
 
 .assistant-model-switcher-button:hover {
@@ -212,7 +212,7 @@ function onSelectModel(model: string) {
 .assistant-model-switcher-model {
     min-width: 0;
     overflow: hidden;
-    font-weight: 600;
+    font-weight: var(--app-font-weight-semibold);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -224,7 +224,7 @@ function onSelectModel(model: string) {
 .assistant-model-switcher-menu {
     width: min(17rem, var(--app-overlay-viewport-width));
     max-width: var(--app-overlay-viewport-width);
-    padding: 0.35rem;
+    padding: var(--app-space-md);
     background: var(--app-toolbar-group-bg);
     user-select: none;
 }
@@ -232,10 +232,10 @@ function onSelectModel(model: string) {
 .assistant-model-switcher-tabs {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.25rem;
-    padding: 0.15rem;
+    gap: var(--app-space-sm);
+    padding: var(--app-space-2xs);
     border: 1px solid var(--app-toolbar-group-border);
-    border-radius: 6px;
+    border-radius: var(--app-radius-md);
     background: var(--app-sidebar-bg);
 }
 
@@ -243,20 +243,20 @@ function onSelectModel(model: string) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.35rem;
+    gap: var(--app-space-md);
     min-width: 0;
     min-height: 1.85rem;
     padding: 0 0.5rem;
     border: 1px solid transparent;
-    border-radius: 4px;
+    border-radius: var(--app-radius-xs);
     color: var(--ui-text-muted);
-    font-size: 0.8125rem;
-    line-height: 1;
+    font-size: var(--app-text-size-body-sm);
+    line-height: var(--app-line-height-tight);
     cursor: pointer;
     transition:
-        background-color 0.1s ease,
-        border-color 0.1s ease,
-        color 0.1s ease;
+        background-color var(--app-transition-fast),
+        border-color var(--app-transition-fast),
+        color var(--app-transition-fast);
 }
 
 .assistant-model-switcher-tab:hover {
@@ -276,7 +276,7 @@ function onSelectModel(model: string) {
     border-color: var(--app-toolbar-control-hover-border);
     background: var(--app-toolbar-control-hover-bg);
     color: var(--ui-text);
-    font-weight: 600;
+    font-weight: var(--app-font-weight-semibold);
 }
 
 .assistant-model-switcher-tab-icon {
@@ -288,15 +288,15 @@ function onSelectModel(model: string) {
     display: flex;
     flex-direction: column;
     gap: 0.3rem;
-    padding-top: 0.45rem;
+    padding-top: var(--app-space-2xl);
 }
 
 .assistant-model-switcher-section-label {
-    padding: 0 0.15rem;
+    padding: 0 var(--app-space-2xs);
     color: var(--ui-text-muted);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    line-height: 1;
+    font-size: var(--app-text-size-micro);
+    font-weight: var(--app-font-weight-semibold);
+    line-height: var(--app-line-height-tight);
     text-transform: uppercase;
 }
 
@@ -310,17 +310,17 @@ function onSelectModel(model: string) {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
+    gap: var(--app-space-3xl);
     min-height: 1.85rem;
     min-width: 0;
-    padding: 0 0.5rem;
+    padding: 0 var(--app-space-3xl);
     border-radius: 5px;
     color: var(--ui-text);
-    font-size: 0.8125rem;
+    font-size: var(--app-text-size-body-sm);
     line-height: 1.15;
     text-align: left;
     cursor: pointer;
-    transition: background-color 0.1s ease;
+    transition: background-color var(--app-transition-fast);
 }
 
 .assistant-model-switcher-option:hover {
@@ -337,7 +337,7 @@ function onSelectModel(model: string) {
 
 .assistant-model-switcher-option.is-active {
     background: var(--app-toolbar-control-hover-bg);
-    font-weight: 600;
+    font-weight: var(--app-font-weight-semibold);
 }
 
 .assistant-model-switcher-option span {

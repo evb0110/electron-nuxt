@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import {
     effectScope,
+    nextTick,
     ref,
 } from 'vue';
 import { usePdfViewerDelayedSkeleton } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerDelayedSkeleton';
@@ -68,6 +69,7 @@ describe('usePdfViewerDelayedSkeleton', () => {
             skeleton,
         } = createHarness();
         pendingPages.value = new Set([1]);
+        await nextTick();
 
         expect(skeleton.shouldShowSkeleton(1)).toBe(false);
         await vi.advanceTimersByTimeAsync(139);
@@ -116,6 +118,7 @@ describe('usePdfViewerDelayedSkeleton', () => {
             skeleton,
         } = createHarness();
         pendingPages.value = new Set([1]);
+        await nextTick();
 
         expect(skeleton.shouldShowSkeleton(1)).toBe(false);
         skeleton.markPageRendered(1);
@@ -137,12 +140,32 @@ describe('usePdfViewerDelayedSkeleton', () => {
             skeleton,
         } = createHarness();
         pendingPages.value = new Set([1]);
+        await nextTick();
 
         expect(skeleton.shouldShowSkeleton(1)).toBe(false);
         blockSkeletons.value = true;
         await nextTick();
         await vi.advanceTimersByTimeAsync(200);
 
+        expect(skeleton.shouldShowSkeleton(1)).toBe(false);
+
+        scope.stop();
+    });
+
+    it('does not start delayed timers from render-time skeleton queries', async () => {
+        vi.useFakeTimers();
+        const {
+            pendingPages,
+            scope,
+            skeleton,
+            trackedPages,
+        } = createHarness();
+        trackedPages.value = [];
+        pendingPages.value = new Set([1]);
+        await nextTick();
+
+        expect(skeleton.shouldShowSkeleton(1)).toBe(false);
+        await vi.advanceTimersByTimeAsync(200);
         expect(skeleton.shouldShowSkeleton(1)).toBe(false);
 
         scope.stop();

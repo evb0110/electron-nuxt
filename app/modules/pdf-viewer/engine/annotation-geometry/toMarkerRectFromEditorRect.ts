@@ -16,24 +16,24 @@ export function toMarkerRectFromEditorRect(
     switch (normalizedRotation) {
         case 90:
             return normalizeMarkerRect({
-                left: 1 - normalized.top,
+                left: 1 - (normalized.top + normalized.height),
                 top: normalized.left,
-                width: normalized.width,
-                height: normalized.height,
+                width: normalized.height,
+                height: normalized.width,
             });
         case 180:
             return normalizeMarkerRect({
-                left: 1 - normalized.left,
-                top: 1 - normalized.top,
+                left: 1 - (normalized.left + normalized.width),
+                top: 1 - (normalized.top + normalized.height),
                 width: normalized.width,
                 height: normalized.height,
             });
         case 270:
             return normalizeMarkerRect({
                 left: normalized.top,
-                top: 1 - normalized.left,
-                width: normalized.width,
-                height: normalized.height,
+                top: 1 - (normalized.left + normalized.width),
+                width: normalized.height,
+                height: normalized.width,
             });
         default:
             return normalized;

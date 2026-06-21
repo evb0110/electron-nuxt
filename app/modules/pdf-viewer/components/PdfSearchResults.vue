@@ -147,6 +147,8 @@ const trimmedQuery = computed(() => searchQuery.trim());
 const minQueryLength = computed(() => minQueryLengthProp ?? 0);
 const isTruncated = computed(() => isTruncatedProp ?? false);
 const expandedPages = ref<Set<number>>(new Set());
+const knownGroupPages = ref<Set<number>>(new Set());
+const previousSearchQuery = ref('');
 const resultItemRefs = new Map<number, HTMLElement>();
 
 const searchSummaryText = computed(() => formatPdfSearchResultsSummary({
@@ -242,9 +244,34 @@ function setResultRef(
 }
 
 watch(
-    groupedResults,
-    (groups) => {
-        expandedPages.value = new Set(groups.map(group => group.pageIndex));
+    () => [
+        trimmedQuery.value,
+        groupedResults.value,
+    ] as const,
+    ([
+        query,
+        groups,
+    ]) => {
+        const nextGroupPages = new Set(groups.map(group => group.pageIndex));
+
+        if (query !== previousSearchQuery.value) {
+            previousSearchQuery.value = query;
+            knownGroupPages.value = nextGroupPages;
+            expandedPages.value = new Set(nextGroupPages);
+            return;
+        }
+
+        const nextExpandedPages = new Set(
+            Array.from(expandedPages.value).filter(pageIndex => nextGroupPages.has(pageIndex)),
+        );
+        nextGroupPages.forEach((pageIndex) => {
+            if (!knownGroupPages.value.has(pageIndex)) {
+                nextExpandedPages.add(pageIndex);
+            }
+        });
+
+        knownGroupPages.value = nextGroupPages;
+        expandedPages.value = nextExpandedPages;
     },
     { immediate: true },
 );

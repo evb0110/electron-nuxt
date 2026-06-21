@@ -7,6 +7,15 @@
             @set-tool="setTool"
         />
 
+        <div class="annotation-tool-options">
+            <UCheckbox
+                v-model="keepActiveModel"
+                color="neutral"
+                size="xs"
+                :label="t('annotations.keepActive')"
+            />
+        </div>
+
         <div class="notes-panel-divider" />
 
         <div
@@ -91,7 +100,6 @@ interface IProps {
     settings: IAnnotationSettings;
     comments: IAnnotationCommentSummary[];
     commentsStatus: TAnnotationCommentsStatus;
-    currentPage: number;
     activeCommentStableKey?: string | null;
 }
 
@@ -101,6 +109,7 @@ const { settings: appSettings } = useSettings();
 const { t } = useTypedI18n();
 
 const {
+    keepActive,
     tool,
     settings,
     comments,
@@ -127,6 +136,7 @@ const colorSettingKeys = new Set<keyof IAnnotationSettings>([
     'textColor',
     'underlineColor',
 ]);
+let stylePopoverReopenTimer: ReturnType<typeof setTimeout> | null = null;
 
 const toolLabel = computed(() => {
     switch (tool) {
@@ -158,22 +168,6 @@ const toolLabel = computed(() => {
 });
 const stylePopoverLabel = computed(() => `${toolLabel.value} ${t('annotations.style')}`);
 
-watch(() => tool, async () => {
-    if (!showStyleEditor.value) {
-        stylePopoverOpen.value = false;
-        return;
-    }
-
-    await nextTick();
-    stylePopoverOpen.value = true;
-});
-
-watch(() => commentsStatus, (status) => {
-    if (status === 'loading') {
-        stylePopoverOpen.value = false;
-    }
-});
-
 const emit = defineEmits<{
     'set-tool': [tool: TAnnotationTool];
     'update:keep-active': [value: boolean];
@@ -187,6 +181,46 @@ const emit = defineEmits<{
     'place-note': [];
 }>();
 
+const keepActiveModel = computed({
+    get() {
+        return keepActive;
+    },
+    set(value: boolean | 'indeterminate') {
+        if (value === 'indeterminate' || value === keepActive) {
+            return;
+        }
+        emit('update:keep-active', value);
+    },
+});
+
+function clearStylePopoverReopenTimer() {
+    if (stylePopoverReopenTimer === null) {
+        return;
+    }
+    clearTimeout(stylePopoverReopenTimer);
+    stylePopoverReopenTimer = null;
+}
+
+watch(() => tool, async () => {
+    clearStylePopoverReopenTimer();
+    if (!showStyleEditor.value) {
+        stylePopoverOpen.value = false;
+        return;
+    }
+
+    await nextTick();
+    stylePopoverOpen.value = true;
+});
+
+watch(() => commentsStatus, (status) => {
+    if (status === 'loading') {
+        clearStylePopoverReopenTimer();
+        stylePopoverOpen.value = false;
+    }
+});
+
+onBeforeUnmount(clearStylePopoverReopenTimer);
+
 function setTool(nextTool: TAnnotationTool) {
     emit('set-tool', nextTool === tool ? 'none' : nextTool);
 }
@@ -197,7 +231,9 @@ function updateSetting(payload: {
 }) {
     emit('update-setting', payload);
     if (showStyleEditor.value && !colorSettingKeys.has(payload.key)) {
-        window.setTimeout(() => {
+        clearStylePopoverReopenTimer();
+        stylePopoverReopenTimer = setTimeout(() => {
+            stylePopoverReopenTimer = null;
             if (showStyleEditor.value) {
                 stylePopoverOpen.value = true;
             }
@@ -238,6 +274,12 @@ function placeNote() {
 .notes-panel-divider {
     border-top: 1px solid var(--ui-border);
     margin: 0 -0.25rem;
+}
+
+.annotation-tool-options {
+    display: flex;
+    align-items: center;
+    min-height: 1.5rem;
 }
 
 .style-popover-virtual-trigger {

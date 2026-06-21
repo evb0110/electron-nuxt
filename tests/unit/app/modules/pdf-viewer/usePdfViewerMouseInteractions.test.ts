@@ -116,4 +116,33 @@ describe('usePdfViewerMouseInteractions', () => {
 
         expect(selectStartEvent.preventDefault).toHaveBeenCalledOnce();
     });
+
+    it('stops pan drag on mouseup inside the viewer', () => {
+        vi.stubGlobal('HTMLElement', class HTMLElementStub {
+            closest() {
+                return null;
+            }
+        });
+        const stopDrag = vi.fn();
+        const handleViewerMouseUpAnnotation = vi.fn();
+        const interactions = usePdfViewerMouseInteractions({
+            isSnipActive: () => false,
+            isCommentPlacementActive: () => false,
+            isViewerPanDragModeActive: computed(() => true),
+            cancelPendingSearchScroll: vi.fn(),
+            handleDragStart: vi.fn(),
+            handleDragMove: vi.fn(),
+            stopDrag,
+            handleViewerMouseUpAnnotation,
+            handleViewerClickAnnotation: vi.fn(),
+            handleViewerDblClickAnnotation: vi.fn(),
+            handleViewerContextMenuAnnotation: vi.fn(),
+        });
+
+        const event = createMouseEvent();
+        interactions.handleViewerMouseUp(event);
+
+        expect(stopDrag).toHaveBeenCalledOnce();
+        expect(handleViewerMouseUpAnnotation).toHaveBeenCalledOnce();
+    });
 });

@@ -44,10 +44,28 @@ function rectHasTextMarkupAxisOverlap(
         >= MIN_TEXT_MARKUP_HORIZONTAL_OVERLAP_RATIO;
 }
 
+function hasPositiveArea(rect: IAnnotationMarkerRect) {
+    return Number.isFinite(rect.left)
+        && Number.isFinite(rect.top)
+        && Number.isFinite(rect.width)
+        && Number.isFinite(rect.height)
+        && rect.width > 0
+        && rect.height > 0;
+}
+
 export function scoreTextMarkupVisualCandidate(
     candidateRect: IAnnotationMarkerRect,
     markerRect: IAnnotationMarkerRect,
 ): ITextMarkupCandidateScore {
+    if (!hasPositiveArea(candidateRect) || !hasPositiveArea(markerRect)) {
+        return {
+            axisOverlap: false,
+            distance: Number.POSITIVE_INFINITY,
+            iou: 0,
+            matched: false,
+        };
+    }
+
     const iou = markerRectIoU(candidateRect, markerRect);
     const distance = markerRectCenterDistance(candidateRect, markerRect);
     const axisOverlap = rectHasTextMarkupAxisOverlap(candidateRect, markerRect);

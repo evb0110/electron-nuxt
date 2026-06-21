@@ -24,11 +24,11 @@
 
         <template #content>
             <div class="assistant-effort-switcher-menu">
-                <span class="assistant-effort-switcher-section-label">Reasoning</span>
+                <span class="assistant-effort-switcher-section-label">{{ t('assistant.reasoning') }}</span>
                 <div
                     class="assistant-effort-switcher-list"
                     role="radiogroup"
-                    aria-label="Reasoning effort"
+                    :aria-label="t('assistant.reasoningEffort')"
                 >
                     <button
                         v-for="effort in efforts"
@@ -72,6 +72,7 @@ const {
 
 const emit = defineEmits<{'select-effort': [effort: TAgentAssistantEffort];}>();
 
+const { t } = useTypedI18n();
 const open = ref(false);
 const content = computed(() => ({
     align: 'start' as const,
@@ -80,18 +81,18 @@ const content = computed(() => ({
     collisionPadding: 8,
 }));
 
-const EFFORT_LABELS = {
-    low: 'Low',
-    medium: 'Medium',
-    high: 'High',
-    xhigh: 'Extra High',
-    max: 'Max',
+const EFFORT_LABEL_KEYS = {
+    low: 'assistant.effortLow',
+    medium: 'assistant.effortMedium',
+    high: 'assistant.effortHigh',
+    xhigh: 'assistant.effortXHigh',
+    max: 'assistant.effortMax',
 } as const satisfies Record<TAgentAssistantEffort, string>;
 
-const ariaLabel = computed(() => `Reasoning effort: ${effortLabel(selectedEffort)}`);
+const ariaLabel = computed(() => t('assistant.reasoningEffortAria', { label: effortLabel(selectedEffort) }));
 
 function effortLabel(effort: TAgentAssistantEffort) {
-    return EFFORT_LABELS[effort];
+    return t(EFFORT_LABEL_KEYS[effort]);
 }
 
 function onSelect(effort: TAgentAssistantEffort) {
@@ -104,23 +105,23 @@ function onSelect(effort: TAgentAssistantEffort) {
 .assistant-effort-switcher-button {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--app-space-sm);
     max-width: 100%;
     min-width: 0;
     height: 1.85rem;
-    padding: 0 0.45rem;
+    padding: 0 var(--app-space-2xl);
     border: 1px solid var(--app-toolbar-group-border);
-    border-radius: 6px;
+    border-radius: var(--app-radius-md);
     background: var(--app-toolbar-group-bg);
     color: var(--ui-text);
-    font-size: 0.8125rem;
-    line-height: 1;
+    font-size: var(--app-text-size-body-sm);
+    line-height: var(--app-line-height-tight);
     cursor: pointer;
     user-select: none;
     transition:
-        background-color 0.1s ease,
-        border-color 0.1s ease,
-        box-shadow 0.1s ease;
+        background-color var(--app-transition-fast),
+        border-color var(--app-transition-fast),
+        box-shadow var(--app-transition-fast);
 }
 
 .assistant-effort-switcher-button:hover:not(:disabled) {
@@ -151,7 +152,7 @@ function onSelect(effort: TAgentAssistantEffort) {
 .assistant-effort-switcher-value {
     min-width: 0;
     overflow: hidden;
-    font-weight: 600;
+    font-weight: var(--app-font-weight-semibold);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -169,17 +170,17 @@ function onSelect(effort: TAgentAssistantEffort) {
     gap: 0.3rem;
     width: min(12rem, var(--app-overlay-viewport-width));
     max-width: var(--app-overlay-viewport-width);
-    padding: 0.35rem;
+    padding: var(--app-space-md);
     background: var(--app-toolbar-group-bg);
     user-select: none;
 }
 
 .assistant-effort-switcher-section-label {
-    padding: 0 0.15rem;
+    padding: 0 var(--app-space-2xs);
     color: var(--ui-text-muted);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    line-height: 1;
+    font-size: var(--app-text-size-micro);
+    font-weight: var(--app-font-weight-semibold);
+    line-height: var(--app-line-height-tight);
     text-transform: uppercase;
 }
 
@@ -193,17 +194,17 @@ function onSelect(effort: TAgentAssistantEffort) {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
+    gap: var(--app-space-3xl);
     min-height: 1.85rem;
     min-width: 0;
-    padding: 0 0.5rem;
+    padding: 0 var(--app-space-3xl);
     border-radius: 5px;
     color: var(--ui-text);
-    font-size: 0.8125rem;
+    font-size: var(--app-text-size-body-sm);
     line-height: 1.15;
     text-align: left;
     cursor: pointer;
-    transition: background-color 0.1s ease;
+    transition: background-color var(--app-transition-fast);
 }
 
 .assistant-effort-switcher-option:hover {
@@ -220,7 +221,7 @@ function onSelect(effort: TAgentAssistantEffort) {
 
 .assistant-effort-switcher-option.is-active {
     background: var(--app-toolbar-control-hover-bg);
-    font-weight: 600;
+    font-weight: var(--app-font-weight-semibold);
 }
 
 .assistant-effort-switcher-check {

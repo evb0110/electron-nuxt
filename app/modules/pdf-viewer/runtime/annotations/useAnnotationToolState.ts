@@ -61,7 +61,6 @@ interface IUseAnnotationToolStateOptions {
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
     currentPage: Ref<number>;
     annotationTool: Ref<TAnnotationTool>;
-    annotationCursorMode: Ref<boolean>;
     annotationKeepActive: Ref<boolean>;
     annotationSettings: Ref<IAnnotationSettings | null>;
     numPages: Ref<number>;
@@ -616,10 +615,6 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         await annotationToolUpdatePromise;
     }
 
-    function getToolUpdatePromise() {
-        return annotationToolUpdatePromise;
-    }
-
     function maybeAutoResetAnnotationTool() {
         if (annotationKeepActive.value) {
             return;
@@ -977,7 +972,6 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         applyAnnotationSettings,
         setAnnotationTool,
         updateModeWithRetry,
-        getToolUpdatePromise,
         maybeAutoResetAnnotationTool,
         resolveEditorHighlightClipPathId,
         resolveEditorDrawLayerHighlight,

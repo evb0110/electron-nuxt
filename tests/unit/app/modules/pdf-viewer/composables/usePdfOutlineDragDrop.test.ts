@@ -82,4 +82,39 @@ describe('usePdfOutlineDragDrop', () => {
         expect(emitBookmarksChange).not.toHaveBeenCalled();
         expect(dragDrop.draggingBookmarkIds.value.size).toBe(0);
     });
+
+    it('does not emit bookmark changes for target drops that keep the same order', () => {
+        const bookmarks = ref([
+            createBookmark('first'),
+            createBookmark('last'),
+        ]);
+        const selectedBookmarkIds = ref(new Set(['first']));
+        const activeItemId = ref<string | null>('last');
+        const emitBookmarksChange = vi.fn();
+
+        const dragDrop = usePdfOutlineDragDrop(
+            bookmarks,
+            ref(new Set()),
+            computed(() => true),
+            selectedBookmarkIds,
+            computed(() => createParentMap(bookmarks.value)),
+            computed(() => createOrderMap(bookmarks.value)),
+            vi.fn(),
+            vi.fn(),
+        );
+
+        dragDrop.handleBookmarkDragStart({ id: 'first' });
+        dragDrop.handleBookmarkDrop({
+            targetId: 'last',
+            position: 'before',
+        }, activeItemId, emitBookmarksChange);
+
+        expect(bookmarks.value.map(item => item.id)).toEqual([
+            'first',
+            'last',
+        ]);
+        expect(activeItemId.value).toBe('last');
+        expect(emitBookmarksChange).not.toHaveBeenCalled();
+        expect(dragDrop.draggingBookmarkIds.value.size).toBe(0);
+    });
 });

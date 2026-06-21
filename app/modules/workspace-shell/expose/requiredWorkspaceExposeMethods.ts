@@ -45,6 +45,7 @@ const VIEW_PORT_METHODS = [
     'handleEnableDragMode',
     'handleDisableDragMode',
     'handleCaptureRegion',
+    'handleCrop',
     'handleQuickNote',
     'handleInsertImageFromFile',
     'handlePasteImageFromClipboard',

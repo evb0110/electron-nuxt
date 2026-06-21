@@ -68,33 +68,33 @@ const shortcutsOpen = ref(false);
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: var(--app-space-lg);
     border: none;
     background: transparent;
 }
 
 .settings-toggle-icon {
-    width: 0.875rem;
-    height: 0.875rem;
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
     flex-shrink: 0;
     color: var(--ui-text-dimmed);
 }
 
 .settings-shortcuts-content {
-    gap: 0.375rem;
+    gap: var(--app-space-lg);
 }
 
 .settings-shortcut-row {
-    padding: 0.25rem 0;
+    padding: var(--app-space-sm) 0;
 }
 
 .settings-shortcut-label {
-    font-size: 0.8125rem;
+    font-size: var(--app-text-size-body-sm);
     color: var(--ui-text);
 }
 
 .settings-shortcut-keys {
-    gap: 0.15rem;
+    gap: var(--app-space-2xs);
     white-space: nowrap;
 }
 

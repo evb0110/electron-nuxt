@@ -27,7 +27,10 @@ import {
     saveBytesToPickerOrDownload,
     writeBytesToHandle,
 } from '@app/platform/browser-api/browserFilePickerAdapter';
-import type { IFilePickerAcceptType } from '@app/platform/browser-api/browserFileAccepts';
+import {
+    buildImageExportPickerTypes,
+    buildTiffSaveTypes,
+} from '@app/platform/browser-api/browserFileAccepts';
 import {
     buildTiffImageIfd,
     encodeTiffIfds,
@@ -48,26 +51,6 @@ interface IBrowserTiffPageDescriptor extends ITiffImageDescriptor {pageNumber: n
 
 const BROWSER_INLINE_TIFF_EXPORT_MAX_RGBA_BYTES = 64 * 1024 * 1024;
 const imageExportProgressListeners = new Set<(progress: IImageExportProgress) => void>();
-const BROWSER_IMAGE_EXPORT_PICKER_TYPES: IFilePickerAcceptType[] = [
-    {
-        description: 'JPEG Images',
-        accept: { 'image/jpeg': [
-            '.jpg',
-            '.jpeg',
-        ] },
-    },
-    {
-        description: 'PNG Images',
-        accept: { 'image/png': ['.png'] },
-    },
-    {
-        description: 'TIFF Images',
-        accept: { 'image/tiff': [
-            '.tif',
-            '.tiff',
-        ] },
-    },
-];
 
 const UTIF_ENCODER = UTIF;
 
@@ -475,7 +458,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                     const pageNumber = targetPages[index]!;
                     const saveTarget = await pickSaveTarget({
                         suggestedName: buildBrowserImageExportFileName(pageNumber),
-                        pickerTypes: BROWSER_IMAGE_EXPORT_PICKER_TYPES,
+                        pickerTypes: buildImageExportPickerTypes(),
                     });
                     if (saveTarget.canceled) {
                         await Promise.allSettled(
@@ -504,7 +487,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                         const downloadResult = await saveBytesToPickerOrDownload(renderedPage.bytes, {
                             suggestedName: saveName,
                             mimeType: renderedPage.mimeType,
-                            pickerTypes: BROWSER_IMAGE_EXPORT_PICKER_TYPES,
+                            pickerTypes: buildImageExportPickerTypes(),
                         });
                         if (downloadResult.canceled) {
                             await Promise.allSettled(
@@ -587,13 +570,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
             const descriptors = await collectTiffPageDescriptors(pdfDocument.pdfDocument, targetPages);
             const saveTarget = await pickSaveTarget({
                 suggestedName: outputFileName,
-                pickerTypes: [{
-                    description: 'TIFF Images',
-                    accept: { 'image/tiff': [
-                        '.tif',
-                        '.tiff',
-                    ] },
-                }],
+                pickerTypes: buildTiffSaveTypes(),
             });
 
             if (saveTarget.canceled) {
@@ -673,13 +650,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                 const saveResult = await saveBytesToPickerOrDownload(tiffBytes, {
                     suggestedName: saveTarget.fileName,
                     mimeType: 'image/tiff',
-                    pickerTypes: [{
-                        description: 'TIFF Images',
-                        accept: { 'image/tiff': [
-                            '.tif',
-                            '.tiff',
-                        ] },
-                    }],
+                    pickerTypes: buildTiffSaveTypes(),
                 });
 
                 if (saveResult.canceled) {

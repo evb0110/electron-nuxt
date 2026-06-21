@@ -245,7 +245,7 @@ export const usePdfShapeOverlayInteractions = (options: IUsePdfShapeOverlayInter
     }
 
     function handlePointerUp(event?: PointerEvent) {
-        if (event?.type === 'pointerleave' && event.pointerId && svgRef.value?.hasPointerCapture?.(event.pointerId)) {
+        if (event?.type === 'pointerleave' && canCapturePointer(event) && svgRef.value?.hasPointerCapture?.(event.pointerId)) {
             return;
         }
         if (event && svgRef.value?.hasPointerCapture?.(event.pointerId)) {

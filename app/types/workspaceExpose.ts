@@ -120,6 +120,7 @@ export interface IWorkspaceViewPort {
     handleEnableDragMode: () => void;
     handleDisableDragMode: () => void;
     handleCaptureRegion: () => void;
+    handleCrop: () => void;
     handleQuickNote: () => void;
     handleInsertImageFromFile: () => Promise<void>;
     handlePasteImageFromClipboard: () => Promise<void>;

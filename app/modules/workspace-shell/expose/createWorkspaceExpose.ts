@@ -19,7 +19,10 @@ import type {
     IWorkspaceAutomationStateSnapshot,
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type {
+    IDocumentViewerExpose,
+    IPdfViewerExpose,
+} from '@app/modules/pdf-viewer/public';
 import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
 
 interface ICreateWorkspaceExposeDeps extends
@@ -57,6 +60,7 @@ interface ICreateWorkspaceExposeDeps extends
     viewMode: Ref<TPdfViewMode>;
     currentPage: Ref<number>;
     pdfViewerRef?: Ref<IPdfViewerExpose | null>;
+    documentViewerRef?: Ref<IDocumentViewerExpose | null>;
     handleFitMode: (mode: TFitMode) => void;
     handleGoToPage: (page: number) => void;
     handleToggleSidebar: () => void;
@@ -64,6 +68,7 @@ interface ICreateWorkspaceExposeDeps extends
     handleEnableDragMode: () => void;
     handleDisableDragMode: () => void;
     handleCaptureRegion: () => void;
+    handleCrop: () => void;
     handleQuickNote: () => void;
     handleInsertImageFromFile: () => Promise<void>;
     handlePasteImageFromClipboard: () => Promise<void>;
@@ -149,7 +154,9 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
 
     function getToolbarSnapshot(): IWorkspaceToolbarSnapshot {
         const currentPage = normalizeToolbarSnapshotPage(
-            deps.pdfViewerRef?.value?.getCurrentPage?.() ?? deps.currentPage.value,
+            deps.documentViewerRef?.value?.getCurrentPage?.()
+                ?? deps.pdfViewerRef?.value?.getCurrentPage?.()
+                ?? deps.currentPage.value,
         );
         const totalPages = normalizeToolbarSnapshotTotalPages(deps.totalPages.value, currentPage);
         return {
@@ -279,6 +286,12 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             }
             deps.handleCaptureRegion();
         },
+        handleCrop: () => {
+            if (deps.isDjvuMode.value) {
+                return;
+            }
+            deps.handleCrop();
+        },
         handleQuickNote: deps.handleQuickNote,
         handleInsertImageFromFile: deps.handleInsertImageFromFile,
         handlePasteImageFromClipboard: deps.handlePasteImageFromClipboard,
@@ -335,7 +348,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         getAutomationStateSnapshot,
         handleOcrComplete: deps.handleOcrComplete,
         scrollToPage: (page: number) => {
-            deps.pdfViewerRef?.value?.scrollToPage(page);
+            deps.documentViewerRef?.value?.scrollToPage(page);
         },
         getAllShapes: () => deps.pdfViewerRef?.value?.getAllShapes?.() ?? [],
         getDeletedEmbeddedShapeAnnotationIds: () => deps.pdfViewerRef?.value?.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],

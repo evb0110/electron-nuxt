@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { tryOnScopeDispose } from '@vueuse/core';
 import { isEqual } from 'es-toolkit/predicate';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IPdfPageLabelRange } from '@app/types/pdf';
@@ -32,6 +33,8 @@ export const usePageLabelState = (deps: {
     const pageLabelRanges = ref<IPdfPageLabelRange[]>([]);
     const pageLabelsDirty = ref(false);
     const pageLabelsResolved = ref(true);
+    let pageLabelSyncGeneration = 0;
+    let disposed = false;
 
     function materializePageLabels(
         totalPagesValue: number,
@@ -50,6 +53,17 @@ export const usePageLabelState = (deps: {
     }
 
     async function syncPageLabelsFromDocument(doc: PDFDocumentProxy | null) {
+        const syncGeneration = ++pageLabelSyncGeneration;
+        const isCurrentSync = () => (
+            !disposed
+            && pageLabelSyncGeneration === syncGeneration
+            && pdfDocument.value === doc
+        );
+
+        if (!isCurrentSync()) {
+            return;
+        }
+
         if (!doc) {
             if (totalPages.value <= 0) {
                 pageLabels.value = null;
@@ -77,6 +91,9 @@ export const usePageLabelState = (deps: {
                 labels = null;
             }
 
+            if (!isCurrentSync()) {
+                return;
+            }
             const nextRanges = derivePageLabelRangesFromLabels(
                 labels,
                 doc.numPages,
@@ -85,8 +102,10 @@ export const usePageLabelState = (deps: {
             pageLabels.value = materializePageLabels(doc.numPages, nextRanges, labels);
             pageLabelsDirty.value = false;
         } finally {
-            pageLabelsResolved.value = true;
-            onPageLabelsSynchronized?.();
+            if (isCurrentSync()) {
+                pageLabelsResolved.value = true;
+                onPageLabelsSynchronized?.();
+            }
         }
     }
 
@@ -133,6 +152,11 @@ export const usePageLabelState = (deps: {
         },
         { immediate: true },
     );
+
+    tryOnScopeDispose(() => {
+        disposed = true;
+        pageLabelSyncGeneration += 1;
+    });
 
     return {
         pageLabels,

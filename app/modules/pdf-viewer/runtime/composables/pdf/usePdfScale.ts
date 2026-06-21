@@ -14,7 +14,7 @@ import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-pa
 
 const BASE_MARGIN = 20;
 
-interface IFitScalePageOptions { page?: number | null | undefined; }
+export interface IFitScalePageOptions { page?: number | null | undefined; }
 
 export const usePdfScale = (
     zoom: MaybeRefOrGetter<number>,
@@ -26,7 +26,6 @@ export const usePdfScale = (
     basePageWidth: MaybeRefOrGetter<number | null>,
     basePageHeight: MaybeRefOrGetter<number | null>,
     currentPage: MaybeRefOrGetter<number>,
-    _continuousScroll: MaybeRefOrGetter<boolean>,
 ) => {
     const fitWidthScale = ref(1);
     const lastContainerSize = ref<number | null>(null);

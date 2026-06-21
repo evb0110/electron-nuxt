@@ -1967,6 +1967,60 @@ describe('serializePdfEdits free-text note rect application', () => {
         expect(unrelatedDict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeUndefined();
     });
 
+    it('does not reuse one FreeText comment match for multiple embedded notes', async () => {
+        const firstRect = [
+            100,
+            500,
+            200,
+            600,
+        ];
+        const secondRect = [
+            300,
+            100,
+            400,
+            200,
+        ];
+        const {
+            bytes,
+            noteRefs,
+        } = await createPdfWithFreeTextNotes([
+            {
+                pageIndex: 0,
+                rect: firstRect as [number, number, number, number],
+                contents: 'same',
+            },
+            {
+                pageIndex: 0,
+                rect: secondRect as [number, number, number, number],
+                contents: 'same',
+            },
+        ]);
+        const firstRef = noteRefs[0]!;
+        const secondRef = noteRefs[1]!;
+
+        const payload = createEmptyPayload();
+        payload.freeTextComments = [makeFreeTextComment({
+            pageIndex: 0,
+            text: 'same',
+            markerRect: {
+                left: 0.72,
+                top: 0.12,
+                width: 0.02,
+                height: 0.02,
+            },
+        })];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const firstDict = getAnnotDict(doc, firstRef);
+        const secondDict = getAnnotDict(doc, secondRef);
+
+        expect(getRectNumbers(firstDict!)).not.toEqual(firstRect);
+        expect(firstDict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
+        expect(getRectNumbers(secondDict!)).toEqual(secondRect);
+        expect(secondDict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeUndefined();
+    });
+
     it('keeps narrow singleton fallback for one FreeText popup candidate and one comment', async () => {
         const {
             bytes,
@@ -2049,6 +2103,33 @@ describe('serializePdfEdits free-text note rect application', () => {
         expect(rectSize?.width).toBeLessThanOrEqual(2);
         expect(rectSize?.height).toBeLessThanOrEqual(2);
         expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
+    });
+
+    it('returns null instead of mixed sentinel values when embedded text target is missing', async () => {
+        const doc = await PDFDocument.create();
+        doc.addPage([
+            600,
+            800,
+        ]);
+        const bytes = new Uint8Array(await doc.save());
+
+        const result = await updateEmbeddedAnnotationText(
+            bytes,
+            makeFreeTextComment({
+                pageIndex: 0,
+                annotationId: '999999R0',
+                text: 'missing note',
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.3,
+                    height: 0.1,
+                },
+            }),
+            'edited note',
+        );
+
+        expect(result).toBeNull();
     });
 
     it('skips FreeText annotations without a Popup entry', async () => {

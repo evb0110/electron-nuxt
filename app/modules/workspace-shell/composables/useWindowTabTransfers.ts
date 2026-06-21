@@ -6,7 +6,10 @@ import type {
     TWindowTabTransferTarget,
 } from '@contracts/windowTabs';
 import type { TEditorLayoutNode } from '@contracts/editorPanes';
-import type { ITab } from '@app/types/tabs';
+import type {
+    ITab,
+    TTabUpdate,
+} from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { collectMergeTabOrder } from '@app/modules/workspace-shell/window-tabs/collectMergeTabOrder';
@@ -15,6 +18,7 @@ import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHas
 import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot';
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { getErrorMessage } from '@app/utils/error';
+import { withTimeout } from 'es-toolkit/promise';
 
 interface IPaneLike {
     paneId: string;
@@ -34,6 +38,11 @@ interface IIncomingTransferTarget {
     tab: IIncomingTransferTargetTab;
 }
 
+interface IPreparedTransferItem {
+    tabId: string;
+    payload: TSplitPayload;
+}
+
 interface IUseWindowTabTransfersOptions {
     activePaneId: Ref<string | null>;
     panes: Ref<IPaneLike[]>;
@@ -50,6 +59,7 @@ interface IUseWindowTabTransfersOptions {
     activatePane: (paneId: string) => void;
     activateTab: (paneId: string, tabId: string) => void;
     removeTabFromState: (tabId: string) => void;
+    updateTab: (tabId: string, updates: TTabUpdate) => void;
     cleanupEmptyPanes: () => void;
     closeTabInState: (paneId: string, tabId: string) => void;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
@@ -61,6 +71,9 @@ interface IUseWindowTabTransfersOptions {
     handleCloseTab: (paneId: string, tabId: string) => Promise<void>;
     handoffActiveTabBeforeClose: (paneId: string, tabId: string) => Promise<void>;
 }
+
+const DEFAULT_CAPTURE_TIMEOUT_MS = 4000;
+const MERGE_CAPTURE_TIMEOUT_MS = 4000;
 
 function buildTransferredTabState(tab: ITab): ITransferredTabState {
     return {
@@ -78,18 +91,17 @@ function isPlaceholderTab(tab: ITab) {
         && !tab.isDjvu;
 }
 
-function isOnlyOpenTargetTab(targetPane: IPaneLike, totalTabCount: number) {
-    return targetPane.tabIds.length === 1 && totalTabCount === 1;
+function isOnlyOpenTargetTab(targetPane: IPaneLike) {
+    return targetPane.tabIds.length === 1;
 }
 
 function canReuseIncomingTransferTab(
     tab: ITab | null,
     targetPane: IPaneLike,
-    totalTabCount: number,
     existingHasDocument: boolean,
 ): tab is ITab {
     return !!tab
-        && isOnlyOpenTargetTab(targetPane, totalTabCount)
+        && isOnlyOpenTargetTab(targetPane)
         && isPlaceholderTab(tab)
         && !existingHasDocument;
 }
@@ -139,7 +151,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             existingTab,
             existingHasDocument,
         } = getIncomingTransferTabContext(targetPane);
-        if (canReuseIncomingTransferTab(existingTab, targetPane, options.tabs.value.length, existingHasDocument)) {
+        if (canReuseIncomingTransferTab(existingTab, targetPane, existingHasDocument)) {
             return reuseIncomingTransferTargetTab(targetPane, existingTab);
         }
 
@@ -175,10 +187,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
     }
 
     function applyIncomingTransferTabState(targetPaneId: string, targetTabId: string, transfer: IWindowTabIncomingTransfer) {
-        const incomingTab = options.getTabById(targetTabId);
-        if (incomingTab) {
-            Object.assign(incomingTab, transfer.tab);
-        }
+        options.updateTab(targetTabId, transfer.tab);
         options.activatePane(targetPaneId);
         options.activateTab(targetPaneId, targetTabId);
     }
@@ -204,15 +213,17 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
 
     async function captureWorkspacePayload(
         tabId: string,
-        timeoutMs = 4000,
+        timeoutMs = DEFAULT_CAPTURE_TIMEOUT_MS,
     ): Promise<TSplitPayload | null> {
-        const workspace = await options.waitForWorkspace(tabId, timeoutMs);
-        if (!workspace) {
-            return null;
-        }
-
         try {
-            return await workspace.captureSplitPayload();
+            return await withTimeout(async () => {
+                const workspace = await options.waitForWorkspace(tabId, timeoutMs);
+                if (!workspace) {
+                    return null;
+                }
+
+                return workspace.captureSplitPayload();
+            }, timeoutMs);
         } catch (error) {
             BrowserLogger.error('tabs', 'Failed to capture split payload', {
                 tabId,
@@ -316,15 +327,22 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         return 'success';
     }
 
-    async function transferTabToTarget(tabId: string, target: TWindowTabTransferTarget): Promise<TSourceTransferOutcome> {
+    async function transferPreparedTabToTarget(
+        tabId: string,
+        target: TWindowTabTransferTarget,
+        payload: TSplitPayload,
+    ): Promise<TSourceTransferOutcome> {
         const tab = options.getTabById(tabId);
         const sourcePane = options.getPaneByTabId(tabId);
         if (!tab || !sourcePane) {
-            return 'failed';
-        }
-
-        const payload = await captureWorkspacePayload(tab.id);
-        if (!payload) {
+            await cleanupSplitPayloadSnapshot(payload, {
+                logSection: 'tabs',
+                context: 'transfer-tab-source-missing',
+                metadata: {
+                    tabId,
+                    target,
+                },
+            });
             return 'failed';
         }
 
@@ -354,6 +372,43 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         return finalizeTransferredSourceTab(sourcePane.paneId, tab.id);
     }
 
+    async function transferTabToTarget(tabId: string, target: TWindowTabTransferTarget): Promise<TSourceTransferOutcome> {
+        const payload = await captureWorkspacePayload(tabId);
+        if (!payload) {
+            return 'failed';
+        }
+
+        return transferPreparedTabToTarget(tabId, target, payload);
+    }
+
+    async function cleanupPreparedMergeItems(items: IPreparedTransferItem[], context: string) {
+        await Promise.all(items.map(item => cleanupSplitPayloadSnapshot(item.payload, {
+            logSection: 'tabs',
+            context,
+            metadata: { tabId: item.tabId },
+        })));
+    }
+
+    async function captureMergeTransferItems(orderedTabIds: string[]) {
+        const sourceTabIds = orderedTabIds.filter(tabId => Boolean(options.getTabById(tabId)));
+        const captures = await Promise.all(sourceTabIds.map(async (tabId): Promise<IPreparedTransferItem | null> => {
+            const payload = await captureWorkspacePayload(tabId, MERGE_CAPTURE_TIMEOUT_MS);
+            return payload
+                ? {
+                    tabId,
+                    payload,
+                }
+                : null;
+        }));
+        const prepared = captures.filter((item): item is IPreparedTransferItem => item !== null);
+        if (prepared.length !== sourceTabIds.length) {
+            await cleanupPreparedMergeItems(prepared, 'merge-window-preflight-failed');
+            return null;
+        }
+
+        return prepared;
+    }
+
     async function moveTabToNewWindow(tabId?: string) {
         const resolvedTabId = tabId;
         if (!resolvedTabId) {
@@ -375,17 +430,24 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
 
     async function mergeWindowInto(targetWindowId: number) {
         const orderedTabIds = collectMergeTabOrder(options.layout.value, options.panes.value, options.tabs.value);
-        for (const tabId of orderedTabIds) {
-            if (!options.getTabById(tabId)) {
-                continue;
-            }
+        const preparedItems = await captureMergeTransferItems(orderedTabIds);
+        if (!preparedItems) {
+            return;
+        }
 
-            const result = await transferTabToTarget(tabId, {
+        const pendingItems = new Map(preparedItems.map(item => [
+            item.tabId,
+            item,
+        ]));
+        for (const item of preparedItems) {
+            pendingItems.delete(item.tabId);
+            const result = await transferPreparedTabToTarget(item.tabId, {
                 kind: 'window',
                 windowId: targetWindowId,
-            });
+            }, item.payload);
 
             if (result === 'failed' || result === 'window-closed') {
+                await cleanupPreparedMergeItems([...pendingItems.values()], 'merge-window-aborted');
                 return;
             }
         }
