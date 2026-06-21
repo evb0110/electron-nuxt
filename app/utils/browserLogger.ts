@@ -5,6 +5,8 @@ type TBrowserLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 type TEmitLogLevel = Exclude<TBrowserLogLevel, 'silent'>;
 type TLazyValue = unknown | (() => unknown);
 
+const PDF_NAV_LOG_CONSOLE_STORAGE_KEY = 'evb-viewer:pdf-nav-log-console';
+
 const LOG_LEVELS: Record<TBrowserLogLevel, number> = {
     debug: 10,
     info: 20,
@@ -72,6 +74,23 @@ function isDiagnosticWarnForced() {
 
     const forceWarningMode = (window as Window & {__diagnosticWarnAsWarn?: boolean;}).__diagnosticWarnAsWarn;
     return forceWarningMode === true;
+}
+
+function isPdfNavConsoleDiagnosticEnabled() {
+    if (typeof window === 'undefined') {
+        return false;
+    }
+
+    const logWindow = window as Window & {__pdfNavLogConsole?: boolean;};
+    if (logWindow.__pdfNavLogConsole === true) {
+        return true;
+    }
+
+    try {
+        return window.localStorage.getItem(PDF_NAV_LOG_CONSOLE_STORAGE_KEY) === '1';
+    } catch {
+        return false;
+    }
 }
 
 function serializeForRendererLog(value: unknown) {
@@ -247,6 +266,7 @@ function emitLog(
     section: string,
     message: string,
     data?: TLazyValue,
+    options: {writeConsole?: boolean;} = {},
 ) {
     if (!shouldLog(level)) {
         return;
@@ -254,7 +274,9 @@ function emitLog(
 
     const timestamp = new Date().toISOString();
     const resolved = resolveLazyValue(data);
-    writeToConsole(level, `[${timestamp}] [${section}] ${message}`, resolved);
+    if (options.writeConsole !== false) {
+        writeToConsole(level, `[${timestamp}] [${section}] ${message}`, resolved);
+    }
 
     forwardToMain({
         level,
@@ -272,6 +294,7 @@ function emitThrottled(
     intervalMs: number,
     message: string,
     data?: TLazyValue,
+    options: {writeConsole?: boolean;} = {},
 ) {
     const throttle = takeThrottledLogSuppressionCount(section, key, intervalMs);
     if (!throttle.allowed) {
@@ -285,7 +308,7 @@ function emitThrottled(
         intervalMs,
         key,
     );
-    emitLog(level, section, message, enriched);
+    emitLog(level, section, message, enriched, options);
 }
 
 export const BrowserLogger = {
@@ -312,7 +335,8 @@ export const BrowserLogger = {
     },
 
     diagnostic: (section: string, message: string, data?: TLazyValue) => {
-        emitLog(isDiagnosticWarnForced() ? 'warn' : 'debug', section, message, data);
+        const warnForced = isDiagnosticWarnForced();
+        emitLog(warnForced ? 'warn' : 'debug', section, message, data, {writeConsole: warnForced || section !== 'pdf-nav' || isPdfNavConsoleDiagnosticEnabled()});
     },
 
     diagnosticThrottled: (
@@ -322,13 +346,15 @@ export const BrowserLogger = {
         message: string,
         data?: TLazyValue,
     ) => {
+        const warnForced = isDiagnosticWarnForced();
         emitThrottled(
-            isDiagnosticWarnForced() ? 'warn' : 'debug',
+            warnForced ? 'warn' : 'debug',
             section,
             key,
             intervalMs,
             message,
             data,
+            {writeConsole: warnForced || section !== 'pdf-nav' || isPdfNavConsoleDiagnosticEnabled()},
         );
     },
 

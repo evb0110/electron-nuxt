@@ -8,10 +8,12 @@ import {
 } from 'vitest';
 
 const LOG_LEVEL_STORAGE_KEY = 'evb-viewer:log-level';
+const PDF_NAV_LOG_CONSOLE_STORAGE_KEY = 'evb-viewer:pdf-nav-log-console';
 
 interface IWindowStubOptions {
     logLevel?: string;
     diagnosticWarnAsWarn?: boolean;
+    pdfNavLogConsole?: boolean;
 }
 
 function createWindowStub(options: IWindowStubOptions = {}) {
@@ -20,7 +22,9 @@ function createWindowStub(options: IWindowStubOptions = {}) {
         localStorage: {getItem: vi.fn((key: string) => (
             key === LOG_LEVEL_STORAGE_KEY
                 ? options.logLevel ?? null
-                : null
+                : key === PDF_NAV_LOG_CONSOLE_STORAGE_KEY && options.pdfNavLogConsole === true
+                    ? '1'
+                    : null
         ))},
         electronAPI: {settings: {rendererLog}},
     };
@@ -129,15 +133,56 @@ describe('BrowserLogger', () => {
         const consoleSpies = spyOnConsole();
         const logger = await importBrowserLogger();
 
-        logger.diagnostic('pdf-nav', 'trace message', {step: 1});
+        logger.diagnostic('section-a', 'trace message', {step: 1});
 
         expect(consoleSpies.log).toHaveBeenCalledTimes(1);
         expect(consoleSpies.warn).not.toHaveBeenCalled();
         expect(rendererLog).toHaveBeenCalledWith(expect.objectContaining({
             level: 'debug',
+            section: 'section-a',
+            message: 'trace message',
+            data: {step: 1},
+        }));
+    });
+
+    it('forwards pdf navigation diagnostics without writing console noise by default', async () => {
+        const {
+            windowStub,
+            rendererLog,
+        } = createWindowStub({logLevel: 'debug'});
+        vi.stubGlobal('window', windowStub);
+        const consoleSpies = spyOnConsole();
+        const logger = await importBrowserLogger();
+
+        logger.diagnostic('pdf-nav', 'trace message', {step: 1});
+
+        expect(consoleSpies.log).not.toHaveBeenCalled();
+        expect(rendererLog).toHaveBeenCalledWith(expect.objectContaining({
+            level: 'debug',
             section: 'pdf-nav',
             message: 'trace message',
             data: {step: 1},
+        }));
+    });
+
+    it('writes pdf navigation diagnostics to console when the console trace flag is set', async () => {
+        const {
+            windowStub,
+            rendererLog,
+        } = createWindowStub({
+            logLevel: 'debug',
+            pdfNavLogConsole: true,
+        });
+        vi.stubGlobal('window', windowStub);
+        const consoleSpies = spyOnConsole();
+        const logger = await importBrowserLogger();
+
+        logger.diagnostic('pdf-nav', 'trace message', {step: 1});
+
+        expect(consoleSpies.log).toHaveBeenCalledTimes(1);
+        expect(rendererLog).toHaveBeenCalledWith(expect.objectContaining({
+            level: 'debug',
+            section: 'pdf-nav',
         }));
     });
 
@@ -171,14 +216,14 @@ describe('BrowserLogger', () => {
         const consoleSpies = spyOnConsole();
         const logger = await importBrowserLogger();
 
-        logger.diagnosticThrottled('pdf-nav', 'key-1', 1_000, 'tick', {sequence: 1});
-        logger.diagnosticThrottled('pdf-nav', 'key-1', 1_000, 'tick', {sequence: 2});
-        logger.diagnosticThrottled('pdf-nav', 'key-1', 1_000, 'tick', {sequence: 3});
+        logger.diagnosticThrottled('section-a', 'key-1', 1_000, 'tick', {sequence: 1});
+        logger.diagnosticThrottled('section-a', 'key-1', 1_000, 'tick', {sequence: 2});
+        logger.diagnosticThrottled('section-a', 'key-1', 1_000, 'tick', {sequence: 3});
 
         expect(consoleSpies.log).toHaveBeenCalledTimes(1);
 
         vi.setSystemTime(new Date('2026-01-01T00:00:01.500Z'));
-        logger.diagnosticThrottled('pdf-nav', 'key-1', 1_000, 'tick', {sequence: 4});
+        logger.diagnosticThrottled('section-a', 'key-1', 1_000, 'tick', {sequence: 4});
 
         expect(consoleSpies.log).toHaveBeenCalledTimes(2);
         expect(rendererLog).toHaveBeenLastCalledWith(expect.objectContaining({data: expect.objectContaining({
