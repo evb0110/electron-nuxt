@@ -33,7 +33,11 @@ const {
     prepareGeneratedNativeResources,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-package.mjs')).href);
 const { assertBuildArtifacts } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/assert-build-artifacts.mjs')).href);
-const { filterIgnoredFiles } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/shared.mjs')).href);
+const {
+    assertTagAbsent,
+    filterIgnoredFiles,
+    isTransientRemoteGitError,
+} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/shared.mjs')).href);
 
 describe('release policy', () => {
     it('derives local release targets from host platform and arch', () => {
@@ -327,6 +331,37 @@ describe('release policy', () => {
             'package.json',
             'app/app.vue',
         ]);
+    });
+
+    it('retries transient remote tag lookup failures during release preflight', async () => {
+        const stderr: string[] = [];
+        const sleeps: number[] = [];
+        let remoteAttempts = 0;
+
+        await assertTagAbsent('v1.2.3', 'origin', {
+            delayMs: 10,
+            runCommand: (_command: string, args: string[]) => {
+                if (args[0] === 'rev-parse') {
+                    throw Object.assign(new Error('unknown revision'), { status: 128 });
+                }
+
+                remoteAttempts += 1;
+                if (remoteAttempts === 1) {
+                    throw Object.assign(new Error('Recv failure: Connection reset by peer'), { status: 128 });
+                }
+
+                throw Object.assign(new Error('not found'), { status: 2 });
+            },
+            sleepFn: async (duration: number) => {
+                sleeps.push(duration);
+            },
+            stderr: { write: (message: string) => stderr.push(message) },
+        });
+
+        expect(remoteAttempts).toBe(2);
+        expect(sleeps).toEqual([10]);
+        expect(stderr.join('')).toContain('Transient remote tag check failure for v1.2.3');
+        expect(isTransientRemoteGitError(new Error('Recv failure: Connection reset by peer'))).toBe(true);
     });
 
     it('runs release checks under the supplied CI-mode environment', () => {

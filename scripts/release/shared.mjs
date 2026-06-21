@@ -115,6 +115,26 @@ export function getExitStatus(error) {
     return undefined;
 }
 
+const TRANSIENT_REMOTE_GIT_ERROR_PATTERNS = [
+    /Recv failure/i,
+    /connection reset/i,
+    /ECONNRESET/i,
+    /ETIMEDOUT/i,
+    /EAI_AGAIN/i,
+    /TLS handshake timeout/i,
+    /Could not resolve host/i,
+    /Failed to connect/i,
+    /502 Bad Gateway/i,
+    /503 Service Unavailable/i,
+    /504 Gateway Timeout/i,
+];
+
+export function isTransientRemoteGitError(error) {
+    const message = errorMessage(error);
+
+    return TRANSIENT_REMOTE_GIT_ERROR_PATTERNS.some(pattern => pattern.test(message));
+}
+
 export function assertCleanWorktree({ ignoredPathPrefixes = [] } = {}) {
     const changedFiles = listChangedFiles({ ignoredPathPrefixes });
     if (changedFiles.length > 0) {
@@ -340,10 +360,16 @@ export function stageFiles(files) {
     ], {stdio: 'inherit'});
 }
 
-export function assertTagAbsent(tag, remote) {
+export async function assertTagAbsent(tag, remote, {
+    attempts = 3,
+    delayMs = 5_000,
+    runCommand = run,
+    sleepFn = sleep,
+    stderr = process.stderr,
+} = {}) {
     const localStatus = (() => {
         try {
-            run('git', [
+            runCommand('git', [
                 'rev-parse',
                 '--verify',
                 `refs/tags/${tag}`,
@@ -362,20 +388,32 @@ export function assertTagAbsent(tag, remote) {
         throw new Error(`Tag ${tag} already exists locally`);
     }
 
-    try {
-        run('git', [
-            'ls-remote',
-            '--exit-code',
-            '--tags',
-            remote,
-            `refs/tags/${tag}`,
-        ]);
-        throw new Error(`Tag ${tag} already exists on ${remote}`);
-    } catch (error) {
-        const status = getExitStatus(error);
-        if (status === 2) {
-            return;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+            runCommand('git', [
+                'ls-remote',
+                '--exit-code',
+                '--tags',
+                remote,
+                `refs/tags/${tag}`,
+            ]);
+            throw new Error(`Tag ${tag} already exists on ${remote}`);
+        } catch (error) {
+            const status = getExitStatus(error);
+            if (status === 2) {
+                return;
+            }
+
+            if (attempt < attempts && isTransientRemoteGitError(error)) {
+                stderr.write(
+                    `Transient remote tag check failure for ${tag} `
+                    + `(attempt ${attempt}/${attempts}); retrying in ${delayMs / 1000}s.\n`,
+                );
+                await sleepFn(delayMs);
+                continue;
+            }
+
+            throw error;
         }
-        throw error;
     }
 }

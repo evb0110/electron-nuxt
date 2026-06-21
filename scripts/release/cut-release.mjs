@@ -37,7 +37,7 @@ async function main() {
     const tag = `v${nextVersion}`;
     let committed = false;
 
-    assertTagAbsent(tag, upstream.remote);
+    await assertTagAbsent(tag, upstream.remote);
 
     writeVersion(nextVersion);
 
