@@ -30,11 +30,23 @@ import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
-import { assertWithinIpcWriteBudget } from '@electron/features/documents/main/documentFileWriteAtomic';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
 
 const SERIALIZED_PDF_SESSION_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES = 16 * 1024 * 1024 * 1024;
+const MIN_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES = 1024 * 1024;
+const MAX_SERIALIZED_PDF_PERSISTENCE_BYTES = (() => {
+    const parsed = Number.parseInt(
+        process.env.EVB_MAX_SERIALIZED_PDF_PERSISTENCE_BYTES
+            ?? `${DEFAULT_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES}`,
+        10,
+    );
+    if (!Number.isSafeInteger(parsed) || parsed < MIN_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES) {
+        return DEFAULT_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES;
+    }
+    return parsed;
+})();
 
 type TSerializedPdfPersistenceMode = 'save' | 'save_as';
 
@@ -96,7 +108,11 @@ function normalizeTotalBytes(totalBytes: unknown) {
         throw new Error('Invalid total byte count');
     }
 
-    assertWithinIpcWriteBudget(totalBytes);
+    if (totalBytes > MAX_SERIALIZED_PDF_PERSISTENCE_BYTES) {
+        throw new Error(
+            `Invalid PDF persistence stream: exceeds maximum size (${MAX_SERIALIZED_PDF_PERSISTENCE_BYTES} bytes)`,
+        );
+    }
     return totalBytes;
 }
 

@@ -140,6 +140,51 @@ describe('serializedPdfPersistence', () => {
         expect(mocks.updateRecentFilesMenu).not.toHaveBeenCalled();
     });
 
+    it('allows serialized PDF streams above the single IPC write budget', async () => {
+        const workingPath = join(tempRoot, 'large-working.pdf');
+        const targetPath = join(tempRoot, 'large-saved.pdf');
+        const tempPath = `${targetPath}.tmp`;
+        const sender = new EventEmitter() as EventEmitter & { id: number };
+        sender.id = 42;
+        const { beginSerializedPdfSaveAs } = await import('@electron/features/documents/main/serializedPdfPersistence');
+
+        const result = await beginSerializedPdfSaveAs(
+            {sender} as never,
+            workingPath,
+            (512 * 1024 * 1024) + 1,
+            targetPath,
+        );
+
+        expect(result).toMatchObject({
+            sessionId: expect.any(String),
+            path: targetPath,
+        });
+        expect(existsSync(tempPath)).toBe(true);
+
+        sender.emit('destroyed');
+        await waitForCondition(() => {
+            expect(existsSync(tempPath)).toBe(false);
+        });
+    });
+
+    it('rejects impossible serialized PDF stream sizes before opening a temp file', async () => {
+        const workingPath = join(tempRoot, 'oversized-working.pdf');
+        const targetPath = join(tempRoot, 'oversized-saved.pdf');
+        const sender = new EventEmitter() as EventEmitter & { id: number };
+        sender.id = 42;
+        const { beginSerializedPdfSaveAs } = await import('@electron/features/documents/main/serializedPdfPersistence');
+
+        await expect(beginSerializedPdfSaveAs(
+            {sender} as never,
+            workingPath,
+            Number.MAX_SAFE_INTEGER,
+            targetPath,
+        )).rejects.toThrow('Invalid PDF persistence stream: exceeds maximum size');
+
+        expect(mocks.makeSiblingTempPath).not.toHaveBeenCalled();
+        expect(existsSync(`${targetPath}.tmp`)).toBe(false);
+    });
+
     it('rejects Save to original when the original file changed before final replacement', async () => {
         const workingPath = join(tempRoot, 'working-save.pdf');
         const originalPath = join(tempRoot, 'original-save.pdf');
