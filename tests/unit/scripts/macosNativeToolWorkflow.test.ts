@@ -194,6 +194,10 @@ describe('macOS native tool workflow', () => {
         expect(smokeFunction).toContain('codesign --verify --strict --verbose=2 "$tool_path"');
         expect(smokeFunction).toContain('retrying ($attempt/$max_attempts)');
         expect(smokeFunction).toContain('attempt=$((attempt + 1))');
+        expect(smokeFunction).toContain('is_macos_app_adhoc_signed "$mac_app_path"');
+        expect(smokeFunction).toContain('run_macos_ad_hoc_payload_smoke_mirror "$tool_name" "$tool_path" "$@"');
+        expect(verifier).toContain('Signature=adhoc|TeamIdentifier=not set');
+        expect(verifier).toContain('Ad-hoc macOS app execution was killed by provenance policy');
     });
 
     it('keeps packaged unpaper required outside Windows and smoke-tested on macOS', async () => {
@@ -210,6 +214,21 @@ describe('macOS native tool workflow', () => {
         expect(bundleUnpaper).toContain('exit 1');
     });
 
+    it('keeps macOS packaged executables under Contents/MacOS/native-tools', async () => {
+        const afterPack = await readProjectFile('scripts/afterPack.cjs');
+        const afterSign = await readProjectFile('scripts/afterSign.cjs');
+        const verifier = await readProjectFile('scripts/verify-packaged-native-tools.sh');
+
+        expect(afterPack).toContain('function nativeToolsDirForContext(context)');
+        expect(afterPack).toContain('Contents\', \'MacOS\', \'native-tools\'');
+        expect(afterPack).toContain('moveMacNativeToolResources(context)');
+        expect(afterSign).toContain('const nativeToolsDir = path.join(appPath, \'Contents\', \'MacOS\', \'native-tools\');');
+        expect(verifier).toContain('find "$release_dir" -path "*/Contents/MacOS/native-tools"');
+        expect(verifier).toContain('check_file "$native_tool_root/djvulibre/$platform_arch/bin/djvused$exe_suffix"');
+        expect(verifier).toContain('run_macos_packaged_tool_smoke "djvused" "$native_tool_root/djvulibre/$platform_arch/bin/djvused" --help');
+        expect(verifier).not.toContain('run_macos_packaged_tool_smoke "djvused" "$resource_root');
+    });
+
     it('keeps page-processor release resources opt-in until every platform has parity', async () => {
         const electronBuilder = await readProjectFile('electron-builder.yml');
         const afterPack = await readProjectFile('scripts/afterPack.cjs');
@@ -223,11 +242,11 @@ describe('macOS native tool workflow', () => {
         expect(afterPack).toContain('function shouldCopyPageProcessingResources()');
         expect(afterPack).toContain('return process.env.EVB_INCLUDE_PAGE_PROCESSOR === \'1\';');
         expect(afterPack).toContain('copyPageProcessingResources(context)');
-        expect(afterPack).toContain('resources\', \'page-processing\', tag');
+        expect(afterPack).toContain('nativeToolsDirForContext(context), \'page-processing\', tag');
         expect(afterPack).toContain('Required page-processing resources not found');
         expect(afterPack).toContain('Optional page-processing resources not found');
         expect(afterPack).toContain('verbatimSymlinks: true');
-        expect(afterSign).toContain('path.join(resourcesDir, \'page-processing\')');
+        expect(afterSign).toContain('path.join(nativeToolsDir, \'page-processing\')');
         expect(afterSign).toContain('const PYINSTALLER_ENTITLEMENTS');
         expect(afterSign).toContain('filePath.endsWith(\'.so\')');
         expect(afterSign).toContain('function isPageProcessorExecutable(filePath)');
@@ -241,7 +260,7 @@ describe('macOS native tool workflow', () => {
         expect(sourceMatrix).toContain('echo "  CI-GEN  $label: $path"');
         expect(sourceMatrix).toContain('SKIP    page-processor: optional dormant tool not bundled for $tag');
         expect(verifier).not.toContain('page_processor_required_for_platform()');
-        expect(verifier).toContain('page_processor_root="$resource_root/page-processing/$platform_arch"');
+        expect(verifier).toContain('page_processor_root="$native_tool_root/page-processing/$platform_arch"');
         expect(verifier).toContain('page_processor_binary="$page_processor_root/bin/page-processor/page-processor$exe_suffix"');
         expect(verifier).toContain('page_processor_internal_dir="$page_processor_root/bin/page-processor/_internal"');
         expect(verifier).toContain('check_dir "$page_processor_internal_dir" "page-processor PyInstaller _internal directory"');

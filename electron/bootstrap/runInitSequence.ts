@@ -26,6 +26,20 @@ interface IExternalOpenManager {
     markBootstrapReady(): void;
 }
 
+function normalizeAcknowledgedExternalOpenPaths(paths: string[]) {
+    const normalizedPaths: string[] = [];
+    const seenPaths = new Set<string>();
+    for (const path of paths) {
+        const normalizedPath = path.trim();
+        if (!normalizedPath || seenPaths.has(normalizedPath)) {
+            continue;
+        }
+        seenPaths.add(normalizedPath);
+        normalizedPaths.push(normalizedPath);
+    }
+    return normalizedPaths;
+}
+
 interface IRegisterIpcHandlersOptions {
     onRendererReady?: (event: IpcMainEvent) => void;
     claimPendingExternalOpenPaths?: (event: IpcMainInvokeEvent) => Promise<string[]>;
@@ -170,6 +184,7 @@ function bootIpc(options: IRunInitSequenceOptions) {
         readyWindowIds,
         registerIpcHandlers,
     } = options;
+    const outstandingExternalOpenClaims = new WeakMap<WebContents, Set<string>>();
 
     registerIpcHandlers({
         onRendererReady: (event) => {
@@ -195,11 +210,35 @@ function bootIpc(options: IRunInitSequenceOptions) {
             }
 
             const paths = await externalOpenManager.claimPendingOpenPaths();
+            if (paths.length === 0) {
+                outstandingExternalOpenClaims.delete(event.sender);
+                return [];
+            }
+            outstandingExternalOpenClaims.set(event.sender, new Set(paths));
             allowOpenPaths(paths, event.sender);
             return paths;
         },
-        acknowledgePendingExternalOpenPaths: (_event, failedPaths) => {
-            externalOpenManager.acknowledgeClaimedOpenPaths(failedPaths);
+        acknowledgePendingExternalOpenPaths: (event, failedPaths) => {
+            const window = getWindowFromWebContents(event.sender);
+            if (!window || window.id !== getMainWindow()?.id) {
+                return;
+            }
+
+            const claimedPaths = outstandingExternalOpenClaims.get(event.sender);
+            if (!claimedPaths) {
+                return;
+            }
+
+            const normalizedFailedPaths = normalizeAcknowledgedExternalOpenPaths(failedPaths);
+            if (
+                normalizedFailedPaths.length > claimedPaths.size
+                || normalizedFailedPaths.some(path => !claimedPaths.has(path))
+            ) {
+                return;
+            }
+
+            outstandingExternalOpenClaims.delete(event.sender);
+            externalOpenManager.acknowledgeClaimedOpenPaths(normalizedFailedPaths);
         },
     });
     logStartupPhase('IPC handlers registered');

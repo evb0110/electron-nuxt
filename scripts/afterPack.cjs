@@ -27,6 +27,19 @@ function resourcesDirForContext(context) {
     return path.join(context.appOutDir, 'resources');
 }
 
+function appPathForContext(context) {
+    const appName = context.packager.appInfo.productFilename;
+    return path.join(context.appOutDir, `${appName}.app`);
+}
+
+function nativeToolsDirForContext(context) {
+    if (context.electronPlatformName === 'darwin') {
+        return path.join(appPathForContext(context), 'Contents', 'MacOS', 'native-tools');
+    }
+
+    return resourcesDirForContext(context);
+}
+
 function isPageProcessingRequired(context) {
     return context.electronPlatformName === 'darwin' && process.env.EVB_INCLUDE_PAGE_PROCESSOR === '1';
 }
@@ -59,11 +72,12 @@ function copyPageProcessingResources(context) {
         return;
     }
 
-    const dst = path.join(resourcesDirForContext(context), 'page-processing', tag);
+    const dst = path.join(nativeToolsDirForContext(context), 'page-processing', tag);
     fs.rmSync(dst, {
         force: true,
         recursive: true,
     });
+    fs.mkdirSync(path.dirname(dst), {recursive: true});
     fs.cpSync(src, dst, {
         recursive: true,
         verbatimSymlinks: true,
@@ -71,16 +85,74 @@ function copyPageProcessingResources(context) {
     console.log('[afterPack] Copied page-processing resources:', dst);
 }
 
+function removeEmptyDir(dir) {
+    try {
+        if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
+            fs.rmdirSync(dir);
+        }
+    } catch {
+        // Best effort cleanup only; the moved payload is what matters.
+    }
+}
+
+function moveMacNativeToolResources(context) {
+    if (context.electronPlatformName !== 'darwin') {
+        return;
+    }
+
+    const arch = archName(context.arch);
+    if (arch === null) {
+        throw new Error(`[afterPack] Unsupported macOS native-tool arch: ${context.arch}`);
+    }
+
+    const tag = `darwin-${arch}`;
+    const resourcesDir = resourcesDirForContext(context);
+    const nativeToolsDir = nativeToolsDirForContext(context);
+    const toolRoots = [
+        'djvulibre',
+        'pdf-image-combine',
+        'pdf-page-ops',
+        'pdf-search',
+        'poppler',
+        'qpdf',
+        'tesseract',
+    ];
+
+    for (const toolRoot of toolRoots) {
+        const src = path.join(resourcesDir, toolRoot, tag);
+        if (!fs.existsSync(src)) {
+            continue;
+        }
+
+        const dst = path.join(nativeToolsDir, toolRoot, tag);
+        fs.rmSync(dst, {
+            force: true,
+            recursive: true,
+        });
+        fs.mkdirSync(path.dirname(dst), {recursive: true});
+        fs.cpSync(src, dst, {
+            recursive: true,
+            verbatimSymlinks: true,
+        });
+        fs.rmSync(src, {
+            force: true,
+            recursive: true,
+        });
+        removeEmptyDir(path.dirname(src));
+        console.log('[afterPack] Moved macOS native tool resources:', dst);
+    }
+}
+
 exports.default = async function afterPack(context) {
     copyPageProcessingResources(context);
+    moveMacNativeToolResources(context);
 
     if (context.electronPlatformName !== 'darwin') {
         return;
     }
 
-    const appName = context.packager.appInfo.productFilename;
     const src = path.resolve(__dirname, '..', 'resources', 'icon.icns');
-    const dst = path.join(context.appOutDir, `${appName}.app`, 'Contents', 'Resources', 'icon.icns');
+    const dst = path.join(appPathForContext(context), 'Contents', 'Resources', 'icon.icns');
 
     if (!fs.existsSync(src)) {
         console.warn('[afterPack] Source icon not found:', src);

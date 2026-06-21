@@ -1,6 +1,6 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { resolveOcrResourcesBase } from '@electron/ocr/resolveOcrResourcesBase';
+import { resolveNativeToolsBase } from '@electron/native-tools/resolveNativeToolsBase';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 
 interface IResolveNativeToolPathOptions {
@@ -12,6 +12,7 @@ interface IResolveNativeToolPathOptions {
     exists?: ((path: string) => boolean) | undefined;
     includeRustTargetCandidates?: boolean | undefined;
     isPackaged: boolean;
+    platform?: NodeJS.Platform | undefined;
     platformArch?: string | undefined;
     projectRoot?: string | undefined;
     resourcesBase?: string | undefined;
@@ -26,12 +27,38 @@ const RUST_TARGET_BY_PLATFORM_ARCH: Record<string, string> = {
     'win32-x64': 'x86_64-pc-windows-msvc',
 };
 
+function platformFromPlatformArch(platformArch: string | undefined): NodeJS.Platform | undefined {
+    if (platformArch?.startsWith('darwin-')) {
+        return 'darwin';
+    }
+    if (platformArch?.startsWith('linux-')) {
+        return 'linux';
+    }
+    if (platformArch?.startsWith('win32-')) {
+        return 'win32';
+    }
+
+    return undefined;
+}
+
 export function getNativeToolPathCandidates(options: IResolveNativeToolPathOptions) {
     const projectRoot = options.projectRoot ?? process.cwd();
     const platformArch = options.platformArch ?? resolvePlatformArchTag();
-    const resourcesBase = options.resourcesBase ?? resolveOcrResourcesBase(
+    const platform = options.platform ?? platformFromPlatformArch(platformArch);
+    const nativeToolsBaseOptions: {
+        platform?: NodeJS.Platform;
+        resourcesBase?: string;
+    } = {};
+    if (platform !== undefined) {
+        nativeToolsBaseOptions.platform = platform;
+    }
+    if (options.resourcesBase !== undefined) {
+        nativeToolsBaseOptions.resourcesBase = options.resourcesBase;
+    }
+    const nativeToolsBase = resolveNativeToolsBase(
         options.currentDir,
         options.isPackaged,
+        nativeToolsBaseOptions,
     );
     const rustTarget = RUST_TARGET_BY_PLATFORM_ARCH[platformArch];
     const binaryRelativePath = options.binaryRelativePath ?? [
@@ -39,7 +66,7 @@ export function getNativeToolPathCandidates(options: IResolveNativeToolPathOptio
         options.binaryName,
     ];
     const candidates = [
-        join(resourcesBase, options.crateName, platformArch, ...binaryRelativePath),
+        join(nativeToolsBase, options.crateName, platformArch, ...binaryRelativePath),
         join(projectRoot, '.tmp', options.crateName, platformArch, ...binaryRelativePath),
     ];
 

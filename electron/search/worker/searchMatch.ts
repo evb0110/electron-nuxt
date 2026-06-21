@@ -2,6 +2,7 @@ import type {
     IPdfSearchExcerpt,
     IResolvedSearchMatchOptions,
 } from '@contracts/search';
+import { buildPdfSearchRegex } from '@contracts/search';
 import { EXCERPT_CONTEXT_CHARS } from '@electron/config/constants';
 
 export interface IPageSearchMatch {
@@ -33,22 +34,6 @@ export function buildExcerpt(
     };
 }
 
-function escapeRegex(value: string) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function buildSearchRegex(
-    query: string,
-    options: IResolvedSearchMatchOptions,
-) {
-    const basePattern = options.useRegex ? query : escapeRegex(query);
-    const pattern = options.wholeWord
-        ? `(?<![\\p{L}\\p{N}_])(?:${basePattern})(?![\\p{L}\\p{N}_])`
-        : basePattern;
-    const flags = options.matchCase ? 'gu' : 'giu';
-    return new RegExp(pattern, flags);
-}
-
 export function findPageMatches(
     pageText: string,
     query: string,
@@ -62,7 +47,7 @@ export function* iteratePageMatches(
     query: string,
     options: IResolvedSearchMatchOptions,
 ): Generator<IPageSearchMatch> {
-    const matcher = buildSearchRegex(query, options);
+    const matcher = buildPdfSearchRegex(query, options);
 
     let match = matcher.exec(pageText);
     while (match) {

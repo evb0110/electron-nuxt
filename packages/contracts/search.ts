@@ -59,12 +59,158 @@ export function buildPdfSearchRegex(
     query: string,
     options: IResolvedSearchMatchOptions,
 ) {
+    if (options.useRegex) {
+        assertSafePdfSearchRegex(query, options);
+    }
     const basePattern = options.useRegex ? query : escapeSearchRegex(query);
     const pattern = options.wholeWord
         ? `(?<![\\p{L}\\p{N}_])(?:${basePattern})(?![\\p{L}\\p{N}_])`
         : basePattern;
     const flags = options.matchCase ? 'gu' : 'giu';
     return new RegExp(pattern, flags);
+}
+
+interface IRegexGroupSafety {
+    hasAlternation: boolean;
+    hasQuantifier: boolean;
+}
+
+interface IClosedRegexGroupSafety extends IRegexGroupSafety {endIndex: number;}
+
+function isRegexQuantifierAt(pattern: string, index: number) {
+    const char = pattern[index];
+    if (char === '*' || char === '+' || char === '?') {
+        return true;
+    }
+
+    if (char !== '{') {
+        return false;
+    }
+
+    const closeIndex = pattern.indexOf('}', index + 1);
+    if (closeIndex < 0) {
+        return false;
+    }
+
+    return /^\{\d*(?:,\d*)?\}$/u.test(pattern.slice(index, closeIndex + 1));
+}
+
+function isUnsafeSearchRegexPattern(pattern: string) {
+    if (/\\(?:[1-9]\d*|k<[^>]+>)/u.test(pattern)) {
+        return true;
+    }
+
+    if (/\(\?(?:[=!]|<[=!])/u.test(pattern)) {
+        return true;
+    }
+
+    const stack: IRegexGroupSafety[] = [];
+    let lastClosedGroup: IClosedRegexGroupSafety | null = null;
+    let escaped = false;
+    let inCharacterClass = false;
+
+    for (let index = 0; index < pattern.length; index += 1) {
+        const char = pattern[index];
+
+        if (escaped) {
+            escaped = false;
+            lastClosedGroup = null;
+            continue;
+        }
+
+        if (char === '\\') {
+            escaped = true;
+            lastClosedGroup = null;
+            continue;
+        }
+
+        if (inCharacterClass) {
+            if (char === ']') {
+                inCharacterClass = false;
+            }
+            continue;
+        }
+
+        if (char === '[') {
+            inCharacterClass = true;
+            lastClosedGroup = null;
+            continue;
+        }
+
+        if (char === '(') {
+            stack.push({
+                hasAlternation: false,
+                hasQuantifier: false,
+            });
+            lastClosedGroup = null;
+            continue;
+        }
+
+        if (char === ')') {
+            const closedGroup = stack.pop();
+            if (closedGroup) {
+                const parentGroup = stack.at(-1);
+                if (parentGroup && closedGroup.hasQuantifier) {
+                    parentGroup.hasQuantifier = true;
+                }
+                lastClosedGroup = {
+                    ...closedGroup,
+                    endIndex: index,
+                };
+            }
+            continue;
+        }
+
+        if (char === '|') {
+            const currentGroup = stack.at(-1);
+            if (currentGroup) {
+                currentGroup.hasAlternation = true;
+            }
+            lastClosedGroup = null;
+            continue;
+        }
+
+        if (char === '?' && pattern[index - 1] === '(') {
+            lastClosedGroup = null;
+            continue;
+        }
+
+        if (isRegexQuantifierAt(pattern, index)) {
+            if (lastClosedGroup && lastClosedGroup.endIndex === index - 1) {
+                if (lastClosedGroup.hasAlternation || lastClosedGroup.hasQuantifier) {
+                    return true;
+                }
+            }
+            const currentGroup = stack.at(-1);
+            if (currentGroup) {
+                currentGroup.hasQuantifier = true;
+            }
+            lastClosedGroup = null;
+            continue;
+        }
+
+        lastClosedGroup = null;
+    }
+
+    return false;
+}
+
+export function assertSafePdfSearchRegex(
+    query: string,
+    options: Pick<IResolvedSearchMatchOptions, 'matchCase' | 'wholeWord'>,
+) {
+    const pattern = options.wholeWord
+        ? `(?<![\\p{L}\\p{N}_])(?:${query})(?![\\p{L}\\p{N}_])`
+        : query;
+    try {
+        new RegExp(pattern, options.matchCase ? 'gu' : 'giu');
+    } catch (error) {
+        throw new Error(`Invalid search regex: ${error instanceof Error ? error.message : 'pattern could not be compiled'}`);
+    }
+
+    if (isUnsafeSearchRegexPattern(query)) {
+        throw new Error('Invalid search regex: pattern is too complex for document search');
+    }
 }
 
 const MIN_REPEATED_PAGE_TEXT_SEGMENT_LENGTH = 48;

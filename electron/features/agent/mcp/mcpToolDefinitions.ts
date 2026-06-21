@@ -24,6 +24,12 @@ const UI_NAVIGATION_ANNOTATIONS = {
     idempotentHint: true,
     openWorldHint: false,
 };
+const RUN_ACTION_ANNOTATIONS = {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: false,
+};
 const OBJECT_OUTPUT_SCHEMA = {
     type: 'object',
     additionalProperties: true,
@@ -129,7 +135,7 @@ export const MCP_TOOLS = [
             additionalProperties: false,
         },
         outputSchema: OBJECT_OUTPUT_SCHEMA,
-        annotations: UI_NAVIGATION_ANNOTATIONS,
+        annotations: RUN_ACTION_ANNOTATIONS,
     },
     {
         name: 'evb_job_status',
@@ -435,4 +441,3 @@ export const MCP_PROMPTS = [
         description: 'Workflow for reconstructing bookmarks from the existing TOC/bookmarks and verifying every target before writing.',
     },
 ] as const satisfies readonly IMcpPromptDefinition[];
-

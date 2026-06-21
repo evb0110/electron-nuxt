@@ -61,9 +61,11 @@ mac:
   target:
     - dmg
     - zip
-  # Native tools in extraResources keep upstream signatures; afterSign must
-  # re-sign them with the app identity so macOS library validation accepts
-  # bundled dylibs loaded by those executables.
+  # Native tools are staged via extraResources, then afterPack moves the
+  # executable payloads under Contents/MacOS/native-tools. macOS kills Mach-O
+  # launches from Contents/Resources inside .app bundles on current hosts.
+  # afterSign re-signs the moved payloads with the app identity so bundled
+  # dylibs loaded by those executables pass library validation.
   extraResources:
     - from: resources/tesseract/darwin-${arch}
       to: tesseract/darwin-${arch}

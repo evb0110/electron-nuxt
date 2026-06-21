@@ -46,6 +46,12 @@ vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
     error: vi.fn(),
 }) }));
 
+interface IListToolsResult { tools?: IListToolsResultTool[]; }
+interface IListToolsResultTool {
+    annotations?: Record<string, unknown>;
+    name: string;
+}
+
 const workspaceSnapshot: IAgentWorkspaceSnapshot = {
     capturedAt: '2026-06-01T00:00:00.000Z',
     activePaneId: 'pane-1',
@@ -272,6 +278,14 @@ describe('processMcpRequest', () => {
         expect(JSON.stringify(tools?.result)).toContain('readOnlyHint');
         expect(JSON.stringify(tools?.result)).toContain('evb_go_to_page');
         expect(JSON.stringify(initialized?.result)).toContain('document.capture_page_image');
+
+        const runActionTool = (tools?.result as IListToolsResult).tools?.find(tool => tool.name === 'evb_run_action');
+        expect(runActionTool?.annotations).toMatchObject({
+            readOnlyHint: false,
+            destructiveHint: true,
+            idempotentHint: false,
+            openWorldHint: false,
+        });
     });
 
     it('returns open documents through the discoverable EVB Viewer tool', async () => {
@@ -435,6 +449,60 @@ describe('processMcpRequest', () => {
                 },
             },
         }, undefined);
+    });
+
+    it('blocks external run action calls that require confirmation', async () => {
+        const options = {
+            ...createOptions(),
+            callerKind: 'external' as const,
+        };
+
+        const response = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'create-markup',
+            method: 'tools/call',
+            params: {
+                name: 'evb_run_action',
+                arguments: {
+                    tabId: 'tab-1',
+                    id: 'annotation.create_text_markup',
+                    input: {
+                        page: 12,
+                        text: 'broken plural',
+                        markup: 'underline',
+                    },
+                },
+            },
+        }, options);
+
+        expect(response?.error).toMatchObject({
+            code: -32603,
+            message: 'Capability annotation.create_text_markup requires explicit user confirmation for external MCP callers.',
+        });
+        expect(options.runCommand).not.toHaveBeenCalled();
+    });
+
+    it('allows external read-only run action calls', async () => {
+        const options = {
+            ...createOptions(),
+            callerKind: 'external' as const,
+        };
+
+        const response = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'open-documents',
+            method: 'tools/call',
+            params: {
+                name: 'evb_run_action',
+                arguments: {id: 'document.open_documents'},
+            },
+        }, options);
+
+        expect(response?.error).toBeUndefined();
+        expect(response?.result).toMatchObject({structuredContent: {
+            hasOpenDocument: true,
+            documentCount: 1,
+        }});
     });
 
     it('exposes page-label and bookmark editing capabilities', async () => {
@@ -795,6 +863,64 @@ describe('processMcpRequest', () => {
             query: 'stem',
             results: [{pageNumber: 12}],
         }});
+    });
+
+    it('clamps document page reads to the target tab page count before expansion', async () => {
+        const options = createOptions();
+
+        await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'read-clamped-pages',
+            method: 'tools/call',
+            params: {
+                name: 'evb_run_action',
+                arguments: {
+                    id: 'document.read_pages',
+                    input: {
+                        startPage: 1,
+                        endPage: 1000,
+                    },
+                },
+            },
+        }, options);
+
+        expect(options.readDocumentPages).toHaveBeenCalledWith({
+            tab: workspaceSnapshot.tabs[0],
+            options: {pages: Array.from({length: 25}, (_value, index) => index + 1)},
+        }, undefined);
+    });
+
+    it('rejects document page reads that exceed the MCP page budget', async () => {
+        const options = createOptions();
+        options.getWorkspaceSnapshot.mockResolvedValueOnce({
+            ...workspaceSnapshot,
+            tabs: [{
+                ...workspaceSnapshot.tabs[0]!,
+                totalPages: 1000,
+            }],
+        });
+
+        const response = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'read-too-many-pages',
+            method: 'tools/call',
+            params: {
+                name: 'evb_run_action',
+                arguments: {
+                    id: 'document.read_pages',
+                    input: {
+                        startPage: 1,
+                        endPage: 1000,
+                    },
+                },
+            },
+        }, options);
+
+        expect(response?.error).toMatchObject({
+            code: -32603,
+            message: 'Too many pages requested; maximum is 50.',
+        });
+        expect(options.readDocumentPages).not.toHaveBeenCalled();
     });
 
     it('exposes workspace resources, page text resources, and prompts', async () => {

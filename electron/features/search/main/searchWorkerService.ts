@@ -354,6 +354,10 @@ export class SearchWorkerService {
                     requestId,
                     new Error(`Search request timed out after ${SEARCH_REQUEST_TIMEOUT_MS}ms`),
                 );
+                this.cleanupSenderState(senderId, {
+                    terminateWorker: true,
+                    reason: `Search request ${requestId} timed out`,
+                });
             }, SEARCH_REQUEST_TIMEOUT_MS);
             requestTimeout.unref?.();
             state.requestTimeouts.set(requestId, requestTimeout);

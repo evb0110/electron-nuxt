@@ -18,6 +18,10 @@ import {
     getSearchWorkerServiceConfig,
     SearchWorkerService,
 } from '@electron/features/search/main/searchWorkerService';
+import {
+    parseOptionalSearchPageCount,
+    validateSearchQuery,
+} from '@electron/features/search/main/searchRequestValidation';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
 import type { TSearchIpcMainRegistrar } from '@electron/features/search/searchService';
@@ -29,54 +33,6 @@ let appCleanupRegistered = false;
 
 function isWorkingCopyPathCandidate(pdfPath: string) {
     return /(?:^|[/\\])pdf-work-[^/\\]+[/\\]/u.test(pdfPath);
-}
-
-const SEARCH_PAGE_COUNT_MAX = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_PAGE_COUNT_MAX ?? '20000', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 20_000;
-    }
-    return Math.min(parsed, 1_000_000);
-})();
-const SEARCH_QUERY_MAX_LENGTH = 2_048;
-const SEARCH_REGEX_QUERY_MAX_LENGTH = 512;
-
-function assertSearchQueryWithinLimit(query: string, useRegex: boolean) {
-    const maxLength = useRegex ? SEARCH_REGEX_QUERY_MAX_LENGTH : SEARCH_QUERY_MAX_LENGTH;
-    if (query.length > maxLength) {
-        throw new Error(`Invalid search query: maximum length is ${maxLength} characters`);
-    }
-}
-
-function assertSearchRegexCompiles(query: string, options: {
-    matchCase?: boolean | undefined;
-    wholeWord?: boolean | undefined;
-}) {
-    const pattern = options.wholeWord
-        ? `(?<![\\p{L}\\p{N}_])(?:${query})(?![\\p{L}\\p{N}_])`
-        : query;
-    try {
-        new RegExp(pattern, options.matchCase ? 'gu' : 'giu');
-    } catch (error) {
-        throw new Error(`Invalid search regex: ${error instanceof Error ? error.message : 'pattern could not be compiled'}`);
-    }
-}
-
-function parseOptionalPageCount(raw: unknown) {
-    if (raw === undefined) {
-        return undefined;
-    }
-
-    if (
-        typeof raw !== 'number'
-        || !Number.isSafeInteger(raw)
-        || raw < 1
-        || raw > SEARCH_PAGE_COUNT_MAX
-    ) {
-        throw new Error(`Invalid pageCount: must be an integer between 1 and ${SEARCH_PAGE_COUNT_MAX}`);
-    }
-
-    return raw;
 }
 
 function parseOptionalRequestId(raw: unknown) {
@@ -106,19 +62,17 @@ function parseSearchRequestPayload(raw: unknown): {
     if (typeof raw.query !== 'string') {
         throw new Error('Invalid search query');
     }
-    const pageCount = parseOptionalPageCount(raw.pageCount);
+    const pageCount = parseOptionalSearchPageCount(raw.pageCount);
     const requestId = parseOptionalRequestId(raw.requestId);
     const matchCase = typeof raw.matchCase === 'boolean' ? raw.matchCase : undefined;
     const wholeWord = typeof raw.wholeWord === 'boolean' ? raw.wholeWord : undefined;
     const useRegex = typeof raw.useRegex === 'boolean' ? raw.useRegex : undefined;
     const query = raw.query;
-    assertSearchQueryWithinLimit(query, useRegex === true);
-    if (useRegex === true && query.length > 0) {
-        assertSearchRegexCompiles(query, {
-            matchCase,
-            wholeWord,
-        });
-    }
+    validateSearchQuery(query, {
+        matchCase,
+        wholeWord,
+        useRegex,
+    });
 
     const parsed: {
         pdfPath: string;
@@ -164,7 +118,7 @@ function parseWarmIndexPayload(raw: unknown): {
         throw new Error('Invalid PDF path');
     }
 
-    const pageCount = parseOptionalPageCount(raw.pageCount);
+    const pageCount = parseOptionalSearchPageCount(raw.pageCount);
     const requestId = parseOptionalRequestId(raw.requestId);
 
     const parsed: {

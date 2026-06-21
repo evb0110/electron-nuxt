@@ -1,4 +1,5 @@
 import type { ILogger } from '@electron/utils/createLogger';
+import { existsSync } from 'fs';
 import { extname } from 'path';
 import { fileURLToPath } from 'url';
 import { uniq } from 'es-toolkit/array';
@@ -55,6 +56,14 @@ interface ICreateExternalOpenManagerOptions {
 
 function isSupportedExternalOpenPath(filePath: string) {
     return SUPPORTED_EXTENSIONS.has(extname(filePath).toLowerCase());
+}
+
+function doesExternalOpenPathExist(filePath: string) {
+    try {
+        return existsSync(filePath);
+    } catch {
+        return false;
+    }
 }
 
 export function createMacOpenFileRouter(options: { logger: ILogger; }) {
@@ -195,6 +204,43 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             .filter(path => path.length > 0));
     }
 
+    function validateClaimedOpenPaths(paths: string[], source: string) {
+        const normalizedPaths = normalizeOpenRequestPaths(paths);
+        if (normalizedPaths.length === 0) {
+            return {
+                normalizedPaths,
+                validPaths: [],
+            };
+        }
+
+        if (normalizedPaths.length > EXTERNAL_OPEN_PENDING_MAX_PATHS) {
+            options.logger.warn(
+                `Ignoring ${source} external open batch over cap (${normalizedPaths.length}/${EXTERNAL_OPEN_PENDING_MAX_PATHS})`,
+            );
+            return {
+                normalizedPaths,
+                validPaths: [],
+            };
+        }
+
+        const validPaths: string[] = [];
+        for (const normalizedPath of normalizedPaths) {
+            if (!isSupportedExternalOpenPath(normalizedPath)) {
+                options.logger.warn(`Ignoring unsupported ${source} external open path: ${normalizedPath}`);
+                continue;
+            }
+            if (!doesExternalOpenPathExist(normalizedPath)) {
+                options.logger.warn(`Ignoring missing ${source} external open path: ${normalizedPath}`);
+                continue;
+            }
+            validPaths.push(normalizedPath);
+        }
+        return {
+            normalizedPaths,
+            validPaths,
+        };
+    }
+
     function enqueueExternalOpenPath(normalizedPath: string) {
         let wasCoalesced = false;
         let droppedCount = 0;
@@ -307,14 +353,15 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
 
     async function claimPendingOpenPaths() {
         await waitForStartupExternalOpenGraceIfEmpty();
-        const paths = getPendingPathsSnapshot();
+        const validation = validateClaimedOpenPaths(getPendingPathsSnapshot(), 'startup claim');
+        const paths = validation.validPaths;
+        removePendingPaths(validation.normalizedPaths);
         if (paths.length === 0) {
             pendingFlushRequested = false;
             clearRetryPendingFilesTimer();
             return [];
         }
 
-        removePendingPaths(paths);
         hasHandledInitialExternalOpenDispatch = true;
         pendingFlushRequested = pendingExternalOpenPaths.length > 0;
         if (pendingExternalOpenPaths.length === 0) {
@@ -325,7 +372,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     }
 
     function acknowledgeClaimedOpenPaths(failedPaths: string[]) {
-        const normalizedFailedPaths = normalizeOpenRequestPaths(failedPaths);
+        const normalizedFailedPaths = validateClaimedOpenPaths(failedPaths, 'startup acknowledgement').validPaths;
         if (normalizedFailedPaths.length === 0) {
             return;
         }
@@ -438,9 +485,12 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         }
 
         clearRetryPendingFilesTimer();
-        const paths = getPendingPathsSnapshot();
+        const validation = validateClaimedOpenPaths(getPendingPathsSnapshot(), 'dispatch');
+        const paths = validation.validPaths;
         if (paths.length === 0) {
             pendingFlushRequested = false;
+            clearRetryPendingFilesTimer();
+            removePendingPaths(validation.normalizedPaths);
             return;
         }
 
@@ -454,7 +504,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             return;
         }
 
-        removePendingPaths(paths);
+        removePendingPaths(validation.normalizedPaths);
         pendingFlushRequested = pendingExternalOpenPaths.length > 0;
         options.logStartupPhase(`Dispatched external file open batch (${paths.length} path(s))`);
     }

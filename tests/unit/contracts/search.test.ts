@@ -101,6 +101,15 @@ describe('findPdfSearchMatches', () => {
         ]);
     });
 
+    it('rejects regex patterns that are unsafe for document search', () => {
+        expect(() => findPdfSearchMatches('aaaaaaaaaaaaaaaa!', '(a+)+$', { useRegex: true }))
+            .toThrow('pattern is too complex for document search');
+        expect(() => findPdfSearchMatches('aaaaaaaaaaaaaaaa!', '(?:a|aa)+$', { useRegex: true }))
+            .toThrow('pattern is too complex for document search');
+        expect(() => findPdfSearchMatches('alpha alpha', '(alpha) \\1', { useRegex: true }))
+            .toThrow('pattern is too complex for document search');
+    });
+
     it('uses Unicode-aware whole-word boundaries', () => {
         expect(findPdfSearchMatches('cat bobcat кот cat_1 кот!', 'кот', { wholeWord: true })).toEqual([
             {

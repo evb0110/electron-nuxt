@@ -95,6 +95,48 @@ describe('createHttpHandler', () => {
         expect(JSON.stringify(body.result)).toContain('evb_workspace_snapshot');
     });
 
+    it('rejects browser-origin requests unless explicitly allowed', async () => {
+        const url = await listen(createHttpHandler(createOptions(), { bearerToken: 'secret' }));
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                Authorization: 'Bearer secret',
+                Origin: 'https://example.test',
+            },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/list',
+            }),
+        });
+
+        expect(response.status).toBe(403);
+        expect(await response.json()).toEqual({ error: 'Browser-origin MCP requests are not allowed.' });
+    });
+
+    it('can explicitly allow browser-origin requests for trusted test harnesses', async () => {
+        const url = await listen(createHttpHandler(createOptions(), {
+            bearerToken: 'secret',
+            allowBrowserOrigins: true,
+        }));
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                Authorization: 'Bearer secret',
+                Origin: 'https://example.test',
+            },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/list',
+            }),
+        });
+
+        expect(response.status).toBe(200);
+    });
+
     it('rejects oversized JSON-RPC batches before processing', async () => {
         const options = createOptions();
         const url = await listen(createHttpHandler(options, { bearerToken: 'secret' }));

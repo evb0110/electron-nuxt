@@ -10,6 +10,10 @@ import {
     createMacOpenFileRouter,
 } from '@electron/bootstrap/externalOpen';
 
+const mocks = vi.hoisted(() => ({existsSync: vi.fn((_path: string) => true)}));
+
+vi.mock('fs', () => ({existsSync: (path: string) => mocks.existsSync(path)}));
+
 function createLogger() {
     return {
         info: vi.fn(),
@@ -21,6 +25,8 @@ function createLogger() {
 
 afterEach(() => {
     vi.useRealTimers();
+    mocks.existsSync.mockReset();
+    mocks.existsSync.mockReturnValue(true);
 });
 
 describe('createMacOpenFileRouter', () => {
@@ -218,6 +224,47 @@ describe('createExternalOpenManager', () => {
         expect(harness.dispatchOpenPaths).toHaveBeenCalledTimes(1);
         expect(harness.dispatchOpenPaths).toHaveBeenCalledWith(['/docs/startup.pdf']);
         expect(harness.logger.warn).toHaveBeenCalledWith('Requeued 1 failed startup external open path(s)');
+    });
+
+    it('does not claim unsupported or missing startup paths for capability grants', async () => {
+        const harness = createManagerHarness({ isRendererReady: false });
+        mocks.existsSync.mockImplementation((path: string) => path === '/docs/startup.pdf');
+
+        harness.manager.markBootstrapReady();
+        harness.manager.queueOpenRequest([
+            '/docs/startup.pdf',
+            '/docs/readme.txt',
+            '/docs/missing.pdf',
+        ]);
+
+        await expect(harness.manager.claimPendingOpenPaths()).resolves.toEqual(['/docs/startup.pdf']);
+        expect(harness.logger.warn).toHaveBeenCalledWith(
+            'Ignoring unsupported startup claim external open path: /docs/readme.txt',
+        );
+        expect(harness.logger.warn).toHaveBeenCalledWith(
+            'Ignoring missing startup claim external open path: /docs/missing.pdf',
+        );
+    });
+
+    it('does not requeue failed startup acknowledgement paths that were removed or unsupported', async () => {
+        vi.useFakeTimers();
+        const harness = createManagerHarness({ isRendererReady: false });
+
+        harness.manager.markBootstrapReady();
+        harness.manager.queueOpenRequest(['/docs/startup.pdf']);
+
+        await expect(harness.manager.claimPendingOpenPaths()).resolves.toEqual(['/docs/startup.pdf']);
+
+        mocks.existsSync.mockImplementation((path: string) => path !== '/docs/missing.pdf');
+        harness.manager.acknowledgeClaimedOpenPaths([
+            '/docs/missing.pdf',
+            '/docs/readme.txt',
+        ]);
+        harness.setRendererReady(true);
+        harness.manager.scheduleFlushPendingFiles();
+        await vi.advanceTimersByTimeAsync(800);
+
+        expect(harness.dispatchOpenPaths).not.toHaveBeenCalled();
     });
 
     it('briefly waits for a startup open-file event before returning an empty initial claim', async () => {

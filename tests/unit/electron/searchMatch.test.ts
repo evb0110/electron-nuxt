@@ -77,4 +77,12 @@ describe('search worker page match iteration', () => {
             },
         ]);
     });
+
+    it('rejects unsafe regex patterns inside the worker matcher', () => {
+        expect(() => findPageMatches('aaaaaaaaaaaaaaaa!', '(a+)+$', {
+            matchCase: false,
+            wholeWord: false,
+            useRegex: true,
+        })).toThrow('pattern is too complex for document search');
+    });
 });

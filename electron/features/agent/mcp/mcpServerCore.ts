@@ -28,6 +28,7 @@ import {
 } from '@electron/features/agent/mcp/mcpDefinitions';
 
 const MCP_PROTOCOL_VERSION = '2025-11-25';
+const MAX_READ_DOCUMENT_PAGES_PER_REQUEST = 50;
 
 interface IJsonRpcRequest {
     jsonrpc?: unknown;
@@ -70,8 +71,11 @@ export interface ILocalMcpServerDescriptor {
     url: string;
 }
 
+export type TMcpCallerKind = 'internal' | 'external';
+
 export interface IProcessMcpRequestOptions {
     identity: ILocalMcpServerIdentity;
+    callerKind?: TMcpCallerKind;
     getWorkspaceSnapshot(windowId?: number): Promise<IAgentWorkspaceSnapshot>;
     runCommand(command: TAgentCommand, windowId?: number): Promise<Record<string, unknown>>;
     inspectDocumentText?(
@@ -397,38 +401,61 @@ function getOptionalFiniteNumber(params: unknown, key: string) {
     return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-function normalizePageNumber(value: unknown) {
-    return typeof value === 'number' && Number.isFinite(value)
-        ? Math.max(1, Math.trunc(value))
+function normalizePageNumber(value: unknown, pageCount: number | null = null) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return null;
+    }
+
+    const page = Math.max(1, Math.trunc(value));
+    return pageCount === null
+        ? page
+        : Math.min(page, pageCount);
+}
+
+function getTabPageCount(tab: IAgentTabSnapshot) {
+    return typeof tab.totalPages === 'number' && Number.isFinite(tab.totalPages) && tab.totalPages > 0
+        ? Math.trunc(tab.totalPages)
         : null;
 }
 
-function getReadPages(params: unknown, fallbackPage: number | null) {
+function assertReadPageBudget(pageCount: number) {
+    if (pageCount > MAX_READ_DOCUMENT_PAGES_PER_REQUEST) {
+        throw new Error(`Too many pages requested; maximum is ${MAX_READ_DOCUMENT_PAGES_PER_REQUEST}.`);
+    }
+}
+
+function addReadPage(pages: Set<number>, page: number) {
+    pages.add(page);
+    assertReadPageBudget(pages.size);
+}
+
+function getReadPages(params: unknown, fallbackPage: number | null, pageCount: number | null) {
     const paramsObject = getParamsObject(params);
     const pages = new Set<number>();
     if (Array.isArray(paramsObject.pages)) {
         for (const page of paramsObject.pages) {
-            const normalizedPage = normalizePageNumber(page);
+            const normalizedPage = normalizePageNumber(page, pageCount);
             if (normalizedPage !== null) {
-                pages.add(normalizedPage);
+                addReadPage(pages, normalizedPage);
             }
         }
     }
 
-    const startPage = normalizePageNumber(paramsObject.startPage);
-    const endPage = normalizePageNumber(paramsObject.endPage);
+    const startPage = normalizePageNumber(paramsObject.startPage, pageCount);
+    const endPage = normalizePageNumber(paramsObject.endPage, pageCount);
     if (startPage !== null || endPage !== null) {
         const start = startPage ?? endPage ?? 1;
         const end = endPage ?? startPage ?? start;
         const lower = Math.min(start, end);
         const upper = Math.max(start, end);
+        assertReadPageBudget(upper - lower + 1);
         for (let page = lower; page <= upper; page += 1) {
-            pages.add(page);
+            addReadPage(pages, page);
         }
     }
 
     if (pages.size === 0 && fallbackPage !== null) {
-        pages.add(fallbackPage);
+        addReadPage(pages, fallbackPage);
     }
 
     return Array.from(pages).sort((left, right) => left - right);
@@ -454,7 +481,7 @@ function getDocumentPageReadOptions(
 ): IAgentDocumentPageReadOptions {
     const maxCharsPerPage = getOptionalFiniteNumber(params, 'maxCharsPerPage');
     return {
-        pages: getReadPages(params, tab.currentPage),
+        pages: getReadPages(params, tab.currentPage, getTabPageCount(tab)),
         ...(maxCharsPerPage === undefined ? {} : {maxCharsPerPage}),
     };
 }
@@ -550,12 +577,31 @@ function createActionParams(params: unknown) {
     };
 }
 
+function getMcpCallerKind(options: IProcessMcpRequestOptions): TMcpCallerKind {
+    return options.callerKind ?? 'internal';
+}
+
+function enforceCapabilityPolicy(template: IAgentCapabilityTemplate, options: IProcessMcpRequestOptions) {
+    const callerKind = getMcpCallerKind(options);
+    const decision = template.policy[callerKind];
+    if (decision === 'allow') {
+        return;
+    }
+
+    if (decision === 'confirm') {
+        throw new Error(`Capability ${template.id} requires explicit user confirmation for ${callerKind} MCP callers.`);
+    }
+
+    throw new Error(`Capability ${template.id} is not allowed for ${callerKind} MCP callers.`);
+}
+
 async function runAgentActionTool(params: unknown, options: IProcessMcpRequestOptions) {
     const id = getRequiredCapabilityId(params);
     const template = getCapabilityTemplate(id);
     if (!template) {
         throw new Error(`Unknown EVB capability: ${id}`);
     }
+    enforceCapabilityPolicy(template, options);
 
     const windowId = getOptionalWindowId(params);
     const actionParams = createActionParams(params);

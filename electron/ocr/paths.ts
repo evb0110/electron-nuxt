@@ -11,7 +11,7 @@ import {
     ensureRuntimeTessdataSeeded,
     getRuntimeTessdataDir,
 } from '@electron/ocr/languageModels';
-import { resolveOcrResourcesBase } from '@electron/ocr/resolveOcrResourcesBase';
+import { resolveNativeToolsBase } from '@electron/native-tools/resolveNativeToolsBase';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import type { IOcrToolValidationResult } from '@contracts/electronApiOcr';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
@@ -37,8 +37,8 @@ export interface IOcrToolPaths {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
 
-function getResourcesBase() {
-    return resolveOcrResourcesBase(__dirname, isPackaged);
+function getNativeToolsBase() {
+    return resolveNativeToolsBase(__dirname, isPackaged);
 }
 
 function findOnSystemPath(name: string) {
@@ -135,9 +135,9 @@ async function getToolVersion(path: string, versionFlag = '--version'): Promise<
 
 export function getOcrPaths(): IOcrPaths & PromiseLike<IOcrPaths> {
     const platformArch = resolvePlatformArchTag();
-    const resourcesBase = getResourcesBase();
+    const nativeToolsBase = getNativeToolsBase();
 
-    const tesseractDir = join(resourcesBase, 'tesseract');
+    const tesseractDir = join(nativeToolsBase, 'tesseract');
     const platformDir = join(tesseractDir, platformArch);
 
     const binary = process.platform === 'win32'
@@ -154,16 +154,16 @@ export function getOcrPaths(): IOcrPaths & PromiseLike<IOcrPaths> {
 
 export function getOcrToolPaths(): IOcrToolPaths & PromiseLike<IOcrToolPaths> {
     const platformArch = resolvePlatformArchTag();
-    const resourcesBase = getResourcesBase();
+    const nativeToolsBase = getNativeToolsBase();
 
     // Tesseract paths
-    const tesseractDir = join(resourcesBase, 'tesseract');
+    const tesseractDir = join(nativeToolsBase, 'tesseract');
     const tesseractPlatformDir = join(tesseractDir, platformArch);
     const tesseract = getBinaryPath(tesseractPlatformDir, 'tesseract');
     const tessdata = getRuntimeTessdataDir();
 
     // Poppler paths
-    const popplerDir = join(resourcesBase, 'poppler', platformArch);
+    const popplerDir = join(nativeToolsBase, 'poppler', platformArch);
     const pdftoppm = getBinaryPath(popplerDir, 'pdftoppm');
     const pdftotext = getBinaryPath(popplerDir, 'pdftotext');
     const pdfimages = getBinaryPath(popplerDir, 'pdfimages', true) || undefined;
@@ -173,7 +173,7 @@ export function getOcrToolPaths(): IOcrToolPaths & PromiseLike<IOcrToolPaths> {
     const popplerFontConfigDir = existsSync(popplerFontConfigDirCandidate) ? popplerFontConfigDirCandidate : undefined;
 
     // qpdf path
-    const qpdfDir = join(resourcesBase, 'qpdf', platformArch);
+    const qpdfDir = join(nativeToolsBase, 'qpdf', platformArch);
     const qpdf = getBinaryPath(qpdfDir, 'qpdf');
 
     // unpaper (optional, currently in tesseract dir alongside tesseract)

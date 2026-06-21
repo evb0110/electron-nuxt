@@ -5,6 +5,7 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
+import { resolveNativeToolsBase } from '@electron/native-tools/resolveNativeToolsBase';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 
 interface IDjvuToolPaths {
@@ -28,7 +29,7 @@ function hasExpectedDjvuResources(resourcesBase: string) {
 
 function getResourcesBase() {
     if (app.isPackaged) {
-        return process.resourcesPath;
+        return resolveNativeToolsBase(__dirname, true);
     }
 
     const candidates = [

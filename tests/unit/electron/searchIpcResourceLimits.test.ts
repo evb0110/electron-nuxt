@@ -682,6 +682,7 @@ describe('search IPC worker resource limits', () => {
                     .rejects.toThrow('Search request timed out after 5000ms');
                 await vi.advanceTimersByTimeAsync(5_000);
                 await timeoutRejection;
+                expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledTimes(1);
             }
 
             emitWorkerProgressWithResults(0, requestId, [buildSearchMatch({pageNumber: 999})]);
@@ -728,6 +729,25 @@ describe('search IPC worker resource limits', () => {
                 useRegex: true,
             },
         )).rejects.toThrow('Invalid search regex');
+
+        expect(mocks.resolveAllowedReadPath).not.toHaveBeenCalled();
+        expect(mocks.workerRecords).toHaveLength(0);
+    });
+
+    it('rejects unsafe regex queries before resolving paths or spawning workers', async () => {
+        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
+        registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+
+        await expect(searchHandler(
+            createInvokeEvent(80),
+            {
+                pdfPath: '/tmp/one.pdf',
+                query: '(a+)+$',
+                requestId: 'unsafe-regex',
+                useRegex: true,
+            },
+        )).rejects.toThrow('pattern is too complex for document search');
 
         expect(mocks.resolveAllowedReadPath).not.toHaveBeenCalled();
         expect(mocks.workerRecords).toHaveLength(0);

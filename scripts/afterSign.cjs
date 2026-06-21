@@ -84,7 +84,7 @@ function isMacSharedLibrary(filePath) {
 
 function isPageProcessorExecutable(filePath) {
     const normalized = filePath.split(path.sep).join('/');
-    return /\/page-processing\/darwin-(?:arm64|x64)\/bin\/page-processor\/page-processor$/u.test(normalized);
+    return /\/native-tools\/page-processing\/darwin-(?:arm64|x64)\/bin\/page-processor\/page-processor$/u.test(normalized);
 }
 
 function readCodesignMetadata(targetPath) {
@@ -206,16 +206,16 @@ function resignEmbeddedAppCode(appPath, identity) {
 }
 
 function resignBundledNativeToolPayloads(appPath, identity) {
-    const resourcesDir = path.join(appPath, 'Contents', 'Resources');
+    const nativeToolsDir = path.join(appPath, 'Contents', 'MacOS', 'native-tools');
     const toolRoots = [
-        path.join(resourcesDir, 'djvulibre'),
-        path.join(resourcesDir, 'page-processing'),
-        path.join(resourcesDir, 'poppler'),
-        path.join(resourcesDir, 'pdf-image-combine'),
-        path.join(resourcesDir, 'pdf-page-ops'),
-        path.join(resourcesDir, 'pdf-search'),
-        path.join(resourcesDir, 'qpdf'),
-        path.join(resourcesDir, 'tesseract'),
+        path.join(nativeToolsDir, 'djvulibre'),
+        path.join(nativeToolsDir, 'page-processing'),
+        path.join(nativeToolsDir, 'poppler'),
+        path.join(nativeToolsDir, 'pdf-image-combine'),
+        path.join(nativeToolsDir, 'pdf-page-ops'),
+        path.join(nativeToolsDir, 'pdf-search'),
+        path.join(nativeToolsDir, 'qpdf'),
+        path.join(nativeToolsDir, 'tesseract'),
     ];
 
     const sharedLibraries = [];

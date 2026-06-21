@@ -35,6 +35,24 @@ describe('native tool path resolution', () => {
         ]);
     });
 
+    it('uses the launchable Contents/MacOS/native-tools root for packaged macOS tools', () => {
+        expect(getNativeToolPathCandidates({
+            binaryName: 'evb-pdf-page-ops',
+            crateName: 'pdf-page-ops',
+            currentDir: '/app/Contents/Resources/app.asar/dist-electron',
+            isPackaged: true,
+            platformArch: 'darwin-arm64',
+            projectRoot: '/repo',
+            resourcesBase: '/app/Contents/Resources',
+        })[0]).toBe(path.join(
+            '/app/Contents/MacOS/native-tools',
+            'pdf-page-ops',
+            'darwin-arm64',
+            'bin',
+            'evb-pdf-page-ops',
+        ));
+    });
+
     it('prefers the override path when it exists', () => {
         expect(resolveNativeToolPath({
             ...baseOptions,

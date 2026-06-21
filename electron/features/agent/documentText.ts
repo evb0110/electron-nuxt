@@ -9,9 +9,11 @@ import type {
 import type { IAgentTabSnapshot } from '@contracts/agent';
 import { createLogger } from '@electron/utils/createLogger';
 import {
+    parseOptionalSearchPageCount,
     resolveSearchablePdfPath,
     resolveSearchWorkerPath,
     SearchWorkerService,
+    validateSearchQuery,
 } from '@electron/features/search/public';
 import { loadSearchIndex } from '@electron/search/indexBuilder';
 
@@ -49,6 +51,13 @@ function normalizePositiveInteger(value: number | null | undefined, fallback: nu
     return Math.min(max, Math.max(1, Math.trunc(value)));
 }
 
+function getValidatedSearchPageCount(tab: IAgentTabSnapshot) {
+    if (typeof tab.totalPages !== 'number' || tab.totalPages < 1) {
+        return undefined;
+    }
+    return parseOptionalSearchPageCount(tab.totalPages);
+}
+
 function getAgentTabPdfPath(tab: IAgentTabSnapshot) {
     if (tab.kind !== 'pdf') {
         throw new Error(`Tab ${tab.tabId} is a ${tab.kind} document. Convert it to PDF before text search.`);
@@ -82,6 +91,7 @@ async function warmAgentSearchIndex(
         requestedPath,
         resolvedPdfPath,
     } = await resolveAgentSearchPath(window, tab);
+    const pageCount = getValidatedSearchPageCount(tab);
     await agentSearchWorkerService.dispatchSearchRequest(
         createSearchEvent(window),
         {
@@ -89,7 +99,7 @@ async function warmAgentSearchIndex(
             query: '',
             warmup: true,
             requestIdPrefix: 'agent-warm',
-            ...(tab.totalPages ? { pageCount: tab.totalPages } : {}),
+            ...(pageCount === undefined ? {} : { pageCount }),
         },
     );
 
@@ -210,18 +220,24 @@ export async function searchAgentDocument(
     if (!query) {
         throw new Error('query is required.');
     }
+    validateSearchQuery(query, {
+        matchCase: input.options.matchCase,
+        wholeWord: input.options.wholeWord,
+        useRegex: input.options.useRegex,
+    });
 
     const {
         requestedPath,
         resolvedPdfPath,
     } = await resolveAgentSearchPath(window, input.tab);
+    const pageCount = getValidatedSearchPageCount(input.tab);
     const response: IPdfSearchResponse = await agentSearchWorkerService.dispatchSearchRequest(
         createSearchEvent(window),
         {
             resolvedPdfPath,
             query,
             requestIdPrefix: 'agent-search',
-            ...(input.tab.totalPages ? { pageCount: input.tab.totalPages } : {}),
+            ...(pageCount === undefined ? {} : { pageCount }),
             ...(input.options.matchCase === undefined ? {} : { matchCase: input.options.matchCase }),
             ...(input.options.wholeWord === undefined ? {} : { wholeWord: input.options.wholeWord }),
             ...(input.options.useRegex === undefined ? {} : { useRegex: input.options.useRegex }),

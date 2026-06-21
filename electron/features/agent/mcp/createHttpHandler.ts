@@ -19,6 +19,7 @@ const MAX_JSON_RPC_BATCH_ITEMS = 32;
 interface IHttpHandlerOptions {
     bearerToken?: string | null;
     allowUnauthenticated?: boolean;
+    allowBrowserOrigins?: boolean;
 }
 
 function readRequestBody(request: IncomingMessage) {
@@ -61,11 +62,22 @@ function isAuthorizedMcpRequest(request: IncomingMessage, options: IHttpHandlerO
     return typeof header === 'string' && header === `Bearer ${bearerToken}`;
 }
 
+function isBrowserOriginMcpRequest(request: IncomingMessage) {
+    return typeof request.headers.origin === 'string'
+        || typeof request.headers.referer === 'string'
+        || typeof request.headers['sec-fetch-site'] === 'string';
+}
+
 export function createHttpHandler(
     options: IProcessMcpRequestOptions,
     httpOptions: IHttpHandlerOptions = {},
 ) {
     return async (request: IncomingMessage, response: ServerResponse) => {
+        if (httpOptions.allowBrowserOrigins !== true && isBrowserOriginMcpRequest(request)) {
+            writeJson(response, 403, { error: 'Browser-origin MCP requests are not allowed.' });
+            return;
+        }
+
         if (request.method === 'GET' && request.url === '/health') {
             if (!isAuthorizedMcpRequest(request, httpOptions)) {
                 writeJson(response, 401, { error: 'Unauthorized.' });

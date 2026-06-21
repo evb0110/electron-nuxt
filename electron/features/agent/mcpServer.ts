@@ -159,16 +159,19 @@ function createDefaultMcpRequestOptions(identity: ILocalMcpServerIdentity): IPro
 }
 
 export function startLocalMcpServer() {
-    if (localMcpServer) {
-        return Promise.resolve();
-    }
     if (localMcpStartPromise) {
         return localMcpStartPromise;
+    }
+    if (localMcpServer) {
+        return Promise.resolve();
     }
 
     const port = resolveConfiguredLocalMcpPort();
     const identity = createLocalMcpServerIdentity(port);
-    const options = createDefaultMcpRequestOptions(identity);
+    const options = {
+        ...createDefaultMcpRequestOptions(identity),
+        callerKind: 'external' as const,
+    };
 
     const server = createServer(createHttpHandler(options, { bearerToken: getLocalMcpServerBearerToken() }));
     localMcpServer = server;
@@ -258,7 +261,10 @@ export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
         const identity = createLocalMcpServerIdentity(0);
         identity.name = `${identity.name}_embedded`;
         identity.title = `${identity.title} Assistant`;
-        const options = createDefaultMcpRequestOptions(identity);
+        const options = {
+            ...createDefaultMcpRequestOptions(identity),
+            callerKind: 'internal' as const,
+        };
         const server = createServer(createHttpHandler(options, { bearerToken: token }));
         // Track the binding server immediately so a shutdown racing the bind can always close it.
         embeddedMcpServer = server;

@@ -18,8 +18,8 @@ describe('linux Poppler packaging', () => {
         expect(bundleScript).toContain('Error: Bundle verification failed');
 
         const verifyScript = await readFile(resolve(process.cwd(), 'scripts/verify-packaged-native-tools.sh'), 'utf8');
-        expect(verifyScript).toContain('check_dir "$resource_root/poppler/$platform_arch/share/poppler" "poppler data directory"');
-        expect(verifyScript).toContain('check_dir "$resource_root/poppler/$platform_arch/etc/fonts" "fontconfig directory"');
-        expect(verifyScript).toContain('check_file "$resource_root/poppler/$platform_arch/etc/fonts/fonts.conf" "fontconfig configuration"');
+        expect(verifyScript).toContain('check_dir "$native_tool_root/poppler/$platform_arch/share/poppler" "poppler data directory"');
+        expect(verifyScript).toContain('check_dir "$native_tool_root/poppler/$platform_arch/etc/fonts" "fontconfig directory"');
+        expect(verifyScript).toContain('check_file "$native_tool_root/poppler/$platform_arch/etc/fonts/fonts.conf" "fontconfig configuration"');
     });
 });
