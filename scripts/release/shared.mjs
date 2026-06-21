@@ -94,7 +94,7 @@ export async function assertGitHubCliReady(context = 'Release', {
         } catch (error) {
             if (attempt < attempts && isTransientGitHubAuthError(error)) {
                 stderr.write(
-                    `Transient GitHub CLI auth check failure `
+                    'Transient GitHub CLI auth check failure '
                     + `(attempt ${attempt}/${attempts}); retrying in ${delayMs / 1000}s.\n`,
                 );
                 await sleepFn(delayMs);
