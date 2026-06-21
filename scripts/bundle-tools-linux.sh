@@ -249,8 +249,22 @@ verify_tool() {
     echo "  OK  $name ($size)"
   else
     echo "  MISSING  $name"
+    missing_count=$((missing_count + 1))
   fi
 }
+
+verify_dir() {
+  local path="$1"
+  local name="$2"
+  if [ -d "$path" ]; then
+    echo "  OK  $name ($path)"
+  else
+    echo "  MISSING  $name"
+    missing_count=$((missing_count + 1))
+  fi
+}
+
+missing_count=0
 
 verify_tool "$TESSERACT_DIR/bin/tesseract" "tesseract"
 verify_tool "$TESSERACT_DIR/bin/unpaper" "unpaper"
@@ -262,6 +276,12 @@ verify_dir "$POPPLER_DIR/etc/fonts" "fontconfig directory"
 verify_tool "$QPDF_DIR/bin/qpdf" "qpdf"
 verify_tool "$DJVU_DIR/bin/ddjvu" "ddjvu"
 verify_tool "$DJVU_DIR/bin/djvused" "djvused"
+
+if [ "$missing_count" -gt 0 ]; then
+  echo ""
+  echo "Error: Bundle verification failed ($missing_count required files missing)"
+  exit 1
+fi
 
 echo ""
 echo "Library counts:"

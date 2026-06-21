@@ -45,6 +45,13 @@ export function getLocalReleaseCheckCommands() {
         {
             args: [
                 'run',
+                'check:wasm:freshness',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
                 'test:python-page-processor',
             ],
             command: 'pnpm',

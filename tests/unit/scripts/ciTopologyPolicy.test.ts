@@ -72,6 +72,7 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('public/wasm/');
         expect(workflow).toContain('scripts/(build-pdf-image-combine|build-pdf-page-ops|build-pdf-search|check-wasm-freshness|native-rust-targets)[.]mjs');
         expect(workflow).toContain('Cargo[.]lock');
+        expect(workflow).toContain('rust-toolchain[.]toml');
         expect(workflow).toContain('python/page-processor/');
         expect(workflow).toContain('bundle-page-processor-macos[.]sh');
         expect(workflow).toContain('devkit/(page-processing-harness|process-pdf-split-pad)[.]py');
@@ -120,6 +121,7 @@ describe('CI topology policy', () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const buildWorkflow = await readProjectFile('.github/workflows/build.yml');
         const nvmrc = await readProjectFile('.nvmrc');
+        const rustToolchain = await readProjectFile('rust-toolchain.toml');
 
         expect(workflow).toContain('github.event_name == \'schedule\'');
         expect(workflow).toContain('name: Nightly Maintenance Gates');
@@ -136,6 +138,8 @@ describe('CI topology policy', () => {
         expect(nvmrc.trim()).toBe('24.11.1');
         expect(workflow).toContain('NODE_VERSION: \'24.11.1\'');
         expect(buildWorkflow).toContain('NODE_VERSION: \'24.11.1\'');
+        expect(rustToolchain).toContain('channel = "1.89.0"');
+        expect(rustToolchain).toContain('profile = "minimal"');
         expect(buildWorkflow).toContain('run: rustup target add wasm32-unknown-unknown');
     });
 

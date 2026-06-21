@@ -67,7 +67,7 @@ jobs:
             echo "landing=false" >> "$GITHUB_OUTPUT"
           fi
 
-          if printf '%s\n' "$changed_files" | grep -Eq '^(native/|public/wasm/|scripts/(build-pdf-image-combine|build-pdf-page-ops|build-pdf-search|check-wasm-freshness|native-rust-targets)[.]mjs|Cargo[.]lock|package[.]json|[.]github/workflows/(ci|build|release)[.]yml)'; then
+          if printf '%s\n' "$changed_files" | grep -Eq '^(native/|public/wasm/|scripts/(build-pdf-image-combine|build-pdf-page-ops|build-pdf-search|check-wasm-freshness|native-rust-targets)[.]mjs|Cargo[.]lock|rust-toolchain[.]toml|package[.]json|[.]github/workflows/(ci|build|release)[.]yml)'; then
             echo "native=true" >> "$GITHUB_OUTPUT"
           else
             echo "native=false" >> "$GITHUB_OUTPUT"

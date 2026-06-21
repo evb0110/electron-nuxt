@@ -11,8 +11,11 @@ describe('linux Poppler packaging', () => {
         const bundleScript = await readFile(resolve(process.cwd(), 'scripts/bundle-tools-linux.sh'), 'utf8');
         expect(bundleScript).toContain('cp -a /usr/share/poppler "$POPPLER_DIR/share/"');
         expect(bundleScript).toContain('cp -a /etc/fonts "$POPPLER_DIR/etc/"');
+        expect(bundleScript).toContain('verify_dir()');
         expect(bundleScript).toContain('verify_dir "$POPPLER_DIR/share/poppler" "poppler data directory"');
         expect(bundleScript).toContain('verify_dir "$POPPLER_DIR/etc/fonts" "fontconfig directory"');
+        expect(bundleScript).toContain('missing_count=$((missing_count + 1))');
+        expect(bundleScript).toContain('Error: Bundle verification failed');
 
         const verifyScript = await readFile(resolve(process.cwd(), 'scripts/verify-packaged-native-tools.sh'), 'utf8');
         expect(verifyScript).toContain('check_dir "$resource_root/poppler/$platform_arch/share/poppler" "poppler data directory"');

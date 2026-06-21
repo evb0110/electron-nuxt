@@ -277,6 +277,10 @@ describe('release policy', () => {
             ],
             [
                 'run',
+                'check:wasm:freshness',
+            ],
+            [
+                'run',
                 'test:python-page-processor',
             ],
             [
