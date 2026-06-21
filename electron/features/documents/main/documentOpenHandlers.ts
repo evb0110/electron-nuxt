@@ -21,6 +21,7 @@ import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { getErrorMessage } from '@electron/utils/error';
+import { IPC_REQUEST_ID_MAX_LENGTH } from '@electron/utils/ipcLimits';
 import {
     DOCUMENTS_EVENT_CHANNELS,
     type TOpenBatchProgressPayload,
@@ -34,6 +35,7 @@ import {
 } from '@electron/features/documents/main/documentDialogCommon';
 
 const logger = createLogger('documents-dialogs');
+const MAX_DIRECT_OPEN_BATCH_PATHS = 512;
 
 function sendOpenBatchProgress(
     event: Electron.IpcMainInvokeEvent,
@@ -96,12 +98,18 @@ export async function handleOpenPdfDirectBatch(
     if (!Array.isArray(filePaths) || filePaths.length === 0) {
         return null;
     }
+    if (filePaths.length > MAX_DIRECT_OPEN_BATCH_PATHS) {
+        throw new Error(`Open batch exceeds maximum size (${MAX_DIRECT_OPEN_BATCH_PATHS})`);
+    }
 
     try {
         const normalizedPaths = normalizeNonEmptyStringPaths(filePaths)
             .map(path => requireOpenPath(path, event.sender));
 
         const normalizedRequestId = typeof requestId === 'string' ? requestId.trim() : '';
+        if (normalizedRequestId.length > IPC_REQUEST_ID_MAX_LENGTH) {
+            throw new Error(`requestId exceeds maximum length (${IPC_REQUEST_ID_MAX_LENGTH})`);
+        }
         const options = normalizedRequestId
             ? {onCombineProgress: (progress: ICreatePdfFromInputPathsProgress) => {
                 sendOpenBatchProgress(event, {

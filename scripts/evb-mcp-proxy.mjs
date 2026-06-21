@@ -10,6 +10,7 @@ const JSON_RPC_PARSE_ERROR = -32700;
 const JSON_RPC_INVALID_REQUEST = -32600;
 const JSON_RPC_INTERNAL_ERROR = -32603;
 const EVB_MCP_URL = resolveTargetUrl();
+const EVB_MCP_TOKEN = process.env.EVB_MCP_TOKEN?.trim() || '';
 const PACKAGE_METADATA = readPackageMetadata();
 
 const WINDOW_ID_SCHEMA = {
@@ -682,12 +683,14 @@ function createUnavailableToolResult(method, error) {
 }
 
 async function forwardRequest(request) {
+    const headers = {
+        Accept: 'application/json, text/event-stream',
+        'Content-Type': 'application/json',
+        ...(EVB_MCP_TOKEN ? { Authorization: `Bearer ${EVB_MCP_TOKEN}` } : {}),
+    };
     const response = await fetch(EVB_MCP_URL, {
         method: 'POST',
-        headers: {
-            Accept: 'application/json, text/event-stream',
-            'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(request),
         signal: AbortSignal.timeout(120000),
     });

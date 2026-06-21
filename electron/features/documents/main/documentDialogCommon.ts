@@ -2,8 +2,15 @@ import {
     BrowserWindow,
     dialog,
 } from 'electron';
-import { extname } from 'path';
+import {
+    basename,
+    extname,
+} from 'path';
 import { te } from '@electron/te';
+import {
+    IPC_FILENAME_MAX_LENGTH,
+    truncateForIpc,
+} from '@electron/utils/ipcLimits';
 
 interface IOpenDocumentDialogOptions {
     title: string;
@@ -17,6 +24,8 @@ interface ISaveDialogOptions {
     extension: string;
 }
 
+const activeDialogSenderIds = new Set<number>();
+
 export function getDialogParentWindow(event: Electron.IpcMainInvokeEvent) {
     return BrowserWindow.fromWebContents(event.sender);
 }
@@ -27,6 +36,36 @@ export function errorWithDetails(fallbackMessage: string, details: unknown): Err
         return new Error(fallbackMessage);
     }
     return new Error(`${fallbackMessage}: ${detailText}`);
+}
+
+async function withSingleActiveDialog<T>(event: Electron.IpcMainInvokeEvent, callback: () => Promise<T>) {
+    const senderId = event.sender.id;
+    if (activeDialogSenderIds.has(senderId)) {
+        throw new Error('A document dialog is already open for this window.');
+    }
+    activeDialogSenderIds.add(senderId);
+    try {
+        return await callback();
+    } finally {
+        activeDialogSenderIds.delete(senderId);
+    }
+}
+
+function normalizeSaveDefaultPath(defaultPath: string, extension: string) {
+    const suffix = `.${extension}`;
+    const rawName = basename(defaultPath || `document${suffix}`);
+    const sanitizedName = Array.from(rawName)
+        .filter((character) => {
+            const codePoint = character.codePointAt(0) ?? 0;
+            return codePoint > 31 && codePoint !== 127;
+        })
+        .join('')
+        .trim() || `document${suffix}`;
+    const baseName = extname(sanitizedName).toLowerCase() === suffix
+        ? sanitizedName.slice(0, -suffix.length)
+        : sanitizedName;
+    const maxBaseLength = Math.max(1, IPC_FILENAME_MAX_LENGTH - suffix.length);
+    return `${truncateForIpc(baseName, maxBaseLength)}${suffix}`;
 }
 
 export async function showOpenDocumentDialog(
@@ -46,9 +85,9 @@ export async function showOpenDocumentDialog(
         ],
     } satisfies Electron.OpenDialogOptions;
 
-    return parentWindow
+    return withSingleActiveDialog(event, () => parentWindow
         ? dialog.showOpenDialog(parentWindow, dialogOptions)
-        : dialog.showOpenDialog(dialogOptions);
+        : dialog.showOpenDialog(dialogOptions));
 }
 
 export async function showSaveDialogWithExtension(
@@ -58,15 +97,15 @@ export async function showSaveDialogWithExtension(
     const parentWindow = getDialogParentWindow(event);
     const dialogOptions = {
         title: options.title,
-        defaultPath: options.defaultPath,
+        defaultPath: normalizeSaveDefaultPath(options.defaultPath, options.extension),
         filters: [{
             name: options.filterName,
             extensions: [options.extension],
         }],
     };
-    const result = parentWindow
-        ? await dialog.showSaveDialog(parentWindow, dialogOptions)
-        : await dialog.showSaveDialog(dialogOptions);
+    const result = await withSingleActiveDialog(event, () => parentWindow
+        ? dialog.showSaveDialog(parentWindow, dialogOptions)
+        : dialog.showSaveDialog(dialogOptions));
 
     if (result.canceled || !result.filePath) {
         return null;

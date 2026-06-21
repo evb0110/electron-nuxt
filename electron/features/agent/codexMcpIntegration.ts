@@ -11,6 +11,7 @@ import type {
     IAgentMcpIntegrationUpdateResult,
     TAgentMcpCodexRegistrationState,
 } from '@contracts/agent';
+import { ASSISTANT_MCP_TOKEN_ENV } from '@electron/features/agent/codexAssistantConfig';
 import {
     getLocalMcpServerDescriptor,
     isLocalMcpServerRunning,
@@ -114,6 +115,9 @@ async function removeCodexRegistration(codexPath: string) {
 
 async function registerCodexMcp(codexPath: string) {
     const descriptor = getLocalMcpServerDescriptor();
+    if (!process.env[ASSISTANT_MCP_TOKEN_ENV]?.trim()) {
+        throw new Error(`${ASSISTANT_MCP_TOKEN_ENV} must be set before enabling Codex MCP integration.`);
+    }
     await removeCodexRegistration(codexPath);
     const result = await runCodexCli(codexPath, [
         'mcp',
@@ -121,6 +125,8 @@ async function registerCodexMcp(codexPath: string) {
         descriptor.name,
         '--url',
         descriptor.url,
+        '--bearer-token-env-var',
+        ASSISTANT_MCP_TOKEN_ENV,
     ]);
     if (!result.ok) {
         throw new Error(result.stderr.trim() || result.stdout.trim() || 'Codex MCP registration failed.');

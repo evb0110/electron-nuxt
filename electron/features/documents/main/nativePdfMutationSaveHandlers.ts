@@ -76,6 +76,7 @@ const MAX_NATIVE_MARKUP_ITEMS = 4_096;
 const MAX_NATIVE_MARKUP_TEXT_LENGTH = 2_048;
 const MAX_NATIVE_PLACED_IMAGES = 16;
 const MAX_NATIVE_PLACED_IMAGE_BYTES = 128 * 1024 * 1024;
+const MAX_NATIVE_PLACED_IMAGES_TOTAL_BYTES = 512 * 1024 * 1024;
 const PDF_NATIVE_PAGE_LABEL_STYLES = new Set<string>(PDF_PAGE_LABEL_STYLE_VALUES);
 const PDF_NATIVE_SHAPE_TYPES = new Set<string>(PDF_ANNOTATION_SHAPE_TYPES);
 const PDF_NATIVE_SHAPE_SUBTYPES = new Set<string>(PDF_ANNOTATION_SHAPE_PDF_SUBTYPES);
@@ -829,18 +830,25 @@ function normalizeNativePlacedImageBytes(rawBytes: unknown, label: string) {
         if (rawBytes.byteLength === 0 || rawBytes.byteLength > MAX_NATIVE_PLACED_IMAGE_BYTES) {
             throw new Error(`Invalid native placed image bytes at ${label}`);
         }
-        return Array.from(rawBytes);
+        return {
+            bytes: Array.from(rawBytes),
+            byteLength: rawBytes.byteLength,
+        };
     }
     if (Array.isArray(rawBytes)) {
         if (rawBytes.length === 0 || rawBytes.length > MAX_NATIVE_PLACED_IMAGE_BYTES) {
             throw new Error(`Invalid native placed image bytes at ${label}`);
         }
-        return rawBytes.map((byte, byteIndex) => {
+        const bytes = rawBytes.map((byte, byteIndex) => {
             if (typeof byte !== 'number' || !Number.isInteger(byte) || byte < 0 || byte > 255) {
                 throw new Error(`Invalid native placed image byte at ${label}.${byteIndex}`);
             }
             return byte;
         });
+        return {
+            bytes,
+            byteLength: bytes.length,
+        };
     }
     throw new Error(`Invalid native placed image bytes at ${label}`);
 }
@@ -853,6 +861,7 @@ function normalizeNativePlacedImages(rawPlacedImages: unknown) {
         throw new Error('Invalid native placed image list');
     }
 
+    let totalImageBytes = 0;
     return rawPlacedImages.map((image, index): INativePlacedImagePayload => {
         if (!image || typeof image !== 'object') {
             throw new Error(`Invalid native placed image at index ${index}`);
@@ -879,7 +888,11 @@ function normalizeNativePlacedImages(rawPlacedImages: unknown) {
         ) {
             throw new Error(`Invalid native placed image rotation at index ${index}`);
         }
-        const bytes = normalizeNativePlacedImageBytes(candidate.bytes, `index ${index}`);
+        const imageBytes = normalizeNativePlacedImageBytes(candidate.bytes, `index ${index}`);
+        totalImageBytes += imageBytes.byteLength;
+        if (totalImageBytes > MAX_NATIVE_PLACED_IMAGES_TOTAL_BYTES) {
+            throw new Error('Native placed image bytes exceed maximum total size');
+        }
         return {
             pageIndex: toPageIndex(candidate.pageIndex),
             x: bounds.left,
@@ -888,7 +901,7 @@ function normalizeNativePlacedImages(rawPlacedImages: unknown) {
             height: bounds.height,
             rotationDegrees,
             mimeType: 'image/jpeg',
-            bytes,
+            bytes: imageBytes.bytes,
         };
     });
 }

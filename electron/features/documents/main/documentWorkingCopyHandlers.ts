@@ -8,8 +8,10 @@ import {
 import { isKnownWorkingCopyOriginalPath } from '@electron/file-access/workingCopyStore';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import { createLogger } from '@electron/utils/createLogger';
+import { IPC_FILENAME_MAX_LENGTH } from '@electron/utils/ipcLimits';
 
 const logger = createLogger('documents-dialogs');
+const MAX_WORKING_COPY_DATA_BYTES = 512 * 1024 * 1024;
 
 interface ITrustedOriginalPathOptions {
     sourcePath?: string;
@@ -48,10 +50,10 @@ export async function handleCreateWorkingCopyFromData(
     originalPath?: string,
 ) {
     const normalizedName = typeof fileName === 'string' ? fileName.trim() : '';
-    if (!normalizedName) {
+    if (!normalizedName || normalizedName.length > IPC_FILENAME_MAX_LENGTH) {
         throw new Error('Invalid file name');
     }
-    if (!(data instanceof Uint8Array) || data.byteLength === 0) {
+    if (!(data instanceof Uint8Array) || data.byteLength === 0 || data.byteLength > MAX_WORKING_COPY_DATA_BYTES) {
         throw new Error('Invalid PDF payload');
     }
 

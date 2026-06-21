@@ -14,8 +14,12 @@ import {
 } from '@electron/features/agent/mcp/mcpJsonRpc';
 
 const MAX_JSON_RPC_BODY_BYTES = 1024 * 1024;
+const MAX_JSON_RPC_BATCH_ITEMS = 32;
 
-interface IHttpHandlerOptions {bearerToken?: string | null;}
+interface IHttpHandlerOptions {
+    bearerToken?: string | null;
+    allowUnauthenticated?: boolean;
+}
 
 function readRequestBody(request: IncomingMessage) {
     return new Promise<string>((resolve, reject) => {
@@ -47,9 +51,10 @@ function writeNoContent(response: ServerResponse) {
     response.end();
 }
 
-function isAuthorizedMcpRequest(request: IncomingMessage, bearerToken: string | null | undefined) {
+function isAuthorizedMcpRequest(request: IncomingMessage, options: IHttpHandlerOptions) {
+    const bearerToken = options.bearerToken;
     if (!bearerToken) {
-        return true;
+        return options.allowUnauthenticated === true;
     }
 
     const header = request.headers.authorization;
@@ -62,7 +67,7 @@ export function createHttpHandler(
 ) {
     return async (request: IncomingMessage, response: ServerResponse) => {
         if (request.method === 'GET' && request.url === '/health') {
-            if (!isAuthorizedMcpRequest(request, httpOptions.bearerToken)) {
+            if (!isAuthorizedMcpRequest(request, httpOptions)) {
                 writeJson(response, 401, { error: 'Unauthorized.' });
                 return;
             }
@@ -75,7 +80,7 @@ export function createHttpHandler(
             return;
         }
 
-        if (!isAuthorizedMcpRequest(request, httpOptions.bearerToken)) {
+        if (!isAuthorizedMcpRequest(request, httpOptions)) {
             writeJson(response, 401, { error: 'Unauthorized.' });
             return;
         }
@@ -84,9 +89,14 @@ export function createHttpHandler(
             const body = await readRequestBody(request);
             const parsed: unknown = JSON.parse(body);
             if (Array.isArray(parsed)) {
-                const processedResponses = await Promise.all(
-                    parsed.map(item => processMcpRequest(item, options)),
-                );
+                if (parsed.length > MAX_JSON_RPC_BATCH_ITEMS) {
+                    writeJson(response, 400, createErrorResponse(null, -32600, 'JSON-RPC batch is too large.'));
+                    return;
+                }
+                const processedResponses: Array<IJsonRpcResponse | null> = [];
+                for (const item of parsed) {
+                    processedResponses.push(await processMcpRequest(item, options));
+                }
                 const responses: IJsonRpcResponse[] = [];
                 for (const item of processedResponses) {
                     if (item !== null) {
@@ -109,7 +119,10 @@ export function createHttpHandler(
             }
             writeJson(response, 200, result);
         } catch (error) {
-            writeJson(response, 400, createErrorResponse(null, -32700, getErrorMessage(error)));
+            const message = error instanceof SyntaxError
+                ? 'Invalid JSON-RPC request body.'
+                : getErrorMessage(error);
+            writeJson(response, 400, createErrorResponse(null, -32700, message));
         }
     };
 }

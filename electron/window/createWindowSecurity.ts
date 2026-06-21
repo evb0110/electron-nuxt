@@ -10,7 +10,11 @@ interface ICreateWindowSecurityOptions {
     logger: ILogger;
 }
 
+const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
+
 export function createWindowSecurity(options: ICreateWindowSecurityOptions) {
+    const lastExternalOpenBySource = new Map<string, number>();
+
     function isTrustedRendererUrl(value: string) {
         return matchesTrustedRendererUrl(value, options.getTrustedRendererUrl());
     }
@@ -26,6 +30,14 @@ export function createWindowSecurity(options: ICreateWindowSecurityOptions) {
             options.logger.warn(`Blocked ${source} URL with invalid value: ${url}`);
             return;
         }
+        const rateLimitKey = `${source}:${decision.normalizedUrl}`;
+        const now = Date.now();
+        const lastOpenedAt = lastExternalOpenBySource.get(rateLimitKey) ?? 0;
+        if (now - lastOpenedAt < EXTERNAL_OPEN_MIN_INTERVAL_MS) {
+            options.logger.warn(`Blocked repeated ${source} URL open: ${decision.normalizedUrl}`);
+            return;
+        }
+        lastExternalOpenBySource.set(rateLimitKey, now);
         void shell.openExternal(decision.normalizedUrl).catch((error) => {
             options.logger.warn(`Failed to open external URL (${source}): ${getErrorMessage(error)}`);
         });

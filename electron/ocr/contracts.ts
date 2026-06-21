@@ -35,6 +35,7 @@ interface IOcrCreateSearchablePdfPayload {
 const MAX_PAGE_NUMBER = 1_000_000;
 const MAX_LANGUAGES_PER_PAGE = 16;
 const MAX_IMAGE_BYTES = 128 * 1024 * 1024;
+const MAX_BATCH_IMAGE_BYTES = 512 * 1024 * 1024;
 const MAX_BATCH_PAGES = 5_000;
 const MAX_REQUEST_ID_LENGTH = 128;
 const MAX_ERROR_DETAILS_LENGTH = 512;
@@ -278,6 +279,16 @@ function asPagesArray<T extends { languages: string[] }>(
     return pages;
 }
 
+function assertRecognizeBatchByteBudget(pages: IOcrRecognizePageRequest[]) {
+    let totalBytes = 0;
+    for (const page of pages) {
+        totalBytes += page.imageData.byteLength;
+        if (totalBytes > MAX_BATCH_IMAGE_BYTES) {
+            throw new OcrPayloadValidationError(`pages image data exceeds maximum total size (${MAX_BATCH_IMAGE_BYTES} bytes)`);
+        }
+    }
+}
+
 export function validateRecognizeRequest(payload: unknown): IOcrRecognizePageRequest {
     return asRecognizePageRequest(payload, 'request');
 }
@@ -287,6 +298,7 @@ export function validateRecognizeBatchPayload(
     requestIdPayload: unknown,
 ): IOcrRecognizeBatchPayload {
     const pages = asPagesArray(pagesPayload, 'pages', asRecognizePageRequest);
+    assertRecognizeBatchByteBudget(pages);
     return {
         pages,
         requestId: asRequestId(requestIdPayload, 'requestId'),

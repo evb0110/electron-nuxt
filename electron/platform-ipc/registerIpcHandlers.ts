@@ -1,5 +1,6 @@
 import {
     BrowserWindow,
+    dialog,
     ipcMain,
     shell,
 } from 'electron';
@@ -107,6 +108,36 @@ interface ICoreIpcHandlerOptions {
 
 const logger = createLogger('ipc');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
+const SHELL_OPEN_EXTERNAL_MIN_INTERVAL_MS = 1_000;
+const shellOpenExternalLastOpenedAtBySender = new Map<number, number>();
+
+function assertShellOpenExternalRateLimit(senderId: number) {
+    const now = Date.now();
+    const lastOpenedAt = shellOpenExternalLastOpenedAtBySender.get(senderId) ?? 0;
+    if (now - lastOpenedAt < SHELL_OPEN_EXTERNAL_MIN_INTERVAL_MS) {
+        throw new Error('External URL opens are being requested too frequently.');
+    }
+    shellOpenExternalLastOpenedAtBySender.set(senderId, now);
+}
+
+async function confirmAssistantCodexInstall(parentWindow: BrowserWindow | null) {
+    const options = {
+        type: 'warning',
+        title: te('assistant.installCodex'),
+        message: te('assistant.installDescription'),
+        detail: 'EVB Viewer will download and run the official Codex installer.',
+        buttons: [
+            te('assistant.installCodex'),
+            te('dialogs.agentMcp.cancel'),
+        ],
+        defaultId: 1,
+        cancelId: 1,
+    } satisfies Electron.MessageBoxOptions;
+    const result = parentWindow
+        ? await dialog.showMessageBox(parentWindow, options)
+        : await dialog.showMessageBox(options);
+    return result.response === 0;
+}
 
 function getTargetWindowIdFromTransferRequest(request: unknown) {
     if (!isRecord(request) || !isRecord(request.target)) {
@@ -439,7 +470,8 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
         return skipUpdateVersion(normalizedVersion);
     });
 
-    registrar.handle(CORE_IPC_CHANNELS.shellOpenExternal, async (_event, url: unknown) => {
+    registrar.handle(CORE_IPC_CHANNELS.shellOpenExternal, async (event, url: unknown) => {
+        assertShellOpenExternalRateLimit(event.sender.id);
         const sanitizedUrl = sanitizeAllowedExternalUrl(url);
         await shell.openExternal(sanitizedUrl);
     });
@@ -477,9 +509,17 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
         return getAgentAssistantState(request);
     });
 
-    registrar.handle(CORE_IPC_CHANNELS.agentInstallAssistantCodex, () =>
-        installAgentAssistantCodex(),
-    );
+    registrar.handle(CORE_IPC_CHANNELS.agentInstallAssistantCodex, async (event) => {
+        const confirmed = await confirmAssistantCodexInstall(BrowserWindow.fromWebContents(event.sender));
+        if (!confirmed) {
+            return {
+                ok: false,
+                state: await getAgentAssistantState(),
+                error: 'Codex installation was cancelled.',
+            };
+        }
+        return installAgentAssistantCodex();
+    });
 
     registrar.handle(CORE_IPC_CHANNELS.agentStartAssistantLogin, (event, request: unknown) => {
         if (!isAgentAssistantLoginRequest(request)) {

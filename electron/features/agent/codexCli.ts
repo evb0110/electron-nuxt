@@ -24,6 +24,7 @@ const MIN_CODEX_APP_SERVER_VERSION = '0.133.0';
 const CODEX_COMMAND_TIMEOUT_MS = 15_000;
 const CODEX_INSTALL_TIMEOUT_MS = 5 * 60_000;
 const SHELL_DETECTION_TIMEOUT_MS = 5_000;
+const CODEX_COMMAND_MAX_OUTPUT_CHARS = 256 * 1024;
 
 interface ICodexCliCommandResult {
     ok: boolean;
@@ -127,6 +128,12 @@ function runCommand(
         onStderr?: (chunk: string) => void;
     } = {},
 ): Promise<ICodexCliCommandResult> {
+    const appendBoundedOutput = (existing: string, chunk: string) => {
+        if (existing.length >= CODEX_COMMAND_MAX_OUTPUT_CHARS) {
+            return existing;
+        }
+        return `${existing}${chunk}`.slice(0, CODEX_COMMAND_MAX_OUTPUT_CHARS);
+    };
     return new Promise((resolve) => {
         const child = spawn(command, args, {
             env: {
@@ -156,11 +163,11 @@ function runCommand(
         child.stdout.setEncoding('utf8');
         child.stderr.setEncoding('utf8');
         child.stdout.on('data', (chunk: string) => {
-            stdout += chunk;
+            stdout = appendBoundedOutput(stdout, chunk);
             options.onStdout?.(chunk);
         });
         child.stderr.on('data', (chunk: string) => {
-            stderr += chunk;
+            stderr = appendBoundedOutput(stderr, chunk);
             options.onStderr?.(chunk);
         });
         child.on('error', (error) => {

@@ -38,6 +38,7 @@ const DEFAULT_PROD_MCP_PORT = 38671;
 const DEFAULT_DEV_MCP_PORT = 38672;
 
 let localMcpServer: Server | null = null;
+let localMcpToken: string | null = null;
 let embeddedMcpServer: Server | null = null;
 let embeddedMcpServerDescriptor: ILocalMcpServerDescriptor | null = null;
 // Stable for the server's lifetime so sessions opened earlier keep working; rotated only on full shutdown.
@@ -109,6 +110,14 @@ export function getLocalMcpServerDescriptor(): ILocalMcpServerDescriptor {
     };
 }
 
+function getLocalMcpServerBearerToken() {
+    const configuredToken = process.env.EVB_MCP_TOKEN?.trim();
+    localMcpToken ??= configuredToken && configuredToken.length > 0
+        ? configuredToken
+        : randomBytes(32).toString('hex');
+    return localMcpToken;
+}
+
 export function isLocalMcpServerRunning() {
     return localMcpServer !== null;
 }
@@ -157,7 +166,7 @@ export function startLocalMcpServer() {
     const identity = createLocalMcpServerIdentity(port);
     const options = createDefaultMcpRequestOptions(identity);
 
-    const server = createServer(createHttpHandler(options));
+    const server = createServer(createHttpHandler(options, { bearerToken: getLocalMcpServerBearerToken() }));
     server.on('error', (error) => {
         logger.error(`Local MCP server failed: ${getErrorMessage(error)}`);
     });
