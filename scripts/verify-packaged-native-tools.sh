@@ -48,6 +48,71 @@ check_dir() {
   fi
 }
 
+check_no_absolute_symlinks() {
+  local root="$1"
+  local label="$2"
+  local has_absolute_symlink=0
+
+  while IFS= read -r -d '' link_path; do
+    local target
+    target="$(readlink "$link_path" || true)"
+    case "$target" in
+      /*)
+        echo "Error: Absolute symlink in $label: $link_path -> $target"
+        has_absolute_symlink=1
+        ;;
+    esac
+  done < <(find "$root" -type l -print0)
+
+  if [ "$has_absolute_symlink" -ne 0 ]; then
+    exit 1
+  fi
+}
+
+macos_macho_arch_for_release_arch() {
+  case "$1" in
+    arm64)
+      echo "arm64"
+      ;;
+    x64)
+      echo "x86_64"
+      ;;
+    *)
+      echo "Error: Unsupported macOS release architecture for Mach-O verification: $1"
+      exit 1
+      ;;
+  esac
+}
+
+check_macos_file_arch() {
+  local file_path="$1"
+  local expected_arch="$2"
+  if ! file "$file_path" 2>/dev/null | grep -q 'Mach-O'; then
+    return 0
+  fi
+
+  local archs
+  archs="$(lipo -archs "$file_path" 2>/dev/null || true)"
+  if [ -z "$archs" ]; then
+    echo "Error: Unable to determine Mach-O architecture for $file_path"
+    return 1
+  fi
+
+  case " $archs " in
+    *" $expected_arch "*)
+      return 0
+      ;;
+    *)
+      echo "Error: $file_path does not contain expected architecture $expected_arch (found: $archs)"
+      return 1
+      ;;
+  esac
+}
+
+page_processor_required_for_platform() {
+  [ "$platform" = "mac" ]
+}
+
 check_file "$resource_root/tesseract/$platform_arch/bin/tesseract$exe_suffix" "tesseract binary"
 if [ "$platform" != "win" ]; then
   check_file "$resource_root/tesseract/$platform_arch/bin/unpaper$exe_suffix" "unpaper binary"
@@ -78,8 +143,22 @@ check_file "$resource_root/pdf-search/$platform_arch/bin/evb-pdf-search$exe_suff
 
 page_processor_root="$resource_root/page-processing/$platform_arch"
 page_processor_binary="$page_processor_root/bin/page-processor/page-processor$exe_suffix"
+page_processor_internal_dir="$page_processor_root/bin/page-processor/_internal"
 if [ -d "$page_processor_root" ]; then
   check_file "$page_processor_binary" "page-processor binary"
+  if [ "$platform" = "mac" ]; then
+    check_dir "$page_processor_internal_dir" "page-processor PyInstaller _internal directory"
+    if ! find "$page_processor_internal_dir" -type f -print -quit | grep -q .; then
+      echo "Error: page-processor PyInstaller _internal directory is empty ($page_processor_internal_dir)"
+      exit 1
+    fi
+    check_no_absolute_symlinks "$page_processor_internal_dir" "page-processor PyInstaller _internal directory"
+  fi
+elif page_processor_required_for_platform; then
+  echo "Error: Missing required page-processor packaged resources ($page_processor_root)"
+  exit 1
+else
+  echo "Skipping page-processor packaged resource check for $platform_arch"
 fi
 
 find_tool_files() {
@@ -173,13 +252,28 @@ run_macos_packaged_tool_smoke() {
 }
 
 if [ "$platform" = "mac" ]; then
+  if ! command -v lipo >/dev/null 2>&1; then
+    echo "Error: lipo is required for macOS architecture verification"
+    exit 1
+  fi
+  if ! command -v file >/dev/null 2>&1; then
+    echo "Error: file is required for macOS architecture verification"
+    exit 1
+  fi
+
+  expected_macho_arch="$(macos_macho_arch_for_release_arch "$arch")"
   unresolved=0
+  arch_mismatch=0
   while IFS= read -r file; do
     refs="$(otool -L "$file" 2>/dev/null | grep -E '/opt/homebrew|/usr/local/opt|/usr/local/Cellar' || true)"
     if [ -n "$refs" ]; then
       echo "Error: Unresolved Homebrew reference in $file"
       echo "$refs" | sed 's/^/  /'
       unresolved=1
+    fi
+
+    if ! check_macos_file_arch "$file" "$expected_macho_arch"; then
+      arch_mismatch=1
     fi
   done < <(
     if [ -f "$resource_root/tesseract/$platform_arch/bin/tesseract" ]; then
@@ -192,6 +286,9 @@ if [ "$platform" = "mac" ]; then
   if [ "$unresolved" -ne 0 ]; then
     exit 1
   fi
+  if [ "$arch_mismatch" -ne 0 ]; then
+    exit 1
+  fi
 
   run_macos_packaged_tool_smoke "djvused" "$resource_root/djvulibre/$platform_arch/bin/djvused" --help
   # ddjvu prints usage to stdout and exits 1 for --help on healthy builds.
@@ -202,7 +299,7 @@ if [ "$platform" = "mac" ]; then
   run_macos_packaged_tool_smoke "evb-pdf-image-combine" "$resource_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --version
   run_macos_packaged_tool_smoke "evb-pdf-page-ops" "$resource_root/pdf-page-ops/$platform_arch/bin/evb-pdf-page-ops" --version
   run_macos_packaged_tool_smoke "evb-pdf-search" "$resource_root/pdf-search/$platform_arch/bin/evb-pdf-search" --version
-  if [ -f "$page_processor_binary" ]; then
+  if page_processor_required_for_platform || [ -f "$page_processor_binary" ]; then
     run_macos_packaged_tool_smoke "page-processor" "$page_processor_binary" --version
   fi
   run_macos_packaged_tool_smoke "tesseract" "$resource_root/tesseract/$platform_arch/bin/tesseract" --version

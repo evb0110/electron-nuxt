@@ -133,6 +133,7 @@ describe('macOS native tool workflow', () => {
 
     it('keeps local macOS bundling prerequisites aligned with CI', async () => {
         const workflow = await readProjectFile('.github/workflows/build.yml');
+        const intelWorkflow = await readProjectFile('.github/workflows/build-mac-intel.yml');
         const bundleAll = await readProjectFile('scripts/bundle-all-macos.sh');
         const bundleUnpaper = await readProjectFile('scripts/bundle-leptonica-unpaper-macos.sh');
         const ciBrewPackages = extractBrewInstallPackages(workflow);
@@ -147,6 +148,33 @@ describe('macOS native tool workflow', () => {
         expect(ciBrewPackages).toEqual(expect.arrayContaining(unpaperBuildPackages));
         expect(bundleUnpaper).toContain('sphinx-build is required');
         expect(bundleUnpaper).toContain('brew --prefix sphinx-doc');
+        expect(workflow).toContain('bash scripts/bundle-page-processor-macos.sh');
+        expect(intelWorkflow).toContain('bash scripts/bundle-page-processor-macos.sh');
+        expect(bundleAll).toContain('"$SCRIPT_DIR/bundle-page-processor-macos.sh"');
+    });
+
+    it('keeps the required macOS page-processor bundler on PyInstaller onedir with a real fixture smoke', async () => {
+        const bundleAll = await readProjectFile('scripts/bundle-all-macos.sh');
+        const bundlePageProcessor = await readProjectFile('scripts/bundle-page-processor-macos.sh');
+
+        expect(bundleAll).toContain('TOTAL_STEPS=5');
+        expect(bundleAll).toContain('"$SCRIPT_DIR/bundle-page-processor-macos.sh"');
+        expect(bundleAll).not.toContain('Optional page-processor experiments use: scripts/bundle-page-processor-macos.sh');
+        expect(bundlePageProcessor).toContain('PYINSTALLER_COLLECT_DATA_PACKAGES=(');
+        expect(bundlePageProcessor).toContain('PYINSTALLER_COPY_METADATA_PACKAGES=(');
+        expect(bundlePageProcessor).toContain('PYINSTALLER_HIDDEN_IMPORTS=(');
+        expect(bundlePageProcessor).toContain('PYINSTALLER_ARGS+=(--collect-data "$package")');
+        expect(bundlePageProcessor).toContain('PYINSTALLER_ARGS+=(--copy-metadata "$package")');
+        expect(bundlePageProcessor).not.toContain('--collect-all');
+        expect(bundlePageProcessor).toContain('page_dewarp');
+        expect(bundlePageProcessor).toContain('page_dewarp.optimise._scipy');
+        expect(bundlePageProcessor).toContain('scipy.optimize');
+        expect(bundlePageProcessor).toContain('--onedir');
+        expect(bundlePageProcessor).toContain('INTERNAL_DIR="$BUNDLE_ROOT/_internal"');
+        expect(bundlePageProcessor).toContain('verify_bundle_architecture "$PYTHON_MACHO_ARCH"');
+        expect(bundlePageProcessor).toContain('Testing binary with generated fixtures');
+        expect(bundlePageProcessor).toContain('PAGE_PROCESSOR_PNG_COMPRESSION=0 "$BINARY_PATH"');
+        expect(bundlePageProcessor).toContain('"$BINARY_PATH" img2pdf "$SMOKE_IMAGE" "$SMOKE_PDF" --dpi 200');
     });
 
     it('maps release platform and architecture tags through the shared shell helper', () => {
@@ -181,24 +209,61 @@ describe('macOS native tool workflow', () => {
         expect(bundleUnpaper).toContain('exit 1');
     });
 
-    it('wires optional page-processor resources into packaging, signing, and verification', async () => {
+    it('requires page-processor release resources on macOS and leaves other platforms dormant', async () => {
         const electronBuilder = await readProjectFile('electron-builder.yml');
         const afterPack = await readProjectFile('scripts/afterPack.cjs');
         const afterSign = await readProjectFile('scripts/afterSign.cjs');
+        const workflow = await readProjectFile('.github/workflows/build.yml');
+        const intelWorkflow = await readProjectFile('.github/workflows/build-mac-intel.yml');
         const sourceMatrix = await readProjectFile('scripts/check-native-tools-source-matrix.sh');
         const verifier = await readProjectFile('scripts/verify-packaged-native-tools.sh');
 
         expect(electronBuilder).not.toContain('from: resources/page-processing/');
-        expect(afterPack).toContain('copyOptionalPageProcessingResources(context)');
+        expect(workflow).toContain('EVB_INCLUDE_PAGE_PROCESSOR: \'1\'');
+        expect(intelWorkflow).toContain('EVB_INCLUDE_PAGE_PROCESSOR: \'1\'');
+        expect(afterPack).toContain('function isPageProcessingRequired(context)');
+        expect(afterPack).toContain('return context.electronPlatformName === \'darwin\' && process.env.EVB_INCLUDE_PAGE_PROCESSOR === \'1\';');
+        expect(afterPack).toContain('function shouldCopyPageProcessingResources()');
+        expect(afterPack).toContain('return process.env.EVB_INCLUDE_PAGE_PROCESSOR === \'1\';');
+        expect(afterPack).toContain('copyPageProcessingResources(context)');
         expect(afterPack).toContain('resources\', \'page-processing\', tag');
+        expect(afterPack).toContain('Required page-processing resources not found');
         expect(afterPack).toContain('Optional page-processing resources not found');
-        expect(afterPack).toContain('fs.cpSync(src, dst, { recursive: true })');
+        expect(afterPack).toContain('verbatimSymlinks: true');
         expect(afterSign).toContain('path.join(resourcesDir, \'page-processing\')');
-        expect(sourceMatrix).toContain('resources/page-processing/$tag/bin/page-processor/page-processor$exe_suffix');
-        expect(sourceMatrix).toContain('SKIP    page-processor: resources/page-processing/$tag not present');
+        expect(afterSign).toContain('const PYINSTALLER_ENTITLEMENTS');
+        expect(afterSign).toContain('filePath.endsWith(\'.so\')');
+        expect(afterSign).toContain('function isPageProcessorExecutable(filePath)');
+        expect(afterSign).toContain('directoryPath.endsWith(\'.framework\')');
+        expect(afterSign).toContain('entitlements: PYINSTALLER_ENTITLEMENTS');
+        expect(afterSign).toContain('runtime: true');
+        expect(sourceMatrix).toContain('page_processor_required_for_tag()');
+        expect(sourceMatrix).toContain('&& [ -f "scripts/bundle-page-processor-macos.sh" ]');
+        expect(sourceMatrix).toContain('check_file_for_tag "$root/bin/page-processor/page-processor$exe_suffix" "page-processor" "$tag"');
+        expect(sourceMatrix).toContain('check_dir_for_tag "$root/bin/page-processor/_internal" "page-processor PyInstaller _internal" "$tag"');
+        expect(sourceMatrix).toContain('echo "  CI-GEN  $label: $path"');
+        expect(sourceMatrix).toContain('SKIP    page-processor: not bundled for $tag');
+        expect(verifier).toContain('page_processor_required_for_platform()');
         expect(verifier).toContain('page_processor_root="$resource_root/page-processing/$platform_arch"');
         expect(verifier).toContain('page_processor_binary="$page_processor_root/bin/page-processor/page-processor$exe_suffix"');
+        expect(verifier).toContain('page_processor_internal_dir="$page_processor_root/bin/page-processor/_internal"');
+        expect(verifier).toContain('check_dir "$page_processor_internal_dir" "page-processor PyInstaller _internal directory"');
+        expect(verifier).toContain('check_no_absolute_symlinks "$page_processor_internal_dir" "page-processor PyInstaller _internal directory"');
+        expect(verifier).toContain('Absolute symlink in $label');
+        expect(verifier).toContain('Missing required page-processor packaged resources');
+        expect(verifier).toContain('Skipping page-processor packaged resource check for $platform_arch');
         expect(verifier).toContain('run_macos_packaged_tool_smoke "page-processor" "$page_processor_binary" --version');
+        expect(verifier).toContain('if page_processor_required_for_platform || [ -f "$page_processor_binary" ]; then');
+    });
+
+    it('verifies macOS packaged native tool architectures against the release target', async () => {
+        const verifier = await readProjectFile('scripts/verify-packaged-native-tools.sh');
+
+        expect(verifier).toContain('macos_macho_arch_for_release_arch()');
+        expect(verifier).toContain('check_macos_file_arch()');
+        expect(verifier).toContain('expected_macho_arch="$(macos_macho_arch_for_release_arch "$arch")"');
+        expect(verifier).toContain('arch_mismatch=0');
+        expect(verifier).toContain('check_macos_file_arch "$file" "$expected_macho_arch"');
     });
 
     it('lets the release quality gate defer CI-generated host Linux resources explicitly', () => {

@@ -75,6 +75,7 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('python/page-processor/');
         expect(workflow).toContain('bundle-page-processor-macos[.]sh');
         expect(workflow).toContain('devkit/(page-processing-harness|process-pdf-split-pad)[.]py');
+        expect(workflow).toContain('afterPack[.]cjs');
         expect(workflow).toContain('electron-builder[.]yml');
         expect(workflow).toContain('name: Native Rust Tests');
         expect(workflow).toContain('run: pnpm run test:rust');

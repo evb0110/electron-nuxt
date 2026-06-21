@@ -14,7 +14,10 @@ Default mode:
 --all mode:
 - Validate source readiness for the full release matrix. Generated non-host
   native tool folders may be absent locally when a CI bundling script owns that
-  target; host resources are still required unless
+  target. Page-processor resources are release-critical on macOS, where the
+  PyInstaller bundler exists, and remain dormant on Linux/Windows until those
+  platforms have functional bundle paths.
+  Other host resources are still required unless
   EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN=1 is set for a pre-bundle CI quality gate.
 EOF
 }
@@ -85,7 +88,8 @@ has_ci_bundler_for_tag() {
       [ -f "scripts/bundle-tesseract-macos.sh" ] \
         && [ -f "scripts/bundle-leptonica-unpaper-macos.sh" ] \
         && [ -f "scripts/bundle-pdf-tools-macos.sh" ] \
-        && [ -f "scripts/bundle-djvu-macos.sh" ]
+        && [ -f "scripts/bundle-djvu-macos.sh" ] \
+        && [ -f "scripts/bundle-page-processor-macos.sh" ]
       ;;
     linux-arm64|linux-x64)
       [ -f "scripts/bundle-tools-linux.sh" ]
@@ -137,6 +141,40 @@ check_dir_for_tag() {
   fi
 }
 
+page_processor_required_for_tag() {
+  local tag="$1"
+  case "$tag" in
+    darwin-arm64|darwin-x64)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+check_page_processor_for_tag() {
+  local tag="$1"
+  local platform="${tag%-*}"
+  local exe_suffix=""
+  if [ "$platform" = "win32" ]; then
+    exe_suffix=".exe"
+  fi
+
+  local root="resources/page-processing/$tag"
+  if [ -d "$root" ]; then
+    check_file_for_tag "$root/bin/page-processor/page-processor$exe_suffix" "page-processor" "$tag"
+    if [ "$platform" = "darwin" ]; then
+      check_dir_for_tag "$root/bin/page-processor/_internal" "page-processor PyInstaller _internal" "$tag"
+    fi
+  elif page_processor_required_for_tag "$tag"; then
+    check_file_for_tag "$root/bin/page-processor/page-processor$exe_suffix" "page-processor" "$tag"
+    check_dir_for_tag "$root/bin/page-processor/_internal" "page-processor PyInstaller _internal" "$tag"
+  else
+    echo "  SKIP    page-processor: not bundled for $tag"
+  fi
+}
+
 check_tag() {
   local tag="$1"
   local platform="${tag%-*}"
@@ -161,11 +199,7 @@ check_tag() {
   check_file_for_tag "resources/qpdf/$tag/bin/qpdf$exe_suffix" "qpdf" "$tag"
   check_file_for_tag "resources/djvulibre/$tag/bin/ddjvu$exe_suffix" "ddjvu" "$tag"
   check_file_for_tag "resources/djvulibre/$tag/bin/djvused$exe_suffix" "djvused" "$tag"
-  if [ -d "resources/page-processing/$tag" ]; then
-    check_file_for_tag "resources/page-processing/$tag/bin/page-processor/page-processor$exe_suffix" "page-processor" "$tag"
-  else
-    echo "  SKIP    page-processor: resources/page-processing/$tag not present"
-  fi
+  check_page_processor_for_tag "$tag"
 }
 
 if [ "$check_all" -eq 1 ]; then

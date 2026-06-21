@@ -53,6 +53,7 @@ jobs:
           bash scripts/bundle-leptonica-unpaper-macos.sh
           bash scripts/bundle-pdf-tools-macos.sh
           bash scripts/bundle-djvu-macos.sh
+          bash scripts/bundle-page-processor-macos.sh
 
       - name: Install Rust WASM target
         run: rustup target add wasm32-unknown-unknown
@@ -81,6 +82,8 @@ jobs:
         # detaching the mounted image (hdiutil exit code 16: resource busy).
         # Build ZIP only in this supplemental lane to keep x64 artifacts flowing.
         shell: bash
+        env:
+          EVB_INCLUDE_PAGE_PROCESSOR: '1'
         run: |
           if [ -n "${MAC_CSC_LINK:-}" ] && [ -n "${MAC_CSC_KEY_PASSWORD:-}" ]; then
             export CSC_LINK="$MAC_CSC_LINK"

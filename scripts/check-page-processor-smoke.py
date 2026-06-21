@@ -185,6 +185,13 @@ def result_payload(stdout: str) -> dict:
     return results[0]
 
 
+def error_payload(stderr: str) -> dict:
+    lines = [line for line in stderr.splitlines() if line.strip()]
+    if len(lines) != 1:
+        raise AssertionError(f"Expected one error payload, got: {stderr}")
+    return json.loads(lines[0])
+
+
 def assert_pdf_header(path: Path) -> None:
     with path.open("rb") as handle:
         header = handle.read(5)
@@ -238,6 +245,16 @@ def run_main_helper_regressions() -> None:
         raise AssertionError("uint16 padding white value should use full dtype range")
     if module.white_value_for_dtype(np.dtype("float32")) != 1.0:
         raise AssertionError("float padding white value should be normalized white")
+    for invalid_angle in (float("nan"), -45.01, 45.01):
+        try:
+            module.coerce_deskew_angle(invalid_angle)
+        except Exception as error:
+            if getattr(error, "code", None) != "INVALID_PARAMS":
+                raise AssertionError(f"Unexpected deskew angle error for {invalid_angle}: {error}") from error
+        else:
+            raise AssertionError(f"Deskew angle should reject {invalid_angle}")
+    if module.coerce_deskew_angle(45.0) != 45.0 or module.coerce_deskew_angle(-45.0) != -45.0:
+        raise AssertionError("Deskew angle should allow boundary values")
 
     with tempfile.TemporaryDirectory(prefix="evb-page-processor-reencode-paths-") as temp_dir:
         work_dir = Path(temp_dir)
@@ -253,7 +270,7 @@ def assert_invalid_params(result: subprocess.CompletedProcess[str], field: str) 
     if result.returncode == 0:
         raise AssertionError(f"Expected INVALID_PARAMS failure for {field}, got success: {result.stdout}")
 
-    payload = json.loads(result.stderr)
+    payload = error_payload(result.stderr)
     if payload.get("code") != "INVALID_PARAMS":
         raise AssertionError(f"Expected INVALID_PARAMS for {field}, got: {payload}")
 
@@ -410,6 +427,38 @@ def run_stage_and_padding_cli() -> None:
             "--params",
             json.dumps({"split_type": "vertical", "position": 0.5, "overlap": 130}),
         ], check=False), "overlap")
+        assert_invalid_params(run_page_processor([
+            "apply",
+            "rotation",
+            str(spread_path),
+            str(temp_root / "bad-rotation.png"),
+            "--params",
+            json.dumps({"rotation": 45}),
+        ], check=False), "rotation")
+        assert_invalid_params(run_page_processor([
+            "apply",
+            "deskew",
+            str(spread_path),
+            str(temp_root / "bad-deskew-angle.png"),
+            "--params",
+            json.dumps({"angle": 90, "background_color": [255, 255, 255]}),
+        ], check=False), "angle")
+        assert_invalid_params(run_page_processor([
+            "apply",
+            "deskew",
+            str(spread_path),
+            str(temp_root / "bad-deskew-nan.png"),
+            "--params",
+            '{"angle": NaN, "background_color": [255, 255, 255]}',
+        ], check=False), "angle")
+        assert_invalid_params(run_page_processor([
+            "apply",
+            "deskew",
+            str(spread_path),
+            str(temp_root / "bad-background.png"),
+            "--params",
+            json.dumps({"angle": 1.5, "background_color": [255, -1, 255]}),
+        ], check=False), "background_color")
 
         pad_payload = result_payload(run_page_processor([
             "pad",
@@ -457,6 +506,56 @@ def run_stage_and_padding_cli() -> None:
             raise AssertionError(f"Expected uint16 padding to be white, got {int(uint16_padded[0, 0])}")
         if int(uint16_padded[1, 1]) != 1234:
             raise AssertionError("Padded output did not preserve centered source pixels")
+
+        unicode_input = temp_root / "\u0441\u043a\u0430\u043d.png"
+        unicode_output = temp_root / "\u0432\u044b\u0445\u043e\u0434" / "\u043f\u0430\u0434.png"
+        encoded_ok, encoded = cv2.imencode(".png", spread, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+        if not encoded_ok:
+            raise AssertionError("Failed to encode unicode path fixture")
+        unicode_input.write_bytes(encoded.tobytes())
+        unicode_pad_payload = result_payload(run_page_processor([
+            "pad",
+            str(unicode_input),
+            str(unicode_output),
+            "--width",
+            "280",
+            "--height",
+            "160",
+        ], env={"PAGE_PROCESSOR_PNG_COMPRESSION": "0"}).stdout)
+        if not unicode_pad_payload.get("success") or not unicode_output.exists():
+            raise AssertionError(f"Unicode pad path did not produce output: {unicode_pad_payload}")
+        unicode_padded = cv2.imdecode(np.frombuffer(unicode_output.read_bytes(), dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+        if unicode_padded is None or unicode_padded.shape[:2] != (160, 280):
+            raise AssertionError(f"Unicode pad output could not be decoded: {unicode_pad_payload}")
+
+        unicode_detect_payload = result_payload(run_page_processor([
+            "detect",
+            str(unicode_input),
+        ]).stdout)
+        if unicode_detect_payload.get("size") != {"width": 260, "height": 140}:
+            raise AssertionError(f"Unicode detect did not report fixture size: {unicode_detect_payload}")
+
+        unicode_process_dir = temp_root / "\u0432\u044b\u0445\u043e\u0434 split path"
+        unicode_process_payload = result_payload(run_page_processor([
+            "process",
+            str(unicode_input),
+            str(unicode_process_dir),
+            "--operations",
+            "split",
+            "--force-split",
+            "--no-auto-detect",
+        ], env={
+            "PAGE_PROCESSOR_DEBUG_SPLIT": "1",
+            "PAGE_PROCESSOR_PNG_COMPRESSION": "0",
+        }).stdout)
+        unicode_output_paths = [Path(path) for path in unicode_process_payload.get("output_paths", [])]
+        if not unicode_process_payload.get("success") or len(unicode_output_paths) != 2:
+            raise AssertionError(f"Unicode process did not split into two outputs: {unicode_process_payload}")
+        if not all(path.exists() for path in unicode_output_paths):
+            raise AssertionError(f"Unicode process outputs are missing: {unicode_process_payload}")
+        debug_overlay = unicode_process_payload.get("split_debug", {}).get("debug_overlay_path")
+        if not debug_overlay or not Path(debug_overlay).exists():
+            raise AssertionError(f"Unicode process did not write split debug overlay: {unicode_process_payload}")
 
         tiny_path = temp_root / "tiny.png"
         tiny_image = np.full((8, 8, 3), 255, dtype=np.uint8)
@@ -507,6 +606,28 @@ def run_pdf_cli() -> None:
             if not cv2.imwrite(str(path), image, [cv2.IMWRITE_PNG_COMPRESSION, 0]):
                 raise AssertionError(f"Failed to write generated PDF fixture: {path}")
 
+        missing_path = temp_root / "missing.png"
+        missing_single = run_page_processor([
+            "img2pdf",
+            str(missing_path),
+            str(temp_root / "missing-single.pdf"),
+        ], check=False)
+        assert_invalid_params(missing_single, "input")
+        details = error_payload(missing_single.stderr).get("details", {})
+        if details.get("index") != 0 or details.get("path") != str(missing_path):
+            raise AssertionError(f"Missing single image did not report input index/path: {details}")
+
+        missing_page = run_page_processor([
+            "img2pdf-pages",
+            str(temp_root / "missing-pages.pdf"),
+            str(image_one),
+            str(missing_path),
+        ], check=False)
+        assert_invalid_params(missing_page, "images")
+        details = error_payload(missing_page.stderr).get("details", {})
+        if details.get("index") != 1 or details.get("path") != str(missing_path):
+            raise AssertionError(f"Missing page image did not report page index/path: {details}")
+
         single_payload = result_payload(run_page_processor([
             "img2pdf",
             str(image_one),
@@ -538,6 +659,168 @@ def run_pdf_cli() -> None:
         ):
             raise AssertionError(f"img2pdf-pages did not report expected metadata: {multi_payload}")
         assert_pdf_header(multi_pdf)
+
+
+def write_fake_page_dewarp_package(fake_root: Path) -> None:
+    package = fake_root / "page_dewarp"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("__version__ = '9.9.9'\n", encoding="utf-8")
+    (package / "options.py").write_text(
+        """
+class Config:
+    __struct_fields__ = (
+        "DEBUG_LEVEL",
+        "NO_BINARY",
+        "USE_BATCH",
+        "DEBUG_DEST",
+        "OUTPUT_DIR",
+        "OUTPUT_FORMAT",
+        "OUTPUT_JSON",
+    )
+
+    def __init__(self, **kwargs):
+        self.DEBUG_LEVEL = 1
+        self.NO_BINARY = 0
+        self.USE_BATCH = "on"
+        self.DEBUG_DEST = "screen"
+        self.OUTPUT_DIR = "."
+        self.OUTPUT_FORMAT = "jpg"
+        self.OUTPUT_JSON = 1
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (package / "image.py").write_text(
+        """
+import os
+import sys
+from pathlib import Path
+
+import cv2
+
+
+class WarpedImage:
+    def __init__(self, image_path, config=None):
+        self.written = False
+        self.outfile = ""
+        print("fake page-dewarp stdout noise")
+        print("fake page-dewarp stderr noise", file=sys.stderr)
+        if os.environ.get("FAKE_PAGE_DEWARP_MODE") == "no_output":
+            print("skipping page because no spans were found")
+            return
+
+        source = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+        if source is None:
+            raise RuntimeError("fake page-dewarp could not read input")
+
+        result = source.copy()
+        result[:, : max(1, result.shape[1] // 4)] = (0, 0, 0)
+        output_dir = Path(getattr(config, "OUTPUT_DIR", Path(image_path).parent))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        self.outfile = str(output_dir / f"{Path(image_path).stem}_thresh.png")
+        if not cv2.imwrite(self.outfile, result):
+            raise RuntimeError("fake page-dewarp could not write output")
+        self.written = True
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+
+def run_fake_dewarp_cli() -> None:
+    try:
+        import cv2  # type: ignore
+        import numpy as np  # type: ignore
+    except ImportError as error:
+        raise RuntimeError(
+            "Page processor smoke requires core runtime dependencies. "
+            "Install python/page-processor/requirements.txt or at least numpy and opencv-python-headless."
+        ) from error
+
+    with tempfile.TemporaryDirectory(prefix="evb-page-processor-dewarp-smoke-") as temp_dir:
+        temp_root = Path(temp_dir)
+        fake_root = temp_root / "fakepkg"
+        write_fake_page_dewarp_package(fake_root)
+        input_path = temp_root / "page.png"
+        output_path = temp_root / "dewarped.png"
+        skipped_output_path = temp_root / "dewarp-skipped.png"
+
+        image = np.full((64, 80, 3), 255, dtype=np.uint8)
+        cv2.rectangle(image, (20, 18), (60, 46), (0, 0, 0), 2)
+        if not cv2.imwrite(str(input_path), image, [cv2.IMWRITE_PNG_COMPRESSION, 0]):
+            raise AssertionError("Failed to write dewarp fixture")
+
+        fake_python_path = f"{fake_root}{os.pathsep}{os.environ.get('PYTHONPATH', '')}"
+        dewarp_result = run_page_processor([
+            "apply",
+            "dewarp",
+            str(input_path),
+            str(output_path),
+            "--params",
+            "{}",
+        ], env={
+            "PYTHONPATH": fake_python_path,
+            "FAKE_PAGE_DEWARP_MODE": "changed",
+            "PAGE_PROCESSOR_PNG_COMPRESSION": "0",
+        })
+        payload = result_payload(dewarp_result.stdout)
+        if not payload.get("success") or not payload.get("dewarp_applied") or not payload.get("changed"):
+            raise AssertionError(f"Fake dewarp output was not applied: {payload}")
+        debug = payload.get("debug", {})
+        updates = debug.get("config_updates", {})
+        if updates.get("NO_BINARY") != 1 or not updates.get("OUTPUT_DIR"):
+            raise AssertionError(f"Fake dewarp did not receive safe config updates: {debug}")
+        if "fake page-dewarp stdout noise" not in debug.get("captured_stdout", ""):
+            raise AssertionError(f"Fake dewarp stdout was not captured in debug metadata: {debug}")
+        dewarped_image = cv2.imread(str(output_path), cv2.IMREAD_UNCHANGED)
+        if dewarped_image is None or not np.any(dewarped_image[:, :20] == 0):
+            raise AssertionError("Fake dewarp changed output was not saved")
+
+        skipped_result = run_page_processor([
+            "apply",
+            "dewarp",
+            str(input_path),
+            str(skipped_output_path),
+            "--params",
+            "{}",
+        ], env={
+            "PYTHONPATH": fake_python_path,
+            "FAKE_PAGE_DEWARP_MODE": "no_output",
+            "PAGE_PROCESSOR_PNG_COMPRESSION": "0",
+        })
+        skipped_payload = result_payload(skipped_result.stdout)
+        if skipped_payload.get("dewarp_applied") or skipped_payload.get("changed"):
+            raise AssertionError(f"No-output fake dewarp should preserve original image: {skipped_payload}")
+        if skipped_payload.get("reason") != "page_dewarp_skipped_insufficient_spans":
+            raise AssertionError(f"No-output fake dewarp reported wrong reason: {skipped_payload}")
+
+        broken_root = temp_root / "brokenpkg"
+        broken_package = broken_root / "page_dewarp"
+        broken_package.mkdir(parents=True)
+        (broken_package / "__init__.py").write_text("", encoding="utf-8")
+        (broken_package / "image.py").write_text(
+            "raise ImportError('fake transitive dependency missing')\n",
+            encoding="utf-8",
+        )
+        (broken_package / "options.py").write_text("class Config:\n    pass\n", encoding="utf-8")
+        broken_detect_payload = result_payload(run_page_processor([
+            "detect",
+            "dewarp",
+            str(input_path),
+            "--min-curvature",
+            "0.0",
+        ], env={
+            "PYTHONPATH": f"{broken_root}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
+        }).stdout)
+        if broken_detect_payload.get("needs_dewarp"):
+            raise AssertionError(f"Broken page-dewarp runtime should not be reported usable: {broken_detect_payload}")
+        broken_debug = broken_detect_payload.get("debug", {})
+        if (
+            broken_debug.get("reason") != "page_dewarp_runtime_unavailable"
+            or broken_debug.get("page_dewarp_module_found") is not True
+            or broken_debug.get("page_dewarp_available") is not False
+        ):
+            raise AssertionError(f"Broken page-dewarp runtime reported wrong debug payload: {broken_detect_payload}")
 
 
 def run_legacy_deskew_sign_cli() -> None:
@@ -609,6 +892,7 @@ def main() -> None:
     run_generated_scan_pipeline()
     run_stage_and_padding_cli()
     run_pdf_cli()
+    run_fake_dewarp_cli()
     run_legacy_deskew_sign_cli()
     print("Page processor smoke check passed.")
 

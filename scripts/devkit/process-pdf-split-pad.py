@@ -21,6 +21,7 @@ import json
 import os
 import platform as host_platform
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -30,6 +31,7 @@ from pathlib import Path
 
 RE_RANGE = re.compile(r"^\s*(\d+)\s*-\s*(\d+)\s*$")
 RE_INT = re.compile(r"^\s*\d+\s*$")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def now_tag() -> str:
@@ -69,10 +71,18 @@ def resolve_host_page_processing_tag() -> tuple[str, str]:
 def default_page_processor_path() -> Path:
     configured = os.environ.get("EVB_PAGE_PROCESSOR")
     if configured:
-        return Path(configured)
+        return Path(configured).expanduser()
 
     tag, suffix = resolve_host_page_processing_tag()
-    return Path("resources/page-processing") / tag / "bin" / "page-processor" / f"page-processor{suffix}"
+    return PROJECT_ROOT / "resources/page-processing" / tag / "bin" / "page-processor" / f"page-processor{suffix}"
+
+
+def output_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
 
 
 def run(
@@ -195,9 +205,30 @@ def process_image(
     env.setdefault("PAGE_PROCESSOR_PNG_COMPRESSION", "1")
     # Debug overlay can be enabled from the shell if needed.
 
-    proc = run(cmd, env=env, timeout_s=timeout_s)
+    try:
+        proc = subprocess.run(
+            cmd,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired as e:
+        (out_dir / "stdout.log").write_text(output_text(e.stdout), encoding="utf-8")
+        (out_dir / "stderr.log").write_text(output_text(e.stderr), encoding="utf-8")
+        (out_dir / "timeout.log").write_text(
+            f"Timed out after {timeout_s}s\nCommand: {shlex.join(cmd)}\n",
+            encoding="utf-8",
+        )
+        raise RuntimeError(f"page-processor timed out after {timeout_s}s; logs: {out_dir}") from e
+
     (out_dir / "stdout.log").write_text(proc.stdout, encoding="utf-8")
     (out_dir / "stderr.log").write_text(proc.stderr, encoding="utf-8")
+    if proc.returncode != 0:
+        raise RuntimeError(f"page-processor exited {proc.returncode}; logs: {out_dir}")
+
     return extract_result_json(proc.stdout)
 
 
@@ -268,7 +299,7 @@ def main() -> int:
     if not pages:
         ap.error("No pages selected")
 
-    out_root = args.out or Path(".devkit/tmp/pdf-split-pad") / f"{now_tag()}_{safe_stem(pdf)}"
+    out_root = args.out or PROJECT_ROOT / ".devkit/tmp/pdf-split-pad" / f"{now_tag()}_{safe_stem(pdf)}"
     out_root.mkdir(parents=True, exist_ok=True)
 
     render_dir = out_root / "render"

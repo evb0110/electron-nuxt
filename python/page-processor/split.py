@@ -8,16 +8,46 @@ import cv2
 import numpy as np
 from typing import Tuple
 
-from stages.image_utils import _to_gray, _resize_for_analysis, _smooth_1d
+
+_IMAGE_ANALYSIS_EXCEPTIONS = (cv2.error, ValueError, TypeError, FloatingPointError, IndexError)
+
+
+def _to_gray(image: np.ndarray) -> np.ndarray:
+    if len(image.shape) == 3:
+        return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    return image
+
+
+def _resize_for_analysis(gray: np.ndarray, max_dim: int = 1500) -> tuple[np.ndarray, float]:
+    h, w = gray.shape[:2]
+    if max(h, w) <= max_dim:
+        return gray, 1.0
+
+    scale = max_dim / float(max(h, w))
+    new_w = max(1, int(round(w * scale)))
+    new_h = max(1, int(round(h * scale)))
+    resized = cv2.resize(gray, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    return resized, scale
+
+
+def _smooth_1d(values: np.ndarray, kernel_size: int) -> np.ndarray:
+    if values.size == 0:
+        return values
+    k = max(3, int(kernel_size))
+    if k % 2 == 0:
+        k += 1
+    return cv2.GaussianBlur(values.reshape(1, -1).astype(np.float32), (k, 1), 0).reshape(-1)
 
 
 def _confidence_from_valley(curve: np.ndarray, idx: int) -> float:
     if curve.size == 0:
         return 0.0
     mean_val = float(np.mean(curve))
-    if mean_val <= 0:
+    if not np.isfinite(mean_val) or mean_val <= 0:
         return 0.0
     min_val = float(curve[int(idx)])
+    if not np.isfinite(min_val):
+        return 0.0
     depth = (mean_val - min_val) / mean_val
     return float(min(1.0, max(0.0, depth * 2.0)))
 
@@ -65,9 +95,9 @@ def _band_edges(curve: np.ndarray, idx: int) -> tuple[int, int]:
     return int(left), int(right)
 
 
-def find_gutter_position(image: np.ndarray) -> int:
+def analyze_gutter_position(image: np.ndarray) -> dict:
     """
-    Find the vertical gutter (fold line) position.
+    Analyze the vertical gutter (fold line) position.
 
     Uses multiple methods:
     1. Vertical projection valley (low ink/edges)
@@ -78,9 +108,26 @@ def find_gutter_position(image: np.ndarray) -> int:
         image: Input image (BGR format)
 
     Returns:
-        X coordinate of the gutter
+        Dictionary with pixel/normalized gutter position and signal debug data.
     """
     h, w = image.shape[:2]
+
+    def fallback(reason: str) -> dict:
+        gutter_x = w // 2
+        return {
+            "gutter_x": int(gutter_x),
+            "position": float(gutter_x) / float(max(1, w)),
+            "confidence": 0.0,
+            "method": "fallback_center",
+            "debug": {
+                "reason": reason,
+                "image_size": {"width": int(w), "height": int(h)},
+            },
+        }
+
+    if h < 1 or w < 1:
+        return fallback("empty_image")
+
     gray = _to_gray(image)
     gray_small, scale = _resize_for_analysis(gray, max_dim=1500)
     hs, ws = gray_small.shape[:2]
@@ -90,7 +137,7 @@ def find_gutter_position(image: np.ndarray) -> int:
     start = int(ws * 0.10)
     end = int(ws * 0.90)
     if end <= start + 10:
-        return w // 2
+        return fallback("search_region_too_small")
 
     region = gray_small[:, start:end]
     region_w = int(region.shape[1])
@@ -123,7 +170,7 @@ def find_gutter_position(image: np.ndarray) -> int:
         # Lower mean brightness => darker band (likely gutter shadow).
         shadow_curve = np.mean(sample, axis=0).astype(np.float64)
         shadow_s = _smooth_1d(shadow_curve, kernel_size=max(11, region_w // 20))
-    except Exception:
+    except _IMAGE_ANALYSIS_EXCEPTIONS:
         shadow_s = np.array([], dtype=np.float64)
 
     def norm_low(curve: np.ndarray) -> np.ndarray:
@@ -178,12 +225,16 @@ def find_gutter_position(image: np.ndarray) -> int:
 
     if shadow_s.size > 0 and comp_shadow >= max(comp_ink, comp_edge) + 0.05:
         band_curve = shadow_s
+        method = "shadow"
     elif comp_ink >= comp_edge and proj_s.size > 0:
         band_curve = proj_s
+        method = "ink_valley"
     elif edge_s.size > 0:
         band_curve = edge_s
+        method = "edge_valley"
     else:
         band_curve = proj_s
+        method = "ink_valley"
 
     # Split on the gutter itself (center of the gutter band). This produces a clean separation
     # between pages without "assigning" the whole gutter/shadow to one side.
@@ -201,7 +252,53 @@ def find_gutter_position(image: np.ndarray) -> int:
     max_x = int(w * 0.97)
     gutter_x = max(min_x, min(max_x, gutter_x))
 
-    return gutter_x
+    ink_conf = _confidence_from_valley(proj_s, idx)
+    edge_conf = _confidence_from_valley(edge_s, idx)
+    shadow_conf = _confidence_from_valley(shadow_s, idx) if shadow_s.size > 0 else 0.0
+    weighted_conf = (ink_conf * w_ink) + (edge_conf * w_edge) + (shadow_conf * w_shadow)
+    confidence = max(weighted_conf, ink_conf, edge_conf, shadow_conf)
+
+    return {
+        "gutter_x": int(gutter_x),
+        "position": float(gutter_x) / float(max(1, w)),
+        "confidence": float(min(1.0, max(0.0, confidence))),
+        "method": method,
+        "debug": {
+            "analysis_size": {"width": int(ws), "height": int(hs)},
+            "analysis_scale": float(scale),
+            "search_start_x": int(start),
+            "search_end_x": int(end),
+            "selected_index": int(idx),
+            "band_left_index": int(left_edge_idx),
+            "band_right_index": int(right_edge_idx),
+            "band_center_index": int(band_center_idx),
+            "ink_confidence": float(ink_conf),
+            "edge_confidence": float(edge_conf),
+            "shadow_confidence": float(shadow_conf),
+            "weighted_confidence": float(weighted_conf),
+            "asymmetry_ratio": float(asym_ratio),
+            "weights": {
+                "ink": float(w_ink),
+                "edge": float(w_edge),
+                "shadow": float(w_shadow),
+            },
+            "image_size": {"width": int(w), "height": int(h)},
+        },
+    }
+
+
+def find_gutter_position(image: np.ndarray) -> int:
+    """
+    Find the vertical gutter (fold line) position.
+
+    Args:
+        image: Input image (BGR format)
+
+    Returns:
+        X coordinate of the gutter
+    """
+    analysis = analyze_gutter_position(image)
+    return int(analysis["gutter_x"])
 
 
 def split_facing_pages(
@@ -220,10 +317,16 @@ def split_facing_pages(
     Returns:
         Tuple of (left_page, right_page) images
     """
-    h, w = image.shape[:2]
+    w = image.shape[1]
 
     if gutter_x is None:
         gutter_x = find_gutter_position(image)
+    elif w > 1:
+        gutter_x = max(1, min(w - 1, int(gutter_x)))
+    else:
+        gutter_x = 0
+
+    overlap = max(0, int(overlap))
 
     # Split with optional overlap
     left_end = min(gutter_x + overlap, w)

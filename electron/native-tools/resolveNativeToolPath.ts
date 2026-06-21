@@ -5,14 +5,16 @@ import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 
 interface IResolveNativeToolPathOptions {
     binaryName: string;
+    binaryRelativePath?: string[] | undefined;
     crateName: string;
     currentDir: string;
     envOverridePath?: string | undefined;
-    exists?: (path: string) => boolean;
+    exists?: ((path: string) => boolean) | undefined;
+    includeRustTargetCandidates?: boolean | undefined;
     isPackaged: boolean;
-    platformArch?: string;
-    projectRoot?: string;
-    resourcesBase?: string;
+    platformArch?: string | undefined;
+    projectRoot?: string | undefined;
+    resourcesBase?: string | undefined;
 }
 
 const RUST_TARGET_BY_PLATFORM_ARCH: Record<string, string> = {
@@ -32,10 +34,18 @@ export function getNativeToolPathCandidates(options: IResolveNativeToolPathOptio
         options.isPackaged,
     );
     const rustTarget = RUST_TARGET_BY_PLATFORM_ARCH[platformArch];
-    const candidates = [
-        join(resourcesBase, options.crateName, platformArch, 'bin', options.binaryName),
-        join(projectRoot, '.tmp', options.crateName, platformArch, 'bin', options.binaryName),
+    const binaryRelativePath = options.binaryRelativePath ?? [
+        'bin',
+        options.binaryName,
     ];
+    const candidates = [
+        join(resourcesBase, options.crateName, platformArch, ...binaryRelativePath),
+        join(projectRoot, '.tmp', options.crateName, platformArch, ...binaryRelativePath),
+    ];
+
+    if (options.includeRustTargetCandidates === false) {
+        return candidates;
+    }
 
     if (rustTarget) {
         candidates.push(join(

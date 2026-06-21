@@ -6,7 +6,19 @@ Provides rotation, transformation, and coordinate helpers.
 
 import cv2
 import numpy as np
+import os
 from typing import Tuple, Optional
+
+
+def deskew_interpolation_flag() -> int:
+    v = (os.environ.get("PAGE_PROCESSOR_DESKEW_INTERP") or "lanczos").lower().strip()
+    if v in ("linear", "bilinear"):
+        return cv2.INTER_LINEAR
+    if v in ("cubic", "bicubic"):
+        return cv2.INTER_CUBIC
+    if v in ("area",):
+        return cv2.INTER_AREA
+    return cv2.INTER_LANCZOS4
 
 
 def rotate_90(image: np.ndarray, times: int = 1) -> np.ndarray:
@@ -39,6 +51,7 @@ def rotate_angle(
     angle: float,
     background_color: Tuple[int, int, int] = (255, 255, 255),
     expand: bool = True,
+    interpolation: Optional[int] = None,
 ) -> np.ndarray:
     """
     Rotate image by arbitrary angle.
@@ -48,6 +61,7 @@ def rotate_angle(
         angle: Rotation angle in degrees (positive = counterclockwise)
         background_color: Color for exposed corners
         expand: If True, expand canvas to fit rotated image
+        interpolation: OpenCV interpolation flag
 
     Returns:
         Rotated image
@@ -87,6 +101,7 @@ def rotate_angle(
         image,
         rotation_matrix,
         (new_w, new_h),
+        flags=cv2.INTER_LINEAR if interpolation is None else interpolation,
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=bg,
     )

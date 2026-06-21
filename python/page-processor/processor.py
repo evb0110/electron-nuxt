@@ -7,7 +7,6 @@ Orchestrates the processing pipeline for scanned book pages.
 import cv2
 import numpy as np
 import os
-import tempfile
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -21,33 +20,7 @@ from detection import (
 from split import find_gutter_position, split_facing_pages
 from deskew_wrapper import deskew_page
 from crop import crop_to_content
-
-
-def write_image_atomically(path: Path, image: np.ndarray, params: list[int]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="wb",
-            dir=str(path.parent),
-            prefix=f".{path.name}.",
-            suffix=path.suffix,
-            delete=False,
-        ) as tmp_file:
-            tmp_path = Path(tmp_file.name)
-
-        ok = cv2.imwrite(str(tmp_path), image, params)
-        if not ok:
-            raise RuntimeError(f"Failed to write output image: {path}")
-
-        os.replace(tmp_path, path)
-        tmp_path = None
-    finally:
-        if tmp_path is not None:
-            try:
-                tmp_path.unlink()
-            except FileNotFoundError:
-                pass
+from stages.io import load_image, write_image_atomically
 
 
 class PageProcessor:
@@ -108,9 +81,7 @@ class PageProcessor:
         # Load image
         load_start = time.monotonic()
         progress("loading", f"Loading {input_path}")
-        image = cv2.imread(input_path)
-        if image is None:
-            raise ValueError(f"Failed to load image: {input_path}")
+        image = load_image(input_path)
         timings_ms["load"] = int((time.monotonic() - load_start) * 1000)
 
         original_height, original_width = image.shape[:2]
@@ -195,8 +166,8 @@ class PageProcessor:
                     thickness = max(2, int(round(original_width / 1200)))
                     cv2.line(overlay, (int(gutter_x), 0), (int(gutter_x), original_height - 1), (0, 0, 255), thickness)
                     debug_path = Path(output_dir) / f"{input_stem}__debug_split.png"
-                    cv2.imwrite(
-                        str(debug_path),
+                    write_image_atomically(
+                        debug_path,
                         overlay,
                         [cv2.IMWRITE_PNG_COMPRESSION, png_compression],
                     )
@@ -210,6 +181,7 @@ class PageProcessor:
         deskew_start = time.monotonic()
         processed_pages: list[np.ndarray] = []
         deskew_debug: list[dict] = []
+        dewarp_debug: list[dict] = []
         for i, page in enumerate(pages):
             page_suffix = f"_{i+1}" if len(pages) > 1 else ""
 
@@ -235,16 +207,42 @@ class PageProcessor:
 
             # 3. Dewarp
             if 'dewarp' in operations:
-                # Import lazily; page_dewarp pulls heavy deps (matplotlib/sympy) and should not
-                # impact non-dewarp runs.
-                from dewarp import dewarp_page
+                # Import lazily; the adapter imports page_dewarp itself only when it is run.
+                from dewarp import dewarp_page_with_metadata
 
-                curvature = float(detection.get("curvature_score") or 0.0)
+                # Split and deskew can materially change line geometry, so gate dewarp on the
+                # page image that would actually be sent to page_dewarp.
+                curvature = float(detect_curvature(page) or 0.0)
+                page_dewarp_debug = {
+                    "page_index": i + 1,
+                    "curvature_score": curvature,
+                    "min_curvature": float(self.min_curvature),
+                    "attempted": False,
+                    "applied": False,
+                    "changed": False,
+                    "reason": "curvature_below_threshold",
+                }
+
                 if curvature >= self.min_curvature:
                     progress("dewarping", f"Dewarping page{page_suffix}")
-                    page = dewarp_page(page)
-                    if 'dewarp' not in operations_applied:
+                    dewarp_result = dewarp_page_with_metadata(
+                        page,
+                        output_stem=f"{input_stem}{page_suffix or '_page'}",
+                    )
+                    page = dewarp_result.image
+                    page_dewarp_debug.update({
+                        "attempted": bool(dewarp_result.attempted),
+                        "applied": bool(dewarp_result.dewarp_applied),
+                        "changed": bool(dewarp_result.changed),
+                        "reason": dewarp_result.reason,
+                        "tool_available": bool(dewarp_result.tool_available),
+                        "original_size": dewarp_result.original_size,
+                        "output_size": dewarp_result.output_size,
+                        "debug": dewarp_result.debug,
+                    })
+                    if dewarp_result.dewarp_applied and 'dewarp' not in operations_applied:
                         operations_applied.append("dewarp")
+                dewarp_debug.append(page_dewarp_debug)
 
             processed_pages.append(page)
         timings_ms["deskew_dewarp"] = int((time.monotonic() - deskew_start) * 1000)
@@ -357,6 +355,7 @@ class PageProcessor:
             "detection": detection,
             "split_debug": split_debug,
             "deskew_debug": deskew_debug if 'deskew' in operations else None,
+            "dewarp_debug": dewarp_debug if 'dewarp' in operations else None,
             "original_size": {
                 "width": original_width,
                 "height": original_height,

@@ -4,41 +4,90 @@ I/O utilities for stage processing.
 Provides consistent image loading and saving with proper error handling.
 """
 
-import cv2
-import numpy as np
 import os
 import tempfile
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Tuple
 import json
 import sys
 import math
 
+import cv2
+import numpy as np
+
+
+def _encode_extension(path: Path) -> str:
+    suffix = path.suffix.lower()
+    return suffix if suffix else ".png"
+
+
+def _fsync_parent(path: Path) -> None:
+    try:
+        dir_fd = os.open(str(path.parent), os.O_RDONLY)
+    except OSError:
+        return
+
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
+
+
+def _read_image_unicode(path: Path, flags: int) -> np.ndarray | None:
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    if not data:
+        return None
+
+    buffer = np.frombuffer(data, dtype=np.uint8)
+    return cv2.imdecode(buffer, flags)
+
 
 def write_image_atomically(path: Path, image: np.ndarray, params: list[int]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    success, encoded = cv2.imencode(_encode_extension(path), image, params)
+    if not success:
+        raise ValueError(f"Failed to encode image: {path}")
+
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(
             mode='wb',
             dir=str(path.parent),
             prefix=f'.{path.name}.',
-            suffix=path.suffix,
+            suffix='.tmp',
             delete=False,
         ) as tmp_file:
             tmp_path = Path(tmp_file.name)
-
-        success = cv2.imwrite(str(tmp_path), image, params)
-        if not success:
-            raise ValueError(f"Failed to save image: {path}")
+            tmp_file.write(encoded.tobytes())
+            tmp_file.flush()
+            os.fsync(tmp_file.fileno())
 
         os.replace(tmp_path, path)
         tmp_path = None
+        _fsync_parent(path)
     finally:
         if tmp_path is not None:
             try:
                 tmp_path.unlink()
             except FileNotFoundError:
                 pass
+
+
+def load_image_unchanged(image_path: str) -> np.ndarray:
+    path = Path(image_path)
+
+    if not path.exists():
+        raise ValueError(f"Image file does not exist: {image_path}")
+
+    image = _read_image_unicode(path, cv2.IMREAD_UNCHANGED)
+
+    if image is None:
+        raise ValueError(f"Failed to load image: {image_path}")
+
+    return image
 
 
 def load_image(image_path: str) -> np.ndarray:
@@ -59,7 +108,7 @@ def load_image(image_path: str) -> np.ndarray:
     if not path.exists():
         raise ValueError(f"Image file does not exist: {image_path}")
 
-    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    image = _read_image_unicode(path, cv2.IMREAD_COLOR)
 
     if image is None:
         raise ValueError(f"Failed to load image: {image_path}")
@@ -85,7 +134,7 @@ def load_grayscale(image_path: str) -> np.ndarray:
     if not path.exists():
         raise ValueError(f"Image file does not exist: {image_path}")
 
-    image = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+    image = _read_image_unicode(path, cv2.IMREAD_GRAYSCALE)
 
     if image is None:
         raise ValueError(f"Failed to load image: {image_path}")

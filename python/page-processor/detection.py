@@ -15,25 +15,35 @@ from typing import Optional
 
 from split import find_gutter_position
 from stages.image_utils import _to_gray, _resize_for_analysis, _smooth_1d
+from stages.io import load_image
 
 try:
     from numpy.exceptions import RankWarning as NumpyRankWarning
-except Exception:
+except (ImportError, AttributeError):
     NumpyRankWarning = getattr(np, "RankWarning", Warning)
 
 
-def _detect_skew_hough(
+CURVATURE_SCORE_SCALE = 10.0
+LOW_CONTRAST_STD_THRESHOLD = 5.0
+DESKEW_MIN_CONFIDENCE = 0.40
+DESKEW_LARGE_ANGLE_DEGREES = 5.0
+DESKEW_LARGE_ANGLE_MIN_CONFIDENCE = 0.70
+DESKEW_ABSOLUTE_MAX_ANGLE = 10.0
+_IMAGE_ANALYSIS_EXCEPTIONS = (cv2.error, ValueError, TypeError, FloatingPointError, IndexError)
+
+
+def _detect_skew_hough_details(
     gray: np.ndarray,
     max_angle: float = 15.0,
-) -> tuple[float, float]:
+) -> dict:
     """
     Fast skew detection using Hough lines on a downscaled image.
 
-    Returns the *correction* angle in degrees (positive = CCW rotation).
+    Returns the *correction* angle in degrees (positive = CCW rotation) plus diagnostics.
     """
     h, w = gray.shape[:2]
     if h < 10 or w < 10:
-        return 0.0, 0.0
+        return {'angle': 0.0, 'confidence': 0.0, 'lines_count': 0, 'angle_std': 0.0}
 
     edges = cv2.Canny(gray, 50, 150, apertureSize=3)
 
@@ -52,7 +62,7 @@ def _detect_skew_hough(
     )
 
     if lines is None or len(lines) == 0:
-        return 0.0, 0.0
+        return {'angle': 0.0, 'confidence': 0.0, 'lines_count': 0, 'angle_std': 0.0}
 
     angles: list[float] = []
     lengths: list[float] = []
@@ -73,7 +83,7 @@ def _detect_skew_hough(
         lengths.append(length)
 
     if not angles:
-        return 0.0, 0.0
+        return {'angle': 0.0, 'confidence': 0.0, 'lines_count': int(len(lines)), 'angle_std': 0.0}
 
     total_len = float(np.sum(lengths)) if lengths else 0.0
     if total_len <= 0:
@@ -91,7 +101,81 @@ def _detect_skew_hough(
     confidence = float(min(1.0, max(0.0, (consistency * 0.7) + (count_score * 0.3))))
 
     # OpenCV positive rotation subtracts the measured image-space line angle.
-    return line_angle, confidence
+    return {
+        'angle': float(line_angle),
+        'confidence': confidence,
+        'lines_count': int(len(angles)),
+        'angle_std': angle_std,
+    }
+
+
+def _detect_skew_hough(
+    gray: np.ndarray,
+    max_angle: float = 15.0,
+) -> tuple[float, float]:
+    result = _detect_skew_hough_details(gray, max_angle)
+    return float(result['angle']), float(result['confidence'])
+
+
+def detect_skew_angle_with_confidence(
+    image: np.ndarray,
+    max_angle: float = 15.0,
+) -> tuple[float, float, dict]:
+    """
+    Detect skew angle with the same guardrails used by the legacy processor.
+
+    Returns (angle, confidence, debug). Guardrail-rejected detections return
+    angle=0 and confidence=0 while preserving raw detector details in debug.
+    """
+    gray = _to_gray(image)
+    gray_small, scale = _resize_for_analysis(gray, max_dim=1500)
+
+    debug = {
+        "analysis_scale": float(scale),
+        "contrast_std": 0.0,
+        "low_contrast_threshold": float(LOW_CONTRAST_STD_THRESHOLD),
+        "raw_angle": 0.0,
+        "raw_confidence": 0.0,
+        "guardrail_reason": None,
+    }
+
+    try:
+        contrast_std = float(np.std(gray_small))
+    except _IMAGE_ANALYSIS_EXCEPTIONS as error:
+        debug["guardrail_reason"] = "contrast_failed"
+        debug["error_type"] = type(error).__name__
+        return 0.0, 0.0, debug
+
+    debug["contrast_std"] = contrast_std
+    if contrast_std < LOW_CONTRAST_STD_THRESHOLD:
+        debug["guardrail_reason"] = "low_contrast"
+        return 0.0, 0.0, debug
+
+    try:
+        hough_result = _detect_skew_hough_details(gray_small, max_angle=max_angle)
+    except _IMAGE_ANALYSIS_EXCEPTIONS as error:
+        debug["guardrail_reason"] = "hough_failed"
+        debug["error_type"] = type(error).__name__
+        return 0.0, 0.0, debug
+
+    angle = float(hough_result['angle'])
+    confidence = float(hough_result['confidence'])
+    debug["raw_angle"] = angle
+    debug["raw_confidence"] = confidence
+    debug["hough_lines_count"] = int(hough_result.get('lines_count', 0))
+    debug["hough_angle_std"] = float(hough_result.get('angle_std', 0.0))
+
+    if confidence < DESKEW_MIN_CONFIDENCE:
+        debug["guardrail_reason"] = "low_confidence"
+        return 0.0, 0.0, debug
+    if abs(angle) > DESKEW_LARGE_ANGLE_DEGREES and confidence < DESKEW_LARGE_ANGLE_MIN_CONFIDENCE:
+        debug["guardrail_reason"] = "large_angle_low_confidence"
+        return 0.0, 0.0, debug
+    if abs(angle) > DESKEW_ABSOLUTE_MAX_ANGLE:
+        debug["guardrail_reason"] = "angle_too_large"
+        return 0.0, 0.0, debug
+
+    return angle, confidence, debug
 
 
 def _best_saddle_valley(curve: np.ndarray) -> tuple[int, float]:
@@ -184,7 +268,7 @@ def detect_facing_pages(image: np.ndarray) -> bool:
             mean_bg = float(np.mean(bg_s)) if bg_s.size > 0 else 0.0
             min_bg = float(np.min(bg_s)) if bg_s.size > 0 else mean_bg
             shadow_conf = float(min(1.0, max(0.0, ((mean_bg - min_bg) / mean_bg) * 2.0))) if mean_bg > 0 else 0.0
-        except Exception:
+        except _IMAGE_ANALYSIS_EXCEPTIONS:
             shadow_conf = 0.0
 
         # Decision rule:
@@ -276,7 +360,7 @@ def detect_facing_pages(image: np.ndarray) -> bool:
         gx_norm = float(gutter_x) / float(max(1, w))
         if 0.15 <= gx_norm <= 0.85 and dark_dip >= 0.06:
             return True
-    except Exception:
+    except _IMAGE_ANALYSIS_EXCEPTIONS:
         pass
 
     return False
@@ -286,7 +370,7 @@ def detect_skew_angle(image: np.ndarray) -> float:
     """
     Detect skew (rotation) angle of the page.
 
-    Uses the deskew library's Hough-based detection.
+    Uses guardrailed OpenCV Hough-based detection.
 
     Args:
         image: Input image (BGR or grayscale)
@@ -294,32 +378,8 @@ def detect_skew_angle(image: np.ndarray) -> float:
     Returns:
         Skew angle in degrees (-45 to 45)
     """
-    # Convert to grayscale and downscale for faster detection.
-    gray = _to_gray(image)
-    gray_small, _ = _resize_for_analysis(gray, max_dim=1500)
-
-    # Quickly bail out for very low-contrast/mostly-blank pages.
-    try:
-        if float(np.std(gray_small)) < 5.0:
-            return 0.0
-    except Exception:
-        pass
-
-    try:
-        angle, conf = _detect_skew_hough(gray_small, max_angle=15.0)
-
-        # Guardrail: avoid "random rotations" on pages where skew detection is uncertain.
-        # Typical scanner skew is small; larger angles are often false positives.
-        if conf < 0.40:
-            return 0.0
-        if abs(angle) > 5.0 and conf < 0.70:
-            return 0.0
-        if abs(angle) > 10.0:
-            return 0.0
-
-        return float(angle)
-    except Exception:
-        return 0.0
+    angle, _, _ = detect_skew_angle_with_confidence(image, max_angle=15.0)
+    return float(angle)
 
 
 def detect_curvature(image: np.ndarray) -> float:
@@ -332,7 +392,7 @@ def detect_curvature(image: np.ndarray) -> float:
         image: Input image (BGR format)
 
     Returns:
-        Curvature score (0.0 = flat, 1.0+ = significant curve)
+        Curvature score (0.0 = flat, 1.0 = significant curve)
     """
     # Convert to grayscale and downscale for faster analysis.
     gray = _to_gray(image)
@@ -389,8 +449,8 @@ def detect_curvature(image: np.ndarray) -> float:
     if not curvatures:
         return 0.0
 
-    # Return average curvature
-    return float(np.mean(curvatures))
+    avg_curvature = float(np.mean(curvatures))
+    return float(min(1.0, avg_curvature / CURVATURE_SCORE_SCALE))
 
 
 def detect_content_bounds(
@@ -474,9 +534,7 @@ def detect_page_characteristics(input_path: str) -> dict:
     Returns:
         Dictionary with all detection results
     """
-    image = cv2.imread(input_path)
-    if image is None:
-        raise ValueError(f"Failed to load image: {input_path}")
+    image = load_image(input_path)
 
     h, w = image.shape[:2]
 

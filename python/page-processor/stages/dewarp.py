@@ -9,12 +9,9 @@ This stage typically runs after deskew and before split detection.
 
 import cv2
 import numpy as np
-import tempfile
-import os
 import warnings
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Optional, Tuple
 
 from .io import load_image, load_grayscale, save_image
 
@@ -22,14 +19,6 @@ try:
     from numpy.exceptions import RankWarning as NumpyRankWarning
 except Exception:
     NumpyRankWarning = getattr(np, "RankWarning", Warning)
-
-# Try to import page_dewarp
-try:
-    from page_dewarp import dewarp as pd_dewarp
-    PAGE_DEWARP_AVAILABLE = True
-except ImportError:
-    PAGE_DEWARP_AVAILABLE = False
-
 
 @dataclass
 class DewarpResult:
@@ -67,25 +56,39 @@ def detect_dewarp(
 
     # Detect curvature using text line analysis
     curvature_result = detect_curvature_lines(gray)
+    from dewarp import is_page_dewarp_available, is_page_dewarp_module_found
 
-    needs_dewarp = bool(
-        curvature_result['score'] >= min_curvature and
-        PAGE_DEWARP_AVAILABLE
-    )
+    module_found = is_page_dewarp_module_found()
+    tool_available = is_page_dewarp_available()
+    threshold_met = bool(curvature_result['score'] >= min_curvature)
+
+    if not threshold_met:
+        reason = 'curvature_below_threshold'
+    elif not module_found:
+        reason = 'page_dewarp_not_installed'
+    elif not tool_available:
+        reason = 'page_dewarp_runtime_unavailable'
+    else:
+        reason = 'curvature_threshold_met'
+
+    needs_dewarp = bool(threshold_met and tool_available)
 
     return DewarpResult(
         needs_dewarp=needs_dewarp,
         curvature_score=float(curvature_result['score']),
         confidence=float(curvature_result['confidence']),
         method_used='text_line_curvature',
-        tool_available=bool(PAGE_DEWARP_AVAILABLE),
+        tool_available=bool(tool_available),
         debug={
             'curvature_score': float(curvature_result['score']),
             'num_lines_analyzed': int(curvature_result['num_lines']),
             'avg_curvature': float(curvature_result['avg_curvature']),
             'max_curvature': float(curvature_result['max_curvature']),
             'min_curvature_threshold': float(min_curvature),
-            'page_dewarp_available': bool(PAGE_DEWARP_AVAILABLE),
+            'threshold_met': bool(threshold_met),
+            'page_dewarp_module_found': bool(module_found),
+            'page_dewarp_available': bool(tool_available),
+            'reason': reason,
             'image_size': {'width': w, 'height': h},
         }
     )
@@ -211,57 +214,11 @@ def apply_dewarp(
     """
     image = load_image(image_path)
     h, w = image.shape[:2]
+    from dewarp import dewarp_page_with_metadata
 
-    if not PAGE_DEWARP_AVAILABLE:
-        # Fallback: copy original
-        saved_path = save_image(image, output_path)
-        return {
-            'success': True,
-            'output_path': saved_path,
-            'dewarp_applied': False,
-            'reason': 'page_dewarp library not available',
-            'original_size': {'width': w, 'height': h},
-            'output_size': {'width': w, 'height': h},
-        }
-
-    # page-dewarp works on files, so we need temp files
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Save input image
-        input_temp = os.path.join(tmpdir, "input.png")
-        cv2.imwrite(input_temp, image)
-
-        try:
-            # Run page-dewarp
-            pd_dewarp(input_temp)
-
-            # Check for output files (page-dewarp creates various suffixed files)
-            possible_outputs = [
-                os.path.join(tmpdir, "input_thresh.png"),
-                os.path.join(tmpdir, "input_dewarped.png"),
-                os.path.join(tmpdir, "input.png"),  # Sometimes overwrites
-            ]
-
-            result_image = None
-            for output_temp in possible_outputs:
-                if os.path.exists(output_temp) and output_temp != input_temp:
-                    result_image = cv2.imread(output_temp)
-                    if result_image is not None:
-                        break
-
-            if result_image is None:
-                # Dewarping didn't produce output, use original
-                result_image = image
-                dewarp_applied = False
-                reason = 'page_dewarp produced no output'
-            else:
-                dewarp_applied = True
-                reason = None
-
-        except Exception as e:
-            # Dewarping failed, use original
-            result_image = image
-            dewarp_applied = False
-            reason = f'page_dewarp failed: {str(e)}'
+    output_stem = Path(output_path).stem or Path(image_path).stem or 'page'
+    dewarp_result = dewarp_page_with_metadata(image, output_stem=output_stem)
+    result_image = dewarp_result.image
 
     new_h, new_w = result_image.shape[:2]
     saved_path = save_image(result_image, output_path)
@@ -269,12 +226,12 @@ def apply_dewarp(
     result = {
         'success': True,
         'output_path': saved_path,
-        'dewarp_applied': dewarp_applied,
+        'dewarp_applied': bool(dewarp_result.dewarp_applied),
+        'changed': bool(dewarp_result.changed),
+        'reason': dewarp_result.reason,
         'original_size': {'width': w, 'height': h},
         'output_size': {'width': new_w, 'height': new_h},
+        'debug': dewarp_result.debug,
     }
-
-    if reason:
-        result['reason'] = reason
 
     return result

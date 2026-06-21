@@ -5,6 +5,8 @@ const {
 const fs = require('fs');
 const path = require('path');
 
+const PYINSTALLER_ENTITLEMENTS = path.resolve(__dirname, '..', 'build', 'entitlements.mac.plist');
+
 function hasDeveloperIdCredentials() {
     return Boolean(process.env.CSC_LINK && process.env.CSC_KEY_PASSWORD);
 }
@@ -65,7 +67,7 @@ function walkDirectories(rootDir) {
 }
 
 function isMacNativeCodeFile(filePath) {
-    if (filePath.endsWith('.dylib')) {
+    if (isMacSharedLibrary(filePath)) {
         return true;
     }
 
@@ -74,6 +76,15 @@ function isMacNativeCodeFile(filePath) {
     } catch {
         return false;
     }
+}
+
+function isMacSharedLibrary(filePath) {
+    return filePath.endsWith('.dylib') || filePath.endsWith('.so');
+}
+
+function isPageProcessorExecutable(filePath) {
+    const normalized = filePath.split(path.sep).join('/');
+    return /\/page-processing\/darwin-(?:arm64|x64)\/bin\/page-processor\/page-processor$/u.test(normalized);
 }
 
 function readCodesignMetadata(targetPath) {
@@ -122,6 +133,13 @@ function signTarget(targetPath, identity, options = {}) {
         args.push(`--preserve-metadata=${options.preserveMetadata}`);
     }
 
+    if (options.entitlements) {
+        args.push(
+            '--entitlements',
+            options.entitlements,
+        );
+    }
+
     args.push(
         '--sign',
         identity,
@@ -141,6 +159,21 @@ function signTarget(targetPath, identity, options = {}) {
 
     args.push(targetPath);
     execFileSync('codesign', args, { stdio: 'inherit' });
+}
+
+function signOptionsForBundledExecutable(filePath, identity) {
+    if (identity === '-' || !isPageProcessorExecutable(filePath)) {
+        return {};
+    }
+
+    if (!fs.existsSync(PYINSTALLER_ENTITLEMENTS)) {
+        throw new Error(`[afterSign] PyInstaller entitlements not found: ${PYINSTALLER_ENTITLEMENTS}`);
+    }
+
+    return {
+        entitlements: PYINSTALLER_ENTITLEMENTS,
+        runtime: true,
+    };
 }
 
 function resignEmbeddedAppCode(appPath, identity) {
@@ -185,17 +218,23 @@ function resignBundledNativeToolPayloads(appPath, identity) {
         path.join(resourcesDir, 'tesseract'),
     ];
 
-    const dylibs = [];
+    const sharedLibraries = [];
     const executables = [];
+    const nestedBundles = [];
 
     for (const toolRoot of toolRoots) {
+        nestedBundles.push(
+            ...walkDirectories(toolRoot)
+                .filter((directoryPath) => directoryPath.endsWith('.framework') || directoryPath.endsWith('.app')),
+        );
+
         for (const filePath of walkFiles(toolRoot)) {
             if (!isMacNativeCodeFile(filePath)) {
                 continue;
             }
 
-            if (filePath.endsWith('.dylib')) {
-                dylibs.push(filePath);
+            if (isMacSharedLibrary(filePath)) {
+                sharedLibraries.push(filePath);
                 continue;
             }
 
@@ -203,12 +242,22 @@ function resignBundledNativeToolPayloads(appPath, identity) {
         }
     }
 
-    for (const dylibPath of dylibs) {
-        signTarget(dylibPath, identity);
+    for (const libraryPath of sharedLibraries) {
+        signTarget(libraryPath, identity);
     }
 
     for (const executablePath of executables) {
-        signTarget(executablePath, identity);
+        signTarget(executablePath, identity, signOptionsForBundledExecutable(executablePath, identity));
+    }
+
+    for (const bundlePath of nestedBundles.sort((leftPath, rightPath) => rightPath.length - leftPath.length)) {
+        const options = identity === '-'
+            ? {}
+            : {
+                preserveMetadata: 'entitlements,requirements,flags,runtime',
+                runtime: true,
+            };
+        signTarget(bundlePath, identity, options);
     }
 }
 

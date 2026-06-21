@@ -101,7 +101,7 @@ describe('package scripts', () => {
         expect(packageJson.scripts.test).toBe('vitest run --project unit');
         expect(packageJson.scripts['test:unit']).toBe('vitest run --project unit');
         expect(packageJson.scripts['test:coverage:run']).toBe('vitest run --coverage --project unit');
-        expect(packageJson.scripts['test:bundle-integrity']).toBe('pnpm run build:electron && vitest run --project bundle-integrity && pnpm run check:build-artifacts:hygiene');
+        expect(packageJson.scripts['test:bundle-integrity']).toBe('pnpm run build:electron && vitest run --project bundle-integrity && node scripts/prune-build-artifacts.mjs && pnpm run check:build-artifacts:hygiene');
         expect(packageJson.scripts['check:coverage-ratchet']).toBe('pnpm exec tsx scripts/checkCoverageRatchet.ts');
         expect(packageJson.scripts['check:coverage-ratchet:update']).toBe('pnpm exec tsx scripts/checkCoverageRatchet.ts --update-baseline');
         expect(packageJson.scripts['test:python-page-processor']).toBe('python3 scripts/check-page-processor-smoke.py');

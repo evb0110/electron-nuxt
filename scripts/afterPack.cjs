@@ -27,9 +27,24 @@ function resourcesDirForContext(context) {
     return path.join(context.appOutDir, 'resources');
 }
 
-function copyOptionalPageProcessingResources(context) {
+function isPageProcessingRequired(context) {
+    return context.electronPlatformName === 'darwin' && process.env.EVB_INCLUDE_PAGE_PROCESSOR === '1';
+}
+
+function shouldCopyPageProcessingResources() {
+    return process.env.EVB_INCLUDE_PAGE_PROCESSOR === '1';
+}
+
+function copyPageProcessingResources(context) {
+    if (!shouldCopyPageProcessingResources()) {
+        return;
+    }
+
     const arch = archName(context.arch);
     if (arch === null) {
+        if (isPageProcessingRequired(context)) {
+            throw new Error(`[afterPack] Unsupported required page-processing arch: ${context.arch}`);
+        }
         console.warn('[afterPack] Skipping optional page-processing resources for unsupported arch:', context.arch);
         return;
     }
@@ -37,6 +52,9 @@ function copyOptionalPageProcessingResources(context) {
     const tag = `${context.electronPlatformName}-${arch}`;
     const src = path.resolve(__dirname, '..', 'resources', 'page-processing', tag);
     if (!fs.existsSync(src)) {
+        if (isPageProcessingRequired(context)) {
+            throw new Error(`[afterPack] Required page-processing resources not found: ${src}`);
+        }
         console.log('[afterPack] Optional page-processing resources not found:', src);
         return;
     }
@@ -46,12 +64,15 @@ function copyOptionalPageProcessingResources(context) {
         force: true,
         recursive: true,
     });
-    fs.cpSync(src, dst, { recursive: true });
-    console.log('[afterPack] Copied optional page-processing resources:', dst);
+    fs.cpSync(src, dst, {
+        recursive: true,
+        verbatimSymlinks: true,
+    });
+    console.log('[afterPack] Copied page-processing resources:', dst);
 }
 
 exports.default = async function afterPack(context) {
-    copyOptionalPageProcessingResources(context);
+    copyPageProcessingResources(context);
 
     if (context.electronPlatformName !== 'darwin') {
         return;

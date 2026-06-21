@@ -167,6 +167,38 @@ function verifyLocalPackageArtifacts(target) {
     }
 }
 
+export function getGeneratedNativeResourceCommands(target) {
+    if (target.platform === 'mac') {
+        return [ {
+            args: [ 'scripts/bundle-page-processor-macos.sh' ],
+            command: 'bash',
+        } ];
+    }
+
+    return [];
+}
+
+export function prepareGeneratedNativeResources(target, env, runCommand = run) {
+    const commands = getGeneratedNativeResourceCommands(target);
+    if (target.platform === 'mac') {
+        env.EVB_INCLUDE_PAGE_PROCESSOR = '1';
+    }
+
+    if (commands.length === 0) {
+        return;
+    }
+
+    process.stdout.write(
+        `Bundling generated native resources for ${target.platform}-${target.arch}...\n`,
+    );
+    for (const command of commands) {
+        runCommand(command.command, command.args, {
+            env,
+            stdio: 'inherit',
+        });
+    }
+}
+
 function pruneUpdaterMetadataForLocalParity(target) {
     if (expectsUpdaterMetadata(target)) {
         return;
@@ -201,10 +233,11 @@ function main() {
         if (target.platform === 'linux') {
             env.USE_SYSTEM_FPM = 'true';
         }
-
         process.stdout.write(
             `Packaging local release artifacts for ${target.platform}-${target.arch}...\n`,
         );
+
+        prepareGeneratedNativeResources(target, env);
 
         run('pnpm', getPackagingArgs(target, env), {
             env,

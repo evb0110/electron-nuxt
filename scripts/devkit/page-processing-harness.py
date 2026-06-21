@@ -18,6 +18,7 @@ import os
 import platform as host_platform
 import random
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -28,9 +29,23 @@ from typing import Iterable
 
 RE_RANGE = re.compile(r"^\s*(\d+)\s*-\s*(\d+)\s*$")
 RE_INT = re.compile(r"^\s*\d+\s*$")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def run(cmd: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+def output_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def run(
+    cmd: list[str],
+    *,
+    cwd: Path | None = None,
+    timeout_s: int = 300,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         cmd,
         cwd=str(cwd) if cwd else None,
@@ -38,6 +53,7 @@ def run(cmd: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProce
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        timeout=timeout_s,
     )
 
 
@@ -110,10 +126,10 @@ def resolve_host_page_processing_tag() -> tuple[str, str]:
 def default_page_processor_path() -> Path:
     configured = os.environ.get("EVB_PAGE_PROCESSOR")
     if configured:
-        return Path(configured)
+        return Path(configured).expanduser()
 
     tag, suffix = resolve_host_page_processing_tag()
-    return Path("resources/page-processing") / tag / "bin" / "page-processor" / f"page-processor{suffix}"
+    return PROJECT_ROOT / "resources/page-processing" / tag / "bin" / "page-processor" / f"page-processor{suffix}"
 
 
 @dataclass(frozen=True)
@@ -131,6 +147,7 @@ def render_page(
     page: int,
     variant: RenderVariant,
     out_dir: Path,
+    timeout_s: int,
 ) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     base = out_dir / f"p{page:04d}_r{variant.dpi}_{variant.name}"
@@ -152,7 +169,7 @@ def render_page(
         out_path = base.with_suffix(".png")
 
     cmd += [str(pdf), str(base)]
-    run(cmd)
+    run(cmd, timeout_s=timeout_s)
     if not out_path.exists():
         # pdftoppm sometimes uses .jpeg extension; be flexible.
         alt = base.with_suffix(".jpeg")
@@ -183,6 +200,7 @@ def run_processor(
     force_split: bool,
     auto_detect: bool,
     debug_split_overlay: bool,
+    timeout_s: int,
 ) -> tuple[dict, float]:
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -204,19 +222,33 @@ def run_processor(
         env["PAGE_PROCESSOR_DEBUG_SPLIT"] = "1"
 
     t0 = time.perf_counter()
-    proc = subprocess.run(
-        cmd,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=env,
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired as e:
+        t1 = time.perf_counter()
+        (out_dir / "stdout.log").write_text(output_text(e.stdout), encoding="utf-8")
+        (out_dir / "stderr.log").write_text(output_text(e.stderr), encoding="utf-8")
+        (out_dir / "timeout.log").write_text(
+            f"Timed out after {timeout_s}s\nCommand: {shlex.join(cmd)}\n",
+            encoding="utf-8",
+        )
+        raise RuntimeError(f"page-processor timed out after {timeout_s}s; logs: {out_dir}") from e
+
     t1 = time.perf_counter()
-    result = extract_result_json(proc.stdout)
-    # Persist stdout/stderr alongside artifacts for debugging.
     (out_dir / "stdout.log").write_text(proc.stdout, encoding="utf-8")
     (out_dir / "stderr.log").write_text(proc.stderr, encoding="utf-8")
+    if proc.returncode != 0:
+        raise RuntimeError(f"page-processor exited {proc.returncode}; logs: {out_dir}")
+
+    result = extract_result_json(proc.stdout)
     return result, (t1 - t0)
 
 
@@ -247,6 +279,7 @@ def main() -> int:
     )
     ap.add_argument("--pdftoppm", type=str, default="pdftoppm", help="pdftoppm binary")
     ap.add_argument("--qpdf", type=str, default="qpdf", help="qpdf binary")
+    ap.add_argument("--timeout", type=int, default=300, help="Per-command timeout in seconds (default: 300)")
 
     args = ap.parse_args()
 
@@ -260,7 +293,7 @@ def main() -> int:
 
     # Determine page count.
     try:
-        npages_out = run([args.qpdf, "--show-npages", str(pdf)]).stdout.strip()
+        npages_out = run([args.qpdf, "--show-npages", str(pdf)], timeout_s=int(args.timeout)).stdout.strip()
         npages = int(npages_out)
     except Exception as e:
         ap.error(f"Failed to determine page count via qpdf: {e}")
@@ -269,7 +302,7 @@ def main() -> int:
     if args.out:
         out_root = args.out
     else:
-        out_root = Path(".devkit/tmp/pp-harness") / f"{now_tag()}_{safe_stem(pdf)}"
+        out_root = PROJECT_ROOT / ".devkit/tmp/pp-harness" / f"{now_tag()}_{safe_stem(pdf)}"
     out_root.mkdir(parents=True, exist_ok=True)
 
     # Pages
@@ -337,6 +370,7 @@ def main() -> int:
                     page=page,
                     variant=v,
                     out_dir=render_dir / f"p{page:04d}",
+                    timeout_s=int(args.timeout),
                 )
 
                 run_dir = runs_dir / f"p{page:04d}" / f"r{v.dpi}" / v.name
@@ -349,6 +383,7 @@ def main() -> int:
                         force_split=bool(args.force_split),
                         auto_detect=bool(auto_detect),
                         debug_split_overlay=bool(debug_overlay),
+                        timeout_s=int(args.timeout),
                     )
                     split_debug = result.get("split_debug") or {}
                     success = bool(result.get("success", False))

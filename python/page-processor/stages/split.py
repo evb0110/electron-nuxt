@@ -14,10 +14,11 @@ Detection methods:
 import cv2
 import numpy as np
 from dataclasses import dataclass, asdict
-from typing import Literal, Optional, Tuple, List
+from typing import Literal, Optional, Tuple
 
 from .io import load_image, load_grayscale, save_image
-from .geometry import split_horizontal, split_vertical
+from .geometry import split_vertical
+from split import analyze_gutter_position, split_facing_pages
 
 
 TSplitType = Literal['none', 'vertical', 'horizontal']
@@ -89,11 +90,25 @@ def detect_split(
     aspect_suggests_split = 1.15 < aspect_ratio < 1.8
     aspect_confidence = 0.3 if aspect_suggests_split else 0.0
 
-    # Method 2: Vertical projection profile
-    valley_result = detect_vertical_valley(gray)
+    # Methods 2/3: shared legacy gutter analysis over a broad search region.
+    gutter_analysis = analyze_gutter_position(gray)
+    gutter_debug = gutter_analysis.get('debug', {})
+    gutter_position = float(gutter_analysis.get('position', 0.5))
+    ink_confidence = float(gutter_debug.get('ink_confidence', 0.0))
+    edge_confidence = float(gutter_debug.get('edge_confidence', 0.0))
+    shadow_confidence = float(gutter_debug.get('shadow_confidence', 0.0))
+
+    # Method 2: Vertical projection/edge valley profile
+    valley_result = ValleyResult(
+        confidence=float(max(ink_confidence, edge_confidence)),
+        position=gutter_position,
+    )
 
     # Method 3: Gutter shadow detection
-    gutter_result = detect_gutter_shadow(gray)
+    gutter_result = GutterResult(
+        confidence=shadow_confidence,
+        position=gutter_position,
+    )
 
     # Method 4: Content symmetry
     symmetry_result = detect_content_symmetry(gray)
@@ -154,6 +169,10 @@ def detect_split(
             'gutter_position': float(gutter_result.position),
             'symmetry_confidence': float(symmetry_result.confidence),
             'symmetry_position': float(symmetry_result.position),
+            'hardened_gutter_confidence': float(gutter_analysis.get('confidence', 0.0)),
+            'hardened_gutter_position': gutter_position,
+            'hardened_gutter_method': str(gutter_analysis.get('method', 'unknown')),
+            'hardened_gutter_debug': gutter_debug,
             'method_scores': {k: float(v) for k, v in method_scores.items()},
             'position_votes': [(float(p), float(w)) for p, w in position_votes],
             'image_size': {'width': w, 'height': h},
@@ -174,54 +193,16 @@ def detect_vertical_valley(gray: np.ndarray) -> ValleyResult:
     Returns:
         ValleyResult with confidence and position
     """
-    h, w = gray.shape
-
-    # Focus on center 60% of image (gutter is always roughly center)
-    center_start = int(w * 0.2)
-    center_end = int(w * 0.8)
-    center_region = gray[:, center_start:center_end]
-
-    # Calculate vertical projection (sum along columns)
-    # Invert so text areas have high values
-    inverted = 255 - center_region
-    projection = np.sum(inverted.astype(np.float64), axis=0)
-
-    if len(projection) == 0:
-        return ValleyResult(confidence=0.0, position=0.5)
-
-    # Smooth to reduce noise
-    kernel_size = max(5, w // 50)
-    if kernel_size % 2 == 0:
-        kernel_size += 1
-
-    smoothed = cv2.GaussianBlur(
-        projection.reshape(1, -1).astype(np.float32),
-        (kernel_size, 1),
-        0
-    ).flatten()
-
-    # Find minimum (valley) in smoothed projection
-    min_idx = np.argmin(smoothed)
-    min_val = smoothed[min_idx]
-
-    # Calculate confidence based on valley depth
-    max_val = np.max(smoothed)
-    mean_val = np.mean(smoothed)
-
-    if max_val == 0 or mean_val == 0:
-        return ValleyResult(confidence=0.0, position=0.5)
-
-    # Valley should be significantly below mean
-    valley_depth = (mean_val - min_val) / mean_val
-
-    # Convert local position to global position
-    global_position = (center_start + min_idx) / w
-
-    # Confidence based on valley prominence
-    # Scale so 50% depth = 100% confidence
-    confidence = min(1.0, valley_depth * 2)
-
-    return ValleyResult(confidence=confidence, position=global_position)
+    analysis = analyze_gutter_position(gray)
+    debug = analysis.get('debug', {})
+    confidence = max(
+        float(debug.get('ink_confidence', 0.0)),
+        float(debug.get('edge_confidence', 0.0)),
+    )
+    return ValleyResult(
+        confidence=float(min(1.0, max(0.0, confidence))),
+        position=float(analysis.get('position', 0.5)),
+    )
 
 
 def detect_gutter_shadow(gray: np.ndarray) -> GutterResult:
@@ -234,49 +215,13 @@ def detect_gutter_shadow(gray: np.ndarray) -> GutterResult:
     Returns:
         GutterResult with confidence and position
     """
-    h, w = gray.shape
-
-    # Focus on center 30% region (tighter focus than valley detection)
-    center_start = int(w * 0.35)
-    center_end = int(w * 0.65)
-    center_region = gray[:, center_start:center_end]
-
-    # Calculate column-wise mean intensity
-    column_means = np.mean(center_region.astype(np.float64), axis=0)
-
-    if len(column_means) == 0:
-        return GutterResult(confidence=0.0, position=0.5)
-
-    # Find darkest vertical strip (potential gutter shadow)
-    # Use sliding window to find consistent dark region
-    window_size = max(3, (center_end - center_start) // 20)
-
-    min_avg = float('inf')
-    min_pos = len(column_means) // 2
-
-    for i in range(len(column_means) - window_size):
-        window_avg = np.mean(column_means[i:i+window_size])
-        if window_avg < min_avg:
-            min_avg = window_avg
-            min_pos = i + window_size // 2
-
-    # Calculate confidence based on how much darker gutter is
-    overall_mean = np.mean(column_means)
-
-    if overall_mean == 0:
-        return GutterResult(confidence=0.0, position=0.5)
-
-    # Darkness ratio: lower = darker gutter
-    darkness_ratio = min_avg / overall_mean
-
-    # Convert to confidence (1 - ratio, scaled up)
-    confidence = max(0, 1 - darkness_ratio) * 1.5
-    confidence = min(1.0, confidence)
-
-    # Convert to global position
-    global_position = (center_start + min_pos) / w
-
-    return GutterResult(confidence=confidence, position=global_position)
+    analysis = analyze_gutter_position(gray)
+    debug = analysis.get('debug', {})
+    confidence = float(debug.get('shadow_confidence', 0.0))
+    return GutterResult(
+        confidence=float(min(1.0, max(0.0, confidence))),
+        position=float(analysis.get('position', 0.5)),
+    )
 
 
 def detect_content_symmetry(gray: np.ndarray) -> SymmetryResult:
@@ -420,7 +365,8 @@ def apply_split(
 
     elif split_type == 'vertical':
         # Split into left and right pages
-        left, right = split_horizontal(image, position, overlap)
+        gutter_x = int(round(w * position))
+        left, right = split_facing_pages(image, gutter_x=gutter_x, overlap=overlap)
 
         left_path = output_dir_path / f"{input_stem}_1.png"
         right_path = output_dir_path / f"{input_stem}_2.png"

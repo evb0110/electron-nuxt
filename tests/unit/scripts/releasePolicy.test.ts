@@ -27,8 +27,10 @@ const {
     runLocalReleaseVerify,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local.mjs')).href);
 const {
+    getGeneratedNativeResourceCommands,
     getLocalReleaseBuildCommand,
     getPackagingArgs,
+    prepareGeneratedNativeResources,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-package.mjs')).href);
 const { assertBuildArtifacts } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/assert-build-artifacts.mjs')).href);
 const { filterIgnoredFiles } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/shared.mjs')).href);
@@ -407,6 +409,52 @@ describe('release policy', () => {
             ],
             command: 'pnpm',
         });
+    });
+
+    it('generates macOS page-processor resources during local release packaging', () => {
+        expect(getGeneratedNativeResourceCommands({
+            arch: 'arm64',
+            platform: 'mac',
+        })).toEqual([ {
+            args: [ 'scripts/bundle-page-processor-macos.sh' ],
+            command: 'bash',
+        } ]);
+
+        expect(getGeneratedNativeResourceCommands({
+            arch: 'x64',
+            platform: 'linux',
+        })).toEqual([]);
+    });
+
+    it('enables page-processor copying for local macOS packaging', () => {
+        const env: Record<string, string> = {};
+        const calls: Array<{
+            args: string[];
+            command: string;
+            env: Record<string, string>;
+        }> = [];
+
+        prepareGeneratedNativeResources({
+            arch: 'arm64',
+            platform: 'mac',
+        }, env, (
+            command: string,
+            args: string[],
+            options: { env: Record<string, string> },
+        ) => {
+            calls.push({
+                args,
+                command,
+                env: options.env,
+            });
+        });
+
+        expect(env.EVB_INCLUDE_PAGE_PROCESSOR).toBe('1');
+        expect(calls).toEqual([ {
+            args: [ 'scripts/bundle-page-processor-macos.sh' ],
+            command: 'bash',
+            env,
+        } ]);
     });
 
     it('uses a ZIP-only local package check for supplemental macOS Intel builds', () => {

@@ -2,22 +2,16 @@
 Stage 3: Deskew Detection and Correction
 
 Detects and corrects page skew (small rotation angles) using:
-1. Hough transform line detection
-2. Text line angle analysis
-3. Edge orientation statistics
+1. Shared guardrailed Hough transform line detection
+2. Shared deskew interpolation policy
 """
 
-import cv2
 import numpy as np
 from dataclasses import dataclass, asdict
-from typing import Optional, List, Tuple
+from typing import Tuple
 
 from .io import load_image, load_grayscale, save_image
-from .geometry import rotate_angle
-
-# Legacy note: we previously supported the `deskew` library, but we now use OpenCV-only
-# methods for performance and packaging simplicity.
-DESKEW_LIB_AVAILABLE = False
+from .geometry import deskew_interpolation_flag, rotate_angle
 
 
 @dataclass
@@ -42,10 +36,7 @@ def detect_deskew(
     """
     Detect skew angle of page.
 
-    Uses multiple methods:
-    1. Hough transform for line detection
-    2. Projection profile analysis
-    3. deskew library (if available)
+    Uses the same guardrailed Hough transform as the legacy processor.
 
     Args:
         image_path: Path to input image
@@ -58,52 +49,16 @@ def detect_deskew(
     gray = load_grayscale(image_path)
     h, w = gray.shape
 
-    # Method 1: Hough transform
-    hough_result = detect_skew_hough(gray, max_angle)
+    from detection import detect_skew_angle_with_confidence
 
-    # Method 2: Projection profile
-    projection_result = detect_skew_projection(gray, max_angle)
-
-    # Combine results with weighted voting
-    weights = {
-        'hough': 0.4,
-        'projection': 0.3,
-    }
-
-    # Normalize weights (no library method).
-    weights['hough'] = 0.55
-    weights['projection'] = 0.45
-
-    methods = [
-        ('hough', hough_result['angle'], hough_result['confidence']),
-        ('projection', projection_result['angle'], projection_result['confidence']),
-    ]
-
-    # Calculate weighted angle and confidence
-    total_weight = sum(m[2] * weights[m[0]] for m in methods)
-
-    if total_weight == 0:
-        final_angle = 0.0
-        final_confidence = 0.0
-    else:
-        # Weighted average of angles
-        weighted_sum = sum(m[1] * m[2] * weights[m[0]] for m in methods)
-        final_angle = weighted_sum / total_weight
-
-        # Confidence is weighted average of method confidences
-        final_confidence = sum(m[2] * weights[m[0]] for m in methods)
-
-    # Clamp angle to max_angle
-    if abs(final_angle) > max_angle:
-        final_angle = float(np.sign(final_angle) * max_angle)
-        final_confidence *= 0.5  # Reduce confidence for clamped angles
+    final_angle, final_confidence, guard_debug = detect_skew_angle_with_confidence(gray, max_angle)
 
     # Determine if correction is needed
-    needs_correction = bool(abs(final_angle) >= min_angle)
+    needs_correction = bool(final_confidence > 0 and abs(final_angle) >= min_angle)
 
     # Find best method
-    method_scores = {m[0]: m[2] * weights[m[0]] for m in methods}
-    best_method = max(method_scores, key=method_scores.get)
+    method_scores = {'hough_guarded': float(final_confidence)}
+    best_method = 'hough_guarded' if final_confidence > 0 else 'none'
 
     return DeskewResult(
         angle=float(round(float(final_angle), 3)),
@@ -111,11 +66,15 @@ def detect_deskew(
         method_used=best_method,
         needs_correction=needs_correction,
         debug={
-            'hough_angle': float(hough_result['angle']),
-            'hough_confidence': float(hough_result['confidence']),
-            'hough_lines_count': int(hough_result.get('lines_count', 0)),
-            'projection_angle': float(projection_result['angle']),
-            'projection_confidence': float(projection_result['confidence']),
+            'hough_angle': float(guard_debug.get('raw_angle', 0.0)),
+            'hough_confidence': float(guard_debug.get('raw_confidence', 0.0)),
+            'hough_lines_count': int(guard_debug.get('hough_lines_count', 0)),
+            'hough_angle_std': float(guard_debug.get('hough_angle_std', 0.0)),
+            'projection_angle': 0.0,
+            'projection_confidence': 0.0,
+            'projection_used': False,
+            'guardrail_reason': guard_debug.get('guardrail_reason'),
+            'guardrail_debug': guard_debug,
             'library_available': False,
             'library_angle': 0.0,
             'library_confidence': 0.0,
@@ -134,8 +93,7 @@ def detect_skew_hough(
     """
     Detect skew using Hough line transform.
 
-    Finds dominant line angles in the image and calculates
-    the median deviation from horizontal.
+    Delegates to the legacy Hough implementation so thresholds stay aligned.
 
     Args:
         gray: Grayscale image
@@ -144,165 +102,15 @@ def detect_skew_hough(
     Returns:
         Dictionary with angle and confidence
     """
-    h, w = gray.shape
-    if h < 2 or w < 2:
-        return {'angle': 0.0, 'confidence': 0.0, 'lines_count': 0}
+    from detection import _detect_skew_hough_details
 
-    # Apply edge detection
-    edges = cv2.Canny(gray, 50, 150, apertureSize=3)
-
-    # Apply morphological operations to connect text
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(1, w // 30), 1))
-    dilated = cv2.dilate(edges, kernel, iterations=1)
-
-    # Hough line detection
-    lines = cv2.HoughLinesP(
-        dilated,
-        rho=1,
-        theta=np.pi / 180,
-        threshold=100,
-        minLineLength=max(1, w // 8),
-        maxLineGap=max(1, w // 20),
-    )
-
-    if lines is None or len(lines) == 0:
-        return {'angle': 0.0, 'confidence': 0.0, 'lines_count': 0}
-
-    # Calculate angles of all lines
-    angles = []
-    line_lengths = []
-
-    for line in lines:
-        x1, y1, x2, y2 = line[0]
-        dx = x2 - x1
-        dy = y2 - y1
-
-        if abs(dx) < 1:
-            continue  # Skip vertical lines
-
-        angle = np.arctan2(dy, dx) * 180 / np.pi
-        length = np.sqrt(dx**2 + dy**2)
-
-        # Only consider near-horizontal lines (likely text lines)
-        if abs(angle) <= max_angle:
-            angles.append(angle)
-            line_lengths.append(length)
-
-    if not angles:
-        return {'angle': 0.0, 'confidence': 0.0, 'lines_count': len(lines)}
-
-    # Weight by line length
-    total_length = sum(line_lengths)
-    if total_length == 0:
-        weighted_angle = float(np.median(angles))
-    else:
-        weighted_angle = float(sum(a * l for a, l in zip(angles, line_lengths)) / total_length)
-
-    # Calculate confidence based on angle consistency
-    angle_std = float(np.std(angles)) if len(angles) > 1 else 0.0
-    consistency_score = max(0, 1 - angle_std / 5)  # 5 degree std = 0 confidence
-
-    # More lines = higher confidence
-    count_score = min(1.0, len(angles) / 20)  # 20+ lines = max confidence
-
-    confidence = consistency_score * 0.7 + count_score * 0.3
-
+    result = _detect_skew_hough_details(gray, max_angle)
     return {
-        'angle': float(weighted_angle),
-        'confidence': float(confidence),
-        'lines_count': int(len(angles)),
-        'angle_std': float(angle_std),
+        'angle': float(result['angle']),
+        'confidence': float(result['confidence']),
+        'lines_count': int(result.get('lines_count', 0)),
+        'angle_std': float(result.get('angle_std', 0.0)),
     }
-
-
-def detect_skew_projection(
-    gray: np.ndarray,
-    max_angle: float = 15.0,
-) -> dict:
-    """
-    Detect skew using projection profile analysis.
-
-    Rotates the image at various angles and finds the angle
-    that produces the sharpest horizontal projection profile.
-
-    Args:
-        gray: Grayscale image
-        max_angle: Maximum angle to test
-
-    Returns:
-        Dictionary with angle and confidence
-    """
-    h, w = gray.shape
-    if h < 1 or w < 1:
-        return {'angle': 0.0, 'confidence': 0.0}
-
-    # Binarize
-    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-
-    # Test angles from -max_angle to +max_angle
-    angles_to_test = np.linspace(-max_angle, max_angle, 31)
-    best_angle = 0.0
-    best_score = 0.0
-
-    # Calculate score for each angle
-    scores = []
-
-    for angle in angles_to_test:
-        # Rotate binary image
-        center = (w / 2, h / 2)
-        matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
-        rotated = cv2.warpAffine(binary, matrix, (w, h), borderValue=0)
-
-        # Calculate horizontal projection
-        projection = np.sum(rotated, axis=1)
-
-        # Score is variance of projection (higher = sharper peaks)
-        score = np.var(projection)
-        scores.append(score)
-
-        if score > best_score:
-            best_score = score
-            best_angle = angle
-
-    # Refine best angle with finer search
-    fine_angles = np.linspace(best_angle - 1.0, best_angle + 1.0, 21)
-    for angle in fine_angles:
-        center = (w / 2, h / 2)
-        matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
-        rotated = cv2.warpAffine(binary, matrix, (w, h), borderValue=0)
-        projection = np.sum(rotated, axis=1)
-        score = np.var(projection)
-
-        if score > best_score:
-            best_score = score
-            best_angle = angle
-
-    # Calculate confidence
-    # Compare best score to median score
-    median_score = np.median(scores)
-    if median_score == 0:
-        confidence = 0.0
-    else:
-        score_ratio = best_score / median_score
-        confidence = min(1.0, (score_ratio - 1) / 0.5)  # 50% improvement = full confidence
-
-    return {
-        'angle': float(best_angle),
-        'confidence': float(max(0, confidence)),
-    }
-
-
-def detect_skew_library(
-    gray: np.ndarray,
-    max_angle: float = 15.0,
-) -> dict:
-    """
-    Legacy stub kept for compatibility with older stage debugging.
-    The external `deskew` dependency was removed; always returns no correction.
-    """
-    _ = gray
-    _ = max_angle
-    return {'angle': 0.0, 'confidence': 0.0}
 
 
 def apply_deskew(
@@ -331,7 +139,13 @@ def apply_deskew(
         rotated = image.copy()
         rotation_applied = False
     else:
-        rotated = rotate_angle(image, angle, background_color, expand=True)
+        rotated = rotate_angle(
+            image,
+            angle,
+            background_color,
+            expand=True,
+            interpolation=deskew_interpolation_flag(),
+        )
         rotation_applied = True
 
     new_h, new_w = rotated.shape[:2]

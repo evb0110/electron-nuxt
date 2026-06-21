@@ -146,12 +146,67 @@ def coerce_split_overlap(value) -> int:
     return overlap
 
 
-def read_image_dimensions(input_path: str) -> tuple[int, int]:
-    import cv2  # type: ignore
+def coerce_rotation(value) -> int:
+    if isinstance(value, bool):
+        raise invalid_param("rotation", value, "one of: 0, 90, 180, 270")
 
-    image = cv2.imread(input_path, cv2.IMREAD_UNCHANGED)
-    if image is None:
-        raise ValueError(f"Failed to load image: {input_path}")
+    if isinstance(value, int):
+        rotation = value
+    elif isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        rotation = int(value)
+    else:
+        raise invalid_param("rotation", value, "one of: 0, 90, 180, 270")
+
+    if rotation not in (0, 90, 180, 270):
+        raise invalid_param("rotation", value, "one of: 0, 90, 180, 270")
+
+    return rotation
+
+
+def coerce_deskew_angle(value) -> float:
+    expected = "finite number of degrees in [-45, 45]"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise invalid_param("angle", value, expected)
+
+    angle = float(value)
+    if not math.isfinite(angle) or abs(angle) > 45.0:
+        raise invalid_param("angle", value, expected)
+
+    return angle
+
+
+def coerce_background_color(value) -> tuple[int, int, int]:
+    expected = "array of three integers in [0, 255]"
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise invalid_param("background_color", value, expected)
+
+    channels = []
+    for channel in value:
+        if isinstance(channel, bool):
+            raise invalid_param("background_color", value, expected)
+        if isinstance(channel, int):
+            parsed = channel
+        elif isinstance(channel, float) and math.isfinite(channel) and channel.is_integer():
+            parsed = int(channel)
+        else:
+            raise invalid_param("background_color", value, expected)
+        if parsed < 0 or parsed > 255:
+            raise invalid_param("background_color", value, expected)
+        channels.append(parsed)
+
+    return channels[0], channels[1], channels[2]
+
+
+def validate_apply_deskew_params(params: dict) -> tuple[float, tuple[int, int, int]]:
+    angle = coerce_deskew_angle(params.get('angle', 0.0))
+    background = coerce_background_color(params.get('background_color', [255, 255, 255]))
+    return angle, background
+
+
+def read_image_dimensions(input_path: str) -> tuple[int, int]:
+    from stages.io import load_image_unchanged
+
+    image = load_image_unchanged(input_path)
 
     h, w = image.shape[:2]
     return int(w), int(h)
@@ -188,6 +243,52 @@ def validate_apply_split_params(input_path: str, params: dict) -> tuple[str, flo
         )
 
     return split_type, position, overlap
+
+
+def invalid_img2pdf_input(field: str, path: str, index: int, expected: str, reason: Optional[str] = None) -> CommandError:
+    details = {
+        "field": field,
+        "path": path,
+        "index": index,
+        "expected": expected,
+    }
+    if reason:
+        details["reason"] = reason
+
+    return CommandError(
+        f"Invalid {field}[{index}]: expected {expected}: {path}",
+        "INVALID_PARAMS",
+        details,
+    )
+
+
+def prevalidate_img2pdf_input(path_value: str, field: str, index: int) -> None:
+    from PIL import Image  # type: ignore
+
+    expected = "existing decodable image file"
+    path_text = str(path_value)
+    try:
+        path = Path(path_text)
+        exists = path.exists()
+        is_file = path.is_file() if exists else False
+    except OSError as e:
+        raise invalid_img2pdf_input(field, path_text, index, expected, str(e))
+
+    if not exists:
+        raise invalid_img2pdf_input(field, path_text, index, expected, "path does not exist")
+    if not is_file:
+        raise invalid_img2pdf_input(field, path_text, index, expected, "path is not a file")
+
+    try:
+        with Image.open(path) as image:
+            image.verify()
+    except Exception as e:
+        raise invalid_img2pdf_input(field, path_text, index, expected, str(e))
+
+
+def prevalidate_img2pdf_inputs(paths: list[str], field: str) -> None:
+    for index, path in enumerate(paths):
+        prevalidate_img2pdf_input(path, field, index)
 
 
 def white_value_for_dtype(dtype):
@@ -362,8 +463,8 @@ def run_stage_apply(
         Result dictionary
     """
     if stage == 'rotation':
+        rotation = coerce_rotation(params.get('rotation', 0))
         from stages.rotation import apply_rotation
-        rotation = params.get('rotation', 0)
         return apply_rotation(input_path, output_path, rotation)
 
     elif stage == 'split':
@@ -372,9 +473,8 @@ def run_stage_apply(
         return apply_split(input_path, output_path, split_type, position, overlap)
 
     elif stage == 'deskew':
+        angle, background = validate_apply_deskew_params(params)
         from stages.deskew import apply_deskew
-        angle = params.get('angle', 0.0)
-        background = tuple(params.get('background_color', [255, 255, 255]))
         return apply_deskew(input_path, output_path, angle, background)
 
     elif stage == 'dewarp':
@@ -560,10 +660,12 @@ def main():
             # Keep this import local so `--version` and other lightweight commands stay fast.
             import cv2  # type: ignore
             import numpy as np  # type: ignore
+            from stages.io import load_image_unchanged, write_image_atomically
 
-            image = cv2.imread(args.input, cv2.IMREAD_UNCHANGED)
-            if image is None:
-                send_error(f"Failed to load image: {args.input}", "LOAD_FAILED")
+            try:
+                image = load_image_unchanged(args.input)
+            except ValueError as e:
+                send_error(str(e), "LOAD_FAILED")
                 sys.exit(1)
 
             h, w = image.shape[:2]
@@ -597,13 +699,14 @@ def main():
                 png_compression = 1
             png_compression = max(0, min(9, png_compression))
 
-            ok = cv2.imwrite(
-                args.output,
-                canvas,
-                [cv2.IMWRITE_PNG_COMPRESSION, png_compression],
-            )
-            if not ok:
-                send_error(f"Failed to write output image: {args.output}", "WRITE_FAILED")
+            try:
+                write_image_atomically(
+                    Path(args.output),
+                    canvas,
+                    [cv2.IMWRITE_PNG_COMPRESSION, png_compression],
+                )
+            except Exception as e:
+                send_error(f"Failed to write output image: {args.output}: {e}", "WRITE_FAILED")
                 sys.exit(1)
 
             send_result({
@@ -615,13 +718,15 @@ def main():
             })
 
         elif args.command == 'img2pdf':
-            # Keep this import local to avoid penalizing non-PDF workflows.
-            import img2pdf  # type: ignore
-
             dpi = int(args.dpi or 300)
             if dpi <= 0:
                 send_error("DPI must be positive", "INVALID_DPI")
                 sys.exit(1)
+
+            prevalidate_img2pdf_inputs([args.input], "input")
+
+            # Keep this import local to avoid penalizing non-PDF workflows.
+            import img2pdf  # type: ignore
 
             # img2pdf needs a (x_dpi, y_dpi) tuple.
             layout_fun = img2pdf.get_fixed_dpi_layout_fun((dpi, dpi))
@@ -643,7 +748,6 @@ def main():
             })
 
         elif args.command == 'img2pdf-pages':
-            import img2pdf  # type: ignore
             from PIL import Image  # type: ignore
 
             dpi = int(args.dpi or 300)
@@ -654,6 +758,10 @@ def main():
             if not args.images:
                 send_error("At least one image is required", "MISSING_INPUT")
                 sys.exit(1)
+
+            prevalidate_img2pdf_inputs(list(args.images), "images")
+
+            import img2pdf  # type: ignore
 
             layout_fun = img2pdf.get_fixed_dpi_layout_fun((dpi, dpi))
 
