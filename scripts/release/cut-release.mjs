@@ -28,7 +28,7 @@ async function main() {
     }
 
     assertNodeProjectBaseline();
-    assertGitHubCliReady();
+    await assertGitHubCliReady();
     assertCleanWorktree({ ignoredPathPrefixes: MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES });
     requireNamedBranch();
     const upstream = getUpstream();

@@ -57,19 +57,57 @@ export function shouldSkipGitHubReleaseWait(env = process.env) {
     return env.EVB_RELEASE_SKIP_GITHUB_WAIT === '1';
 }
 
-export function assertGitHubCliReady(context = 'Release') {
-    try {
-        run('gh', [
-            'auth',
-            'status',
-        ]);
-    } catch {
-        throw new Error(
-            `${context} requires an authenticated GitHub CLI session so the release command `
-            + 'can dispatch the Release workflow. '
-            + 'Run `gh auth status` / `gh auth login`. '
-            + 'EVB_RELEASE_SKIP_GITHUB_WAIT=1 only skips polling after dispatch.',
-        );
+const TRANSIENT_GITHUB_AUTH_ERROR_PATTERNS = [
+    /Timeout trying to log in/i,
+    /keyring/i,
+    /context deadline exceeded/i,
+    /connection reset/i,
+    /ECONNRESET/i,
+    /ETIMEDOUT/i,
+    /EAI_AGAIN/i,
+    /TLS handshake timeout/i,
+    /502 Bad Gateway/i,
+    /503 Service Unavailable/i,
+    /504 Gateway Timeout/i,
+];
+
+export function isTransientGitHubAuthError(error) {
+    const message = errorMessage(error);
+
+    return TRANSIENT_GITHUB_AUTH_ERROR_PATTERNS.some(pattern => pattern.test(message));
+}
+
+export async function assertGitHubCliReady(context = 'Release', {
+    attempts = 3,
+    delayMs = 5_000,
+    runCommand = run,
+    sleepFn = sleep,
+    stderr = process.stderr,
+} = {}) {
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+            runCommand('gh', [
+                'auth',
+                'status',
+            ]);
+            return;
+        } catch (error) {
+            if (attempt < attempts && isTransientGitHubAuthError(error)) {
+                stderr.write(
+                    `Transient GitHub CLI auth check failure `
+                    + `(attempt ${attempt}/${attempts}); retrying in ${delayMs / 1000}s.\n`,
+                );
+                await sleepFn(delayMs);
+                continue;
+            }
+
+            throw new Error(
+                `${context} requires an authenticated GitHub CLI session so the release command `
+                + 'can dispatch the Release workflow. '
+                + 'Run `gh auth status` / `gh auth login`. '
+                + 'EVB_RELEASE_SKIP_GITHUB_WAIT=1 only skips polling after dispatch.',
+            );
+        }
     }
 }
 

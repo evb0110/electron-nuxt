@@ -34,8 +34,10 @@ const {
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-package.mjs')).href);
 const { assertBuildArtifacts } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/assert-build-artifacts.mjs')).href);
 const {
+    assertGitHubCliReady,
     assertTagAbsent,
     filterIgnoredFiles,
+    isTransientGitHubAuthError,
     isTransientRemoteGitError,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/shared.mjs')).href);
 
@@ -362,6 +364,32 @@ describe('release policy', () => {
         expect(sleeps).toEqual([10]);
         expect(stderr.join('')).toContain('Transient remote tag check failure for v1.2.3');
         expect(isTransientRemoteGitError(new Error('Recv failure: Connection reset by peer'))).toBe(true);
+    });
+
+    it('retries transient GitHub CLI auth keyring failures during release preflight', async () => {
+        const stderr: string[] = [];
+        const sleeps: number[] = [];
+        let attempts = 0;
+
+        await assertGitHubCliReady('Release', {
+            delayMs: 10,
+            runCommand: () => {
+                attempts += 1;
+                if (attempts === 1) {
+                    throw new Error('Timeout trying to log in to github.com account evb0110 (keyring)');
+                }
+                return '';
+            },
+            sleepFn: async (duration: number) => {
+                sleeps.push(duration);
+            },
+            stderr: { write: (message: string) => stderr.push(message) },
+        });
+
+        expect(attempts).toBe(2);
+        expect(sleeps).toEqual([10]);
+        expect(stderr.join('')).toContain('Transient GitHub CLI auth check failure');
+        expect(isTransientGitHubAuthError(new Error('Timeout trying to log in to github.com account evb0110 (keyring)'))).toBe(true);
     });
 
     it('runs release checks under the supplied CI-mode environment', () => {
