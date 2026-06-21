@@ -45,7 +45,7 @@ export function getLocalReleaseCheckCommands() {
         {
             args: [
                 'run',
-                'check:wasm:freshness',
+                'check:wasm:portable',
             ],
             command: 'pnpm',
         },

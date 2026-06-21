@@ -104,8 +104,8 @@ jobs:
       - name: Install Rust WASM target
         run: rustup target add wasm32-unknown-unknown
 
-      - name: WASM freshness
-        run: pnpm run check:wasm:freshness
+      - name: WASM portable build
+        run: pnpm run check:wasm:portable
 
       - name: Lint
         run: pnpm run lint

@@ -28,6 +28,14 @@ function readTag() {
     return tag;
 }
 
+function readTargetSha() {
+    return process.argv[3]?.trim() || '';
+}
+
+function readCreatedAfter() {
+    return process.argv[4]?.trim() || '';
+}
+
 function readWaitTimeoutMs() {
     const raw = process.env.EVB_RELEASE_WAIT_TIMEOUT_MS?.trim();
     if (!raw) {
@@ -63,7 +71,7 @@ function listReleaseRuns() {
         '--limit',
         '20',
         '--json',
-        'databaseId,displayTitle,headBranch,status,conclusion,url',
+        'createdAt,databaseId,displayTitle,headBranch,headSha,status,conclusion,url',
     ]);
     const parsed = JSON.parse(payload);
     if (!Array.isArray(parsed)) {
@@ -73,16 +81,42 @@ function listReleaseRuns() {
     return parsed;
 }
 
-function findReleaseRun(tag) {
-    const targetTitle = `Release (${tag})`;
+function isAtOrAfterCreatedAfter(runInfo, createdAfter) {
+    if (!createdAfter) {
+        return true;
+    }
+
+    const createdAtMs = Date.parse(String(runInfo.createdAt ?? ''));
+    const createdAfterMs = Date.parse(createdAfter);
+
+    if (!Number.isFinite(createdAtMs) || !Number.isFinite(createdAfterMs)) {
+        return true;
+    }
+
+    // Allow a little clock skew between the local machine and GitHub's event timestamp.
+    return createdAtMs >= createdAfterMs - 60_000;
+}
+
+function findReleaseRun(tag, targetSha = '', createdAfter = '') {
+    const targetTitles = new Set([
+        `Release ${tag}`,
+        `Release (${tag})`,
+    ]);
 
     return listReleaseRuns().find(runInfo => {
         if (!runInfo || typeof runInfo !== 'object') {
             return false;
         }
 
-        return runInfo.headBranch === tag
-            || runInfo.displayTitle === targetTitle;
+        const matchesRelease = runInfo.headBranch === tag
+            || targetTitles.has(runInfo.displayTitle);
+        const matchesTarget = !targetSha
+            || !runInfo.headSha
+            || runInfo.headSha === targetSha;
+
+        return matchesRelease
+            && matchesTarget
+            && isAtOrAfterCreatedAfter(runInfo, createdAfter);
     }) ?? null;
 }
 
@@ -121,6 +155,7 @@ function writeTransientPollingFailure({
 }
 
 export async function waitForRelease(tag, {
+    createdAfter = '',
     findReleaseRunFn = findReleaseRun,
     nowFn = Date.now,
     readFailedJobSummaryFn = readFailedJobSummary,
@@ -128,6 +163,7 @@ export async function waitForRelease(tag, {
     sleepFn = sleep,
     stderr = process.stderr,
     stdout = process.stdout,
+    targetSha = '',
 } = {}) {
     const deadline = nowFn() + readWaitTimeoutMsFn();
     let announcedUrl = '';
@@ -137,7 +173,7 @@ export async function waitForRelease(tag, {
         let runInfo;
 
         try {
-            runInfo = findReleaseRunFn(tag);
+            runInfo = findReleaseRunFn(tag, targetSha, createdAfter);
             transientPollFailures = 0;
         } catch (error) {
             if (!isTransientGitHubCliError(error)) {
@@ -214,7 +250,10 @@ export async function waitForRelease(tag, {
 
 async function main() {
     const tag = readTag();
-    await waitForRelease(tag);
+    await waitForRelease(tag, {
+        createdAfter: readCreatedAfter(),
+        targetSha: readTargetSha(),
+    });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

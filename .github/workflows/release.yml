@@ -1,18 +1,19 @@
 name: Release
-run-name: Release (${{ inputs.tag || github.ref_name }})
+run-name: Release ${{ inputs.tag }}
 
 concurrency:
-  group: release-${{ github.workflow }}-${{ inputs.tag || github.ref_name || github.run_id }}
+  group: release-${{ github.workflow }}-${{ inputs.tag || github.run_id }}
   cancel-in-progress: false
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag to validate, package, and publish (for example v1.2.3).
+        description: Release tag to validate, package, and publish (for example v1.2.3).
+        required: true
+        type: string
+      target_ref:
+        description: Exact commit SHA or ref to release. The checked-out package.json version must match the tag.
         required: true
         type: string
 
@@ -30,24 +31,26 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.target.outputs.tag }}
-      target_sha: ${{ steps.sha.outputs.target_sha }}
+      target_sha: ${{ steps.validate.outputs.target_sha }}
+      version: ${{ steps.target.outputs.version }}
 
     steps:
-      - name: Resolve tag
+      - name: Resolve requested release
         id: target
         shell: bash
         env:
           DISPATCH_TAG: ${{ inputs.tag }}
-          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_TARGET_REF: ${{ inputs.target_ref }}
         run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            TAG="$DISPATCH_TAG"
-          else
-            TAG="${GITHUB_REF_NAME}"
-          fi
+          set -euo pipefail
+          TAG="$DISPATCH_TAG"
 
           if [ -z "$TAG" ]; then
             echo "::error::A release tag is required."
+            exit 1
+          fi
+          if [ -z "$DISPATCH_TARGET_REF" ]; then
+            echo "::error::A target commit SHA or ref is required."
             exit 1
           fi
           if [[ ! "$TAG" =~ ^v[0-9]+[.][0-9]+[.][0-9]+([-.][0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
@@ -56,16 +59,42 @@ jobs:
           fi
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "target_ref=$DISPATCH_TARGET_REF" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout target
         uses: actions/checkout@v6
         with:
-          ref: refs/tags/${{ steps.target.outputs.tag }}
+          ref: ${{ steps.target.outputs.target_ref }}
+          fetch-depth: 0
 
-      - name: Capture target sha
-        id: sha
+      - name: Validate target
+        id: validate
         shell: bash
-        run: echo "target_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          RELEASE_TAG: ${{ steps.target.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.target.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          target_sha="$(git rev-parse HEAD)"
+          package_version="$(node -p "require('./package.json').version")"
+          if [ "$package_version" != "$RELEASE_VERSION" ]; then
+            echo "::error::package.json version $package_version does not match release tag $RELEASE_TAG."
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            git fetch --force --depth=1 origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+            tag_sha="$(git rev-list -n 1 "refs/tags/$RELEASE_TAG")"
+            if [ "$tag_sha" != "$target_sha" ]; then
+              echo "::error::Existing tag $RELEASE_TAG points at $tag_sha, not requested target $target_sha."
+              exit 1
+            fi
+            echo "::notice::Existing tag $RELEASE_TAG already points at $target_sha; continuing for release repair."
+          fi
+
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
 
   quality:
     name: Shared Quality Gates
@@ -89,6 +118,9 @@ jobs:
 
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Install Rust WASM target
+        run: rustup target add wasm32-unknown-unknown
 
       - name: Release checks
         env:
@@ -168,6 +200,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -178,7 +211,7 @@ jobs:
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" artifacts/* --clobber
           else
-            gh release create "$RELEASE_TAG" artifacts/* --generate-notes --verify-tag
+            gh release create "$RELEASE_TAG" artifacts/* --generate-notes --target "$TARGET_SHA"
           fi
 
   publish_mac_intel:

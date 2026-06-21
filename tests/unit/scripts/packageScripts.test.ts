@@ -73,7 +73,7 @@ describe('package scripts', () => {
         const packageJson = await readPackageJson();
 
         expect(scriptRunTargets(packageJson, 'build:desktop')).toEqual([
-            'check:wasm:freshness',
+            'check:wasm:portable',
             'build',
             'build:electron',
             'build:pdf-image-combine',
@@ -105,7 +105,8 @@ describe('package scripts', () => {
         expect(packageJson.scripts['check:coverage-ratchet']).toBe('pnpm exec tsx scripts/checkCoverageRatchet.ts');
         expect(packageJson.scripts['check:coverage-ratchet:update']).toBe('pnpm exec tsx scripts/checkCoverageRatchet.ts --update-baseline');
         expect(packageJson.scripts['test:python-page-processor']).toBe('python3 scripts/check-page-processor-smoke.py');
-        expect(packageJson.scripts['check:wasm:freshness']).toBe('node scripts/check-wasm-freshness.mjs');
+        expect(packageJson.scripts['check:wasm:freshness']).toBe('node scripts/check-wasm-freshness.mjs --mode=strict');
+        expect(packageJson.scripts['check:wasm:portable']).toBe('node scripts/check-wasm-freshness.mjs --mode=portable');
         expect(scriptCommands(packageJson, 'test:e2e:electron')).toEqual([
             'pnpm run build:electron',
             'pnpm run test:e2e:electron:smoke:no-build',

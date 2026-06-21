@@ -55,4 +55,31 @@ describe('wait-for-github-release', () => {
             new Error('HTTP 401: Requires authentication'),
         )).toBe(false);
     });
+
+    it('passes the requested target sha and dispatch timestamp to the run matcher', async () => {
+        const matcherArgs: unknown[][] = [];
+
+        await waitForRelease('v0.1.400', {
+            createdAfter: '2026-06-21T10:00:00.000Z',
+            findReleaseRunFn: (...args: unknown[]) => {
+                matcherArgs.push(args);
+                return {
+                    conclusion: 'success',
+                    databaseId: 456,
+                    status: 'completed',
+                    url: 'https://github.com/example/repo/actions/runs/456',
+                };
+            },
+            readWaitTimeoutMsFn: () => 60_000,
+            sleepFn: async () => {},
+            stdout: { write: () => undefined },
+            targetSha: 'abc123',
+        });
+
+        expect(matcherArgs).toEqual([[
+            'v0.1.400',
+            'abc123',
+            '2026-06-21T10:00:00.000Z',
+        ]]);
+    });
 });

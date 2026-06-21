@@ -33,6 +33,7 @@ interface IWasmFreshnessModule {
     WASM_FRESHNESS_ARTIFACTS: IWasmFreshnessArtifact[];
     checkWasmFreshness: (options?: {
         artifacts?: IWasmFreshnessArtifact[];
+        mode?: string;
         projectRoot?: string;
         runCommand?: (command: string, args: string[], options: {
             cwd: string;
@@ -40,7 +41,9 @@ interface IWasmFreshnessModule {
             stdio: string
         }) => void;
     }) => Promise<Array<{
+        builtByteLength: number;
         fresh: boolean;
+        mode: string;
         publicPath: string
     }>>;
     getWasmFreshnessBuildPlan: (artifact: IWasmFreshnessArtifact, options: {projectRoot: string;}) => {
@@ -137,6 +140,46 @@ describe('WASM freshness check', () => {
                 projectRoot: tempRoot,
                 runCommand,
             })).rejects.toThrow('Committed WASM artifacts are stale');
+            expect(readFileSync(publicPath)).toEqual(publicBytes);
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('allows byte differences in portable mode while still reporting freshness', async () => {
+        const artifact = {
+            ...WASM_FRESHNESS_ARTIFACTS[0]!,
+            builtFileName: 'fresh.wasm',
+            label: 'Portable WASM',
+            publicRelativePath: 'public/wasm/portable.wasm',
+            requiredExports: [],
+        };
+        const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-wasm-freshness-'));
+        const publicPath = path.join(tempRoot, artifact.publicRelativePath);
+        const publicBytes = readFileSync(path.join(process.cwd(), 'public/wasm/evb-pdf-image-combine.wasm'));
+        const freshBytes = readFileSync(path.join(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm'));
+        const runCommand = vi.fn(() => {
+            const plan = getWasmFreshnessBuildPlan(artifact, {projectRoot: tempRoot});
+            mkdirSync(path.dirname(plan.builtPath), {recursive: true});
+            writeFileSync(plan.builtPath, freshBytes);
+        });
+
+        try {
+            await mkdir(path.dirname(publicPath), {recursive: true});
+            writeFileSync(publicPath, publicBytes);
+
+            await expect(checkWasmFreshness({
+                artifacts: [artifact],
+                mode: 'portable',
+                projectRoot: tempRoot,
+                runCommand,
+            })).resolves.toEqual([expect.objectContaining({
+                fresh: false,
+                mode: 'portable',
+            })]);
             expect(readFileSync(publicPath)).toEqual(publicBytes);
         } finally {
             await rm(tempRoot, {

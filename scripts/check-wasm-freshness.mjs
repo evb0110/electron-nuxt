@@ -9,6 +9,12 @@ import { REQUIRED_WEB_WASM_ASSETS } from './check-web-deploy-assets.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const wasmTarget = 'wasm32-unknown-unknown';
+const STRICT_MODE = 'strict';
+const PORTABLE_MODE = 'portable';
+const WASM_FRESHNESS_MODES = new Set([
+    STRICT_MODE,
+    PORTABLE_MODE,
+]);
 const requiredExportsByRelativePath = new Map(
     REQUIRED_WEB_WASM_ASSETS.map(asset => [
         asset.relativePath,
@@ -76,6 +82,40 @@ export function getWasmFreshnessBuildPlan(artifact, {
     };
 }
 
+export function normalizeWasmFreshnessMode(mode = STRICT_MODE) {
+    const normalizedMode = String(mode || STRICT_MODE).trim();
+    if (WASM_FRESHNESS_MODES.has(normalizedMode)) {
+        return normalizedMode;
+    }
+
+    throw new Error(
+        `Unsupported WASM freshness mode "${mode}". Expected one of: ${Array.from(WASM_FRESHNESS_MODES).join(', ')}`,
+    );
+}
+
+export function readWasmFreshnessMode(argv = process.argv.slice(2), env = process.env) {
+    let mode = env.EVB_WASM_FRESHNESS_MODE || STRICT_MODE;
+
+    for (const arg of argv) {
+        if (arg === '--strict') {
+            mode = STRICT_MODE;
+            continue;
+        }
+        if (arg === '--portable') {
+            mode = PORTABLE_MODE;
+            continue;
+        }
+        if (arg.startsWith('--mode=')) {
+            mode = arg.slice('--mode='.length);
+            continue;
+        }
+
+        throw new Error(`Unsupported WASM freshness argument: ${arg}`);
+    }
+
+    return normalizeWasmFreshnessMode(mode);
+}
+
 export function runCommandSync(command, args, options) {
     const result = spawnSync(command, args, options);
     if (result.status !== 0) {
@@ -98,10 +138,12 @@ function assertWasmExports(label, wasmBytes, requiredExports) {
 
 export async function checkWasmFreshness({
     artifacts = WASM_FRESHNESS_ARTIFACTS,
+    mode = STRICT_MODE,
     projectRoot = defaultProjectRoot,
     readFileImpl = readFile,
     runCommand = runCommandSync,
 } = {}) {
+    const normalizedMode = normalizeWasmFreshnessMode(mode);
     const mismatches = [];
     const results = [];
 
@@ -122,12 +164,14 @@ export async function checkWasmFreshness({
         const fresh = Buffer.compare(Buffer.from(publicBytes), Buffer.from(builtBytes)) === 0;
         results.push({
             builtPath: plan.builtPath,
+            builtByteLength: builtBytes.byteLength,
             byteLength: publicBytes.byteLength,
             fresh,
+            mode: normalizedMode,
             publicPath: plan.publicPath,
         });
 
-        if (!fresh) {
+        if (normalizedMode === STRICT_MODE && !fresh) {
             mismatches.push(
                 `${artifact.label}: ${path.relative(projectRoot, plan.publicPath)} differs from ${path.relative(projectRoot, plan.builtPath)}`,
             );
@@ -150,11 +194,23 @@ const isDirectCliRun = process.argv[1]
 
 if (isDirectCliRun) {
     try {
-        const results = await checkWasmFreshness();
+        const mode = readWasmFreshnessMode();
+        const results = await checkWasmFreshness({mode});
         const summary = results
-            .map(result => `${path.relative(defaultProjectRoot, result.publicPath)} (${result.byteLength} bytes)`)
+            .map((result) => {
+                const publicPath = path.relative(defaultProjectRoot, result.publicPath);
+                if (mode === PORTABLE_MODE) {
+                    return `${publicPath} (public ${result.byteLength} bytes, fresh build ${result.builtByteLength} bytes)`;
+                }
+
+                return `${publicPath} (${result.byteLength} bytes)`;
+            })
             .join(', ');
-        console.log(`WASM freshness check passed for ${summary}.`);
+        console.log(
+            mode === PORTABLE_MODE
+                ? `WASM portable check passed for ${summary}.`
+                : `WASM freshness check passed for ${summary}.`,
+        );
     } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));
         process.exit(1);

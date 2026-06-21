@@ -5,6 +5,7 @@ import {
     assertNodeProjectBaseline,
     assertTagAbsent,
     bumpVersion,
+    getHeadSha,
     getUpstream,
     readVersion,
     requireNamedBranch,
@@ -61,26 +62,36 @@ async function main() {
         run('git', [
             'commit',
             '-m',
-            `release: ${version}`,
+            `release: ${version} [skip ci]`,
             '--',
             'package.json',
         ], {stdio: 'inherit'});
         committed = true;
-        run('git', [
-            'tag',
-            tag,
-        ], {stdio: 'inherit'});
+        const targetSha = getHeadSha();
         run('git', [
             'push',
-            '--atomic',
             upstream.remote,
             `HEAD:${upstream.branch}`,
-            `refs/tags/${tag}`,
         ], {stdio: 'inherit'});
+        const dispatchStartedAt = new Date().toISOString();
+        const dispatchOutput = run('gh', [
+            'workflow',
+            'run',
+            'release.yml',
+            '--ref',
+            upstream.branch,
+            '--field',
+            `tag=${tag}`,
+            '--field',
+            `target_ref=${targetSha}`,
+        ]);
+        if (dispatchOutput.length > 0) {
+            process.stdout.write(`${dispatchOutput}\n`);
+        }
 
         if (shouldSkipGitHubReleaseWait()) {
             process.stdout.write(
-                `Release ${tag} queued. GitHub will rerun release checks, build, and publish it from the tag-triggered Release workflow.\n`,
+                `Release ${tag} queued for commit ${targetSha}. GitHub will rerun release checks, build, and publish it from the dispatched Release workflow.\n`,
             );
             return;
         }
@@ -88,6 +99,8 @@ async function main() {
         run('node', [
             'scripts/release/wait-for-github-release.mjs',
             tag,
+            targetSha,
+            dispatchStartedAt,
         ], {stdio: 'inherit'});
     } catch (error) {
         if (!committed) {

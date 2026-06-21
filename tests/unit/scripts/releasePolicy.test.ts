@@ -277,7 +277,7 @@ describe('release policy', () => {
             ],
             [
                 'run',
-                'check:wasm:freshness',
+                'check:wasm:portable',
             ],
             [
                 'run',

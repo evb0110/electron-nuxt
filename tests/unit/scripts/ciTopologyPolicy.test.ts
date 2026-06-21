@@ -54,7 +54,7 @@ describe('CI topology policy', () => {
         expect(workflow).not.toContain('pull_request:');
         expect(workflow).toContain('name: Push Quality Gates');
         expect(workflowJob(workflow, 'push_quality')).toContain('run: rustup target add wasm32-unknown-unknown');
-        expect(workflowJob(workflow, 'push_quality')).toContain('run: pnpm run check:wasm:freshness');
+        expect(workflowJob(workflow, 'push_quality')).toContain('run: pnpm run check:wasm:portable');
         expect(workflow).toContain('run: pnpm run lint');
         expect(workflow).toContain('run: pnpm run typecheck');
         expect(workflow).toContain('run: pnpm run test:release');
@@ -113,8 +113,27 @@ describe('CI topology policy', () => {
         const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
         const qualityJob = workflowJob(releaseWorkflow, 'quality');
 
+        expect(releaseWorkflow).not.toContain('tags:');
+        expect(releaseWorkflow).toContain('workflow_dispatch:');
+        expect(releaseWorkflow).toContain('target_ref:');
+        expect(releaseWorkflow).toContain('ref: ${{ steps.target.outputs.target_ref }}');
+        expect(qualityJob).toContain('run: rustup target add wasm32-unknown-unknown');
         expect(qualityJob).toContain('EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN: \'1\'');
         expect(qualityJob).toContain('run: pnpm run release:verify:checks');
+        expect(workflowJob(releaseWorkflow, 'publish')).toContain('gh release create "$RELEASE_TAG" artifacts/* --generate-notes --target "$TARGET_SHA"');
+    });
+
+    it('keeps release cutting dispatch-based instead of tag-push based', async () => {
+        const releaseScript = await readProjectFile('scripts/release/cut-release.mjs');
+
+        expect(releaseScript).toContain('`release: ${version} [skip ci]`');
+        expect(releaseScript).toContain('\'workflow\'');
+        expect(releaseScript).toContain('\'run\'');
+        expect(releaseScript).toContain('\'release.yml\'');
+        expect(releaseScript).toContain('`target_ref=${targetSha}`');
+        expect(releaseScript).not.toContain('refs/tags/${tag}');
+        expect(releaseScript).not.toContain('\'tag\',\n            tag');
+        expect(releaseScript).not.toContain('\'--atomic\'');
     });
 
     it('runs the heavier deterministic checks in the nightly lane', async () => {
