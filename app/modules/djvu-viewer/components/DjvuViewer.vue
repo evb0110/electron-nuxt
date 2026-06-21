@@ -79,11 +79,24 @@
                     </div>
                     <div
                         v-else
-                        class="djvu-page-placeholder"
+                        class="djvu-page-skeleton"
+                        aria-hidden="true"
                     >
-                        <span class="text-sm text-muted">
-                            {{ t('common.loading') }}
-                        </span>
+                        <div class="djvu-page-skeleton-content">
+                            <div class="djvu-page-skeleton-header">
+                                <USkeleton class="djvu-page-skeleton-title" />
+                                <USkeleton class="djvu-page-skeleton-subtitle" />
+                            </div>
+                            <div
+                                v-for="groupIndex in 5"
+                                :key="`djvu-page-skeleton-group-${pageNumber}-${groupIndex}`"
+                                class="djvu-page-skeleton-group"
+                            >
+                                <USkeleton class="djvu-page-skeleton-line" />
+                                <USkeleton class="djvu-page-skeleton-line" />
+                                <USkeleton class="djvu-page-skeleton-line djvu-page-skeleton-line--short" />
+                            </div>
+                        </div>
                     </div>
                     <div class="djvu-page-number">
                         {{ pageNumber }}
@@ -124,6 +137,10 @@ import type { IWheelPageAccumulatorState } from '@app/utils/document-viewer/sing
 import { normalizePageWheelDelta } from '@app/utils/document-viewer/single-page-wheel/normalizePageWheelDelta';
 import { resolveWheelPageFlipStepDelta } from '@app/utils/document-viewer/single-page-wheel/resolveWheelPageFlipStepDelta';
 import { resolveDjvuPreviewResolutionPlan } from '@app/utils/djvuPreviewResolution';
+import {
+    createDjvuPageRenderList,
+    type TDjvuScrollDirection,
+} from '@app/modules/djvu-viewer/createDjvuPageRenderList';
 
 interface IProps {
     src: TDocumentRef | null;
@@ -168,6 +185,15 @@ const WHEEL_DELTA_EPSILON = 0.01;
 const HORIZONTAL_INTENT_REJECT_RATIO = 2.5;
 const PAGE_SCROLL_EDGE_EPSILON = 1;
 const DJVU_ZOOM_SETTLE_RERENDER_MS = 200;
+const DJVU_CONTINUOUS_OVERSCAN_VIEWPORTS = 2;
+const DJVU_CONTINUOUS_RENDER_MARGIN_PAGES = 3;
+const DJVU_CONTINUOUS_PREFETCH_PAGES = 4;
+const DJVU_PAGE_FLIP_PREFETCH_PAGES = 2;
+const DJVU_PREVIEW_DEVICE_PIXEL_RATIO_CAP = 1;
+const DJVU_SCROLLING_PREVIEW_HEADROOM = 0.9;
+const DJVU_SCROLL_SETTLE_PREVIEW_RERENDER_MS = 180;
+const DJVU_RENDER_QUEUE_TARGET_CONCURRENCY = 2;
+const DJVU_RENDER_QUEUE_MAX_CONCURRENCY = 4;
 
 const viewerContainer = ref<HTMLElement | null>(null);
 const pageElements = new Map<number, HTMLElement>();
@@ -175,6 +201,8 @@ const pageSizes = ref<IDjvuPageSize[]>([]);
 const pageStates = ref<IDjvuPageState[]>([]);
 const totalPages = computed(() => pageSizes.value.length);
 const scrollTop = ref(0);
+const scrollDirection = ref<TDjvuScrollDirection>(0);
+const isScrollingPreviewMode = ref(false);
 const currentPage = ref(1);
 const viewerError = ref<string | null>(null);
 const isLoading = ref(Boolean(src));
@@ -296,8 +324,8 @@ function getCachedContinuousScrollWindow(
 
 function resolveFallbackContinuousScrollRange(anchorPage: number) {
     return {
-        start: Math.max(1, anchorPage - 2),
-        end: Math.min(totalPages.value, anchorPage + 2),
+        start: Math.max(1, anchorPage - DJVU_CONTINUOUS_RENDER_MARGIN_PAGES),
+        end: Math.min(totalPages.value, anchorPage + DJVU_CONTINUOUS_RENDER_MARGIN_PAGES),
     };
 }
 
@@ -310,8 +338,8 @@ function expandContinuousScrollRange(
 ) {
     const baseStart = visibleStart ?? overscanStart ?? anchorPage;
     const baseEnd = visibleEnd ?? overscanEnd ?? anchorPage;
-    const minStart = Math.max(1, (visibleStart ?? anchorPage) - 2);
-    const minEnd = Math.min(totalPages.value, (visibleEnd ?? anchorPage) + 2);
+    const minStart = Math.max(1, (visibleStart ?? anchorPage) - DJVU_CONTINUOUS_RENDER_MARGIN_PAGES);
+    const minEnd = Math.min(totalPages.value, (visibleEnd ?? anchorPage) + DJVU_CONTINUOUS_RENDER_MARGIN_PAGES);
 
     return {
         start: clampPageRangeStart(Math.min(baseStart, minStart)),
@@ -459,8 +487,8 @@ function resolveContinuousScrollWindow(): IContinuousScrollWindow | null {
 
     const viewportTop = Math.max(0, scrollTop.value);
     const viewportBottom = viewportTop + containerHeightValue;
-    const overscanTop = Math.max(0, viewportTop - containerHeightValue);
-    const overscanBottom = viewportBottom + containerHeightValue;
+    const overscanTop = Math.max(0, viewportTop - containerHeightValue * DJVU_CONTINUOUS_OVERSCAN_VIEWPORTS);
+    const overscanBottom = viewportBottom + containerHeightValue * DJVU_CONTINUOUS_OVERSCAN_VIEWPORTS;
     const bounds = resolveContinuousScrollBounds(
         anchorPage,
         viewportTop,
@@ -612,10 +640,11 @@ const effectiveZoom = computed(() => {
 let activeWorker: Awaited<ReturnType<typeof createDjvuPagePreviewSourceFromPath>> | null = null;
 let scrollRafId = 0;
 let loadGeneration = 0;
-let activeRenderPromise: Promise<void> | null = null;
+const activeRenderPageNumbers = new Set<number>();
 let queuedPageNumbers: number[] = [];
 let lastRenderedPageSet = new Set<number>();
 let zoomSettleRerenderTimer: number | null = null;
+let scrollSettlePreviewTimer: number | null = null;
 let wheelAccumulator: IWheelPageAccumulatorState = createWheelPageAccumulatorState();
 
 function isCurrentLoadGeneration(generation: number) {
@@ -690,13 +719,18 @@ function getNeededDeviceWidth(pageNumber: number) {
     }
 
     const cssWidth = Math.max(1, Math.round(pageSize.width * getPageDisplayScale(pageNumber)));
-    const devicePixelRatio = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    const devicePixelRatio = typeof window !== 'undefined'
+        ? Math.min(window.devicePixelRatio || 1, DJVU_PREVIEW_DEVICE_PIXEL_RATIO_CAP)
+        : 1;
     return Math.max(1, Math.ceil(cssWidth * devicePixelRatio));
 }
 
 function getPreviewResolutionPlan(pageNumber: number) {
     const pageSize = pageSizes.value[pageNumber - 1];
+    const headroom = isScrollingPreviewMode.value ? DJVU_SCROLLING_PREVIEW_HEADROOM : undefined;
+
     return resolveDjvuPreviewResolutionPlan({
+        ...(headroom === undefined ? {} : { headroom }),
         nativeWidth: pageSize?.width ?? 1,
         neededDevicePx: getNeededDeviceWidth(pageNumber),
     });
@@ -736,6 +770,7 @@ function resetPageState(pageNumber: number) {
 }
 
 function cleanupViewerState() {
+    clearScrollSettlePreviewTimer();
     for (let pageNumber = 1; pageNumber <= pageStates.value.length; pageNumber += 1) {
         revokePageUrl(pageNumber);
     }
@@ -743,8 +778,11 @@ function cleanupViewerState() {
     pageSizes.value = [];
     pageElements.clear();
     lastRenderedPageSet = new Set<number>();
+    activeRenderPageNumbers.clear();
     queuedPageNumbers = [];
     scrollTop.value = 0;
+    scrollDirection.value = 0;
+    isScrollingPreviewMode.value = false;
     invalidateContinuousScrollWindowCache();
     currentPage.value = 1;
     viewerError.value = null;
@@ -754,8 +792,10 @@ function cleanupViewerState() {
 }
 
 function releaseRenderedPagePreviews() {
-    activeRenderPromise = null;
+    activeRenderPageNumbers.clear();
     clearZoomSettleRerenderTimer();
+    clearScrollSettlePreviewTimer();
+    isScrollingPreviewMode.value = false;
 
     for (let pageNumber = 1; pageNumber <= pageStates.value.length; pageNumber += 1) {
         const state = pageStates.value[pageNumber - 1];
@@ -774,6 +814,8 @@ function releaseRenderedPagePreviews() {
 
 function stopWorker() {
     clearZoomSettleRerenderTimer();
+    clearScrollSettlePreviewTimer();
+    isScrollingPreviewMode.value = false;
     if (!activeWorker) {
         return;
     }
@@ -784,7 +826,7 @@ function stopWorker() {
 
     activeWorker.terminate();
     activeWorker = null;
-    activeRenderPromise = null;
+    activeRenderPageNumbers.clear();
     queuedPageNumbers = [];
     lastRenderedPageSet = new Set<number>();
     invalidateContinuousScrollWindowCache();
@@ -792,26 +834,30 @@ function stopWorker() {
 
 function suspendWorker() {
     releaseRenderedPagePreviews();
+    clearScrollSettlePreviewTimer();
+    isScrollingPreviewMode.value = false;
     if (!activeWorker) {
         return;
     }
 
     activeWorker.terminate();
     activeWorker = null;
-    activeRenderPromise = null;
+    activeRenderPageNumbers.clear();
     queuedPageNumbers = [];
     lastRenderedPageSet = new Set<number>();
     invalidateContinuousScrollWindowCache();
 }
 
 function isPagePreviewUndersized(pageNumber: number, state: IDjvuPageState | undefined) {
+    const targetPx = getPreviewResolutionPlan(pageNumber).targetPx;
+
     return Boolean(
         state
         && state.status === 'loaded'
         && state.objectUrl
         && state.renderedPx > 0
-        && getNeededDeviceWidth(pageNumber) > state.renderedPx
-        && getNeededDeviceWidth(pageNumber) > state.failedRenderPx,
+        && targetPx > state.renderedPx
+        && targetPx > state.failedRenderPx,
     );
 }
 
@@ -907,7 +953,7 @@ function markPagePreviewLoadFailed(
     }
 
     if (currentState.objectUrl) {
-        currentState.failedRenderPx = Math.max(currentState.failedRenderPx, getNeededDeviceWidth(pageNumber));
+        currentState.failedRenderPx = Math.max(currentState.failedRenderPx, getPreviewResolutionPlan(pageNumber).targetPx);
         currentState.status = 'loaded';
         finishInitialPreviewLoadIfSettled();
         BrowserLogger.warn('djvu-viewer', 'Failed to refresh DjVu page preview', {
@@ -995,23 +1041,29 @@ function getPreferredRenderedPageNumbers() {
     }
 
     if (isContinuousScroll.value) {
-        return renderedPageNumbers.value;
-    }
-
-    const preferredPages = [currentPage.value];
-    for (let distance = 1; distance <= 2; distance += 1) {
-        const nextPage = currentPage.value + distance;
-        if (nextPage <= totalPages.value) {
-            preferredPages.push(nextPage);
+        const scrollWindow = resolveContinuousScrollWindow();
+        if (!scrollWindow) {
+            return [] as number[];
         }
 
-        const previousPage = currentPage.value - distance;
-        if (previousPage >= 1) {
-            preferredPages.push(previousPage);
-        }
+        return createDjvuPageRenderList({
+            anchorPage: scrollWindow.mostVisiblePage ?? currentPage.value,
+            direction: scrollDirection.value,
+            endPage: scrollWindow.end,
+            prefetchPages: DJVU_CONTINUOUS_PREFETCH_PAGES,
+            startPage: scrollWindow.start,
+            totalPages: totalPages.value,
+        });
     }
 
-    return preferredPages;
+    return createDjvuPageRenderList({
+        anchorPage: currentPage.value,
+        direction: 0,
+        endPage: currentPage.value,
+        prefetchPages: DJVU_PAGE_FLIP_PREFETCH_PAGES,
+        startPage: currentPage.value,
+        totalPages: totalPages.value,
+    });
 }
 
 function queueDesiredPages(pageNumbers: number[]) {
@@ -1022,36 +1074,55 @@ function queueDesiredPages(pageNumbers: number[]) {
     ));
 }
 
-async function processRenderQueue() {
-    if (!isActive.value || activeRenderPromise || !activeWorker) {
+function countActiveQueuedRenderPages() {
+    const queuedPages = new Set(queuedPageNumbers);
+    let count = 0;
+
+    for (const pageNumber of activeRenderPageNumbers) {
+        if (queuedPages.has(pageNumber)) {
+            count += 1;
+        }
+    }
+
+    return count;
+}
+
+function processRenderQueue() {
+    if (!isActive.value || !activeWorker) {
         return;
     }
 
-    const nextPageNumber = queuedPageNumbers.find((pageNumber) => {
-        const state = pageStates.value[pageNumber - 1];
-        return shouldQueuePagePreview(pageNumber, state);
-    });
+    let launchedRender = false;
+    let activeQueuedRenderCount = countActiveQueuedRenderPages();
 
-    if (!nextPageNumber) {
-        finishInitialPreviewLoadIfSettled();
-        return;
-    }
-
-    const trackedRenderPromise = ensurePageLoaded(nextPageNumber)
-        .finally(() => {
-            if (activeRenderPromise === trackedRenderPromise) {
-                activeRenderPromise = null;
-            }
+    while (
+        activeRenderPageNumbers.size < DJVU_RENDER_QUEUE_MAX_CONCURRENCY
+        && activeQueuedRenderCount < DJVU_RENDER_QUEUE_TARGET_CONCURRENCY
+    ) {
+        const nextPageNumber = queuedPageNumbers.find((pageNumber) => {
+            const state = pageStates.value[pageNumber - 1];
+            return !activeRenderPageNumbers.has(pageNumber) && shouldQueuePagePreview(pageNumber, state);
         });
-    activeRenderPromise = trackedRenderPromise;
 
-    await trackedRenderPromise;
+        if (!nextPageNumber) {
+            break;
+        }
 
-    if (!activeWorker) {
-        return;
+        activeRenderPageNumbers.add(nextPageNumber);
+        activeQueuedRenderCount += 1;
+        launchedRender = true;
+        void ensurePageLoaded(nextPageNumber)
+            .finally(() => {
+                const wasTracked = activeRenderPageNumbers.delete(nextPageNumber);
+                if (wasTracked) {
+                    processRenderQueue();
+                }
+            });
     }
 
-    void processRenderQueue();
+    if (!launchedRender && activeRenderPageNumbers.size === 0) {
+        finishInitialPreviewLoadIfSettled();
+    }
 }
 
 function syncLoadedPages() {
@@ -1087,6 +1158,15 @@ function clearZoomSettleRerenderTimer() {
     zoomSettleRerenderTimer = null;
 }
 
+function clearScrollSettlePreviewTimer() {
+    if (scrollSettlePreviewTimer === null || typeof window === 'undefined') {
+        return;
+    }
+
+    window.clearTimeout(scrollSettlePreviewTimer);
+    scrollSettlePreviewTimer = null;
+}
+
 function scheduleSettledPreviewRerender() {
     if (!import.meta.client || !isActive.value || totalPages.value <= 0 || typeof window === 'undefined') {
         return;
@@ -1097,6 +1177,20 @@ function scheduleSettledPreviewRerender() {
         zoomSettleRerenderTimer = null;
         syncLoadedPages();
     }, DJVU_ZOOM_SETTLE_RERENDER_MS);
+}
+
+function scheduleScrollSettledPreviewRerender() {
+    if (!import.meta.client || !isActive.value || totalPages.value <= 0 || !isContinuousScroll.value || typeof window === 'undefined') {
+        return;
+    }
+
+    isScrollingPreviewMode.value = true;
+    clearScrollSettlePreviewTimer();
+    scrollSettlePreviewTimer = window.setTimeout(() => {
+        scrollSettlePreviewTimer = null;
+        isScrollingPreviewMode.value = false;
+        syncLoadedPages();
+    }, DJVU_SCROLL_SETTLE_PREVIEW_RERENDER_MS);
 }
 
 function detectCurrentPageFromViewport() {
@@ -1134,7 +1228,14 @@ function handleViewerScroll() {
         return;
     }
 
-    scrollTop.value = viewerContainer.value?.scrollTop ?? 0;
+    const nextScrollTop = viewerContainer.value?.scrollTop ?? 0;
+    if (nextScrollTop > scrollTop.value) {
+        scrollDirection.value = 1;
+    } else if (nextScrollTop < scrollTop.value) {
+        scrollDirection.value = -1;
+    }
+    scrollTop.value = nextScrollTop;
+    scheduleScrollSettledPreviewRerender();
     scheduleViewportSync();
 }
 
@@ -1523,6 +1624,7 @@ onBeforeUnmount(() => {
 
 function scrollToPage(pageNumber: number) {
     const normalizedPage = clamp(pageNumber, 1, totalPages.value || 1);
+    const previousPage = currentPage.value;
 
     if (!isContinuousScroll.value) {
         currentPage.value = normalizedPage;
@@ -1543,6 +1645,7 @@ function scrollToPage(pageNumber: number) {
 
     const element = pageElements.get(normalizedPage);
     if (element) {
+        scrollDirection.value = normalizedPage > previousPage ? 1 : normalizedPage < previousPage ? -1 : 0;
         element.scrollIntoView({
             block: 'start',
             inline: 'nearest',
@@ -1558,6 +1661,7 @@ function scrollToPage(pageNumber: number) {
     const targetScrollTop = DJVU_BASE_MARGIN
         + getContinuousPagesHeight(1, normalizedPage - 1)
         + (normalizedPage > 1 ? DJVU_BASE_MARGIN : 0);
+    scrollDirection.value = targetScrollTop > scrollTop.value ? 1 : targetScrollTop < scrollTop.value ? -1 : 0;
     container.scrollTop = targetScrollTop;
     scrollTop.value = targetScrollTop;
     void nextTick(() => {
@@ -1622,6 +1726,62 @@ defineExpose<IDocumentViewerExpose>({
     background: color-mix(in oklab, var(--ui-bg) 92%, var(--ui-bg-muted) 8%);
 }
 
+.djvu-page-skeleton {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    background:
+        linear-gradient(
+            180deg,
+            color-mix(in oklab, var(--ui-bg) 96%, var(--ui-bg-muted) 4%),
+            color-mix(in oklab, var(--ui-bg) 90%, var(--ui-bg-muted) 10%)
+        );
+}
+
+.djvu-page-skeleton-content {
+    display: flex;
+    height: 100%;
+    width: 100%;
+    flex-direction: column;
+    gap: clamp(var(--app-space-10xl), 2%, var(--app-space-16xl));
+    padding: clamp(var(--app-space-16xl), 8%, calc(var(--app-space-16xl) * 3));
+    animation: djvu-page-skeleton-pulse 0.95s ease-in-out infinite;
+}
+
+.djvu-page-skeleton-header,
+.djvu-page-skeleton-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-8xl);
+}
+
+.djvu-page-skeleton-title,
+.djvu-page-skeleton-subtitle,
+.djvu-page-skeleton-line {
+    border-radius: var(--app-radius-full);
+}
+
+.djvu-page-skeleton-title {
+    height: var(--app-space-16xl);
+    width: 62%;
+}
+
+.djvu-page-skeleton-subtitle {
+    height: var(--app-space-11xl);
+    width: 44%;
+    opacity: 0.78;
+}
+
+.djvu-page-skeleton-line {
+    height: var(--app-space-12xl);
+    width: 100%;
+}
+
+.djvu-page-skeleton-line--short {
+    width: 78%;
+}
+
 .djvu-page-number {
     position: absolute;
     right: 0.75rem;
@@ -1637,6 +1797,23 @@ defineExpose<IDocumentViewerExpose>({
 .djvu-viewer-container--pending {
     pointer-events: none;
     visibility: hidden;
+}
+
+@keyframes djvu-page-skeleton-pulse {
+    0%,
+    100% {
+        opacity: 0.5;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .djvu-page-skeleton-content {
+        animation: none;
+    }
 }
 
 </style>
