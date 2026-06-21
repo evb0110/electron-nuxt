@@ -14,6 +14,13 @@ function isWarningHeader(line) {
     return /^\s*(?:WARN\b|\[warn\])/u.test(line);
 }
 
+function isBuildLogBoundary(line) {
+    const trimmed = line.trimStart();
+
+    return /^(?:\[(?:debug|info|log|ready|start|success|error|fail|trace)\](?:\s|$)|\(node:\d+\)\s+\[[A-Z0-9]+\]|\(Use `node --trace-)/u
+        .test(trimmed);
+}
+
 function getWarningHeaderLine(line) {
     const headerTail = line.replace(/^\s*(?:WARN\s*|\[warn\]\s*)/u, '').trim();
     return headerTail.length > 0 ? `WARN ${headerTail}` : 'WARN';
@@ -26,6 +33,9 @@ function readWarningBlockLines(lines, startIndex) {
     while (cursor < lines.length) {
         const next = lines[cursor];
         if (isWarningHeader(next)) {
+            break;
+        }
+        if (isBuildLogBoundary(next)) {
             break;
         }
         if (next.trim().length === 0) {

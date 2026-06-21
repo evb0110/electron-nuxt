@@ -110,6 +110,11 @@ function createLineFilter(write) {
 }
 
 function run(command, args, options = {}) {
+    const {
+        preserveExistingBuildLog = false,
+        ...spawnOptions
+    } = options;
+
     return new Promise((resolve, reject) => {
         const child = spawn(command, args, {
             cwd: projectRoot,
@@ -119,7 +124,7 @@ function run(command, args, options = {}) {
                 'pipe',
                 'pipe',
             ],
-            ...options,
+            ...spawnOptions,
         });
 
         let output = '';
@@ -158,9 +163,21 @@ function run(command, args, options = {}) {
                     : `${command} ${args.join(' ')} exited with status ${code ?? 1}`,
             );
             error.output = output;
+            error.preserveExistingBuildLog = preserveExistingBuildLog;
             reject(error);
         });
     });
+}
+
+export function shouldWriteErrorOutputToBuildLog(error) {
+    return Boolean(
+        error
+        && typeof error === 'object'
+        && 'output' in error
+        && typeof error.output === 'string'
+        && error.output.length > 0
+        && !error.preserveExistingBuildLog,
+    );
 }
 
 async function main() {
@@ -174,18 +191,12 @@ async function main() {
     await run('node', [
         'scripts/check-build-warnings.mjs',
         '.tmp/build.log',
-    ]);
+    ], { preserveExistingBuildLog: true });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     main().catch((error) => {
-        if (
-            error
-            && typeof error === 'object'
-            && 'output' in error
-            && typeof error.output === 'string'
-            && error.output.length > 0
-        ) {
+        if (shouldWriteErrorOutputToBuildLog(error)) {
             mkdirSync(path.dirname(buildLogPath), { recursive: true });
             writeFileSync(buildLogPath, error.output);
         }

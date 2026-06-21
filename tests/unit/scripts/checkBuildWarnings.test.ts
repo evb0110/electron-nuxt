@@ -39,6 +39,18 @@ describe('check-build-warnings', () => {
         expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
     });
 
+    it('keeps Nuxt build log records out of one-line warning blocks', async () => {
+        const result = await runWarningCheck([
+            '[warn] "file:///D:/a/evb-viewer/evb-viewer/node_modules/.pnpm/@nuxt+nitro-server@4.4.2_820334768e79cbb19f979b888702c608/node_modules/@nuxt/nitro-server/dist/runtime/utils/cache-driver.js" is imported by "virtual:#nitro-internal-virtual/storage", but could not be resolved \u2013 treating it as an external dependency.',
+            '[info] [nitro] Prerendering 6 routes',
+            '[log] [nitro]   /workspace (11ms)',
+            '[success] [nitro] Generated public nuxt-output/public',
+            '',
+        ].join('\n'));
+
+        expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
+    });
+
     it('allows transient Nuxt Fonts Fontshare retry warnings', async () => {
         const result = await runWarningCheck([
             '[warn] Could not fetch from `https://api.fontshare.com/v2/fonts`. Will retry in `1000ms`. `3` retries left.',

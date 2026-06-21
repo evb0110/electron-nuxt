@@ -14,11 +14,13 @@ interface IPnpmInvocation {
 interface IBuildStrictModule {
     getPnpmInvocation: (args: string[], platform?: NodeJS.Platform) => IPnpmInvocation;
     getStrictBuildEnv: (env?: NodeJS.ProcessEnv) => NodeJS.ProcessEnv;
+    shouldWriteErrorOutputToBuildLog: (error: unknown) => boolean;
 }
 
 const {
     getPnpmInvocation,
     getStrictBuildEnv,
+    shouldWriteErrorOutputToBuildLog,
 } = await import(
     pathToFileURL(path.join(process.cwd(), 'scripts/run-build-strict.mjs')).href
 ) as IBuildStrictModule;
@@ -66,5 +68,13 @@ describe('run-build-strict', () => {
     it('preserves an explicit heap setting from the caller', () => {
         expect(getStrictBuildEnv({ NODE_OPTIONS: '--max-old-space-size=8192 --trace-warnings' }).NODE_OPTIONS)
             .toBe('--max-old-space-size=8192 --trace-warnings');
+    });
+
+    it('preserves the original build log when the warning checker fails', () => {
+        expect(shouldWriteErrorOutputToBuildLog({ output: 'raw build output' })).toBe(true);
+        expect(shouldWriteErrorOutputToBuildLog({
+            output: 'warning checker diagnostics',
+            preserveExistingBuildLog: true,
+        })).toBe(false);
     });
 });
