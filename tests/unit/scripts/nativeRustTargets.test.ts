@@ -98,10 +98,17 @@ describe('native Rust targets', () => {
         });
     });
 
-    it('rejects unsupported host targets before staging release binaries', () => {
+    it('rejects unsupported host architectures before staging release binaries', () => {
         expect(() => getHostNativeTarget({
             arch: 'ia32',
-            platform: 'freebsd',
+            platform: 'linux',
         })).toThrow('Unsupported native Rust target architecture');
+    });
+
+    it('rejects unsupported host platforms before staging release binaries', () => {
+        expect(() => getHostNativeTarget({
+            arch: 'x64',
+            platform: 'freebsd',
+        })).toThrow('Unsupported native Rust target platform');
     });
 });

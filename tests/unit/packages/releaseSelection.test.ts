@@ -5,10 +5,21 @@ import {
 } from 'vitest';
 import type { IReleaseInstaller } from '@contracts';
 import {
+    compareInstallersForSelect,
+    detectArchitecture,
+    detectPlatform,
+    formatFileSize,
+    formatInstallerArchLabel,
+    formatInstallerVariantLabel,
+    getAssetExtension,
     isLegacyInstallerAsset,
+    isInstallerAsset,
     normalizeInstallers,
     parseArchitectureHint,
+    parsePlatformHint,
+    parseUserAgent,
     recommendInstaller,
+    selectPreferredInstallers,
 } from '@releaseSelection';
 
 function createInstaller(partial: Partial<IReleaseInstaller> & Pick<IReleaseInstaller, 'id' | 'name' | 'extension' | 'arch'>): IReleaseInstaller {
@@ -36,6 +47,43 @@ describe('release selection', () => {
         expect(parseArchitectureHint('x86_64')).toBe('x64');
     });
 
+    it('parses release asset extensions and filters metadata sidecars', () => {
+        expect(getAssetExtension('EVB-Viewer-linux-x64.tar.gz')).toBe('tar.gz');
+        expect(getAssetExtension('latest.yml')).toBe('yml');
+        expect(isInstallerAsset('EVB-Viewer-mac-arm64.dmg')).toBe(true);
+        expect(isInstallerAsset('EVB-Viewer-win-x64.exe.blockmap')).toBe(false);
+        expect(isInstallerAsset('latest-mac.yml')).toBe(false);
+        expect(isInstallerAsset('EVB-Viewer-linux-x64.tar.gz.sha256')).toBe(false);
+    });
+
+    it('detects platforms and architectures from representative asset names', () => {
+        expect(detectPlatform('EVB-Viewer-darwin-arm64.zip')).toBe('macos');
+        expect(detectPlatform('EVB-Viewer-win-x64.exe')).toBe('windows');
+        expect(detectPlatform('EVB-Viewer-linux-arm64.AppImage')).toBe('linux');
+        expect(detectPlatform('EVB-Viewer-portable.zip')).toBe('unknown');
+        expect(detectArchitecture('EVB-Viewer-all.dmg')).toBe('universal');
+        expect(detectArchitecture('EVB-Viewer-aarch64.AppImage')).toBe('arm64');
+        expect(detectArchitecture('EVB-Viewer-amd64.deb')).toBe('x64');
+    });
+
+    it('parses platform hints and common user agents', () => {
+        expect(parsePlatformHint('macOS')).toBe('macos');
+        expect(parsePlatformHint('Windows')).toBe('windows');
+        expect(parsePlatformHint('Linux x86_64')).toBe('linux');
+        expect(parseUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)')).toEqual({
+            platform: 'macos',
+            arch: 'x64',
+        });
+        expect(parseUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toEqual({
+            platform: 'windows',
+            arch: 'x64',
+        });
+        expect(parseUserAgent('Mozilla/5.0 (X11; Linux aarch64)')).toEqual({
+            platform: 'linux',
+            arch: 'arm64',
+        });
+    });
+
     it('treats the default Linux AppImage artifact as x64', () => {
         const [installer] = normalizeInstallers([createInstaller({
             arch: 'unknown',
@@ -46,6 +94,46 @@ describe('release selection', () => {
         })]);
 
         expect(installer?.arch).toBe('x64');
+    });
+
+    it('filters unknown non-legacy Windows exe assets only when arch-specific exes are present', () => {
+        const installers = normalizeInstallers([
+            createInstaller({
+                arch: 'x64',
+                extension: 'exe',
+                id: 1,
+                name: 'EVB-Viewer-win-x64.exe',
+                platform: 'windows',
+            }),
+            createInstaller({
+                arch: 'arm64',
+                extension: 'exe',
+                id: 2,
+                name: 'EVB-Viewer-win-arm64.exe',
+                platform: 'windows',
+            }),
+            createInstaller({
+                arch: 'unknown',
+                extension: 'exe',
+                id: 3,
+                name: 'EVB-Viewer-win.exe',
+                platform: 'windows',
+            }),
+            createInstaller({
+                arch: 'unknown',
+                extension: 'exe',
+                id: 4,
+                isLegacy: true,
+                name: 'EVB-Viewer-win7-legacy.exe',
+                platform: 'windows',
+            }),
+        ]);
+
+        expect(installers.map(installer => installer.name)).toEqual([
+            'EVB-Viewer-win-x64.exe',
+            'EVB-Viewer-win-arm64.exe',
+            'EVB-Viewer-win7-legacy.exe',
+        ]);
     });
 
     it('prefers mac x64 compatible installers before extension rank', () => {
@@ -74,5 +162,106 @@ describe('release selection', () => {
         });
 
         expect(recommended?.name).toBe('EVB-Viewer-mac-x64.zip');
+    });
+
+    it('formats installer arch and variant labels for mac architectures and unknown arch fallbacks', () => {
+        expect(formatInstallerArchLabel(createInstaller({
+            arch: 'x64',
+            extension: 'dmg',
+            id: 1,
+            name: 'EVB-Viewer-mac-x64.dmg',
+        }))).toBe('Intel');
+        expect(formatInstallerArchLabel(createInstaller({
+            arch: 'arm64',
+            extension: 'dmg',
+            id: 2,
+            name: 'EVB-Viewer-mac-arm64.dmg',
+        }))).toBe('Apple Silicon');
+        expect(formatInstallerVariantLabel(createInstaller({
+            arch: 'unknown',
+            extension: 'zip',
+            id: 3,
+            name: 'EVB-Viewer-mac.zip',
+        }))).toBe('x64 (ZIP)');
+    });
+
+    it('formats file sizes at byte and unit boundaries', () => {
+        expect(formatFileSize(0)).toBe('Unknown size');
+        expect(formatFileSize(Number.NaN)).toBe('Unknown size');
+        expect(formatFileSize(1)).toBe('1.0 B');
+        expect(formatFileSize(1024)).toBe('1.0 KB');
+        expect(formatFileSize(10 * 1024)).toBe('10 KB');
+        expect(formatFileSize(1024 ** 2)).toBe('1.0 MB');
+        expect(formatFileSize(1024 ** 3)).toBe('1.0 GB');
+    });
+
+    it('selects one preferred installer per effective architecture', () => {
+        const preferred = selectPreferredInstallers([
+            createInstaller({
+                arch: 'x64',
+                extension: 'zip',
+                id: 1,
+                name: 'EVB-Viewer-mac-x64.zip',
+            }),
+            createInstaller({
+                arch: 'x64',
+                extension: 'dmg',
+                id: 2,
+                name: 'EVB-Viewer-mac-x64.dmg',
+            }),
+            createInstaller({
+                arch: 'arm64',
+                extension: 'pkg',
+                id: 3,
+                name: 'EVB-Viewer-mac-arm64.pkg',
+            }),
+        ]);
+
+        expect(preferred.map(installer => installer.name)).toEqual([
+            'EVB-Viewer-mac-x64.dmg',
+            'EVB-Viewer-mac-arm64.pkg',
+        ]);
+    });
+
+    it('orders installers for select menus by extension preference, arch, and name', () => {
+        const sorted = [
+            createInstaller({
+                arch: 'arm64',
+                extension: 'pkg',
+                id: 1,
+                name: 'B.pkg',
+            }),
+            createInstaller({
+                arch: 'arm64',
+                extension: 'dmg',
+                id: 2,
+                name: 'B.dmg',
+            }),
+            createInstaller({
+                arch: 'x64',
+                extension: 'dmg',
+                id: 3,
+                name: 'A.dmg',
+            }),
+            createInstaller({
+                arch: 'x64',
+                extension: 'dmg',
+                id: 4,
+                name: 'B.dmg',
+            }),
+        ].toSorted(compareInstallersForSelect);
+
+        expect(sorted.map(installer => installer.name)).toEqual([
+            'A.dmg',
+            'B.dmg',
+            'B.dmg',
+            'B.pkg',
+        ]);
+        expect(sorted.map(installer => installer.arch)).toEqual([
+            'x64',
+            'x64',
+            'arm64',
+            'arm64',
+        ]);
     });
 });

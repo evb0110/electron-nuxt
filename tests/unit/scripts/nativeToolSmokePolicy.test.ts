@@ -3,6 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
@@ -13,24 +14,79 @@ const {
 
 describe('native tool smoke policy', () => {
     it('keeps mac packaged tool smoke expectations explicit per tool', () => {
-        expect(getMacPackagedToolSmokePolicy('ddjvu').allowedExitCodes).toEqual(new Set([
-            0,
-            1,
-            10,
-        ]));
-        expect(getMacPackagedToolSmokePolicy('djvused').allowedExitCodes).toEqual(new Set([
-            0,
-            10,
-        ]));
-        expect(getMacPackagedToolSmokePolicy('unpaper').allowedExitCodes).toEqual(new Set([0]));
-        expect(getMacPackagedToolSmokePolicy('evb-pdf-image-combine').allowedExitCodes).toEqual(new Set([0]));
-        expect(getMacPackagedToolSmokePolicy('evb-pdf-page-ops').allowedExitCodes).toEqual(new Set([0]));
-        expect(getMacPackagedToolSmokePolicy('evb-pdf-search').allowedExitCodes).toEqual(new Set([0]));
-        expect(getMacPackagedToolSmokePolicy('page-processor').allowedExitCodes).toEqual(new Set([0]));
+        const verifierSource = readFileSync(resolve(process.cwd(), 'scripts/verify-packaged-native-tools.sh'), 'utf-8');
+        const verifierTools = Array.from(
+            verifierSource.matchAll(/run_macos_packaged_tool_smoke "([^"]+)"/gu),
+            match => match[1],
+        );
+        const expectedPolicies = new Map<string, Set<number>>([
+            [
+                'ddjvu',
+                new Set([
+                    0,
+                    1,
+                    10,
+                ]),
+            ],
+            [
+                'djvused',
+                new Set([
+                    0,
+                    10,
+                ]),
+            ],
+            [
+                'evb-pdf-image-combine',
+                new Set([0]),
+            ],
+            [
+                'evb-pdf-page-ops',
+                new Set([0]),
+            ],
+            [
+                'evb-pdf-search',
+                new Set([0]),
+            ],
+            [
+                'page-processor',
+                new Set([0]),
+            ],
+            [
+                'pdftoppm',
+                new Set([0]),
+            ],
+            [
+                'pdftotext',
+                new Set([0]),
+            ],
+            [
+                'qpdf',
+                new Set([0]),
+            ],
+            [
+                'tesseract',
+                new Set([0]),
+            ],
+            [
+                'unpaper',
+                new Set([0]),
+            ],
+        ]);
+
+        expect(verifierTools.sort()).toEqual(Array.from(expectedPolicies.keys()).sort());
+        for (const [
+            toolName,
+            allowedExitCodes,
+        ] of expectedPolicies) {
+            expect(getMacPackagedToolSmokePolicy(toolName).allowedExitCodes).toEqual(allowedExitCodes);
+        }
     });
 
     it('requires both an allowed exit code and recognizable output', () => {
         expect(() => assertMacPackagedToolSmoke('qpdf', 0, 'qpdf version 12.0.0')).not.toThrow();
+        expect(() => assertMacPackagedToolSmoke('pdftoppm', 0, 'pdftoppm version 25.0.0')).not.toThrow();
+        expect(() => assertMacPackagedToolSmoke('pdftotext', 0, 'pdftotext version 25.0.0')).not.toThrow();
+        expect(() => assertMacPackagedToolSmoke('tesseract', 0, 'tesseract 5.5.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('evb-pdf-page-ops', 0, 'evb-pdf-page-ops 0.1.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('evb-pdf-search', 0, 'evb-pdf-search 0.1.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('page-processor', 0, 'page-processor 2.0.0')).not.toThrow();

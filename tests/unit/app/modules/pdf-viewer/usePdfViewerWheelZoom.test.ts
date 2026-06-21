@@ -171,10 +171,19 @@ describe('usePdfViewerWheelZoom', () => {
 
             setup.wheelZoom.handleViewerWheel(event);
 
+            const emittedEffectiveZoom = setup.emit.mock.calls.find(
+                call => call[0] === 'update:effectiveZoom',
+            )?.[1];
+            const emittedZoom = setup.emit.mock.calls.find(call => call[0] === 'update:zoom')?.[1];
+
             expect(event.defaultPrevented).toBe(true);
             expect(setup.emit).toHaveBeenCalledWith('update:zoomMode', 'custom');
             expect(setup.emit).toHaveBeenCalledWith('update:effectiveZoom', expect.any(Number));
             expect(setup.emit).toHaveBeenCalledWith('update:zoom', expect.any(Number));
+            expect(Number.isFinite(emittedEffectiveZoom)).toBe(true);
+            expect(Number.isFinite(emittedZoom)).toBe(true);
+            expect(emittedEffectiveZoom).toBeGreaterThan(1);
+            expect(emittedZoom).toBeGreaterThan(1);
             expect(setup.zoomVirtualizationFreeze.value).toEqual(expect.objectContaining({
                 sessionId: 1,
                 windowStart: 2,

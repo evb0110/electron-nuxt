@@ -51,6 +51,7 @@ describe('check-build-warnings', () => {
     it('allows known Rollup warnings even when the build output colorizes paths', async () => {
         const result = await runWarningCheck([
             'WARN \u001B[33mnode_modules/.pnpm/@vueuse+core@14.3.0_vue@3.5.33_typescript@5.9.3_/node_modules/@vueuse/core/dist/index.js (3362:0): A comment',
+            '"/* #__PURE__ */"',
             '',
         ].join('\n'));
 
@@ -64,6 +65,17 @@ describe('check-build-warnings', () => {
         ].join('\n'))).rejects.toMatchObject({
             code: 1,
             stderr: expect.stringContaining('Unknown warnings found'),
+        });
+    });
+
+    it('rejects unexpected continuation lines in otherwise allowlisted warning blocks', async () => {
+        await expect(runWarningCheck([
+            '[warn] Could not fetch from `https://api.fontshare.com/v2/fonts`. Will retry in `1000ms`. `3` retries left.',
+            'unexpected retry detail from production build',
+            '',
+        ].join('\n'))).rejects.toMatchObject({
+            code: 1,
+            stderr: expect.stringContaining('unexpected retry detail from production build'),
         });
     });
 });

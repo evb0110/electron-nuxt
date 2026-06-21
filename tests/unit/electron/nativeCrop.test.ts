@@ -80,8 +80,17 @@ describe('native page crop helper', () => {
             right: 4,
         })).resolves.toBe(true);
 
-        expect(runNativeToolCommandMock).toHaveBeenCalledWith(nativeBinaryPath, expect.arrayContaining([
+        const args = runNativeToolCommandMock.mock.calls[0]?.[1] as string[];
+        const outputPath = args[args.indexOf('--output') + 1];
+        const pagesFilePath = args[args.indexOf('--pages-file') + 1];
+        expect(args).toEqual([
             'crop',
+            '--input',
+            pdfPath,
+            '--output',
+            outputPath,
+            '--pages-file',
+            pagesFilePath,
             '--top',
             '1',
             '--bottom',
@@ -90,8 +99,46 @@ describe('native page crop helper', () => {
             '3',
             '--right',
             '4',
-        ]), expect.objectContaining({commandLabel: 'evb-pdf-page-ops(crop)'}));
+        ]);
+        expect(runNativeToolCommandMock).toHaveBeenCalledWith(nativeBinaryPath, args, {
+            timeoutMs: 120000,
+            commandLabel: 'evb-pdf-page-ops(crop)',
+        });
         await expect(readFile(pdfPath, 'utf8')).resolves.toBe('%PDF-1.7\nnative crop');
+    });
+
+    it('passes the exact remove-crop command contract', async () => {
+        runNativeToolCommandMock.mockImplementationOnce(async (_binaryPath: string, args: string[]) => {
+            const outputPath = args[args.indexOf('--output') + 1]!;
+            await writeFile(outputPath, '%PDF-1.7\nnative remove crop');
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+
+        const { tryRemoveCropWithNativePageOps } = await import('@electron/features/page-ops/main/nativeCrop');
+
+        await expect(tryRemoveCropWithNativePageOps(pdfPath, [2])).resolves.toBe(true);
+
+        const args = runNativeToolCommandMock.mock.calls[0]?.[1] as string[];
+        const outputPath = args[args.indexOf('--output') + 1];
+        const pagesFilePath = args[args.indexOf('--pages-file') + 1];
+        expect(args).toEqual([
+            'remove-crop',
+            '--input',
+            pdfPath,
+            '--output',
+            outputPath,
+            '--pages-file',
+            pagesFilePath,
+        ]);
+        expect(runNativeToolCommandMock).toHaveBeenCalledWith(nativeBinaryPath, args, {
+            timeoutMs: 120000,
+            commandLabel: 'evb-pdf-page-ops(remove-crop)',
+        });
+        await expect(readFile(pdfPath, 'utf8')).resolves.toBe('%PDF-1.7\nnative remove crop');
     });
 
     it('falls back without replacing the working copy when the native helper fails', async () => {

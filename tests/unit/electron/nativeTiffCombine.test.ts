@@ -69,9 +69,14 @@ describe('native TIFF combine wrapper', () => {
 
         mocks.runNativeCommand.mockImplementation(async (binaryPath: string, args: string[]) => {
             expect(binaryPath).toBe('/mock/evb-pdf-image-combine');
-            expect(args).toContain('--format');
-            expect(args[args.indexOf('--format') + 1]).toBe('tiff');
-            expect(args).toContain('--inputs-file');
+            expect(args).toEqual([
+                '--output',
+                `${outputPath}.tmp`,
+                '--format',
+                'tiff',
+                '--inputs-file',
+                expect.any(String),
+            ]);
             recordedInputsFile = args[args.indexOf('--inputs-file') + 1]!;
             expect(args).not.toContain(inputPaths[0]);
 
@@ -88,6 +93,41 @@ describe('native TIFF combine wrapper', () => {
         await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath)).resolves.toBe(true);
         await expect(readFile(outputPath, 'utf8')).resolves.toBe('native-tiff');
         expect(recordedInputs).toBe(`${inputPaths.join('\n')}\n`);
+        expect(mocks.runNativeCommand).toHaveBeenCalledWith('/mock/evb-pdf-image-combine', expect.any(Array), {
+            timeoutMs: 600000,
+            commandLabel: 'evb-pdf-image-combine(tiff)',
+            maxStdoutBytes: 1024,
+            maxStderrBytes: 8192,
+            defaultCwdToCommandDir: true,
+            prependCommandDirToPath: true,
+        });
         expect(mocks.atomicReplace).toHaveBeenCalledWith(`${outputPath}.tmp`, outputPath);
+    });
+
+    it('removes native temp output and skips replacement when the command fails', async () => {
+        const inputPaths = [join(tempDir, 'page-001.tif')];
+        const outputPath = join(tempDir, 'combined.tiff');
+        await writeFile(`${outputPath}.tmp`, 'stale');
+        mocks.runNativeCommand.mockRejectedValueOnce(new Error('native failed'));
+
+        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath)).resolves.toBe(false);
+
+        await expect(readFile(`${outputPath}.tmp`, 'utf8')).rejects.toThrow();
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+    });
+
+    it('skips replacement and cleans up when native output is missing', async () => {
+        const inputPaths = [join(tempDir, 'page-001.tif')];
+        const outputPath = join(tempDir, 'combined.tiff');
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+        });
+
+        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath)).resolves.toBe(false);
+
+        await expect(readFile(`${outputPath}.tmp`, 'utf8')).rejects.toThrow();
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
     });
 });

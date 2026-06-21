@@ -82,7 +82,18 @@ describe('page-ops insert service', () => {
                 options: IInsertRunCommandOptionsExpectation,
             ) => {
                 const qpdfArgs = await readQpdfArgFile(args);
-                expect(qpdfArgs.at(-1)).toBe(tempOutputPath);
+                expect(qpdfArgs).toEqual([
+                    workingCopyPath,
+                    '--pages',
+                    workingCopyPath,
+                    '1-1',
+                    sourcePath,
+                    '1-z',
+                    workingCopyPath,
+                    '2-2',
+                    '--',
+                    tempOutputPath,
+                ]);
                 expect(options.allowedExitCodes).toEqual([
                     0,
                     3,

@@ -24,12 +24,13 @@ describe('resolvePerformanceProfile', () => {
             lowMemory: true,
             lowCpu: true,
             pdfBufferPages: 1,
-            concurrentPdfRenders: PDF_RENDER_CONCURRENCY_LOW_CPU,
+            concurrentPdfRenders: 1,
             maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_LOW_MEMORY,
             thumbnailBaseConcurrency: PDF_THUMBNAIL_CONCURRENCY_LOW_PROFILE,
             settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
             maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY,
         });
+        expect(PDF_RENDER_CONCURRENCY_LOW_CPU).toBe(1);
     });
 
     it('keeps full counts on capable hardware and raises the settled canvas budget', () => {
@@ -88,11 +89,12 @@ describe('resolvePerformanceProfile', () => {
             lowMemory: false,
             lowCpu: true,
             pdfBufferPages: 2,
-            concurrentPdfRenders: PDF_RENDER_CONCURRENCY_LOW_CPU,
+            concurrentPdfRenders: 1,
             maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_DEFAULT,
             settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY,
             maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT,
         });
+        expect(PDF_RENDER_CONCURRENCY_LOW_CPU).toBe(1);
     });
 
     it('reduces off-screen counts on low-memory machines with enough CPU cores', () => {

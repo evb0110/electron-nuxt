@@ -257,6 +257,7 @@ async function createHarness(overrides: IHarnessOverrides = {}) {
     return {
         crud,
         uiManager,
+        annotationCommentsCache,
         pendingCommentEditorKeys,
         syncAnnotationComments,
         scheduleAnnotationCommentsSync,
@@ -357,6 +358,8 @@ describe('useAnnotationCrud annotation comment interactions', () => {
         await harness.crud.deleteAnnotationComment(comment);
 
         expect(harness.forgetSummaryText).toHaveBeenCalledTimes(2);
+        expect(harness.forgetSummaryText).toHaveBeenNthCalledWith(1, comment);
+        expect(harness.forgetSummaryText).toHaveBeenNthCalledWith(2, comment);
     });
 
     it('removes pending editor key from sync set after successful deletion', async () => {
@@ -489,9 +492,15 @@ describe('useAnnotationCrud annotation comment interactions', () => {
     });
 
     it('does not throw when given an unknown id and leaves cache untouched', async () => {
+        const unrelated = createComment({
+            id: 'kept',
+            uid: 'kept',
+            stableKey: 'editor:0:kept',
+            text: 'keep me',
+        });
         const harness = await createHarness({
             editors: [],
-            cache: [],
+            cache: [unrelated],
             commentToReturnFromCache: null,
             uiManagerOpts: { omitSelectComment: true },
         });
@@ -503,6 +512,10 @@ describe('useAnnotationCrud annotation comment interactions', () => {
         });
 
         await expect(harness.crud.deleteAnnotationComment(unknown)).resolves.toBe(false);
+        expect(harness.emitAnnotationModified).not.toHaveBeenCalled();
+        expect(harness.scheduleAnnotationCommentsSync).not.toHaveBeenCalled();
+        expect(harness.forgetSummaryText).not.toHaveBeenCalled();
+        expect(harness.annotationCommentsCache.value).toEqual([unrelated]);
     });
 
     it('does not throw when given an empty-id comment and does not mutate state', async () => {

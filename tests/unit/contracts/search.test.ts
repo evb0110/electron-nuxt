@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import {
+    buildPdfSearchExcerpt,
     collapseRepeatedPdfSearchPageText,
     findPdfSearchMatches,
     iteratePdfSearchMatches,
@@ -50,5 +51,88 @@ describe('findPdfSearchMatches', () => {
             endOffset: 11,
         });
         expect(iterator.next().done).toBe(true);
+    });
+
+    it('honors case sensitivity and literal escaping', () => {
+        expect(findPdfSearchMatches('Foo foo f.o', 'foo')).toEqual([
+            {
+                startOffset: 0,
+                endOffset: 3,
+            },
+            {
+                startOffset: 4,
+                endOffset: 7,
+            },
+        ]);
+        expect(findPdfSearchMatches('Foo foo f.o', 'foo', { matchCase: true })).toEqual([{
+            startOffset: 4,
+            endOffset: 7,
+        }]);
+        expect(findPdfSearchMatches('fao f.o foo', 'f.o')).toEqual([{
+            startOffset: 4,
+            endOffset: 7,
+        }]);
+    });
+
+    it('supports regex and non-global regex inputs', () => {
+        expect(findPdfSearchMatches('a1 b22 c333', '\\p{L}\\d+', { useRegex: true })).toEqual([
+            {
+                startOffset: 0,
+                endOffset: 2,
+            },
+            {
+                startOffset: 3,
+                endOffset: 6,
+            },
+            {
+                startOffset: 7,
+                endOffset: 11,
+            },
+        ]);
+        expect(findPdfSearchMatches('foo foo', /foo/u)).toEqual([
+            {
+                startOffset: 0,
+                endOffset: 3,
+            },
+            {
+                startOffset: 4,
+                endOffset: 7,
+            },
+        ]);
+    });
+
+    it('uses Unicode-aware whole-word boundaries', () => {
+        expect(findPdfSearchMatches('cat bobcat кот cat_1 кот!', 'кот', { wholeWord: true })).toEqual([
+            {
+                startOffset: 11,
+                endOffset: 14,
+            },
+            {
+                startOffset: 21,
+                endOffset: 24,
+            },
+        ]);
+        expect(findPdfSearchMatches('cat bobcat cat!', 'cat', { wholeWord: true })).toEqual([
+            {
+                startOffset: 0,
+                endOffset: 3,
+            },
+            {
+                startOffset: 11,
+                endOffset: 14,
+            },
+        ]);
+    });
+});
+
+describe('buildPdfSearchExcerpt', () => {
+    it('normalizes surrounding whitespace and reports prefix/suffix truncation', () => {
+        expect(buildPdfSearchExcerpt('alpha \n beta target gamma \t delta', 13, 19, 7)).toEqual({
+            prefix: true,
+            suffix: true,
+            before: 'beta ',
+            match: 'target',
+            after: ' gamma',
+        });
     });
 });

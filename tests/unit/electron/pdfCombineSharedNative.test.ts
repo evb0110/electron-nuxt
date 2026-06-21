@@ -95,7 +95,12 @@ describe('createCombinedPdf native image fast path', () => {
             10,
             20,
         ]);
-        expect(mocks.drawImage).toHaveBeenCalled();
+        expect(mocks.drawImage).toHaveBeenCalledWith(await mocks.embedPng.mock.results[0]?.value, {
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 20,
+        });
         expect(mocks.save).toHaveBeenCalledTimes(1);
     });
 });

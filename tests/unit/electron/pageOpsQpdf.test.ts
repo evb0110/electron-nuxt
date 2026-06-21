@@ -138,7 +138,14 @@ describe('page-ops qpdf extract', () => {
                 options: IQpdfRunCommandOptionsExpectation,
             ) => {
                 const qpdfArgs = await readQpdfArgFile(args);
-                expect(qpdfArgs.at(-1)).toBe(tempOutputPath);
+                expect(qpdfArgs).toEqual([
+                    srcPath,
+                    '--pages',
+                    srcPath,
+                    '1',
+                    '--',
+                    tempOutputPath,
+                ]);
                 expect(options.allowedExitCodes).toEqual([
                     0,
                     3,
@@ -181,7 +188,11 @@ describe('page-ops qpdf working-copy mutations', () => {
             await writeFile(workingCopyPath, '%PDF-1.7\n');
             runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
                 const qpdfArgs = await readQpdfArgFile(args);
-                expect(qpdfArgs.at(-1)).toBe(tempOutputPath);
+                expect(qpdfArgs).toEqual([
+                    workingCopyPath,
+                    '--rotate=+90:1',
+                    tempOutputPath,
+                ]);
                 await writeFile(tempOutputPath, '%PDF-1.7\nrotated');
                 return {
                     exitCode: 0,
@@ -268,7 +279,14 @@ describe('page-ops qpdf working-copy mutations', () => {
             });
             runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
                 const qpdfArgs = await readQpdfArgFile(args);
-                expect(qpdfArgs).toContain('1,3,6-7');
+                expect(qpdfArgs).toEqual([
+                    workingCopyPath,
+                    '--pages',
+                    workingCopyPath,
+                    '1,3,6-7',
+                    '--',
+                    tempOutputPath,
+                ]);
                 await writeFile(tempOutputPath, '%PDF-1.7\ndeleted');
                 return {
                     exitCode: 0,

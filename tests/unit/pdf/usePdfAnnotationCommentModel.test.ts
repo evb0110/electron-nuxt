@@ -114,8 +114,11 @@ describe('usePdfAnnotationCommentModel', () => {
         model.upsertComment(cached);
 
         model.updateCachedColor(comment({
-            ...cached,
+            id: 'replacement-comment',
+            stableKey: 'replacement-stable',
             annotationId: '42R0',
+            pageIndex: cached.pageIndex,
+            subtype: 'Underline',
         }), '#3b82f6');
 
         expect(model.annotationCommentsCache.value[0]).toMatchObject({
@@ -131,12 +134,16 @@ describe('usePdfAnnotationCommentModel', () => {
             annotationId: '42R0',
             color: '#3b82f6',
             colorEdited: true,
+            id: 'local-comment',
+            stableKey: 'local-stable',
             subtype: 'StrikeOut',
         }));
 
         const merged = model.applyFromSync([comment({
             annotationId: '42R',
             color: '#ef4444',
+            id: 'incoming-comment',
+            stableKey: 'incoming-stable',
             subtype: 'StrikeOut',
         })]);
 

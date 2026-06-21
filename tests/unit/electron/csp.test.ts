@@ -10,23 +10,99 @@ vi.mock('@electron/config', () => ({config: {isDev: false}}));
 
 const { buildContentSecurityPolicy } = await import('@electron/security/csp');
 
+function parseCsp(csp: string) {
+    return Object.fromEntries(csp.split('; ').map((directive) => {
+        const [
+            name,
+            ...tokens
+        ] = directive.split(' ');
+        return [
+            name,
+            tokens,
+        ];
+    }));
+}
+
 describe('buildContentSecurityPolicy', () => {
     it('allows inline scripts in development policy for Nuxt bootstrap/HMR', () => {
-        const csp = buildContentSecurityPolicy(true);
+        const directives = parseCsp(buildContentSecurityPolicy(true));
 
-        expect(csp).toContain('script-src \'self\' \'unsafe-inline\' \'wasm-unsafe-eval\'');
-        expect(csp).toContain('connect-src \'self\' ws: blob:');
-        expect(csp).toContain('script-src-attr \'none\'');
+        expect(directives).toEqual({
+            'base-uri': ['\'self\''],
+            'connect-src': [
+                '\'self\'',
+                'ws:',
+                'blob:',
+            ],
+            'default-src': ['\'self\''],
+            'font-src': [
+                '\'self\'',
+                'data:',
+            ],
+            'form-action': ['\'self\''],
+            'frame-ancestors': ['\'none\''],
+            'img-src': [
+                '\'self\'',
+                'data:',
+                'blob:',
+            ],
+            'object-src': ['\'none\''],
+            'script-src': [
+                '\'self\'',
+                '\'unsafe-inline\'',
+                '\'wasm-unsafe-eval\'',
+            ],
+            'script-src-attr': ['\'none\''],
+            'style-src': [
+                '\'self\'',
+                '\'unsafe-inline\'',
+            ],
+            'worker-src': [
+                '\'self\'',
+                'blob:',
+            ],
+        });
     });
 
     it('allows inline script elements and WASM eval in production for Nuxt SPA bootstrap and pdf.js workers', () => {
-        const csp = buildContentSecurityPolicy(false);
+        const directives = parseCsp(buildContentSecurityPolicy(false));
 
         // 'wasm-unsafe-eval' is intentionally enabled in production: pdf.js's
         // renderer WebWorker compiles bundled WASM (jbig2/openjpeg/qcms/quickjs)
         // for JBIG2/JPEG2000 images, ICC profiles, and embedded JS actions.
-        expect(csp).toContain('script-src \'self\' \'unsafe-inline\' \'wasm-unsafe-eval\'');
-        expect(csp).toContain('connect-src \'self\' blob:');
-        expect(csp).toContain('script-src-attr \'none\'');
+        expect(directives).toEqual({
+            'base-uri': ['\'self\''],
+            'connect-src': [
+                '\'self\'',
+                'blob:',
+            ],
+            'default-src': ['\'self\''],
+            'font-src': [
+                '\'self\'',
+                'data:',
+            ],
+            'form-action': ['\'self\''],
+            'frame-ancestors': ['\'none\''],
+            'img-src': [
+                '\'self\'',
+                'data:',
+                'blob:',
+            ],
+            'object-src': ['\'none\''],
+            'script-src': [
+                '\'self\'',
+                '\'unsafe-inline\'',
+                '\'wasm-unsafe-eval\'',
+            ],
+            'script-src-attr': ['\'none\''],
+            'style-src': [
+                '\'self\'',
+                '\'unsafe-inline\'',
+            ],
+            'worker-src': [
+                '\'self\'',
+                'blob:',
+            ],
+        });
     });
 });

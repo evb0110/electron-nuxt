@@ -274,6 +274,73 @@ describe('useFileOperations', () => {
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
     });
 
+    it('skips clean working-copy save when validation resolves after the working copy changed', async () => {
+        const validation = createDeferred<{
+            isValid: boolean;
+            tool: 'qpdf';
+            errors: string[];
+            warnings: string[];
+        }>();
+        const validatePdfPath = vi.fn(() => validation.promise);
+        const { deps } = createDeps({validatePdfPath});
+        const { handleSave } = useFileOperations(deps);
+
+        const savePromise = handleSave();
+
+        await vi.waitFor(() => {
+            expect(validatePdfPath).toHaveBeenCalledWith('/tmp/work.pdf');
+        });
+        deps.workingCopyPath.value = '/tmp/other-work.pdf';
+        validation.resolve({
+            isValid: true,
+            tool: 'qpdf',
+            errors: [],
+            warnings: [],
+        });
+
+        await expect(savePromise).resolves.toBe(false);
+        expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
+        expect(deps.saveFile).not.toHaveBeenCalled();
+        expectWorkspaceSaveNotMarked(deps);
+        expect(deps.isSaving.value).toBe(false);
+    });
+
+    it('restores pending embedded text updates when the original save target changes before persistence', async () => {
+        const notePersistence = createDeferred<boolean>();
+        const pendingTexts = new Map<string, string>();
+        pendingTexts.set('ann:0:3856R', 'Updated note');
+        const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([createPdfNoteComment()]),
+            annotationNoteWindowsCount: ref(1),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            persistAllAnnotationNotes: vi.fn(() => notePersistence.promise),
+            trySaveEmbeddedNoteTextUpdates,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const savePromise = handleSave();
+        await Promise.resolve();
+
+        expect(deps.persistAllAnnotationNotes).toHaveBeenCalledWith(true);
+        deps.originalPath.value = '/tmp/different-source.pdf';
+        notePersistence.resolve(true);
+
+        await expect(savePromise).resolves.toBe(false);
+        expect(trySaveEmbeddedNoteTextUpdates).not.toHaveBeenCalled();
+        expect(deps.saveFile).not.toHaveBeenCalled();
+        expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
+        expect(deps.restorePendingEmbeddedTextUpdates).toHaveBeenCalledWith(pendingTexts);
+        expectWorkspaceSaveNotMarked(deps);
+        expect(deps.isSaving.value).toBe(false);
+    });
+
     it('waits for the document operation lease before saving the working copy', async () => {
         const leaseRelease = createDeferred<undefined>();
         const runWithDocumentOperationLease = vi.fn(async (_kind: 'save', operation: () => Promise<boolean>) => {

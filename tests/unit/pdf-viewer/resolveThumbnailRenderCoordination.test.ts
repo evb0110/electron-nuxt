@@ -11,16 +11,24 @@ import {
 
 describe('resolveThumbnailRenderCoordination', () => {
     it('gives the current page thumbnail viewer-level priority', () => {
-        expect(resolveThumbnailRenderCoordination(7, 7)).toEqual({
+        const coordination = resolveThumbnailRenderCoordination(7, 7);
+
+        expect(THUMBNAIL_CURRENT_PAGE_RENDER_PRIORITY).toBe(100);
+        expect(coordination).toEqual({
             owner: 'thumbnail-current',
             priority: THUMBNAIL_CURRENT_PAGE_RENDER_PRIORITY,
         });
+        expect(coordination.priority).toBeGreaterThan(THUMBNAIL_BACKGROUND_RENDER_PRIORITY);
     });
 
     it('keeps background thumbnail prefetches low priority', () => {
-        expect(resolveThumbnailRenderCoordination(8, 7)).toEqual({
+        const coordination = resolveThumbnailRenderCoordination(8, 7);
+
+        expect(THUMBNAIL_BACKGROUND_RENDER_PRIORITY).toBe(10);
+        expect(coordination).toEqual({
             owner: 'thumbnail',
             priority: THUMBNAIL_BACKGROUND_RENDER_PRIORITY,
         });
+        expect(coordination.priority).toBeLessThan(THUMBNAIL_CURRENT_PAGE_RENDER_PRIORITY);
     });
 });

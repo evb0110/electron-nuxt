@@ -86,6 +86,7 @@ function getBinaryPath(dir: string, name: string, optional = false) {
 function createAwaitablePaths<T extends object>(paths: T): T & PromiseLike<T> {
     const seedPromise = ensureRuntimeTessdataSeeded();
     void seedPromise.catch(() => undefined);
+    const awaitedPaths = {...paths};
 
     return Object.defineProperty(paths, 'then', {
         configurable: false,
@@ -94,7 +95,7 @@ function createAwaitablePaths<T extends object>(paths: T): T & PromiseLike<T> {
         value: (
             onfulfilled?: (value: T) => unknown,
             onrejected?: (reason: unknown) => unknown,
-        ) => seedPromise.then(() => paths).then(onfulfilled, onrejected),
+        ) => seedPromise.then(() => onfulfilled?.(awaitedPaths) ?? awaitedPaths, onrejected),
     }) as T & PromiseLike<T>;
 }
 
@@ -331,7 +332,13 @@ export async function validateOcrTools(): Promise<IOcrToolValidationResult> {
         errors,
         path => `qpdf not found: ${path} (install qpdf or bundle it)`,
     );
-    const valid = tesseract.found && tessdata.found && pdftoppmFound && pdftotextFound && qpdfFound && popplerRuntime.valid;
+    const valid = tesseract.found
+        && tessdata.found
+        && Boolean(tessdata.languages?.length)
+        && pdftoppmFound
+        && pdftotextFound
+        && qpdfFound
+        && popplerRuntime.valid;
     const tools: IOcrToolValidationResult['tools'] = {
         tesseract: {
             found: tesseract.found,

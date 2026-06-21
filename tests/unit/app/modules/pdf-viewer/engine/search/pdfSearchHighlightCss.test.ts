@@ -90,7 +90,14 @@ describe('registerHighlightRange', () => {
         registerHighlightRange(state, container, {} as Range, false, 'a');
         registerHighlightRange(state, container, {} as Range, false, 'b');
 
+        const ids = state.layerRangeIds.get(container);
+        expect(ids?.normal).toEqual(new Set([
+            'a',
+            'b',
+        ]));
+        expect(ids?.current.size).toBe(0);
         expect(state.highlightRanges.size).toBe(2);
+        expect(state.layerRangeIds.get(container)).toBe(ids);
     });
 });
 

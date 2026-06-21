@@ -62,7 +62,9 @@ describe('documentBytes', () => {
 
         await expect(readDocumentBytes('/tmp/doc.pdf', { chunkSize: 64 * 1024 })).resolves.toEqual(expected);
         expect(mockDocuments.readFile).not.toHaveBeenCalled();
-        expect(mockDocuments.readFileRange).toHaveBeenCalledTimes(3);
+        expect(mockDocuments.readFileRange).toHaveBeenNthCalledWith(1, '/tmp/doc.pdf', 0, 64 * 1024);
+        expect(mockDocuments.readFileRange).toHaveBeenNthCalledWith(2, '/tmp/doc.pdf', 64 * 1024, 64 * 1024);
+        expect(mockDocuments.readFileRange).toHaveBeenNthCalledWith(3, '/tmp/doc.pdf', 128 * 1024, 2);
     });
 
     it('returns null when the document exceeds the requested limit', async () => {

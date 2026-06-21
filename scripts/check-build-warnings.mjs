@@ -63,27 +63,8 @@ function parseWarningBlocks(logText) {
     return warnings;
 }
 
-function getWarningSignature(block) {
-    const lines = block
-        .split('\n')
-        .map(line => line.trim())
-        .filter(Boolean);
-
-    const resolutionWarning = lines.find(line => line.includes('didn\'t resolve at build time'));
-    if (resolutionWarning) {
-        return resolutionWarning;
-    }
-
-    const postcssWarning = lines.find(line => line.includes('[vite:css][postcss] Error:'));
-    if (postcssWarning) {
-        return postcssWarning;
-    }
-
-    return lines[0] ?? block;
-}
-
-function normalizeWarningSignature(signature) {
-    return signature
+function normalizeWarningBlock(block) {
+    return block
         .replace(ansiEscapePattern, '')
         .replaceAll(nulCharacter, '');
 }
@@ -110,11 +91,11 @@ async function main() {
     const allowlistMatchers = allowedWarningPatterns.map(pattern => new RegExp(pattern, 'u'));
 
     const warningBlocks = parseWarningBlocks(logRaw);
-    const warningSignatures = warningBlocks.map(block =>
-        normalizeWarningSignature(getWarningSignature(block)),
+    const normalizedWarningBlocks = warningBlocks.map(block =>
+        normalizeWarningBlock(block),
     );
-    const unknownWarnings = warningSignatures.filter(signature =>
-        !allowlistMatchers.some(matcher => matcher.test(signature)),
+    const unknownWarnings = normalizedWarningBlocks.filter(block =>
+        !allowlistMatchers.some(matcher => matcher.test(block)),
     );
 
     if (unknownWarnings.length > 0) {
@@ -125,12 +106,12 @@ async function main() {
         process.exit(1);
     }
 
-    if (warningSignatures.length === 0) {
+    if (normalizedWarningBlocks.length === 0) {
         console.log('Build warning check passed: no warnings found.');
         return;
     }
 
-    console.log(`Build warning check passed: ${warningSignatures.length} known warning(s).`);
+    console.log(`Build warning check passed: ${normalizedWarningBlocks.length} known warning(s).`);
 }
 
 main().catch((error) => {

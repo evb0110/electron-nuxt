@@ -101,7 +101,13 @@ describe('createHttpHandler', () => {
         const batch = Array.from({ length: 33 }, (_, index) => ({
             jsonrpc: '2.0',
             id: index + 1,
-            method: 'tools/list',
+            method: index === 0 ? 'tools/call' : 'tools/list',
+            ...(index === 0
+                ? {params: {
+                    name: 'evb_workspace_snapshot',
+                    arguments: {},
+                }}
+                : {}),
         }));
 
         const response = await fetch(url, {

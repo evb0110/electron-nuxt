@@ -103,26 +103,6 @@ describe('platformDocuments', () => {
         expect(yieldToBrowserMock).toHaveBeenCalledTimes(2);
     });
 
-    it('yields between fallback chunks for larger range reads', async () => {
-        documentsMock.readFile.mockRejectedValueOnce(new Error(
-            'Browser document is too large to load fully into memory (huge.pdf: 128MB > 64MB limit)',
-        ));
-        documentsMock.statFile.mockResolvedValueOnce({ size: (4 * 1024 * 1024 * 2) + 2 });
-        documentsMock.readFileRange
-            .mockResolvedValueOnce(new Uint8Array(4 * 1024 * 1024).fill(1))
-            .mockResolvedValueOnce(new Uint8Array(4 * 1024 * 1024).fill(2))
-            .mockResolvedValueOnce(new Uint8Array([
-                3,
-                4,
-            ]));
-
-        const { readDocumentFileFully } = await import('@app/utils/platformDocuments');
-        const result = await readDocumentFileFully('browser://huge.pdf');
-
-        expect(result.byteLength).toBe((4 * 1024 * 1024 * 2) + 2);
-        expect(yieldToBrowserMock).toHaveBeenCalledTimes(2);
-    });
-
     it('fails the fallback read when a range read returns no bytes before EOF', async () => {
         documentsMock.readFile.mockRejectedValueOnce(new Error(
             'Browser document is too large to load fully into memory (huge.pdf: 128MB > 64MB limit)',

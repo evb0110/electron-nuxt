@@ -62,6 +62,14 @@ describe('asyncGuard', () => {
 
     it('runs onError callback before logging', async () => {
         const onError = vi.fn();
+        const observed: string[] = [];
+        onError.mockImplementation(() => {
+            observed.push('onError');
+        });
+        loggerSpies.error.mockImplementation(() => {
+            observed.push('logger');
+        });
+
         guardAsync(Promise.reject(new Error('boom')), {
             scope: 'test-scope',
             message: 'Failed to run task',
@@ -72,5 +80,10 @@ describe('asyncGuard', () => {
 
         expect(onError).toHaveBeenCalledTimes(1);
         expect(loggerSpies.error).toHaveBeenCalledTimes(1);
+        expect(onError.mock.invocationCallOrder[0]).toBeLessThan(loggerSpies.error.mock.invocationCallOrder[0]!);
+        expect(observed).toEqual([
+            'onError',
+            'logger',
+        ]);
     });
 });

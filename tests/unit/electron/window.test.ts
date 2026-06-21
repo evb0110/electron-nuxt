@@ -205,6 +205,12 @@ describe('window runtime readiness', () => {
 
         const window = mocks.BrowserWindow.windows[0];
         expect(window?.options).toEqual(expect.objectContaining({autoHideMenuBar: false}));
+        expect(window?.options).toEqual(expect.objectContaining({webPreferences: expect.objectContaining({
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+            preload: expect.stringMatching(/preload\.cjs$/u),
+        })}));
         expect(window?.setMenuBarVisibility).not.toHaveBeenCalled();
     });
 

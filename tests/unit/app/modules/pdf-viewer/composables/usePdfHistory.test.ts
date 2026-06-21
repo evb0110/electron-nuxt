@@ -299,14 +299,22 @@ describe('usePdfHistory', () => {
     });
 
     it('clears OCR cache before undo', async () => {
-        const deps = createMockDeps();
+        const clearOcrCache = vi.fn();
+        const undoHistory = vi.fn(async () => true);
+        const deps = createMockDeps({
+            clearOcrCache,
+            undoHistory,
+        });
         const { handleUndo } = usePdfHistory(deps);
 
         const undoPromise = handleUndo();
         await vi.advanceTimersByTimeAsync(9000);
         await undoPromise;
 
-        expect(deps.clearOcrCache).toHaveBeenCalledWith('/tmp/test.pdf');
+        expect(clearOcrCache).toHaveBeenCalledWith('/tmp/test.pdf');
+        expect(clearOcrCache.mock.invocationCallOrder[0]).toBeLessThan(
+            undoHistory.mock.invocationCallOrder[0]!,
+        );
     });
 
     it('does not clear OCR cache for metadata undo', async () => {
@@ -324,8 +332,17 @@ describe('usePdfHistory', () => {
         const { waitForPdfReload } = usePdfHistory(deps);
 
         const promise = waitForPdfReload(3);
-        await vi.advanceTimersByTimeAsync(8000);
+        let settled = false;
+        void promise.then(() => {
+            settled = true;
+        });
+
+        await vi.advanceTimersByTimeAsync(7999);
+        expect(settled).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(1);
         await promise;
+        expect(settled).toBe(true);
     });
 
     it('resolves waitForPdfReload early when pdfDocument changes', async () => {

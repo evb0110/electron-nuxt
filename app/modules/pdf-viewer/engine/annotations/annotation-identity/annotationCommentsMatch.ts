@@ -10,19 +10,21 @@ export function annotationCommentsMatch(
     left: TAnnotationCommentMatchInput,
     right: TAnnotationCommentMatchInput,
 ) {
-    if (left.stableKey && right.stableKey) {
-        return left.stableKey === right.stableKey;
-    }
-
     if (left.annotationId && right.annotationId) {
         const leftAnnotationId = normalizePdfJsAnnotationId(left.annotationId);
         const rightAnnotationId = normalizePdfJsAnnotationId(right.annotationId);
-        return Boolean(
+        if (
             leftAnnotationId
             && rightAnnotationId
             && leftAnnotationId === rightAnnotationId
-            && left.pageIndex === right.pageIndex,
-        );
+            && left.pageIndex === right.pageIndex
+        ) {
+            return true;
+        }
+    }
+
+    if (left.stableKey && right.stableKey) {
+        return left.stableKey === right.stableKey;
     }
 
     if (left.uid && right.uid) {

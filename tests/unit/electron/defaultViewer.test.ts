@@ -86,6 +86,45 @@ describe('default viewer prompt', () => {
         expect(mocks.dialog.showMessageBox).not.toHaveBeenCalled();
         expect(mocks.saveSettings).toHaveBeenCalledWith({suppressDefaultViewerPrompt: true});
     });
+
+    it.each([
+        [
+            'false',
+            { suppressDefaultViewerPrompt: false },
+        ],
+        [
+            'string true',
+            { suppressDefaultViewerPrompt: 'true' },
+        ],
+        [
+            'missing key',
+            {},
+        ],
+    ])('ignores non-true suppression value from settings file: %s', async (_label, settings) => {
+        mocks.readFile.mockResolvedValueOnce(JSON.stringify(settings));
+        const { promptSetDefaultViewer } = await loadDefaultViewerModule();
+
+        await promptSetDefaultViewer({} as never);
+
+        expect(mocks.dialog.showMessageBox).toHaveBeenCalled();
+        expect(mocks.dialog.showMessageBox.mock.invocationCallOrder[0]).toBeLessThan(
+            mocks.saveSettings.mock.invocationCallOrder[0]!,
+        );
+        expect(mocks.saveSettings).toHaveBeenCalledWith({suppressDefaultViewerPrompt: true});
+    });
+
+    it('ignores invalid JSON while checking known settings files', async () => {
+        mocks.readFile.mockResolvedValueOnce('{');
+        const { promptSetDefaultViewer } = await loadDefaultViewerModule();
+
+        await promptSetDefaultViewer({} as never);
+
+        expect(mocks.dialog.showMessageBox).toHaveBeenCalled();
+        expect(mocks.dialog.showMessageBox.mock.invocationCallOrder[0]).toBeLessThan(
+            mocks.saveSettings.mock.invocationCallOrder[0]!,
+        );
+        expect(mocks.saveSettings).toHaveBeenCalledWith({suppressDefaultViewerPrompt: true});
+    });
 });
 
 afterAll(() => {

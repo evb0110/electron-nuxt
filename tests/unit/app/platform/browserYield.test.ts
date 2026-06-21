@@ -33,17 +33,27 @@ describe('yieldToBrowser', () => {
     });
 
     it('waits for an animation frame when the document is visible', async () => {
+        let rafCallback: FrameRequestCallback | undefined;
+        let settled = false;
         const requestAnimationFrameSpy = vi.fn((callback: FrameRequestCallback) => {
-            callback(16);
+            rafCallback = callback;
             return 1;
         });
         vi.stubGlobal('document', { visibilityState: 'visible' });
         vi.stubGlobal('requestAnimationFrame', requestAnimationFrameSpy);
         vi.stubGlobal('MessageChannel', FakeMessageChannel);
 
-        await yieldToBrowser();
+        const yieldPromise = yieldToBrowser().then(() => {
+            settled = true;
+        });
+        await Promise.resolve();
 
         expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+        expect(settled).toBe(false);
+
+        rafCallback?.(16);
+        await yieldPromise;
+        expect(settled).toBe(true);
     });
 
     it('does not wait for an animation frame when the document is hidden', async () => {
@@ -73,8 +83,15 @@ describe('yieldToBrowser', () => {
         vi.stubGlobal('document', { visibilityState: 'hidden' });
         vi.stubGlobal('MessageChannel', undefined);
 
-        const yieldPromise = yieldToBrowser();
-        await vi.runAllTimersAsync();
+        let settled = false;
+        const yieldPromise = yieldToBrowser().then(() => {
+            settled = true;
+        });
+        await Promise.resolve();
+
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(0);
         await yieldPromise;
+        expect(settled).toBe(true);
     });
 });

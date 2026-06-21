@@ -1,4 +1,6 @@
 import {
+    afterEach,
+    beforeEach,
     describe,
     expect,
     it,
@@ -27,6 +29,15 @@ function createLoggerMock() {
 }
 
 describe('createWindowSecurity', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.setSystemTime(new Date('2026-06-21T00:00:00Z'));
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
     it('tracks the current trusted renderer URL instead of a startup snapshot', () => {
         let trustedUrl = 'evb-viewer://app/electron';
         const security = createWindowSecurity({
@@ -73,6 +84,49 @@ describe('createWindowSecurity', () => {
         expect(mocks.openExternal).not.toHaveBeenCalled();
         expect(logger.warn).toHaveBeenCalledWith(
             'Blocked window-open URL with unsupported protocol: javascript:alert(1)',
+        );
+    });
+
+    it('hardens top-level navigation without blocking trusted renderer routes', async () => {
+        vi.useFakeTimers();
+        const logger = createLoggerMock();
+        const security = createWindowSecurity({
+            getTrustedRendererUrl: () => 'evb-viewer://app/electron',
+            logger,
+        });
+        const window = createWindowMock();
+
+        security.hardenWindowWebContents(window as never);
+
+        const willNavigate = window.webContents.on.mock.calls.find(([event]) => event === 'will-navigate')?.[1] as
+            | ((event: {preventDefault: () => void;}, url: string) => void)
+            | undefined;
+        expect(willNavigate).toBeTypeOf('function');
+
+        const trustedEvent = {preventDefault: vi.fn()};
+        willNavigate?.(trustedEvent, 'evb-viewer://app/electron/viewer');
+        willNavigate?.(trustedEvent, 'about:blank');
+        expect(trustedEvent.preventDefault).not.toHaveBeenCalled();
+
+        const externalEvent = {preventDefault: vi.fn()};
+        willNavigate?.(externalEvent, 'https://example.com/docs');
+        expect(externalEvent.preventDefault).toHaveBeenCalledOnce();
+        expect(mocks.openExternal).toHaveBeenCalledWith('https://example.com/docs');
+
+        const javascriptEvent = {preventDefault: vi.fn()};
+        willNavigate?.(javascriptEvent, 'javascript:alert(1)');
+        expect(javascriptEvent.preventDefault).toHaveBeenCalledOnce();
+        expect(mocks.openExternal).toHaveBeenCalledTimes(1);
+        expect(logger.warn).toHaveBeenCalledWith(
+            'Blocked navigation URL with unsupported protocol: javascript:alert(1)',
+        );
+
+        mocks.openExternal.mockRejectedValueOnce(new Error('launch failed'));
+        vi.setSystemTime(new Date('2026-06-21T00:00:02Z'));
+        willNavigate?.({preventDefault: vi.fn()}, 'https://example.com/fail');
+        await vi.runAllTimersAsync();
+        expect(logger.warn).toHaveBeenCalledWith(
+            'Failed to open external URL (navigation): launch failed',
         );
     });
 });

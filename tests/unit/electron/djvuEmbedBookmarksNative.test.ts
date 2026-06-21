@@ -153,7 +153,10 @@ describe('embedBookmarksIntoPdfFile native path', () => {
         expect(mocks.debug).toHaveBeenCalledWith(expect.stringContaining('native failed'));
         expect(mocks.readFile).toHaveBeenCalledWith('/tmp/input.pdf');
         expect(mocks.load).toHaveBeenCalledWith(expect.any(Uint8Array), {updateMetadata: false});
-        expect(mocks.writePdfBookmarkOutlines).toHaveBeenCalled();
+        expect(mocks.writePdfBookmarkOutlines).toHaveBeenCalledWith(
+            await mocks.load.mock.results[0]?.value,
+            bookmarks,
+        );
         expect(mocks.writeFile).toHaveBeenLastCalledWith('/tmp/output.pdf', new Uint8Array([9]));
     });
 

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -33,6 +34,14 @@ describe('checkMacCodeSignature', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        vi.stubGlobal('process', {
+            ...process,
+            execPath: '/Applications/EVB Viewer.app/Contents/MacOS/EVB Viewer',
+        });
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
     });
 
     it('requires a verified Developer ID application signature', async () => {
@@ -46,15 +55,18 @@ describe('checkMacCodeSignature', () => {
         const { checkMacCodeSignature } = await import('@electron/updates/checkMacCodeSignature');
 
         await expect(checkMacCodeSignature()).resolves.toBe(true);
-        expect(mocks.spawn.mock.calls[0]?.[1]).toEqual(expect.arrayContaining([
+        expect(mocks.spawn.mock.calls[0]?.[1]).toEqual([
             '--verify',
             '--deep',
             '--strict',
-        ]));
-        expect(mocks.spawn.mock.calls[1]?.[1]).toEqual(expect.arrayContaining([
+            '--verbose=2',
+            '/Applications/EVB Viewer.app',
+        ]);
+        expect(mocks.spawn.mock.calls[1]?.[1]).toEqual([
             '-d',
             '--verbose=4',
-        ]));
+            '/Applications/EVB Viewer.app',
+        ]);
     });
 
     it('rejects valid but non-Developer-ID signatures', async () => {
