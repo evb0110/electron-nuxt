@@ -13,6 +13,7 @@ import {
     parseBrowserSettingsPayload,
     serializeBrowserSettingsPayload,
 } from '@app/utils/browserSettingsPersistence';
+import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import { getPlatformAPI } from '@app/utils/platform';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
 
@@ -30,7 +31,7 @@ export const useSettings = () => {
         ...PERSISTENT_SETTINGS_COOKIE_OPTIONS,
         default: () => null,
         decode: value => typeof value === 'string'
-            ? decodeURIComponent(value)
+            ? safeDecodeURIComponent(value)
             : null,
     });
     const localeCookie = useCookie<string | null | undefined>(

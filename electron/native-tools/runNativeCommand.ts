@@ -198,6 +198,45 @@ export async function runNativeCommand(
         let forceRejectHandle: NodeJS.Timeout | null = null;
         let pendingTerminationError: Error | null = null;
         let settled = false;
+        let stdoutDataHandler: ((data: Buffer) => void) | null = null;
+        let stderrDataHandler: ((data: Buffer) => void) | null = null;
+        let processErrorHandler: ((error: Error) => void) | null = null;
+        let processCloseHandler: ((code: number | null, closeSignal: NodeJS.Signals | null) => void) | null = null;
+        const ignoreLateProcessError = () => undefined;
+
+        const cleanupProcessOutput = (targetProc: TNativeProcess, destroyStreams: boolean) => {
+            if (stdoutDataHandler) {
+                targetProc.stdout?.removeListener('data', stdoutDataHandler);
+                stdoutDataHandler = null;
+            }
+            if (stderrDataHandler) {
+                targetProc.stderr?.removeListener('data', stderrDataHandler);
+                stderrDataHandler = null;
+            }
+            if (!destroyStreams) {
+                return;
+            }
+            targetProc.stdout?.unpipe?.();
+            targetProc.stderr?.unpipe?.();
+            targetProc.stdout?.destroy?.();
+            targetProc.stderr?.destroy?.();
+        };
+
+        const cleanupProcessHandlers = () => {
+            if (!proc) {
+                return;
+            }
+            cleanupProcessOutput(proc, false);
+            if (processErrorHandler) {
+                proc.removeListener('error', processErrorHandler);
+                processErrorHandler = null;
+            }
+            if (processCloseHandler) {
+                proc.removeListener('close', processCloseHandler);
+                processCloseHandler = null;
+            }
+            proc.on('error', ignoreLateProcessError);
+        };
 
         const requestTermination = (error: Error) => {
             if (settled || pendingTerminationError) {
@@ -210,6 +249,7 @@ export async function runNativeCommand(
                 return;
             }
 
+            cleanupProcessOutput(targetProc, true);
             void terminateNativeProcessBestEffort(targetProc).finally(() => {
                 if (pendingTerminationError === error) {
                     finalizeReject(error);
@@ -238,6 +278,7 @@ export async function runNativeCommand(
             if (signal && abortHandler) {
                 signal.removeEventListener('abort', abortHandler);
             }
+            cleanupProcessHandlers();
             complete();
         };
 
@@ -276,8 +317,10 @@ export async function runNativeCommand(
             return;
         }
 
-        proc.stdout?.on('data', output.appendStdout);
-        proc.stderr?.on('data', output.appendStderr);
+        stdoutDataHandler = output.appendStdout;
+        stderrDataHandler = output.appendStderr;
+        proc.stdout?.on('data', stdoutDataHandler);
+        proc.stderr?.on('data', stderrDataHandler);
 
         if (typeof timeoutMs === 'number' && timeoutMs > 0) {
             timeoutHandle = setTimeout(() => {
@@ -289,13 +332,14 @@ export async function runNativeCommand(
             requestTermination(createAbortError());
         }
 
-        proc.on('error', (error) => {
+        processErrorHandler = (error) => {
             const message = `${context.displayName} failed to start: ${error.message}`;
             log?.('error', `${message}; cmd=${context.displayCommand}`);
             finalizeReject(new Error(message));
-        });
+        };
+        proc.on('error', processErrorHandler);
 
-        proc.on('close', (code, closeSignal) => {
+        processCloseHandler = (code, closeSignal) => {
             if (pendingTerminationError) {
                 finalizeReject(pendingTerminationError);
                 return;
@@ -333,6 +377,7 @@ export async function runNativeCommand(
                 stderr: outputSnapshot.stderr,
                 exitCode,
             });
-        });
+        };
+        proc.on('close', processCloseHandler);
     });
 }

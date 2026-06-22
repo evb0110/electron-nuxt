@@ -1,6 +1,8 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IPdfSaveAsOptions } from '@contracts/electronApiDocuments';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import { getDocumentRefBaseName } from '@app/utils/documentRef';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 export async function savePdfBytesAs(
     workingPath: TDocumentRef,
@@ -22,11 +24,23 @@ export async function savePdfBytesAs(
         };
     }
 
-    await documents.writeFile(workingPath, data);
-    return {
-        path: options
-            ? await documents.savePdfAs(workingPath, options)
-            : await documents.savePdfAs(workingPath),
-        validation,
-    };
+    const stagedWorkingPath = await documents.createWorkingCopyFromData(
+        getDocumentRefBaseName(workingPath) ?? 'document.pdf',
+        data,
+    );
+    try {
+        return {
+            path: options
+                ? await documents.savePdfAs(stagedWorkingPath, options)
+                : await documents.savePdfAs(stagedWorkingPath),
+            validation,
+        };
+    } finally {
+        await documents.cleanupFile(stagedWorkingPath).catch((cleanupError: unknown) => {
+            BrowserLogger.warn('pdf-file', 'Failed to cleanup staged Save As working copy', {
+                stagedWorkingPath,
+                error: cleanupError,
+            });
+        });
+    }
 }

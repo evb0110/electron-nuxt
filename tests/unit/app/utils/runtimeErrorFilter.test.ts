@@ -21,4 +21,10 @@ describe('runtime error filter', () => {
         expect(isIgnorableRuntimeErrorMessage('TypeError: Cannot read properties of undefined')).toBe(false);
         expect(getIgnorableRuntimeErrorMessage(new Error('Boom'))).toBeNull();
     });
+
+    it('does not suppress real errors that merely mention ResizeObserver text', () => {
+        expect(isIgnorableRuntimeErrorMessage(
+            'TypeError: Cannot read properties of undefined. ResizeObserver loop completed with undelivered notifications.',
+        )).toBe(false);
+    });
 });

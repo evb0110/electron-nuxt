@@ -49,6 +49,8 @@ function clonePayload(payload: TSplitPayload): TSplitPayload {
         return {
             kind: 'djvu',
             sourcePath: payload.sourcePath,
+            ...(payload.currentPage !== undefined ? { currentPage: payload.currentPage } : {}),
+            ...(payload.totalPages !== undefined ? { totalPages: payload.totalPages } : {}),
         };
     }
 

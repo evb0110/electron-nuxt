@@ -556,7 +556,17 @@ async function setAgentMcpEnabled(enabled: boolean) {
 
 function openAgentMcpInstall() {
     const installUrl = agentMcpStatus.value?.installUrl ?? 'https://developers.openai.com/codex/app';
-    void getPlatformAPI().shell.openExternal(installUrl);
+    void getPlatformAPI().shell.openExternal(installUrl).catch((error: unknown) => {
+        BrowserLogger.warn('settings', 'Failed to open agent MCP install URL', {
+            installUrl,
+            error,
+        });
+        toast.add({
+            color: 'error',
+            title: t('settings.agentMcpStatusError'),
+            description: getErrorMessage(error),
+        });
+    });
 }
 
 onMounted(() => {

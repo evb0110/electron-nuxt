@@ -69,4 +69,22 @@ describe('useWorkspaceSplitCache', () => {
         expect(splitCache.has('tab-expired')).toBe(false);
         expect(splitCache.consume('tab-expired')).toBeNull();
     });
+
+    it('preserves DjVu paging state in cached split payloads', async () => {
+        const splitCache = await createSplitCache();
+
+        splitCache.set('tab-djvu', {
+            kind: 'djvu',
+            sourcePath: '/tmp/doc.djvu',
+            currentPage: 12,
+            totalPages: 40,
+        });
+
+        expect(splitCache.consume('tab-djvu')).toEqual({
+            kind: 'djvu',
+            sourcePath: '/tmp/doc.djvu',
+            currentPage: 12,
+            totalPages: 40,
+        });
+    });
 });

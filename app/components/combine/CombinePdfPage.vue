@@ -221,6 +221,7 @@ import {
     isSupportedWorkspaceDocumentPath,
     WORKSPACE_DOCUMENT_EXTENSIONS,
 } from '@app/utils/supportedDocumentPaths';
+import { createBrowserSafeId } from '@app/utils/browserSafe';
 
 type TCombineFileKind = 'pdf' | 'djvu' | 'image' | 'document';
 
@@ -282,7 +283,7 @@ function createFileSignature(file: File) {
 
 function toCombineFile(file: File): ICombineFile {
     return {
-        id: crypto.randomUUID(),
+        id: createBrowserSafeId(),
         file,
         name: file.name,
         size: file.size,

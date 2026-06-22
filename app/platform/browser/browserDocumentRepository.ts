@@ -61,6 +61,7 @@ import {
     readRecentFilesFromStorage,
     writeRecentFilesToStorage,
 } from '@app/platform/browser/browserRecentFilesStore';
+import { createBrowserSafeId } from '@app/utils/browserSafe';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 
 export class BrowserDocumentStore {
@@ -76,14 +77,7 @@ export class BrowserDocumentStore {
     private maintenanceComplete = false;
 
     private createChunkGeneration() {
-        const randomValue = crypto.randomUUID?.() ?? this.createFallbackChunkGenerationId();
-        return `${Date.now().toString(36)}-${randomValue}`;
-    }
-
-    private createFallbackChunkGenerationId() {
-        const bytes = new Uint8Array(16);
-        crypto.getRandomValues(bytes);
-        return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+        return `${Date.now().toString(36)}-${createBrowserSafeId()}`;
     }
 
     private createContentToken() {

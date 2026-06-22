@@ -196,6 +196,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasAnnotationChanges,
         hasLivePdfJsAnnotationChanges,
         hasSavedPdfJsAnnotationBaselineChanges,
+        hasPreservedLivePdfjsAnnotationSession,
         annotationTool,
         annotationKeepActive,
         annotationPlacingPageNote,
@@ -666,6 +667,17 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         payload?: Parameters<typeof handleAnnotationModified>[0],
     ) {
         handleAnnotationModified(payload);
+        if (
+            hasPreservedLivePdfjsAnnotationSession()
+            && (
+                annotationDirty.value
+                || hasAnnotationChanges()
+                || hasLivePdfJsAnnotationChanges()
+                || hasSavedPdfJsAnnotationBaselineChanges()
+            )
+        ) {
+            markPreservedAnnotationSourceDirty();
+        }
         requestThumbnailInvalidation([currentPage.value]);
     }
 

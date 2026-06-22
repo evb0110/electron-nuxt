@@ -318,7 +318,12 @@ export function startStreamingWorkerTask<T>(
     if (!existsSync(workerPath)) {
         throw createStartupError(`Worker unavailable at path: ${workerPath}`);
     }
-    const worker = new Worker(workerPath, { workerData });
+    let worker: Worker;
+    try {
+        worker = new Worker(workerPath, { workerData });
+    } catch (error) {
+        throw createStartupError(getErrorMessage(error));
+    }
     const promise = new Promise<T | unknown>((resolve, reject) => {
         attachWorkerHandlers<T | unknown>({
             worker,

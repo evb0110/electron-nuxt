@@ -1,7 +1,9 @@
-import { PDFArray } from 'pdf-lib';
 import type { PDFDocument } from 'pdf-lib';
 import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
-import { tryResolvePdfLibPageView } from '@pdf-core';
+import {
+    safePdfPageAnnots,
+    tryResolvePdfLibPageView,
+} from '@pdf-core';
 
 export function resolvePageAnnotationContext(
     page: ReturnType<PDFDocument['getPages']>[number],
@@ -11,13 +13,8 @@ export function resolvePageAnnotationContext(
         return null;
     }
 
-    let annots: PDFArray | undefined;
-    try {
-        annots = page.node.Annots();
-    } catch {
-        return null;
-    }
-    if (!(annots instanceof PDFArray)) {
+    const annots = safePdfPageAnnots(page);
+    if (!annots) {
         return null;
     }
 

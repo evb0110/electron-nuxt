@@ -74,4 +74,36 @@ describe('documentBytes', () => {
         expect(mockDocuments.readFile).not.toHaveBeenCalled();
         expect(mockDocuments.readFileRange).not.toHaveBeenCalled();
     });
+
+    it('rejects direct reads that grow beyond the requested limit after stat', async () => {
+        mockDocuments.statFile.mockResolvedValue({ size: 4 });
+        mockDocuments.readFile.mockResolvedValue(new Uint8Array(128));
+
+        await expect(readDocumentBytes('/tmp/doc.pdf', { maxBytes: 64 }))
+            .rejects
+            .toThrow('Document exceeds in-memory read limit (64 bytes)');
+    });
+
+    it('rejects direct reads that no longer match the resolved size', async () => {
+        mockDocuments.statFile.mockResolvedValue({ size: 4 });
+        mockDocuments.readFile.mockResolvedValue(Uint8Array.from([
+            1,
+            2,
+            3,
+        ]));
+
+        await expect(readDocumentBytes('/tmp/doc.pdf'))
+            .rejects
+            .toThrow('expected 4 bytes, read 3 bytes');
+    });
+
+    it('rejects range reads that return fewer bytes than requested', async () => {
+        mockDocuments.statFile.mockResolvedValue({ size: 128 * 1024 });
+        mockDocuments.readFileRange.mockResolvedValueOnce(new Uint8Array(64 * 1024));
+        mockDocuments.readFileRange.mockResolvedValueOnce(new Uint8Array(1));
+
+        await expect(readDocumentBytes('/tmp/doc.pdf', { chunkSize: 64 * 1024 }))
+            .rejects
+            .toThrow('expected 65536 bytes, read 1 bytes');
+    });
 });

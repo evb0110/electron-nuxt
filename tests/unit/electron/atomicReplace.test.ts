@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     close: vi.fn(),
     open: vi.fn(),
     rename: vi.fn(),
+    stat: vi.fn(),
     sync: vi.fn(),
     unlink: vi.fn(),
 }));
@@ -22,6 +23,7 @@ vi.mock('node:crypto', () => ({ randomBytes: () => Buffer.from('fixed-id') }));
 vi.mock('fs/promises', () => ({
     open: (...args: unknown[]) => mocks.open(...args),
     rename: (...args: unknown[]) => mocks.rename(...args),
+    stat: (...args: unknown[]) => mocks.stat(...args),
     unlink: (...args: unknown[]) => mocks.unlink(...args),
 }));
 
@@ -49,6 +51,7 @@ describe('atomicReplace', () => {
             sync: mocks.sync,
         });
         mocks.rename.mockResolvedValue(undefined);
+        mocks.stat.mockResolvedValue({});
         mocks.unlink.mockResolvedValue(undefined);
         mocks.sync.mockResolvedValue(undefined);
     });
@@ -93,5 +96,25 @@ describe('atomicReplace', () => {
         expect(mocks.rename).toHaveBeenCalledTimes(1);
         expect(mocks.rename).toHaveBeenCalledWith('/out/tmp.pdf', '/out/extract.pdf');
         expect(mocks.unlink).not.toHaveBeenCalled();
+    });
+
+    it('reports both promotion and restore failures on Windows', async () => {
+        setPlatform('win32');
+        mocks.rename
+            .mockResolvedValueOnce(undefined)
+            .mockRejectedValueOnce(new Error('promotion failed'))
+            .mockRejectedValueOnce(new Error('restore failed'));
+        mocks.stat.mockImplementation(async (path: string) => {
+            if (path.includes('.bak-')) {
+                return {};
+            }
+            throw Object.assign(new Error('not found'), { code: 'ENOENT' });
+        });
+
+        const { atomicReplace } = await import('@electron/utils/atomicReplace');
+
+        await expect(atomicReplace('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf'))
+            .rejects
+            .toThrow(/Promotion error: promotion failed.*Restore error: restore failed.*Backup path: "C:\\out\\extract\.pdf\.bak-.*Destination exists: no/u);
     });
 });

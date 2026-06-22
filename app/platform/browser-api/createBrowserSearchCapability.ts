@@ -38,6 +38,8 @@ import {
     readStoreValue,
     writeStoreValue,
 } from '@app/platform/browser-api/browserIndexeddb';
+import { createBrowserSafeId } from '@app/utils/browserSafe';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 interface IPreparedSearchDocumentCache {
     pageCount: number | null;
@@ -369,6 +371,20 @@ async function persistSearchCacheRecord(
         ),
     );
     await prunePersistedSearchCaches();
+}
+
+async function persistSearchCacheRecordBestEffort(
+    record: IPersistedSearchDocumentCacheRecord,
+) {
+    try {
+        await persistSearchCacheRecord(record);
+    } catch (error) {
+        BrowserLogger.warn('search', 'Search completed but cache persistence failed', {
+            pdfPath: record.pdfPath,
+            pageCount: record.pageCount,
+            error,
+        });
+    }
 }
 
 async function clearPersistedSearchCaches() {
@@ -932,7 +948,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             cache.pageCount = pageCount;
             pageTexts = Array.from({ length: pageCount }, (_value, index) => pageTexts[index] ?? '');
             if (!canceled && canPersistPageTexts(pageTexts)) {
-                await persistSearchCacheRecord(createPersistedSearchCacheRecord(
+                await persistSearchCacheRecordBestEffort(createPersistedSearchCacheRecord(
                     pdfPath,
                     fileSize,
                     contentSignature,
@@ -952,7 +968,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         const { canceled } = await iterateExtractedDocumentPages(cache, extractedDocumentText, options);
 
         if (!canceled && canPersistPageTexts(extractedDocumentText.pageTexts)) {
-            await persistSearchCacheRecord(createPersistedSearchCacheRecord(
+            await persistSearchCacheRecordBestEffort(createPersistedSearchCacheRecord(
                 pdfPath,
                 fileSize,
                 contentSignature,
@@ -973,7 +989,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 };
             }
 
-            const requestId = options.requestId ?? crypto.randomUUID();
+            const requestId = options.requestId ?? createBrowserSafeId();
             const results: IPdfSearchResult[] = [];
             const pageMatchCounts = new Map<number, number>();
             const matcher = buildPdfSearchRegex(query, {

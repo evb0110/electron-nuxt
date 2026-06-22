@@ -397,14 +397,14 @@ export function createDocumentHistory(
 
         if (entry?.kind === 'bytes') {
             if (!canApplyRestore()) {
-                return;
+                return false;
             }
             const workingPath = state.workingCopyPath.value;
             if (workingPath) {
                 await deps.documents().writeFile(workingPath, entry.snapshot);
             }
             if (!canApplyRestore()) {
-                return;
+                return false;
             }
             state.pdfData.value = entry.snapshot;
             state.pdfSrc.value = deps.toPdfBlob(entry.snapshot);
@@ -413,11 +413,11 @@ export function createDocumentHistory(
             } else {
                 deps.clearPdfConformanceProfile();
             }
-            return;
+            return true;
         }
 
         if (entry?.kind !== 'path') {
-            return;
+            return false;
         }
 
         const nextWorkingPath = await deps.documents().createWorkingCopyFromPath(
@@ -426,26 +426,31 @@ export function createDocumentHistory(
         );
         if (!canApplyRestore()) {
             void deps.documents().cleanupFile(nextWorkingPath);
-            return;
+            return false;
         }
         const previousPath = state.workingCopyPath.value;
         const nextState = await deps.readPdfStateFromPath(nextWorkingPath);
         if (!canApplyRestore()) {
             void deps.documents().cleanupFile(nextWorkingPath);
-            return;
+            return false;
         }
         await deps.applyLoadedPdfState(nextWorkingPath, nextState, {
             preserveHistory: true,
             previousPath,
         });
+        return true;
     }
 
     async function undo() {
         if (!canUndo.value) {
             return false;
         }
-        historyIndex.value -= 1;
-        await restoreHistoryEntry(history.value[historyIndex.value]);
+        const nextHistoryIndex = historyIndex.value - 1;
+        const restored = await restoreHistoryEntry(history.value[nextHistoryIndex]);
+        if (!restored) {
+            return false;
+        }
+        historyIndex.value = nextHistoryIndex;
         syncDirtyFromHistory();
         return true;
     }
@@ -454,8 +459,12 @@ export function createDocumentHistory(
         if (!canRedo.value) {
             return false;
         }
-        historyIndex.value += 1;
-        await restoreHistoryEntry(history.value[historyIndex.value]);
+        const nextHistoryIndex = historyIndex.value + 1;
+        const restored = await restoreHistoryEntry(history.value[nextHistoryIndex]);
+        if (!restored) {
+            return false;
+        }
+        historyIndex.value = nextHistoryIndex;
         syncDirtyFromHistory();
         return true;
     }

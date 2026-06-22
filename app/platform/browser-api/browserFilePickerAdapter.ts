@@ -11,6 +11,10 @@ import {
     toBrowserOwnedArrayBuffer,
 } from '@app/platform/browser-api/browserPlatformHelpers';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
+import {
+    safeGetSessionStorageItem,
+    safeSetSessionStorageItem,
+} from '@app/utils/browserSafe';
 
 export interface IPickedBrowserFile {
     file: File;
@@ -121,18 +125,6 @@ async function ensureFileHandleWritePermission(handle: FileSystemFileHandle) {
     }
 }
 
-function getBrowserSessionStorage() {
-    if (typeof window === 'undefined') {
-        return null;
-    }
-
-    try {
-        return window.sessionStorage;
-    } catch {
-        return null;
-    }
-}
-
 function shouldUseFileSystemAccessOpenPicker(
     preferFileSystemAccess: boolean,
     hasOpenPicker: boolean,
@@ -141,12 +133,12 @@ function shouldUseFileSystemAccessOpenPicker(
         return false;
     }
 
-    return getBrowserSessionStorage()?.getItem(BROWSER_OPEN_PICKER_MODE_SESSION_KEY)
+    return safeGetSessionStorageItem(BROWSER_OPEN_PICKER_MODE_SESSION_KEY)
         !== BROWSER_OPEN_PICKER_MODE_INPUT;
 }
 
 function rememberInputOpenPickerMode() {
-    getBrowserSessionStorage()?.setItem(
+    safeSetSessionStorageItem(
         BROWSER_OPEN_PICKER_MODE_SESSION_KEY,
         BROWSER_OPEN_PICKER_MODE_INPUT,
     );

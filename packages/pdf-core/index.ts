@@ -24,6 +24,18 @@ export {
     toPdfRect,
     tryResolvePdfLibPageView,
 } from '@pdf-core/pdfPageBoxes';
+export {
+    isPdfUnexpectedObjectTypeError,
+    safePdfContextLookupArray,
+    safePdfContextLookupDict,
+    safePdfContextLookupStream,
+    safePdfDictLookupArray,
+    safePdfDictLookupDict,
+    safePdfDictLookupName,
+    safePdfDictLookupNumber,
+    safePdfPageAnnots,
+    safePdfPageInheritableDict,
+} from '@pdf-core/safePdfLookup';
 export { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 export { iterateDecodedTiffFrames } from '@pdf-core/iterateDecodedTiffFrames';
 export {

@@ -110,7 +110,13 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         deps.zoomMode.value = mode === 'height' ? 'fit-height' : 'fit-width';
 
         if (mode === 'width') {
-            void nextTick(() => deps.documentViewerRef.value?.applyFitWidthToCurrentPage?.());
+            void nextTick(async () => {
+                try {
+                    await deps.documentViewerRef.value?.applyFitWidthToCurrentPage?.();
+                } catch (error) {
+                    BrowserLogger.warn('workspace', 'Failed to apply fit-width to the current page', { error });
+                }
+            });
         }
     }
 

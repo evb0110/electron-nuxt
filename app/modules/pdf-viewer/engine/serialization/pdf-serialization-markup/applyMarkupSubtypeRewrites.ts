@@ -35,7 +35,10 @@ import {
     normalizePdfJsAnnotationId,
 } from '@app/utils/pdfAnnotationRefs';
 import { getPdfStringValue } from '@app/utils/pdfDict';
-import { readPdfRectFromDict } from '@pdf-core';
+import {
+    readPdfRectFromDict,
+    safePdfDictLookupArray,
+} from '@pdf-core';
 import { iterateAnnotationRefDicts } from '@app/modules/pdf-viewer/engine/pdf-page-annotation-iteration/iterateAnnotationRefDicts';
 import { resolvePageAnnotationContext } from '@app/modules/pdf-viewer/engine/pdf-page-annotation-iteration/resolvePageAnnotationContext';
 import { clampRgbChannel } from '@app/modules/pdf-viewer/engine/text-markup-color/clampRgbChannel';
@@ -169,7 +172,7 @@ function toPdfColorChannel(value: number, allChannelsAreUnitRange: boolean) {
 }
 
 function readPdfMarkupColor(dict: PDFDict): IRgbColor | null {
-    const color = dict.lookupMaybe(PDFName.of('C'), PDFArray);
+    const color = safePdfDictLookupArray(dict, PDFName.of('C'));
     if (!(color instanceof PDFArray) || color.size() < 3) {
         return null;
     }
@@ -391,7 +394,7 @@ function consumeExactRefHints(
 }
 
 function readPdfMarkupQuadPoints(dict: PDFDict) {
-    const quadPoints = dict.lookupMaybe(PDFName.of('QuadPoints'), PDFArray);
+    const quadPoints = safePdfDictLookupArray(dict, PDFName.of('QuadPoints'));
     if (!(quadPoints instanceof PDFArray) || quadPoints.size() === 0 || quadPoints.size() % 8 !== 0) {
         return null;
     }

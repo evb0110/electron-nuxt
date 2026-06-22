@@ -4,11 +4,15 @@ import {
     PDFDocument,
     PDFHexString,
     PDFName,
-    PDFNumber,
     PDFRawStream,
     PDFRef,
     PDFString,
 } from 'pdf-lib';
+import {
+    safePdfContextLookupDict,
+    safePdfDictLookupName,
+    safePdfDictLookupNumber,
+} from '@pdf-core';
 
 const AES_BLOCK = 16;
 const MIN_ENCRYPTED_SIZE = AES_BLOCK * 2;
@@ -128,7 +132,7 @@ interface IEncryptR6 {
 }
 
 function parseEncryptDict(dict: PDFDict): IEncryptR6 | null {
-    const R = dict.lookupMaybe(PDFName.of('R'), PDFNumber);
+    const R = safePdfDictLookupNumber(dict, PDFName.of('R'));
     const U = dict.get(PDFName.of('U'));
     const UE = dict.get(PDFName.of('UE'));
 
@@ -236,7 +240,7 @@ async function decryptPdfRawStream(
     obj: PDFRawStream,
     fileKey: CryptoKey,
 ) {
-    const type = obj.dict.lookupMaybe(PDFName.of('Type'), PDFName);
+    const type = safePdfDictLookupName(obj.dict, PDFName.of('Type'));
     if (type?.toString() === '/XRef') {
         return;
     }
@@ -327,7 +331,7 @@ export async function stripPdfEncryption(data: Uint8Array) {
         return data;
     }
 
-    const encryptDict = doc.context.lookupMaybe(encryptRef, PDFDict);
+    const encryptDict = safePdfContextLookupDict(doc.context, encryptRef);
     if (!encryptDict) {
         return data;
     }

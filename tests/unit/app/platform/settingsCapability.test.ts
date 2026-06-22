@@ -58,4 +58,23 @@ describe('browserSettingsCapability', () => {
         expect(settings.locale).toBe('ru');
         expect(settings.theme).toBe('dark');
     });
+
+    it('ignores malformed browser settings cookies', async () => {
+        const localStorage = new MemoryStorage();
+        vi.stubGlobal('window', { localStorage });
+        vi.stubGlobal('document', {
+            get cookie() {
+                return 'evb_viewer_settings=%E0%A4%A; i18n_redirected=%E0%A4%A; evb_viewer_theme=%E0%A4%A';
+            },
+            set cookie(value: string) {
+                void value;
+            },
+        });
+
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+        const settings = await browserSettingsCapability.get();
+
+        expect(settings.locale).toBe('en');
+        expect(settings.theme).toBe('light');
+    });
 });

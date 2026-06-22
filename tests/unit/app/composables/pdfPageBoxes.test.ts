@@ -4,10 +4,14 @@ import {
     it,
 } from 'vitest';
 import {
+    PDFDict,
     PDFDocument,
     PDFName,
 } from 'pdf-lib';
-import { tryResolvePdfLibPageView } from '@pdf-core';
+import {
+    readPdfRectFromDict,
+    tryResolvePdfLibPageView,
+} from '@pdf-core';
 
 describe('pdfPageBoxes', () => {
     it('resolves page view as CropBox intersected with MediaBox', async () => {
@@ -61,5 +65,13 @@ describe('pdfPageBoxes', () => {
             300,
             500,
         ]);
+    });
+
+    it('returns null for malformed Rect values', async () => {
+        const pdfDocument = await PDFDocument.create();
+        const dict = PDFDict.withContext(pdfDocument.context);
+        dict.set(PDFName.of('Rect'), PDFName.of('Nope'));
+
+        expect(readPdfRectFromDict(dict)).toBeNull();
     });
 });

@@ -4,7 +4,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    nextTick,
+    ref,
+} from 'vue';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/useWorkspaceViewState';
 
 function createState(options?: { dragMode?: boolean; }) {
@@ -92,6 +95,49 @@ describe('useWorkspaceViewState', () => {
         state.handleFitMode('height');
 
         expect(cancelProgrammaticNavigation).toHaveBeenCalledOnce();
+    });
+
+    it('contains fit-width apply failures after mode state changes', async () => {
+        const applyFitWidthToCurrentPage = vi.fn(async () => {
+            throw new Error('fit failed');
+        });
+        const state = useWorkspaceViewState({
+            fitMode: ref('height'),
+            zoomMode: ref('fit-height'),
+            zoom: ref(2),
+            dragMode: ref(false),
+            showSidebar: ref(false),
+            sidebarTab: ref('thumbnails'),
+            annotationTool: ref('none'),
+            annotationPlacingPageNote: ref(false),
+            annotationEditorState: ref({
+                isEditing: false,
+                isEmpty: true,
+                hasSomethingToUndo: false,
+                hasSomethingToRedo: false,
+                hasSelectedEditor: false,
+            }),
+            hasLivePdfJsAnnotationChanges: ref(false),
+            appAnnotationUndoDepth: ref(0),
+            hasOpenAnnotationNotes: ref(false),
+            canUndoHistory: ref(false),
+            canRedoHistory: ref(false),
+            currentPage: ref(1),
+            totalPages: ref(1),
+            documentViewerRef: ref({
+                getViewerContainer: () => null,
+                scrollToPage: () => {},
+                cancelCommentPlacement: () => {},
+                applyFitWidthToCurrentPage,
+            }),
+        });
+
+        state.handleFitMode('width');
+        await nextTick();
+        await Promise.resolve();
+
+        expect(state.isFitWidthActive.value).toBe(true);
+        expect(applyFitWidthToCurrentPage).toHaveBeenCalledOnce();
     });
 
     it('disables annotation cursor when drag mode is enabled', () => {

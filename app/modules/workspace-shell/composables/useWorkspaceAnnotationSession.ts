@@ -77,6 +77,11 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
             && hasLivePdfJsAnnotationChanges();
     }
 
+    function hasPreservedLivePdfjsAnnotationSession() {
+        return savedAnnotationStorageFingerprintPreservesLiveSession.value
+            && savedAnnotationStorageFingerprint.value !== null;
+    }
+
     const {
         annotationTool,
         annotationKeepActive,
@@ -182,6 +187,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         hasAnnotationChanges,
         hasLivePdfJsAnnotationChanges,
         hasSavedPdfJsAnnotationBaselineChanges,
+        hasPreservedLivePdfjsAnnotationSession,
         hasPendingAnnotationChanges: hasPendingTabChanges,
         annotationTool,
         annotationKeepActive,

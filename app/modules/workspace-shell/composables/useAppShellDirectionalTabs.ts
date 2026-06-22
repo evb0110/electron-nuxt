@@ -250,8 +250,14 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             const cacheEntryId = workspaceSplitCache.set(sourceTabId, payload);
             scheduleSplitCacheCleanup(sourceTabId, cacheEntryId);
 
+            const targetPayload = await createIndependentSplitRestorePayload(payload);
             const newPaneId = splitPane(sourcePane.paneId, direction);
             if (!newPaneId) {
+                await cleanupSplitPayloadSnapshot(targetPayload, {
+                    logSection: 'split-cache',
+                    context: 'split-editor-pane-create-failed',
+                    metadata: { tabId: sourceTabId },
+                });
                 return;
             }
 
@@ -266,7 +272,6 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                 },
             });
 
-            const targetPayload = await createIndependentSplitRestorePayload(payload);
             const restored = await restoreWorkspacePayload(newTab.id, targetPayload);
             if (!restored) {
                 await cleanupSplitPayloadSnapshot(targetPayload, {

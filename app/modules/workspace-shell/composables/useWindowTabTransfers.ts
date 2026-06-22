@@ -374,11 +374,29 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             return 'failed';
         }
 
-        const transferResult = await getWindowTabsCapability().transfer({
-            target,
-            tab: buildTransferredTabState(tab),
-            payload,
-        });
+        let transferResult;
+        try {
+            transferResult = await getWindowTabsCapability().transfer({
+                target,
+                tab: buildTransferredTabState(tab),
+                payload,
+            });
+        } catch (error) {
+            BrowserLogger.error('tabs', 'Cross-window transfer threw before completion', {
+                tabId,
+                target,
+                error,
+            });
+            await cleanupSplitPayloadSnapshot(payload, {
+                logSection: 'tabs',
+                context: 'transfer-tab-to-target-error',
+                metadata: {
+                    tabId,
+                    target,
+                },
+            });
+            return 'failed';
+        }
 
         if (!transferResult.success) {
             BrowserLogger.warn('tabs', 'Cross-window transfer failed', {

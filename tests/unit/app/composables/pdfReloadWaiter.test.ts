@@ -200,4 +200,33 @@ describe('createPdfReloadWaiter', () => {
             { fallbackPage: 4 },
         );
     });
+
+    it('contains restore failures and falls back to page restore', async () => {
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
+        const scrollToPage = vi.fn();
+
+        const waiter = createPdfReloadWaiter({
+            pdfDocument,
+            pdfViewerRef: ref({
+                scrollToPage,
+                restoreScrollSnapshot: vi.fn(() => {
+                    throw new Error('restore failed');
+                }),
+            }),
+            resetSearchCache: vi.fn(),
+            pageToRestore: 9,
+            scrollSnapshot: {
+                width: 300,
+                height: 400,
+                centerX: 120,
+                centerY: 220,
+                anchorPage: 9,
+            },
+        });
+
+        pdfDocument.value = cast({ id: 'after' });
+
+        await expect(waiter.promise).resolves.toBeUndefined();
+        expect(scrollToPage).toHaveBeenCalledWith(9);
+    });
 });

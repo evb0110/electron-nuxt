@@ -571,34 +571,32 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
         },
         async exportPdfToMultiPageTiff(workingCopyPath, pageNumbers, requestId) {
             const pdfDocument = await loadPdfDocument(workingCopyPath);
-            const targetPages = getTargetPages(pdfDocument.pdfDocument, pageNumbers);
-            const outputFileName = ensurePdfExtension(
-                getBrowserDocumentFileName(workingCopyPath).replace(/\.pdf$/iu, ''),
-            ).replace(/\.pdf$/iu, '.tiff');
-
-            if (targetPages.length === 0) {
-                await pdfDocument.destroy();
-                return {
-                    success: false,
-                    canceled: true,
-                };
-            }
-
-            const descriptors = await collectTiffPageDescriptors(pdfDocument.pdfDocument, targetPages);
-            const saveTarget = await pickSaveTarget({
-                suggestedName: outputFileName,
-                pickerTypes: buildTiffSaveTypes(),
-            });
-
-            if (saveTarget.canceled) {
-                await pdfDocument.destroy();
-                return {
-                    success: false,
-                    canceled: true,
-                };
-            }
-
             try {
+                const targetPages = getTargetPages(pdfDocument.pdfDocument, pageNumbers);
+                const outputFileName = ensurePdfExtension(
+                    getBrowserDocumentFileName(workingCopyPath).replace(/\.pdf$/iu, ''),
+                ).replace(/\.pdf$/iu, '.tiff');
+
+                if (targetPages.length === 0) {
+                    return {
+                        success: false,
+                        canceled: true,
+                    };
+                }
+
+                const descriptors = await collectTiffPageDescriptors(pdfDocument.pdfDocument, targetPages);
+                const saveTarget = await pickSaveTarget({
+                    suggestedName: outputFileName,
+                    pickerTypes: buildTiffSaveTypes(),
+                });
+
+                if (saveTarget.canceled) {
+                    return {
+                        success: false,
+                        canceled: true,
+                    };
+                }
+
                 const emitPageProgress = (processed: number) => emitBrowserImageExportProgress(requestId, 'multipage-tiff', {
                     phase: 'rendering',
                     processed,

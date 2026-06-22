@@ -13,18 +13,21 @@ import { computePointsMinMax } from '@app/modules/pdf-viewer/engine/pdf-page-ann
 import { iterateAnnotationRefDicts } from '@app/modules/pdf-viewer/engine/pdf-page-annotation-iteration/iterateAnnotationRefDicts';
 import { lookupAnnotationRefDict } from '@app/modules/pdf-viewer/engine/pdf-page-annotation-iteration/lookupAnnotationRefDict';
 import { resolvePageAnnotationContext } from '@app/modules/pdf-viewer/engine/pdf-page-annotation-iteration/resolvePageAnnotationContext';
+import { appendAnnotationRefToPage } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shared/appendAnnotationRefToPage';
 
 describe('pdfPageAnnotationIteration', () => {
     it('looks up annotation dictionaries only from PDF refs', async () => {
         const doc = await PDFDocument.create();
         const dict = doc.context.obj({Subtype: PDFName.of('Text')});
         const ref = doc.context.register(dict);
+        const malformedRef = doc.context.register(PDFName.of('Nope'));
 
         expect(lookupAnnotationRefDict(doc, ref)).toEqual({
             dict,
             ref,
         });
         expect(lookupAnnotationRefDict(doc, dict)).toBeNull();
+        expect(lookupAnnotationRefDict(doc, malformedRef)).toBeNull();
     });
 
     it('iterates annotation refs and skips inline or malformed entries', async () => {
@@ -82,6 +85,20 @@ describe('pdfPageAnnotationIteration', () => {
         page.node.set(PDFName.of('Annots'), PDFName.of('Nope'));
 
         expect(resolvePageAnnotationContext(page)).toBeNull();
+    });
+
+    it('replaces malformed Annots when appending a new annotation ref', async () => {
+        const doc = await PDFDocument.create();
+        const page = doc.addPage();
+        const dict = doc.context.obj({Subtype: PDFName.of('Text')});
+        const ref = doc.context.register(dict);
+        page.node.set(PDFName.of('Annots'), PDFName.of('Nope'));
+
+        appendAnnotationRefToPage(page, doc, ref);
+
+        const annots = page.node.Annots();
+        expect(annots).toBeInstanceOf(PDFArray);
+        expect(annots?.get(0)).toBe(ref);
     });
 
     it('computes point min/max bounds without mutating the input points', () => {

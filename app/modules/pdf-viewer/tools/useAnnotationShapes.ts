@@ -20,9 +20,10 @@ import { cloneShapePoints } from '@app/modules/pdf-viewer/engine/pdf-shape-strok
 import { cloneShapeStrokes } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/cloneShapeStrokes';
 import { getAllShapePoints } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getAllShapePoints';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { createBrowserSafeId } from '@app/utils/browserSafe';
 
 function generateShapeId() {
-    return `shape-${crypto.randomUUID()}`;
+    return createBrowserSafeId('shape');
 }
 
 function normalizeComparableNumber(value: number | null | undefined) {

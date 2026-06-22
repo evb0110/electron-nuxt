@@ -15,6 +15,7 @@ import {
 } from 'vitest';
 import {
     PDFDocument,
+    PDFName,
     rgb,
     StandardFonts,
 } from 'pdf-lib';
@@ -177,6 +178,50 @@ describe('assembleSearchablePdf', () => {
         expect(extractedText).toContain('VISIBLE ORIGINAL');
         expect(extractedText).toContain('NEW OCR');
         expect(extractedText).not.toContain('OLD OCR');
+    });
+
+    it('assembles OCR output when original page resources are malformed', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
+        const originalPath = join(tempDir, 'original.pdf');
+        const firstOcrPath = join(tempDir, 'ocr-first.pdf');
+        const secondOcrPath = join(tempDir, 'ocr-second.pdf');
+        const originalPdf = await PDFDocument.create();
+        const firstPage = originalPdf.addPage([
+            200,
+            200,
+        ]);
+        firstPage.node.set(PDFName.of('Resources'), PDFName.of('Nope'));
+        const secondPage = originalPdf.addPage([
+            200,
+            200,
+        ]);
+        secondPage.node.set(PDFName.of('Resources'), originalPdf.context.obj({
+            Font: PDFName.of('Nope'),
+            XObject: PDFName.of('Nope'),
+        }));
+        await writeFile(originalPath, await originalPdf.save());
+        await createPdfWithVisibleAndHiddenText(firstOcrPath, { hiddenText: 'FIRST OCR' });
+        await createPdfWithVisibleAndHiddenText(secondOcrPath, { hiddenText: 'SECOND OCR' });
+
+        const ocrPages = new Map<number, string>();
+        ocrPages.set(1, firstOcrPath);
+        ocrPages.set(2, secondOcrPath);
+
+        const outputPath = await assembleSearchablePdf(
+            'qpdf-not-used',
+            originalPath,
+            ocrPages,
+            2,
+            tempDir,
+            'malformed-resources-session',
+            vi.fn(),
+            path => path,
+        );
+
+        const extractedText = await extractPdfText(outputPath);
+
+        expect(extractedText).toContain('FIRST OCR');
+        expect(extractedText).toContain('SECOND OCR');
     });
 
     it('replaces previous OCR page text when applying OCR again', async () => {

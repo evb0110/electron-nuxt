@@ -3,6 +3,7 @@ import { constants as fsConstants } from 'fs';
 import {
     open,
     rename,
+    stat,
     unlink,
 } from 'fs/promises';
 import {
@@ -55,6 +56,45 @@ async function fsyncParentDirectory(filePath: string) {
     }
 }
 
+async function pathExists(filePath: string) {
+    try {
+        await stat(filePath);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function assertPathExists(filePath: string, context: string) {
+    if (await pathExists(filePath)) {
+        return;
+    }
+
+    throw new Error(`${context}: destination "${filePath}" is missing after atomic replace`);
+}
+
+async function createRestoreFailureError(
+    dst: string,
+    backupPath: string,
+    promotionError: unknown,
+    restoreError: unknown,
+) {
+    const [
+        dstExists,
+        backupExists,
+    ] = await Promise.all([
+        pathExists(dst),
+        pathExists(backupPath),
+    ]);
+    return new Error(
+        `Atomic replace failed and backup restore failed for "${dst}". `
+        + `Promotion error: ${getErrorMessage(promotionError)}. `
+        + `Restore error: ${getErrorMessage(restoreError)}. `
+        + `Backup path: "${backupPath}" (exists: ${backupExists ? 'yes' : 'no'}). `
+        + `Destination exists: ${dstExists ? 'yes' : 'no'}.`,
+    );
+}
+
 export function makeSiblingTempPath(targetPath: string) {
     return join(dirname(targetPath), `.${randomSuffix()}.tmp`);
 }
@@ -84,13 +124,16 @@ export async function atomicReplace(srcTemp: string, dst: string) {
         await rename(srcTemp, dst);
     } catch (error) {
         if (hasBackup) {
-            await rename(backupPath, dst).catch((restoreError) => {
+            await rename(backupPath, dst).catch(async (restoreError) => {
                 logger.error(`Failed to restore backup after atomic replace failure: ${getErrorMessage(restoreError)}`);
+                throw await createRestoreFailureError(dst, backupPath, error, restoreError);
             });
+            await assertPathExists(dst, 'Atomic replace failed after restoring backup');
         }
         throw error;
     }
 
+    await assertPathExists(dst, 'Atomic replace completed');
     await fsyncParentDirectory(dst);
 
     if (hasBackup) {

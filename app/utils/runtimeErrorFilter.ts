@@ -32,7 +32,7 @@ export function isIgnorableRuntimeErrorMessage(value: unknown) {
         return false;
     }
 
-    return IGNORABLE_RUNTIME_ERROR_MESSAGES.some((message) => normalizedMessage.includes(message));
+    return IGNORABLE_RUNTIME_ERROR_MESSAGES.some((message) => normalizedMessage === message);
 }
 
 export function getIgnorableRuntimeErrorMessage(value: unknown) {

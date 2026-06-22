@@ -4,6 +4,11 @@ import {
 } from '@vueuse/core';
 import { isPlainObject as isToolkitPlainObject } from 'es-toolkit/predicate';
 import { isBrowserPlatformActive } from '@app/utils/platform';
+import {
+    createBrowserSafeId,
+    safeGetSessionStorageItem,
+    safeSetSessionStorageItem,
+} from '@app/utils/browserSafe';
 import { normalizeAnalyticsScalar } from '@contracts/analytics';
 import type {
     IAnalyticsDocumentContext,
@@ -164,24 +169,15 @@ function getSessionId() {
         return analyticsBrowserState.sessionId;
     }
 
-    try {
-        const existingValue = window.sessionStorage.getItem(ANALYTICS_SESSION_STORAGE_KEY);
-        if (existingValue) {
-            analyticsBrowserState.sessionId = existingValue;
-            return existingValue;
-        }
-    } catch {
-        // Session storage is optional in constrained browser environments.
+    const existingValue = safeGetSessionStorageItem(ANALYTICS_SESSION_STORAGE_KEY);
+    if (existingValue) {
+        analyticsBrowserState.sessionId = existingValue;
+        return existingValue;
     }
 
-    const nextValue = crypto.randomUUID();
+    const nextValue = createBrowserSafeId();
     analyticsBrowserState.sessionId = nextValue;
-
-    try {
-        window.sessionStorage.setItem(ANALYTICS_SESSION_STORAGE_KEY, nextValue);
-    } catch {
-        // Best-effort only.
-    }
+    safeSetSessionStorageItem(ANALYTICS_SESSION_STORAGE_KEY, nextValue);
 
     return nextValue;
 }

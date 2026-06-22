@@ -36,6 +36,7 @@ function decodeRequestNameAndData(request: Uint8Array) {
 }
 
 function createWasmExportsMock(options: {
+    allocThrows?: boolean;
     buildResultCode?: number;
     output?: Uint8Array;
 } = {}) {
@@ -72,6 +73,9 @@ function createWasmExportsMock(options: {
         exports: {
             memory,
             evb_pdf_image_combine_alloc: vi.fn((len: number) => {
+                if (options.allocThrows) {
+                    throw new Error('alloc failed');
+                }
                 const pointer = cursor;
                 cursor += len + 16;
                 return pointer;
@@ -180,5 +184,23 @@ describe('tryCombineImageInputsWithWasm', () => {
                 resultCode: -1,
             },
         );
+    });
+
+    it('falls back when WASM allocation throws before a pointer is available', async () => {
+        const wasmMock = createWasmExportsMock({allocThrows: true});
+        vi.stubGlobal('fetch', createFetchMock());
+        vi.stubGlobal('WebAssembly', {
+            ...wasmGlobalMockBase,
+            instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
+        });
+        const { tryCombineImageInputsWithWasm } = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+
+        const result = await tryCombineImageInputsWithWasm([{
+            fileName: 'scan.png',
+            data: new Uint8Array([1]),
+        }]);
+
+        expect(result).toBeNull();
+        expect(wasmMock.free).not.toHaveBeenCalled();
     });
 });

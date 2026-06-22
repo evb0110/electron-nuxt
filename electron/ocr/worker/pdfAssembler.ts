@@ -8,13 +8,16 @@ import { sortBy } from 'es-toolkit/array';
 import {
     decodePDFRawStream,
     PDFContentStream,
-    PDFDict,
+    PDFArray,
     PDFDocument,
     PDFName,
     PDFRawStream,
     PDFRef,
     PDFStream,
-    type PDFPage,
+} from 'pdf-lib';
+import type {
+    PDFDict,
+    PDFPage,
 } from 'pdf-lib';
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import {
@@ -22,6 +25,12 @@ import {
     type TOcrRunCommandOptions,
 } from '@electron/ocr/worker/runOcrCommand';
 import { abortErrorFromSignal } from '@electron/utils/abort';
+import {
+    safePdfContextLookupArray,
+    safePdfContextLookupStream,
+    safePdfDictLookupDict,
+    safePdfPageInheritableDict,
+} from '@pdf-core';
 
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 const TESSERACT_IMAGE_PAINT_RE = /^q\s+[\d.]+\s+0\s+0\s+[\d.]+\s+0\s+0\s+cm\s+\/Im\d+\s+Do\s+Q\r?\n/gm;
@@ -35,6 +44,10 @@ const IMAGE_OR_FORM_DRAW_RE = /\/([A-Za-z0-9._-]+)\s+Do\b/g;
 const FONT_DRAW_RE = /\/([A-Za-z0-9._-]+)\s+[-+0-9.]+\s+Tf\b/g;
 const TESSERACT_HIDDEN_TEXT_OBJECT_RE = /BT[\s\S]*?(?:^|\s)3(?:\.0+)?\s+Tr\b[\s\S]*?ET\s*/gm;
 const TESSERACT_EMPTY_TEXT_ONLY_PREAMBLE_RE = /^q\s+[\d.]+\s+0\s+0\s+[\d.]+\s+0\s+0\s+cm\s+Q\s*$/;
+const CONTENTS_NAME = PDFName.of('Contents');
+const RESOURCES_NAME = PDFName.of('Resources');
+const FONT_NAME = PDFName.of('Font');
+const XOBJECT_NAME = PDFName.of('XObject');
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
@@ -141,18 +154,49 @@ function deleteUnreferencedEntries(dict: PDFDict, referencedNames: Set<string>) 
 }
 
 function cloneMutablePageResources(page: PDFPage) {
-    page.node.normalize();
     const context = page.doc.context;
-    const resources = page.node.Resources()?.clone(context) ?? context.obj({});
-    const font = resources.lookupMaybe(PDFName.of('Font'), PDFDict);
-    if (font) {
-        resources.set(PDFName.of('Font'), font.clone(context));
+    const resources = safePdfPageInheritableDict(page, RESOURCES_NAME)?.clone(context) ?? context.obj({});
+    const font = safePdfDictLookupDict(resources, FONT_NAME)?.clone(context) ?? context.obj({});
+    const xObject = safePdfDictLookupDict(resources, XOBJECT_NAME)?.clone(context) ?? context.obj({});
+    resources.set(FONT_NAME, font);
+    resources.set(XOBJECT_NAME, xObject);
+    page.node.set(RESOURCES_NAME, resources);
+    return {
+        font,
+        resources,
+        xObject,
+    };
+}
+
+function resolvePageContentsArray(page: PDFPage) {
+    const context = page.doc.context;
+    const contentsValue = page.node.get(CONTENTS_NAME);
+    if (contentsValue instanceof PDFArray) {
+        return contentsValue;
     }
-    const xObject = resources.lookupMaybe(PDFName.of('XObject'), PDFDict);
-    if (xObject) {
-        resources.set(PDFName.of('XObject'), xObject.clone(context));
+    if (contentsValue instanceof PDFRef) {
+        const contents = safePdfContextLookupArray(context, contentsValue);
+        if (contents) {
+            return contents;
+        }
     }
-    page.node.set(PDFName.of('Resources'), resources);
+
+    const contents = context.obj([]);
+    if (contentsValue instanceof PDFRef || contentsValue instanceof PDFStream) {
+        contents.push(contentsValue);
+    }
+    page.node.set(CONTENTS_NAME, contents);
+    return contents;
+}
+
+function lookupPageContentStream(page: PDFPage, value: unknown) {
+    if (value instanceof PDFStream) {
+        return value;
+    }
+    if (value instanceof PDFRef) {
+        return safePdfContextLookupStream(page.doc.context, value);
+    }
+    return null;
 }
 
 function isTextOnlyOcrStream(streamText: string, strippedText: string) {
@@ -163,31 +207,30 @@ function isTextOnlyOcrStream(streamText: string, strippedText: string) {
 }
 
 function removePreviousOcrLayer(page: PDFPage) {
-    cloneMutablePageResources(page);
-    const context = page.doc.context;
     const {
-        Contents,
-        Font,
-        XObject,
-    } = page.node.normalizedEntries();
-    if (!Contents) {
-        return;
-    }
+        font,
+        xObject,
+    } = cloneMutablePageResources(page);
+    const context = page.doc.context;
+    const contents = resolvePageContentsArray(page);
 
     const keptContentText: string[] = [];
-    for (let index = Contents.size() - 1; index >= 0; index -= 1) {
-        const contentRef = Contents.get(index);
-        const contentStream = Contents.lookup(index, PDFStream);
+    for (let index = contents.size() - 1; index >= 0; index -= 1) {
+        const contentRef = contents.get(index);
+        const contentStream = lookupPageContentStream(page, contentRef);
+        if (!contentStream) {
+            continue;
+        }
         const streamText = decodeContentStream(contentStream);
 
         if (streamText.includes(OCR_LAYER_MARKER)) {
             const markedXObjects = collectResourceNames(streamText, IMAGE_OR_FORM_DRAW_RE);
-            Contents.remove(index);
+            contents.remove(index);
             if (contentRef instanceof PDFRef) {
                 context.delete(contentRef);
             }
             for (const name of markedXObjects) {
-                XObject.delete(PDFName.of(name));
+                xObject.delete(PDFName.of(name));
             }
             continue;
         }
@@ -199,7 +242,7 @@ function removePreviousOcrLayer(page: PDFPage) {
 
         const strippedText = streamText.replace(TESSERACT_HIDDEN_TEXT_OBJECT_RE, '');
         if (isTextOnlyOcrStream(streamText, strippedText)) {
-            Contents.remove(index);
+            contents.remove(index);
             if (contentRef instanceof PDFRef) {
                 context.delete(contentRef);
             }
@@ -208,7 +251,7 @@ function removePreviousOcrLayer(page: PDFPage) {
 
         if (strippedText !== streamText) {
             const strippedRef = context.register(context.flateStream(strippedText));
-            Contents.set(index, strippedRef);
+            contents.set(index, strippedRef);
             keptContentText.push(strippedText);
             continue;
         }
@@ -217,15 +260,17 @@ function removePreviousOcrLayer(page: PDFPage) {
     }
 
     const keptText = keptContentText.join('\n');
-    deleteUnreferencedEntries(Font, collectResourceNames(keptText, FONT_DRAW_RE));
-    deleteUnreferencedEntries(XObject, collectResourceNames(keptText, IMAGE_OR_FORM_DRAW_RE));
+    deleteUnreferencedEntries(font, collectResourceNames(keptText, FONT_DRAW_RE));
+    deleteUnreferencedEntries(xObject, collectResourceNames(keptText, IMAGE_OR_FORM_DRAW_RE));
 }
 
 function appendOcrLayer(
     page: PDFPage,
     embeddedPage: Awaited<ReturnType<PDFDocument['embedPage']>>,
 ) {
-    const xObjectName = page.node.newXObject('EvbOcrLayer', embeddedPage.ref);
+    const { xObject } = cloneMutablePageResources(page);
+    const xObjectName = xObject.uniqueKey('EvbOcrLayer');
+    xObject.set(xObjectName, embeddedPage.ref);
     const xObjectToken = xObjectName.toString();
     const xScale = page.getWidth() / embeddedPage.width;
     const yScale = page.getHeight() / embeddedPage.height;
@@ -240,7 +285,7 @@ function appendOcrLayer(
     ].join('\n');
 
     const contentRef = page.doc.context.register(page.doc.context.flateStream(stream));
-    page.node.addContentStream(contentRef);
+    resolvePageContentsArray(page).push(contentRef);
 }
 
 export async function assembleSearchablePdf(

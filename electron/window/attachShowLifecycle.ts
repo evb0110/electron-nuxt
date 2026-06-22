@@ -47,12 +47,13 @@ export function attachShowLifecycle(
     };
 
     const cleanupShowHandlers = () => {
-        if (window.isDestroyed()) {
-            return;
+        try {
+            window.webContents.removeListener('did-start-navigation', onStartNavigation);
+            window.webContents.removeListener('did-finish-load', onFinishLoad);
+            window.webContents.removeListener('did-fail-load', onFailLoad);
+        } catch (error) {
+            options.logger.warn(`Failed to cleanup startup show listeners for window ${window.id}: ${error instanceof Error ? error.message : String(error)}`);
         }
-        window.webContents.removeListener('did-start-navigation', onStartNavigation);
-        window.webContents.removeListener('did-finish-load', onFinishLoad);
-        window.webContents.removeListener('did-fail-load', onFailLoad);
         deleteWindowRendererReadyState(window.id);
     };
 
@@ -147,10 +148,6 @@ export function attachShowLifecycle(
 
     const scheduleForceShowTimeout = () => {
         if (forceShowTimeout || hasShownWindow || window.isDestroyed()) {
-            return;
-        }
-        if (!rendererReadyForShow) {
-            logNavEvent('force-show-suppressed-pending-rendererReady');
             return;
         }
 
@@ -249,14 +246,6 @@ export function attachShowLifecycle(
         options.logger.error(`Failed to load URL: ${validatedURL} (code=${errorCode}, desc=${errorDescription})`);
         mainFrameLoadFinished = false;
 
-        if (blockShowUntilRendererReady && !rendererReadyForShow) {
-            logNavEvent('load-failure-hidden-during-strict-startup', {
-                errorCode,
-                validatedURL,
-            });
-            return;
-        }
-
         void showWindowNow();
     };
 
@@ -268,6 +257,7 @@ export function attachShowLifecycle(
     scheduleForceShowTimeout();
 
     window.on('closed', () => {
+        cleanupShowHandlers();
         if (pendingShowTimeout) {
             clearTimeout(pendingShowTimeout);
             pendingShowTimeout = null;

@@ -1,4 +1,5 @@
 import { decodeDocumentRefSegment } from '@app/utils/documentRef';
+import { createBrowserSafeId } from '@app/utils/browserSafe';
 
 const BROWSER_REF_PREFIX = 'browser://documents/';
 
@@ -11,7 +12,7 @@ function getDocumentFileName(ref: string) {
 }
 
 export function createBrowserDocumentRef(fileName: string) {
-    return `${BROWSER_REF_PREFIX}${crypto.randomUUID()}/${encodeURIComponent(fileName)}`;
+    return `${BROWSER_REF_PREFIX}${createBrowserSafeId()}/${encodeURIComponent(fileName)}`;
 }
 
 export function isBrowserDocumentRef(path: string) {

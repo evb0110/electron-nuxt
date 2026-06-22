@@ -1,9 +1,7 @@
-import {
-    PDFDict,
-    PDFRef,
-} from 'pdf-lib';
+import { PDFRef } from 'pdf-lib';
 import type { PDFDocument } from 'pdf-lib';
 import type { IPdfAnnotationRefDict } from '@app/modules/pdf-viewer/engine/pdf-page-annotation-iteration/pdfAnnotationRefDict';
+import { safePdfContextLookupDict } from '@pdf-core';
 
 export function lookupAnnotationRefDict(
     doc: PDFDocument,
@@ -14,7 +12,7 @@ export function lookupAnnotationRefDict(
         return null;
     }
 
-    const dict = doc.context.lookupMaybe(ref, PDFDict);
+    const dict = safePdfContextLookupDict(doc.context, ref);
     return dict
         ? {
             dict,

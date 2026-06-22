@@ -13,9 +13,15 @@ const mocks = vi.hoisted(() => ({
 }));
 
 class MockNativeProcess extends EventEmitter {
-    readonly stdout = new EventEmitter();
+    readonly stdout = Object.assign(new EventEmitter(), {
+        destroy: vi.fn(),
+        unpipe: vi.fn(),
+    });
 
-    readonly stderr = new EventEmitter();
+    readonly stderr = Object.assign(new EventEmitter(), {
+        destroy: vi.fn(),
+        unpipe: vi.fn(),
+    });
 
     readonly kill = vi.fn();
 }
@@ -139,5 +145,10 @@ describe('runNativeCommand', () => {
         expect(error.message).toBe('/bin/tool timed out after 10ms');
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
         expect(removeEventListener).toHaveBeenCalledWith('abort', expect.any(Function));
+        expect(proc.stdout.listenerCount('data')).toBe(0);
+        expect(proc.stderr.listenerCount('data')).toBe(0);
+        expect(proc.listenerCount('close')).toBe(0);
+        expect(proc.stdout.destroy).toHaveBeenCalledTimes(1);
+        expect(proc.stderr.destroy).toHaveBeenCalledTimes(1);
     });
 });

@@ -25,6 +25,22 @@ async function resolveDocumentSize(path: TDocumentRef, knownSize: number | undef
     return (await getDocumentsCapability().statFile(path)).size;
 }
 
+function normalizeBytes(data: Uint8Array | ArrayBuffer) {
+    return data instanceof Uint8Array ? data : new Uint8Array(data);
+}
+
+function assertReadSize(path: TDocumentRef, actualBytes: number, expectedBytes: number) {
+    if (actualBytes !== expectedBytes) {
+        throw new Error(`Document changed while reading ${path}: expected ${expectedBytes} bytes, read ${actualBytes} bytes`);
+    }
+}
+
+function assertWithinReadLimit(actualBytes: number, maxBytes: number | undefined) {
+    if (typeof maxBytes === 'number' && actualBytes > maxBytes) {
+        throw new Error(`Document exceeds in-memory read limit (${maxBytes} bytes)`);
+    }
+}
+
 export async function readDocumentBytes(
     path: TDocumentRef,
     options: IReadDocumentBytesOptions = {},
@@ -36,14 +52,12 @@ export async function readDocumentBytes(
         throw new Error(`Document exceeds in-memory read limit (${options.maxBytes} bytes)`);
     }
 
-    if (size <= 0) {
-        return new Uint8Array();
-    }
-
     const chunkSize = normalizeChunkSize(options.chunkSize);
     if (size <= chunkSize) {
-        const data = await documents.readFile(path);
-        return data instanceof Uint8Array ? data : new Uint8Array(data);
+        const data = normalizeBytes(await documents.readFile(path));
+        assertWithinReadLimit(data.byteLength, options.maxBytes);
+        assertReadSize(path, data.byteLength, size);
+        return data;
     }
 
     const output = new Uint8Array(size);
@@ -52,19 +66,13 @@ export async function readDocumentBytes(
     while (offset < size) {
         const nextChunkLength = Math.min(chunkSize, size - offset);
         const chunk = await documents.readFileRange(path, offset, nextChunkLength);
+        assertReadSize(path, chunk.byteLength, nextChunkLength);
         output.set(chunk, offset);
         offset += chunk.byteLength;
-
-        if (chunk.byteLength === 0) {
-            break;
-        }
     }
 
-    if (offset === size) {
-        return output;
-    }
-
-    return output.slice(0, offset);
+    assertWithinReadLimit(output.byteLength, options.maxBytes);
+    return output;
 }
 
 export async function readDocumentBytesIfBelowLimit(

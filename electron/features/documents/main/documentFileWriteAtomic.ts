@@ -35,7 +35,7 @@ const ALLOWED_SYSTEM_SYMLINK_TARGETS = new Map([
     ],
 ]);
 
-export function assertWithinIpcWriteBudget(byteLength: number) {
+function assertWithinIpcWriteBudget(byteLength: number) {
     if (byteLength > MAX_IPC_WRITE_BYTES) {
         throw new Error(`Invalid data: exceeds max size (${MAX_IPC_WRITE_BYTES} bytes)`);
     }

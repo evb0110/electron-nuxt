@@ -54,6 +54,8 @@ const NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS = (() => {
     return parsed;
 })();
 const NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES = 64 * 1024;
+const PDF_HEADER_SCAN_BYTES = 1024;
+const PDF_EOF_SCAN_BYTES = 1024 * 1024;
 
 function getBinaryName() {
     return process.platform === 'win32'
@@ -129,6 +131,49 @@ function createNativeInputsFileContents(inputPaths: string[]) {
     return `${inputPaths.join('\n')}\n`;
 }
 
+function includesAsciiToken(data: Uint8Array, token: string, start: number, end: number) {
+    const tokenBytes = Buffer.from(token, 'ascii');
+    const lastStart = end - tokenBytes.byteLength;
+    for (let offset = start; offset <= lastStart; offset += 1) {
+        let matches = true;
+        for (let index = 0; index < tokenBytes.byteLength; index += 1) {
+            if (data[offset + index] !== tokenBytes[index]) {
+                matches = false;
+                break;
+            }
+        }
+        if (matches) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function isStructurallyPlausiblePdf(data: Uint8Array) {
+    if (data.byteLength === 0) {
+        return false;
+    }
+    const headerEnd = Math.min(data.byteLength, PDF_HEADER_SCAN_BYTES);
+    const eofStart = Math.max(0, data.byteLength - PDF_EOF_SCAN_BYTES);
+    return includesAsciiToken(data, '%PDF-', 0, headerEnd)
+        && includesAsciiToken(data, '%%EOF', eofStart, data.byteLength);
+}
+
+async function readValidatedNativePdfOutput(outputPath: string) {
+    try {
+        const bytes = new Uint8Array(await readFile(outputPath));
+        if (isStructurallyPlausiblePdf(bytes)) {
+            return bytes;
+        }
+        logger.warn(`Native image PDF combine produced invalid PDF output at "${outputPath}"`);
+    } catch (error) {
+        logger.warn(`Native image PDF combine output is unavailable at "${outputPath}": ${getErrorMessage(error)}`);
+    }
+
+    await rm(outputPath, { force: true }).catch(() => undefined);
+    return null;
+}
+
 export async function tryCreatePdfWithNativeImageCombiner(
     inputPaths: string[],
     options?: INativePdfImageCombineOptions,
@@ -193,7 +238,7 @@ async function createPdfWithNativeImageCombiner(
         if (!ok) {
             return null;
         }
-        return new Uint8Array(await readFile(outputPath));
+        return await readValidatedNativePdfOutput(outputPath);
     } finally {
         await rm(tempDir, {
             recursive: true,
@@ -217,10 +262,14 @@ async function writePdfWithNativeImageCombiner(
 
     try {
         await writeFile(inputsPath, createNativeInputsFileContents(inputPaths), 'utf8');
-        return await runNativePdfImageCombine(binaryPath, outputPath, [], options, [
+        const ok = await runNativePdfImageCombine(binaryPath, outputPath, [], options, [
             '--inputs-file',
             inputsPath,
         ]);
+        if (!ok) {
+            return false;
+        }
+        return await readValidatedNativePdfOutput(outputPath) !== null;
     } finally {
         await rm(tempDir, {
             recursive: true,

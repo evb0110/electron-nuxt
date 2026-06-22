@@ -199,12 +199,14 @@ export async function tryCombineImageInputsWithWasm(
         return null;
     }
 
-    const request = buildWasmRequest(inputs);
-    const pointer = exports.evb_pdf_image_combine_alloc(request.byteLength);
-
+    let pointer: number | null = null;
+    let requestLength = 0;
     try {
-        new Uint8Array(exports.memory.buffer, pointer, request.byteLength).set(request);
-        const resultCode = exports.evb_pdf_image_combine_build_pdf(pointer, request.byteLength);
+        const request = buildWasmRequest(inputs);
+        requestLength = request.byteLength;
+        pointer = exports.evb_pdf_image_combine_alloc(requestLength);
+        new Uint8Array(exports.memory.buffer, pointer, requestLength).set(request);
+        const resultCode = exports.evb_pdf_image_combine_build_pdf(pointer, requestLength);
         if (resultCode !== 0) {
             logWasmFailure(resultCode, exports);
             return null;
@@ -220,6 +222,8 @@ export async function tryCombineImageInputsWithWasm(
     } catch {
         return null;
     } finally {
-        exports.evb_pdf_image_combine_free(pointer, request.byteLength);
+        if (pointer !== null) {
+            exports.evb_pdf_image_combine_free(pointer, requestLength);
+        }
     }
 }

@@ -195,6 +195,25 @@ describe('createBrowserImageExportCapability', () => {
         ]);
     });
 
+    it('destroys the PDF.js document when multi-page TIFF descriptor collection fails', async () => {
+        const fakePdfDocument = createFakePdfDocument(2);
+        fakePdfDocument.getPage.mockRejectedValueOnce(new Error('page failed'));
+        getDocumentMock.mockReturnValue({ promise: Promise.resolve(fakePdfDocument) });
+
+        const { createBrowserImageExportCapability } = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+        const capability = createBrowserImageExportCapability();
+
+        await expect(capability.exportPdfToMultiPageTiff(
+            'browser://documents/work/sample.pdf',
+            [1],
+        )).rejects.toThrow('page failed');
+
+        expect(fakePdfDocument.destroy).toHaveBeenCalledTimes(1);
+        expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
+    });
+
     it('defaults browser image export to JPEG and stores handle-backed outputs', async () => {
         const fakePdfDocument = createFakePdfDocument(1);
         getDocumentMock.mockReturnValue({ promise: Promise.resolve(fakePdfDocument) });

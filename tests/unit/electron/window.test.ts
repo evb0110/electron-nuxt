@@ -264,6 +264,54 @@ describe('window runtime readiness', () => {
         expect(window?.isVisible()).toBe(true);
     });
 
+    it('force-shows strict startup when rendererReady never arrives', async () => {
+        vi.useFakeTimers();
+        try {
+            mocks.config.automation.hideWindow = false;
+            const { createAppWindow } = await import('@electron/window');
+
+            const createPromise = createAppWindow({ waitForInitialRendererReady: true });
+            await vi.waitFor(() => {
+                expect(mocks.BrowserWindow.windows).toHaveLength(1);
+            });
+
+            const window = mocks.BrowserWindow.windows[0];
+            expect(window?.maximize).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(15_000);
+
+            expect(window?.maximize).toHaveBeenCalledTimes(1);
+            expect(window?.isVisible()).toBe(true);
+
+            window?.destroy();
+            await expect(createPromise).rejects.toThrow('Window closed before renderer startup completed');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('cleans renderer-ready startup handlers when a hidden startup window closes', async () => {
+        mocks.config.automation.hideWindow = false;
+        const { createAppWindow } = await import('@electron/window');
+        const { markWindowRendererReady } = await import('@electron/window/rendererReady');
+
+        const createPromise = createAppWindow({ waitForInitialRendererReady: true });
+        await vi.waitFor(() => {
+            expect(mocks.BrowserWindow.windows).toHaveLength(1);
+        });
+
+        const window = mocks.BrowserWindow.windows[0];
+        window?.destroy();
+
+        await expect(createPromise).rejects.toThrow('Window closed before renderer startup completed');
+        markWindowRendererReady(1);
+
+        expect(window?.maximize).not.toHaveBeenCalled();
+        expect(window?.webContents.removeListener).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
+        expect(window?.webContents.removeListener).toHaveBeenCalledWith('did-finish-load', expect.any(Function));
+        expect(window?.webContents.removeListener).toHaveBeenCalledWith('did-fail-load', expect.any(Function));
+    });
+
     it('keeps dev strict startup hidden instead of showing the startup placeholder', async () => {
         mocks.config.automation.hideWindow = false;
         mocks.config.isDev = true;

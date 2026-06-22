@@ -9,6 +9,7 @@ import {
     parseRecentFilesCookieSnapshot,
     readBrowserRecentFilesSnapshot,
 } from '@app/utils/recentFilesPersistence';
+import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
 import { getDocumentsCapability as getPlatformDocumentsCapability } from '@app/utils/platformDocuments';
 
@@ -24,7 +25,7 @@ export const useRecentFiles = () => {
         default: () => null,
         watch: false,
         decode: value => typeof value === 'string'
-            ? decodeURIComponent(value)
+            ? safeDecodeURIComponent(value)
             : null,
     });
     const initialCookieSnapshot = import.meta.client

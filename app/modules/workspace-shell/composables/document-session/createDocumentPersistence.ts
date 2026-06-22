@@ -656,7 +656,16 @@ export function createDocumentPersistence(
                     state.workingCopyPath.value = nextWorkingPath;
                     savedWorkingPath = nextWorkingPath;
                     if (previousWorkingPath !== nextWorkingPath) {
-                        await getDocumentsCapability().cleanupFile(previousWorkingPath);
+                        try {
+                            await getDocumentsCapability().cleanupFile(previousWorkingPath);
+                        } catch (cleanupError) {
+                            BrowserLogger.warn('workspace', 'Save As succeeded but previous working-copy cleanup failed', {
+                                previousWorkingPath,
+                                nextWorkingPath,
+                                savedPath,
+                                error: cleanupError,
+                            });
+                        }
                     }
                 }
                 if (!state.isActiveWorkingCopy(savedWorkingPath)) {

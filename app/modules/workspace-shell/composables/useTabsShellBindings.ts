@@ -22,6 +22,7 @@ import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/regi
 import type { ITabsMenuBindingDeps } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { shouldHandleRendererMenuAccelerators } from '@app/utils/shouldHandleRendererMenuAccelerators';
+import { guardAsync } from '@app/utils/asyncGuard';
 
 const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
 type TTabKeyboardShortcutAction = 'new-tab' | 'close-tab' | 'next-tab' | 'previous-tab';
@@ -314,20 +315,27 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     }
 
     function runRendererDocumentShortcutAction(action: TRendererDocumentShortcutAction) {
+        const guard = (operation: unknown) => {
+            guardAsync(Promise.resolve(operation), {
+                scope: 'tabs-shell',
+                message: `Renderer document shortcut failed: ${action}`,
+            });
+        };
+
         if (action === 'open-file') {
-            void handleFallbackToolbarOpenFile();
+            guard(handleFallbackToolbarOpenFile());
             return;
         }
 
         const workspace = activeWorkspace.value;
         if (action === 'save-as') {
-            void workspace?.handleSaveAs();
+            guard(workspace?.handleSaveAs() ?? Promise.resolve());
         } else if (action === 'export-docx') {
-            void workspace?.handleExportDocx();
+            guard(workspace?.handleExportDocx() ?? Promise.resolve());
         } else if (action === 'undo') {
-            void workspace?.handleUndo();
+            guard(workspace?.handleUndo() ?? Promise.resolve());
         } else {
-            void workspace?.handleRedo();
+            guard(workspace?.handleRedo() ?? Promise.resolve());
         }
     }
 

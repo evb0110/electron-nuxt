@@ -366,6 +366,39 @@ describe('useTabsShellBindings', () => {
         unmount();
     });
 
+    it('logs rejected renderer document shortcuts without leaking the rejection', async () => {
+        const options = createOptions();
+        options.handleFallbackToolbarOpenFile = vi.fn(async () => {
+            throw new Error('picker failed');
+        });
+        const unmount = await mountBindings(options);
+        const { BrowserLogger } = await import('@app/utils/browserLogger');
+        const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(() => {});
+
+        capturedKeydown?.(cast<KeyboardEvent>({
+            key: 'o',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            shiftKey: false,
+            target: null,
+            preventDefault: vi.fn(),
+            stopPropagation: vi.fn(),
+            stopImmediatePropagation: vi.fn(),
+        }));
+        await Promise.resolve();
+
+        expect(options.handleFallbackToolbarOpenFile).toHaveBeenCalledOnce();
+        expect(errorSpy).toHaveBeenCalledWith(
+            'tabs-shell',
+            'Renderer document shortcut failed: open-file',
+            expect.any(Error),
+        );
+
+        unmount();
+        errorSpy.mockRestore();
+    });
+
     it('keeps text editing undo and redo in editable controls', async () => {
         const options = createOptions();
         const unmount = await mountBindings(options);

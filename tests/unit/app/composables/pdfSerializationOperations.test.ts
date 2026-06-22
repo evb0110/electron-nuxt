@@ -684,6 +684,8 @@ async function createPdfWithHighlightAnnotations(
     rectsByPage: number[][][],
     options: {
         colorsByPage?: number[][][];
+        malformedColorsByPage?: boolean[][];
+        malformedQuadPointsByPage?: boolean[][];
         opacitiesByPage?: number[][];
         quadPointsByPage?: number[][][];
         withAppearance?: boolean;
@@ -718,7 +720,10 @@ async function createPdfWithHighlightAnnotations(
                     : {}),
             });
             const color = options.colorsByPage?.[pageIndex]?.[rectIndex];
-            if (color) {
+            const malformedColor = options.malformedColorsByPage?.[pageIndex]?.[rectIndex] === true;
+            if (malformedColor) {
+                dict.set(PDFName.of('C'), PDFName.of('Nope'));
+            } else if (color) {
                 dict.set(PDFName.of('C'), doc.context.obj(color.map(value => PDFNumber.of(value))));
             }
             const opacity = options.opacitiesByPage?.[pageIndex]?.[rectIndex];
@@ -726,7 +731,10 @@ async function createPdfWithHighlightAnnotations(
                 dict.set(PDFName.of('CA'), PDFNumber.of(opacity));
             }
             const quadPoints = options.quadPointsByPage?.[pageIndex]?.[rectIndex];
-            if (quadPoints) {
+            const malformedQuadPoints = options.malformedQuadPointsByPage?.[pageIndex]?.[rectIndex] === true;
+            if (malformedQuadPoints) {
+                dict.set(PDFName.of('QuadPoints'), PDFName.of('Nope'));
+            } else if (quadPoints) {
                 dict.set(PDFName.of('QuadPoints'), doc.context.obj(quadPoints.map(value => PDFNumber.of(value))));
             }
             pageRefs.push(doc.context.register(dict));
@@ -1139,6 +1147,45 @@ describe('serializePdfEdits markup subtype rewrites', () => {
 
         expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Underline');
         expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeUndefined();
+    });
+
+    it('rewrites markup subtype when optional color and QuadPoints fields are malformed', async () => {
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[[
+            60,
+            480,
+            180,
+            680,
+        ]]], {
+            malformedColorsByPage: [[true]],
+            malformedQuadPointsByPage: [[true]],
+            withAppearance: true,
+        });
+        const targetRef = refs[0]![0]!;
+
+        const payload = createEmptyPayload();
+        payload.markupSubtypeOverrides = [[
+            `${targetRef.objectNumber}R`,
+                'Underline' satisfies TMarkupSubtype,
+        ]];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, targetRef);
+
+        expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Underline');
+        expect(getNumberArray(dict!, 'QuadPoints')).toEqual([
+            60,
+            680,
+            180,
+            680,
+            60,
+            480,
+            180,
+            480,
+        ]);
     });
 
     it('preserves StrikeOut color, opacity, and QuadPoints while handing reload appearance to PDF.js', async () => {

@@ -23,7 +23,13 @@ async function openDatabase() {
     }
 
     return new Promise<IDBDatabase | null>((resolve) => {
-        const request = indexedDbFactory.open(DB_NAME, DB_VERSION);
+        let request: IDBOpenDBRequest;
+        try {
+            request = indexedDbFactory.open(DB_NAME, DB_VERSION);
+        } catch {
+            resolve(null);
+            return;
+        }
 
         request.onupgradeneeded = () => {
             const database = request.result;

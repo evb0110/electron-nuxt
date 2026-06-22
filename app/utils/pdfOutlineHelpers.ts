@@ -20,6 +20,8 @@ interface IRefProxy {
 }
 
 const OUTLINE_LOG_SECTION = 'pdfOutline';
+const MAX_OUTLINE_DEPTH = 256;
+const MAX_OUTLINE_ITEMS = 10000;
 
 export interface IOutlineItemRaw {
     title: string;
@@ -119,7 +121,6 @@ function normalizeOutlineItem(value: unknown): IOutlineItemRaw | null {
     }
 
     const title = getOptionalString(value, 'title') ?? '';
-    const items = getOptionalArray(value, 'items');
 
     return {
         title,
@@ -127,9 +128,6 @@ function normalizeOutlineItem(value: unknown): IOutlineItemRaw | null {
         bold: value.bold === true ? true : undefined,
         italic: value.italic === true ? true : undefined,
         color: normalizeOutlineColor(value.color),
-        items: items
-            ? parseOutlineItems(items)
-            : undefined,
     };
 }
 
@@ -138,10 +136,71 @@ export function parseOutlineItems(value: unknown): IOutlineItemRaw[] {
         return [];
     }
 
-    return value.flatMap((item) => {
-        const normalized = normalizeOutlineItem(item);
-        return normalized ? [normalized] : [];
-    });
+    const root: IOutlineItemRaw[] = [];
+    const stack: Array<{
+        value: unknown;
+        target: IOutlineItemRaw[];
+        depth: number;
+    }> = [];
+    let acceptedCount = 0;
+    let skippedOverLimit = false;
+
+    for (let index = value.length - 1; index >= 0; index -= 1) {
+        stack.push({
+            value: value[index],
+            target: root,
+            depth: 1,
+        });
+    }
+
+    while (stack.length > 0) {
+        const frame = stack.pop();
+        if (!frame) {
+            break;
+        }
+        if (acceptedCount >= MAX_OUTLINE_ITEMS) {
+            skippedOverLimit = true;
+            continue;
+        }
+
+        const normalized = normalizeOutlineItem(frame.value);
+        if (!normalized) {
+            continue;
+        }
+
+        acceptedCount += 1;
+        frame.target.push(normalized);
+
+        const childValues = isRecord(frame.value)
+            ? getOptionalArray(frame.value, 'items')
+            : null;
+        if (!childValues?.length) {
+            continue;
+        }
+
+        if (frame.depth >= MAX_OUTLINE_DEPTH) {
+            skippedOverLimit = true;
+            continue;
+        }
+
+        normalized.items = [];
+        for (let index = childValues.length - 1; index >= 0; index -= 1) {
+            stack.push({
+                value: childValues[index],
+                target: normalized.items,
+                depth: frame.depth + 1,
+            });
+        }
+    }
+
+    if (skippedOverLimit) {
+        BrowserLogger.warn(OUTLINE_LOG_SECTION, 'Skipped over-limit PDF outline items', {
+            maxDepth: MAX_OUTLINE_DEPTH,
+            maxItems: MAX_OUTLINE_ITEMS,
+        });
+    }
+
+    return root;
 }
 
 export function convertOutlineColorToHex(color: ArrayLike<number> | null | undefined) {
@@ -368,36 +427,83 @@ export async function buildResolvedOutline(
     refIndexCache: Map<string, number | null>,
     createId: () => string,
 ): Promise<IBookmarkItem[]> {
-    return Promise.all(
-        items.map(async (item) => {
-            const pageIndex = await resolvePageIndex(
-                pdfDocument,
-                item.dest,
-                destinationCache,
-                refIndexCache,
-            );
-            const children = item.items?.length
-                ? await buildResolvedOutline(
-                    item.items,
-                    pdfDocument,
-                    destinationCache,
-                    refIndexCache,
-                    createId,
-                )
-                : [];
+    const root: IBookmarkItem[] = [];
+    const stack: Array<{
+        item: IOutlineItemRaw;
+        target: IBookmarkItem[];
+        depth: number;
+    }> = [];
+    let acceptedCount = 0;
+    let skippedOverLimit = false;
 
-            return {
-                title: item.title,
-                dest: item.dest,
-                id: createId(),
-                pageIndex,
-                bold: item.bold === true,
-                italic: item.italic === true,
-                color: convertOutlineColorToHex(item.color),
-                items: children,
-            };
-        }),
-    );
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+        const item = items[index];
+        if (item) {
+            stack.push({
+                item,
+                target: root,
+                depth: 1,
+            });
+        }
+    }
+
+    while (stack.length > 0) {
+        const frame = stack.pop();
+        if (!frame) {
+            break;
+        }
+        if (acceptedCount >= MAX_OUTLINE_ITEMS) {
+            skippedOverLimit = true;
+            continue;
+        }
+
+        acceptedCount += 1;
+        const pageIndex = await resolvePageIndex(
+            pdfDocument,
+            frame.item.dest,
+            destinationCache,
+            refIndexCache,
+        );
+        const children: IBookmarkItem[] = [];
+        frame.target.push({
+            title: frame.item.title,
+            dest: frame.item.dest,
+            id: createId(),
+            pageIndex,
+            bold: frame.item.bold === true,
+            italic: frame.item.italic === true,
+            color: convertOutlineColorToHex(frame.item.color),
+            items: children,
+        });
+
+        if (!frame.item.items?.length) {
+            continue;
+        }
+        if (frame.depth >= MAX_OUTLINE_DEPTH) {
+            skippedOverLimit = true;
+            continue;
+        }
+
+        for (let index = frame.item.items.length - 1; index >= 0; index -= 1) {
+            const item = frame.item.items[index];
+            if (item) {
+                stack.push({
+                    item,
+                    target: children,
+                    depth: frame.depth + 1,
+                });
+            }
+        }
+    }
+
+    if (skippedOverLimit) {
+        BrowserLogger.warn(OUTLINE_LOG_SECTION, 'Skipped over-limit resolved PDF outline items', {
+            maxDepth: MAX_OUTLINE_DEPTH,
+            maxItems: MAX_OUTLINE_ITEMS,
+        });
+    }
+
+    return root;
 }
 
 export async function resolveBookmarkDestinationPage(

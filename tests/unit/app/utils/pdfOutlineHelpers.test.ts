@@ -10,8 +10,10 @@ import type {
 } from 'pdfjs-dist';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
 import {
+    buildResolvedOutline,
     convertOutlineColorToHex,
     normalizeBookmarkColor,
+    parseOutlineItems,
     resolveActiveBookmarkForPage,
     resolveBookmarkDestinationPage,
     resolveBookmarkDestinationTarget,
@@ -62,6 +64,32 @@ function createBookmark(id: string, pageIndex: number | null): IBookmarkItem {
     };
 }
 
+function createDeepRawOutline(depth: number) {
+    const root: {
+        title: string;
+        items?: unknown[];
+    } = { title: 'root' };
+    let cursor = root;
+    for (let index = 1; index < depth; index += 1) {
+        const child = { title: `child-${index}` };
+        cursor.items = [child];
+        cursor = child;
+    }
+    return root;
+}
+
+function countOutlineDepth(items: Array<{ items?: readonly unknown[] | undefined }>) {
+    let depth = 0;
+    let current = items[0] ?? null;
+    while (current) {
+        depth += 1;
+        current = Array.isArray(current.items)
+            ? current.items[0] as { items?: unknown[] } | undefined ?? null
+            : null;
+    }
+    return depth;
+}
+
 describe('pdfOutlineHelpers', () => {
     it('converts outline color arrays to hex', () => {
         expect(convertOutlineColorToHex([
@@ -80,6 +108,35 @@ describe('pdfOutlineHelpers', () => {
         expect(normalizeBookmarkColor('#abc')).toBe('#aabbcc');
         expect(normalizeBookmarkColor('  #A1b2C3  ')).toBe('#a1b2c3');
         expect(normalizeBookmarkColor('blue')).toBeNull();
+    });
+
+    it('parses deeply nested outlines with bounded depth while preserving siblings', () => {
+        const items = parseOutlineItems([
+            createDeepRawOutline(320),
+            { title: 'sibling' },
+        ]);
+
+        expect(items.map(item => item.title)).toEqual([
+            'root',
+            'sibling',
+        ]);
+        expect(countOutlineDepth(items)).toBeLessThanOrEqual(256);
+    });
+
+    it('resolves deeply nested outlines without recursive stack growth', async () => {
+        const pdfDoc = createPdfDocumentStub();
+        const rawItems = parseOutlineItems([createDeepRawOutline(320)]);
+
+        const resolved = await buildResolvedOutline(
+            rawItems,
+            pdfDoc,
+            new Map(),
+            new Map(),
+            () => 'bookmark-id',
+        );
+
+        expect(resolved[0]?.title).toBe('root');
+        expect(countOutlineDepth(resolved)).toBeLessThanOrEqual(256);
     });
 
     it('resolves named destination and caches destination + ref index', async () => {

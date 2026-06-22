@@ -9,6 +9,7 @@ import {
     PDFName,
     PDFNumber,
 } from 'pdf-lib';
+import { safePdfDictLookupArray } from '@pdf-core/safePdfLookup';
 
 export interface IPdfPageBox extends IPdfBox {}
 
@@ -129,7 +130,7 @@ export function numberFromPdfBox(box: PDFArray, index: number) {
 }
 
 export function readPdfRectFromDict(dict: PDFDict): TPdfRect | null {
-    const rect = dict.lookupMaybe(PDFName.of(RECT_NAME), PDFArray);
+    const rect = safePdfDictLookupArray(dict, PDFName.of(RECT_NAME));
     if (!(rect instanceof PDFArray) || rect.size() < 4) {
         return null;
     }

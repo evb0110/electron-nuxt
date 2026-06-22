@@ -22,6 +22,7 @@ import {
     parseBrowserSettingsPayload,
     serializeBrowserSettingsPayload,
 } from '@app/utils/browserSettingsPersistence';
+import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import { SETTINGS_STORAGE_KEY } from '@app/platform/browser-api/browserApiStorageKeys';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 
@@ -49,14 +50,14 @@ function readBrowserSettingsFromCookie() {
 
     const fallbackSettings: Partial<ISettingsData> = {};
     if (localeCookie) {
-        fallbackSettings.locale = normalizeLocale(decodeURIComponent(localeCookie));
+        fallbackSettings.locale = normalizeLocale(safeDecodeURIComponent(localeCookie));
     }
     if (themeCookie) {
-        fallbackSettings.theme = normalizeTheme(decodeURIComponent(themeCookie));
+        fallbackSettings.theme = normalizeTheme(safeDecodeURIComponent(themeCookie));
     }
 
     return parseBrowserSettingsPayload(
-        rawSettingsCookie ? decodeURIComponent(rawSettingsCookie) : null,
+        rawSettingsCookie ? safeDecodeURIComponent(rawSettingsCookie) : null,
         fallbackSettings,
     );
 }

@@ -22,6 +22,7 @@ import {
     bucketQueryLength,
 } from '@app/utils/analytics';
 import { getSearchCapability } from '@app/utils/getSearchCapability';
+import { createBrowserSafeId } from '@app/utils/browserSafe';
 
 export type {
     IPdfPageMatches,
@@ -374,7 +375,7 @@ export const usePdfSearch = () => {
             return;
         }
 
-        const requestId = `search-${crypto.randomUUID()}`;
+        const requestId = createBrowserSafeId('search');
 
         try {
             isSearching.value = true;

@@ -37,6 +37,7 @@ import {
     getNestedTranslationLeaf,
     normalizeTranslationParams,
 } from '@i18n-core';
+import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 
 interface ICreateBrowserDocumentsCapabilityOptions {clearSearchCaches: (pdfPath?: string) => void;}
 
@@ -51,7 +52,7 @@ function getBrowserLocale(): TLocale {
         ? document.cookie.match(/(?:^|;\s*)i18n_redirected=([^;]+)/u)
         : null;
     const cookieLocale = cookieMatch?.[1]
-        ? decodeURIComponent(cookieMatch[1])
+        ? safeDecodeURIComponent(cookieMatch[1])
         : null;
 
     if (cookieLocale && cookieLocale in LOCALE_MESSAGES) {

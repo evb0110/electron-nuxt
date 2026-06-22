@@ -19,14 +19,60 @@ interface ICreatePdfReloadWaiterOptions {
     restoreScroll?: boolean;
 }
 
+function logReloadWaiterRecovery(step: string, error: unknown) {
+    BrowserLogger.warn('loader', `Recovered from PDF reload waiter ${step} failure`, { error });
+}
+
+function captureReloadScrollSnapshot(options: ICreatePdfReloadWaiterOptions, shouldRestoreScroll: boolean, captureScrollSnapshot: boolean) {
+    if (!shouldRestoreScroll || !captureScrollSnapshot) {
+        return null;
+    }
+
+    try {
+        return options.scrollSnapshot ?? options.pdfViewerRef.value?.captureScrollSnapshot?.() ?? null;
+    } catch (error) {
+        logReloadWaiterRecovery('scroll snapshot capture', error);
+        return null;
+    }
+}
+
+function restoreReloadScroll(
+    viewer: IPdfReloadWaiterViewer | null,
+    scrollSnapshot: IScrollSnapshot | null,
+    pageToRestore: number,
+    captureScrollSnapshot: boolean,
+) {
+    if (!captureScrollSnapshot) {
+        try {
+            viewer?.scrollToPage(pageToRestore);
+        } catch (error) {
+            logReloadWaiterRecovery('page restore', error);
+        }
+        return;
+    }
+
+    if (viewer?.restoreScrollSnapshot) {
+        try {
+            viewer.restoreScrollSnapshot(scrollSnapshot, { fallbackPage: pageToRestore });
+            return;
+        } catch (error) {
+            logReloadWaiterRecovery('scroll snapshot restore', error);
+        }
+    }
+
+    try {
+        viewer?.scrollToPage(pageToRestore);
+    } catch (error) {
+        logReloadWaiterRecovery('fallback page restore', error);
+    }
+}
+
 export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
     const initialDoc = options.pdfDocument.value;
     const isCancelled = ref(false);
     const shouldRestoreScroll = options.restoreScroll !== false;
     const captureScrollSnapshot = options.captureScrollSnapshot !== false;
-    const scrollSnapshot = shouldRestoreScroll && captureScrollSnapshot
-        ? options.scrollSnapshot ?? options.pdfViewerRef.value?.captureScrollSnapshot?.() ?? null
-        : null;
+    const scrollSnapshot = captureReloadScrollSnapshot(options, shouldRestoreScroll, captureScrollSnapshot);
 
     const promise = until(() => ({
         doc: options.pdfDocument.value,
@@ -69,23 +115,23 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
             if (options.pdfDocument.value !== matchedDoc) {
                 return;
             }
-            options.resetSearchCache();
-            await nextTick();
+            try {
+                options.resetSearchCache();
+            } catch (error) {
+                logReloadWaiterRecovery('search cache reset', error);
+            }
+            try {
+                await nextTick();
+            } catch (error) {
+                logReloadWaiterRecovery('post-reload tick', error);
+            }
             if (isCancelled.value || options.pdfDocument.value !== matchedDoc) {
                 return;
             }
             if (!shouldRestoreScroll) {
                 return;
             }
-            if (!captureScrollSnapshot) {
-                viewer?.scrollToPage(options.pageToRestore);
-                return;
-            }
-            if (viewer?.restoreScrollSnapshot) {
-                viewer.restoreScrollSnapshot(scrollSnapshot, { fallbackPage: options.pageToRestore });
-                return;
-            }
-            viewer?.scrollToPage(options.pageToRestore);
+            restoreReloadScroll(viewer ?? null, scrollSnapshot, options.pageToRestore, captureScrollSnapshot);
         });
 
     return {
