@@ -24,6 +24,7 @@ import {
 import { createStartupTrace } from '@electron/bootstrap/createStartupTrace';
 import { config } from '@electron/config';
 import { registerIpcHandlers } from '@electron/platform-ipc/registerIpcHandlers';
+import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
 import {
     clearAllWorkingCopies,
     cleanupStaleWorkingCopyDirectories,
@@ -56,6 +57,7 @@ import {
 } from '@electron/window/registry';
 import { markWindowRendererReady } from '@electron/window/rendererReady';
 import {
+    markWindowTabTransferNotReady,
     markWindowTabTransferReady,
     markWindowTabTransferWindowClosed,
 } from '@electron/windowTabTransfer';
@@ -285,7 +287,7 @@ shutdownCoordinator = createShutdownCoordinator({
 
 function broadcastUpdateStatus(status: IAppUpdateStatus) {
     for (const window of getAllRegisteredAppWindows()) {
-        sendToWindow(window, 'updates:status', status);
+        sendToWindow(window, CORE_IPC_EVENT_CHANNELS.updatesStatus, status);
     }
 }
 
@@ -313,6 +315,7 @@ void runInitSequence({
     logger,
     logStartupPhase: startupTrace.log,
     markWindowRendererReady,
+    markWindowTabTransferNotReady,
     markWindowTabTransferReady,
     markWindowTabTransferWindowClosed,
     maybePromptForDefaultViewer,

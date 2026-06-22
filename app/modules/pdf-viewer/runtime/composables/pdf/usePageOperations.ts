@@ -37,6 +37,48 @@ type TPageOperationErrorKey = Extract<
     | 'errors.pageOps.removeCrop'
 >;
 
+type TPageOperationStalePhase =
+    | 'before-run'
+    | 'history-baseline'
+    | 'after-run'
+    | 'reload'
+    | 'after-success';
+
+type TPageOperationBlockedReason =
+    | 'missing-working-copy'
+    | 'operation-in-progress'
+    | 'empty-selection'
+    | 'delete-all'
+    | 'preflight'
+    | 'history-baseline';
+
+type TPageOperationOutcome<TResult extends IPageOpsResult = IPageOpsResult> =
+    | {
+        status: 'succeeded';
+        result: TResult;
+    }
+    | {
+        status: 'blocked';
+        reason: TPageOperationBlockedReason;
+    }
+    | {
+        status: 'canceled';
+        result?: TResult;
+    }
+    | {
+        status: 'stale';
+        phase: TPageOperationStalePhase;
+    }
+    | {
+        status: 'failed';
+        error: string;
+        result?: TResult;
+    };
+
+function didPageOperationSucceed(outcome: TPageOperationOutcome) {
+    return outcome.status === 'succeeded';
+}
+
 export const usePageOperations = (deps: {
     workingCopyPath: Ref<TDocumentRef | null>;
     ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
@@ -67,13 +109,30 @@ export const usePageOperations = (deps: {
     const isOperationInProgress = ref(false);
     const error = ref<string | null>(null);
     const batchProgress = ref<IPageOperationBatchProgress | null>(null);
+    const lastOutcome = ref<TPageOperationOutcome | null>(null);
+
+    function recordOutcome<TResult extends IPageOpsResult>(
+        outcome: TPageOperationOutcome<TResult>,
+    ) {
+        lastOutcome.value = outcome;
+        return outcome;
+    }
+
+    function getLocalizedError(errorKey: TPageOperationErrorKey) {
+        return t(errorKey, undefined);
+    }
+
+    function isCanceledResult(result: IPageOpsResult) {
+        return 'canceled' in result
+            && result.canceled === true;
+    }
 
     function invalidateCaches(path: TDocumentRef) {
         clearOcrCache(path);
         resetSearchCache();
     }
 
-    async function runOperation<TResult extends IPageOpsResult>(options: {
+    async function runOperationDetailed<TResult extends IPageOpsResult>(options: {
         operationName: string;
         errorKey: TPageOperationErrorKey;
         run: TPageOperationRunner<TResult>;
@@ -84,11 +143,17 @@ export const usePageOperations = (deps: {
     }) {
         const path = workingCopyPath.value;
         if (!path) {
-            return false;
+            return recordOutcome<TResult>({
+                status: 'blocked',
+                reason: 'missing-working-copy',
+            });
         }
         if (isOperationInProgress.value) {
             BrowserLogger.warn('page-ops', `Skipped overlapping ${options.operationName} request`, { operationName: options.operationName });
-            return false;
+            return recordOutcome<TResult>({
+                status: 'blocked',
+                reason: 'operation-in-progress',
+            });
         }
 
         isOperationInProgress.value = true;
@@ -97,81 +162,131 @@ export const usePageOperations = (deps: {
         try {
             if (options.beforeRun) {
                 const canRun = await options.beforeRun();
-                if (!canRun || workingCopyPath.value !== path) {
-                    return false;
+                if (!canRun) {
+                    return recordOutcome<TResult>({
+                        status: 'blocked',
+                        reason: 'preflight',
+                    });
+                }
+                if (workingCopyPath.value !== path) {
+                    return recordOutcome<TResult>({
+                        status: 'stale',
+                        phase: 'before-run',
+                    });
                 }
             }
 
             return await runWithDocumentOperationLease('page-operation', async () => {
                 if (workingCopyPath.value !== path) {
-                    return false;
+                    return recordOutcome<TResult>({
+                        status: 'stale',
+                        phase: 'before-run',
+                    });
                 }
                 if (options.shouldReload) {
                     const didPrimeHistory = await ensureHistoryBaselineForExternalMutation();
                     if (!didPrimeHistory) {
-                        return false;
+                        return recordOutcome<TResult>({
+                            status: 'blocked',
+                            reason: 'history-baseline',
+                        });
                     }
                     if (workingCopyPath.value !== path) {
-                        return false;
+                        return recordOutcome<TResult>({
+                            status: 'stale',
+                            phase: 'history-baseline',
+                        });
                     }
                 }
 
                 const result = await options.run(path);
                 const isSuccessful = options.isSuccessful ?? ((apiResult) => apiResult.success);
                 if (!isSuccessful(result)) {
-                    return false;
+                    if (isCanceledResult(result)) {
+                        return recordOutcome({
+                            status: 'canceled',
+                            result,
+                        });
+                    }
+                    return recordOutcome({
+                        status: 'failed',
+                        error: getLocalizedError(options.errorKey),
+                        result,
+                    });
                 }
 
                 if (workingCopyPath.value !== path) {
-                    return false;
+                    return recordOutcome<TResult>({
+                        status: 'stale',
+                        phase: 'after-run',
+                    });
                 }
 
                 if (options.shouldReload) {
                     invalidateCaches(path);
                     const didReload = await reloadWorkingCopyIntoHistory({ markDirty: true });
                     if (!didReload || workingCopyPath.value !== path) {
-                        return false;
+                        return recordOutcome<TResult>({
+                            status: 'stale',
+                            phase: 'reload',
+                        });
                     }
                 }
 
                 if (workingCopyPath.value !== path) {
-                    return false;
+                    return recordOutcome<TResult>({
+                        status: 'stale',
+                        phase: 'after-success',
+                    });
                 }
                 await options.onSuccess?.(result);
 
-                return true;
+                return recordOutcome({
+                    status: 'succeeded',
+                    result,
+                });
             });
         } catch (e) {
             BrowserLogger.error('page-ops', `${options.operationName} failed`, e);
             reportRuntimeError({
-                title: t(options.errorKey, undefined),
+                title: getLocalizedError(options.errorKey),
                 source: `page-ops:${options.operationName}`,
                 error: e,
             });
-            error.value = e instanceof Error ? e.message : t(options.errorKey, undefined);
-            return false;
+            const errorMessage = e instanceof Error ? e.message : getLocalizedError(options.errorKey);
+            error.value = errorMessage;
+            return recordOutcome<TResult>({
+                status: 'failed',
+                error: errorMessage,
+            });
         } finally {
             isOperationInProgress.value = false;
         }
     }
 
-    async function deletePages(pages: number[], totalPages: number) {
+    async function deletePagesDetailed(pages: number[], totalPages: number) {
         if (pages.length === 0) {
-            return false;
+            return recordOutcome({
+                status: 'blocked',
+                reason: 'empty-selection',
+            });
         }
         if (pages.length >= totalPages) {
             error.value = t('errors.pageOps.deleteAll');
-            return false;
+            return recordOutcome({
+                status: 'blocked',
+                reason: 'delete-all',
+            });
         }
 
         const startedAt = Date.now();
-        const didSucceed = await runOperation({
+        const outcome = await runOperationDetailed({
             operationName: 'deletePages',
             errorKey: 'errors.pageOps.delete',
             shouldReload: true,
             run: (path) => getPageOpsCapability().delete(path, [...pages], totalPages),
         });
-        if (didSucceed) {
+        if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
                 affectedPageCount: pages.length,
                 durationMs: Math.max(0, Date.now() - startedAt),
@@ -179,16 +294,23 @@ export const usePageOperations = (deps: {
                 totalPagesBefore: totalPages,
             });
         }
-        return didSucceed;
+        return outcome;
     }
 
-    async function extractPages(pages: number[]) {
+    async function deletePages(pages: number[], totalPages: number) {
+        return didPageOperationSucceed(await deletePagesDetailed(pages, totalPages));
+    }
+
+    async function extractPagesDetailed(pages: number[]) {
         if (pages.length === 0) {
-            return false;
+            return recordOutcome({
+                status: 'blocked',
+                reason: 'empty-selection',
+            });
         }
 
         const startedAt = Date.now();
-        const didSucceed = await runOperation({
+        const outcome = await runOperationDetailed({
             operationName: 'extractPages',
             errorKey: 'errors.pageOps.extract',
             run: (path) => getPageOpsCapability().extract(path, [...pages]),
@@ -200,29 +322,36 @@ export const usePageOperations = (deps: {
                 }
             },
         });
-        if (didSucceed) {
+        if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
                 affectedPageCount: pages.length,
                 durationMs: Math.max(0, Date.now() - startedAt),
                 operation: 'extract',
             });
         }
-        return didSucceed;
+        return outcome;
     }
 
-    async function rotatePages(pages: number[], totalPages: number, angle: TPageOpsRotation) {
+    async function extractPages(pages: number[]) {
+        return didPageOperationSucceed(await extractPagesDetailed(pages));
+    }
+
+    async function rotatePagesDetailed(pages: number[], totalPages: number, angle: TPageOpsRotation) {
         if (pages.length === 0) {
-            return false;
+            return recordOutcome({
+                status: 'blocked',
+                reason: 'empty-selection',
+            });
         }
 
         const startedAt = Date.now();
-        const didSucceed = await runOperation({
+        const outcome = await runOperationDetailed({
             operationName: 'rotatePages',
             errorKey: 'errors.pageOps.rotate',
             shouldReload: true,
             run: (path) => getPageOpsCapability().rotate(path, [...pages], totalPages, angle),
         });
-        if (didSucceed) {
+        if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
                 affectedPageCount: pages.length,
                 angle,
@@ -230,35 +359,46 @@ export const usePageOperations = (deps: {
                 operation: 'rotate',
             });
         }
-        return didSucceed;
+        return outcome;
     }
 
-    async function insertPages(totalPages: number, afterPage: number) {
+    async function rotatePages(pages: number[], totalPages: number, angle: TPageOpsRotation) {
+        return didPageOperationSucceed(await rotatePagesDetailed(pages, totalPages, angle));
+    }
+
+    async function insertPagesDetailed(totalPages: number, afterPage: number) {
         const startedAt = Date.now();
-        const didSucceed = await runOperation({
+        const outcome = await runOperationDetailed({
             operationName: 'insertPages',
             errorKey: 'errors.pageOps.insert',
             shouldReload: true,
             run: (path) => getPageOpsCapability().insert(path, totalPages, afterPage),
         });
-        if (didSucceed) {
+        if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
                 afterPage,
                 durationMs: Math.max(0, Date.now() - startedAt),
                 operation: 'insert_blank',
             });
         }
-        return didSucceed;
+        return outcome;
     }
 
-    async function insertFile(totalPages: number, afterPage: number, sourcePaths: TDocumentRef[]) {
+    async function insertPages(totalPages: number, afterPage: number) {
+        return didPageOperationSucceed(await insertPagesDetailed(totalPages, afterPage));
+    }
+
+    async function insertFileDetailed(totalPages: number, afterPage: number, sourcePaths: TDocumentRef[]) {
         const startedAt = Date.now();
         const requestId = sourcePaths.length > 1
             ? `browser-page-op-insert-${crypto.randomUUID()}`
             : undefined;
         const stopProgress = requestId
             ? getDocumentsCapability().onOpenDocumentDirectBatchProgress((progress) => {
-                if (progress.requestId !== requestId) {
+                if (
+                    progress.operation !== 'page-insert'
+                    || progress.requestId !== requestId
+                ) {
                     return;
                 }
 
@@ -286,7 +426,7 @@ export const usePageOperations = (deps: {
         }
 
         try {
-            const didSucceed = await runOperation({
+            const outcome = await runOperationDetailed({
                 operationName: 'insertFile',
                 errorKey: 'errors.pageOps.insertFile',
                 shouldReload: true,
@@ -298,7 +438,7 @@ export const usePageOperations = (deps: {
                     requestId,
                 ),
             });
-            if (didSucceed) {
+            if (didPageOperationSucceed(outcome)) {
                 analytics.track('page_operation_completed', {
                     afterPage,
                     durationMs: Math.max(0, Date.now() - startedAt),
@@ -306,88 +446,122 @@ export const usePageOperations = (deps: {
                     sourceFileCount: sourcePaths.length,
                 });
             }
-            return didSucceed;
+            return outcome;
         } finally {
             stopProgress?.();
             batchProgress.value = null;
         }
     }
 
-    async function reorderPages(newOrder: number[]) {
+    async function insertFile(totalPages: number, afterPage: number, sourcePaths: TDocumentRef[]) {
+        return didPageOperationSucceed(await insertFileDetailed(totalPages, afterPage, sourcePaths));
+    }
+
+    async function reorderPagesDetailed(newOrder: number[]) {
         if (newOrder.length === 0) {
-            return false;
+            return recordOutcome({
+                status: 'blocked',
+                reason: 'empty-selection',
+            });
         }
 
         const startedAt = Date.now();
-        const didSucceed = await runOperation({
+        const outcome = await runOperationDetailed({
             operationName: 'reorderPages',
             errorKey: 'errors.pageOps.reorder',
             shouldReload: true,
             run: (path) => getPageOpsCapability().reorder(path, [...newOrder]),
         });
-        if (didSucceed) {
+        if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
                 affectedPageCount: newOrder.length,
                 durationMs: Math.max(0, Date.now() - startedAt),
                 operation: 'reorder',
             });
         }
-        return didSucceed;
+        return outcome;
     }
 
-    async function cropPages(pages: number[], totalPages: number, margins: ICropMargins) {
+    async function reorderPages(newOrder: number[]) {
+        return didPageOperationSucceed(await reorderPagesDetailed(newOrder));
+    }
+
+    async function cropPagesDetailed(pages: number[], totalPages: number, margins: ICropMargins) {
         if (pages.length === 0) {
-            return false;
+            return recordOutcome({
+                status: 'blocked',
+                reason: 'empty-selection',
+            });
         }
         const startedAt = Date.now();
-        const didSucceed = await runOperation({
+        const outcome = await runOperationDetailed({
             operationName: 'cropPages',
             errorKey: 'errors.pageOps.crop',
             shouldReload: true,
             run: (path) => getPageOpsCapability().crop(path, [...pages], totalPages, margins),
         });
-        if (didSucceed) {
+        if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
                 affectedPageCount: pages.length,
                 durationMs: Math.max(0, Date.now() - startedAt),
                 operation: 'crop',
             });
         }
-        return didSucceed;
+        return outcome;
     }
 
-    async function removeCrop(pages: number[], totalPages: number) {
+    async function cropPages(pages: number[], totalPages: number, margins: ICropMargins) {
+        return didPageOperationSucceed(await cropPagesDetailed(pages, totalPages, margins));
+    }
+
+    async function removeCropDetailed(pages: number[], totalPages: number) {
         if (pages.length === 0) {
-            return false;
+            return recordOutcome({
+                status: 'blocked',
+                reason: 'empty-selection',
+            });
         }
         const startedAt = Date.now();
-        const didSucceed = await runOperation({
+        const outcome = await runOperationDetailed({
             operationName: 'removeCrop',
             errorKey: 'errors.pageOps.removeCrop',
             shouldReload: true,
             run: (path) => getPageOpsCapability().removeCrop(path, [...pages], totalPages),
         });
-        if (didSucceed) {
+        if (didPageOperationSucceed(outcome)) {
             analytics.track('page_operation_completed', {
                 affectedPageCount: pages.length,
                 durationMs: Math.max(0, Date.now() - startedAt),
                 operation: 'remove_crop',
             });
         }
-        return didSucceed;
+        return outcome;
+    }
+
+    async function removeCrop(pages: number[], totalPages: number) {
+        return didPageOperationSucceed(await removeCropDetailed(pages, totalPages));
     }
 
     return {
         isOperationInProgress,
         error,
         batchProgress,
+        lastOutcome,
+        deletePagesDetailed,
         deletePages,
+        extractPagesDetailed,
         extractPages,
+        rotatePagesDetailed,
         rotatePages,
+        insertPagesDetailed,
         insertPages,
+        insertFileDetailed,
         insertFile,
+        reorderPagesDetailed,
         reorderPages,
+        cropPagesDetailed,
         cropPages,
+        removeCropDetailed,
         removeCrop,
     };
 };

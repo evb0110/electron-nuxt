@@ -1,9 +1,13 @@
 import type {IpcRenderer} from 'electron';
 import type {
     IOcrCapability,
+    IOcrCompleteResult,
+    IOcrErrorEnvelope,
     IOcrProgress,
+    TOcrErrorCode,
 } from '@contracts/electronApiOcr';
 import type { TDocumentRef } from '@contracts/documentRef';
+import { isRecord } from '@contracts/runtimeGuards';
 import {
     assertAbsolutePath,
     assertNonEmptyString,
@@ -21,9 +25,116 @@ import {
 } from '@electron/preload/ipcClient';
 
 const OCR_LANGUAGE_INSTALL_UNAVAILABLE = 'OCR language installation is not available from the renderer; validateTools only reports installed languages.';
+const OCR_ERROR_CODES = new Set<TOcrErrorCode>([
+    'OCR_INVALID_PAYLOAD',
+    'OCR_INTERNAL_ERROR',
+    'OCR_QUEUE_BACKPRESSURE',
+    'OCR_WORKER_UNAVAILABLE',
+    'OCR_TOOLS_VALIDATION_FAILED',
+]);
 
 function assertRequestId(value: unknown, fieldName: string) {
     return assertNonEmptyString(value, fieldName, 128);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
+}
+
+function decodeOcrProgress(payload: unknown): IOcrProgress | null {
+    if (
+        !isRecord(payload)
+        || typeof payload.requestId !== 'string'
+        || !isFiniteNumber(payload.currentPage)
+        || !isFiniteNumber(payload.processedCount)
+        || !isFiniteNumber(payload.totalPages)
+    ) {
+        return null;
+    }
+    if (payload.phase !== undefined && typeof payload.phase !== 'string') {
+        return null;
+    }
+    if (payload.phaseProgress !== undefined && !isFiniteNumber(payload.phaseProgress)) {
+        return null;
+    }
+    if (payload.activePages !== undefined && (
+        !Array.isArray(payload.activePages)
+        || payload.activePages.some(page => !isFiniteNumber(page))
+    )) {
+        return null;
+    }
+    if (payload.languageCode !== undefined && typeof payload.languageCode !== 'string') {
+        return null;
+    }
+
+    return {
+        requestId: payload.requestId,
+        currentPage: payload.currentPage,
+        processedCount: payload.processedCount,
+        totalPages: payload.totalPages,
+        ...(payload.phase === undefined ? {} : {phase: payload.phase as NonNullable<IOcrProgress['phase']>}),
+        ...(payload.phaseProgress === undefined ? {} : {phaseProgress: payload.phaseProgress}),
+        ...(payload.activePages === undefined ? {} : {activePages: payload.activePages as number[]}),
+        ...(payload.languageCode === undefined ? {} : {languageCode: payload.languageCode}),
+    };
+}
+
+function decodeOcrErrorEnvelope(payload: unknown): IOcrErrorEnvelope | null {
+    if (
+        !isRecord(payload)
+        || typeof payload.code !== 'string'
+        || !OCR_ERROR_CODES.has(payload.code as TOcrErrorCode)
+        || typeof payload.message !== 'string'
+        || typeof payload.retryable !== 'boolean'
+        || !isFiniteNumber(payload.timestamp)
+    ) {
+        return null;
+    }
+    if (payload.details !== undefined && typeof payload.details !== 'string') {
+        return null;
+    }
+
+    return {
+        code: payload.code as TOcrErrorCode,
+        message: payload.message,
+        retryable: payload.retryable,
+        timestamp: payload.timestamp,
+        ...(payload.details === undefined ? {} : {details: payload.details}),
+    };
+}
+
+function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
+    if (
+        !isRecord(payload)
+        || typeof payload.requestId !== 'string'
+        || typeof payload.success !== 'boolean'
+        || !Array.isArray(payload.errors)
+        || payload.errors.some(error => typeof error !== 'string')
+    ) {
+        return null;
+    }
+    if (payload.pdfPath !== undefined && typeof payload.pdfPath !== 'string') {
+        return null;
+    }
+    if (payload.requiresCleanupAck !== undefined && typeof payload.requiresCleanupAck !== 'boolean') {
+        return null;
+    }
+    const errorEnvelope = payload.errorEnvelope === undefined
+        ? null
+        : decodeOcrErrorEnvelope(payload.errorEnvelope);
+    if (payload.errorEnvelope !== undefined && errorEnvelope === null) {
+        return null;
+    }
+    const errors = payload.errors.map(error => error as string);
+
+    return {
+        requestId: payload.requestId,
+        success: payload.success,
+        errors,
+        ...(payload.pdfPath === undefined ? {} : {pdfPath: payload.pdfPath}),
+        ...(payload.requiresCleanupAck === undefined ? {} : {requiresCleanupAck: payload.requiresCleanupAck}),
+        ...(errorEnvelope === null ? {} : {errorEnvelope}),
+    };
 }
 
 export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability {
@@ -89,15 +200,10 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
         ),
 
         onProgress: (callback: (progress: IOcrProgress) => void): (() => void) =>
-            eventSubscriber.onPayload(OCR_EVENT_CHANNELS.progress, callback),
+            eventSubscriber.onDecodedPayload(OCR_EVENT_CHANNELS.progress, decodeOcrProgress, callback),
 
-        onComplete: (callback: (result: {
-            requestId: string;
-            success: boolean;
-            pdfPath?: TDocumentRef;
-            requiresCleanupAck?: boolean;
-            errors: string[];
-        }) => void): (() => void) => eventSubscriber.onPayload(OCR_EVENT_CHANNELS.complete, callback),
+        onComplete: (callback: (result: IOcrCompleteResult) => void): (() => void) =>
+            eventSubscriber.onDecodedPayload(OCR_EVENT_CHANNELS.complete, decodeOcrCompleteResult, callback),
 
         preprocessing: {
             validate: () => invoke(OCR_CHANNELS.preprocessingValidate),

@@ -45,14 +45,10 @@ function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
 
     const paths: TDocumentRef[] = [];
     const seen = new Set<TDocumentRef>();
+    const droppedFiles = Array.from(dataTransfer.files);
+    const droppedPaths = getDocumentsCapability().getPathsForFiles(droppedFiles);
 
-    for (let i = 0; i < dataTransfer.files.length; i++) {
-        const file = dataTransfer.files[i];
-        if (!file) {
-            continue;
-        }
-
-        const path = getDocumentsCapability().getPathForFile(file);
+    for (const path of droppedPaths) {
         if (!path || seen.has(path)) {
             continue;
         }

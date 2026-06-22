@@ -29,6 +29,7 @@ interface IPdfSearchTestProgress {
     requestId: string;
     results?: IPdfSearchBackendMatch[];
     total: number;
+    canceled?: boolean;
     truncated?: boolean;
 }
 
@@ -37,6 +38,7 @@ interface IPdfSearchRunOptions { requestId: string }
 interface IPdfSearchRunResult {
     results: unknown[];
     truncated: boolean;
+    canceled?: boolean;
 }
 
 interface IPdfSearchTestResult {
@@ -64,6 +66,7 @@ interface IPdfSearchTestApi {
     currentResultNavigationId: Ref<number>;
     getMatchesForPage: (pageIndex: number) => IPdfSearchPageMatches | null;
     goToResult: (direction: 'next' | 'previous' | 1 | -1) => void;
+    hasPartialResults: Ref<boolean>;
     isSearching: Ref<boolean>;
     isTruncated: Ref<boolean>;
     resetSearchCache: (pdfPath?: string) => void;
@@ -75,6 +78,7 @@ interface IPdfSearchTestApi {
     submittedSearchQuery: Ref<string>;
     setResultIndex: (index: number) => void;
     totalMatches: Ref<number>;
+    wasSearchCanceled: Ref<boolean>;
 }
 
 const mockSearch = {
@@ -279,7 +283,8 @@ describe('usePdfSearch', () => {
         const promise = search.search('араб', '/tmp/work.pdf', 928);
         await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
 
-        expect(search.isSearching.value).toBe(false);
+        expect(search.isSearching.value).toBe(true);
+        expect(search.hasPartialResults.value).toBe(true);
         expect(search.totalMatches.value).toBe(1);
         expect(search.currentResult.value).toEqual(expect.objectContaining({
             pageIndex: 2,
@@ -293,6 +298,26 @@ describe('usePdfSearch', () => {
             truncated: false,
         });
         await promise;
+        expect(search.isSearching.value).toBe(false);
+        expect(search.hasPartialResults.value).toBe(false);
+    });
+
+    it('preserves explicit backend cancellation state', async () => {
+        mockSearch.run.mockResolvedValueOnce({
+            results: [],
+            truncated: false,
+            canceled: true,
+        });
+        const search = await createPdfSearch();
+
+        const searchPromise = search.search('alpha', '/tmp/work.pdf');
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await expect(searchPromise).resolves.toBe(true);
+
+        expect(search.wasSearchCanceled.value).toBe(true);
+        expect(search.results.value).toEqual([]);
+        expect(search.isTruncated.value).toBe(false);
+        expect(search.isSearching.value).toBe(false);
     });
 
     it('keeps match navigation stable while streamed result batches grow', async () => {

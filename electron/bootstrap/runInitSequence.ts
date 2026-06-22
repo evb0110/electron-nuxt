@@ -78,6 +78,7 @@ export interface IRunInitSequenceOptions {
     logger: ILogger;
     logStartupPhase(message: string): void;
     markWindowRendererReady(windowId: number): void;
+    markWindowTabTransferNotReady(windowId: number): void;
     markWindowTabTransferReady(windowId: number): void;
     markWindowTabTransferWindowClosed(windowId: number): void;
     maybePromptForDefaultViewer(): void;
@@ -277,6 +278,7 @@ function bootWindowLifecycle(options: IRunInitSequenceOptions) {
         focusMainWindow,
         hasWindows,
         logger,
+        markWindowTabTransferNotReady,
         markWindowTabTransferWindowClosed,
         readyWindowIds,
         shouldResetRendererReadyOnNavigation,
@@ -288,6 +290,7 @@ function bootWindowLifecycle(options: IRunInitSequenceOptions) {
 
         const markNotReady = () => {
             readyWindowIds.delete(window.id);
+            markWindowTabTransferNotReady(window.id);
         };
 
         window.webContents.on('did-start-navigation', (_navEvent, _url, isInPlace, isMainFrame) => {

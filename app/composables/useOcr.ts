@@ -5,6 +5,8 @@ import type { IOcrLanguage } from '@contracts/shared';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IOcrCapability,
+    IOcrCancelResult,
+    IOcrErrorEnvelope,
     IOcrSearchablePdfOptions,
 } from '@contracts/electronApiOcr';
 import { createDocxFromText } from '@app/utils/docx';
@@ -30,11 +32,22 @@ class OcrCanceledError extends Error {
     }
 }
 
+class OcrJobStartError extends Error {
+    readonly errorEnvelope: IOcrErrorEnvelope | undefined;
+
+    constructor(message: string, errorEnvelope?: IOcrErrorEnvelope) {
+        super(message);
+        this.name = 'OcrJobStartError';
+        this.errorEnvelope = errorEnvelope;
+    }
+}
+
 type TOcrCompleteResult = Parameters<IOcrCapability['onComplete']>[0] extends (
     result: infer TResult,
 ) => void ? TResult : never;
 type TOcrPageRequest = Parameters<IOcrCapability['createSearchablePdf']>[1][number];
 type TRunGuard = () => void;
+const OCR_CANCEL_COMPLETION_GRACE_MS = 5_000;
 
 interface IOcrRunContext {
     runToken: symbol;
@@ -81,15 +94,43 @@ export const useOcr = () => {
     let pendingOcrReject: ((reason?: unknown) => void) | null = null;
     let cancelGeneration = 0;
     let activeRunToken: symbol | null = null;
+    let cancelingRequestId: string | null = null;
+    let cancelCleanupTimer: ReturnType<typeof setTimeout> | null = null;
 
-    function cleanupRunState() {
+    function clearCancelCleanupTimer() {
+        if (cancelCleanupTimer !== null) {
+            clearTimeout(cancelCleanupTimer);
+            cancelCleanupTimer = null;
+        }
+    }
+
+    function finishCancelCompletionWatch(requestId: string) {
+        if (cancelingRequestId !== requestId) {
+            return;
+        }
+        clearCancelCleanupTimer();
+        cancelingRequestId = null;
+        completeCleanup?.();
+        completeCleanup = null;
+        activeRequestId.value = null;
+    }
+
+    function cleanupRunState(options: {
+        keepCompleteListener?: boolean;
+        keepActiveRequestId?: boolean 
+    } = {}) {
         activeRequestId.value = null;
         progress.value.isRunning = false;
         activeRunSettings.value = null;
         progressCleanup?.();
         progressCleanup = null;
-        completeCleanup?.();
-        completeCleanup = null;
+        if (options.keepCompleteListener !== true) {
+            completeCleanup?.();
+            completeCleanup = null;
+        }
+        if (options.keepActiveRequestId === true) {
+            activeRequestId.value = cancelingRequestId;
+        }
         clearOcrTimeout();
         pendingOcrReject = null;
     }
@@ -99,19 +140,70 @@ export const useOcr = () => {
         timeoutRunToken = null;
     }
 
-    function cancelActiveBackendRequest(reason: 'manual' | 'timeout') {
-        const requestIdToCancel = activeRequestId.value;
+    async function cancelBackendRequest(
+        requestIdToCancel: string,
+        reason: 'manual' | 'timeout',
+    ): Promise<IOcrCancelResult> {
         if (!requestIdToCancel) {
-            return;
+            return {
+                canceled: false,
+                reason: 'not-found',
+            };
         }
 
         BrowserLogger.info('ocr', reason === 'timeout' ? 'Cancelling timed-out OCR' : 'Cancelling OCR', { requestId: requestIdToCancel });
-        void getOcrCapability().cancel(requestIdToCancel).catch((cancelError) => {
+        try {
+            return await getOcrCapability().cancel(requestIdToCancel);
+        } catch (cancelError) {
             const normalizedCancelError: unknown = cancelError;
             BrowserLogger.debug('ocr', 'OCR cancel request failed', {
                 requestId: requestIdToCancel,
                 error: normalizedCancelError,
             });
+            return {
+                canceled: false,
+                reason: 'failed',
+                error: getErrorMessage(cancelError),
+            };
+        }
+    }
+
+    function scheduleCancelCompletionWatch(requestId: string) {
+        cancelingRequestId = requestId;
+        clearCancelCleanupTimer();
+        cancelCleanupTimer = setTimeout(() => {
+            BrowserLogger.debug('ocr', 'OCR cancel completion watch timed out', { requestId });
+            finishCancelCompletionWatch(requestId);
+        }, OCR_CANCEL_COMPLETION_GRACE_MS);
+    }
+
+    function cleanupLateCanceledResult(result: TOcrCompleteResult) {
+        if (cancelingRequestId !== result.requestId) {
+            return;
+        }
+
+        BrowserLogger.debug('ocr', 'Terminal OCR result arrived after cancellation', {
+            requestId: result.requestId,
+            success: result.success,
+            requiresCleanupAck: result.requiresCleanupAck === true,
+        });
+        if (result.requiresCleanupAck === true && result.pdfPath) {
+            void getOcrCapability().acknowledgeResultFile(result.requestId, result.pdfPath)
+                .catch((ackError) => {
+                    BrowserLogger.debug('ocr', 'Late canceled OCR cleanup acknowledgement failed', {
+                        requestId: result.requestId,
+                        error: getErrorMessage(ackError),
+                    });
+                });
+        }
+        finishCancelCompletionWatch(result.requestId);
+    }
+
+    function beginCancelingRequest(requestId: string) {
+        scheduleCancelCompletionWatch(requestId);
+        cleanupRunState({
+            keepCompleteListener: true,
+            keepActiveRequestId: true,
         });
     }
 
@@ -126,7 +218,16 @@ export const useOcr = () => {
         const rejectPending = pendingOcrReject;
         pendingOcrReject = null;
         timeoutRunToken = null;
-        cancelActiveBackendRequest('timeout');
+        const requestIdToCancel = activeRequestId.value;
+        if (requestIdToCancel) {
+            activeRunToken = null;
+            beginCancelingRequest(requestIdToCancel);
+            void cancelBackendRequest(requestIdToCancel, 'timeout').then((cancelResult) => {
+                if (cancelResult.canceled) {
+                    finishCancelCompletionWatch(requestIdToCancel);
+                }
+            });
+        }
         rejectPending?.(new Error(t('errors.ocr.timeout')));
     }, OCR_TIMEOUT_MS, { immediate: false });
 
@@ -258,16 +359,21 @@ export const useOcr = () => {
                     success: result.success,
                     didResolve,
                 });
-                if (result.requestId === requestId && activeRunToken === runToken) {
-                    if (didResolve) {
-                        BrowserLogger.debug('ocr', 'Ignoring duplicate completion', { requestId });
-                        return;
-                    }
-                    didResolve = true;
-                    pendingOcrReject = null;
-                    clearOcrTimeout();
-                    resolve(result);
+                if (result.requestId !== requestId) {
+                    return;
                 }
+                if (activeRunToken !== runToken) {
+                    cleanupLateCanceledResult(result);
+                    return;
+                }
+                if (didResolve) {
+                    BrowserLogger.debug('ocr', 'Ignoring duplicate completion', { requestId });
+                    return;
+                }
+                didResolve = true;
+                pendingOcrReject = null;
+                clearOcrTimeout();
+                resolve(result);
             });
 
             resetOcrTimeout(runToken);
@@ -290,7 +396,7 @@ export const useOcr = () => {
     }
 
     function applyOcrResponseErrors(response: TOcrCompleteResult, requestId: string) {
-        if (response.errors.length === 0) {
+        if (response.errors.length === 0 && response.errorEnvelope === undefined) {
             return;
         }
 
@@ -298,7 +404,13 @@ export const useOcr = () => {
             requestId,
             success: response.success,
             errors: response.errors,
+            errorCode: response.errorEnvelope?.code,
         });
+        if (response.errorEnvelope !== undefined) {
+            error.value = localizeOcrError(response.errorEnvelope, 'errors.ocr.createSearchablePdf');
+            return;
+        }
+
         const localizedErrors = response.errors.map(err =>
             localizeOcrError(err, 'errors.ocr.createSearchablePdf'),
         );
@@ -450,7 +562,10 @@ export const useOcr = () => {
         });
 
         if (!startResult.started) {
-            throw new Error(localizeOcrError(startResult.error, 'errors.ocr.start'));
+            throw new OcrJobStartError(
+                localizeOcrError(startResult.errorEnvelope ?? startResult.error, 'errors.ocr.start'),
+                startResult.errorEnvelope,
+            );
         }
 
         ensureRunActive();
@@ -477,7 +592,7 @@ export const useOcr = () => {
             workingCopyPath,
         });
 
-        if (progress.value.isRunning) {
+        if (progress.value.isRunning || cancelingRequestId !== null) {
             BrowserLogger.debug('ocr', 'runOcr ignored; already running');
             return;
         }
@@ -519,6 +634,10 @@ export const useOcr = () => {
                 return;
             }
             logOcrRunFailure(requestId, e);
+            if (e instanceof OcrJobStartError) {
+                error.value = e.message;
+                return;
+            }
             error.value = localizeOcrError(e, 'errors.ocr.createSearchablePdf');
         } finally {
             if (activeRunToken === runToken) {
@@ -528,7 +647,8 @@ export const useOcr = () => {
         }
     }
 
-    function cancelOcr() {
+    async function cancelOcr(): Promise<IOcrCancelResult> {
+        const requestIdToCancel = activeRequestId.value;
         cancelGeneration += 1;
         activeRunToken = null;
 
@@ -536,12 +656,24 @@ export const useOcr = () => {
         pendingOcrReject = null;
         rejectPending?.(new OcrCanceledError());
 
-        cancelActiveBackendRequest('manual');
-        cleanupRunState();
+        if (!requestIdToCancel) {
+            cleanupRunState();
+            return {
+                canceled: false,
+                reason: 'not-found',
+            };
+        }
+
+        beginCancelingRequest(requestIdToCancel);
+        const cancelResult = await cancelBackendRequest(requestIdToCancel, 'manual');
+        if (cancelResult.canceled) {
+            finishCancelCompletionWatch(requestIdToCancel);
+        }
+        return cancelResult;
     }
 
     onScopeDispose(() => {
-        cancelOcr();
+        void cancelOcr();
     });
 
     function clearResults() {

@@ -40,7 +40,10 @@ function createDragEvent(
     types: string[] = ['Files'],
     options: { defaultPrevented?: boolean } = {},
 ) {
-    const files = paths.map((_path, index) => ({ name: `file-${index}` })) as File[];
+    const files = paths.map((path, index) => cast<File>({
+        name: `file-${index}`,
+        path,
+    }));
     const event = {
         defaultPrevented: options.defaultPrevented ?? false,
         target: null,
@@ -75,12 +78,12 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: { documents: { getPathForFile: vi.fn((file: { name: string }) => {
+            electronAPI: { documents: { getPathsForFiles: vi.fn((files: Array<{ name: string }>) => files.map((file) => {
                 if (file.name === 'file-0') {
                     return '/docs/a.pdf';
                 }
                 return '/docs/b.djvu';
-            }) } },
+            })) } },
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -102,7 +105,7 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: { documents: { getPathForFile: vi.fn(() => '/docs/readme.txt') } },
+            electronAPI: { documents: { getPathsForFiles: vi.fn(() => ['/docs/readme.txt']) } },
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -124,7 +127,7 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: { documents: { getPathForFile: vi.fn(() => '/docs/a.pdf') } },
+            electronAPI: { documents: { getPathsForFiles: vi.fn(() => ['/docs/a.pdf']) } },
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -154,12 +157,12 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: { documents: { getPathForFile: vi.fn((file: { name: string }) => {
+            electronAPI: { documents: { getPathsForFiles: vi.fn((files: Array<{ name: string }>) => files.map((file) => {
                 if (file.name === 'file-0') {
                     return '/docs/a.pdf';
                 }
                 return '/docs/b.png';
-            }) } },
+            })) } },
         });
 
         const { cleanup } = useExternalFileDrop({ openPathsInAppropriateTab });

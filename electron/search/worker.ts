@@ -155,6 +155,8 @@ function parseInboundMessage(value: unknown): TSearchWorkerInboundMessage | null
             };
         case 'reset-cache':
             return { type: 'reset-cache' };
+        case 'reset-state':
+            return { type: 'reset-state' };
         case 'search': {
             const payload = parseSearchWorkerRequest(value.payload);
             if (!payload) {
@@ -666,6 +668,11 @@ parentPort?.on('message', (rawMessage: unknown) => {
         case 'reset-cache':
             indexCache.clear();
             pruneCancelledRequests();
+            return;
+        case 'reset-state':
+            indexCache.clear();
+            cancelledRequests.clear();
+            progressSentAt.clear();
             return;
         case 'search':
             if (requestAbortControllers.has(message.payload.requestId)) {

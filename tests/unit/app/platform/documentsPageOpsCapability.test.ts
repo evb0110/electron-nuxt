@@ -646,7 +646,10 @@ describe('createBrowserPageOpsCapability', () => {
         });
         expect(createCombinedPdfFromPaths).toHaveBeenCalledWith(
             ['browser://documents/picked/image.png'],
-            expect.objectContaining({requestId: expect.stringMatching(/^browser-page-op-insert-/u)}),
+            expect.objectContaining({
+                operation: 'page-insert',
+                requestId: expect.stringMatching(/^browser-page-op-insert-/u),
+            }),
         );
         expect(saveBytesToPickerOrDownload).toHaveBeenCalledTimes(1);
     });

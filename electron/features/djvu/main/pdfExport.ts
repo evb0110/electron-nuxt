@@ -20,6 +20,7 @@ import {
 } from 'fs/promises';
 import { join } from 'path';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import type { IDjvuProgress } from '@contracts/electronApiDjvu';
 import {
     cancelConversion,
     convertDjvuToPdfFile,
@@ -47,6 +48,8 @@ import {
 import { getErrorMessage } from '@electron/utils/error';
 import { createAbortError } from '@electron/utils/abort';
 import { optimizeGeneratedPdfForInteraction } from '@electron/features/documents/public/pdfSaveAsOptimization';
+import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
+import { DJVU_EVENT_CHANNELS } from '@electron/features/djvu/contract';
 
 const logger = createLogger('djvu-pdfExport');
 const canceledJobIds = new Set<string>();
@@ -58,6 +61,12 @@ const senderCleanupById = new Map<number, {
     sender: WebContents;
     handleDestroyed: () => void;
     handleRenderProcessGone: () => void;
+    handleNavigation: (
+        event: Electron.Event,
+        url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) => void;
 }>();
 const queuedConversionJobIds: string[] = [];
 const queuedConversionResolvers = new Map<string, {
@@ -236,8 +245,9 @@ function unregisterSenderLifecycleCleanup(webContentsId: number) {
         return;
     }
 
-    cleanup.sender.removeListener('destroyed', cleanup.handleDestroyed);
-    cleanup.sender.removeListener('render-process-gone', cleanup.handleRenderProcessGone);
+    cleanup.sender.removeListener?.('destroyed', cleanup.handleDestroyed);
+    cleanup.sender.removeListener?.('render-process-gone', cleanup.handleRenderProcessGone);
+    cleanup.sender.removeListener?.('did-start-navigation', cleanup.handleNavigation);
     senderCleanupById.delete(webContentsId);
 }
 
@@ -264,14 +274,26 @@ function registerSenderLifecycleCleanup(sender: WebContents) {
     const handleRenderProcessGone = () => {
         cleanup('render process gone');
     };
+    const handleNavigation = (
+        _event: Electron.Event,
+        _url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) => {
+        if (isMainFrame && !isInPlace) {
+            cleanup('sender navigated');
+        }
+    };
 
     senderCleanupById.set(webContentsId, {
         sender,
         handleDestroyed,
         handleRenderProcessGone,
+        handleNavigation,
     });
-    sender.once('destroyed', handleDestroyed);
-    sender.once('render-process-gone', handleRenderProcessGone);
+    sender.once?.('destroyed', handleDestroyed);
+    sender.once?.('render-process-gone', handleRenderProcessGone);
+    sender.on?.('did-start-navigation', handleNavigation);
 }
 
 function setActivePdfWorker(jobId: string, worker: Worker) {
@@ -394,7 +416,23 @@ export async function handleDjvuConvertToPdf(
     registerSenderLifecycleCleanup(event.sender);
     const abortController = new AbortController();
     activeJobAbortControllerById.set(jobId, abortController);
-    safeSendToWindow(window, 'djvu:progress', {
+    const progressPump = createIpcProgressPump<IDjvuProgress>({
+        channel: DJVU_EVENT_CHANNELS.progress,
+        getTarget: () => ({
+            isDestroyed: () => event.sender.isDestroyed?.() === true,
+            send: (channel, payload) => safeSendToWindow(
+                window,
+                channel,
+                payload,
+            ),
+        }),
+        getKey: progress => progress.jobId,
+        isTerminal: progress => progress.percent >= 100,
+        onError: error => {
+            logger.debug(`Failed to send DjVu progress: ${getErrorMessage(error)}`);
+        },
+    });
+    progressPump.enqueue({
         jobId,
         phase: 'converting' as const,
         percent: 0,
@@ -411,7 +449,7 @@ export async function handleDjvuConvertToPdf(
                 ...(subsample > 1 ? { subsample } : {}),
                 pageCount,
                 onProgress: (percent) => {
-                    safeSendToWindow(window, 'djvu:progress', {
+                    progressPump.enqueue({
                         jobId,
                         phase: 'converting' as const,
                         percent,
@@ -435,7 +473,7 @@ export async function handleDjvuConvertToPdf(
                 : [];
             if (bookmarks.length > 0) {
                 throwIfCanceled(jobId);
-                safeSendToWindow(window, 'djvu:progress', {
+                progressPump.enqueue({
                     jobId,
                     phase: 'bookmarks' as const,
                     percent: 92,
@@ -445,7 +483,7 @@ export async function handleDjvuConvertToPdf(
 
             throwIfCanceled(jobId);
             const finalTempPdfPath = bookmarks.length > 0 ? tempBookmarkedPdfPath : tempPdfPath;
-            safeSendToWindow(window, 'djvu:progress', {
+            progressPump.enqueue({
                 jobId,
                 phase: 'optimizing' as const,
                 percent: 96,
@@ -454,7 +492,7 @@ export async function handleDjvuConvertToPdf(
             throwIfCanceled(jobId);
             await replaceFileAtomically(finalTempPdfPath, normalizedOutputPath);
 
-            safeSendToWindow(window, 'djvu:progress', {
+            progressPump.enqueue({
                 jobId,
                 phase: 'optimizing' as const,
                 percent: 100,
@@ -482,6 +520,7 @@ export async function handleDjvuConvertToPdf(
         unregisterSenderLifecycleCleanupIfIdle(event.sender.id);
         activeJobAbortControllerById.delete(jobId);
         activePdfWorkerByJobId.delete(jobId);
+        progressPump.clear();
         try {
             await rm(tempDir, {
                 force: true,

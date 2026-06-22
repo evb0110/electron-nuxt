@@ -21,7 +21,9 @@ const mocks = vi.hoisted(() => ({
         warn: vi.fn(),
         error: vi.fn(),
     },
+    registeredWindowsById: new Map<number, unknown>(),
     browserWindowFromWebContents: vi.fn(),
+    getWindowByIdFromRegistry: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -64,7 +66,10 @@ vi.mock('@electron/windowTabTransfer', () => ({
     acknowledgeWindowTabTransfer: vi.fn(),
     requestWindowTabTransfer: vi.fn(),
 }));
-vi.mock('@electron/window/registry', () => ({getAllRegisteredAppWindows: vi.fn(() => [])}));
+vi.mock('@electron/window/registry', () => ({
+    getAllRegisteredAppWindows: vi.fn(() => Array.from(mocks.registeredWindowsById.values())),
+    getWindowByIdFromRegistry: mocks.getWindowByIdFromRegistry,
+}));
 vi.mock('@electron/updates', () => ({
     deferDownloadedUpdate: vi.fn(),
     getUpdateStatus: vi.fn(() => ({phase: 'idle'})),
@@ -79,7 +84,7 @@ vi.mock('@electron/config', () => ({config: {renderer: {trustedUrl: 'https://tru
 function createSender(id: number) {
     const once = vi.fn();
     const removeListener = vi.fn();
-    return {
+    const sender = {
         id,
         once,
         removeListener,
@@ -87,6 +92,12 @@ function createSender(id: number) {
         getURL: () => 'https://trusted.example/electron',
         mainFrame: null,
     };
+    mocks.registeredWindowsById.set(id, {
+        id,
+        webContents: sender,
+        isDestroyed: () => false,
+    });
+    return sender;
 }
 
 describe('renderer log registry', () => {
@@ -94,7 +105,15 @@ describe('renderer log registry', () => {
         vi.resetModules();
         vi.clearAllMocks();
         mocks.handlers.clear();
-        mocks.browserWindowFromWebContents.mockReturnValue({isDestroyed: () => false});
+        mocks.registeredWindowsById.clear();
+        mocks.browserWindowFromWebContents.mockImplementation((sender: {id?: number}) => (
+            typeof sender.id === 'number'
+                ? mocks.registeredWindowsById.get(sender.id) ?? null
+                : null
+        ));
+        mocks.getWindowByIdFromRegistry.mockImplementation((windowId: number) => (
+            mocks.registeredWindowsById.get(windowId) ?? null
+        ));
     });
 
     it('clears sender rate-limit state when the sender is destroyed', async () => {
@@ -356,5 +375,28 @@ describe('normalizeRendererLogEntry', () => {
             data: {a: 1},
         });
         expect(entry.serializedData).toBe(' data={"a":1}');
+    });
+
+    it('redacts secrets and local paths before serializing renderer log fields', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const entry = normalizeRendererLogEntry({
+            level: 'info',
+            section: 'search',
+            message: 'authorization: secret-token opened /Users/evb/private/report.pdf',
+            data: {
+                fileUrl: 'file:///Users/evb/private/report.pdf',
+                bearer: 'Bearer abc.def.ghi',
+                nested: {path: '/Users/evb/private/nested.pdf'},
+            },
+        });
+
+        expect(entry.message).toContain('[redacted-secret]');
+        expect(entry.message).toContain('/Users/[redacted]');
+        expect(entry.message).not.toContain('secret-token');
+        expect(entry.message).not.toContain('/Users/evb/private');
+        expect(entry.serializedData).toContain('file://[redacted]');
+        expect(entry.serializedData).toContain('Bearer [redacted]');
+        expect(entry.serializedData).not.toContain('abc.def.ghi');
+        expect(entry.serializedData).not.toContain('/Users/evb/private/report.pdf');
     });
 });

@@ -93,11 +93,23 @@ function registerSenderCleanup(event: IpcMainInvokeEvent) {
         senderCleanupRegistered.delete(senderId);
         event.sender.removeListener('destroyed', cleanup);
         event.sender.removeListener('render-process-gone', cleanup);
+        event.sender.removeListener('did-start-navigation', handleNavigation);
+    };
+    const handleNavigation = (
+        _event: Electron.Event,
+        _url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) => {
+        if (isMainFrame && !isInPlace) {
+            cleanup();
+        }
     };
 
     senderCleanupRegistered.add(senderId);
     event.sender.once('destroyed', cleanup);
     event.sender.once('render-process-gone', cleanup);
+    event.sender.on('did-start-navigation', handleNavigation);
 }
 
 function addAllowedDjvuViewingPath(event: IpcMainInvokeEvent, djvuPath: string) {

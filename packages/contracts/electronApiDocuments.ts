@@ -26,7 +26,23 @@ import type {
     TMenuEventUnsubscribe,
 } from '@contracts/electronApiCommon';
 
+export type TOpenBatchProgressOperation = 'document-open' | 'page-insert';
+
+export interface IDocumentChunkReadOptions {
+    chunkBytes?: number;
+    signal?: AbortSignal;
+}
+
+export interface IDocumentChunkReadResult {
+    size: number;
+    bytesRead: number;
+    chunks: number;
+}
+
+export type TDocumentChunkSource = Iterable<Uint8Array> | AsyncIterable<Uint8Array>;
+
 export interface IOpenPdfDirectBatchProgress {
+    operation: TOpenBatchProgressOperation;
     requestId: string;
     processed: number;
     total: number;
@@ -273,6 +289,11 @@ export interface IDocumentsFileCapability {
     readFile: (path: TDocumentRef) => Promise<Uint8Array>;
     statFile: (path: TDocumentRef) => Promise<{ size: number }>;
     readFileRange: (path: TDocumentRef, offset: number, length: number) => Promise<Uint8Array>;
+    readFileChunks: (
+        path: TDocumentRef,
+        options: IDocumentChunkReadOptions,
+        onChunk: (chunk: Uint8Array, offset: number) => void | Promise<void>,
+    ) => Promise<IDocumentChunkReadResult>;
     readTextFile: (path: TDocumentRef) => Promise<string>;
     fileExists: (path: TDocumentRef) => Promise<boolean>;
     analyzePdfConformance: (path: TDocumentRef) => Promise<IPdfConformanceProfile>;
@@ -302,6 +323,11 @@ export interface IDocumentsFileCapability {
     createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
     saveFile: (path: TDocumentRef) => Promise<boolean>;
     savePdfData: (path: TDocumentRef, data: Uint8Array) => Promise<IPdfValidationResult>;
+    savePdfDataChunks: (
+        path: TDocumentRef,
+        totalBytes: number,
+        chunks: TDocumentChunkSource,
+    ) => Promise<IPdfValidationResult>;
     repairPdf?: (path: TDocumentRef) => Promise<IPdfValidationResult>;
     optimizePdfForInteraction?: (path: TDocumentRef) => Promise<IPdfValidationResult>;
     savePdfNoteTextUpdates?: (
@@ -342,6 +368,7 @@ export interface IDocumentsFileCapability {
     };
 
     getPathForFile: (file: File) => TDocumentRef;
+    getPathsForFiles: (files: File[]) => TDocumentRef[];
 }
 
 export interface IDocumentsCapability extends

@@ -142,4 +142,40 @@ describe('host environment zen Escape handling', () => {
             expect(secondWindow.setFullScreen).toHaveBeenCalledWith(false);
         }
     });
+
+    it('coalesces duplicate unchanged host environment broadcasts', async () => {
+        vi.useFakeTimers();
+        try {
+            const { attachHostEnvironmentToWindow } = await import('@electron/hostEnvironment');
+            const window = mocks.createWindow(3);
+
+            attachHostEnvironmentToWindow(window as never);
+            const moveHandler = window.on.mock.calls
+                .find(call => call[0] === 'move')?.[1] as (() => void) | undefined;
+            expect(moveHandler).toBeTypeOf('function');
+
+            moveHandler?.();
+            moveHandler?.();
+            await vi.advanceTimersByTimeAsync(0);
+
+            let expectedPlatform = 'linux';
+            if (process.platform === 'darwin') {
+                expectedPlatform = 'darwin';
+            } else if (process.platform === 'win32') {
+                expectedPlatform = 'win32';
+            }
+            expect(window.webContents.send).toHaveBeenCalledOnce();
+            expect(window.webContents.send).toHaveBeenCalledWith('host:environmentChanged', {
+                platform: expectedPlatform,
+                osScaleFactor: 1,
+            });
+
+            moveHandler?.();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(window.webContents.send).toHaveBeenCalledOnce();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });

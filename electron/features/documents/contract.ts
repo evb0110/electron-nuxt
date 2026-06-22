@@ -2,6 +2,7 @@ import type {
     IDocumentsFileCapability,
     IDocumentsMenuCapability,
     IPdfSaveAsOptions,
+    TOpenBatchProgressOperation,
     TOpenDocumentDirectBatchProgress,
 } from '@contracts/electronApiDocuments';
 import type {
@@ -21,7 +22,9 @@ export const DOCUMENTS_CHANNELS = {
     openDocumentDirectBatch: 'dialog:openPdfDirectBatch',
     openPdfDirectBatch: 'dialog:openPdfDirectBatch',
     registerRendererFileOpenToken: 'dialog:registerRendererFileOpenToken',
+    registerRendererFileOpenTokens: 'dialog:registerRendererFileOpenTokens',
     allowRendererFileOpen: 'dialog:allowRendererFileOpen',
+    allowRendererFileOpenBatch: 'dialog:allowRendererFileOpenBatch',
     createWorkingCopyFromData: 'working-copy:createFromData',
     createWorkingCopyFromPath: 'working-copy:createFromPath',
     savePdfAs: 'dialog:savePdfAs',
@@ -101,7 +104,10 @@ export const DOCUMENTS_EVENT_CHANNELS = {
     openPdfDirectBatchProgress: 'dialog:openPdfDirectBatch:progress',
 } as const;
 
-export type TOpenBatchProgressPayload = ICreatePdfFromInputPathsProgress & {requestId: string;};
+export type TOpenBatchProgressPayload = ICreatePdfFromInputPathsProgress & {
+    operation: TOpenBatchProgressOperation;
+    requestId: string;
+};
 
 export interface IDocumentsInvokeMap {
     [DOCUMENTS_CHANNELS.openDocumentDialog]: {
@@ -132,11 +138,22 @@ export interface IDocumentsInvokeMap {
         args: [token: string];
         result: boolean;
     };
+    [DOCUMENTS_CHANNELS.registerRendererFileOpenTokens]: {
+        args: [tokens: string[]];
+        result: boolean;
+    };
     [DOCUMENTS_CHANNELS.allowRendererFileOpen]: {
         args: [request: {
             filePath: string;
             token: string;
         }];
+        result: boolean;
+    };
+    [DOCUMENTS_CHANNELS.allowRendererFileOpenBatch]: {
+        args: [requests: Array<{
+            filePath: string;
+            token: string;
+        }>];
         result: boolean;
     };
     [DOCUMENTS_CHANNELS.createWorkingCopyFromData]: {

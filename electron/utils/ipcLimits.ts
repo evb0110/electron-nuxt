@@ -1,6 +1,6 @@
 const IPC_DEFAULT_STRING_MAX_LENGTH = 512;
 export const IPC_FILENAME_MAX_LENGTH = 255;
-export const IPC_REQUEST_ID_MAX_LENGTH = 128;
+const IPC_REQUEST_ID_MAX_LENGTH = 128;
 
 export function normalizeBoundedString(
     value: unknown,
@@ -29,6 +29,16 @@ export function normalizeOptionalBoundedString(
         return null;
     }
     return normalizeBoundedString(value, fieldName, maxLength);
+}
+
+export function normalizeOptionalIpcRequestId(value: unknown, fieldName = 'requestId') {
+    if (value === null || value === undefined) {
+        return undefined;
+    }
+    if (typeof value === 'string' && value.trim().length === 0) {
+        return undefined;
+    }
+    return normalizeBoundedString(value, fieldName, IPC_REQUEST_ID_MAX_LENGTH);
 }
 
 export function truncateForIpc(value: string, maxLength = IPC_DEFAULT_STRING_MAX_LENGTH) {

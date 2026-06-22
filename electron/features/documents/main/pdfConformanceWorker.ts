@@ -3,6 +3,8 @@ import {
     workerData,
 } from 'worker_threads';
 import { analyzePdfConformanceFileDirect } from '@electron/features/documents/main/analyzePdfConformanceFileDirect';
+import type { IWorkerTaskErrorFrame } from '@electron/utils/workerTask';
+import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { getErrorMessage } from '@electron/utils/error';
 
 interface IPdfConformanceWorkerData { filePath?: unknown; }
@@ -17,6 +19,7 @@ type TPdfConformanceWorkerResult =
         type: 'result';
         ok: false;
         error: string;
+        errorFrame?: IWorkerTaskErrorFrame;
     };
 
 function resolveWorkerFilePath() {
@@ -47,6 +50,7 @@ async function runPdfConformanceWorker() {
             type: 'result',
             ok: false,
             error: getErrorMessage(error),
+            errorFrame: createWorkerTaskErrorFrame(error, {source: 'documents:pdf-conformance-worker'}),
         };
         parentPort.postMessage(payload);
     } finally {

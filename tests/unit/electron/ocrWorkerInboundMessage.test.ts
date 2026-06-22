@@ -68,6 +68,28 @@ describe('OCR worker inbound message parsing', () => {
                 languages: [1],
             }],
         })).toBeNull();
+        expect(parseOcrWorkerStartPayload({
+            sourcePdfPath: '/tmp/source.pdf',
+            pages: [{
+                pageNumber: 0,
+                languages: ['eng'],
+            }],
+        })).toBeNull();
+        expect(parseOcrWorkerStartPayload({
+            sourcePdfPath: '/tmp/source.pdf',
+            pages: [{
+                pageNumber: 1,
+                languages: ['not-a-real-language'],
+            }],
+        })).toBeNull();
+        expect(parseOcrWorkerStartPayload({
+            sourcePdfPath: '/tmp/source.pdf',
+            pages: [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            renderDpi: 10_000,
+        })).toBeNull();
     });
 
     it('parses worker control messages', () => {

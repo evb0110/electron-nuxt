@@ -2,11 +2,11 @@ import type {
     IpcRenderer,
     webUtils,
 } from 'electron';
-import { compact } from 'es-toolkit/array';
 import type { IElectronAPI } from '@contracts/electronApi';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import { sanitizeSettings } from '@contracts/settings';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
+import { decodeDebugLogEntry } from '@electron/preload/installDebugLogListener';
 import {createDocumentsPreloadClient} from '@electron/features/documents/createDocumentsPreloadClient';
 import { createDocumentsPreloadPageOpsClient } from '@electron/features/documents/createDocumentsPreloadPageOpsClient';
 import { createImageExportPreloadClient } from '@electron/features/image-export/createImageExportPreloadClient';
@@ -101,10 +101,12 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
     const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
     const pageOps = createDocumentsPreloadPageOpsClient(ipcRenderer);
     const imageExport = createImageExportPreloadClient(ipcRenderer);
-    const pendingRendererFileOpenAllows = new Map<string, Promise<unknown>>();
+    const pendingRendererFileOpenAllows = new Map<string, {
+        token: string;
+        promise: Promise<boolean>;
+    }>();
 
-    function allowRendererFileOpen(filePath: string) {
-        const rendererFileOpenToken = globalThis.crypto.randomUUID();
+    function createRendererFileOpenAllow(filePath: string, rendererFileOpenToken = globalThis.crypto.randomUUID()) {
         const allowPromise = invokeDocuments(
             DOCUMENTS_CHANNELS.registerRendererFileOpenToken,
             rendererFileOpenToken,
@@ -114,21 +116,68 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 token: rendererFileOpenToken,
             }))
             .finally(() => {
-                pendingRendererFileOpenAllows.delete(filePath);
+                const pending = pendingRendererFileOpenAllows.get(filePath);
+                if (pending?.token === rendererFileOpenToken) {
+                    pendingRendererFileOpenAllows.delete(filePath);
+                }
             });
-        pendingRendererFileOpenAllows.set(filePath, allowPromise);
+        pendingRendererFileOpenAllows.set(filePath, {
+            token: rendererFileOpenToken,
+            promise: allowPromise,
+        });
+        return allowPromise;
+    }
+
+    function allowRendererFileOpen(filePath: string) {
+        return createRendererFileOpenAllow(filePath);
+    }
+
+    function allowRendererFileOpenBatch(filePaths: string[]) {
+        const uniqueFilePaths = [...new Set(filePaths.filter(Boolean))];
+        if (uniqueFilePaths.length === 0) {
+            return Promise.resolve(true);
+        }
+        const requests = uniqueFilePaths.map(filePath => ({
+            filePath,
+            token: globalThis.crypto.randomUUID(),
+        }));
+        const allowPromise = invokeDocuments(
+            DOCUMENTS_CHANNELS.registerRendererFileOpenTokens,
+            requests.map(request => request.token),
+        )
+            .then(registered => registered && invokeDocuments(DOCUMENTS_CHANNELS.allowRendererFileOpenBatch, requests))
+            .finally(() => {
+                for (const request of requests) {
+                    const pending = pendingRendererFileOpenAllows.get(request.filePath);
+                    if (pending?.token === request.token) {
+                        pendingRendererFileOpenAllows.delete(request.filePath);
+                    }
+                }
+            });
+        for (const request of requests) {
+            pendingRendererFileOpenAllows.set(request.filePath, {
+                token: request.token,
+                promise: allowPromise,
+            });
+        }
         return allowPromise;
     }
 
     const openDocumentDirect = async (path: string) => {
-        const pendingAllow = pendingRendererFileOpenAllows.get(path);
-        if (pendingAllow) {
-            await pendingAllow;
+        const pendingAllow = pendingRendererFileOpenAllows.get(path)?.promise;
+        if (pendingAllow && !await pendingAllow) {
+            return null;
         }
         return baseDocuments.openDocumentDirect(path);
     };
     const openDocumentDirectBatch = async (paths: string[], requestId?: string) => {
-        await Promise.all(compact(paths.map(path => pendingRendererFileOpenAllows.get(path))));
+        const allowed = await Promise.all(paths.map(async (path) => {
+            const pendingAllow = pendingRendererFileOpenAllows.get(path)?.promise;
+            return pendingAllow === undefined || await pendingAllow;
+        }));
+        if (allowed.some(result => !result)) {
+            return null;
+        }
         return baseDocuments.openDocumentDirectBatch(paths, requestId);
     };
 
@@ -148,6 +197,13 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 void allowRendererFileOpen(filePath);
             }
             return filePath;
+        },
+        getPathsForFiles: (files: File[]) => {
+            const filePaths = files
+                .map(file => electronWebUtils.getPathForFile(file))
+                .filter(filePath => filePath.length > 0);
+            void allowRendererFileOpenBatch(filePaths);
+            return filePaths;
         },
     };
 
@@ -170,7 +226,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
             save: (settings) => invokeCore(CORE_IPC_CHANNELS.settingsSave, settings),
             getDebugLogs: () => Promise.resolve(getDebugLogMessages()),
             onDebugLog: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.debugLog, callback),
+                eventSubscriber.onDecodedPayload(CORE_IPC_EVENT_CHANNELS.debugLog, decodeDebugLogEntry, callback),
             rendererLog: (entry) => ipcRenderer.send(CORE_IPC_SEND_CHANNELS.rendererLog, entry),
             onMenuOpenSettings: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuOpenSettings, callback),

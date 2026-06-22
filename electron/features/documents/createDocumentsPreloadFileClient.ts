@@ -1,6 +1,7 @@
 import type { IpcRenderer } from 'electron';
 import type {
     IDocumentsFileCapability,
+    IDocumentChunkReadOptions,
     IPdfNativeAnnotationDelete,
     IPdfNativeFreeTextNote,
     IPdfNativeFreeTextNoteMarkerRect,
@@ -27,6 +28,11 @@ import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
+import {
+    SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
+    type TPdfPersistenceErrorCode,
+    type TPdfPersistenceErrorPhase,
+} from '@electron/features/documents/serializedPdfPersistenceContract';
 import { createTypedIpcInvoker } from '@electron/preload/ipcClient';
 import {
     assertAbsolutePath,
@@ -37,7 +43,7 @@ import {
     MAX_IPC_FILE_NAME_LENGTH,
 } from '@electron/features/documents/preloadShared';
 
-type TDocumentsPreloadFileClient = Omit<IDocumentsFileCapability, 'getPathForFile'>;
+type TDocumentsPreloadFileClient = Omit<IDocumentsFileCapability, 'getPathForFile' | 'getPathsForFiles'>;
 const PDF_PERSISTENCE_CHUNK_BYTES = 8 * 1024 * 1024;
 const PDF_PERSISTENCE_MAX_IN_FLIGHT_CHUNKS = 2;
 const PDF_PERSISTENCE_READY_TIMEOUT_MS = 10_000;
@@ -63,6 +69,21 @@ const PDF_NATIVE_SHAPE_TYPES = new Set<string>(PDF_ANNOTATION_SHAPE_TYPES);
 const PDF_NATIVE_SHAPE_SUBTYPES = new Set<string>(PDF_ANNOTATION_SHAPE_PDF_SUBTYPES);
 const PDF_NATIVE_SHAPE_LINE_END_STYLES = new Set<string>(PDF_ANNOTATION_LINE_END_STYLES);
 const PDF_NATIVE_MARKUP_SUBTYPES = new Set<string>(PDF_ANNOTATION_MARKUP_SUBTYPES);
+const PDF_PERSISTENCE_ERROR_CODES = new Set<TPdfPersistenceErrorCode>([
+    'CANCELED',
+    'PROTOCOL_ERROR',
+    'ACK_TIMEOUT',
+    'COMMIT_FAILED',
+    'WORKING_COPY_SYNC_WARNING',
+    'UNKNOWN',
+]);
+const PDF_PERSISTENCE_ERROR_PHASES = new Set<TPdfPersistenceErrorPhase>([
+    'streaming',
+    'ack',
+    'complete',
+    'commit',
+    'cancel',
+]);
 
 interface ISerializedPdfPersistencePortResult {
     path: string | null;
@@ -70,6 +91,7 @@ interface ISerializedPdfPersistencePortResult {
 }
 
 type TPdfValidationResult = ISerializedPdfPersistencePortResult['validation'];
+type TDocumentChunkSource = Parameters<IDocumentsFileCapability['savePdfDataChunks']>[2];
 
 interface IPdfPersistenceResultMessage {
     type: 'result';
@@ -80,6 +102,11 @@ interface IPdfPersistenceResultMessage {
 interface IPdfPersistenceErrorMessage {
     type: 'error';
     error?: string;
+    code?: TPdfPersistenceErrorCode;
+    phase?: TPdfPersistenceErrorPhase;
+    retryable?: boolean;
+    expected?: boolean;
+    seq?: number;
 }
 
 interface IPdfPersistenceReadyMessage {type: 'ready';}
@@ -94,6 +121,24 @@ type TPdfPersistenceMessage =
     | IPdfPersistenceErrorMessage
     | IPdfPersistenceReadyMessage
     | IPdfPersistenceAckMessage;
+
+class PdfPersistenceError extends Error {
+    readonly code: TPdfPersistenceErrorCode;
+    readonly phase: TPdfPersistenceErrorPhase;
+    readonly retryable: boolean;
+    readonly expected: boolean;
+    readonly seq: number | undefined;
+
+    constructor(payload: IPdfPersistenceErrorMessage) {
+        super(getPdfPersistenceErrorMessage(payload));
+        this.name = 'PdfPersistenceError';
+        this.code = payload.code ?? 'UNKNOWN';
+        this.phase = payload.phase ?? 'streaming';
+        this.retryable = payload.retryable ?? false;
+        this.expected = payload.expected ?? false;
+        this.seq = payload.seq;
+    }
+}
 
 function assertPositiveInteger(value: unknown, label: string): number {
     if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
@@ -873,6 +918,49 @@ function assertPersistenceData(value: unknown, fieldName: string) {
     return value;
 }
 
+function assertPositiveSafeInteger(value: unknown, fieldName: string) {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+        throw new Error(`${fieldName} must be a positive safe integer`);
+    }
+    return value;
+}
+
+function getChunkReadSize(options: IDocumentChunkReadOptions | undefined) {
+    const chunkBytes = options?.chunkBytes ?? PDF_PERSISTENCE_CHUNK_BYTES;
+    if (!Number.isSafeInteger(chunkBytes) || chunkBytes < 1 || chunkBytes > PDF_PERSISTENCE_CHUNK_BYTES) {
+        throw new Error(`readFileChunks.options.chunkBytes must be an integer between 1 and ${PDF_PERSISTENCE_CHUNK_BYTES}`);
+    }
+    return chunkBytes;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined) {
+    if (signal?.aborted) {
+        throw signal.reason instanceof Error
+            ? signal.reason
+            : new DOMException('The operation was aborted.', 'AbortError');
+    }
+}
+
+function getTightTransferChunk(chunk: Uint8Array, fieldName: string) {
+    const checkedChunk = assertPersistenceData(chunk, fieldName);
+    return checkedChunk.byteOffset === 0 && checkedChunk.byteLength === checkedChunk.buffer.byteLength
+        ? checkedChunk
+        : checkedChunk.slice();
+}
+
+async function* iterateDocumentChunks(chunks: TDocumentChunkSource) {
+    for await (const chunk of chunks) {
+        yield chunk;
+    }
+}
+
+function* iterateUint8ArrayChunks(data: Uint8Array) {
+    for (let offset = 0; offset < data.byteLength; offset += PDF_PERSISTENCE_CHUNK_BYTES) {
+        const end = Math.min(offset + PDF_PERSISTENCE_CHUNK_BYTES, data.byteLength);
+        yield data.slice(offset, end);
+    }
+}
+
 function isPdfValidationResult(value: unknown): value is TPdfValidationResult {
     return isRecord(value)
         && typeof value.isValid === 'boolean'
@@ -881,6 +969,33 @@ function isPdfValidationResult(value: unknown): value is TPdfValidationResult {
         && value.errors.every(error => typeof error === 'string')
         && Array.isArray(value.warnings)
         && value.warnings.every(warning => typeof warning === 'string');
+}
+
+function isPersistenceProtocolLimits(value: unknown): value is {
+    protocolVersion: number;
+    maxChunkBytes: number;
+    maxInFlightChunks: number;
+    maxTotalBytes: number;
+    ackTimeoutMs: number;
+    resultTimeoutMs: number;
+} {
+    return isRecord(value)
+        && value.protocolVersion === SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION
+        && typeof value.maxChunkBytes === 'number'
+        && Number.isSafeInteger(value.maxChunkBytes)
+        && value.maxChunkBytes > 0
+        && typeof value.maxInFlightChunks === 'number'
+        && Number.isSafeInteger(value.maxInFlightChunks)
+        && value.maxInFlightChunks > 0
+        && typeof value.maxTotalBytes === 'number'
+        && Number.isSafeInteger(value.maxTotalBytes)
+        && value.maxTotalBytes > 0
+        && typeof value.ackTimeoutMs === 'number'
+        && Number.isSafeInteger(value.ackTimeoutMs)
+        && value.ackTimeoutMs > 0
+        && typeof value.resultTimeoutMs === 'number'
+        && Number.isSafeInteger(value.resultTimeoutMs)
+        && value.resultTimeoutMs > 0;
 }
 
 function parsePdfPersistenceMessage(value: unknown): TPdfPersistenceMessage | null {
@@ -899,6 +1014,21 @@ function parsePdfPersistenceMessage(value: unknown): TPdfPersistenceMessage | nu
         if (typeof value.error === 'string') {
             errorMessage.error = value.error;
         }
+        if (typeof value.code === 'string' && PDF_PERSISTENCE_ERROR_CODES.has(value.code as TPdfPersistenceErrorCode)) {
+            errorMessage.code = value.code as TPdfPersistenceErrorCode;
+        }
+        if (typeof value.phase === 'string' && PDF_PERSISTENCE_ERROR_PHASES.has(value.phase as TPdfPersistenceErrorPhase)) {
+            errorMessage.phase = value.phase as TPdfPersistenceErrorPhase;
+        }
+        if (typeof value.retryable === 'boolean') {
+            errorMessage.retryable = value.retryable;
+        }
+        if (typeof value.expected === 'boolean') {
+            errorMessage.expected = value.expected;
+        }
+        if (typeof value.seq === 'number' && Number.isSafeInteger(value.seq)) {
+            errorMessage.seq = value.seq;
+        }
         return errorMessage;
     }
     if (value.type === 'ready') {
@@ -915,6 +1045,23 @@ function parsePdfPersistenceMessage(value: unknown): TPdfPersistenceMessage | nu
 
 function getPdfPersistenceErrorMessage(payload: IPdfPersistenceErrorMessage) {
     return typeof payload.error === 'string' ? payload.error : 'PDF persistence failed';
+}
+
+function assertPersistenceProtocolLimits(value: unknown) {
+    if (isRecord(value) && typeof value.sessionId === 'string' && value.protocolVersion === undefined) {
+        return {
+            protocolVersion: SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
+            maxChunkBytes: PDF_PERSISTENCE_CHUNK_BYTES,
+            maxInFlightChunks: PDF_PERSISTENCE_MAX_IN_FLIGHT_CHUNKS,
+            maxTotalBytes: Number.MAX_SAFE_INTEGER,
+            ackTimeoutMs: PDF_PERSISTENCE_ACK_TIMEOUT_MS,
+            resultTimeoutMs: PDF_PERSISTENCE_RESULT_TIMEOUT_MS,
+        };
+    }
+    if (!isPersistenceProtocolLimits(value)) {
+        throw new Error('Unsupported PDF persistence protocol');
+    }
+    return value;
 }
 
 function waitForPortStreamResult(port: MessagePort) {
@@ -942,7 +1089,7 @@ function waitForPortStreamResult(port: MessagePort) {
             }
             if (payload.type === 'error') {
                 cleanup();
-                reject(new Error(getPdfPersistenceErrorMessage(payload)));
+                reject(new PdfPersistenceError(payload));
             }
         };
         port.addEventListener('message', handleMessage);
@@ -969,7 +1116,7 @@ function waitForPortReady(port: MessagePort) {
             if (payload.type === 'error') {
                 clearTimeout(timeout);
                 port.removeEventListener('message', handleMessage);
-                reject(new Error(getPdfPersistenceErrorMessage(payload)));
+                reject(new PdfPersistenceError(payload));
             }
         };
         port.addEventListener('message', handleMessage);
@@ -999,7 +1146,7 @@ function waitForPortAck(port: MessagePort, expectedSeq: number) {
             if (payload.type === 'error') {
                 clearTimeout(timeout);
                 port.removeEventListener('message', handleMessage);
-                reject(new Error(getPdfPersistenceErrorMessage(payload)));
+                reject(new PdfPersistenceError(payload));
             }
         };
         port.addEventListener('message', handleMessage);
@@ -1008,31 +1155,40 @@ function waitForPortAck(port: MessagePort, expectedSeq: number) {
 
 async function streamPdfBytesToPersistencePort(
     ipcRenderer: Pick<IpcRenderer, 'postMessage'>,
-    sessionId: string,
-    data: Uint8Array,
+    beginResult: {sessionId: string},
+    chunks: TDocumentChunkSource,
+    expectedTotalBytes: number,
 ) {
+    const limits = assertPersistenceProtocolLimits(beginResult);
     const channel = new MessageChannel();
     channel.port1.start();
     try {
         const resultPromise = waitForPortStreamResult(channel.port1);
-        ipcRenderer.postMessage(DOCUMENTS_CHANNELS.fileSavePdfDataPort, sessionId, [channel.port2]);
+        ipcRenderer.postMessage(DOCUMENTS_CHANNELS.fileSavePdfDataPort, beginResult.sessionId, [channel.port2]);
         await waitForPortReady(channel.port1);
 
         let seq = 0;
+        let bytesWritten = 0;
         const inFlightAcks: Array<Promise<void>> = [];
-        for (let offset = 0; offset < data.byteLength; offset += PDF_PERSISTENCE_CHUNK_BYTES) {
-            const end = Math.min(offset + PDF_PERSISTENCE_CHUNK_BYTES, data.byteLength);
-            const bytes = data.slice(offset, end);
+        for await (const chunk of iterateDocumentChunks(chunks)) {
+            const bytes = getTightTransferChunk(chunk, `savePdfDataChunks.chunks[${seq}]`);
+            bytesWritten += bytes.byteLength;
+            if (bytes.byteLength > limits.maxChunkBytes || bytesWritten > expectedTotalBytes) {
+                throw new Error('savePdfDataChunks chunks exceed the negotiated PDF persistence size');
+            }
             channel.port1.postMessage({
                 type: 'chunk',
                 seq,
                 bytes,
-            });
+            }, [bytes.buffer]);
             inFlightAcks.push(waitForPortAck(channel.port1, seq));
-            if (inFlightAcks.length >= PDF_PERSISTENCE_MAX_IN_FLIGHT_CHUNKS) {
+            if (inFlightAcks.length >= limits.maxInFlightChunks) {
                 await inFlightAcks.shift();
             }
             seq += 1;
+        }
+        if (bytesWritten !== expectedTotalBytes) {
+            throw new Error('savePdfDataChunks chunks did not match the negotiated PDF persistence size');
         }
         await Promise.all(inFlightAcks);
 
@@ -1084,8 +1240,17 @@ export function createDocumentsPreloadFileClient(
                     validation: null,
                 };
             }
+            const streamingBeginResult = {
+                ...beginResult,
+                sessionId: beginResult.sessionId,
+            };
 
-            return streamPdfBytesToPersistencePort(ipcRenderer, beginResult.sessionId, checkedData);
+            return streamPdfBytesToPersistencePort(
+                ipcRenderer,
+                streamingBeginResult,
+                iterateUint8ArrayChunks(checkedData),
+                checkedData.byteLength,
+            );
         },
         savePdfDialog: (suggestedName) => invoke(DOCUMENTS_CHANNELS.savePdfDialog, suggestedName),
         saveDocxAs: (workingPath) => invoke(DOCUMENTS_CHANNELS.saveDocxAs, workingPath),
@@ -1093,6 +1258,26 @@ export function createDocumentsPreloadFileClient(
         statFile: (path) => invoke(DOCUMENTS_CHANNELS.fileStat, path),
         readFileRange: (path, offset, length) =>
             invoke(DOCUMENTS_CHANNELS.fileReadRange, path, offset, length),
+        readFileChunks: async (path, options, onChunk) => {
+            const checkedPath = assertAbsolutePath(path, 'readFileChunks.path');
+            const chunkBytes = getChunkReadSize(options);
+            const { size } = await invoke(DOCUMENTS_CHANNELS.fileStat, checkedPath);
+            let bytesRead = 0;
+            let chunks = 0;
+            while (bytesRead < size) {
+                throwIfAborted(options?.signal);
+                const length = Math.min(chunkBytes, size - bytesRead);
+                const chunk = await invoke(DOCUMENTS_CHANNELS.fileReadRange, checkedPath, bytesRead, length);
+                await onChunk(chunk, bytesRead);
+                bytesRead += chunk.byteLength;
+                chunks += 1;
+            }
+            return {
+                size,
+                bytesRead,
+                chunks,
+            };
+        },
         readTextFile: (path) => invoke(DOCUMENTS_CHANNELS.fileReadText, path),
         fileExists: (path) => invoke(DOCUMENTS_CHANNELS.fileExists, path),
         analyzePdfConformance: (path) =>
@@ -1198,7 +1383,23 @@ export function createDocumentsPreloadFileClient(
                 checkedPath,
                 checkedData.byteLength,
             );
-            const result = await streamPdfBytesToPersistencePort(ipcRenderer, beginResult.sessionId, checkedData);
+            const result = await streamPdfBytesToPersistencePort(
+                ipcRenderer,
+                beginResult,
+                iterateUint8ArrayChunks(checkedData),
+                checkedData.byteLength,
+            );
+            return result.validation;
+        },
+        savePdfDataChunks: async (path, totalBytes, chunks) => {
+            const checkedPath = assertAbsolutePath(path, 'savePdfDataChunks.path');
+            const checkedTotalBytes = assertPositiveSafeInteger(totalBytes, 'savePdfDataChunks.totalBytes');
+            const beginResult = await invoke(
+                DOCUMENTS_CHANNELS.fileSavePdfDataBegin,
+                checkedPath,
+                checkedTotalBytes,
+            );
+            const result = await streamPdfBytesToPersistencePort(ipcRenderer, beginResult, chunks, checkedTotalBytes);
             return result.validation;
         },
         savePdfNoteTextUpdates: (path, updates, modifiedAt) =>

@@ -61,6 +61,16 @@ export async function handlePreprocessPage(
     const handleSenderGone = () => {
         abortController.abort();
     };
+    const handleNavigation = (
+        _event: Electron.Event,
+        _url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) => {
+        if (isMainFrame && !isInPlace) {
+            handleSenderGone();
+        }
+    };
     let normalizedImageData: Uint8Array<ArrayBufferLike> = new Uint8Array();
 
     try {
@@ -71,6 +81,7 @@ export async function handlePreprocessPage(
 
         event.sender.once('destroyed', handleSenderGone);
         event.sender.once('render-process-gone', handleSenderGone);
+        event.sender.on('did-start-navigation', handleNavigation);
 
         if (event.sender.isDestroyed()) {
             return {
@@ -158,5 +169,6 @@ export async function handlePreprocessPage(
     } finally {
         event.sender.removeListener('destroyed', handleSenderGone);
         event.sender.removeListener('render-process-gone', handleSenderGone);
+        event.sender.removeListener('did-start-navigation', handleNavigation);
     }
 }

@@ -10,7 +10,12 @@ import {
 import { fileURLToPath } from 'url';
 import { SEARCH_CHANNELS } from '@electron/features/search/contract';
 import type { ISearchResponse } from '@electron/features/search/protocol';
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    type INormalizedPdfSearchRequest,
+    type INormalizedPdfSearchWarmIndexRequest,
+    normalizePdfSearchRequestPayload,
+    normalizePdfSearchWarmIndexPayload,
+} from '@contracts/search';
 import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/workingCopyStore';
 import { createLogger } from '@electron/utils/createLogger';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
@@ -18,13 +23,15 @@ import {
     getSearchWorkerServiceConfig,
     SearchWorkerService,
 } from '@electron/features/search/main/searchWorkerService';
-import {
-    parseOptionalSearchPageCount,
-    validateSearchQuery,
-} from '@electron/features/search/main/searchRequestValidation';
+import { SEARCH_PAGE_COUNT_MAX } from '@electron/features/search/main/searchRequestValidation';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
 import type { TSearchIpcMainRegistrar } from '@electron/features/search/searchService';
+import {
+    buildSearchErrorEnvelope,
+    SearchIpcError,
+    toSearchIpcError,
+} from '@electron/features/search/main/searchErrors';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -35,104 +42,20 @@ function isWorkingCopyPathCandidate(pdfPath: string) {
     return /(?:^|[/\\])pdf-work-[^/\\]+[/\\]/u.test(pdfPath);
 }
 
-function parseOptionalRequestId(raw: unknown) {
-    return typeof raw === 'string' && raw.trim().length > 0
-        ? raw.trim()
-        : undefined;
+function parseSearchRequestPayload(raw: unknown): INormalizedPdfSearchRequest {
+    try {
+        return normalizePdfSearchRequestPayload(raw, {pageCountMax: SEARCH_PAGE_COUNT_MAX});
+    } catch (error) {
+        throw toSearchIpcError(error, 'SEARCH_INVALID_PAYLOAD');
+    }
 }
 
-function parseSearchRequestPayload(raw: unknown): {
-    pdfPath: string;
-    query: string;
-    pageCount?: number;
-    requestId?: string;
-    matchCase?: boolean;
-    wholeWord?: boolean;
-    useRegex?: boolean;
-} {
-    if (!isRecord(raw)) {
-        throw new Error('Invalid search request payload');
+function parseWarmIndexPayload(raw: unknown): INormalizedPdfSearchWarmIndexRequest {
+    try {
+        return normalizePdfSearchWarmIndexPayload(raw, {pageCountMax: SEARCH_PAGE_COUNT_MAX});
+    } catch (error) {
+        throw toSearchIpcError(error, 'SEARCH_INVALID_PAYLOAD');
     }
-
-    const pdfPath = typeof raw.pdfPath === 'string' ? raw.pdfPath.trim() : '';
-    if (!pdfPath) {
-        throw new Error('Invalid PDF path');
-    }
-
-    if (typeof raw.query !== 'string') {
-        throw new Error('Invalid search query');
-    }
-    const pageCount = parseOptionalSearchPageCount(raw.pageCount);
-    const requestId = parseOptionalRequestId(raw.requestId);
-    const matchCase = typeof raw.matchCase === 'boolean' ? raw.matchCase : undefined;
-    const wholeWord = typeof raw.wholeWord === 'boolean' ? raw.wholeWord : undefined;
-    const useRegex = typeof raw.useRegex === 'boolean' ? raw.useRegex : undefined;
-    const query = raw.query;
-    validateSearchQuery(query, {
-        matchCase,
-        wholeWord,
-        useRegex,
-    });
-
-    const parsed: {
-        pdfPath: string;
-        query: string;
-        pageCount?: number;
-        requestId?: string;
-        matchCase?: boolean;
-        wholeWord?: boolean;
-        useRegex?: boolean;
-    } = {
-        pdfPath,
-        query,
-    };
-    if (pageCount !== undefined) {
-        parsed.pageCount = pageCount;
-    }
-    if (requestId !== undefined) {
-        parsed.requestId = requestId;
-    }
-    if (matchCase !== undefined) {
-        parsed.matchCase = matchCase;
-    }
-    if (wholeWord !== undefined) {
-        parsed.wholeWord = wholeWord;
-    }
-    if (useRegex !== undefined) {
-        parsed.useRegex = useRegex;
-    }
-    return parsed;
-}
-
-function parseWarmIndexPayload(raw: unknown): {
-    pdfPath: string;
-    pageCount?: number;
-    requestId?: string;
-} {
-    if (!isRecord(raw)) {
-        throw new Error('Invalid warm-index payload');
-    }
-
-    const pdfPath = typeof raw.pdfPath === 'string' ? raw.pdfPath.trim() : '';
-    if (!pdfPath) {
-        throw new Error('Invalid PDF path');
-    }
-
-    const pageCount = parseOptionalSearchPageCount(raw.pageCount);
-    const requestId = parseOptionalRequestId(raw.requestId);
-
-    const parsed: {
-        pdfPath: string;
-        pageCount?: number;
-        requestId?: string;
-    } = {pdfPath};
-    if (pageCount !== undefined) {
-        parsed.pageCount = pageCount;
-    }
-    if (requestId !== undefined) {
-        parsed.requestId = requestId;
-    }
-    return parsed;
 }
 
 export function resolveSearchWorkerPath(workerBaseDir = __dirname) {
@@ -192,12 +115,15 @@ async function handlePdfSearch(
 
     const normalizedPdfPath = typeof pdfPath === 'string' ? pdfPath.trim() : '';
     if (!normalizedPdfPath) {
-        throw new Error('Invalid PDF path');
+        throw new SearchIpcError(buildSearchErrorEnvelope('SEARCH_INVALID_PAYLOAD', 'Invalid PDF path'));
     }
 
     const resolvedPdfPath = await resolveSearchablePdfPath(normalizedPdfPath, event.sender?.id);
     if (!resolvedPdfPath) {
-        throw new Error('Invalid PDF path: search only allowed within temp directory');
+        throw new SearchIpcError(buildSearchErrorEnvelope(
+            'SEARCH_PATH_DENIED',
+            'Invalid PDF path: search only allowed within temp directory',
+        ));
     }
 
     const dispatchPayload: Parameters<typeof searchWorkerService.dispatchSearchRequest>[1] = {
@@ -231,12 +157,15 @@ async function handlePdfSearchWarmIndex(
     const parsedRequest = parseWarmIndexPayload(request);
     const normalizedPdfPath = parsedRequest.pdfPath.trim();
     if (!normalizedPdfPath) {
-        throw new Error('Invalid PDF path');
+        throw new SearchIpcError(buildSearchErrorEnvelope('SEARCH_INVALID_PAYLOAD', 'Invalid PDF path'));
     }
 
     const resolvedPdfPath = await resolveSearchablePdfPath(normalizedPdfPath, event.sender?.id);
     if (!resolvedPdfPath) {
-        throw new Error('Invalid PDF path: search only allowed within temp directory');
+        throw new SearchIpcError(buildSearchErrorEnvelope(
+            'SEARCH_PATH_DENIED',
+            'Invalid PDF path: search only allowed within temp directory',
+        ));
     }
 
     const dispatchPayload: Parameters<typeof searchWorkerService.dispatchSearchRequest>[1] = {
@@ -265,7 +194,7 @@ export function registerSearchHandlers(registrar: TSearchIpcMainRegistrar = ipcM
     );
     registrar.handle(SEARCH_CHANNELS.search, handlePdfSearch);
     registrar.handle(SEARCH_CHANNELS.warmIndex, handlePdfSearchWarmIndex);
-    registrar.handle(SEARCH_CHANNELS.cancel, (event, requestId?: string) =>
+    registrar.handle(SEARCH_CHANNELS.cancel, (event, requestId?: unknown) =>
         searchWorkerService.cancel(event, requestId),
     );
     registrar.handle(SEARCH_CHANNELS.resetCache, () => searchWorkerService.resetCache());

@@ -15,6 +15,7 @@ import {
     canUseBrowserPageOpsWorker,
     runBrowserPageOpsWorkerRequest,
 } from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import type { IBrowserBatchOpenProgressOptions } from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import type {
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
@@ -33,8 +34,6 @@ interface IStoredPageMutationResult {
     pageCount: number;
 }
 
-interface IBrowserPageOpProgressOptions {requestId?: string;}
-
 interface ICreateBrowserPageOpsOptions {
     clearSearchCaches: () => void;
     openInputAccept: string;
@@ -46,7 +45,7 @@ interface ICreateBrowserPageOpsOptions {
     buildOpenPdfPickerTypes: () => IFilePickerAcceptType[];
     createCombinedPdfFromPaths: (
         paths: string[],
-        progressOptions?: IBrowserPageOpProgressOptions,
+        progressOptions?: IBrowserBatchOpenProgressOptions,
     ) => Promise<Uint8Array>;
     pickSaveTarget: (options: {
         suggestedName: string;
@@ -175,7 +174,10 @@ export function createBrowserPageOpsCapability(
 
         return options.createCombinedPdfFromPaths(
             sourcePaths,
-            {requestId: requestId ?? `browser-page-op-insert-${crypto.randomUUID()}`},
+            {
+                operation: 'page-insert',
+                requestId: requestId ?? `browser-page-op-insert-${crypto.randomUUID()}`,
+            },
         );
     }
 

@@ -112,7 +112,9 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger
 function createInvokeEvent(senderId: number) {
     return { sender: {
         id: senderId,
+        on: vi.fn(),
         once: vi.fn(),
+        removeListener: vi.fn(),
     } };
 }
 

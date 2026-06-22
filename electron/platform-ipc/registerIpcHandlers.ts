@@ -37,7 +37,10 @@ import {
     acknowledgeWindowTabTransfer,
     requestWindowTabTransfer,
 } from '@electron/windowTabTransfer';
-import { getAllRegisteredAppWindows } from '@electron/window/registry';
+import {
+    getAllRegisteredAppWindows,
+    getWindowByIdFromRegistry,
+} from '@electron/window/registry';
 import {registerDocumentsIpcAdapter} from '@electron/features/documents/registerDocumentsIpcAdapter';
 import {
     DOCUMENTS_CHANNELS,
@@ -45,15 +48,30 @@ import {
 } from '@electron/features/documents/contract';
 import { attachSerializedPdfPersistencePort } from '@electron/features/documents/public';
 import {registerImageExportIpcAdapter} from '@electron/features/image-export/registerImageExportIpcAdapter';
-import type { IImageExportInvokeMap } from '@electron/features/image-export/contract';
+import {
+    IMAGE_EXPORT_CHANNELS,
+    type IImageExportInvokeMap,
+} from '@electron/features/image-export/contract';
 import {registerOcrIpcAdapter} from '@electron/features/ocr/registerOcrIpcAdapter';
-import type { IOcrInvokeMap } from '@electron/features/ocr/contract';
+import {
+    OCR_CHANNELS,
+    type IOcrInvokeMap,
+} from '@electron/features/ocr/contract';
 import {registerSearchIpcAdapter} from '@electron/features/search/registerSearchIpcAdapter';
-import type { ISearchInvokeMap } from '@electron/features/search/contract';
+import {
+    SEARCH_CHANNELS,
+    type ISearchInvokeMap,
+} from '@electron/features/search/contract';
 import {registerDjvuIpcAdapter} from '@electron/features/djvu/registerDjvuIpcAdapter';
-import type { IDjvuInvokeMap } from '@electron/features/djvu/contract';
+import {
+    DJVU_CHANNELS,
+    type IDjvuInvokeMap,
+} from '@electron/features/djvu/contract';
 import {registerPageOpsIpcAdapter} from '@electron/features/page-ops/registerPageOpsIpcAdapter';
-import type { IPageOpsInvokeMap } from '@electron/features/page-ops/contract';
+import {
+    PAGE_OPS_CHANNELS,
+    type IPageOpsInvokeMap,
+} from '@electron/features/page-ops/contract';
 import {
     submitAgentCommandResponse,
     submitAgentWorkspaceSnapshotResponse,
@@ -72,6 +90,10 @@ import {
     startAgentAssistantLogin,
     shutdownAgentAssistant,
 } from '@electron/features/agent/codexAssistant';
+import {
+    ASSISTANT_MAX_IMAGE_ATTACHMENTS,
+    ASSISTANT_MAX_IMAGE_BYTES,
+} from '@electron/features/agent/codexAssistantConfig';
 import {
     loadSettings,
     updateSettings,
@@ -95,6 +117,7 @@ import {
 } from '@electron/hostEnvironment';
 import {
     CORE_IPC_CHANNELS,
+    CORE_IPC_SEND_CHANNELS,
     type ICoreInvokeMap,
 } from '@electron/platform-ipc/coreContract';
 
@@ -110,14 +133,166 @@ const logger = createLogger('ipc');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 const SHELL_OPEN_EXTERNAL_MIN_INTERVAL_MS = 1_000;
 const shellOpenExternalLastOpenedAtBySender = new Map<number, number>();
+const shellOpenExternalCleanupRegisteredBySender = new Set<number>();
+const SETTINGS_SAVE_COALESCE_MS = 25;
+const registeredInvokeChannels = new Set<string>();
+const registeredEventChannels = new Set<string>();
 
-function assertShellOpenExternalRateLimit(senderId: number) {
+const CORE_INVOKE_CHANNEL_SET = new Set<string>(Object.values(CORE_IPC_CHANNELS));
+const CORE_RAW_EVENT_CHANNEL_SET = new Set<string>([
+    CORE_IPC_CHANNELS.rendererReady,
+    CORE_IPC_SEND_CHANNELS.rendererLog,
+    DOCUMENTS_CHANNELS.fileSavePdfDataPort,
+]);
+const DOCUMENTS_CHANNEL_SET = new Set<string>(Object.values(DOCUMENTS_CHANNELS));
+
+function createChannelSet<T extends Record<string, string>>(channels: T) {
+    return new Set<string>(Object.values(channels));
+}
+
+function assertKnownChannelRegistration(
+    kind: 'invoke' | 'event',
+    registeredChannels: Set<string>,
+    channel: string,
+    allowedChannels?: ReadonlySet<string>,
+) {
+    if (allowedChannels && !allowedChannels.has(channel)) {
+        throw new Error(`Unknown ${kind} IPC channel registered: ${channel}`);
+    }
+    if (registeredChannels.has(channel)) {
+        throw new Error(`Duplicate ${kind} IPC channel registration: ${channel}`);
+    }
+    registeredChannels.add(channel);
+}
+
+interface IQueuedSettingsSave {
+    pendingPatch: Record<string, unknown>;
+    waiters: Array<{
+        resolve: () => void;
+        reject: (error: unknown) => void;
+    }>;
+    timer: ReturnType<typeof setTimeout> | null;
+    flushing: boolean;
+}
+
+const settingsSaveQueuesBySender = new Map<number, IQueuedSettingsSave>();
+
+function registerShellOpenExternalSenderCleanup(sender: Electron.WebContents) {
+    const senderId = sender.id;
+    if (shellOpenExternalCleanupRegisteredBySender.has(senderId)) {
+        return;
+    }
+
+    shellOpenExternalCleanupRegisteredBySender.add(senderId);
+    const cleanup = () => {
+        shellOpenExternalLastOpenedAtBySender.delete(senderId);
+        shellOpenExternalCleanupRegisteredBySender.delete(senderId);
+        sender.removeListener('destroyed', cleanup);
+        sender.removeListener('render-process-gone', cleanup);
+    };
+    sender.once('destroyed', cleanup);
+    sender.once('render-process-gone', cleanup);
+}
+
+function assertShellOpenExternalRateLimit(sender: Electron.WebContents) {
+    registerShellOpenExternalSenderCleanup(sender);
     const now = Date.now();
+    const senderId = sender.id;
     const lastOpenedAt = shellOpenExternalLastOpenedAtBySender.get(senderId) ?? 0;
     if (now - lastOpenedAt < SHELL_OPEN_EXTERNAL_MIN_INTERVAL_MS) {
         throw new Error('External URL opens are being requested too frequently.');
     }
     shellOpenExternalLastOpenedAtBySender.set(senderId, now);
+}
+
+async function applySettingsSavePatch(settingsPayload: Record<string, unknown>) {
+    let shouldShutdownAssistant = false;
+    await updateSettings((currentSettings) => {
+        const incoming = sanitizeSettings({
+            ...currentSettings,
+            ...settingsPayload,
+        });
+        shouldShutdownAssistant = currentSettings.assistantPanelEnabled && !incoming.assistantPanelEnabled;
+        return {
+            ...incoming,
+            // This value is managed by updater flow; avoid stale renderer snapshots clobbering it.
+            skippedUpdateVersion: currentSettings.skippedUpdateVersion,
+            // This value is managed by the Codex MCP flow because it mutates external Codex config.
+            agentMcpEnabled: currentSettings.agentMcpEnabled,
+        };
+    });
+    if (shouldShutdownAssistant) {
+        await shutdownAgentAssistant();
+    }
+    updateRecentFilesMenu();
+}
+
+function scheduleSettingsSaveFlush(senderId: number, queue: IQueuedSettingsSave) {
+    if (queue.timer || queue.flushing) {
+        return;
+    }
+
+    queue.timer = setTimeout(() => {
+        queue.timer = null;
+        void flushSettingsSaveQueue(senderId, queue);
+    }, SETTINGS_SAVE_COALESCE_MS);
+}
+
+async function flushSettingsSaveQueue(senderId: number, queue: IQueuedSettingsSave) {
+    if (queue.flushing) {
+        return;
+    }
+
+    queue.flushing = true;
+    const settingsPayload = queue.pendingPatch;
+    const waiters = queue.waiters;
+    queue.pendingPatch = {};
+    queue.waiters = [];
+
+    try {
+        await applySettingsSavePatch(settingsPayload);
+        for (const waiter of waiters) {
+            waiter.resolve();
+        }
+    } catch (error) {
+        for (const waiter of waiters) {
+            waiter.reject(error);
+        }
+    } finally {
+        queue.flushing = false;
+        if (queue.waiters.length > 0) {
+            scheduleSettingsSaveFlush(senderId, queue);
+        } else if (settingsSaveQueuesBySender.get(senderId) === queue) {
+            settingsSaveQueuesBySender.delete(senderId);
+        }
+    }
+}
+
+function queueSettingsSave(senderId: number, settingsPayload: Record<string, unknown>) {
+    let queue = settingsSaveQueuesBySender.get(senderId);
+    if (!queue) {
+        queue = {
+            pendingPatch: {},
+            waiters: [],
+            timer: null,
+            flushing: false,
+        };
+        settingsSaveQueuesBySender.set(senderId, queue);
+    }
+
+    queue.pendingPatch = {
+        ...queue.pendingPatch,
+        ...settingsPayload,
+    };
+
+    const savePromise = new Promise<void>((resolve, reject) => {
+        queue.waiters.push({
+            resolve,
+            reject,
+        });
+    });
+    scheduleSettingsSaveFlush(senderId, queue);
+    return savePromise;
 }
 
 async function confirmAssistantCodexInstall(parentWindow: BrowserWindow | null) {
@@ -207,15 +382,29 @@ function isAgentAssistantStateRequest(request: unknown): request is IAgentAssist
         );
 }
 
+const ASSISTANT_MAX_IMAGE_DATA_URL_LENGTH = Math.ceil(ASSISTANT_MAX_IMAGE_BYTES / 3) * 4 + 128;
+const ASSISTANT_IMAGE_DATA_URL_PREFIX_RE = /^data:image\/[a-z0-9.+-]+(?:;[a-z0-9.+-]+=[a-z0-9.+/-]+)*;base64,/iu;
+
 function isAgentAssistantImageAttachment(attachment: unknown): attachment is IAgentAssistantImageAttachment {
     return isRecord(attachment)
         && attachment.type === 'image'
         && typeof attachment.id === 'string'
         && typeof attachment.name === 'string'
         && typeof attachment.mimeType === 'string'
+        && attachment.mimeType.toLowerCase().startsWith('image/')
         && typeof attachment.sizeBytes === 'number'
         && Number.isFinite(attachment.sizeBytes)
-        && typeof attachment.dataUrl === 'string';
+        && attachment.sizeBytes > 0
+        && attachment.sizeBytes <= ASSISTANT_MAX_IMAGE_BYTES
+        && typeof attachment.dataUrl === 'string'
+        && attachment.dataUrl.length <= ASSISTANT_MAX_IMAGE_DATA_URL_LENGTH
+        && ASSISTANT_IMAGE_DATA_URL_PREFIX_RE.test(attachment.dataUrl);
+}
+
+function isAgentAssistantImageAttachmentList(attachments: unknown): attachments is IAgentAssistantImageAttachment[] {
+    return Array.isArray(attachments)
+        && attachments.length <= ASSISTANT_MAX_IMAGE_ATTACHMENTS
+        && attachments.every(isAgentAssistantImageAttachment);
 }
 
 function isAgentAssistantSendMessageRequest(request: unknown): request is IAgentAssistantSendMessageRequest {
@@ -229,7 +418,7 @@ function isAgentAssistantSendMessageRequest(request: unknown): request is IAgent
         )
         && (
             request.attachments === undefined
-            || (Array.isArray(request.attachments) && request.attachments.every(isAgentAssistantImageAttachment))
+            || isAgentAssistantImageAttachmentList(request.attachments)
         );
 }
 
@@ -241,6 +430,11 @@ function isTrustedWebContentsSender(
     const sourceWindow = BrowserWindow.fromWebContents(sender);
     if (!sourceWindow || sourceWindow.isDestroyed() || sender.isDestroyed()) {
         logger.warn(`[ipc] rejected ${channel}: missing or destroyed sender window`);
+        return false;
+    }
+    const registeredWindow = getWindowByIdFromRegistry(sourceWindow.id);
+    if (registeredWindow !== sourceWindow || registeredWindow.webContents !== sender) {
+        logger.warn(`[ipc] rejected ${channel}: sender window is not registered`);
         return false;
     }
 
@@ -285,12 +479,19 @@ function isTrustedIpcInvokeSender(event: Electron.IpcMainInvokeEvent, channel: s
     return isTrustedWebContentsSender(event.sender, event.senderFrame, channel);
 }
 
-function createValidatedIpcMainRegistrar(registrar: IIpcMainRegistrar<never, Electron.IpcMainInvokeEvent>): IIpcMainRegistrar<never, Electron.IpcMainInvokeEvent>;
-function createValidatedIpcMainRegistrar<
-    TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec},
->(registrar: IIpcMainRegistrar<never, Electron.IpcMainInvokeEvent>): IIpcMainRegistrar<TMap, Electron.IpcMainInvokeEvent>;
 function createValidatedIpcMainRegistrar(
     registrar: IIpcMainRegistrar<never, Electron.IpcMainInvokeEvent>,
+    options?: {allowedChannels?: ReadonlySet<string>;},
+): IIpcMainRegistrar<never, Electron.IpcMainInvokeEvent>;
+function createValidatedIpcMainRegistrar<
+    TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec},
+>(
+    registrar: IIpcMainRegistrar<never, Electron.IpcMainInvokeEvent>,
+    options?: {allowedChannels?: ReadonlySet<string>;},
+): IIpcMainRegistrar<TMap, Electron.IpcMainInvokeEvent>;
+function createValidatedIpcMainRegistrar(
+    registrar: IIpcMainRegistrar<never, Electron.IpcMainInvokeEvent>,
+    options: {allowedChannels?: ReadonlySet<string>;} = {},
 ): IIpcMainRegistrar<never, Electron.IpcMainInvokeEvent> {
     return {handle: <TArgs extends unknown[], TResult>(
         channel: string,
@@ -299,11 +500,32 @@ function createValidatedIpcMainRegistrar(
             ...args: TArgs
         ) => TResult | Promise<TResult>,
     ) => {
+        assertKnownChannelRegistration('invoke', registeredInvokeChannels, channel, options.allowedChannels);
         registrar.handle(channel, async (event, ...args: TArgs) => {
             if (!isTrustedIpcInvokeSender(event, channel)) {
                 throw new Error('IPC sender is not trusted');
             }
             return handler(event, ...args);
+        });
+    }};
+}
+
+interface IValidatedIpcMainEventRegistrar {on: (
+    channel: string,
+    handler: (event: Electron.IpcMainEvent, ...args: unknown[]) => void,
+) => void;}
+
+function createValidatedIpcMainEventRegistrar(
+    registrar: Pick<typeof ipcMain, 'on'>,
+    options: {allowedChannels?: ReadonlySet<string>;} = {},
+): IValidatedIpcMainEventRegistrar {
+    return {on: (channel, handler) => {
+        assertKnownChannelRegistration('event', registeredEventChannels, channel, options.allowedChannels);
+        registrar.on(channel, (event, ...args: unknown[]) => {
+            if (!isTrustedWebContentsSender(event.sender, event.senderFrame, channel)) {
+                return;
+            }
+            handler(event, ...args);
         });
     }};
 }
@@ -326,23 +548,24 @@ function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetW
 }
 
 function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
-    const registrar = createValidatedIpcMainRegistrar<ICoreInvokeMap>(ipcMain);
-    registerRendererLogBridge({isTrustedSender: isTrustedWebContentsSender});
-    ipcMain.on(DOCUMENTS_CHANNELS.fileSavePdfDataPort, (event, sessionId: unknown) => {
-        if (!isTrustedWebContentsSender(event.sender, event.senderFrame, DOCUMENTS_CHANNELS.fileSavePdfDataPort)) {
-            return;
-        }
-
+    const registrar = createValidatedIpcMainRegistrar<ICoreInvokeMap>(ipcMain, {allowedChannels: CORE_INVOKE_CHANNEL_SET});
+    const eventRegistrar = createValidatedIpcMainEventRegistrar(ipcMain, {allowedChannels: CORE_RAW_EVENT_CHANNEL_SET});
+    registerRendererLogBridge({
+        isTrustedSender: isTrustedWebContentsSender,
+        registerListener: (channel, handler) => {
+            eventRegistrar.on(channel, (event, payload) => {
+                handler(event, payload as Parameters<typeof handler>[1]);
+            });
+        },
+    });
+    eventRegistrar.on(DOCUMENTS_CHANNELS.fileSavePdfDataPort, (event, sessionId: unknown) => {
         try {
             attachSerializedPdfPersistencePort(event, sessionId);
         } catch (error) {
             logger.warn(`[ipc] rejected ${DOCUMENTS_CHANNELS.fileSavePdfDataPort}: ${getErrorMessage(error)}`);
         }
     });
-    ipcMain.on(CORE_IPC_CHANNELS.rendererReady, (event) => {
-        if (!isTrustedWebContentsSender(event.sender, event.senderFrame, CORE_IPC_CHANNELS.rendererReady)) {
-            return;
-        }
+    eventRegistrar.on(CORE_IPC_CHANNELS.rendererReady, (event) => {
         options.onRendererReady?.(event);
     });
 
@@ -435,30 +658,12 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
         return settings;
     });
 
-    registrar.handle(CORE_IPC_CHANNELS.settingsSave, async (_event, settingsPayload: unknown) => {
+    registrar.handle(CORE_IPC_CHANNELS.settingsSave, async (event, settingsPayload: unknown) => {
         if (!isRecord(settingsPayload)) {
             throw new Error('Invalid settings payload');
         }
 
-        let shouldShutdownAssistant = false;
-        await updateSettings((currentSettings) => {
-            const incoming = sanitizeSettings({
-                ...currentSettings,
-                ...settingsPayload,
-            });
-            shouldShutdownAssistant = currentSettings.assistantPanelEnabled && !incoming.assistantPanelEnabled;
-            return {
-                ...incoming,
-                // This value is managed by updater flow; avoid stale renderer snapshots clobbering it.
-                skippedUpdateVersion: currentSettings.skippedUpdateVersion,
-                // This value is managed by the Codex MCP flow because it mutates external Codex config.
-                agentMcpEnabled: currentSettings.agentMcpEnabled,
-            };
-        });
-        if (shouldShutdownAssistant) {
-            await shutdownAgentAssistant();
-        }
-        updateRecentFilesMenu();
+        await queueSettingsSave(event.sender.id, settingsPayload);
     });
 
     registrar.handle(CORE_IPC_CHANNELS.updatesGetState, () => getUpdateStatus());
@@ -471,8 +676,8 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
     });
 
     registrar.handle(CORE_IPC_CHANNELS.shellOpenExternal, async (event, url: unknown) => {
-        assertShellOpenExternalRateLimit(event.sender.id);
         const sanitizedUrl = sanitizeAllowedExternalUrl(url);
+        assertShellOpenExternalRateLimit(event.sender);
         await shell.openExternal(sanitizedUrl);
     });
 
@@ -564,10 +769,10 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
 
 export function registerIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
     registerCoreIpcHandlers(options);
-    registerDocumentsIpcAdapter(createValidatedIpcMainRegistrar<IDocumentsInvokeMap>(ipcMain));
-    registerImageExportIpcAdapter(createValidatedIpcMainRegistrar<IImageExportInvokeMap>(ipcMain));
-    registerPageOpsIpcAdapter(createValidatedIpcMainRegistrar<IPageOpsInvokeMap>(ipcMain));
-    registerOcrIpcAdapter(createValidatedIpcMainRegistrar<IOcrInvokeMap>(ipcMain));
-    registerSearchIpcAdapter(createValidatedIpcMainRegistrar<ISearchInvokeMap>(ipcMain));
-    registerDjvuIpcAdapter(createValidatedIpcMainRegistrar<IDjvuInvokeMap>(ipcMain));
+    registerDocumentsIpcAdapter(createValidatedIpcMainRegistrar<IDocumentsInvokeMap>(ipcMain, {allowedChannels: DOCUMENTS_CHANNEL_SET}));
+    registerImageExportIpcAdapter(createValidatedIpcMainRegistrar<IImageExportInvokeMap>(ipcMain, {allowedChannels: createChannelSet(IMAGE_EXPORT_CHANNELS)}));
+    registerPageOpsIpcAdapter(createValidatedIpcMainRegistrar<IPageOpsInvokeMap>(ipcMain, {allowedChannels: createChannelSet(PAGE_OPS_CHANNELS)}));
+    registerOcrIpcAdapter(createValidatedIpcMainRegistrar<IOcrInvokeMap>(ipcMain, {allowedChannels: createChannelSet(OCR_CHANNELS)}));
+    registerSearchIpcAdapter(createValidatedIpcMainRegistrar<ISearchInvokeMap>(ipcMain, {allowedChannels: createChannelSet(SEARCH_CHANNELS)}));
+    registerDjvuIpcAdapter(createValidatedIpcMainRegistrar<IDjvuInvokeMap>(ipcMain, {allowedChannels: createChannelSet(DJVU_CHANNELS)}));
 }

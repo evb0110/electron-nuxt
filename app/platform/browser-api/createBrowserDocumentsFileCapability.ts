@@ -376,6 +376,32 @@ export function createBrowserDocumentsFileCapability(
         readFileRange(path, offset, length) {
             return browserDocumentStore.readRange(path, offset, length);
         },
+        async readFileChunks(path, options, onChunk) {
+            const chunkBytes = options.chunkBytes ?? 8 * 1024 * 1024;
+            if (!Number.isSafeInteger(chunkBytes) || chunkBytes < 1) {
+                throw new Error('readFileChunks.options.chunkBytes must be a positive integer');
+            }
+            const { size } = await browserDocumentStore.stat(path);
+            let bytesRead = 0;
+            let chunks = 0;
+            while (bytesRead < size) {
+                if (options.signal?.aborted) {
+                    throw options.signal.reason instanceof Error
+                        ? options.signal.reason
+                        : new Error('The operation was aborted.');
+                }
+                const length = Math.min(chunkBytes, size - bytesRead);
+                const chunk = await browserDocumentStore.readRange(path, bytesRead, length);
+                await onChunk(chunk, bytesRead);
+                bytesRead += chunk.byteLength;
+                chunks += 1;
+            }
+            return {
+                size,
+                bytesRead,
+                chunks,
+            };
+        },
         async readTextFile(path) {
             return browserDocumentStore.readText(path);
         },
@@ -436,6 +462,33 @@ export function createBrowserDocumentsFileCapability(
                 clearSearchCaches();
             }
             return validation;
+        },
+        async savePdfDataChunks(path, totalBytes, chunks) {
+            if (!Number.isSafeInteger(totalBytes) || totalBytes < 1) {
+                throw new Error('savePdfDataChunks.totalBytes must be a positive safe integer');
+            }
+            const collected: Uint8Array[] = [];
+            let bytesRead = 0;
+            for await (const chunk of chunks) {
+                if (!(chunk instanceof Uint8Array) || chunk.byteLength === 0) {
+                    throw new Error('savePdfDataChunks.chunks must yield non-empty Uint8Array chunks');
+                }
+                bytesRead += chunk.byteLength;
+                if (bytesRead > totalBytes) {
+                    throw new Error('savePdfDataChunks chunks exceed the declared total size');
+                }
+                collected.push(chunk);
+            }
+            if (bytesRead !== totalBytes) {
+                throw new Error('savePdfDataChunks chunks did not match the declared total size');
+            }
+            const data = new Uint8Array(totalBytes);
+            let offset = 0;
+            for (const chunk of collected) {
+                data.set(chunk, offset);
+                offset += chunk.byteLength;
+            }
+            return capability.savePdfData(path, data);
         },
         async writeDocxFile(path, data) {
             const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
@@ -582,6 +635,9 @@ export function createBrowserDocumentsFileCapability(
         },
         getPathForFile(file) {
             return browserDocumentStore.getRefForFile(file);
+        },
+        getPathsForFiles(files) {
+            return files.map(file => browserDocumentStore.getRefForFile(file));
         },
     };
 

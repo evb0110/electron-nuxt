@@ -4,8 +4,11 @@ import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { extractBrowserSearchPageText } from '@app/platform/browser-api/extractBrowserSearchPageText';
 import type {
     IBrowserSearchWorkerRequest,
-    TBrowserSearchWorkerRequest,
     TBrowserSearchWorkerResponse,
+} from '@app/platform/browser-api/browserSearchWorker.types';
+import {
+    getBrowserSearchWorkerRequestId,
+    parseBrowserSearchWorkerRequest,
 } from '@app/platform/browser-api/browserSearchWorker.types';
 import { getErrorMessage } from '@app/utils/error';
 
@@ -75,8 +78,19 @@ function handleCancelRequest(
     return { canceled: true };
 }
 
-self.addEventListener('message', async (event: MessageEvent<TBrowserSearchWorkerRequest>) => {
-    const request = event.data;
+self.addEventListener('message', async (event: MessageEvent<unknown>) => {
+    const request = parseBrowserSearchWorkerRequest(event.data);
+    if (request === null) {
+        const id = getBrowserSearchWorkerRequestId(event.data);
+        if (id !== null) {
+            self.postMessage({
+                id,
+                ok: false,
+                error: 'Invalid browser search worker request',
+            } satisfies TBrowserSearchWorkerResponse);
+        }
+        return;
+    }
 
     try {
         if (request.type === 'cancel') {

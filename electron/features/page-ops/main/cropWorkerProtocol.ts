@@ -2,6 +2,7 @@ import type {
     ICropMargins,
     IPageGeometry,
 } from '@contracts/shared';
+import type { IWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 
 export type TCropWorkerInput =
     | {
@@ -36,4 +37,5 @@ export type TCropWorkerResult =
         type: 'result';
         ok: false;
         error: string;
+        errorFrame?: IWorkerTaskErrorFrame;
     };

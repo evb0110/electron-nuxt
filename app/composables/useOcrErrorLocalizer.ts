@@ -1,5 +1,6 @@
 import { useTypedI18n } from '@app/composables/useTypedI18n';
 import { ocrErrorMessageKeys } from '@app/utils/ocr/ocrErrorMessageKeys';
+import type { IOcrErrorEnvelope } from '@contracts/electronApiOcr';
 import type { TOcrErrorFallbackKey } from '@app/utils/ocr/ocrErrorMessageKeys';
 
 const REMOTE_METHOD_PREFIX_RE = /^Error invoking remote method '[^']+':\s*/u;
@@ -16,6 +17,27 @@ function truncateOcrErrorDetails(message: string) {
     return `${trimmed.slice(0, 237)}...`;
 }
 
+function isOcrErrorEnvelope(value: unknown): value is IOcrErrorEnvelope {
+    return typeof value === 'object'
+        && value !== null
+        && typeof (value as { message?: unknown }).message === 'string'
+        && typeof (value as { code?: unknown }).code === 'string';
+}
+
+function getOcrErrorEnvelope(value: unknown): IOcrErrorEnvelope | null {
+    if (isOcrErrorEnvelope(value)) {
+        return value;
+    }
+    if (
+        typeof value === 'object'
+        && value !== null
+        && isOcrErrorEnvelope((value as { errorEnvelope?: unknown }).errorEnvelope)
+    ) {
+        return (value as { errorEnvelope: IOcrErrorEnvelope }).errorEnvelope;
+    }
+    return null;
+}
+
 export const useOcrErrorLocalizer = () => {
     const { t } = useTypedI18n();
 
@@ -26,9 +48,12 @@ export const useOcrErrorLocalizer = () => {
     }
 
     function localizeOcrError(errorValue: unknown, fallbackKey: TOcrErrorFallbackKey) {
-        const rawMessage = typeof errorValue === 'string'
-            ? errorValue
-            : (errorValue instanceof Error ? errorValue.message : '');
+        const envelope = getOcrErrorEnvelope(errorValue);
+        const rawMessage = envelope !== null
+            ? envelope.message
+            : typeof errorValue === 'string'
+                ? errorValue
+                : (errorValue instanceof Error ? errorValue.message : '');
         if (!rawMessage) {
             return t(fallbackKey);
         }

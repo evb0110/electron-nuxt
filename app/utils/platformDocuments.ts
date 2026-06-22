@@ -7,6 +7,7 @@ import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import { getPlatformAPI } from '@app/utils/platform';
+import { isBrowserFullReadTooLargeError } from '@app/platform/browser/browserDocumentReadError';
 
 export function getDocumentsCapability(): IDocumentsCapability {
     return getPlatformAPI().documents;
@@ -22,17 +23,12 @@ export function getImageExportCapability(): IImageExportCapability {
 
 const FULL_READ_FALLBACK_CHUNK_SIZE = 4 * 1024 * 1024;
 
-function isBrowserFullReadLimitError(error: unknown) {
-    return error instanceof Error
-        && error.message.includes('too large to load fully into memory');
-}
-
 export async function readDocumentFileFully(path: TDocumentRef) {
     const documents = getDocumentsCapability();
     try {
         return await documents.readFile(path);
     } catch (error) {
-        if (!isBrowserFullReadLimitError(error)) {
+        if (!isBrowserFullReadTooLargeError(error)) {
             throw error;
         }
     }

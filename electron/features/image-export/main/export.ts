@@ -478,7 +478,7 @@ async function detectExportDpi(
     }
 }
 
-async function getPdfPageCount(pdfPath: string) {
+export async function getPdfPageCount(pdfPath: string) {
     const result = await runNativeToolCommand(getNativeToolPaths().qpdf, [
         '--show-npages',
         pdfPath,

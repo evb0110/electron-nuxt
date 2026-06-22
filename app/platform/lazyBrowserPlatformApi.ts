@@ -15,6 +15,7 @@ import type { ISearchCapability } from '@contracts/searchCapability';
 import type { ISettingsCapability } from '@contracts/settingsCapability';
 import { isRecord } from '@contracts/runtimeGuards';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 interface IBrowserPlatformModule { browserPlatformApi: IPlatformApi; }
 type TPropertyPath = Array<string | symbol>;
@@ -52,6 +53,10 @@ function splitOwnerPath(path: TPropertyPath) {
         methodKey,
         ownerPath: path.slice(0, -1),
     };
+}
+
+function formatPropertyPath(path: TPropertyPath) {
+    return path.map(key => String(key)).join('.');
 }
 
 function getCallableBrowserMember(owner: unknown, methodKey: string | symbol) {
@@ -120,7 +125,15 @@ function subscribeToBrowserEvent(path: TPropertyPath, args: unknown[]): TUnsubsc
         } else if (!active && typeof cleanup === 'function') {
             (cleanup as TUnsubscribe)();
         }
-    }).catch(() => undefined);
+    }).catch((error: unknown) => {
+        if (active) {
+            BrowserLogger.error(
+                'platform',
+                `Failed to subscribe to browser event ${formatPropertyPath(path)}`,
+                error,
+            );
+        }
+    });
 
     return () => {
         active = false;
@@ -208,6 +221,10 @@ const lazyDocumentsCapability: IDocumentsCapability = {
         'documents',
         'readFileRange',
     ]),
+    readFileChunks: lazyAsync<IDocumentsCapability['readFileChunks']>([
+        'documents',
+        'readFileChunks',
+    ]),
     readTextFile: lazyAsync<IDocumentsCapability['readTextFile']>([
         'documents',
         'readTextFile',
@@ -272,6 +289,10 @@ const lazyDocumentsCapability: IDocumentsCapability = {
         'documents',
         'savePdfData',
     ]),
+    savePdfDataChunks: lazyAsync<IDocumentsCapability['savePdfDataChunks']>([
+        'documents',
+        'savePdfDataChunks',
+    ]),
     cleanupFile: lazyAsync<IDocumentsCapability['cleanupFile']>([
         'documents',
         'cleanupFile',
@@ -307,6 +328,9 @@ const lazyDocumentsCapability: IDocumentsCapability = {
     },
     getPathForFile(file) {
         return browserDocumentStore.getRefForFile(file);
+    },
+    getPathsForFiles(files) {
+        return files.map(file => browserDocumentStore.getRefForFile(file));
     },
     setMenuDocumentState: lazyAsync<IDocumentsCapability['setMenuDocumentState']>([
         'documents',

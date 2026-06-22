@@ -1,4 +1,8 @@
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
+import {
+    BROWSER_DOCUMENT_FULL_READ_TOO_LARGE,
+    BrowserDocumentReadError,
+} from '@app/platform/browser/browserDocumentReadError';
 import type {
     IBrowserDocumentEntry,
     TBrowserDocumentStorageMode,
@@ -43,7 +47,8 @@ export function resolveStoredDocumentStorageMode(
 }
 
 export function buildBrowserDocumentFullReadError(fileName: string, fileSize: number) {
-    return new Error(
+    return new BrowserDocumentReadError(
+        BROWSER_DOCUMENT_FULL_READ_TOO_LARGE,
         `Browser document is too large to load fully into memory (${fileName}: `
         + `${Math.floor(fileSize / (1024 * 1024))}MB > `
         + `${Math.floor(BROWSER_MAX_FULL_READ_BYTES / (1024 * 1024))}MB limit)`,

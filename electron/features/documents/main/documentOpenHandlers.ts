@@ -20,8 +20,10 @@ import { getRecentFiles } from '@electron/recentFiles';
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
+import type { TOpenBatchProgressOperation } from '@contracts/electronApiDocuments';
 import { getErrorMessage } from '@electron/utils/error';
-import { IPC_REQUEST_ID_MAX_LENGTH } from '@electron/utils/ipcLimits';
+import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
+import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import {
     DOCUMENTS_EVENT_CHANNELS,
     type TOpenBatchProgressPayload,
@@ -37,15 +39,27 @@ import {
 const logger = createLogger('documents-dialogs');
 const MAX_DIRECT_OPEN_BATCH_PATHS = 512;
 
-function sendOpenBatchProgress(
+function createOpenBatchProgressReporter(
     event: Electron.IpcMainInvokeEvent,
-    payload: TOpenBatchProgressPayload,
+    requestId: string,
+    operation: TOpenBatchProgressOperation,
 ) {
-    try {
-        event.sender.send(DOCUMENTS_EVENT_CHANNELS.openDocumentDirectBatchProgress, payload);
-    } catch (error) {
-        logger.debug(`Failed to send open-batch progress update: ${String(error)}`);
-    }
+    const pump = createIpcProgressPump<TOpenBatchProgressPayload>({
+        channel: DOCUMENTS_EVENT_CHANNELS.openDocumentDirectBatchProgress,
+        getTarget: () => event.sender,
+        getKey: payload => payload.requestId,
+        isTerminal: payload => payload.processed >= payload.total,
+        onError: error => {
+            logger.debug(`Failed to send open-batch progress update: ${String(error)}`);
+        },
+    });
+    return (progress: ICreatePdfFromInputPathsProgress) => {
+        pump.enqueue({
+            operation,
+            requestId,
+            ...progress,
+        });
+    };
 }
 
 async function allowRecentFileOpenPath(filePath: string, owner: Electron.WebContents) {
@@ -106,17 +120,9 @@ export async function handleOpenPdfDirectBatch(
         const normalizedPaths = normalizeNonEmptyStringPaths(filePaths)
             .map(path => requireOpenPath(path, event.sender));
 
-        const normalizedRequestId = typeof requestId === 'string' ? requestId.trim() : '';
-        if (normalizedRequestId.length > IPC_REQUEST_ID_MAX_LENGTH) {
-            throw new Error(`requestId exceeds maximum length (${IPC_REQUEST_ID_MAX_LENGTH})`);
-        }
+        const normalizedRequestId = normalizeOptionalIpcRequestId(requestId) ?? '';
         const options = normalizedRequestId
-            ? {onCombineProgress: (progress: ICreatePdfFromInputPathsProgress) => {
-                sendOpenBatchProgress(event, {
-                    requestId: normalizedRequestId,
-                    ...progress,
-                });
-            }}
+            ? {onCombineProgress: createOpenBatchProgressReporter(event, normalizedRequestId, 'document-open')}
             : {};
         return await openInputPaths(normalizedPaths, options, event.sender);
     } catch (err) {

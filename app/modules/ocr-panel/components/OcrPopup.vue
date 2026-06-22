@@ -754,7 +754,7 @@ async function runOcrForAgent(options: IAgentOcrRunOptions = {}) {
 function handleCancel() {
     activeOcrSourcePath.value = null;
     activeOcrSourcePage.value = null;
-    cancelOcr();
+    void cancelOcr();
 }
 
 function cancelOcrForAgent() {
@@ -787,7 +787,7 @@ watch(() => workingCopyPath, (nextPath, previousPath) => {
         return;
     }
     if (progress.value.isRunning) {
-        cancelOcr();
+        void cancelOcr();
     }
     resetCompletedOcrState();
 });

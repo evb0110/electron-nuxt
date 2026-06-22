@@ -1,4 +1,5 @@
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import type { IWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 
 export interface IDjvuPdfBuildTask {
     type: 'buildPdf';
@@ -41,6 +42,7 @@ export interface IDjvuPdfWorkerErrorMessage {
     type: 'result';
     ok: false;
     error: string;
+    errorFrame?: IWorkerTaskErrorFrame;
 }
 
 export type TDjvuPdfWorkerMessage =

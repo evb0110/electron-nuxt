@@ -2,6 +2,8 @@ import type { Ref } from 'vue';
 import type {
     IAgentCommandRequest,
     IAgentCommandResponse,
+    IAgentRendererAck,
+    IAgentWorkspaceSnapshot,
     IAgentWorkspaceSnapshotRequest,
     IAgentWorkspaceSnapshotResponse,
 } from '@contracts/agent';
@@ -17,6 +19,7 @@ import {
     waitForDesktopPlatformBridge,
 } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/asyncGuard';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
 
 interface IUseAgentWorkspaceSnapshotOptions {
@@ -38,13 +41,98 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     let unsubscribeWorkspaceSnapshotRequest: (() => void) | null = null;
     let unsubscribeCommandRequest: (() => void) | null = null;
     let isDisposed = false;
+    let cachedSnapshotRevision = 0;
+    let cachedSnapshotSignature = '';
+    let cachedSnapshot: IAgentWorkspaceSnapshot | null = null;
+
+    function createToolbarSnapshotSignature(tabId: string) {
+        const workspace = options.workspaceRefs.value.get(tabId);
+        if (!workspace) {
+            return null;
+        }
+
+        try {
+            const snapshot = workspace.getToolbarSnapshot();
+            return {
+                hasPdf: snapshot.hasPdf,
+                isDjvuMode: snapshot.isDjvuMode,
+                isOpeningDocument: snapshot.isOpeningDocument,
+                hasOpenError: snapshot.hasOpenError,
+                currentPage: snapshot.currentPage,
+                totalPages: snapshot.totalPages,
+            };
+        } catch {
+            return { readError: true };
+        }
+    }
+
+    function createSnapshotSignature() {
+        return JSON.stringify({
+            activePaneId: options.activePaneId.value,
+            activeTabId: options.activeTabId.value,
+            layout: options.layout.value,
+            panes: options.panes.value.map(pane => ({
+                paneId: pane.paneId,
+                activeTabId: pane.activeTabId,
+                tabIds: pane.tabIds,
+            })),
+            tabs: options.tabs.value.map(tab => ({
+                id: tab.id,
+                fileName: tab.fileName,
+                originalPath: tab.originalPath,
+                isDirty: tab.isDirty,
+                isDjvu: tab.isDjvu,
+                toolbar: createToolbarSnapshotSignature(tab.id),
+            })),
+            recentFiles: (options.recentFiles?.value ?? []).map(file => ({
+                originalPath: file.originalPath,
+                fileName: file.fileName,
+                timestamp: file.timestamp,
+                fileSize: file.fileSize,
+            })),
+            recentFilesResolved: options.recentFilesResolved?.value ?? false,
+        });
+    }
+
+    function getCachedSnapshot() {
+        const signature = createSnapshotSignature();
+        if (cachedSnapshot && signature === cachedSnapshotSignature) {
+            return {
+                revision: cachedSnapshotRevision,
+                snapshot: cachedSnapshot,
+            };
+        }
+
+        cachedSnapshotSignature = signature;
+        cachedSnapshotRevision += 1;
+        cachedSnapshot = buildAgentWorkspaceSnapshot(options);
+        return {
+            revision: cachedSnapshotRevision,
+            snapshot: cachedSnapshot,
+        };
+    }
 
     function createSnapshotResponse(request: IAgentWorkspaceSnapshotRequest): IAgentWorkspaceSnapshotResponse {
+        const cached = getCachedSnapshot();
+        if (
+            request.lastSeenRevision !== undefined
+            && request.lastSeenRevision === cached.revision
+        ) {
+            return {
+                requestId: request.requestId,
+                ...(request.windowId === undefined ? {} : { windowId: request.windowId }),
+                ok: true,
+                revision: cached.revision,
+                unchanged: true,
+            };
+        }
+
         return {
             requestId: request.requestId,
             ...(request.windowId === undefined ? {} : { windowId: request.windowId }),
             ok: true,
-            snapshot: buildAgentWorkspaceSnapshot(options),
+            revision: cached.revision,
+            snapshot: cached.snapshot,
         };
     }
 
@@ -58,6 +146,26 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             ok: false,
             error: error instanceof Error ? error.message : String(error),
         };
+    }
+
+    function logRejectedAck(kind: 'snapshot' | 'command', requestId: string, ack: IAgentRendererAck) {
+        if (ack.accepted) {
+            return;
+        }
+        BrowserLogger.warn('agent', `Agent ${kind} response was not accepted`, {
+            requestId,
+            reason: ack.reason ?? 'unknown-request',
+        });
+    }
+
+    async function submitWorkspaceSnapshotWithAck(response: IAgentWorkspaceSnapshotResponse) {
+        const ack = await getPlatformAPI().agent.submitWorkspaceSnapshot(response);
+        logRejectedAck('snapshot', response.requestId, ack);
+    }
+
+    async function submitCommandResponseWithAck(response: IAgentCommandResponse) {
+        const ack = await getPlatformAPI().agent.submitCommandResponse(response);
+        logRejectedAck('command', response.requestId, ack);
     }
 
     async function activateTabForAgent(tabId: string) {
@@ -150,7 +258,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     }
 
     function submitSnapshot(request: IAgentWorkspaceSnapshotRequest) {
-        guardAsync(getPlatformAPI().agent.submitWorkspaceSnapshot(createSnapshotResponse(request)), {
+        guardAsync(submitWorkspaceSnapshotWithAck(createSnapshotResponse(request)), {
             scope: 'agent',
             message: 'Failed to submit agent workspace snapshot',
         });
@@ -159,13 +267,13 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     function submitCommandResult(request: IAgentCommandRequest) {
         guardAsync(
             runCommand(request)
-                .then(result => getPlatformAPI().agent.submitCommandResponse({
+                .then(result => submitCommandResponseWithAck({
                     requestId: request.requestId,
                     ...(request.windowId === undefined ? {} : { windowId: request.windowId }),
                     ok: true,
                     result,
                 }))
-                .catch(error => getPlatformAPI().agent.submitCommandResponse(
+                .catch(error => submitCommandResponseWithAck(
                     createCommandErrorResponse(request, error),
                 )),
             {

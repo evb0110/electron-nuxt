@@ -7,6 +7,16 @@ export interface IPendingBrowserWorkerRequest {
     timeoutTimer?: ReturnType<typeof setTimeout> | null;
 }
 
+export interface ITypedPendingBrowserWorkerRequest<
+    TRequestType extends string,
+    TResultData,
+> {
+    requestType: TRequestType;
+    resolveData: (data: TResultData) => boolean;
+    reject: (error: Error) => void;
+    timeoutTimer?: ReturnType<typeof setTimeout> | null;
+}
+
 type TBrowserWorkerResult<TData = unknown> =
     | {
         id: number;
@@ -55,8 +65,12 @@ function parseBrowserWorkerResult(
     return null;
 }
 
-export function settleBrowserWorkerResult(
-    pendingRequests: Map<number, IPendingBrowserWorkerRequest>,
+export function settleBrowserWorkerResult<
+    TRequestType extends string,
+    TResultData,
+    TPendingRequest extends ITypedPendingBrowserWorkerRequest<TRequestType, TResultData>,
+>(
+    pendingRequests: Map<number, TPendingRequest>,
     response: unknown,
     onSettled: () => void,
 ) {
@@ -83,7 +97,7 @@ export function settleBrowserWorkerResult(
         return;
     }
     if (result.ok) {
-        if (!pending.resolveData(result.data)) {
+        if (!pending.resolveData(result.data as TResultData)) {
             pending.reject(new Error('Browser worker returned an invalid result'));
             onSettled();
             return;

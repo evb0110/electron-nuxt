@@ -9,6 +9,10 @@ import type {
     IRegisteredEvent,
     TRegisteredHandler,
 } from '@tests/unit/electron/helpers/ipcRegistryHarness';
+import {
+    ASSISTANT_MAX_IMAGE_ATTACHMENTS,
+    ASSISTANT_MAX_IMAGE_BYTES,
+} from '@electron/features/agent/codexAssistantConfig';
 
 const ipcRegistrySecurityImportTimeoutMs = 10_000;
 
@@ -22,8 +26,13 @@ const mocks = vi.hoisted(() => ({
         warn: vi.fn(),
         error: vi.fn(),
     },
+    registeredWindowsById: new Map<number, unknown>(),
     browserWindowFromWebContents: vi.fn(),
+    getWindowByIdFromRegistry: vi.fn(),
     loadSettings: vi.fn(async () => ({theme: 'system'})),
+    updateSettings: vi.fn(),
+    sanitizeAllowedExternalUrl: vi.fn((value: unknown) => value),
+    shellOpenExternal: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -36,11 +45,11 @@ vi.mock('electron', () => ({
             mocks.handlers.set(channel, handler);
         },
     },
-    shell: {openExternal: vi.fn()},
+    shell: {openExternal: mocks.shellOpenExternal},
     webContents: {fromId: vi.fn(() => null)},
 }));
 
-vi.mock('@contracts/externalUrl', () => ({sanitizeAllowedExternalUrl: (value: unknown) => value}));
+vi.mock('@contracts/externalUrl', () => ({sanitizeAllowedExternalUrl: mocks.sanitizeAllowedExternalUrl}));
 vi.mock('@electron/config', () => ({config: {renderer: {trustedUrl: 'http://127.0.0.1:41001/electron'}}}));
 vi.mock('@electron/features/documents/registerDocumentsIpcAdapter', () => ({registerDocumentsIpcAdapter: vi.fn()}));
 vi.mock('@electron/features/documents/public', () => ({attachSerializedPdfPersistencePort: mocks.attachSerializedPdfPersistencePort}));
@@ -55,13 +64,16 @@ vi.mock('@electron/menu', () => ({
 }));
 vi.mock('@electron/settings', () => ({
     loadSettings: mocks.loadSettings,
-    updateSettings: vi.fn(),
+    updateSettings: mocks.updateSettings,
 }));
 vi.mock('@electron/windowTabTransfer', () => ({
     acknowledgeWindowTabTransfer: vi.fn(),
     requestWindowTabTransfer: vi.fn(),
 }));
-vi.mock('@electron/window/registry', () => ({getAllRegisteredAppWindows: vi.fn(() => [])}));
+vi.mock('@electron/window/registry', () => ({
+    getAllRegisteredAppWindows: vi.fn(() => Array.from(mocks.registeredWindowsById.values())),
+    getWindowByIdFromRegistry: mocks.getWindowByIdFromRegistry,
+}));
 vi.mock('@electron/updates', () => ({
     deferDownloadedUpdate: vi.fn(),
     getUpdateStatus: vi.fn(() => ({phase: 'idle'})),
@@ -76,15 +88,28 @@ vi.mock('@electron/platform-ipc/rendererLogBridge', () => ({
     registerRendererLogBridge: vi.fn(),
 }));
 
+let nextSenderId = 7;
+
 function createEvent(url: string): IRegisteredEvent {
     const mainFrame = {url};
+    const senderId = nextSenderId;
+    nextSenderId += 1;
+    const sender = {
+        id: senderId,
+        once: vi.fn(),
+        removeListener: vi.fn(),
+        isDestroyed: () => false,
+        getURL: () => url,
+        mainFrame,
+    };
+    const window = {
+        id: sender.id,
+        webContents: sender,
+        isDestroyed: () => false,
+    };
+    mocks.registeredWindowsById.set(sender.id, window);
     return {
-        sender: {
-            id: 7,
-            isDestroyed: () => false,
-            getURL: () => url,
-            mainFrame,
-        },
+        sender,
         senderFrame: mainFrame,
     };
 }
@@ -123,7 +148,28 @@ describe('IPC registry sender trust', () => {
         vi.clearAllMocks();
         mocks.handlers.clear();
         mocks.events.clear();
-        mocks.browserWindowFromWebContents.mockReturnValue({isDestroyed: () => false});
+        mocks.registeredWindowsById.clear();
+        nextSenderId = 7;
+        mocks.sanitizeAllowedExternalUrl.mockImplementation((value: unknown) => value);
+        mocks.browserWindowFromWebContents.mockImplementation((sender: {id?: number}) => (
+            typeof sender.id === 'number'
+                ? mocks.registeredWindowsById.get(sender.id) ?? {
+                    id: sender.id,
+                    webContents: sender,
+                    isDestroyed: () => false,
+                }
+                : null
+        ));
+        mocks.getWindowByIdFromRegistry.mockImplementation((windowId: number) => (
+            mocks.registeredWindowsById.get(windowId) ?? null
+        ));
+        mocks.updateSettings.mockImplementation(async (updater: (settings: Record<string, unknown>) => unknown) => (
+            updater({
+                assistantPanelEnabled: true,
+                skippedUpdateVersion: 'keep-version',
+                agentMcpEnabled: true,
+            })
+        ));
     });
 
     it('rejects same-origin senders outside the configured renderer route', async () => {
@@ -145,6 +191,19 @@ describe('IPC registry sender trust', () => {
             .resolves.toEqual({theme: 'system'});
 
         expect(mocks.loadSettings).toHaveBeenCalledOnce();
+    });
+
+    it('rejects trusted-route senders whose BrowserWindow is not registered', async () => {
+        const handler = await getSettingsHandler();
+        const event = createEvent('http://127.0.0.1:41001/electron/settings');
+        mocks.registeredWindowsById.clear();
+
+        await expect(handler(event)).rejects.toThrow('IPC sender is not trusted');
+
+        expect(mocks.loadSettings).not.toHaveBeenCalled();
+        expect(mocks.logger.warn).toHaveBeenCalledWith(
+            '[ipc] rejected settings:get: sender window is not registered',
+        );
     });
 
     it('rejects untrusted event-channel senders before file port attachment or rendererReady', async () => {
@@ -171,5 +230,134 @@ describe('IPC registry sender trust', () => {
 
         expect(mocks.attachSerializedPdfPersistencePort).toHaveBeenCalledWith(trustedFileEvent, 'session-3');
         expect(onRendererReady).toHaveBeenCalledWith(trustedReadyEvent);
+    }, ipcRegistrySecurityImportTimeoutMs);
+
+    it('does not consume shell open rate-limit quota for invalid external URLs', async () => {
+        mocks.sanitizeAllowedExternalUrl
+            .mockImplementationOnce(() => {
+                throw new Error('Invalid external URL');
+            })
+            .mockImplementation((value: unknown) => value);
+        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
+        registerIpcHandlers();
+        const handler = mocks.handlers.get('shell:openExternal');
+        expect(handler).toBeTypeOf('function');
+        const event = createEvent('http://127.0.0.1:41001/electron/viewer');
+
+        await expect(handler?.(event, 'javascript:alert(1)')).rejects.toThrow('Invalid external URL');
+        await expect(handler?.(event, 'https://example.test/')).resolves.toBeUndefined();
+
+        expect(mocks.shellOpenExternal).toHaveBeenCalledOnce();
+        expect(mocks.shellOpenExternal).toHaveBeenCalledWith('https://example.test/');
+    }, ipcRegistrySecurityImportTimeoutMs);
+
+    it('clears shell open rate-limit state when the sender is destroyed', async () => {
+        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
+        registerIpcHandlers();
+        const handler = mocks.handlers.get('shell:openExternal');
+        expect(handler).toBeTypeOf('function');
+        const event = createEvent('http://127.0.0.1:41001/electron/viewer');
+
+        await expect(handler?.(event, 'https://example.test/first')).resolves.toBeUndefined();
+        await expect(handler?.(event, 'https://example.test/second'))
+            .rejects
+            .toThrow('External URL opens are being requested too frequently.');
+
+        const sender = event.sender as { once: ReturnType<typeof vi.fn> };
+        const destroyedHandler = sender.once.mock.calls
+            .find(call => call[0] === 'destroyed')?.[1] as (() => void) | undefined;
+        destroyedHandler?.();
+
+        await expect(handler?.(event, 'https://example.test/after-destroy')).resolves.toBeUndefined();
+        expect(mocks.shellOpenExternal).toHaveBeenCalledTimes(2);
+    }, ipcRegistrySecurityImportTimeoutMs);
+
+    it('rejects assistant image payloads that exceed IPC attachment budgets', async () => {
+        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
+        registerIpcHandlers();
+        const handler = mocks.handlers.get('agent:sendAssistantMessage');
+        expect(handler).toBeTypeOf('function');
+        const event = createEvent('http://127.0.0.1:41001/electron/viewer');
+        const imageAttachment = {
+            type: 'image',
+            id: 'image-1',
+            name: 'image.png',
+            mimeType: 'image/png',
+            sizeBytes: 4,
+            dataUrl: 'data:image/png;base64,AAAA',
+        };
+
+        await expect(handler?.(event, {
+            text: 'hello',
+            attachments: Array.from(
+                { length: ASSISTANT_MAX_IMAGE_ATTACHMENTS + 1 },
+                (_, index) => ({
+                    ...imageAttachment,
+                    id: `image-${index}`,
+                }),
+            ),
+        })).rejects.toThrow('Invalid assistant message payload');
+
+        await expect(handler?.(event, {
+            text: 'hello',
+            attachments: [{
+                ...imageAttachment,
+                sizeBytes: ASSISTANT_MAX_IMAGE_BYTES + 1,
+            }],
+        })).rejects.toThrow('Invalid assistant message payload');
+
+        await expect(handler?.(event, {
+            text: 'hello',
+            attachments: [{
+                ...imageAttachment,
+                dataUrl: `data:image/png;base64,${'A'.repeat(Math.ceil(ASSISTANT_MAX_IMAGE_BYTES / 3) * 4 + 129)}`,
+            }],
+        })).rejects.toThrow('Invalid assistant message payload');
+    }, ipcRegistrySecurityImportTimeoutMs);
+
+    it('coalesces trusted settings saves per sender before writing settings', async () => {
+        vi.useFakeTimers();
+        try {
+            const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
+            registerIpcHandlers();
+            const handler = mocks.handlers.get('settings:save');
+            expect(handler).toBeTypeOf('function');
+            const event = createEvent('http://127.0.0.1:41001/electron/settings');
+
+            const firstSave = handler?.(event, {
+                theme: 'dark',
+                skippedUpdateVersion: 'renderer-stale',
+            });
+            const secondSave = handler?.(event, {
+                assistantPanelEnabled: true,
+                agentMcpEnabled: false,
+            });
+
+            expect(mocks.updateSettings).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(25);
+            await expect(Promise.all([
+                firstSave,
+                secondSave,
+            ])).resolves.toEqual([
+                undefined,
+                undefined,
+            ]);
+
+            expect(mocks.updateSettings).toHaveBeenCalledOnce();
+            const updater = mocks.updateSettings.mock.calls[0]?.[0] as (settings: Record<string, unknown>) => unknown;
+            expect(updater({
+                assistantPanelEnabled: true,
+                skippedUpdateVersion: 'keep-version',
+                agentMcpEnabled: true,
+            })).toEqual(expect.objectContaining({
+                theme: 'dark',
+                assistantPanelEnabled: true,
+                skippedUpdateVersion: 'keep-version',
+                agentMcpEnabled: true,
+            }));
+        } finally {
+            vi.useRealTimers();
+        }
     }, ipcRegistrySecurityImportTimeoutMs);
 });

@@ -128,6 +128,7 @@ export interface IAgentWorkspaceSnapshot {
 export interface IAgentWorkspaceSnapshotRequest {
     requestId: string;
     windowId?: number;
+    lastSeenRevision?: number;
 }
 
 export interface IAgentWorkspaceSnapshotResponse {
@@ -135,6 +136,8 @@ export interface IAgentWorkspaceSnapshotResponse {
     windowId?: number;
     ok: boolean;
     snapshot?: IAgentWorkspaceSnapshot;
+    revision?: number;
+    unchanged?: boolean;
     error?: string;
 }
 
@@ -189,6 +192,16 @@ export interface IAgentCommandResponse {
     error?: string;
 }
 
+export type TAgentRendererAckReason =
+    | 'invalid-payload'
+    | 'unexpected-sender'
+    | 'unknown-request';
+
+export interface IAgentRendererAck {
+    accepted: boolean;
+    reason?: TAgentRendererAckReason;
+}
+
 export interface IAgentMcpIntegrationStatus {
     enabled: boolean;
     serverName: string;
@@ -208,6 +221,23 @@ export interface IAgentMcpIntegrationUpdateResult {
     cancelled?: boolean;
     status: IAgentMcpIntegrationStatus;
     error?: string;
+}
+
+export type TAgentAssistantErrorCode =
+    | 'AUTH_REQUIRED'
+    | 'INSTALL_MISSING'
+    | 'LOGIN_CANCELLED'
+    | 'USER_INTERRUPTED'
+    | 'MODEL_UNAVAILABLE'
+    | 'RUNTIME_UNAVAILABLE'
+    | 'PROVIDER_RATE_LIMITED'
+    | 'INTERNAL';
+
+export interface IAgentAssistantErrorEnvelope {
+    code: TAgentAssistantErrorCode;
+    message: string;
+    retryable: boolean;
+    timestamp: number;
 }
 
 export interface IAgentAssistantAccount {
@@ -248,6 +278,7 @@ export interface IAgentAssistantProviderStatus {
     installUrl: string;
     account: IAgentAssistantAccount | null;
     error?: string;
+    errorEnvelope?: IAgentAssistantErrorEnvelope;
 }
 
 export interface IAgentAssistantChatScope {
@@ -288,6 +319,7 @@ export interface IAgentAssistantStatus {
     activeTurnId: string | null;
     lastCheckedAt: string;
     error?: string;
+    errorEnvelope?: IAgentAssistantErrorEnvelope;
 }
 
 export interface IAgentAssistantTurnState {
@@ -303,6 +335,7 @@ export interface IAgentAssistantChatMessage {
     attachments?: IAgentAssistantImageAttachment[];
     pending?: boolean;
     error?: string;
+    errorEnvelope?: IAgentAssistantErrorEnvelope;
 }
 
 export interface IAgentAssistantImageAttachment {
@@ -331,6 +364,7 @@ export interface IAgentAssistantInstallResult {
     ok: boolean;
     state: IAgentAssistantState;
     error?: string;
+    errorEnvelope?: IAgentAssistantErrorEnvelope;
 }
 
 export interface IAgentAssistantLoginRequest {mode: TAgentAssistantLoginMode;}
@@ -343,6 +377,7 @@ export interface IAgentAssistantLoginResult {
     verificationUrl?: string;
     userCode?: string;
     error?: string;
+    errorEnvelope?: IAgentAssistantErrorEnvelope;
 }
 
 export interface IAgentAssistantSendMessageRequest {
@@ -358,6 +393,7 @@ export interface IAgentAssistantSendMessageResult {
     ok: boolean;
     state: IAgentAssistantState;
     error?: string;
+    errorEnvelope?: IAgentAssistantErrorEnvelope;
 }
 
 export interface IAgentAssistantScopedRequest {
@@ -376,4 +412,5 @@ export interface IAgentAssistantEvent {
     turnId?: string;
     progress?: string;
     error?: string;
+    errorEnvelope?: IAgentAssistantErrorEnvelope;
 }

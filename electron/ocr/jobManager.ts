@@ -51,12 +51,18 @@ import {
     isRecord,
 } from '@contracts/runtimeGuards';
 import type {
+    IOcrCancelResult,
+    IOcrErrorEnvelope,
+    IOcrProgress,
     IOcrSearchablePdfOptions,
+    TOcrErrorCode,
     TOcrProgressPhase,
 } from '@contracts/electronApiOcr';
+import { buildOcrErrorEnvelope } from '@electron/ocr/contracts';
 import { createLogger } from '@electron/utils/createLogger';
 import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 import { getErrorMessage } from '@electron/utils/error';
+import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { sendToLiveWindow } from '@electron/utils/sendToLiveWindow';
 
 const log = createLogger('ocr-ipc');
@@ -74,6 +80,7 @@ const queuedJobIds = new Set<string>();
 const preparingJobs = new Map<string, IOcrPreparingJob>();
 const cancelledJobs = new Set<string>();
 const registeredSenderCleanupIds = new Set<number>();
+const progressPumpsByScopedJobId = new Map<string, ReturnType<typeof createIpcProgressPump<IOcrProgress>>>();
 
 function assertNever(value: never) {
     throw new Error(`Unhandled OCR worker message: ${JSON.stringify(value)}`);
@@ -89,6 +96,57 @@ export function safeSendToWindow(
     });
 }
 
+function getOcrProgressPump(
+    scopedJobId: string,
+    window: BrowserWindow | null | undefined,
+) {
+    let pump = progressPumpsByScopedJobId.get(scopedJobId);
+    if (pump) {
+        return pump;
+    }
+
+    pump = createIpcProgressPump<IOcrProgress>({
+        channel: OCR_EVENT_CHANNELS.progress,
+        getTarget: () => ({
+            isDestroyed: () => !window
+                || window.isDestroyed?.() === true
+                || window.webContents.isDestroyed?.() === true,
+            send: (channel, payload) => safeSendToWindow(
+                window,
+                channel as typeof OCR_EVENT_CHANNELS.progress,
+                payload,
+            ),
+        }),
+        getKey: payload => payload.requestId,
+        isTerminal: payload => payload.totalPages > 0 && payload.processedCount >= payload.totalPages,
+        onError: error => {
+            log.debug(`Failed to send OCR progress: ${getErrorMessage(error)}`);
+        },
+    });
+    progressPumpsByScopedJobId.set(scopedJobId, pump);
+    return pump;
+}
+
+function enqueueOcrProgress(
+    scopedJobId: string,
+    window: BrowserWindow | null | undefined,
+    progress: IOcrProgress,
+) {
+    getOcrProgressPump(scopedJobId, window).enqueue(progress);
+}
+
+function clearOcrProgressPump(scopedJobId: string, requestId?: string) {
+    const pump = progressPumpsByScopedJobId.get(scopedJobId);
+    if (!pump) {
+        return;
+    }
+    if (requestId) {
+        pump.flush(requestId);
+    }
+    pump.clear();
+    progressPumpsByScopedJobId.delete(scopedJobId);
+}
+
 function getJobWindow(webContentsId: number) {
     return BrowserWindow.getAllWindows().find(
         window => window.webContents.id === webContentsId,
@@ -102,7 +160,7 @@ function sendOcrProgressStage(
     phase: TOcrProgressPhase,
     phaseProgress?: number,
 ) {
-    safeSendToWindow(getJobWindow(webContentsId), OCR_EVENT_CHANNELS.progress, {
+    enqueueOcrProgress(toScopedOcrJobId(webContentsId, requestId), getJobWindow(webContentsId), {
         requestId,
         currentPage: pages[0]?.pageNumber ?? 0,
         processedCount: 0,
@@ -362,6 +420,7 @@ function registerSenderCleanup(event: IpcMainInvokeEvent) {
 
         event.sender.removeListener('destroyed', handleDestroyed);
         event.sender.removeListener('render-process-gone', handleRenderProcessGone);
+        event.sender.removeListener('did-start-navigation', handleNavigation);
     };
 
     const handleDestroyed = () => {
@@ -370,17 +429,47 @@ function registerSenderCleanup(event: IpcMainInvokeEvent) {
     const handleRenderProcessGone = () => {
         cleanup('Renderer process gone');
     };
+    const handleNavigation = (
+        _event: Electron.Event,
+        _url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) => {
+        if (isMainFrame && !isInPlace) {
+            cleanup('Renderer navigated');
+        }
+    };
 
     event.sender.once('destroyed', handleDestroyed);
     event.sender.once('render-process-gone', handleRenderProcessGone);
+    event.sender.on('did-start-navigation', handleNavigation);
 }
 
-function sendJobFailure(job: IOcrQueuedJob, error: string) {
+function createTerminalOcrErrorEnvelope(
+    error: string,
+    options: {
+        code?: TOcrErrorCode;
+        retryable?: boolean;
+    } = {},
+): IOcrErrorEnvelope {
+    return buildOcrErrorEnvelope(options.code ?? 'OCR_INTERNAL_ERROR', error, {retryable: options.retryable ?? false});
+}
+
+function sendJobFailure(
+    job: IOcrQueuedJob,
+    error: string,
+    options: {
+        code?: TOcrErrorCode;
+        retryable?: boolean;
+    } = {},
+) {
     const window = getJobWindow(job.webContentsId);
+    clearOcrProgressPump(job.scopedJobId, job.requestId);
     safeSendToWindow(window, OCR_EVENT_CHANNELS.complete, {
         requestId: job.requestId,
         success: false,
         errors: [error],
+        errorEnvelope: createTerminalOcrErrorEnvelope(error, options),
     });
 }
 
@@ -409,9 +498,18 @@ function sendPendingCompletionResult(job: IOcrActiveJob) {
     }
     job.terminalResultSent = true;
     clearJobWatchdog(job.scopedJobId);
+    const terminalResult = result.success || result.errorEnvelope
+        ? result
+        : {
+            ...result,
+            errorEnvelope: createTerminalOcrErrorEnvelope(
+                result.errors[0] ?? 'OCR worker failed without an error message',
+            ),
+        };
+    clearOcrProgressPump(job.scopedJobId, job.requestId);
     safeSendToWindow(getJobWindow(job.webContentsId), OCR_EVENT_CHANNELS.complete, {
         requestId: job.requestId,
-        ...result,
+        ...terminalResult,
     });
     return true;
 }
@@ -433,6 +531,7 @@ function finalizeActiveJob(scopedJobId: string) {
     if (activeJob) {
         trackPendingCompletionResultFile(activeJob);
     }
+    clearOcrProgressPump(scopedJobId);
     activeJobs.delete(scopedJobId);
     dispatchQueuedJobs();
 }
@@ -530,7 +629,7 @@ function handleWorkerMessage(
                 log.debug(`Ignoring late OCR progress for inactive job "${requestId}"`);
                 return;
             }
-            safeSendToWindow(window, OCR_EVENT_CHANNELS.progress, message.progress);
+            enqueueOcrProgress(scopedJobId, window, message.progress);
             return;
         case 'complete': {
             if (message.jobId !== requestId) {
@@ -563,10 +662,12 @@ function handleWorkerMessage(
             if (!result) {
                 if (!activeJob?.terminalResultSent) {
                     log.warn(`OCR cleanup completed before result for job "${requestId}"`);
+                    const error = 'OCR worker completed cleanup before sending a result';
                     safeSendToWindow(window, OCR_EVENT_CHANNELS.complete, {
                         requestId,
                         success: false,
-                        errors: ['OCR worker completed cleanup before sending a result'],
+                        errors: [error],
+                        errorEnvelope: createTerminalOcrErrorEnvelope(error),
                     });
                 }
                 terminateAndFinalizeActiveJob(scopedJobId, { reason: 'worker cleanup completed without result' });
@@ -598,7 +699,10 @@ function startQueuedJob(job: IOcrQueuedJob) {
         worker = createOcrWorker();
     } catch (error) {
         const message = getErrorMessage(error);
-        sendJobFailure(job, `OCR worker unavailable: ${message}`);
+        sendJobFailure(job, `OCR worker unavailable: ${message}`, {
+            code: 'OCR_WORKER_UNAVAILABLE',
+            retryable: true,
+        });
         log.error(`Failed to start OCR worker for job ${job.requestId}: ${message}`);
         dispatchQueuedJobs();
         return;
@@ -989,7 +1093,7 @@ export async function handleOcrAcknowledgeResultFile(
 export function handleOcrCancel(
     event: IpcMainInvokeEvent,
     requestId: string,
-): { canceled: boolean } {
+): IOcrCancelResult {
     const scopedJobId = toScopedOcrJobId(event.sender.id, requestId);
     log.info(`[${requestId}] Cancel requested`);
 
@@ -1008,7 +1112,10 @@ export function handleOcrCancel(
     const activeJob = activeJobs.get(scopedJobId);
     if (!activeJob) {
         log.info(`[${requestId}] No active OCR job found for cancel`);
-        return { canceled: false };
+        return {
+            canceled: false,
+            reason: 'not-found',
+        };
     }
 
     terminateAndFinalizeActiveJob(scopedJobId, {

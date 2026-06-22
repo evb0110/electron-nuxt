@@ -2,6 +2,7 @@ import {
     extname,
     resolve,
 } from 'path';
+import type { WebContents } from 'electron';
 
 const DJVU_WRITE_PATH_MAX_ENTRIES = (() => {
     const parsed = Number.parseInt(process.env.EVB_DJVU_WRITE_PATH_MAX_ENTRIES ?? '64', 10);
@@ -24,12 +25,16 @@ interface IDjvuWriteCapabilityEntry {
 }
 
 const allowedDjvuWritePaths = new Map<string, IDjvuWriteCapabilityEntry>();
+const ownerCleanupRegistered = new Set<number>();
+
+type TDjvuWriteCapabilityOwner = number | WebContents | undefined;
 
 function normalizePath(filePath: string) {
     return resolve(filePath.trim());
 }
 
-function normalizeOwnerWebContentsId(ownerWebContentsId: number | undefined) {
+function normalizeOwnerWebContentsId(owner: TDjvuWriteCapabilityOwner) {
+    const ownerWebContentsId = typeof owner === 'number' ? owner : owner?.id;
     if (typeof ownerWebContentsId !== 'number' || !Number.isInteger(ownerWebContentsId) || ownerWebContentsId < 1) {
         return null;
     }
@@ -72,9 +77,68 @@ function pruneAllowedDjvuWritePaths(now = Date.now()) {
     }
 }
 
-export function allowDjvuWritePath(filePath: string, ownerWebContentsId?: number) {
+function removeAllowedDjvuWritePathsForOwner(ownerWebContentsId: number) {
+    for (const [
+        capabilityKey,
+        capability,
+    ] of allowedDjvuWritePaths.entries()) {
+        if (capability.ownerWebContentsId === ownerWebContentsId) {
+            allowedDjvuWritePaths.delete(capabilityKey);
+        }
+    }
+    ownerCleanupRegistered.delete(ownerWebContentsId);
+}
+
+function registerOwnerCleanup(owner: TDjvuWriteCapabilityOwner, ownerWebContentsId: number | null) {
+    if (
+        typeof owner === 'number'
+        || owner === undefined
+        || ownerWebContentsId === null
+        || ownerCleanupRegistered.has(ownerWebContentsId)
+    ) {
+        return;
+    }
+
+    if (typeof owner.isDestroyed === 'function' && owner.isDestroyed()) {
+        removeAllowedDjvuWritePathsForOwner(ownerWebContentsId);
+        return;
+    }
+
+    if (typeof owner.once !== 'function') {
+        return;
+    }
+
+    const cleanup = () => {
+        owner.removeListener?.('destroyed', cleanup);
+        owner.removeListener?.('render-process-gone', cleanup);
+        owner.removeListener?.('did-start-navigation', handleNavigation);
+        removeAllowedDjvuWritePathsForOwner(ownerWebContentsId);
+    };
+    function handleNavigation(
+        _event: unknown,
+        _url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) {
+        if (isMainFrame && !isInPlace) {
+            cleanup();
+        }
+    }
+
+    ownerCleanupRegistered.add(ownerWebContentsId);
+    owner.once('destroyed', cleanup);
+    owner.once('render-process-gone', cleanup);
+    owner.on?.('did-start-navigation', handleNavigation);
+}
+
+export function allowDjvuWritePath(filePath: string, owner?: TDjvuWriteCapabilityOwner) {
     const normalizedPath = normalizeDjvuOutputPdfPath(filePath);
-    const normalizedOwnerWebContentsId = normalizeOwnerWebContentsId(ownerWebContentsId);
+    const normalizedOwnerWebContentsId = normalizeOwnerWebContentsId(owner);
+    registerOwnerCleanup(owner, normalizedOwnerWebContentsId);
+    if (typeof owner !== 'number' && owner !== undefined && typeof owner.isDestroyed === 'function' && owner.isDestroyed()) {
+        return;
+    }
+
     const capabilityKey = toCapabilityKey(normalizedPath, normalizedOwnerWebContentsId);
     const now = Date.now();
     pruneAllowedDjvuWritePaths(now);
@@ -102,9 +166,9 @@ function consumeCapabilityByKey(capabilityKey: string, now: number) {
     return capability;
 }
 
-export function consumeAllowedDjvuWritePath(filePath: string, ownerWebContentsId?: number) {
+export function consumeAllowedDjvuWritePath(filePath: string, owner?: TDjvuWriteCapabilityOwner) {
     const normalizedPath = normalizeDjvuOutputPdfPath(filePath);
-    const normalizedOwnerWebContentsId = normalizeOwnerWebContentsId(ownerWebContentsId);
+    const normalizedOwnerWebContentsId = normalizeOwnerWebContentsId(owner);
     const now = Date.now();
     pruneAllowedDjvuWritePaths(now);
 

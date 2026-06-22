@@ -103,7 +103,7 @@ describe('useOcr', () => {
             const runPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
 
             await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
-            ocr.cancelOcr();
+            void ocr.cancelOcr();
 
             const settled = await withTimeout(
                 () => runPromise.then(() => 'resolved' as const),
@@ -121,6 +121,68 @@ describe('useOcr', () => {
             expect(completeUnsubscribe).toHaveBeenCalledTimes(1);
             expect(ocr.progress.value.isRunning).toBe(false);
             expect(ocr.error.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('acknowledges late canceled OCR results that require cleanup', async () => {
+        interface IOcrCompleteTestResult {
+            requestId: string;
+            success: boolean;
+            pdfPath?: string;
+            requiresCleanupAck?: boolean;
+            errors: string[];
+        }
+        let completeHandler: ((result: IOcrCompleteTestResult) => void) | null = null;
+        const completeUnsubscribe = vi.fn();
+        mockOcr.onComplete.mockImplementation((handler) => {
+            completeHandler = handler;
+            return completeUnsubscribe;
+        });
+        mockOcr.cancel.mockResolvedValueOnce({
+            canceled: false,
+            reason: 'not-found',
+        });
+        mockOcr.acknowledgeResultFile.mockResolvedValueOnce({ cleaned: true });
+
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            const runPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+
+            await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
+            const requestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
+            const cancelResult = await ocr.cancelOcr();
+
+            expect(cancelResult).toMatchObject({
+                canceled: false,
+                reason: 'not-found',
+            });
+            expect(completeUnsubscribe).not.toHaveBeenCalled();
+
+            const registeredCompleteHandler = mockOcr.onComplete.mock.calls[0]?.[0] ?? completeHandler;
+            if (!registeredCompleteHandler) {
+                throw new Error('OCR completion handler was not registered');
+            }
+            registeredCompleteHandler({
+                requestId,
+                success: true,
+                pdfPath: '/tmp/late-ocr-result.pdf',
+                requiresCleanupAck: true,
+                errors: [],
+            });
+
+            await waitForCondition(() => mockOcr.acknowledgeResultFile.mock.calls.length > 0);
+            await runPromise;
+
+            expect(mockOcr.acknowledgeResultFile).toHaveBeenCalledWith(requestId, '/tmp/late-ocr-result.pdf');
+            expect(completeUnsubscribe).toHaveBeenCalledTimes(1);
+            expect(ocr.results.value.searchablePdfResult).toBeNull();
         } finally {
             scope.stop();
         }
@@ -348,6 +410,88 @@ describe('useOcr', () => {
         } finally {
             scope.stop();
             vi.useRealTimers();
+        }
+    });
+
+    it('preserves searchable PDF start envelopes as start failures', async () => {
+        mockOcr.createSearchablePdf.mockResolvedValueOnce({
+            started: false,
+            jobId: 'job-start-failure',
+            error: 'fallback start failure',
+            errorEnvelope: {
+                code: 'OCR_QUEUE_BACKPRESSURE',
+                message: 'OCR queue is full',
+                retryable: true,
+                timestamp: 123,
+            },
+        });
+
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            await ocr.runOcr(1, 1, '/tmp/work.pdf');
+
+            expect(ocr.error.value).toBe('errors.ocr.start: OCR queue is full');
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('prefers terminal completion envelopes over plain OCR error strings', async () => {
+        interface IOcrCompleteTestResult {
+            requestId: string;
+            success: boolean;
+            pdfPath?: string;
+            requiresCleanupAck?: boolean;
+            errors: string[];
+            errorEnvelope?: {
+                code: 'OCR_WORKER_UNAVAILABLE';
+                message: string;
+                retryable: boolean;
+                timestamp: number;
+            };
+        }
+        let completeHandler: ((result: IOcrCompleteTestResult) => void) | null = null;
+        mockOcr.onComplete.mockImplementation((handler) => {
+            completeHandler = handler;
+            return vi.fn();
+        });
+
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            const runPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+
+            await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
+            const requestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
+            const registeredCompleteHandler = mockOcr.onComplete.mock.calls[0]?.[0] ?? completeHandler;
+            if (!registeredCompleteHandler) {
+                throw new Error('OCR completion handler was not registered');
+            }
+            registeredCompleteHandler({
+                requestId,
+                success: false,
+                errors: ['low-level worker detail'],
+                errorEnvelope: {
+                    code: 'OCR_WORKER_UNAVAILABLE',
+                    message: 'OCR worker unavailable',
+                    retryable: true,
+                    timestamp: 123,
+                },
+            });
+            await runPromise;
+
+            expect(ocr.error.value).toBe('errors.ocr.createSearchablePdf: OCR worker unavailable');
+        } finally {
+            scope.stop();
         }
     });
 

@@ -2,6 +2,7 @@ import {
     extname,
     resolve,
 } from 'path';
+import type { WebContents } from 'electron';
 
 const DOCX_WRITE_PATH_MAX_ENTRIES = (() => {
     const parsed = Number.parseInt(process.env.EVB_DOCX_WRITE_PATH_MAX_ENTRIES ?? '64', 10);
@@ -21,6 +22,9 @@ const allowedDocxWritePaths = new Map<string, {
     expiresAt: number;
     senderWebContentsId: number;
 }>();
+const ownerCleanupRegistered = new Set<number>();
+
+type TDocxWritePathOwner = number | WebContents;
 
 function normalizePath(filePath: string) {
     return resolve(filePath.trim());
@@ -58,8 +62,71 @@ function pruneAllowedDocxWritePaths(now = Date.now()) {
     }
 }
 
-export function allowDocxWritePath(filePath: string, senderWebContentsId: number) {
+function getOwnerWebContentsId(owner: TDocxWritePathOwner) {
+    if (typeof owner === 'number') {
+        return owner;
+    }
+
+    return typeof owner.id === 'number' ? owner.id : 0;
+}
+
+function removeAllowedDocxWritePathsForOwner(senderWebContentsId: number) {
+    for (const [
+        docxPath,
+        grant,
+    ] of allowedDocxWritePaths.entries()) {
+        if (grant.senderWebContentsId === senderWebContentsId) {
+            allowedDocxWritePaths.delete(docxPath);
+        }
+    }
+    ownerCleanupRegistered.delete(senderWebContentsId);
+}
+
+function registerOwnerCleanup(owner: TDocxWritePathOwner, senderWebContentsId: number) {
+    if (typeof owner === 'number' || senderWebContentsId === 0 || ownerCleanupRegistered.has(senderWebContentsId)) {
+        return;
+    }
+
+    if (typeof owner.isDestroyed === 'function' && owner.isDestroyed()) {
+        removeAllowedDocxWritePathsForOwner(senderWebContentsId);
+        return;
+    }
+
+    if (typeof owner.once !== 'function') {
+        return;
+    }
+
+    const cleanup = () => {
+        owner.removeListener?.('destroyed', cleanup);
+        owner.removeListener?.('render-process-gone', cleanup);
+        owner.removeListener?.('did-start-navigation', handleNavigation);
+        removeAllowedDocxWritePathsForOwner(senderWebContentsId);
+    };
+    function handleNavigation(
+        _event: unknown,
+        _url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) {
+        if (isMainFrame && !isInPlace) {
+            cleanup();
+        }
+    }
+
+    ownerCleanupRegistered.add(senderWebContentsId);
+    owner.once('destroyed', cleanup);
+    owner.once('render-process-gone', cleanup);
+    owner.on?.('did-start-navigation', handleNavigation);
+}
+
+export function allowDocxWritePath(filePath: string, owner: TDocxWritePathOwner) {
     const normalizedPath = normalizeDocxPath(filePath);
+    const senderWebContentsId = getOwnerWebContentsId(owner);
+    registerOwnerCleanup(owner, senderWebContentsId);
+    if (typeof owner !== 'number' && typeof owner.isDestroyed === 'function' && owner.isDestroyed()) {
+        return;
+    }
+
     const now = Date.now();
     pruneAllowedDocxWritePaths(now);
     if (allowedDocxWritePaths.has(normalizedPath)) {

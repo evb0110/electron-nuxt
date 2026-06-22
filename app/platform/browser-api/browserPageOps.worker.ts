@@ -14,6 +14,10 @@ import type {
     TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerResponse,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
+import {
+    getBrowserPageOpsWorkerRequestId,
+    parseBrowserPageOpsWorkerRequest,
+} from '@app/platform/browser-api/browserPageOpsWorker.types';
 import { getErrorMessage } from '@app/utils/error';
 
 function toTransferableUint8Array(data: Uint8Array) {
@@ -122,11 +126,24 @@ async function handleRequest(
             return handleRemoveCropRequest(request);
         case 'getPageGeometry':
             return handleGetPageGeometryRequest(request);
+        default:
+            throw new Error(`Unsupported browser page operation request: ${(request as {type: string}).type}`);
     }
 }
 
-self.addEventListener('message', async (event: MessageEvent<TBrowserPageOpsWorkerRequest>) => {
-    const request = event.data;
+self.addEventListener('message', async (event: MessageEvent<unknown>) => {
+    const request = parseBrowserPageOpsWorkerRequest(event.data);
+    if (request === null) {
+        const id = getBrowserPageOpsWorkerRequestId(event.data);
+        if (id !== null) {
+            self.postMessage({
+                id,
+                ok: false,
+                error: 'Invalid browser page operation worker request',
+            } satisfies TBrowserPageOpsWorkerResponse);
+        }
+        return;
+    }
 
     try {
         const data = await handleRequest(request);

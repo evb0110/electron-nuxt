@@ -2,8 +2,11 @@ import { PDFDocument } from 'pdf-lib';
 import { iterateDecodedTiffFrames } from '@pdf-core';
 import type {
     IBrowserPdfCombineWorkerRequest,
-    TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerResponse,
+} from '@app/platform/browser-api/browserPdfCombineWorker.types';
+import {
+    getBrowserPdfCombineWorkerRequestId,
+    parseBrowserPdfCombineWorkerRequest,
 } from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import { appendPdfImagePage } from '@app/platform/browser-api/appendPdfImagePage';
 import {
@@ -148,8 +151,19 @@ async function handleCombinePdfsRequest(
     return { data };
 }
 
-self.addEventListener('message', async (event: MessageEvent<TBrowserPdfCombineWorkerRequest>) => {
-    const request = event.data;
+self.addEventListener('message', async (event: MessageEvent<unknown>) => {
+    const request = parseBrowserPdfCombineWorkerRequest(event.data);
+    if (request === null) {
+        const id = getBrowserPdfCombineWorkerRequestId(event.data);
+        if (id !== null) {
+            self.postMessage({
+                id,
+                ok: false,
+                error: 'Invalid browser PDF combine worker request',
+            } satisfies TBrowserPdfCombineWorkerResponse);
+        }
+        return;
+    }
 
     try {
         const data = await handleCombinePdfsRequest(

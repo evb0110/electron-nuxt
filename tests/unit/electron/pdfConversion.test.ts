@@ -172,10 +172,13 @@ vi.mock('pdf-lib', () => ({PDFDocument: {
     load: mocks.load,
 }}));
 
-vi.mock('electron', () => ({nativeImage: {createFromPath: vi.fn(() => ({
-    isEmpty: () => true,
-    toPNG: () => new Uint8Array(),
-}))}}));
+vi.mock('electron', () => ({
+    app: {isPackaged: false},
+    nativeImage: {createFromPath: vi.fn(() => ({
+        isEmpty: () => true,
+        toPNG: () => new Uint8Array(),
+    }))},
+}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: mocks.loggerWarn,

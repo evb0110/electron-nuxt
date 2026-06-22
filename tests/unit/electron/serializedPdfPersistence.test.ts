@@ -125,7 +125,7 @@ describe('serializedPdfPersistence', () => {
             mocks.ensureWorkingCopyDirectory.mock.invocationCallOrder[0]!,
         ).toBeLessThan(mocks.atomicReplace.mock.invocationCallOrder[0]!);
         expect(mocks.setWorkingCopyOriginalPath).toHaveBeenCalledWith(workingPath, targetPath, 42);
-        expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath, 42);
+        expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath, expect.objectContaining({ id: 42 }));
         expect(mocks.addRecentFile).toHaveBeenCalledWith(targetPath);
         expect(mocks.updateRecentFilesMenu).toHaveBeenCalled();
     });
@@ -407,6 +407,15 @@ describe('serializedPdfPersistence', () => {
             4,
             targetPath,
         );
+        expect(beginResult).toMatchObject({
+            sessionId: expect.any(String),
+            protocolVersion: 1,
+            maxChunkBytes: 8 * 1024 * 1024,
+            maxInFlightChunks: 2,
+            maxTotalBytes: expect.any(Number),
+            ackTimeoutMs: expect.any(Number),
+            resultTimeoutMs: expect.any(Number),
+        });
 
         attachSerializedPdfPersistencePort({
             sender,
@@ -482,6 +491,138 @@ describe('serializedPdfPersistence', () => {
         });
         expect(removeListenerSpy).toHaveBeenCalledWith('destroyed', expect.any(Function));
         expect(removeListenerSpy).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
+    });
+
+    it('cleans an open Save As session on non-in-place main-frame navigation before streaming starts', async () => {
+        const targetPath = join(tempRoot, 'navigated-renderer.pdf');
+        const tempPath = `${targetPath}.tmp`;
+        const sender = new EventEmitter() as EventEmitter & { id: number };
+        sender.id = 75;
+        const removeListenerSpy = vi.spyOn(sender, 'removeListener');
+        const { beginSerializedPdfSaveAs } = await import('@electron/features/documents/main/serializedPdfPersistence');
+
+        await beginSerializedPdfSaveAs(
+            {sender} as never,
+            join(tempRoot, 'working.pdf'),
+            128,
+            targetPath,
+        );
+
+        expect(existsSync(tempPath)).toBe(true);
+
+        sender.emit('did-start-navigation', {}, 'https://example.invalid/', false, true);
+
+        await waitForCondition(() => {
+            expect(existsSync(tempPath)).toBe(false);
+        });
+        expect(removeListenerSpy).toHaveBeenCalledWith('destroyed', expect.any(Function));
+        expect(removeListenerSpy).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
+        expect(removeListenerSpy).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
+    });
+
+    it('rejects new streams above the per-sender active session limit', async () => {
+        const sender = new EventEmitter() as EventEmitter & { id: number };
+        sender.id = 80;
+        const { beginSerializedPdfSaveAs } = await import('@electron/features/documents/main/serializedPdfPersistence');
+        const targetPaths = Array.from({length: 4}, (_, index) => join(tempRoot, `limited-${index}.pdf`));
+
+        for (const targetPath of targetPaths) {
+            await expect(beginSerializedPdfSaveAs(
+                {sender} as never,
+                join(tempRoot, 'working.pdf'),
+                128,
+                targetPath,
+            )).resolves.toMatchObject({sessionId: expect.any(String)});
+        }
+
+        await expect(beginSerializedPdfSaveAs(
+            {sender} as never,
+            join(tempRoot, 'working.pdf'),
+            128,
+            join(tempRoot, 'limited-overflow.pdf'),
+        )).rejects.toThrow('Too many active PDF persistence streams');
+
+        sender.emit('destroyed');
+        await waitForCondition(() => {
+            for (const targetPath of targetPaths) {
+                expect(existsSync(`${targetPath}.tmp`)).toBe(false);
+            }
+        });
+    });
+
+    it('rejects duplicate MessagePort attachment for a serialized PDF session', async () => {
+        const targetPath = join(tempRoot, 'duplicate-port.pdf');
+        const tempPath = `${targetPath}.tmp`;
+        const sender = new EventEmitter() as EventEmitter & { id: number };
+        sender.id = 81;
+        const port = new FakeMessagePort();
+        const {
+            attachSerializedPdfPersistencePort,
+            beginSerializedPdfSaveAs,
+        } = await import('@electron/features/documents/main/serializedPdfPersistence');
+
+        const beginResult = await beginSerializedPdfSaveAs(
+            {sender} as never,
+            join(tempRoot, 'working.pdf'),
+            128,
+            targetPath,
+        );
+        attachSerializedPdfPersistencePort({
+            sender,
+            ports: [port],
+        } as never, beginResult.sessionId);
+
+        expect(() => attachSerializedPdfPersistencePort({
+            sender,
+            ports: [new FakeMessagePort()],
+        } as never, beginResult.sessionId)).toThrow('PDF persistence MessagePort is already attached');
+
+        port.close();
+        await waitForCondition(() => {
+            expect(existsSync(tempPath)).toBe(false);
+        });
+    });
+
+    it('rejects serialized PDF chunks larger than the protocol chunk budget', async () => {
+        const targetPath = join(tempRoot, 'oversized-chunk.pdf');
+        const tempPath = `${targetPath}.tmp`;
+        const sender = new EventEmitter() as EventEmitter & { id: number };
+        sender.id = 82;
+        const port = new FakeMessagePort();
+        const {
+            attachSerializedPdfPersistencePort,
+            beginSerializedPdfSaveAs,
+        } = await import('@electron/features/documents/main/serializedPdfPersistence');
+
+        const beginResult = await beginSerializedPdfSaveAs(
+            {sender} as never,
+            join(tempRoot, 'working.pdf'),
+            (8 * 1024 * 1024) + 1,
+            targetPath,
+        );
+        attachSerializedPdfPersistencePort({
+            sender,
+            ports: [port],
+        } as never, beginResult.sessionId);
+
+        port.emit('message', {data: {
+            type: 'chunk',
+            seq: 0,
+            bytes: new Uint8Array((8 * 1024 * 1024) + 1),
+        }});
+
+        await expect(port.nextMessage(message => isPortMessage(message, 'error'))).resolves.toMatchObject({
+            type: 'error',
+            code: 'PROTOCOL_ERROR',
+            phase: 'streaming',
+            retryable: false,
+            expected: false,
+            seq: 0,
+            error: expect.stringContaining('PDF persistence chunk exceeds maximum size'),
+        });
+        await waitForCondition(() => {
+            expect(existsSync(tempPath)).toBe(false);
+        });
     });
 });
 

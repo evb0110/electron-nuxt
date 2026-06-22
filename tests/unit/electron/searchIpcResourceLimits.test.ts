@@ -175,6 +175,8 @@ function createInvokeEvent(senderId: number) {
     const sender = {
         id: senderId,
         once: vi.fn(),
+        on: vi.fn(),
+        removeListener: vi.fn(),
     };
     mocks.webContentsById.set(senderId, {
         isDestroyed: () => false,
@@ -199,6 +201,25 @@ function getCancelHandler() {
     return handler;
 }
 
+function getWarmIndexHandler() {
+    const handler = mocks.handlers.get('pdf:search:warmIndex');
+    if (!handler) {
+        throw new Error('pdf:search:warmIndex handler is not registered');
+    }
+    return handler;
+}
+
+function triggerMainFrameNavigation(event: ReturnType<typeof createInvokeEvent>) {
+    const handler = event.sender.on.mock.calls
+        .find(call => call[0] === 'did-start-navigation')?.[1] as ((
+            event: unknown,
+            url: string,
+            isInPlace: boolean,
+            isMainFrame: boolean,
+        ) => void) | undefined;
+    handler?.({}, 'app://reload', false, true);
+}
+
 describe('search IPC worker resource limits', () => {
     beforeEach(() => {
         vi.resetModules();
@@ -215,6 +236,55 @@ describe('search IPC worker resource limits', () => {
         mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/allowed.pdf');
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
         mocks.existsSync.mockReturnValue(false);
+    });
+
+    it('rejects oversized search request ids before allocating a worker', async () => {
+        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
+        registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+        const oversizedRequestId = 'x'.repeat(129);
+
+        await expect(searchHandler(
+            createInvokeEvent(10),
+            {
+                pdfPath: '/tmp/one.pdf',
+                query: 'first',
+                requestId: oversizedRequestId,
+            },
+        )).rejects.toThrow('requestId exceeds maximum length (128)');
+
+        expect(mocks.workerCtor).not.toHaveBeenCalled();
+        expect(mocks.resolveAllowedReadPath).not.toHaveBeenCalled();
+    });
+
+    it('rejects oversized warm-index request ids before allocating a worker', async () => {
+        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
+        registerSearchHandlers();
+        const warmIndexHandler = getWarmIndexHandler();
+        const oversizedRequestId = 'x'.repeat(129);
+
+        await expect(warmIndexHandler(
+            createInvokeEvent(10),
+            {
+                pdfPath: '/tmp/one.pdf',
+                pageCount: 3,
+                requestId: oversizedRequestId,
+            },
+        )).rejects.toThrow('requestId exceeds maximum length (128)');
+
+        expect(mocks.workerCtor).not.toHaveBeenCalled();
+        expect(mocks.resolveAllowedReadPath).not.toHaveBeenCalled();
+    });
+
+    it('rejects oversized cancel request ids before looking up sender state', async () => {
+        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
+        registerSearchHandlers();
+        const cancelHandler = getCancelHandler();
+        const oversizedRequestId = 'x'.repeat(129);
+
+        expect(() => cancelHandler(createInvokeEvent(10), oversizedRequestId))
+            .toThrow('requestId exceeds maximum length (128)');
+        expect(mocks.workerCtor).not.toHaveBeenCalled();
     });
 
     it('fails fast when cap is reached and no idle worker can be reused', async () => {
@@ -302,6 +372,11 @@ describe('search IPC worker resource limits', () => {
             'req-a',
             'req-b',
         ]);
+        expect(mocks.workerRecords[0]?.postMessageCalls.map(message => message.type)).toEqual([
+            'search',
+            'reset-state',
+            'search',
+        ]);
     });
 
     it('keeps normal per-sender search flow unchanged', async () => {
@@ -352,7 +427,7 @@ describe('search IPC worker resource limits', () => {
             label: 'fractional',
             pageNumber: 1.5,
         },
-    ])('ignores complete messages with $label worker pageNumber', async ({
+    ])('rejects complete messages with $label worker pageNumber', async ({
         label,
         pageNumber,
     }) => {
@@ -373,36 +448,19 @@ describe('search IPC worker resource limits', () => {
             results: unknown[];
             truncated: boolean
         }>;
-        let settled = false;
-        void searchPromise.then(
-            () => {
-                settled = true;
-            },
-            () => {
-                settled = true;
-            },
-        );
 
         await vi.waitFor(() => {
             expect(mocks.workerRecords).toHaveLength(1);
         });
 
         emitWorkerCompleteWithResults(0, requestId, [buildSearchMatch({pageNumber})]);
-        await Promise.resolve();
-
-        expect(settled).toBe(false);
+        await expect(searchPromise)
+            .rejects.toThrow(`Search worker sent malformed message for request "${requestId}"`);
         expect(mocks.logger.warn).toHaveBeenCalledWith('Search worker sent malformed message for sender 170');
-
-        const validResult = buildSearchMatch({pageNumber: 2});
-        emitWorkerCompleteWithResults(0, requestId, [validResult]);
-
-        await expect(searchPromise).resolves.toEqual({
-            results: [validResult],
-            truncated: false,
-        });
+        expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledOnce();
     });
 
-    it('ignores complete messages with worker pageNumber above known pageCount', async () => {
+    it('rejects complete messages with worker pageNumber above known pageCount', async () => {
         mocks.autoCompleteSearch = false;
 
         const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
@@ -421,36 +479,19 @@ describe('search IPC worker resource limits', () => {
             results: unknown[];
             truncated: boolean
         }>;
-        let settled = false;
-        void searchPromise.then(
-            () => {
-                settled = true;
-            },
-            () => {
-                settled = true;
-            },
-        );
 
         await vi.waitFor(() => {
             expect(mocks.workerRecords).toHaveLength(1);
         });
 
         emitWorkerCompleteWithResults(0, requestId, [buildSearchMatch({pageNumber: 999})]);
-        await Promise.resolve();
-
-        expect(settled).toBe(false);
+        await expect(searchPromise)
+            .rejects.toThrow(`Search worker sent malformed message for request "${requestId}"`);
         expect(mocks.logger.warn).toHaveBeenCalledWith('Search worker sent malformed message for sender 172');
-
-        const validResult = buildSearchMatch({pageNumber: 2});
-        emitWorkerCompleteWithResults(0, requestId, [validResult]);
-
-        await expect(searchPromise).resolves.toEqual({
-            results: [validResult],
-            truncated: false,
-        });
+        expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledOnce();
     });
 
-    it('ignores progress messages with invalid result indices and offsets', async () => {
+    it('rejects progress messages with invalid result indices and offsets', async () => {
         mocks.autoCompleteSearch = false;
 
         const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
@@ -474,65 +515,24 @@ describe('search IPC worker resource limits', () => {
             expect(mocks.workerRecords).toHaveLength(1);
         });
 
-        const sender = mocks.webContentsById.get(171);
-        if (!sender) {
-            throw new Error('Expected sender webContents mock');
-        }
-
-        const invalidProgressResultOverrides = [
-            {pageMatchIndex: -1},
-            {pageMatchIndex: 0.5},
-            {matchIndex: -1},
-            {matchIndex: 0.5},
-            {startOffset: -1},
-            {startOffset: 2.5},
-            {endOffset: -1},
-            {endOffset: 6.5},
-            {
-                startOffset: 8,
-                endOffset: 6,
-            },
-        ];
-
-        for (const overrides of invalidProgressResultOverrides) {
-            emitWorkerEvent(0, 'message', {
-                type: 'progress',
-                requestId,
-                processed: 1,
-                total: 2,
-                results: [buildSearchMatch(overrides)],
-                truncated: false,
-            });
-        }
-
-        expect(sender.send).not.toHaveBeenCalled();
-        expect(mocks.logger.warn).toHaveBeenCalledTimes(invalidProgressResultOverrides.length);
-
-        const validResult = buildSearchMatch();
         emitWorkerEvent(0, 'message', {
             type: 'progress',
             requestId,
             processed: 1,
             total: 2,
-            results: [validResult],
+            results: [buildSearchMatch({
+                startOffset: 8,
+                endOffset: 6,
+            })],
             truncated: false,
         });
-        expect(sender.send).toHaveBeenCalledWith('pdf:search:progress', {
-            requestId,
-            processed: 1,
-            total: 2,
-            results: [validResult],
-            truncated: false,
-        });
-
-        emitWorkerComplete(0, requestId);
-        await expect(searchPromise).resolves.toEqual({
-            results: [],
-            truncated: false,
-        });
+        await expect(searchPromise)
+            .rejects.toThrow(`Search worker sent malformed message for request "${requestId}"`);
+        expect(mocks.logger.warn).toHaveBeenCalledWith('Search worker sent malformed message for sender 171');
+        expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledOnce();
     });
 
-    it('ignores progress messages with worker pageNumber above known pageCount', async () => {
+    it('rejects progress messages with worker pageNumber above known pageCount', async () => {
         mocks.autoCompleteSearch = false;
 
         const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
@@ -556,11 +556,6 @@ describe('search IPC worker resource limits', () => {
             expect(mocks.workerRecords).toHaveLength(1);
         });
 
-        const sender = mocks.webContentsById.get(173);
-        if (!sender) {
-            throw new Error('Expected sender webContents mock');
-        }
-
         emitWorkerEvent(0, 'message', {
             type: 'progress',
             requestId,
@@ -569,33 +564,90 @@ describe('search IPC worker resource limits', () => {
             results: [buildSearchMatch({pageNumber: 999})],
             truncated: false,
         });
-        await Promise.resolve();
-
-        expect(sender.send).not.toHaveBeenCalled();
+        await expect(searchPromise)
+            .rejects.toThrow(`Search worker sent malformed message for request "${requestId}"`);
         expect(mocks.logger.warn).toHaveBeenCalledWith('Search worker sent malformed message for sender 173');
+        expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledOnce();
+    });
 
-        const validResult = buildSearchMatch({pageNumber: 2});
-        emitWorkerEvent(0, 'message', {
-            type: 'progress',
-            requestId,
-            processed: 1,
-            total: 2,
-            results: [validResult],
-            truncated: false,
-        });
-        expect(sender.send).toHaveBeenCalledWith('pdf:search:progress', {
-            requestId,
-            processed: 1,
-            total: 2,
-            results: [validResult],
-            truncated: false,
+    it('caps oversized worker search results before resolving to the renderer', async () => {
+        mocks.autoCompleteSearch = false;
+
+        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
+        registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+        const requestId = 'oversized-complete-results';
+        const searchPromise = searchHandler(
+            createInvokeEvent(177),
+            {
+                pdfPath: '/tmp/one.pdf',
+                query: 'needle',
+                requestId,
+            },
+        ) as Promise<{
+            results: unknown[];
+            truncated: boolean
+        }>;
+
+        await vi.waitFor(() => {
+            expect(mocks.workerRecords).toHaveLength(1);
         });
 
-        emitWorkerComplete(0, requestId);
-        await expect(searchPromise).resolves.toEqual({
-            results: [],
-            truncated: false,
+        const results = Array.from({length: 505}, (_value, index) => buildSearchMatch({
+            matchIndex: index,
+            excerpt: {
+                prefix: false,
+                suffix: false,
+                before: 'b'.repeat(5_000),
+                match: 'needle',
+                after: 'a'.repeat(5_000),
+            },
+        }));
+        emitWorkerCompleteWithResults(0, requestId, results);
+
+        await expect(searchPromise).resolves.toMatchObject({
+            results: expect.any(Array),
+            truncated: true,
         });
+        const response = await searchPromise;
+        expect(response.results).toHaveLength(500);
+        expect(response.results[0]).toMatchObject({excerpt: {
+            prefix: true,
+            suffix: true,
+            before: 'b'.repeat(4_096),
+            match: 'needle',
+            after: 'a'.repeat(4_096),
+        }});
+    });
+
+    it('cancels pending search work when the renderer main frame navigates', async () => {
+        mocks.autoCompleteSearch = false;
+
+        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
+        registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+        const event = createInvokeEvent(174);
+        const searchPromise = searchHandler(
+            event,
+            {
+                pdfPath: '/tmp/one.pdf',
+                query: 'needle',
+                requestId: 'nav-cancel',
+            },
+        ) as Promise<{
+            results: unknown[];
+            truncated: boolean
+        }>;
+
+        await vi.waitFor(() => {
+            expect(mocks.workerRecords).toHaveLength(1);
+        });
+
+        triggerMainFrameNavigation(event);
+
+        await expect(searchPromise).rejects.toThrow('Renderer navigated');
+        expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledOnce();
+        expect(event.sender.removeListener).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
     });
 
     it.each([
@@ -673,10 +725,18 @@ describe('search IPC worker resource limits', () => {
                 });
             } else if (mode === 'cancel') {
                 expect(cancelHandler(event, requestId)).toEqual({ canceled: true });
+                expect(sender.send).toHaveBeenCalledWith('pdf:search:progress', {
+                    requestId,
+                    processed: 0,
+                    total: 0,
+                    canceled: true,
+                });
                 await expect(searchPromise).resolves.toEqual({
                     results: [],
                     truncated: false,
+                    canceled: true,
                 });
+                sender.send.mockClear();
             } else {
                 const timeoutRejection = expect(searchPromise)
                     .rejects.toThrow('Search request timed out after 5000ms');
@@ -841,6 +901,7 @@ describe('search IPC worker resource limits', () => {
             await expect(searchPromise).resolves.toEqual({
                 results: [],
                 truncated: false,
+                canceled: true,
             });
 
             await vi.advanceTimersByTimeAsync(10_000);

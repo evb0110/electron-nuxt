@@ -12,6 +12,7 @@ import {
     getPageGeometryLocal,
     removeCropFromPagesLocal,
 } from '@electron/features/page-ops/main/cropLocal';
+import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { getErrorMessage } from '@electron/utils/error';
 
 function getInput(): TCropWorkerInput {
@@ -75,6 +76,7 @@ async function run() {
             type: 'result',
             ok: false,
             error: getErrorMessage(error),
+            errorFrame: createWorkerTaskErrorFrame(error, {source: 'page-ops:crop-worker'}),
         } satisfies TCropWorkerResult);
     }
 }

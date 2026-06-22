@@ -96,6 +96,7 @@ describe('runInitSequence external open IPC', () => {
             },
             logStartupPhase: vi.fn(),
             markWindowRendererReady: vi.fn(),
+            markWindowTabTransferNotReady: vi.fn(),
             markWindowTabTransferReady: vi.fn(),
             markWindowTabTransferWindowClosed: vi.fn(),
             maybePromptForDefaultViewer: vi.fn(),

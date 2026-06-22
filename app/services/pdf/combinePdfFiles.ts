@@ -54,8 +54,8 @@ function emitCompleteProgress(
 
 async function combineElectronFiles(options: ICombinePdfFilesOptions): Promise<TOpenFileResult> {
     const documents = getDocumentsCapability();
-    const inputPaths = options.files
-        .map(entry => documents.getPathForFile(entry.file).trim())
+    const inputPaths = documents.getPathsForFiles(options.files.map(entry => entry.file))
+        .map(path => path.trim())
         .filter(path => path.length > 0);
 
     if (inputPaths.length !== options.files.length) {
@@ -65,7 +65,10 @@ async function combineElectronFiles(options: ICombinePdfFilesOptions): Promise<T
     const requestId = crypto.randomUUID();
     let latestProgress: ICombinePdfProgress | null = null;
     const stopProgress = documents.onOpenDocumentDirectBatchProgress((nextProgress) => {
-        if (nextProgress.requestId !== requestId) {
+        if (
+            nextProgress.operation !== 'document-open'
+            || nextProgress.requestId !== requestId
+        ) {
             return;
         }
 

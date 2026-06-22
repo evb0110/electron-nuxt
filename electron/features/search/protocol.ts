@@ -22,6 +22,7 @@ interface ISearchWorkerInboundByType {
     search: {payload: ISearchWorkerRequest;};
     cancel: {requestId: string;};
     'reset-cache': Record<never, never>;
+    'reset-state': Record<never, never>;
 }
 
 interface ISearchWorkerOutboundByType {
@@ -31,6 +32,7 @@ interface ISearchWorkerOutboundByType {
         total: number;
         results?: ISearchMatch[];
         truncated?: boolean;
+        canceled?: boolean;
     };
     complete: {
         requestId: string;

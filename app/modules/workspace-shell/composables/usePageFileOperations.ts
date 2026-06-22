@@ -17,6 +17,22 @@ import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
+type TPageFileOpenOutcome =
+    | TDocumentOpenOutcome
+    | {
+        status: 'blocked';
+        reason: 'persistence-gate';
+    }
+    | {
+        status: 'opened-in-new-tab';
+        result: TOpenFileResult;
+    };
+
+function didCompletePageFileOpen(outcome: TPageFileOpenOutcome) {
+    return outcome.status === 'opened'
+        || outcome.status === 'opened-in-new-tab';
+}
+
 export interface IPageFileOperationsDeps {
     pdfSrc: Ref<TPdfSource | null>;
     hasDocument: Ref<boolean>;
@@ -71,6 +87,12 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         removeRecentFile,
         notifyMissingRecentFile,
     } = deps;
+    const lastOpenOutcome = ref<TPageFileOpenOutcome | null>(null);
+
+    function recordOpenOutcome(outcome: TPageFileOpenOutcome) {
+        lastOpenOutcome.value = outcome;
+        return outcome;
+    }
 
     async function waitUntilAllIdle() {
         await waitUntilIdle(() =>
@@ -190,18 +212,21 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         }
     }
 
-    async function runPickerWithPersistence(
+    async function runPickerWithPersistenceDetailed(
         pick: () => Promise<TOpenFileResult | null>,
         options: { openGeneratedInNewTab: boolean },
     ) {
         const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
         if (!canProceed) {
-            return false;
+            return recordOpenOutcome({
+                status: 'blocked',
+                reason: 'persistence-gate',
+            });
         }
 
         const result = await pick();
         if (!result) {
-            return false;
+            return recordOpenOutcome({ status: 'cancelled' });
         }
 
         if (
@@ -212,14 +237,28 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         ) {
             emitOpenInNewTab(result);
             closeAllDropdowns();
-            return true;
+            return recordOpenOutcome({
+                status: 'opened-in-new-tab',
+                result,
+            });
         }
 
-        return runOpenOutcome(() => openFile(result));
+        return runOpenOutcomeDetailed(() => openFile(result));
+    }
+
+    async function runPickerWithPersistence(
+        pick: () => Promise<TOpenFileResult | null>,
+        options: { openGeneratedInNewTab: boolean },
+    ) {
+        return didCompletePageFileOpen(await runPickerWithPersistenceDetailed(pick, options));
+    }
+
+    async function handleOpenFileFromUiDetailed() {
+        return runPickerWithPersistenceDetailed(pickFileToOpen, { openGeneratedInNewTab: true });
     }
 
     async function handleOpenFileFromUi() {
-        return runPickerWithPersistence(pickFileToOpen, { openGeneratedInNewTab: true });
+        return didCompletePageFileOpen(await handleOpenFileFromUiDetailed());
     }
 
     async function pickCombineFiles() {
@@ -230,6 +269,10 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return runPickerWithPersistence(pickCombineFiles, { openGeneratedInNewTab: true });
     }
 
+    async function handleCombineImagesDetailed() {
+        return runPickerWithPersistenceDetailed(pickCombineFiles, { openGeneratedInNewTab: true });
+    }
+
     async function pickFolderToOpen() {
         return getDocumentsCapability().openFolderDialog();
     }
@@ -238,7 +281,11 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return runPickerWithPersistence(pickFolderToOpen, { openGeneratedInNewTab: true });
     }
 
-    async function handleOpenFileDirectWithPersist(path: TDocumentRef) {
+    async function handleOpenFolderFromUiDetailed() {
+        return runPickerWithPersistenceDetailed(pickFolderToOpen, { openGeneratedInNewTab: true });
+    }
+
+    async function handleOpenFileDirectWithPersistDetailed(path: TDocumentRef) {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'handleOpenFileDirectWithPersist called', {
             path,
             hadDocumentBeforeOpen: Boolean(pdfSrc.value),
@@ -248,7 +295,10 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
         if (!canProceed) {
             BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Open path aborted by persistence gate', { path });
-            return false;
+            return recordOpenOutcome({
+                status: 'blocked',
+                reason: 'persistence-gate',
+            });
         }
         let outcome = await openFileDirect(path);
         if (outcome.status === 'stale' && !pdfSrc.value) {
@@ -268,35 +318,53 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
                 status: outcome.status,
                 error: outcome.status === 'failed' ? outcome.error : undefined,
             });
-            return false;
+            return recordOpenOutcome(outcome);
         }
         closeAllDropdowns();
-        return true;
+        return recordOpenOutcome(outcome);
     }
 
-    async function runOpenOutcome(open: () => Promise<TDocumentOpenOutcome>) {
+    async function handleOpenFileDirectWithPersist(path: TDocumentRef) {
+        return didCompletePageFileOpen(await handleOpenFileDirectWithPersistDetailed(path));
+    }
+
+    async function runOpenOutcomeDetailed(open: () => Promise<TDocumentOpenOutcome>) {
         const outcome = await open();
         const opened = didOpenDocument(outcome);
         if (opened) {
             closeAllDropdowns();
         }
-        return opened;
+        return recordOpenOutcome(outcome);
+    }
+
+    async function handleOpenFileWithResultDetailed(result: TOpenFileResult) {
+        const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
+        if (!canProceed) {
+            return recordOpenOutcome({
+                status: 'blocked',
+                reason: 'persistence-gate',
+            });
+        }
+        return runOpenOutcomeDetailed(() => openFile(result));
     }
 
     async function handleOpenFileWithResult(result: TOpenFileResult) {
+        return didCompletePageFileOpen(await handleOpenFileWithResultDetailed(result));
+    }
+
+    async function handleOpenFileDirectBatchWithPersistDetailed(paths: string[]) {
         const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
         if (!canProceed) {
-            return false;
+            return recordOpenOutcome({
+                status: 'blocked',
+                reason: 'persistence-gate',
+            });
         }
-        return runOpenOutcome(() => openFile(result));
+        return runOpenOutcomeDetailed(() => openFileDirectBatch(paths));
     }
 
     async function handleOpenFileDirectBatchWithPersist(paths: string[]) {
-        const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
-        if (!canProceed) {
-            return false;
-        }
-        return runOpenOutcome(() => openFileDirectBatch(paths));
+        return didCompletePageFileOpen(await handleOpenFileDirectBatchWithPersistDetailed(paths));
     }
 
     async function handleCloseFileFromUi(options: ICloseFileFromUiOptions = {}) {
@@ -344,33 +412,48 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             && /\bden(?:ied|y)|\bunauthori[sz]ed\b|\bforbidden\b|\bnot allowed\b/i.test(errorMessage);
     }
 
-    async function openRecentFile(file: IRecentFile) {
+    async function openRecentFileDetailed(file: IRecentFile) {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openRecentFile invoked', {path: file.originalPath});
 
         if (isBrowserDocumentRef(file.originalPath)) {
             const probeResult = await recentFilePathExists(file.originalPath);
             if (probeResult.permissionDenied) {
-                return handleOpenFileDirectWithPersist(file.originalPath);
+                return handleOpenFileDirectWithPersistDetailed(file.originalPath);
             }
             if (!probeResult.exists) {
                 BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Recent file no longer exists; removing from recents', {path: file.originalPath});
                 await removeRecentFile(file);
                 notifyMissingRecentFile(file);
-                return false;
+                return recordOpenOutcome({
+                    status: 'failed',
+                    error: 'Recent file no longer exists',
+                });
             }
         }
 
-        return handleOpenFileDirectWithPersist(file.originalPath);
+        return handleOpenFileDirectWithPersistDetailed(file.originalPath);
+    }
+
+    async function openRecentFile(file: IRecentFile) {
+        return didCompletePageFileOpen(await openRecentFileDetailed(file));
     }
 
     return {
+        lastOpenOutcome,
+        handleOpenFileFromUiDetailed,
         handleOpenFileFromUi,
+        handleOpenFolderFromUiDetailed,
         handleOpenFolderFromUi,
+        handleCombineImagesDetailed,
         handleCombineImages,
+        handleOpenFileDirectWithPersistDetailed,
         handleOpenFileDirectWithPersist,
+        handleOpenFileDirectBatchWithPersistDetailed,
         handleOpenFileDirectBatchWithPersist,
+        handleOpenFileWithResultDetailed,
         handleOpenFileWithResult,
         handleCloseFileFromUi,
+        openRecentFileDetailed,
         openRecentFile,
     };
 };

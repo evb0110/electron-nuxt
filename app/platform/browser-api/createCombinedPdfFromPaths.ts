@@ -22,6 +22,7 @@ import {
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { browserDjvuCapability } from '@app/platform/browser-api/browserDjvuCapability';
 import { emitBrowserOpenDocumentDirectBatchProgress } from '@app/platform/browser-api/documentsMenuCapability';
+import type { TOpenBatchProgressOperation } from '@contracts/electronApiDocuments';
 import {
     browserDocumentStore,
     getBrowserDocumentFileName,
@@ -37,6 +38,7 @@ export interface IBrowserBatchOpenProgress {
 
 export interface IBrowserBatchOpenProgressOptions {
     requestId?: string;
+    operation?: TOpenBatchProgressOperation;
     onProgress?: (progress: IBrowserBatchOpenProgress) => void;
 }
 
@@ -87,6 +89,7 @@ function emitBatchOpenProgress(
     }
 
     emitBrowserOpenDocumentDirectBatchProgress({
+        operation: options?.operation ?? 'document-open',
         requestId,
         ...progress,
     });

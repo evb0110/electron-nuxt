@@ -170,6 +170,7 @@ interface IBrowserDocumentsRecentFile {
 interface IBrowserBatchProgress {
     elapsedMs: number;
     estimatedRemainingMs: number | null;
+    operation: string;
     percent: number;
     processed: number;
     requestId: string;
@@ -507,6 +508,7 @@ describe('createBrowserDocumentsFileCapability', () => {
         ])});
 
         const progressEvents: Array<{
+            operation: string;
             requestId: string;
             processed: number;
             total: number;
@@ -532,11 +534,13 @@ describe('createBrowserDocumentsFileCapability', () => {
 
         expect(progressEvents).toEqual(expect.arrayContaining([
             expect.objectContaining({
+                operation: 'document-open',
                 requestId: 'browser-batch-1',
                 processed: 1,
                 total: 2,
             }),
             expect.objectContaining({
+                operation: 'document-open',
                 requestId: 'browser-batch-1',
                 processed: 2,
                 total: 2,

@@ -14,7 +14,11 @@ import type { IPdfSaveAsOptions } from '@contracts/electronApiDocuments';
 import type {
     IBeginSerializedPdfPersistenceResult,
     IBeginSerializedPdfSaveAsResult,
+    ISerializedPdfPersistenceLimits,
+    IPdfPersistenceErrorFrame,
+    TPdfPersistenceErrorPhase,
 } from '@electron/features/documents/serializedPdfPersistenceContract';
+import { SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION } from '@electron/features/documents/serializedPdfPersistenceContract';
 import {
     atomicReplace,
     makeSiblingTempPath,
@@ -40,6 +44,10 @@ import {
 } from '@electron/features/documents/main/pdfSaveAsOptimization';
 
 const SERIALIZED_PDF_SESSION_TIMEOUT_MS = 10 * 60_000;
+const SERIALIZED_PDF_MAX_CHUNK_BYTES = 8 * 1024 * 1024;
+const SERIALIZED_PDF_MAX_IN_FLIGHT_CHUNKS = 2;
+const SERIALIZED_PDF_ACK_TIMEOUT_MS = 60_000;
+const SERIALIZED_PDF_RESULT_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES = 16 * 1024 * 1024 * 1024;
 const MIN_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES = 1024 * 1024;
 const MAX_SERIALIZED_PDF_PERSISTENCE_BYTES = (() => {
@@ -53,6 +61,24 @@ const MAX_SERIALIZED_PDF_PERSISTENCE_BYTES = (() => {
     }
     return parsed;
 })();
+const MAX_SERIALIZED_PDF_SESSIONS_PER_SENDER = (() => {
+    const parsed = Number.parseInt(process.env.EVB_MAX_SERIALIZED_PDF_SESSIONS_PER_SENDER ?? '4', 10);
+    if (!Number.isSafeInteger(parsed) || parsed < 1) {
+        return 4;
+    }
+    return Math.min(parsed, 64);
+})();
+const MAX_SERIALIZED_PDF_RESERVED_BYTES_PER_SENDER = (() => {
+    const parsed = Number.parseInt(
+        process.env.EVB_MAX_SERIALIZED_PDF_RESERVED_BYTES_PER_SENDER
+            ?? `${MAX_SERIALIZED_PDF_PERSISTENCE_BYTES}`,
+        10,
+    );
+    if (!Number.isSafeInteger(parsed) || parsed < MIN_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES) {
+        return MAX_SERIALIZED_PDF_PERSISTENCE_BYTES;
+    }
+    return Math.max(parsed, MIN_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES);
+})();
 
 type TSerializedPdfPersistenceMode = 'save' | 'save_as';
 
@@ -60,6 +86,7 @@ interface ISerializedPdfPersistenceSession {
     id: string;
     mode: TSerializedPdfPersistenceMode;
     senderId: number;
+    sender: WebContents;
     workingPath: string;
     targetPath: string;
     saveAsOptions: IPdfSaveAsOptions | undefined;
@@ -67,13 +94,21 @@ interface ISerializedPdfPersistenceSession {
     totalBytes: number;
     receivedBytes: number;
     nextSeq: number;
+    maxChunkBytes: number;
+    portAttached: boolean;
+    isCommitting: boolean;
     handle: FileHandle;
     timeout: NodeJS.Timeout;
     queue: Promise<void>;
     unregisterSenderCleanup: () => void;
+    releaseSenderReservation: () => void;
 }
 
 const sessions = new Map<string, ISerializedPdfPersistenceSession>();
+const senderReservations = new Map<number, {
+    sessionCount: number;
+    reservedBytes: number;
+}>();
 
 function getPdfPersistencePortMessageData(messageEvent: unknown) {
     if (!messageEvent || typeof messageEvent !== 'object' || !('data' in messageEvent)) {
@@ -99,6 +134,42 @@ function createEmptyPdfValidationResult(message: string): IPdfValidationResult {
 
 function createOriginalChangedValidationResult() {
     return createEmptyPdfValidationResult('Original file changed on disk; save skipped to avoid overwriting external edits');
+}
+
+function getSerializedPdfPersistenceLimits(): ISerializedPdfPersistenceLimits {
+    return {
+        protocolVersion: SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
+        maxChunkBytes: SERIALIZED_PDF_MAX_CHUNK_BYTES,
+        maxInFlightChunks: SERIALIZED_PDF_MAX_IN_FLIGHT_CHUNKS,
+        maxTotalBytes: MAX_SERIALIZED_PDF_PERSISTENCE_BYTES,
+        ackTimeoutMs: SERIALIZED_PDF_ACK_TIMEOUT_MS,
+        resultTimeoutMs: SERIALIZED_PDF_RESULT_TIMEOUT_MS,
+    };
+}
+
+function createPdfPersistenceErrorFrame(
+    error: unknown,
+    options: {
+        phase: TPdfPersistenceErrorPhase;
+        expected?: boolean;
+        seq?: number;
+    },
+): IPdfPersistenceErrorFrame {
+    const message = getErrorMessage(error);
+    const code = options.phase === 'cancel'
+        ? 'CANCELED'
+        : options.phase === 'commit' || options.phase === 'complete'
+            ? 'COMMIT_FAILED'
+            : 'PROTOCOL_ERROR';
+    return {
+        type: 'error',
+        code,
+        phase: options.phase,
+        retryable: false,
+        expected: options.expected ?? false,
+        error: message,
+        ...(options.seq === undefined ? {} : {seq: options.seq}),
+    };
 }
 
 function withWorkingCopySyncWarning(validation: IPdfValidationResult, error: unknown): IPdfValidationResult {
@@ -149,6 +220,50 @@ function clearSessionTimeout(session: ISerializedPdfPersistenceSession) {
     clearTimeout(session.timeout);
 }
 
+function reserveSenderPersistenceCapacity(senderId: number, totalBytes: number) {
+    const existingReservation = senderReservations.get(senderId) ?? {
+        sessionCount: 0,
+        reservedBytes: 0,
+    };
+    if (existingReservation.sessionCount >= MAX_SERIALIZED_PDF_SESSIONS_PER_SENDER) {
+        throw new Error(`Too many active PDF persistence streams (${MAX_SERIALIZED_PDF_SESSIONS_PER_SENDER})`);
+    }
+    if (existingReservation.reservedBytes + totalBytes > MAX_SERIALIZED_PDF_RESERVED_BYTES_PER_SENDER) {
+        throw new Error(
+            `Active PDF persistence streams exceed reserved byte budget (${MAX_SERIALIZED_PDF_RESERVED_BYTES_PER_SENDER})`,
+        );
+    }
+
+    const nextReservation = {
+        sessionCount: existingReservation.sessionCount + 1,
+        reservedBytes: existingReservation.reservedBytes + totalBytes,
+    };
+    senderReservations.set(senderId, nextReservation);
+
+    let released = false;
+    return () => {
+        if (released) {
+            return;
+        }
+        released = true;
+
+        const currentReservation = senderReservations.get(senderId);
+        if (!currentReservation) {
+            return;
+        }
+        const sessionCount = Math.max(0, currentReservation.sessionCount - 1);
+        const reservedBytes = Math.max(0, currentReservation.reservedBytes - totalBytes);
+        if (sessionCount === 0 || reservedBytes === 0) {
+            senderReservations.delete(senderId);
+            return;
+        }
+        senderReservations.set(senderId, {
+            sessionCount,
+            reservedBytes,
+        });
+    };
+}
+
 function refreshSessionTimeout(session: ISerializedPdfPersistenceSession) {
     clearSessionTimeout(session);
     session.timeout = setTimeout(() => {
@@ -162,15 +277,23 @@ function refreshSessionTimeout(session: ISerializedPdfPersistenceSession) {
 async function cleanupSession(session: ISerializedPdfPersistenceSession) {
     clearSessionTimeout(session);
     session.unregisterSenderCleanup();
+    session.releaseSenderReservation();
     sessions.delete(session.id);
     await session.handle.close().catch(() => undefined);
     await rm(session.tempPath, { force: true }).catch(() => undefined);
 }
 
+function finishSessionLifecycle(session: ISerializedPdfPersistenceSession) {
+    clearSessionTimeout(session);
+    session.unregisterSenderCleanup();
+    session.releaseSenderReservation();
+    sessions.delete(session.id);
+}
+
 function registerSessionSenderCleanup(sender: WebContents, getSession: () => ISerializedPdfPersistenceSession) {
     const cleanup = () => {
         const session = getSession();
-        if (sessions.get(session.id) === session) {
+        if (sessions.get(session.id) === session && !session.isCommitting) {
             void cleanupSession(session);
         }
     };
@@ -181,13 +304,25 @@ function registerSessionSenderCleanup(sender: WebContents, getSession: () => ISe
     const handleRenderProcessGone = () => {
         cleanup();
     };
+    const handleNavigation = (
+        _event: Electron.Event,
+        _url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) => {
+        if (isMainFrame && !isInPlace) {
+            cleanup();
+        }
+    };
 
     sender.once('destroyed', handleDestroyed);
     sender.once('render-process-gone', handleRenderProcessGone);
+    sender.on('did-start-navigation', handleNavigation);
 
     return () => {
         sender.removeListener('destroyed', handleDestroyed);
         sender.removeListener('render-process-gone', handleRenderProcessGone);
+        sender.removeListener('did-start-navigation', handleNavigation);
     };
 }
 
@@ -199,8 +334,15 @@ async function createSession(options: {
     saveAsOptions?: IPdfSaveAsOptions | undefined;
     totalBytes: number;
 }) {
+    const releaseSenderReservation = reserveSenderPersistenceCapacity(options.sender.id, options.totalBytes);
     const tempPath = makeSiblingTempPath(options.targetPath);
-    const handle = await open(tempPath, 'wx');
+    let handle: FileHandle;
+    try {
+        handle = await open(tempPath, 'wx');
+    } catch (error) {
+        releaseSenderReservation();
+        throw error;
+    }
     const id = randomUUID();
     const timeout = setTimeout(() => undefined, SERIALIZED_PDF_SESSION_TIMEOUT_MS);
     timeout.unref?.();
@@ -209,6 +351,7 @@ async function createSession(options: {
         id,
         mode: options.mode,
         senderId: options.sender.id,
+        sender: options.sender,
         workingPath: options.workingPath,
         targetPath: options.targetPath,
         saveAsOptions: options.saveAsOptions,
@@ -216,10 +359,14 @@ async function createSession(options: {
         totalBytes: options.totalBytes,
         receivedBytes: 0,
         nextSeq: 0,
+        maxChunkBytes: SERIALIZED_PDF_MAX_CHUNK_BYTES,
+        portAttached: false,
+        isCommitting: false,
         handle,
         timeout,
         queue: Promise.resolve(),
         unregisterSenderCleanup: () => undefined,
+        releaseSenderReservation,
     };
     session.unregisterSenderCleanup = registerSessionSenderCleanup(options.sender, () => session);
     refreshSessionTimeout(session);
@@ -247,7 +394,10 @@ export async function beginSerializedPdfSaveToOriginal(
         totalBytes: normalizedTotalBytes,
     });
 
-    return { sessionId: session.id };
+    return {
+        sessionId: session.id,
+        ...getSerializedPdfPersistenceLimits(),
+    };
 }
 
 export async function beginSerializedPdfSaveAs(
@@ -263,6 +413,7 @@ export async function beginSerializedPdfSaveAs(
         return {
             sessionId: null,
             path: null,
+            ...getSerializedPdfPersistenceLimits(),
         };
     }
     if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
@@ -281,6 +432,7 @@ export async function beginSerializedPdfSaveAs(
     return {
         sessionId: session.id,
         path: targetPath,
+        ...getSerializedPdfPersistenceLimits(),
     };
 }
 
@@ -317,7 +469,7 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
                 syncWarningValidation = withWorkingCopySyncWarning(committedValidation, syncError);
             }
             setWorkingCopyOriginalPath(session.workingPath, session.targetPath, session.senderId);
-            allowOpenPath(session.targetPath, session.senderId);
+            allowOpenPath(session.targetPath, session.sender);
             await addRecentFile(session.targetPath);
             updateRecentFilesMenu();
         } else {
@@ -400,10 +552,14 @@ function getSessionForPortEvent(event: IpcMainEvent, rawSessionId: unknown) {
 
 export function attachSerializedPdfPersistencePort(event: IpcMainEvent, rawSessionId: unknown) {
     const session = getSessionForPortEvent(event, rawSessionId);
+    if (session.portAttached) {
+        throw new Error('PDF persistence MessagePort is already attached');
+    }
     const port = event.ports[0];
     if (!port) {
         throw new Error('PDF persistence MessagePort is missing');
     }
+    session.portAttached = true;
 
     port.on('message', (messageEvent) => {
         const messageData = getPdfPersistencePortMessageData(messageEvent);
@@ -413,7 +569,7 @@ export function attachSerializedPdfPersistencePort(event: IpcMainEvent, rawSessi
         );
     });
     port.once('close', () => {
-        if (sessions.get(session.id) === session) {
+        if (sessions.get(session.id) === session && !session.isCommitting) {
             void cleanupSession(session);
         }
     });
@@ -426,6 +582,8 @@ async function handlePortMessage(
     port: MessagePortMain,
     message: unknown,
 ) {
+    let errorPhase: TPdfPersistenceErrorPhase = 'streaming';
+    let errorSeq: number | undefined;
     try {
         const normalizedMessage = normalizePdfPersistencePortPayload(message);
         if (!normalizedMessage || typeof normalizedMessage !== 'object') {
@@ -439,11 +597,19 @@ async function handlePortMessage(
         };
         refreshSessionTimeout(session);
         if (payload.type === 'chunk') {
+            errorPhase = 'streaming';
+            errorSeq = typeof payload.seq === 'number' ? payload.seq : undefined;
             if (payload.seq !== session.nextSeq) {
                 throw new Error('Unexpected PDF persistence chunk sequence');
             }
 
             const bytes = getChunkBytes(payload.bytes);
+            if (bytes.byteLength === 0) {
+                throw new Error('PDF persistence chunk must not be empty');
+            }
+            if (bytes.byteLength > session.maxChunkBytes) {
+                throw new Error(`PDF persistence chunk exceeds maximum size (${session.maxChunkBytes} bytes)`);
+            }
             session.receivedBytes += bytes.byteLength;
             if (session.receivedBytes > session.totalBytes) {
                 throw new Error('PDF persistence stream exceeded expected byte count');
@@ -460,11 +626,12 @@ async function handlePortMessage(
         }
 
         if (payload.type === 'complete') {
+            errorPhase = 'complete';
+            session.isCommitting = true;
+            clearSessionTimeout(session);
             const validation = await finishSession(session);
             const path = validation.isValid ? session.targetPath : null;
-            sessions.delete(session.id);
-            clearSessionTimeout(session);
-            session.unregisterSenderCleanup();
+            finishSessionLifecycle(session);
             if (!validation.isValid) {
                 await cleanupSession(session);
             }
@@ -477,13 +644,27 @@ async function handlePortMessage(
             return;
         }
 
+        if (payload.type === 'cancel') {
+            await cleanupSession(session);
+            port.postMessage(createPdfPersistenceErrorFrame('PDF persistence stream canceled', {
+                phase: 'cancel',
+                expected: true,
+            }));
+            port.close();
+            return;
+        }
+
         throw new Error(`Unknown PDF persistence message (${describePersistenceMessage(normalizedMessage)})`);
     } catch (error) {
         await cleanupSession(session);
-        port.postMessage({
-            type: 'error',
-            error: getErrorMessage(error),
-        });
+        const errorFrameOptions: {
+            phase: TPdfPersistenceErrorPhase;
+            seq?: number;
+        } = {phase: errorPhase};
+        if (errorSeq !== undefined) {
+            errorFrameOptions.seq = errorSeq;
+        }
+        port.postMessage(createPdfPersistenceErrorFrame(error, errorFrameOptions));
         port.close();
     }
 }

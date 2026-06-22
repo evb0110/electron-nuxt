@@ -65,6 +65,7 @@ function emitBatchOpenProgress(
     }
 
     emitBrowserOpenDocumentDirectBatchProgress({
+        operation: options?.operation ?? 'document-open',
         requestId,
         ...progress,
     });

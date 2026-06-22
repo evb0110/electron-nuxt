@@ -371,17 +371,7 @@ export function toOcrErrorEnvelope(
         return buildOcrErrorEnvelope(error.code, error.message, {retryable: false});
     }
     if (error instanceof Error) {
-        const options: {
-            retryable: boolean;
-            details?: string;
-        } = { retryable };
-        if (error.stack !== undefined) {
-            options.details = error.stack;
-        }
-        return buildOcrErrorEnvelope(fallbackCode, error.message || 'Unknown OCR error', options);
+        return buildOcrErrorEnvelope(fallbackCode, error.message || 'Unknown OCR error', { retryable });
     }
-    return buildOcrErrorEnvelope(fallbackCode, 'Unknown OCR error', {
-        retryable,
-        details: String(error),
-    });
+    return buildOcrErrorEnvelope(fallbackCode, 'Unknown OCR error', { retryable });
 }

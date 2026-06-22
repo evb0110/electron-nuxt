@@ -15,6 +15,7 @@ import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
+import { isRecord } from '@contracts/runtimeGuards';
 import {
     createDefaultPdfConformanceProfile,
     loadPdfStructure,
@@ -72,10 +73,28 @@ function decodePdfConformanceResult(data: unknown): IPdfConformanceProfile | nul
             saveRestrictions: [],
         };
     }
-    if (!data || typeof data !== 'object') {
+    if (!isRecord(data)
+        || typeof data.isSigned !== 'boolean'
+        || typeof data.isEncrypted !== 'boolean'
+        || typeof data.isTagged !== 'boolean'
+        || !(data.pdfaLevel === null || typeof data.pdfaLevel === 'string')
+        || typeof data.hasAcroForm !== 'boolean'
+        || typeof data.hasXfa !== 'boolean'
+        || typeof data.canIncrementalSave !== 'boolean'
+        || !Array.isArray(data.saveRestrictions)
+        || !data.saveRestrictions.every(restriction => typeof restriction === 'string')) {
         return null;
     }
-    return data as IPdfConformanceProfile;
+    return {
+        isSigned: data.isSigned,
+        isEncrypted: data.isEncrypted,
+        isTagged: data.isTagged,
+        pdfaLevel: data.pdfaLevel,
+        hasAcroForm: data.hasAcroForm,
+        hasXfa: data.hasXfa,
+        canIncrementalSave: data.canIncrementalSave,
+        saveRestrictions: data.saveRestrictions,
+    };
 }
 
 function createDefaultPdfConformanceResult(): IPdfConformanceProfile {

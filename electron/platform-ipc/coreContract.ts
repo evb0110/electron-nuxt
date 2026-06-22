@@ -2,6 +2,7 @@ import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import type {
     IAgentCommandRequest,
     IAgentCommandResponse,
+    IAgentRendererAck,
     IAgentAssistantEvent,
     IAgentAssistantInstallResult,
     IAgentAssistantLoginRequest,
@@ -200,11 +201,11 @@ export interface ICoreInvokeMap {
     };
     [CORE_IPC_CHANNELS.agentSubmitWorkspaceSnapshot]: {
         args: [response: IAgentWorkspaceSnapshotResponse];
-        result: boolean;
+        result: IAgentRendererAck;
     };
     [CORE_IPC_CHANNELS.agentSubmitCommandResponse]: {
         args: [response: IAgentCommandResponse];
-        result: boolean;
+        result: IAgentRendererAck;
     };
 }
 

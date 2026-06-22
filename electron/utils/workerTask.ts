@@ -2,7 +2,17 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { Worker } from 'worker_threads';
 import { isRecord } from '@contracts/runtimeGuards';
+import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
+
+export interface IWorkerTaskErrorFrame {
+    message: string;
+    name?: string;
+    code?: string;
+    canceled?: boolean;
+    retryable?: boolean;
+    source?: string;
+}
 
 type TResultWorkerPayload =
     | {
@@ -14,6 +24,7 @@ type TResultWorkerPayload =
         type: 'result';
         ok: false;
         error: string;
+        errorFrame?: IWorkerTaskErrorFrame;
     };
 
 type TResultWorkerDecoder<T> = (data: unknown) => T | null;
@@ -47,6 +58,60 @@ export interface IStreamingWorkerTaskHandle<T> {
     promise: Promise<T>;
 }
 
+export class WorkerTaskError extends Error {
+    readonly code: string | undefined;
+    readonly canceled: boolean;
+    readonly retryable: boolean;
+    readonly source: string | undefined;
+
+    constructor(frame: IWorkerTaskErrorFrame) {
+        super(frame.message);
+        this.name = frame.name ?? 'WorkerTaskError';
+        this.code = frame.code;
+        this.canceled = frame.canceled ?? false;
+        this.retryable = frame.retryable ?? false;
+        this.source = frame.source;
+    }
+}
+
+function getErrorStringProperty(error: unknown, key: 'name' | 'code') {
+    if (!error || typeof error !== 'object') {
+        return undefined;
+    }
+    const value = (error as Record<string, unknown>)[key];
+    return typeof value === 'string' && value.length > 0
+        ? value
+        : undefined;
+}
+
+export function createWorkerTaskErrorFrame(
+    error: unknown,
+    options: {
+        source?: string;
+        retryable?: boolean;
+    } = {},
+): IWorkerTaskErrorFrame {
+    const frame: IWorkerTaskErrorFrame = {
+        message: getErrorMessage(error),
+        canceled: isAbortError(error),
+        retryable: options.retryable ?? false,
+    };
+    const name = getErrorStringProperty(error, 'name');
+    if (name !== undefined) {
+        frame.name = name;
+    }
+    const code = getErrorStringProperty(error, 'code');
+    if (code !== undefined) {
+        frame.code = code;
+    } else if (frame.canceled) {
+        frame.code = 'ABORT_ERR';
+    }
+    if (options.source) {
+        frame.source = options.source;
+    }
+    return frame;
+}
+
 export function resolveUnpackedWorkerPath(baseDir: string, workerFileName: string) {
     const defaultPath = join(baseDir, workerFileName);
     const unpackedPath = defaultPath.replace('app.asar', 'app.asar.unpacked');
@@ -54,6 +119,35 @@ export function resolveUnpackedWorkerPath(baseDir: string, workerFileName: strin
         return unpackedPath;
     }
     return defaultPath;
+}
+
+function parseWorkerTaskErrorFrame(value: unknown): IWorkerTaskErrorFrame | null {
+    if (!isRecord(value) || typeof value.message !== 'string') {
+        return null;
+    }
+    if (value.name !== undefined && typeof value.name !== 'string') {
+        return null;
+    }
+    if (value.code !== undefined && typeof value.code !== 'string') {
+        return null;
+    }
+    if (value.canceled !== undefined && typeof value.canceled !== 'boolean') {
+        return null;
+    }
+    if (value.retryable !== undefined && typeof value.retryable !== 'boolean') {
+        return null;
+    }
+    if (value.source !== undefined && typeof value.source !== 'string') {
+        return null;
+    }
+    return {
+        message: value.message,
+        ...(value.name === undefined ? {} : {name: value.name}),
+        ...(value.code === undefined ? {} : {code: value.code}),
+        ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
+        ...(value.retryable === undefined ? {} : {retryable: value.retryable}),
+        ...(value.source === undefined ? {} : {source: value.source}),
+    };
 }
 
 function parseResultWorkerPayload(payload: unknown): TResultWorkerPayload | null {
@@ -69,11 +163,16 @@ function parseResultWorkerPayload(payload: unknown): TResultWorkerPayload | null
         };
     }
 
-    if (payload.ok === false && typeof payload.error === 'string') {
+    if (payload.ok === false) {
+        const errorFrame = parseWorkerTaskErrorFrame(payload.errorFrame);
+        if (typeof payload.error !== 'string' && errorFrame === null) {
+            return null;
+        }
         return {
             type: 'result',
             ok: false,
-            error: payload.error,
+            error: typeof payload.error === 'string' ? payload.error : errorFrame?.message ?? 'Worker task failed',
+            ...(errorFrame === null ? {} : {errorFrame}),
         };
     }
 
@@ -82,6 +181,14 @@ function parseResultWorkerPayload(payload: unknown): TResultWorkerPayload | null
 
 function toError(error: unknown) {
     return error instanceof Error ? error : new Error(String(error));
+}
+
+function createWorkerTaskError(payload: Extract<TResultWorkerPayload, {ok: false;}>) {
+    return new WorkerTaskError(payload.errorFrame ?? {
+        message: payload.error,
+        canceled: false,
+        retryable: false,
+    });
 }
 
 function getAbortReason(signal: AbortSignal) {
@@ -189,10 +296,6 @@ function attachWorkerHandlers<T>({
         requestCancel('abort', getAbortReason(options.signal!));
     };
 
-    if (options.signal?.aborted) {
-        handleAbort();
-        return;
-    }
     options.signal?.addEventListener('abort', handleAbort, { once: true });
 
     if (options.timeoutMs !== undefined) {
@@ -220,7 +323,7 @@ function attachWorkerHandlers<T>({
                 return;
             }
             if (!resultPayload.ok) {
-                reject(new Error(resultPayload.error));
+                reject(createWorkerTaskError(resultPayload));
                 return;
             }
             if (decodeResult) {
@@ -268,6 +371,10 @@ function attachWorkerHandlers<T>({
             reject(createWorkerExitError(code));
         });
     });
+
+    if (options.signal?.aborted) {
+        handleAbort();
+    }
 }
 
 export function runResultWorkerTask<T>(options: IDecodedResultWorkerTaskOptions<T>): Promise<T>;
@@ -281,6 +388,9 @@ export async function runResultWorkerTask<T>(
         createStartError,
         createStartupError,
     } = options;
+    if (options.signal?.aborted) {
+        throw getAbortReason(options.signal);
+    }
     return new Promise<T | unknown>((resolve, reject) => {
         let worker: Worker;
         try {

@@ -8,6 +8,8 @@ import {
 } from 'electron';
 import { extname } from 'path';
 import type {
+    IOcrCancelResult,
+    IOcrProgress,
     IOcrRecognizeResult,
     IOcrToolValidationResult,
 } from '@contracts/electronApiOcr';
@@ -51,6 +53,7 @@ import {
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import { requireManagedWorkingCopyPath } from '@electron/file-access/workingCopyCreation';
 import { getErrorMessage } from '@electron/utils/error';
+import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import type { TOcrIpcMainRegistrar } from '@electron/features/ocr/ports';
 
 const log = createLogger('ocr-ipc');
@@ -61,16 +64,28 @@ function createSenderAbortSignal(sender: WebContents) {
     const abort = () => {
         controller.abort();
     };
+    const handleNavigation = (
+        _event: Electron.Event,
+        _url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) => {
+        if (isMainFrame && !isInPlace) {
+            abort();
+        }
+    };
     if (sender.isDestroyed()) {
         abort();
     } else {
         sender.once('destroyed', abort);
         sender.once('render-process-gone', abort);
+        sender.on('did-start-navigation', handleNavigation);
     }
 
     const cleanup = () => {
         sender.removeListener('destroyed', abort);
         sender.removeListener('render-process-gone', abort);
+        sender.removeListener('did-start-navigation', handleNavigation);
     };
 
     return {
@@ -132,6 +147,22 @@ async function handleOcrRecognizeBatch(
         const window = BrowserWindow.fromWebContents(event.sender);
         const results: Record<number, string> = {};
         const errors: string[] = [];
+        const progressPump = createIpcProgressPump<IOcrProgress>({
+            channel: OCR_EVENT_CHANNELS.progress,
+            getTarget: () => ({
+                isDestroyed: () => event.sender.isDestroyed(),
+                send: (channel, payload) => safeSendToWindow(
+                    window,
+                    channel as typeof OCR_EVENT_CHANNELS.progress,
+                    payload,
+                ),
+            }),
+            getKey: progress => progress.requestId,
+            isTerminal: progress => progress.totalPages > 0 && progress.processedCount >= progress.totalPages,
+            onError: error => {
+                log.debug(`Failed to send OCR batch progress: ${getErrorMessage(error)}`);
+            },
+        });
 
         const concurrency = getOcrConcurrency(targetPages.length);
         const tesseractThreads = getTesseractThreadLimit(concurrency);
@@ -140,45 +171,49 @@ async function handleOcrRecognizeBatch(
 
         let processedCount = 0;
 
-        safeSendToWindow(window, OCR_EVENT_CHANNELS.progress, {
+        progressPump.enqueue({
             requestId,
             currentPage: targetPages[0]?.pageNumber ?? 0,
             processedCount,
             totalPages: targetPages.length,
         });
 
-        await forEachConcurrent(targetPages, concurrency, async (page) => {
-            if (senderAbort.signal.aborted) {
-                errors.push(`Page ${page.pageNumber}: Tesseract aborted`);
-                return;
-            }
-
-            const imageBuffer = Buffer.from(page.imageData);
-
-            try {
-                const result = await runOcr(imageBuffer, page.languages, {
-                    threads: tesseractThreads,
-                    signal: senderAbort.signal,
-                });
-
-                if (result.success) {
-                    results[page.pageNumber] = result.text;
-                } else {
-                    errors.push(`Page ${page.pageNumber}: ${result.error}`);
+        try {
+            await forEachConcurrent(targetPages, concurrency, async (page) => {
+                if (senderAbort.signal.aborted) {
+                    errors.push(`Page ${page.pageNumber}: Tesseract aborted`);
+                    return;
                 }
-            } catch (err) {
-                const errMsg = getErrorMessage(err);
-                errors.push(`Page ${page.pageNumber}: ${errMsg}`);
-            } finally {
-                processedCount += 1;
-                safeSendToWindow(window, OCR_EVENT_CHANNELS.progress, {
-                    requestId,
-                    currentPage: getSequentialProgressPage(targetPages, processedCount),
-                    processedCount,
-                    totalPages: targetPages.length,
-                });
-            }
-        });
+
+                const imageBuffer = Buffer.from(page.imageData);
+
+                try {
+                    const result = await runOcr(imageBuffer, page.languages, {
+                        threads: tesseractThreads,
+                        signal: senderAbort.signal,
+                    });
+
+                    if (result.success) {
+                        results[page.pageNumber] = result.text;
+                    } else {
+                        errors.push(`Page ${page.pageNumber}: ${result.error}`);
+                    }
+                } catch (err) {
+                    const errMsg = getErrorMessage(err);
+                    errors.push(`Page ${page.pageNumber}: ${errMsg}`);
+                } finally {
+                    processedCount += 1;
+                    progressPump.enqueue({
+                        requestId,
+                        currentPage: getSequentialProgressPage(targetPages, processedCount),
+                        processedCount,
+                        totalPages: targetPages.length,
+                    });
+                }
+            });
+        } finally {
+            progressPump.clear();
+        }
 
         return {
             results,
@@ -329,10 +364,7 @@ async function handleOcrCreateSearchablePdf(
 function handleOcrCancelValidated(
     event: IpcMainInvokeEvent,
     requestIdPayload: unknown,
-): {
-    canceled: boolean;
-    errorEnvelope?: ReturnType<typeof buildOcrErrorEnvelope>;
-} {
+): IOcrCancelResult {
     try {
         const requestId = validateCancelRequestId(requestIdPayload);
         return handleOcrCancel(event, requestId);
@@ -341,6 +373,8 @@ function handleOcrCancelValidated(
         log.warn(`ocr:cancel rejected: ${envelope.message}`);
         return {
             canceled: false,
+            reason: 'invalid-request',
+            error: envelope.message,
             errorEnvelope: envelope,
         };
     }

@@ -1368,6 +1368,26 @@ function handleAssistantEvent(event: IAgentAssistantEvent) {
     if (event.state) {
         applyState(event.state);
     }
+    if (event.type === 'message-delta' && event.messageId && event.delta && state.value) {
+        const messageIndex = state.value.messages.findIndex(message => message.id === event.messageId);
+        if (messageIndex >= 0) {
+            const messages = [...state.value.messages];
+            const message = messages[messageIndex];
+            if (!message) {
+                return;
+            }
+            messages[messageIndex] = {
+                ...message,
+                text: `${message.text}${event.delta}`,
+                pending: true,
+            };
+            state.value = {
+                ...state.value,
+                messages,
+            };
+            void nextTick(scrollAssistantMessagesToBottom);
+        }
+    }
     if (event.type === 'install-progress' && event.progress) {
         installProgress.value = event.progress;
     }

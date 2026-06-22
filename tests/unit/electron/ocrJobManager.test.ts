@@ -96,6 +96,7 @@ function createEvent(senderId: number) {
         id: senderId,
         isDestroyed: vi.fn(() => false),
         once: vi.fn(),
+        on: vi.fn(),
         removeListener: vi.fn(),
     }};
 }
@@ -302,6 +303,22 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         await vi.advanceTimersByTimeAsync(1_251);
         expect(worker?.terminate).toHaveBeenCalledTimes(1);
+        const completeCalls = mocks.sendToLiveWindow.mock.calls.filter(([
+            ,
+            channel,
+        ]) => channel === 'ocr:complete');
+        expect(completeCalls).toHaveLength(1);
+        expect(completeCalls[0]?.[2]).toEqual([expect.objectContaining({
+            requestId: 'job-5',
+            success: false,
+            errors: [expect.stringContaining('OCR job idle timed out')],
+            errorEnvelope: expect.objectContaining({
+                code: 'OCR_INTERNAL_ERROR',
+                message: expect.stringContaining('OCR job idle timed out'),
+                retryable: false,
+                timestamp: expect.any(Number),
+            }),
+        })]);
         vi.useRealTimers();
     });
 
@@ -403,6 +420,56 @@ describe('ocr job manager preparing-stage robustness', () => {
                 pdfPath: '/tmp/work-7-ocr.pdf',
                 requiresCleanupAck: true,
                 errors: [],
+            }],
+            expect.any(Function),
+        );
+    });
+
+    it('adds typed envelopes when forwarding worker failure completions', async () => {
+        mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
+
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+
+        const result = await handleOcrCreateSearchablePdfAsync(
+            createEvent(79) as never,
+            '/tmp/work-79.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-79',
+        );
+
+        expect(result).toMatchObject({
+            started: true,
+            jobId: 'job-79',
+        });
+        const worker = mocks.workerInstances[0];
+        expect(worker).toBeDefined();
+        mocks.sendToLiveWindow.mockClear();
+
+        worker?.emit('message', {
+            type: 'complete',
+            jobId: 'job-79',
+            result: {
+                success: false,
+                errors: ['Worker failed before producing OCR output'],
+            },
+        });
+
+        expect(mocks.sendToLiveWindow).toHaveBeenCalledWith(
+            undefined,
+            'ocr:complete',
+            [{
+                requestId: 'job-79',
+                success: false,
+                errors: ['Worker failed before producing OCR output'],
+                errorEnvelope: expect.objectContaining({
+                    code: 'OCR_INTERNAL_ERROR',
+                    message: 'Worker failed before producing OCR output',
+                    retryable: false,
+                    timestamp: expect.any(Number),
+                }),
             }],
             expect.any(Function),
         );

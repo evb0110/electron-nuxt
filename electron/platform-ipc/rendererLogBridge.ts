@@ -81,13 +81,53 @@ const RENDERER_LOG_DROP_NOTICE_INTERVAL_MS = (() => {
 })();
 const rendererLogRateStateBySender = new Map<number, IRendererLogRateState>();
 const rendererLogCleanupRegisteredBySender = new Set<number>();
+const RENDERER_LOG_REDACTION_PATTERNS: Array<{
+    pattern: RegExp;
+    replacement: string;
+}> = [
+    {
+        pattern: /\b(?:authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|token)\s*[:=]\s*["']?[^"',}\]\s]+/giu,
+        replacement: '[redacted-secret]',
+    },
+    {
+        pattern: /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gu,
+        replacement: 'Bearer [redacted]',
+    },
+    {
+        pattern: /data:[^\s"',)]+/giu,
+        replacement: 'data:[redacted]',
+    },
+    {
+        pattern: /file:\/\/[^\s"',)]+/giu,
+        replacement: 'file://[redacted]',
+    },
+    {
+        pattern: /\/Users\/[^/\s"',)]+(?:\/[^\s"',)]+)*/gu,
+        replacement: '/Users/[redacted]',
+    },
+    {
+        pattern: /[A-Za-z]:\\Users\\[^\\\s"',)]+(?:\\[^\s"',)]+)*/gu,
+        replacement: 'C:\\Users\\[redacted]',
+    },
+];
+
+function redactRendererLogText(value: string) {
+    let redacted = value;
+    for (const {
+        pattern,
+        replacement,
+    } of RENDERER_LOG_REDACTION_PATTERNS) {
+        redacted = redacted.replace(pattern, replacement);
+    }
+    return redacted;
+}
 
 function clampString(value: unknown, maxChars: number, fallback = '') {
     if (typeof value !== 'string') {
         return fallback;
     }
 
-    const trimmed = value.trim();
+    const trimmed = redactRendererLogText(value).trim();
     if (trimmed.length <= maxChars) {
         return trimmed;
     }
@@ -400,14 +440,25 @@ function dispatchRendererLogLine(level: TRendererLogLevel, line: string) {
     rendererLogger.info(line);
 }
 
-export interface IRendererLogBridgeOptions {isTrustedSender: (
-    sender: Electron.WebContents,
-    senderFrame: Electron.WebFrameMain | null | undefined,
-    channel: string,
-) => boolean;}
+export interface IRendererLogBridgeOptions {
+    isTrustedSender: (
+        sender: Electron.WebContents,
+        senderFrame: Electron.WebFrameMain | null | undefined,
+        channel: string,
+    ) => boolean;
+    registerListener?: (
+        channel: string,
+        handler: (event: Electron.IpcMainEvent, payload: IRendererLogEntry) => void,
+    ) => void;
+}
 
 export function registerRendererLogBridge(options: IRendererLogBridgeOptions) {
-    const {isTrustedSender} = options;
+    const {
+        isTrustedSender,
+        registerListener = (channel, handler) => {
+            ipcMain.on(channel, handler);
+        },
+    } = options;
 
     function handleRendererLog(event: Electron.IpcMainEvent, payload: IRendererLogEntry) {
         const webContentsId = event.sender.id;
@@ -423,5 +474,5 @@ export function registerRendererLogBridge(options: IRendererLogBridgeOptions) {
         dispatchRendererLogLine(entry.level, formatRendererLogLine(webContentsId, entry));
     }
 
-    ipcMain.on(CORE_IPC_SEND_CHANNELS.rendererLog, handleRendererLog);
+    registerListener(CORE_IPC_SEND_CHANNELS.rendererLog, handleRendererLog);
 }

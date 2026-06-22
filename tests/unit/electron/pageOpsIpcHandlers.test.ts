@@ -644,6 +644,7 @@ describe('registerPageOpsHandlers', () => {
         ], 'insert-request-1')).resolves.toEqual({success: true});
 
         expect(sender.send).toHaveBeenCalledWith('dialog:openPdfDirectBatch:progress', {
+            operation: 'page-insert',
             requestId: 'insert-request-1',
             processed: 1,
             total: 2,
@@ -651,6 +652,23 @@ describe('registerPageOpsHandlers', () => {
             elapsedMs: 25,
             estimatedRemainingMs: 25,
         });
+    });
+
+    it('rejects oversized insert-file batch progress request ids', async () => {
+        const handler = getHandler('page-ops:insert-file');
+        const oversizedRequestId = 'x'.repeat(129);
+
+        await expect(handler(
+            {sender: {id: 1}},
+            '/tmp/pdf-work-1/work.pdf',
+            3,
+            1,
+            ['/tmp/source-a.png'],
+            oversizedRequestId,
+        )).rejects.toThrow('requestId exceeds maximum length (128)');
+
+        expect(mocks.createPdfFromInputPaths).not.toHaveBeenCalled();
+        expect(mocks.runCommand).not.toHaveBeenCalled();
     });
 
     it('removes stale OCR artifacts after mutating the working copy', async () => {

@@ -77,6 +77,7 @@ function createMockSender(id: number) {
         id,
         isDestroyed: vi.fn(() => false),
         once: vi.fn(),
+        on: vi.fn(),
         removeListener: vi.fn(),
     };
 }
@@ -377,6 +378,63 @@ describe('registerOcrHandlers', () => {
         expect(mocks.handleOcrCreateSearchablePdfAsync).not.toHaveBeenCalled();
     });
 
+    it('does not expose stack details in generic searchable PDF failures', async () => {
+        mocks.handleOcrCreateSearchablePdfAsync.mockRejectedValue(new Error('worker exploded with a private stack'));
+
+        const handler = getHandler('ocr:createSearchablePdf');
+        const result = await handler(
+            {sender: createMockSender(19)},
+            '/tmp/working-copy.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-generic-failure',
+        ) as {
+            started: boolean;
+            errorEnvelope?: {
+                code: string;
+                message: string;
+                details?: string;
+            };
+        };
+
+        expect(result.started).toBe(false);
+        expect(result.errorEnvelope).toMatchObject({
+            code: 'OCR_INTERNAL_ERROR',
+            message: 'worker exploded with a private stack',
+        });
+        expect(result.errorEnvelope).not.toHaveProperty('details');
+    });
+
+    it('returns typed invalid-request details for malformed OCR cancel payloads', async () => {
+        const handler = getHandler('ocr:cancel');
+
+        const result = await handler(
+            {sender: createMockSender(20)},
+            '',
+        ) as {
+            canceled: boolean;
+            reason?: string;
+            error?: string;
+            errorEnvelope?: {
+                code: string;
+                retryable: boolean;
+            };
+        };
+
+        expect(result).toMatchObject({
+            canceled: false,
+            reason: 'invalid-request',
+            errorEnvelope: {
+                code: 'OCR_INVALID_PAYLOAD',
+                retryable: false,
+            },
+        });
+        expect(result.error).toContain('requestId');
+        expect(mocks.handleOcrCancel).not.toHaveBeenCalled();
+    });
+
     it('passes a renderer-lifetime abort signal into synchronous batch OCR', async () => {
         const handler = getHandler('ocr:recognizeBatch');
         mocks.runOcr.mockResolvedValue({
@@ -404,6 +462,7 @@ describe('registerOcrHandlers', () => {
         });
         expect(sender.once).toHaveBeenCalledWith('destroyed', expect.any(Function));
         expect(sender.once).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
+        expect(sender.on).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
         expect(mocks.runOcr).toHaveBeenCalledWith(
             Buffer.from([1]),
             ['eng'],
@@ -414,5 +473,6 @@ describe('registerOcrHandlers', () => {
         );
         expect(sender.removeListener).toHaveBeenCalledWith('destroyed', expect.any(Function));
         expect(sender.removeListener).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
+        expect(sender.removeListener).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
     });
 });

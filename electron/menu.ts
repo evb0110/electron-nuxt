@@ -18,6 +18,14 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getRecentFilesSync } from '@electron/recentFiles';
 import { te } from '@electron/te';
 import {
+    DOCUMENTS_EVENT_CHANNELS,
+    type IDocumentsEventMap,
+} from '@electron/features/documents/contract';
+import {
+    CORE_IPC_EVENT_CHANNELS,
+    type ICoreEventMap,
+} from '@electron/platform-ipc/coreContract';
+import {
     getAllRegisteredAppWindows,
     getWindowByIdFromRegistry,
 } from '@electron/window/registry';
@@ -25,7 +33,6 @@ import { getErrorMessage } from '@electron/utils/error';
 
 const appName = te('app.title');
 const logger = createLogger('menu');
-const WINDOW_TABS_ACTION_CHANNEL = 'menu:windowTabsAction';
 const MENU_REBUILD_DEBOUNCE_MS = 40;
 const menuDocumentStateByWindow = new Map<number, boolean>();
 const menuSaveStateByWindow = new Map<number, boolean>();
@@ -36,15 +43,32 @@ let listenersRegistered = false;
 let menuRebuildTimer: ReturnType<typeof setTimeout> | null = null;
 let menuRebuildPending = false;
 
-interface IWindowMenuActionOptions {
+type TNativeMenuEventMap = IDocumentsEventMap & Pick<
+    ICoreEventMap,
+    | typeof CORE_IPC_EVENT_CHANNELS.menuCheckForUpdates
+    | typeof CORE_IPC_EVENT_CHANNELS.updatesStatus
+    | typeof CORE_IPC_EVENT_CHANNELS.menuWindowTabsAction
+    | typeof CORE_IPC_EVENT_CHANNELS.menuNewTab
+    | typeof CORE_IPC_EVENT_CHANNELS.menuCloseTab
+    | typeof CORE_IPC_EVENT_CHANNELS.menuSplitEditor
+    | typeof CORE_IPC_EVENT_CHANNELS.menuFocusEditorPane
+    | typeof CORE_IPC_EVENT_CHANNELS.menuMoveTabToPane
+    | typeof CORE_IPC_EVENT_CHANNELS.menuCopyTabToPane
+>;
+type TNativeMenuChannel = Extract<keyof TNativeMenuEventMap, string>;
+type TNativeMenuArgs<TChannel extends TNativeMenuChannel> =
+    TNativeMenuEventMap[TChannel] extends undefined ? [] : [TNativeMenuEventMap[TChannel]];
+
+interface IWindowMenuActionOptions<TChannel extends TNativeMenuChannel = TNativeMenuChannel> {
     label: string;
-    channel: string;
+    channel: TChannel;
     accelerator?: string;
     enabled?: boolean;
-    args?: unknown[];
+    args?: TNativeMenuArgs<TChannel>;
 }
 
-interface ITextAwareWindowMenuActionOptions extends IWindowMenuActionOptions {nativeEditCommand: 'undo' | 'redo';}
+interface ITextAwareWindowMenuActionOptions<TChannel extends TNativeMenuChannel = TNativeMenuChannel>
+    extends IWindowMenuActionOptions<TChannel> {nativeEditCommand: 'undo' | 'redo';}
 
 const TEXT_EDITING_FOCUS_SCRIPT = `
 (() => {
@@ -139,7 +163,7 @@ function sendWindowTabsAction(sourceWindowId: number | null, action: TWindowTabs
         return;
     }
 
-    sendToWindow(sourceWindow, WINDOW_TABS_ACTION_CHANNEL, action);
+    sendToWindow(sourceWindow, CORE_IPC_EVENT_CHANNELS.menuWindowTabsAction, action);
 }
 
 function buildMoveToWindowSubmenu(
@@ -182,7 +206,11 @@ function buildWindowTargetSubmenu(
     }));
 }
 
-export function sendToWindow(window: BaseWindow | undefined | null, channel: string, ...args: unknown[]) {
+export function sendToWindow<TChannel extends TNativeMenuChannel>(
+    window: BaseWindow | undefined | null,
+    channel: TChannel,
+    ...args: TNativeMenuArgs<TChannel>
+) {
     if (!(window instanceof BrowserWindow) || window.isDestroyed() || window.webContents.isDestroyed()) {
         return false;
     }
@@ -198,14 +226,16 @@ export function sendToWindow(window: BaseWindow | undefined | null, channel: str
     }
 }
 
-function createWindowMenuAction(options: IWindowMenuActionOptions): MenuItemConstructorOptions {
+function createWindowMenuAction<TChannel extends TNativeMenuChannel>(
+    options: IWindowMenuActionOptions<TChannel>,
+): MenuItemConstructorOptions {
     const {
         label,
         channel,
         accelerator,
         enabled = true,
-        args = [],
     } = options;
+    const args = options.args ?? ([] as TNativeMenuArgs<TChannel>);
 
     return {
         label,
@@ -226,15 +256,17 @@ async function isTextEditingFocused(window: BrowserWindow) {
     }
 }
 
-function createTextAwareWindowMenuAction(options: ITextAwareWindowMenuActionOptions): MenuItemConstructorOptions {
+function createTextAwareWindowMenuAction<TChannel extends TNativeMenuChannel>(
+    options: ITextAwareWindowMenuActionOptions<TChannel>,
+): MenuItemConstructorOptions {
     const {
         label,
         channel,
         accelerator,
         enabled = true,
-        args = [],
         nativeEditCommand,
     } = options;
+    const args = options.args ?? ([] as TNativeMenuArgs<TChannel>);
 
     return {
         label,
@@ -280,7 +312,7 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
     const fileItems: MenuItemConstructorOptions[] = recentFiles.map((filePath) => ({
         label: basename(filePath),
         click: (_, window) => {
-            sendToWindow(resolveWindowFromMenuContext(window), 'menu:openRecentFile', filePath);
+            sendToWindow(resolveWindowFromMenuContext(window), DOCUMENTS_EVENT_CHANNELS.menuOpenRecentFile, filePath);
         },
     }));
 
@@ -290,7 +322,7 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
         {
             label: te('menu.clearRecentFiles'),
             click: (_, window) => {
-                sendToWindow(resolveWindowFromMenuContext(window), 'menu:clearRecentFiles');
+                sendToWindow(resolveWindowFromMenuContext(window), DOCUMENTS_EVENT_CHANNELS.menuClearRecentFiles);
             },
         },
     ];
@@ -307,7 +339,7 @@ function getFileMenu(
             createWindowMenuAction({
                 label: te('menu.openFile'),
                 accelerator: 'CmdOrCtrl+O',
-                channel: 'menu:openPdf',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuOpenPdf,
             }),
             {
                 label: te('menu.openRecent'),
@@ -317,34 +349,34 @@ function getFileMenu(
                 label: te('menu.save'),
                 accelerator: 'CmdOrCtrl+S',
                 enabled: saveActionEnabled,
-                channel: 'menu:save',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuSave,
             }),
             createWindowMenuAction({
                 label: te('menu.repairAndSave'),
                 enabled: repairSaveActionEnabled,
-                channel: 'menu:repairSave',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuRepairSave,
             }),
             createWindowMenuAction({
                 label: te('menu.optimizePdfForInteraction'),
                 enabled: repairSaveActionEnabled,
-                channel: 'menu:optimizePdfForInteraction',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuOptimizePdfForInteraction,
             }),
             createWindowMenuAction({
                 label: te('menu.saveAs'),
                 accelerator: 'CmdOrCtrl+Shift+S',
                 enabled: documentActionsEnabled,
-                channel: 'menu:saveAs',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuSaveAs,
             }),
             createWindowMenuAction({
                 label: te('menu.print'),
                 accelerator: 'CmdOrCtrl+P',
                 enabled: documentActionsEnabled,
-                channel: 'menu:print',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuPrint,
             }),
             createWindowMenuAction({
                 label: te('menu.printCurrentPage'),
                 enabled: documentActionsEnabled,
-                channel: 'menu:printCurrentPage',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuPrintCurrentPage,
             }),
             {
                 label: te('menu.export'),
@@ -353,15 +385,15 @@ function getFileMenu(
                     createWindowMenuAction({
                         label: te('menu.exportDocx'),
                         accelerator: 'CmdOrCtrl+Shift+E',
-                        channel: 'menu:exportDocx',
+                        channel: DOCUMENTS_EVENT_CHANNELS.menuExportDocx,
                     }),
                     createWindowMenuAction({
                         label: te('menu.exportImages'),
-                        channel: 'menu:exportImages',
+                        channel: DOCUMENTS_EVENT_CHANNELS.menuExportImages,
                     }),
                     createWindowMenuAction({
                         label: te('menu.exportMultiPageTiff'),
-                        channel: 'menu:exportMultiPageTiff',
+                        channel: DOCUMENTS_EVENT_CHANNELS.menuExportMultiPageTiff,
                     }),
                 ],
             },
@@ -369,12 +401,12 @@ function getFileMenu(
             createWindowMenuAction({
                 label: te('menu.newTab'),
                 accelerator: 'CmdOrCtrl+T',
-                channel: 'menu:newTab',
+                channel: CORE_IPC_EVENT_CHANNELS.menuNewTab,
             }),
             createWindowMenuAction({
                 label: te('menu.closeTab'),
                 accelerator: 'CmdOrCtrl+W',
-                channel: 'menu:closeTab',
+                channel: CORE_IPC_EVENT_CHANNELS.menuCloseTab,
             }),
             ...(config.isMac ? [] : [
                 { type: 'separator' as const },
@@ -398,27 +430,27 @@ function getEditMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
                 label: te('menu.insertImageFromFile'),
                 accelerator: 'CmdOrCtrl+Shift+I',
                 enabled: documentActionsEnabled,
-                channel: 'menu:insertImageFromFile',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuInsertImageFromFile,
             }),
             createWindowMenuAction({
                 label: te('menu.pasteImageFromClipboard'),
                 accelerator: 'CmdOrCtrl+Shift+V',
                 enabled: documentActionsEnabled,
-                channel: 'menu:pasteImageFromClipboard',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuPasteImageFromClipboard,
             }),
             { type: 'separator' },
             createTextAwareWindowMenuAction({
                 label: te('menu.undo'),
                 accelerator: 'CmdOrCtrl+Z',
                 enabled: documentActionsEnabled,
-                channel: 'menu:undo',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuUndo,
                 nativeEditCommand: 'undo',
             }),
             createTextAwareWindowMenuAction({
                 label: te('menu.redo'),
                 accelerator: config.isMac ? 'Cmd+Shift+Z' : 'Ctrl+Y',
                 enabled: documentActionsEnabled,
-                channel: 'menu:redo',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuRedo,
                 nativeEditCommand: 'redo',
             }),
             { type: 'separator' },
@@ -437,25 +469,25 @@ function getPagesMenu(documentActionsEnabled: boolean): MenuItemConstructorOptio
         submenu: [
             createWindowMenuAction({
                 label: te('menu.deleteSelectedPages'),
-                channel: 'menu:deletePages',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuDeletePages,
             }),
             createWindowMenuAction({
                 label: te('menu.extractSelectedPages'),
-                channel: 'menu:extractPages',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuExtractPages,
             }),
             { type: 'separator' },
             createWindowMenuAction({
                 label: te('menu.rotateClockwise'),
-                channel: 'menu:rotateCw',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuRotateCw,
             }),
             createWindowMenuAction({
                 label: te('menu.rotateCounterclockwise'),
-                channel: 'menu:rotateCcw',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuRotateCcw,
             }),
             { type: 'separator' },
             createWindowMenuAction({
                 label: te('menu.insertPages'),
-                channel: 'menu:insertPages',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuInsertPages,
             }),
         ],
     };
@@ -469,55 +501,55 @@ function getViewMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
                 label: te('menu.zoomIn'),
                 accelerator: 'CmdOrCtrl+=',
                 enabled: documentActionsEnabled,
-                channel: 'menu:zoomIn',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuZoomIn,
             }),
             createWindowMenuAction({
                 label: te('menu.zoomOut'),
                 accelerator: 'CmdOrCtrl+-',
                 enabled: documentActionsEnabled,
-                channel: 'menu:zoomOut',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuZoomOut,
             }),
             createWindowMenuAction({
                 label: te('menu.actualSize'),
                 accelerator: 'CmdOrCtrl+0',
                 enabled: documentActionsEnabled,
-                channel: 'menu:actualSize',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuActualSize,
             }),
             { type: 'separator' },
             createWindowMenuAction({
                 label: te('menu.fitWidth'),
                 accelerator: 'CmdOrCtrl+1',
                 enabled: documentActionsEnabled,
-                channel: 'menu:fitWidth',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuFitWidth,
             }),
             createWindowMenuAction({
                 label: te('menu.fitHeight'),
                 accelerator: 'CmdOrCtrl+2',
                 enabled: documentActionsEnabled,
-                channel: 'menu:fitHeight',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuFitHeight,
             }),
             { type: 'separator' },
             createWindowMenuAction({
                 label: te('menu.singlePage'),
                 enabled: documentActionsEnabled,
-                channel: 'menu:viewModeSingle',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuViewModeSingle,
             }),
             createWindowMenuAction({
                 label: te('menu.facingPages'),
                 enabled: documentActionsEnabled,
-                channel: 'menu:viewModeFacing',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuViewModeFacing,
             }),
             createWindowMenuAction({
                 label: te('menu.facingWithFirstSingle'),
                 enabled: documentActionsEnabled,
-                channel: 'menu:viewModeFacingFirstSingle',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuViewModeFacingFirstSingle,
             }),
             { type: 'separator' },
             createWindowMenuAction({
                 label: te('menu.assistant'),
                 accelerator: 'CmdOrCtrl+Shift+A',
                 enabled: documentActionsEnabled,
-                channel: 'menu:toggleAssistant',
+                channel: DOCUMENTS_EVENT_CHANNELS.menuToggleAssistant,
             }),
             { type: 'separator' },
             {
@@ -528,23 +560,23 @@ function getViewMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
                         submenu: [
                             createWindowMenuAction({
                                 label: te('menu.splitEditorRight'),
-                                channel: 'menu:splitEditor',
+                                channel: CORE_IPC_EVENT_CHANNELS.menuSplitEditor,
                                 accelerator: 'CmdOrCtrl+\\',
                                 args: ['right'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.splitEditorLeft'),
-                                channel: 'menu:splitEditor',
+                                channel: CORE_IPC_EVENT_CHANNELS.menuSplitEditor,
                                 args: ['left'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.splitEditorUp'),
-                                channel: 'menu:splitEditor',
+                                channel: CORE_IPC_EVENT_CHANNELS.menuSplitEditor,
                                 args: ['up'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.splitEditorDown'),
-                                channel: 'menu:splitEditor',
+                                channel: CORE_IPC_EVENT_CHANNELS.menuSplitEditor,
                                 args: ['down'],
                             }),
                         ],
@@ -554,22 +586,22 @@ function getViewMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
                         submenu: [
                             createWindowMenuAction({
                                 label: te('menu.focusPaneRight'),
-                                channel: 'menu:focusEditorPane',
+                                channel: CORE_IPC_EVENT_CHANNELS.menuFocusEditorPane,
                                 args: ['right'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.focusPaneLeft'),
-                                channel: 'menu:focusEditorPane',
+                                channel: CORE_IPC_EVENT_CHANNELS.menuFocusEditorPane,
                                 args: ['left'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.focusPaneUp'),
-                                channel: 'menu:focusEditorPane',
+                                channel: CORE_IPC_EVENT_CHANNELS.menuFocusEditorPane,
                                 args: ['up'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.focusPaneDown'),
-                                channel: 'menu:focusEditorPane',
+                                channel: CORE_IPC_EVENT_CHANNELS.menuFocusEditorPane,
                                 args: ['down'],
                             }),
                         ],
@@ -579,22 +611,22 @@ function getViewMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
                         submenu: [
                             createWindowMenuAction({
                                 label: te('menu.moveTabRight'),
-                                channel: 'menu:moveTabToPane',
+                                channel: CORE_IPC_EVENT_CHANNELS.menuMoveTabToPane,
                                 args: ['right'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.moveTabLeft'),
-                                channel: 'menu:moveTabToPane',
+                                channel: CORE_IPC_EVENT_CHANNELS.menuMoveTabToPane,
                                 args: ['left'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.moveTabUp'),
-                                channel: 'menu:moveTabToPane',
+                                channel: CORE_IPC_EVENT_CHANNELS.menuMoveTabToPane,
                                 args: ['up'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.moveTabDown'),
-                                channel: 'menu:moveTabToPane',
+                                channel: CORE_IPC_EVENT_CHANNELS.menuMoveTabToPane,
                                 args: ['down'],
                             }),
                         ],
@@ -604,22 +636,22 @@ function getViewMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
                         submenu: [
                             createWindowMenuAction({
                                 label: te('menu.copyTabRight'),
-                                channel: 'menu:copyTabToPane',
+                                channel: CORE_IPC_EVENT_CHANNELS.menuCopyTabToPane,
                                 args: ['right'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.copyTabLeft'),
-                                channel: 'menu:copyTabToPane',
+                                channel: CORE_IPC_EVENT_CHANNELS.menuCopyTabToPane,
                                 args: ['left'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.copyTabUp'),
-                                channel: 'menu:copyTabToPane',
+                                channel: CORE_IPC_EVENT_CHANNELS.menuCopyTabToPane,
                                 args: ['up'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.copyTabDown'),
-                                channel: 'menu:copyTabToPane',
+                                channel: CORE_IPC_EVENT_CHANNELS.menuCopyTabToPane,
                                 args: ['down'],
                             }),
                         ],
@@ -686,7 +718,7 @@ function getHelpMenu(): MenuItemConstructorOptions {
         submenu: [
             createWindowMenuAction({
                 label: te('menu.checkForUpdates'),
-                channel: 'menu:checkForUpdates',
+                channel: CORE_IPC_EVENT_CHANNELS.menuCheckForUpdates,
             }),
             { type: 'separator' },
             config.isMac

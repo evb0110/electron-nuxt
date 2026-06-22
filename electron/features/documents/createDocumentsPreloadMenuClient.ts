@@ -1,5 +1,8 @@
 import type { IpcRenderer } from 'electron';
-import type { IDocumentsMenuCapability } from '@contracts/electronApiDocuments';
+import type {
+    IDocumentsMenuCapability,
+    TOpenDocumentDirectBatchProgress,
+} from '@contracts/electronApiDocuments';
 import {
     DOCUMENTS_CHANNELS,
     DOCUMENTS_EVENT_CHANNELS,
@@ -91,14 +94,9 @@ export function createDocumentsPreloadMenuClient(
         onMenuClearRecentFiles: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuClearRecentFiles),
     } satisfies TNoArgDocumentMenuSubscriptions;
 
-    const onOpenDocumentDirectBatchProgress = (callback: (progress: {
-        requestId: string;
-        processed: number;
-        total: number;
-        percent: number;
-        elapsedMs: number;
-        estimatedRemainingMs: number | null;
-    }) => void): TMenuEventUnsubscribe => eventSubscriber.onPayload(
+    const onOpenDocumentDirectBatchProgress = (
+        callback: (progress: TOpenDocumentDirectBatchProgress) => void,
+    ): TMenuEventUnsubscribe => eventSubscriber.onPayload(
         DOCUMENTS_EVENT_CHANNELS.openDocumentDirectBatchProgress,
         callback,
     );

@@ -60,10 +60,26 @@ function registerRendererFileOpenTokenCleanup(event: IpcMainInvokeEvent, senderI
     }
 
     rendererFileOpenTokenCleanupSenders.add(senderId);
-    event.sender.once('destroyed', () => {
+    const cleanup = () => {
+        event.sender.removeListener('destroyed', cleanup);
+        event.sender.removeListener('render-process-gone', cleanup);
+        event.sender.removeListener('did-start-navigation', handleNavigation);
         rendererFileOpenTokens.delete(senderId);
         rendererFileOpenTokenCleanupSenders.delete(senderId);
-    });
+    };
+    const handleNavigation = (
+        _event: unknown,
+        _url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) => {
+        if (isMainFrame && !isInPlace) {
+            cleanup();
+        }
+    };
+    event.sender.once('destroyed', cleanup);
+    event.sender.once('render-process-gone', cleanup);
+    event.sender.on('did-start-navigation', handleNavigation);
 }
 
 function consumeRendererFileOpenToken(senderId: number, token: string) {
@@ -80,6 +96,84 @@ function consumeRendererFileOpenToken(senderId: number, token: string) {
         rendererFileOpenTokens.delete(senderId);
     }
     return true;
+}
+
+function hasRendererFileOpenToken(senderId: number, token: string) {
+    pruneRendererFileOpenTokens(senderId);
+    const tokens = rendererFileOpenTokens.get(senderId);
+    const grant = tokens?.get(token);
+    if (!tokens || !grant || grant.expiresAtMs <= Date.now()) {
+        tokens?.delete(token);
+        return false;
+    }
+    return true;
+}
+
+function registerRendererFileOpenTokens(
+    event: IpcMainInvokeEvent,
+    tokensPayload: unknown,
+) {
+    const normalizedTokens = Array.isArray(tokensPayload)
+        ? tokensPayload.map(token => typeof token === 'string' ? token.trim() : '')
+        : [];
+    if (
+        normalizedTokens.length === 0
+        || normalizedTokens.length > MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER
+        || normalizedTokens.some(token => !RENDERER_FILE_OPEN_TOKEN_PATTERN.test(token))
+        || new Set(normalizedTokens).size !== normalizedTokens.length
+    ) {
+        return false;
+    }
+
+    const senderId = getSenderId(event);
+    const tokens = rendererFileOpenTokens.get(senderId) ?? new Map<string, IRendererFileOpenToken>();
+    pruneRendererFileOpenTokens(senderId);
+    const newTokenCount = normalizedTokens.filter(token => !tokens.has(token)).length;
+    if (tokens.size + newTokenCount > MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER) {
+        return false;
+    }
+
+    const expiresAtMs = Date.now() + RENDERER_FILE_OPEN_TOKEN_TTL_MS;
+    for (const token of normalizedTokens) {
+        tokens.delete(token);
+        tokens.set(token, {expiresAtMs});
+    }
+    rendererFileOpenTokens.set(senderId, tokens);
+    registerRendererFileOpenTokenCleanup(event, senderId);
+    return true;
+}
+
+function parseRendererFileOpenBatchRequests(requestsPayload: unknown) {
+    if (
+        !Array.isArray(requestsPayload)
+        || requestsPayload.length === 0
+        || requestsPayload.length > MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER
+    ) {
+        return null;
+    }
+
+    const requests = requestsPayload.map((request) => {
+        const filePath = isRecord(request) ? request.filePath : '';
+        const token = isRecord(request) ? request.token : '';
+        return {
+            filePath: typeof filePath === 'string' ? filePath.trim() : '',
+            token: typeof token === 'string' ? token.trim() : '',
+        };
+    });
+    if (
+        requests.some(request =>
+            !request.filePath
+            || !isAbsolute(request.filePath)
+            || !RENDERER_FILE_OPEN_TOKEN_PATTERN.test(request.token))
+        || new Set(requests.map(request => request.token)).size !== requests.length
+    ) {
+        return null;
+    }
+    return requests;
+}
+
+function isValidRendererFileOpenPath(filePath: string) {
+    return existsSync(filePath) && isSupportedOpenPath(filePath);
 }
 
 async function requireWorkingCopySourcePath(event: IpcMainInvokeEvent, sourcePath: string): Promise<TOpenPath> {
@@ -169,22 +263,9 @@ export function registerDocumentsIpcAdapter(
     register(DOCUMENTS_CHANNELS.recentFilesRemove, (event, originalPath) => service.removeRecentFile(event, originalPath));
     register(DOCUMENTS_CHANNELS.registerRendererFileOpenToken, (event, token: unknown) => {
         const normalizedToken = typeof token === 'string' ? token.trim() : '';
-        if (!RENDERER_FILE_OPEN_TOKEN_PATTERN.test(normalizedToken)) {
-            return false;
-        }
-
-        const senderId = getSenderId(event);
-        const tokens = rendererFileOpenTokens.get(senderId) ?? new Map<string, IRendererFileOpenToken>();
-        pruneRendererFileOpenTokens(senderId);
-        if (tokens.size >= MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER && !tokens.has(normalizedToken)) {
-            return false;
-        }
-        tokens.delete(normalizedToken);
-        tokens.set(normalizedToken, {expiresAtMs: Date.now() + RENDERER_FILE_OPEN_TOKEN_TTL_MS});
-        rendererFileOpenTokens.set(senderId, tokens);
-        registerRendererFileOpenTokenCleanup(event, senderId);
-        return true;
+        return registerRendererFileOpenTokens(event, [normalizedToken]);
     });
+    register(DOCUMENTS_CHANNELS.registerRendererFileOpenTokens, registerRendererFileOpenTokens);
     register(DOCUMENTS_CHANNELS.allowRendererFileOpen, (event, request: unknown) => {
         const senderId = getSenderId(event);
         const filePath = isRecord(request) ? request.filePath : '';
@@ -194,11 +275,27 @@ export function registerDocumentsIpcAdapter(
         }
 
         const normalizedPath = typeof filePath === 'string' ? filePath.trim() : '';
-        if (!normalizedPath || !isAbsolute(normalizedPath) || !existsSync(normalizedPath) || !isSupportedOpenPath(normalizedPath)) {
+        if (!normalizedPath || !isAbsolute(normalizedPath) || !isValidRendererFileOpenPath(normalizedPath)) {
             return false;
         }
 
         return allowOpenPath(normalizedPath, event.sender) !== null;
+    });
+    register(DOCUMENTS_CHANNELS.allowRendererFileOpenBatch, (event, requestsPayload: unknown) => {
+        const senderId = getSenderId(event);
+        const requests = parseRendererFileOpenBatchRequests(requestsPayload);
+        if (
+            !requests
+            || requests.some(request => !hasRendererFileOpenToken(senderId, request.token))
+            || requests.some(request => !isValidRendererFileOpenPath(request.filePath))
+        ) {
+            return false;
+        }
+
+        for (const request of requests) {
+            consumeRendererFileOpenToken(senderId, request.token);
+        }
+        return requests.every(request => allowOpenPath(request.filePath, event.sender) !== null);
     });
     register(
         DOCUMENTS_CHANNELS.createWorkingCopyFromPath,

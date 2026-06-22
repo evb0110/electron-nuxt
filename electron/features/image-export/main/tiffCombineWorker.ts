@@ -3,6 +3,8 @@ import {
     workerData,
 } from 'worker_threads';
 import { combinePagesIntoMultiPageTiffLocal } from '@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal';
+import type { IWorkerTaskErrorFrame } from '@electron/utils/workerTask';
+import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { getErrorMessage } from '@electron/utils/error';
 
 interface ITiffCombineWorkerData {
@@ -19,6 +21,7 @@ type TTiffCombineWorkerResult =
         type: 'result';
         ok: false;
         error: string;
+        errorFrame?: IWorkerTaskErrorFrame;
     };
 
 interface ITiffCombineWorkerCancelMessage {type: 'cancel';}
@@ -29,10 +32,17 @@ function getWorkerInput() {
         throw new Error('Invalid TIFF combine worker payload');
     }
     const pagePaths: string[] = [];
-    for (const path of input.pagePaths) {
-        if (typeof path === 'string') {
-            pagePaths.push(path);
+    for (const [
+        index,
+        path,
+    ] of input.pagePaths.entries()) {
+        if (typeof path !== 'string' || path.trim().length === 0) {
+            throw new Error(`Invalid TIFF combine page path at index ${index}`);
         }
+        pagePaths.push(path);
+    }
+    if (pagePaths.length === 0) {
+        throw new Error('TIFF combine worker requires at least one page path');
     }
     return {
         pagePaths,
@@ -70,6 +80,7 @@ async function run() {
             type: 'result',
             ok: false,
             error: getErrorMessage(error),
+            errorFrame: createWorkerTaskErrorFrame(error, {source: 'image-export:tiff-combine-worker'}),
         } satisfies TTiffCombineWorkerResult);
     }
 }

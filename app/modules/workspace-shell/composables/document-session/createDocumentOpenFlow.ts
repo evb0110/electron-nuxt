@@ -363,7 +363,8 @@ export function createDocumentOpenFlow(
             const stopProgress = documents.onOpenDocumentDirectBatchProgress(
                 (progress) => {
                     if (
-                        progress.requestId !== requestId
+                        progress.operation !== 'document-open'
+                        || progress.requestId !== requestId
                         || !isCurrentOpenRequest(openRequestId)
                     ) {
                         return;

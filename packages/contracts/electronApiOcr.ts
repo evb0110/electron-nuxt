@@ -72,6 +72,14 @@ export interface IOcrJobStartResult extends IOcrErrorEnvelopeCarrier {
     errors?: string[];
 }
 
+export type TOcrCancelFailureReason = 'invalid-request' | 'not-found' | 'failed';
+
+export interface IOcrCancelResult extends IOcrErrorEnvelopeCarrier {
+    canceled: boolean;
+    reason?: TOcrCancelFailureReason;
+    error?: string;
+}
+
 export interface IOcrResultFileAckResult extends IOcrErrorEnvelopeCarrier {
     cleaned: boolean;
     error?: string;
@@ -82,7 +90,7 @@ export interface IOcrRecognizeBatchResult extends IOcrErrorEnvelopeCarrier {
     errors: string[];
 }
 
-export interface IOcrCompleteResult {
+export interface IOcrCompleteResult extends IOcrErrorEnvelopeCarrier {
     requestId: string;
     success: boolean;
     pdfPath?: TDocumentRef;
@@ -144,7 +152,7 @@ export interface IOcrCapability {
         pages: IOcrRecognizeRequest[],
         requestId: string,
     ) => Promise<IOcrRecognizeBatchResult>;
-    cancel: (requestId: string) => Promise<{ canceled: boolean }>;
+    cancel: (requestId: string) => Promise<IOcrCancelResult>;
     getLanguages: () => Promise<IOcrLanguage[]>;
     validateTools: () => Promise<IOcrToolValidationResult>;
     installLanguages: (languages: string[], requestId: string) => Promise<IOcrJobStartResult>;

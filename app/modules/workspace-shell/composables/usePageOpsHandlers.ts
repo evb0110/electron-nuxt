@@ -64,6 +64,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     const {
         isOperationInProgress: isPageOperationInProgress,
         batchProgress: pageOpBatchProgress,
+        lastOutcome: lastPageOperationOutcome,
         deletePages: pageOpsDelete,
         extractPages: pageOpsExtract,
         rotatePages: pageOpsRotate,
@@ -225,6 +226,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     return {
         isPageOperationInProgress,
         pageOpBatchProgress,
+        lastPageOperationOutcome,
         pageOpsDelete: pageOpsDeleteAndClearSelection,
         pageOpsExtract,
         pageOpsInsert: pageOpsInsertAndClearSelection,

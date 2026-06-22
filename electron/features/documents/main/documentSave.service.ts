@@ -207,7 +207,7 @@ export async function savePdfDialog(
         return null;
     }
 
-    allowDjvuWritePath(targetPath, event.sender.id);
+    allowDjvuWritePath(targetPath, event.sender);
 
     return targetPath;
 }
@@ -233,7 +233,7 @@ export async function saveDocxAs(
         return null;
     }
 
-    allowDocxWritePath(targetPath, event.sender.id);
+    allowDocxWritePath(targetPath, event.sender);
 
     return targetPath;
 }

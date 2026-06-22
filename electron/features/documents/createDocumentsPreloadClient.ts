@@ -5,7 +5,7 @@ import { createDocumentsPreloadMenuClient } from '@electron/features/documents/c
 
 export function createDocumentsPreloadClient(
     ipcRenderer: IpcRenderer,
-): Omit<IDocumentsCapability, 'getPathForFile'> {
+): Omit<IDocumentsCapability, 'getPathForFile' | 'getPathsForFiles'> {
     const fileClient = createDocumentsPreloadFileClient(ipcRenderer);
     const menuClient = createDocumentsPreloadMenuClient(ipcRenderer);
 

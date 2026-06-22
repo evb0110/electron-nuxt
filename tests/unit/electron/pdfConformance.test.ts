@@ -7,7 +7,7 @@ import {
 } from 'vitest';
 
 const mocks = vi.hoisted(() => {
-    const workerState: { mode: 'runtime-error' | 'startup-error' | 'success' } = { mode: 'startup-error' };
+    const workerState: { mode: 'malformed-result' | 'runtime-error' | 'startup-error' | 'success' } = {mode: 'startup-error'};
     const workerCtor = vi.fn();
     const loggerWarn = vi.fn();
     const runNativeToolCommand = vi.fn();
@@ -51,6 +51,23 @@ vi.mock('worker_threads', () => ({Worker: class {
                 case 'runtime-error':
                     this.emit('online', undefined);
                     this.emit('error', new Error('worker crashed after startup'));
+                    return;
+                case 'malformed-result':
+                    this.emit('online', undefined);
+                    this.emit('message', {
+                        type: 'result',
+                        ok: true,
+                        data: {
+                            isSigned: false,
+                            isEncrypted: false,
+                            isTagged: false,
+                            pdfaLevel: null,
+                            hasAcroForm: false,
+                            hasXfa: false,
+                            canIncrementalSave: 'yes',
+                            saveRestrictions: [],
+                        },
+                    });
                     return;
                 case 'success':
                     this.emit('online', undefined);
@@ -216,6 +233,19 @@ describe('analyzePdfConformanceFile', () => {
         await expect(analyzePdfConformanceFile('/tmp/runtime-failure.pdf'))
             .rejects
             .toThrow('worker crashed after startup');
+
+        expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
+        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.stat).not.toHaveBeenCalled();
+        expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects malformed worker result payloads', async () => {
+        mocks.workerState.mode = 'malformed-result';
+
+        await expect(analyzePdfConformanceFile('/tmp/malformed-result.pdf'))
+            .rejects
+            .toThrow('PDF conformance worker returned an invalid payload');
 
         expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
         expect(mocks.readFile).not.toHaveBeenCalled();

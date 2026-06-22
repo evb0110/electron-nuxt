@@ -24,11 +24,17 @@ describe('browserAgentCapability', () => {
         await expect(browserAgentCapability.submitWorkspaceSnapshot({
             requestId: 'snapshot-1',
             ok: false,
-        })).resolves.toBe(false);
+        })).resolves.toEqual({
+            accepted: false,
+            reason: 'unknown-request',
+        });
         await expect(browserAgentCapability.submitCommandResponse({
             requestId: 'command-1',
             ok: false,
-        })).resolves.toBe(false);
+        })).resolves.toEqual({
+            accepted: false,
+            reason: 'unknown-request',
+        });
         const sendResult = await browserAgentCapability.sendAssistantMessage({ text: 'hello' });
         expect(sendResult.ok).toBe(false);
         expect(sendResult.state.status).toMatchObject({

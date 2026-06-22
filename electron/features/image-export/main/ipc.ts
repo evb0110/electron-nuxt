@@ -4,12 +4,12 @@ import {
 } from 'electron';
 import { existsSync } from 'fs';
 import { extname } from 'path';
-import { uniq } from 'es-toolkit/array';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {
     exportPdfAsMultiPageTiff,
     exportPdfPagesAsImages,
+    getPdfPageCount,
     normalizeImageExportPath,
 } from '@electron/features/image-export/main/export';
 import { IMAGE_EXPORT_EVENT_CHANNELS } from '@electron/features/image-export/contract';
@@ -20,6 +20,8 @@ import type {
 } from '@contracts/electronApiDocuments';
 import { clamp } from 'es-toolkit/math';
 import { createLogger } from '@electron/utils/createLogger';
+import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
+import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 
 const logger = createLogger('image-export');
 
@@ -51,24 +53,48 @@ async function validateWorkingPdfPath(path: unknown, senderWebContentsId: number
 }
 
 function normalizeRequestedPageNumbers(pageNumbers: unknown): number[] | undefined {
-    if (!Array.isArray(pageNumbers)) {
+    if (pageNumbers === null || pageNumbers === undefined) {
         return undefined;
     }
-
-    const numericPageNumbers: number[] = [];
-    for (const page of pageNumbers) {
-        if (typeof page === 'number' && Number.isInteger(page) && page > 0) {
-            numericPageNumbers.push(page);
-        }
+    if (!Array.isArray(pageNumbers)) {
+        throw new Error('pageNumbers must be an array when provided');
     }
-    const normalized = uniq(numericPageNumbers)
-        .sort((left, right) => left - right);
+
+    const normalized: number[] = [];
+    const seen = new Set<number>();
+    for (const [
+        index,
+        page,
+    ] of pageNumbers.entries()) {
+        if (typeof page !== 'number' || !Number.isInteger(page) || page < 1) {
+            throw new Error(`Invalid page number at index ${index}`);
+        }
+        if (seen.has(page)) {
+            throw new Error(`Duplicate page number: ${page}`);
+        }
+        seen.add(page);
+        normalized.push(page);
+    }
 
     if (normalized.length === 0) {
         throw new Error('At least one page number must be provided for scoped export');
     }
 
-    return normalized;
+    return normalized.sort((left, right) => left - right);
+}
+
+async function validateRequestedPageNumbersWithinPdf(
+    pdfPath: string,
+    pageNumbers: number[] | undefined,
+) {
+    if (!pageNumbers) {
+        return;
+    }
+    const pageCount = await getPdfPageCount(pdfPath);
+    const outOfRangePage = pageNumbers.find(pageNumber => pageNumber > pageCount);
+    if (outOfRangePage !== undefined) {
+        throw new Error(`Page number ${outOfRangePage} exceeds PDF page count (${pageCount})`);
+    }
 }
 
 function buildImageSuggestedName(pageNumbers: number[] | undefined) {
@@ -103,6 +129,17 @@ function createRendererLifecycleAbortController(sender: Electron.WebContents) {
     const cleanup = () => {
         sender.removeListener('destroyed', abort);
         sender.removeListener('render-process-gone', abort);
+        sender.removeListener('did-start-navigation', handleNavigation);
+    };
+    const handleNavigation = (
+        _event: Electron.Event,
+        _url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) => {
+        if (isMainFrame && !isInPlace) {
+            abort();
+        }
     };
 
     if (sender.isDestroyed()) {
@@ -115,6 +152,7 @@ function createRendererLifecycleAbortController(sender: Electron.WebContents) {
 
     sender.once('destroyed', abort);
     sender.once('render-process-gone', abort);
+    sender.on('did-start-navigation', handleNavigation);
 
     return {
         signal: abortController.signal,
@@ -133,15 +171,7 @@ function isExportAborted(error: unknown) {
 }
 
 function normalizeExportRequestId(requestId: unknown) {
-    return typeof requestId === 'string' ? requestId.trim() : '';
-}
-
-function sendImageExportProgress(event: Electron.IpcMainInvokeEvent, progress: IImageExportProgress) {
-    try {
-        event.sender.send(IMAGE_EXPORT_EVENT_CHANNELS.progress, progress);
-    } catch (error) {
-        logger.debug(`Failed to send image export progress update: ${String(error)}`);
-    }
+    return normalizeOptionalIpcRequestId(requestId) ?? '';
 }
 
 function createImageExportProgressReporter(
@@ -153,11 +183,20 @@ function createImageExportProgressReporter(
     if (!normalizedRequestId) {
         return undefined;
     }
+    const progressPump = createIpcProgressPump<IImageExportProgress>({
+        channel: IMAGE_EXPORT_EVENT_CHANNELS.progress,
+        getTarget: () => event.sender,
+        getKey: progress => progress.requestId,
+        isTerminal: progress => progress.processed >= progress.total || progress.percent >= 100,
+        onError: error => {
+            logger.debug(`Failed to send image export progress update: ${String(error)}`);
+        },
+    });
 
     return (progress: TImageExportProgressPayload) => {
         const total = Math.max(1, Math.trunc(progress.total));
         const processed = clamp(Math.trunc(progress.processed), 0, total);
-        sendImageExportProgress(event, {
+        progressPump.enqueue({
             requestId: normalizedRequestId,
             format,
             phase: progress.phase,
@@ -227,8 +266,10 @@ export async function handlePdfExportImages(
     canceled?: boolean;
     outputPaths?: string[];
 }> {
+    const normalizedRequestId = normalizeExportRequestId(requestId);
     const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, event.sender.id);
     const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
+    await validateRequestedPageNumbersWithinPdf(normalizedWorkingCopyPath, normalizedPageNumbers);
     const parentWindow = BrowserWindow.fromWebContents(event.sender);
     const lifecycle = createRendererLifecycleAbortController(event.sender);
 
@@ -242,7 +283,7 @@ export async function handlePdfExportImages(
         }
 
         const { normalizedPath } = normalizeImageExportPath(result.filePath, 'jpeg');
-        const onProgress = createImageExportProgressReporter(event, 'images', requestId);
+        const onProgress = createImageExportProgressReporter(event, 'images', normalizedRequestId);
         const outputPaths = await exportPdfPagesAsImages(normalizedWorkingCopyPath, normalizedPath, {
             ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
             signal: lifecycle.signal,
@@ -283,8 +324,10 @@ export async function handlePdfExportMultiPageTiff(
     outputPath?: string;
     outputPaths?: string[];
 }> {
+    const normalizedRequestId = normalizeExportRequestId(requestId);
     const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, event.sender.id);
     const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
+    await validateRequestedPageNumbersWithinPdf(normalizedWorkingCopyPath, normalizedPageNumbers);
     const parentWindow = BrowserWindow.fromWebContents(event.sender);
     const lifecycle = createRendererLifecycleAbortController(event.sender);
 
@@ -297,7 +340,7 @@ export async function handlePdfExportMultiPageTiff(
             };
         }
 
-        const onProgress = createImageExportProgressReporter(event, 'multipage-tiff', requestId);
+        const onProgress = createImageExportProgressReporter(event, 'multipage-tiff', normalizedRequestId);
         const outputPaths = await exportPdfAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, {
             ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
             signal: lifecycle.signal,

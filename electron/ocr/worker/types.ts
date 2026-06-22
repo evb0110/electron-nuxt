@@ -1,5 +1,6 @@
 import type { IOcrWord } from '@contracts/shared';
 import type {
+    IOcrErrorEnvelope,
     IOcrSearchablePdfOptions,
     TOcrProgressPhase,
 } from '@contracts/electronApiOcr';
@@ -87,6 +88,7 @@ export type TOcrWorkerCompleteResult =
     | {
         success: false;
         errors: string[];
+        errorEnvelope?: IOcrErrorEnvelope;
     };
 
 export interface IOcrWorkerProgressMessage {

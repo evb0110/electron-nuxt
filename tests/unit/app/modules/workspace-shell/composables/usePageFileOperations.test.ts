@@ -157,6 +157,30 @@ describe('usePageFileOperations', () => {
         );
     });
 
+    it('preserves a detailed blocked outcome when persistence prevents opening', async () => {
+        const deps = createDeps({
+            isDirty: ref(true),
+            handleSave: vi.fn(async () => {
+                throw new Error('disk full');
+            }),
+        });
+        const {
+            handleOpenFileFromUiDetailed,
+            lastOpenOutcome,
+        } = usePageFileOperations(deps);
+
+        await expect(handleOpenFileFromUiDetailed()).resolves.toEqual({
+            status: 'blocked',
+            reason: 'persistence-gate',
+        });
+
+        expect(lastOpenOutcome.value).toEqual({
+            status: 'blocked',
+            reason: 'persistence-gate',
+        });
+        expect(deps.pickFileToOpen).not.toHaveBeenCalled();
+    });
+
     it('opens through openFile directly in browser mode', async () => {
         mockHasElectronAPI.mockReturnValue(false);
         const openResult = {
@@ -198,6 +222,29 @@ describe('usePageFileOperations', () => {
                 error: 'not allowed',
             },
         );
+    });
+
+    it('preserves failed direct-open details for UI diagnostics', async () => {
+        const deps = createDeps({
+            pdfSrc: ref(null),
+            openFileDirect: vi.fn(async () => ({
+                status: 'failed' as const,
+                error: 'not allowed',
+            })),
+        });
+        const {
+            handleOpenFileDirectWithPersistDetailed,
+            lastOpenOutcome,
+        } = usePageFileOperations(deps);
+
+        const outcome = await handleOpenFileDirectWithPersistDetailed('/tmp/blocked.pdf');
+
+        expect(outcome).toEqual({
+            status: 'failed',
+            error: 'not allowed',
+        });
+        expect(lastOpenOutcome.value).toEqual(outcome);
+        expect(deps.closeAllDropdowns).not.toHaveBeenCalled();
     });
 
     it('retries one stale direct open when no document reached renderer state', async () => {

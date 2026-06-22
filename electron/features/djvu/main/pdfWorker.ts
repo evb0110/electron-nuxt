@@ -10,6 +10,7 @@ import type {
 } from '@electron/features/djvu/main/pdfWorkerProtocol';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import { isRecord } from '@contracts/runtimeGuards';
+import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { getErrorMessage } from '@electron/utils/error';
 
 interface IDjvuPdfWorkerCancelMessage {type: 'cancel';}
@@ -155,6 +156,7 @@ async function run() {
             type: 'result',
             ok: false,
             error: getErrorMessage(error),
+            errorFrame: createWorkerTaskErrorFrame(error, {source: 'djvu:pdf-worker'}),
         } satisfies TDjvuPdfWorkerMessage);
     }
 }

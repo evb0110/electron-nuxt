@@ -8,8 +8,13 @@ import {
 } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import type { IAgentAssistantChatScope } from '@contracts/agent';
+import { BrowserWindow } from 'electron';
+import type {
+    IAgentAssistantChatScope,
+    IAgentAssistantEvent,
+} from '@contracts/agent';
 import type * as CodexAssistantModule from '@electron/features/agent/codexAssistant';
+import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
     loadSettings: vi.fn(async () => ({assistantPanelEnabled: false})),
@@ -51,7 +56,10 @@ class FakeCodexAppServerProcess extends EventEmitter {
         const request = JSON.parse(line) as {
             id?: number;
             method?: string;
-            params?: { threadId?: string };
+            params?: {
+                threadId?: string;
+                input?: Array<{ text?: string }>;
+            };
         };
         if (request.id === undefined) {
             return;
@@ -88,6 +96,27 @@ class FakeCodexAppServerProcess extends EventEmitter {
             case 'turn/start': {
                 this.turnCount += 1;
                 this.respond(request.id, { turn: { id: `turn-${this.turnCount}` } });
+                const text = request.params?.input?.find(item => typeof item.text === 'string')?.text ?? '';
+                if (text.includes('stream')) {
+                    this.notify('item/agentMessage/delta', {
+                        threadId: request.params?.threadId,
+                        itemId: `assistant-${this.turnCount}`,
+                        delta: 'Hello ',
+                    });
+                    this.notify('item/agentMessage/delta', {
+                        threadId: request.params?.threadId,
+                        itemId: `assistant-${this.turnCount}`,
+                        delta: 'there',
+                    });
+                    this.notify('item/completed', {
+                        threadId: request.params?.threadId,
+                        item: {
+                            type: 'agentMessage',
+                            id: `assistant-${this.turnCount}`,
+                            text: 'Hello there',
+                        },
+                    });
+                }
                 this.notify('turn/completed', { threadId: request.params?.threadId });
                 return;
             }
@@ -183,6 +212,11 @@ describe('agent assistant opt-in gating', () => {
 
         expect(result.ok).toBe(false);
         expect(result.error).toBe(mocks.assistantDisabledMessage);
+        expect(result.errorEnvelope).toMatchObject({
+            code: 'INTERNAL',
+            message: mocks.assistantDisabledMessage,
+            retryable: false,
+        });
         expect(mocks.getCodexCliInfo).not.toHaveBeenCalled();
         expect(mocks.startEmbeddedMcpServer).not.toHaveBeenCalled();
         expect(mocks.spawn).not.toHaveBeenCalled();
@@ -353,5 +387,52 @@ describe('agent assistant opt-in gating', () => {
 
         expect(result.ok).toBe(true);
         expect(mocks.openExternal).toHaveBeenCalledWith('https://auth.example.test/start');
+    });
+
+    it('keeps streaming assistant deltas lean while boundary events carry state', async () => {
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+        mocks.getCodexCliInfo.mockResolvedValue({
+            installed: true,
+            path: '/Applications/Codex.app/Contents/Resources/codex',
+            version: '0.133.0',
+            minimumVersion: '0.133.0',
+            isVersionSupported: true,
+            managedInstallDir: '/tmp/codex',
+        });
+        mocks.startEmbeddedMcpServer.mockResolvedValue({
+            descriptor: {
+                name: 'evb_viewer_embedded',
+                url: 'http://127.0.0.1:9876',
+            },
+            token: 'test-mcp-token',
+        });
+        mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
+        const send = vi.fn<(channel: string, event: IAgentAssistantEvent) => void>();
+        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([cast<BrowserWindow>({
+            isDestroyed: () => false,
+            webContents: {
+                isDestroyed: () => false,
+                send,
+            },
+        })]);
+        const documentScope = {
+            kind: 'document',
+            key: 'document:/tmp/stream.pdf',
+            title: 'stream.pdf',
+            documentRef: '/tmp/stream.pdf',
+        } as const satisfies IAgentAssistantChatScope;
+
+        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const result = await sendAgentAssistantMessage({
+            text: 'please stream',
+            scope: documentScope,
+        });
+
+        expect(result.ok).toBe(true);
+        const events = send.mock.calls.map((call) => call[1]);
+        const deltaEvents = events.filter(event => event.type === 'message-delta');
+        expect(deltaEvents).toHaveLength(2);
+        expect(deltaEvents.every(event => event.state === undefined)).toBe(true);
+        expect(events.find(event => event.type === 'turn-completed')?.state).toBeDefined();
     });
 });

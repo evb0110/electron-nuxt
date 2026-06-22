@@ -15,6 +15,9 @@ import { getErrorMessage } from '@electron/utils/error';
 const logger = createLogger('windowTabTransfer');
 const INCOMING_TRANSFER_CHANNEL = 'tabs:incomingTransfer';
 const DEFAULT_TRANSFER_TIMEOUT_MS = 12_000;
+const MAX_TRANSFER_TIMEOUT_MS = 60_000;
+const MAX_PENDING_TRANSFERS_PER_TARGET_WINDOW = 32;
+const MAX_PENDING_TRANSFERS_PER_SOURCE_WINDOW = 64;
 
 interface ITransferTargetWindow {
     id: number;
@@ -31,6 +34,7 @@ interface IWindowTabTransferBrokerDeps {
 
 interface IPendingTransfer {
     transferId: string;
+    sourceWindowId: number;
     targetWindowId: number;
     resolve: (result: IWindowTabTransferResult) => void;
     timeoutHandle: ReturnType<typeof setTimeout>;
@@ -41,7 +45,7 @@ function normalizeTimeout(timeoutMs: number | undefined) {
     if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
         return DEFAULT_TRANSFER_TIMEOUT_MS;
     }
-    return clamp(Math.floor(timeoutMs), 1, Number.MAX_SAFE_INTEGER);
+    return clamp(Math.floor(timeoutMs), 1, MAX_TRANSFER_TIMEOUT_MS);
 }
 
 export class WindowTabTransferBroker {
@@ -66,6 +70,15 @@ export class WindowTabTransferBroker {
             };
         }
 
+        if (!this.canAdmitTransfer(sourceWindowId, targetWindow.id)) {
+            return {
+                transferId: '',
+                success: false,
+                targetWindowId,
+                error: 'Too many pending tab transfers.',
+            };
+        }
+
         const transferId = randomUUID();
         const payload: IWindowTabIncomingTransfer = {
             transferId,
@@ -85,6 +98,7 @@ export class WindowTabTransferBroker {
 
             this.pendingTransfers.set(transferId, {
                 transferId,
+                sourceWindowId,
                 targetWindowId: targetWindow.id,
                 resolve,
                 timeoutHandle,
@@ -134,6 +148,10 @@ export class WindowTabTransferBroker {
         }
     }
 
+    markWindowNotReady(windowId: number) {
+        this.readyWindowIds.delete(windowId);
+    }
+
     markWindowClosed(windowId: number) {
         this.readyWindowIds.delete(windowId);
 
@@ -165,6 +183,22 @@ export class WindowTabTransferBroker {
         }
 
         return this.deps.getWindowById(request.target.windowId);
+    }
+
+    private canAdmitTransfer(sourceWindowId: number, targetWindowId: number) {
+        let pendingForSourceWindow = 0;
+        let pendingForTargetWindow = 0;
+        for (const pending of this.pendingTransfers.values()) {
+            if (pending.sourceWindowId === sourceWindowId) {
+                pendingForSourceWindow += 1;
+            }
+            if (pending.targetWindowId === targetWindowId) {
+                pendingForTargetWindow += 1;
+            }
+        }
+
+        return pendingForSourceWindow < MAX_PENDING_TRANSFERS_PER_SOURCE_WINDOW
+            && pendingForTargetWindow < MAX_PENDING_TRANSFERS_PER_TARGET_WINDOW;
     }
 
     private dispatchTransfer(transferId: string) {
@@ -247,6 +281,10 @@ export function acknowledgeWindowTabTransfer(windowId: number, ack: IWindowTabTr
 
 export function markWindowTabTransferReady(windowId: number) {
     browserWindowTransferBroker.markWindowReady(windowId);
+}
+
+export function markWindowTabTransferNotReady(windowId: number) {
+    browserWindowTransferBroker.markWindowNotReady(windowId);
 }
 
 export function markWindowTabTransferWindowClosed(windowId: number) {

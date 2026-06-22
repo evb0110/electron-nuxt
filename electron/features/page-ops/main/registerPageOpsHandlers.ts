@@ -10,6 +10,7 @@ import {
 } from 'path';
 import type { ICropMargins } from '@contracts/shared';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
+import type { TOpenBatchProgressOperation } from '@contracts/electronApiDocuments';
 import { PAGE_OPS_CHANNELS } from '@electron/features/page-ops/contract';
 import {
     DOCUMENTS_EVENT_CHANNELS,
@@ -50,16 +51,28 @@ import {
     enqueueWorkingCopyMutation,
 } from '@electron/file-access/workingCopyMutationQueue';
 import type { TPageOpsIpcMainRegistrar } from '@electron/features/page-ops/ports';
+import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
+import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
+import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConversion';
 
-function sendOpenBatchProgress(
+function createOpenBatchProgressReporter(
     event: Electron.IpcMainInvokeEvent,
-    payload: TOpenBatchProgressPayload,
+    requestId: string,
+    operation: TOpenBatchProgressOperation,
 ) {
-    try {
-        event.sender.send(DOCUMENTS_EVENT_CHANNELS.openDocumentDirectBatchProgress, payload);
-    } catch {
-        // Progress is best effort; the page operation result remains authoritative.
-    }
+    const pump = createIpcProgressPump<TOpenBatchProgressPayload>({
+        channel: DOCUMENTS_EVENT_CHANNELS.openDocumentDirectBatchProgress,
+        getTarget: () => event.sender,
+        getKey: payload => payload.requestId,
+        isTerminal: payload => payload.processed >= payload.total,
+    });
+    return (progress: ICreatePdfFromInputPathsProgress) => {
+        pump.enqueue({
+            operation,
+            requestId,
+            ...progress,
+        });
+    };
 }
 
 async function validateWorkingCopyPath(path: unknown, senderWebContentsId?: number) {
@@ -341,7 +354,7 @@ async function handlePageOpsInsertFile(
     assertOpenInputPathCount(sourcePaths);
     const trustedSourcePaths = normalizeNonEmptyStringPaths(sourcePaths)
         .map(path => requireOpenPath(path, event.sender));
-    const normalizedRequestId = typeof requestId === 'string' ? requestId.trim() : '';
+    const normalizedRequestId = normalizeOptionalIpcRequestId(requestId) ?? '';
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
@@ -352,10 +365,7 @@ async function handlePageOpsInsertFile(
             insertArgs.afterPage,
             event.sender?.id,
             normalizedRequestId
-                ? progress => sendOpenBatchProgress(event, {
-                    requestId: normalizedRequestId,
-                    ...progress,
-                })
+                ? createOpenBatchProgressReporter(event, normalizedRequestId, 'page-insert')
                 : undefined,
         );
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);

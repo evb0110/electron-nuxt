@@ -5,6 +5,7 @@ import { Worker } from 'worker_threads';
 import { minBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import { withTimeout } from 'es-toolkit/promise';
+import { SEARCH_RESULT_LIMIT } from '@electron/config/constants';
 import { SEARCH_EVENT_CHANNELS } from '@electron/features/search/contract';
 import type {
     ISearchResponse,
@@ -13,10 +14,17 @@ import type {
 } from '@electron/features/search/protocol';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
+import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import {
     isFiniteWorkerMessageNumber,
     isWorkerMessageRecord,
 } from '@electron/utils/workerMessage';
+import {
+    buildSearchErrorEnvelope,
+    SearchIpcError,
+    toSearchIpcError,
+} from '@electron/features/search/main/searchErrors';
+import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { parsePageNumber } from '@contracts/pageNumbers';
 import { isOcrWord } from '@contracts/shared';
 
@@ -26,6 +34,15 @@ interface IPendingSearchRequest {
 }
 
 type TPendingSearchSettler = (pending: IPendingSearchRequest) => void;
+type TSearchMatch = ISearchResponse['results'][number];
+interface ISearchProgressPayload {
+    requestId: string;
+    processed: number;
+    total: number;
+    results?: TSearchMatch[];
+    truncated?: boolean;
+    canceled?: boolean;
+}
 
 interface ISenderSearchState {
     senderId: number;
@@ -49,8 +66,6 @@ interface IDispatchSearchRequestPayload {
     useRegex?: boolean;
     requestIdPrefix: string;
 }
-
-type TSearchMatch = ISearchResponse['results'][number];
 
 function buildSearchWorkerRequest(
     payload: IDispatchSearchRequestPayload,
@@ -81,6 +96,10 @@ const DEFAULT_SEARCH_WORKER_IDLE_TTL_MS = 30 * 1000;
 const MIN_SEARCH_WORKER_IDLE_TTL_MS = 10_000;
 const DEFAULT_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = 10_000;
 const MIN_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = 1_000;
+const SEARCH_OUTBOUND_RESULT_LIMIT = Math.max(1, SEARCH_RESULT_LIMIT);
+const SEARCH_OUTBOUND_EXCERPT_TEXT_MAX_CHARS = 4_096;
+const SEARCH_OUTBOUND_WORD_LIMIT = 2_048;
+const SEARCH_OUTBOUND_WORD_TEXT_MAX_CHARS = 4_096;
 
 const SEARCH_REQUEST_TIMEOUT_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_SEARCH_REQUEST_TIMEOUT_MS ?? `${DEFAULT_SEARCH_REQUEST_TIMEOUT_MS}`, 10);
@@ -149,6 +168,81 @@ function parsePositiveWorkerNumber(value: unknown) {
         : undefined;
 }
 
+function trimSearchTextSegment(value: string, maxLength: number, fromEnd = false) {
+    if (value.length <= maxLength) {
+        return {
+            value,
+            truncated: false,
+        };
+    }
+    return {
+        value: fromEnd ? value.slice(-maxLength) : value.slice(0, maxLength),
+        truncated: true,
+    };
+}
+
+function capSearchMatch(match: TSearchMatch) {
+    let truncated = false;
+    const before = trimSearchTextSegment(match.excerpt.before, SEARCH_OUTBOUND_EXCERPT_TEXT_MAX_CHARS, true);
+    const matchedText = trimSearchTextSegment(match.excerpt.match, SEARCH_OUTBOUND_EXCERPT_TEXT_MAX_CHARS);
+    const after = trimSearchTextSegment(match.excerpt.after, SEARCH_OUTBOUND_EXCERPT_TEXT_MAX_CHARS);
+    truncated = before.truncated || matchedText.truncated || after.truncated;
+
+    let words = match.words;
+    if (words !== undefined) {
+        if (words.length > SEARCH_OUTBOUND_WORD_LIMIT) {
+            words = words.slice(0, SEARCH_OUTBOUND_WORD_LIMIT);
+            truncated = true;
+        }
+        const cappedWords = words.map((word) => {
+            if (word.text.length <= SEARCH_OUTBOUND_WORD_TEXT_MAX_CHARS) {
+                return word;
+            }
+            truncated = true;
+            return {
+                ...word,
+                text: word.text.slice(0, SEARCH_OUTBOUND_WORD_TEXT_MAX_CHARS),
+            };
+        });
+        words = cappedWords;
+    }
+
+    const cappedMatch: TSearchMatch = {
+        ...match,
+        excerpt: {
+            prefix: match.excerpt.prefix || before.truncated,
+            suffix: match.excerpt.suffix || after.truncated || matchedText.truncated,
+            before: before.value,
+            match: matchedText.value,
+            after: after.value,
+        },
+        ...(words === undefined ? {} : {words}),
+    };
+    return {
+        match: cappedMatch,
+        truncated,
+    };
+}
+
+function capSearchResponse(
+    response: ISearchResponse,
+    maxResults = SEARCH_OUTBOUND_RESULT_LIMIT,
+): ISearchResponse {
+    let truncated = response.truncated || response.results.length > maxResults;
+    const results: TSearchMatch[] = [];
+    for (const result of response.results.slice(0, maxResults)) {
+        const capped = capSearchMatch(result);
+        results.push(capped.match);
+        truncated = truncated || capped.truncated;
+    }
+
+    return {
+        results,
+        truncated,
+        ...(response.canceled === undefined ? {} : {canceled: response.canceled}),
+    };
+}
+
 function parseSearchMatch(value: unknown, pageCount?: number) {
     if (!isWorkerMessageRecord(value)) {
         return null;
@@ -196,6 +290,9 @@ function parseSearchResponse(value: unknown, pageCount?: number) {
     if (!isWorkerMessageRecord(value) || !Array.isArray(value.results) || typeof value.truncated !== 'boolean') {
         return null;
     }
+    if (value.canceled !== undefined && typeof value.canceled !== 'boolean') {
+        return null;
+    }
     const results: TSearchMatch[] = [];
     for (const result of value.results) {
         const parsedResult = parseSearchMatch(result, pageCount);
@@ -204,10 +301,11 @@ function parseSearchResponse(value: unknown, pageCount?: number) {
         }
         results.push(parsedResult);
     }
-    return {
+    return capSearchResponse({
         results,
         truncated: value.truncated,
-    };
+        ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
+    });
 }
 
 function parseWorkerOutboundMessage(
@@ -220,13 +318,21 @@ function parseWorkerOutboundMessage(
     const pageCount = resolvePageCount(value.requestId);
     switch (value.type) {
         case 'progress':
-            if (!isFiniteWorkerMessageNumber(value.processed) || !isFiniteWorkerMessageNumber(value.total)) {
+            if (
+                !isFiniteWorkerMessageNumber(value.processed)
+                || !isFiniteWorkerMessageNumber(value.total)
+                || value.processed < 0
+                || value.total < 0
+            ) {
                 return null;
             }
             if (value.results !== undefined && !Array.isArray(value.results)) {
                 return null;
             }
             if (value.truncated !== undefined && typeof value.truncated !== 'boolean') {
+                return null;
+            }
+            if (value.canceled !== undefined && typeof value.canceled !== 'boolean') {
                 return null;
             }
             if (Array.isArray(value.results)) {
@@ -238,13 +344,19 @@ function parseWorkerOutboundMessage(
                     }
                     results.push(parsedResult);
                 }
+                const cappedResponse = capSearchResponse({
+                    results,
+                    truncated: Boolean(value.truncated),
+                    ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
+                });
                 return {
                     type: 'progress',
                     requestId: value.requestId,
                     processed: value.processed,
                     total: value.total,
-                    results,
-                    truncated: Boolean(value.truncated),
+                    results: cappedResponse.results,
+                    truncated: cappedResponse.truncated,
+                    ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
                 };
             }
             return {
@@ -252,6 +364,7 @@ function parseWorkerOutboundMessage(
                 requestId: value.requestId,
                 processed: value.processed,
                 total: value.total,
+                ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
             };
         case 'complete': {
             const response = parseSearchResponse(value.response, pageCount);
@@ -301,6 +414,7 @@ export class SearchWorkerService {
     private readonly senderSearchStates = new Map<number, ISenderSearchState>();
     private readonly registeredSenderCleanup = new Set<number>();
     private readonly workerTerminationPromises = new Map<number, Promise<void>>();
+    private readonly progressPumpsBySenderId = new Map<number, ReturnType<typeof createIpcProgressPump<ISearchProgressPayload>>>();
 
     constructor(private readonly resolveWorkerPath: () => string) {}
 
@@ -314,7 +428,10 @@ export class SearchWorkerService {
             ? payload.requestId
             : `${payload.requestIdPrefix}-${randomUUID()}`;
         if (state.pendingByRequestId.has(requestId)) {
-            throw new Error(`Search request with id "${requestId}" is already in progress`);
+            throw new SearchIpcError(buildSearchErrorEnvelope(
+                'SEARCH_INVALID_PAYLOAD',
+                `Search request with id "${requestId}" is already in progress`,
+            ));
         }
 
         if (!payload.warmup && state.activeRequestId && state.activeRequestId !== requestId) {
@@ -352,7 +469,11 @@ export class SearchWorkerService {
                 this.rejectPendingRequest(
                     state,
                     requestId,
-                    new Error(`Search request timed out after ${SEARCH_REQUEST_TIMEOUT_MS}ms`),
+                    new SearchIpcError(buildSearchErrorEnvelope(
+                        'SEARCH_TIMEOUT',
+                        `Search request timed out after ${SEARCH_REQUEST_TIMEOUT_MS}ms`,
+                        {retryable: true},
+                    )),
                 );
                 this.cleanupSenderState(senderId, {
                     terminateWorker: true,
@@ -377,17 +498,15 @@ export class SearchWorkerService {
         });
     }
 
-    cancel(event: IpcMainInvokeEvent, requestId?: string) {
+    cancel(event: IpcMainInvokeEvent, requestId?: unknown) {
         const senderId = event.sender.id;
+        const normalizedRequestId = normalizeOptionalIpcRequestId(requestId);
         const state = this.senderSearchStates.get(senderId);
         if (!state) {
             return { canceled: false };
         }
 
-        const trimmedRequestId = requestId?.trim();
-        const targetRequestId = trimmedRequestId && trimmedRequestId.length > 0
-            ? trimmedRequestId
-            : state.activeRequestId;
+        const targetRequestId = normalizedRequestId ?? state.activeRequestId;
         if (!targetRequestId) {
             return { canceled: false };
         }
@@ -418,24 +537,22 @@ export class SearchWorkerService {
 
     private sendSearchProgress(
         senderId: number,
-        progress: {
-            requestId: string;
-            processed: number;
-            total: number;
-            results?: TSearchMatch[];
-            truncated?: boolean;
-        },
+        progress: ISearchProgressPayload,
     ) {
-        const sender = webContents.fromId(senderId);
-        if (!sender || sender.isDestroyed()) {
-            return;
+        let pump = this.progressPumpsBySenderId.get(senderId);
+        if (!pump) {
+            pump = createIpcProgressPump<ISearchProgressPayload>({
+                channel: SEARCH_EVENT_CHANNELS.progress,
+                getTarget: () => webContents.fromId(senderId),
+                getKey: payload => payload.requestId,
+                isTerminal: payload => payload.canceled === true || payload.processed >= payload.total,
+                onError: err => {
+                    log.debug(`Failed to send search progress: ${getErrorMessage(err)}`);
+                },
+            });
+            this.progressPumpsBySenderId.set(senderId, pump);
         }
-
-        try {
-            sender.send(SEARCH_EVENT_CHANNELS.progress, progress);
-        } catch (err) {
-            log.debug(`Failed to send search progress: ${getErrorMessage(err)}`);
-        }
+        pump.enqueue(progress);
     }
 
     private markStateActivity(state: ISenderSearchState) {
@@ -539,6 +656,7 @@ export class SearchWorkerService {
         options?: {
             terminateWorker?: boolean;
             reason?: string;
+            rejectionError?: Error;
         },
     ) {
         const state = this.senderSearchStates.get(senderId);
@@ -548,6 +666,8 @@ export class SearchWorkerService {
 
         log.info(`Search worker lifecycle: cleaning sender ${senderId} state (${options?.reason ?? 'Search worker stopped'})`);
         this.senderSearchStates.delete(senderId);
+        this.progressPumpsBySenderId.get(senderId)?.clear();
+        this.progressPumpsBySenderId.delete(senderId);
         this.clearIdleCleanupTimer(state);
         for (const timeout of state.requestTimeouts.values()) {
             clearTimeout(timeout);
@@ -556,7 +676,7 @@ export class SearchWorkerService {
 
         const reason = options?.reason ?? 'Search worker stopped';
         for (const pending of state.pendingByRequestId.values()) {
-            pending.reject(new Error(reason));
+            pending.reject(options?.rejectionError ?? new Error(reason));
         }
         state.pendingByRequestId.clear();
         state.pageCountsByRequestId.clear();
@@ -605,9 +725,16 @@ export class SearchWorkerService {
             state.activeRequestId = null;
         }
 
+        this.sendSearchProgress(state.senderId, {
+            requestId,
+            processed: 0,
+            total: 0,
+            canceled: true,
+        });
         this.resolvePendingRequest(state, requestId, {
             results: [],
             truncated: false,
+            canceled: true,
         });
     }
 
@@ -617,15 +744,36 @@ export class SearchWorkerService {
         }
 
         this.registeredSenderCleanup.add(senderId);
-        const handleCleanup = () => {
+        const cleanup = (reason: string) => {
             this.cleanupSenderState(senderId, {
                 terminateWorker: true,
-                reason: 'Renderer closed',
+                reason,
             });
             this.registeredSenderCleanup.delete(senderId);
+            event.sender.removeListener('destroyed', handleDestroyed);
+            event.sender.removeListener('render-process-gone', handleRenderProcessGone);
+            event.sender.removeListener('did-start-navigation', handleNavigation);
         };
-        event.sender.once('destroyed', handleCleanup);
-        event.sender.once('render-process-gone', handleCleanup);
+        const handleDestroyed = () => {
+            cleanup('Renderer destroyed');
+        };
+        const handleRenderProcessGone = () => {
+            cleanup('Renderer process gone');
+        };
+        const handleNavigation = (
+            _event: Electron.Event,
+            _url: string,
+            isInPlace: boolean,
+            isMainFrame: boolean,
+        ) => {
+            if (isMainFrame && !isInPlace) {
+                cleanup('Renderer navigated');
+            }
+        };
+
+        event.sender.once('destroyed', handleDestroyed);
+        event.sender.once('render-process-gone', handleRenderProcessGone);
+        event.sender.on('did-start-navigation', handleNavigation);
     }
 
     private handleWorkerMessage(
@@ -646,6 +794,7 @@ export class SearchWorkerService {
                     total: number;
                     results?: TSearchMatch[];
                     truncated?: boolean;
+                    canceled?: boolean;
                 } = {
                     requestId: message.requestId,
                     processed: message.processed,
@@ -664,24 +813,62 @@ export class SearchWorkerService {
                 if (state.activeRequestId === message.requestId) {
                     state.activeRequestId = null;
                 }
-                this.resolvePendingRequest(state, message.requestId, message.response);
+                this.resolvePendingRequest(state, message.requestId, capSearchResponse(message.response));
                 return;
             case 'cancelled':
                 if (state.activeRequestId === message.requestId) {
                     state.activeRequestId = null;
                 }
+                this.sendSearchProgress(senderId, {
+                    requestId: message.requestId,
+                    processed: 0,
+                    total: 0,
+                    canceled: true,
+                });
                 this.resolvePendingRequest(state, message.requestId, {
                     results: [],
                     truncated: false,
+                    canceled: true,
                 });
                 return;
             case 'error':
                 if (state.activeRequestId === message.requestId) {
                     state.activeRequestId = null;
                 }
-                this.rejectPendingRequest(state, message.requestId, new Error(message.error));
+                this.rejectPendingRequest(
+                    state,
+                    message.requestId,
+                    new SearchIpcError(buildSearchErrorEnvelope('SEARCH_WORKER_ERROR', message.error, {retryable: true})),
+                );
                 return;
         }
+    }
+
+    private handleMalformedWorkerMessage(
+        state: ISenderSearchState,
+        requestId: string | null,
+    ) {
+        const senderId = state.senderId;
+        log.warn(`Search worker sent malformed message for sender ${senderId}`);
+        if (requestId === null || !state.pendingByRequestId.has(requestId)) {
+            return;
+        }
+
+        if (state.activeRequestId === requestId) {
+            state.activeRequestId = null;
+        }
+        this.rejectPendingRequest(
+            state,
+            requestId,
+            new SearchIpcError(buildSearchErrorEnvelope(
+                'SEARCH_WORKER_PROTOCOL',
+                `Search worker sent malformed message for request "${requestId}"`,
+            )),
+        );
+        this.cleanupSenderState(senderId, {
+            terminateWorker: true,
+            reason: `Search worker protocol error for request ${requestId}`,
+        });
     }
 
     private createSenderSearchState(senderId: number): ISenderSearchState {
@@ -710,7 +897,7 @@ export class SearchWorkerService {
                 requestId => state.pageCountsByRequestId.get(requestId),
             );
             if (!parsedMessage) {
-                log.warn(`Search worker sent malformed message for sender ${state.senderId}`);
+                this.handleMalformedWorkerMessage(state, requestId);
                 return;
             }
             this.handleWorkerMessage(state, parsedMessage);
@@ -722,6 +909,7 @@ export class SearchWorkerService {
             this.cleanupSenderState(currentSenderId, {
                 terminateWorker: true,
                 reason: `Search worker error: ${error.message}`,
+                rejectionError: toSearchIpcError(error, 'SEARCH_WORKER_ERROR', true),
             });
         });
 
@@ -733,6 +921,9 @@ export class SearchWorkerService {
             this.cleanupSenderState(currentSenderId, {
                 terminateWorker: false,
                 reason,
+                ...(code === 0
+                    ? {}
+                    : {rejectionError: new SearchIpcError(buildSearchErrorEnvelope('SEARCH_WORKER_ERROR', reason, {retryable: true}))}),
             });
         });
 
@@ -760,6 +951,7 @@ export class SearchWorkerService {
             const reusableState = this.findReusableIdleState();
             if (reusableState) {
                 const previousSenderId = reusableState.senderId;
+                reusableState.worker.postMessage({type: 'reset-state'} satisfies TSearchWorkerInboundMessage);
                 this.senderSearchStates.delete(previousSenderId);
                 reusableState.senderId = senderId;
                 this.markStateActivity(reusableState);
@@ -776,10 +968,11 @@ export class SearchWorkerService {
                 `Search worker cap pressure: rejecting sender ${senderId}; no idle workers available `
                 + `(max active: ${SEARCH_WORKER_MAX_ACTIVE})`,
             );
-            throw new Error(
-                `Search worker limit reached (${SEARCH_WORKER_MAX_ACTIVE} active senders). `
-                + 'Please retry shortly.',
-            );
+            throw new SearchIpcError(buildSearchErrorEnvelope(
+                'SEARCH_WORKER_LIMIT',
+                `Search worker limit reached (${SEARCH_WORKER_MAX_ACTIVE} active senders). Please retry shortly.`,
+                {retryable: true},
+            ));
         }
 
         state = this.createSenderSearchState(senderId);

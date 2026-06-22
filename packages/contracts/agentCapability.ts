@@ -1,6 +1,7 @@
 import type {
     IAgentCommandRequest,
     IAgentCommandResponse,
+    IAgentRendererAck,
     IAgentAssistantEvent,
     IAgentAssistantInstallResult,
     IAgentAssistantLoginRequest,
@@ -21,11 +22,11 @@ export interface IAgentCapability {
     onWorkspaceSnapshotRequest: (
         callback: (request: IAgentWorkspaceSnapshotRequest) => void,
     ) => TMenuEventUnsubscribe;
-    submitWorkspaceSnapshot: (response: IAgentWorkspaceSnapshotResponse) => Promise<boolean>;
+    submitWorkspaceSnapshot: (response: IAgentWorkspaceSnapshotResponse) => Promise<IAgentRendererAck>;
     onCommandRequest: (
         callback: (request: IAgentCommandRequest) => void,
     ) => TMenuEventUnsubscribe;
-    submitCommandResponse: (response: IAgentCommandResponse) => Promise<boolean>;
+    submitCommandResponse: (response: IAgentCommandResponse) => Promise<IAgentRendererAck>;
     getMcpIntegrationStatus: () => Promise<IAgentMcpIntegrationStatus>;
     setMcpIntegrationEnabled: (enabled: boolean) => Promise<IAgentMcpIntegrationUpdateResult>;
     getAssistantState: (request?: IAgentAssistantStateRequest) => Promise<IAgentAssistantState>;

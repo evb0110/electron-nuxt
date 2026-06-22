@@ -81,12 +81,7 @@ describe('WindowTabTransferBroker', () => {
 
     const getWindowById = vi.fn((windowId: number) => windowsById.get(windowId) ?? null);
 
-    const broker = new WindowTabTransferBroker({
-        createTargetWindow,
-        getWindowById,
-        setTimer: (callback, ms) => setTimeout(callback, ms),
-        clearTimer: handle => clearTimeout(handle),
-    });
+    let broker: InstanceType<typeof WindowTabTransferBroker>;
 
     beforeEach(() => {
         vi.useFakeTimers();
@@ -94,6 +89,12 @@ describe('WindowTabTransferBroker', () => {
         nextCreatedWindowId = 100;
         createTargetWindow.mockClear();
         getWindowById.mockClear();
+        broker = new WindowTabTransferBroker({
+            createTargetWindow,
+            getWindowById,
+            setTimer: (callback, ms) => setTimeout(callback, ms),
+            clearTimer: handle => clearTimeout(handle),
+        });
     });
 
     afterEach(() => {
@@ -148,6 +149,57 @@ describe('WindowTabTransferBroker', () => {
 
         const result = await transferPromise;
         expect(result.success).toBe(true);
+    });
+
+    it('queues new transfers after a target window is marked not ready', async () => {
+        const targetWindow = createWindow(33);
+        windowsById.set(targetWindow.id, targetWindow);
+        broker.markWindowReady(targetWindow.id);
+        broker.markWindowNotReady(targetWindow.id);
+
+        const transferPromise = broker.requestTransfer(1, createTransferRequest(targetWindow.id));
+
+        await flushTransferTasks();
+        expect(targetWindow.sentTransfers).toHaveLength(0);
+
+        broker.markWindowReady(targetWindow.id);
+        await flushTransferTasks();
+        expect(targetWindow.sentTransfers).toHaveLength(1);
+
+        const sentPayload = targetWindow.sentTransfers[0] as { transferId: string };
+        broker.acknowledgeTransfer(targetWindow.id, {
+            transferId: sentPayload.transferId,
+            success: true,
+        });
+
+        await expect(transferPromise).resolves.toMatchObject({
+            success: true,
+            targetWindowId: targetWindow.id,
+        });
+    });
+
+    it('rejects transfers when one target has too many pending transfers', async () => {
+        const targetWindow = createWindow(34);
+        windowsById.set(targetWindow.id, targetWindow);
+        const pendingTransferPromises: Array<Promise<IWindowTabTransferResult>> = [];
+
+        for (let sourceWindowId = 1; sourceWindowId <= 32; sourceWindowId += 1) {
+            pendingTransferPromises.push(broker.requestTransfer(
+                sourceWindowId,
+                createTransferRequest(targetWindow.id),
+            ));
+            await Promise.resolve();
+        }
+
+        await expect(broker.requestTransfer(99, createTransferRequest(targetWindow.id)))
+            .resolves
+            .toMatchObject({
+                success: false,
+                error: 'Too many pending tab transfers.',
+            });
+
+        broker.markWindowClosed(targetWindow.id);
+        await expect(Promise.all(pendingTransferPromises)).resolves.toHaveLength(32);
     });
 
     it('returns timeout failure when target does not acknowledge', async () => {

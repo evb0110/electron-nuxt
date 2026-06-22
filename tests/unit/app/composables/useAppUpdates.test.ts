@@ -25,6 +25,28 @@ vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: {
     error: browserLoggerErrorMock,
 } }));
 
+function createDeferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((promiseResolve, promiseReject) => {
+        resolve = promiseResolve;
+        reject = promiseReject;
+    });
+
+    return {
+        promise,
+        resolve,
+        reject,
+    };
+}
+
+function requireStatusListener(listener: ((status: IAppUpdateStatus) => void) | null) {
+    if (!listener) {
+        throw new Error('Expected update status listener to be registered');
+    }
+    return listener;
+}
+
 function createUpdatesCapability(overrides: Partial<IUpdatesCapability> = {}): IUpdatesCapability {
     const listeners = new Set<(status: IAppUpdateStatus) => void>();
     const unsupportedStatus: IAppUpdateStatus = {
@@ -107,5 +129,50 @@ describe('useAppUpdates', () => {
         expect(updates.status.value.origin).toBe('manual');
         expect(updates.dialog.value.open).toBe(true);
         expect(updates.dialog.value.kind).toBe('status');
+    });
+
+    it('keeps pushed update status when it arrives before the initial state fetch resolves', async () => {
+        const initialState = createDeferred<IAppUpdateStatus>();
+        let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
+        const idleStatus: IAppUpdateStatus = {
+            phase: 'idle',
+            origin: 'auto',
+            version: null,
+            percent: null,
+            message: null,
+        };
+        const pushedStatus: IAppUpdateStatus = {
+            phase: 'downloaded',
+            origin: 'auto',
+            version: '2.0.0',
+            percent: 100,
+            message: null,
+        };
+        const updatesCapability = createUpdatesCapability({
+            getState: vi.fn(() => initialState.promise),
+            onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
+                statusListener = callback;
+                return () => {};
+            }),
+        });
+        getUpdatesCapabilityMock.mockReturnValue(updatesCapability);
+
+        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const updates = useAppUpdates();
+        const initializedPromise = updates.ensureInitialized();
+
+        expect(updatesCapability.onStatus).toHaveBeenCalledOnce();
+        const registeredStatusListener = requireStatusListener(statusListener);
+        registeredStatusListener(pushedStatus);
+        initialState.resolve(idleStatus);
+        await initializedPromise;
+
+        expect(updatesCapability.getState).toHaveBeenCalledOnce();
+        expect(updates.status.value).toEqual(pushedStatus);
+        expect(updates.dialog.value).toMatchObject({
+            open: true,
+            kind: 'ready',
+            version: '2.0.0',
+        });
     });
 });

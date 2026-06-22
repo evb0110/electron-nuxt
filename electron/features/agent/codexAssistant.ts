@@ -15,6 +15,7 @@ import type {
     IAgentAssistantAccount,
     IAgentAssistantChatScope,
     IAgentAssistantChatMessage,
+    IAgentAssistantErrorEnvelope,
     IAgentAssistantEvent,
     IAgentAssistantImageAttachment,
     IAgentAssistantInstallResult,
@@ -29,6 +30,7 @@ import type {
     IAgentAssistantStatus,
     TAgentAssistantAuthState,
     TAgentAssistantEffort,
+    TAgentAssistantErrorCode,
     TAgentAssistantProviderId,
     TAgentAssistantRuntimeState,
     TAgentAssistantTurnPhase,
@@ -115,6 +117,78 @@ interface IAssistantSelection {
     provider: TAgentAssistantProviderId;
     model: string;
     effort: TAgentAssistantEffort;
+}
+
+function classifyAssistantError(message: string): {
+    code: TAgentAssistantErrorCode;
+    retryable: boolean;
+} {
+    const normalized = message.toLowerCase();
+    if (normalized.includes('sign in') || normalized.includes('login') || normalized.includes('auth')) {
+        return {
+            code: normalized.includes('cancel') ? 'LOGIN_CANCELLED' : 'AUTH_REQUIRED',
+            retryable: true,
+        };
+    }
+    if (normalized.includes('install') || normalized.includes('not found') || normalized.includes('missing')) {
+        return {
+            code: 'INSTALL_MISSING',
+            retryable: true,
+        };
+    }
+    if (normalized.includes('interrupt') || normalized.includes('cancel')) {
+        return {
+            code: 'USER_INTERRUPTED',
+            retryable: false,
+        };
+    }
+    if (normalized.includes('model') && (normalized.includes('unavailable') || normalized.includes('unknown'))) {
+        return {
+            code: 'MODEL_UNAVAILABLE',
+            retryable: true,
+        };
+    }
+    if (normalized.includes('rate limit') || normalized.includes('429') || normalized.includes('too many requests')) {
+        return {
+            code: 'PROVIDER_RATE_LIMITED',
+            retryable: true,
+        };
+    }
+    if (normalized.includes('runtime') || normalized.includes('server') || normalized.includes('process')) {
+        return {
+            code: 'RUNTIME_UNAVAILABLE',
+            retryable: true,
+        };
+    }
+    return {
+        code: 'INTERNAL',
+        retryable: false,
+    };
+}
+
+function createAssistantErrorEnvelope(message: string): IAgentAssistantErrorEnvelope {
+    const classified = classifyAssistantError(message);
+    return {
+        code: classified.code,
+        message,
+        retryable: classified.retryable,
+        timestamp: Date.now(),
+    };
+}
+
+function withAssistantErrorEnvelope<T extends {
+    error?: string;
+    errorEnvelope?: IAgentAssistantErrorEnvelope 
+}>(
+    value: T,
+): T {
+    if (!value.error || value.errorEnvelope) {
+        return value;
+    }
+    return {
+        ...value,
+        errorEnvelope: createAssistantErrorEnvelope(value.error),
+    };
 }
 
 interface IClaudeInfoCache {
@@ -689,7 +763,12 @@ function buildCodexProviderStatus(model: string, effort: TAgentAssistantEffort) 
         versionSupported,
         installUrl: CODEX_APP_INSTALL_URL,
         account,
-        ...(lastError ? { error: lastError } : {}),
+        ...(lastError
+            ? {
+                error: lastError,
+                errorEnvelope: createAssistantErrorEnvelope(lastError),
+            }
+            : {}),
     } satisfies IAgentAssistantStatus['providers'][number];
 }
 
@@ -726,7 +805,12 @@ function buildClaudeProviderStatus(model: string, effort: TAgentAssistantEffort)
         versionSupported: installed,
         installUrl: CLAUDE_AGENT_INSTALL_URL,
         account: claudeAccount,
-        ...(error ? { error } : {}),
+        ...(error
+            ? {
+                error,
+                errorEnvelope: createAssistantErrorEnvelope(error),
+            }
+            : {}),
     } satisfies IAgentAssistantStatus['providers'][number];
 }
 
@@ -796,7 +880,12 @@ function currentStatus(
         threadId: sessionThreadId,
         activeTurnId: sessionActiveTurnId,
         lastCheckedAt: new Date().toISOString(),
-        ...(error ? { error } : {}),
+        ...(error
+            ? {
+                error,
+                errorEnvelope: createAssistantErrorEnvelope(error),
+            }
+            : {}),
     };
 }
 
@@ -805,12 +894,12 @@ function cloneAssistantAttachment(attachment: IAgentAssistantImageAttachment): I
 }
 
 function cloneAssistantMessage(message: IAgentAssistantChatMessage): IAgentAssistantChatMessage {
-    return {
+    return withAssistantErrorEnvelope({
         ...message,
         ...(message.attachments === undefined
             ? {}
             : { attachments: message.attachments.map(cloneAssistantAttachment) }),
-    };
+    });
 }
 
 function cloneMessages(
@@ -839,6 +928,15 @@ function currentState(
     };
 }
 
+function shouldAttachStateToAssistantEvent(event: IAgentAssistantEvent) {
+    return event.state !== undefined
+        || event.type === 'state'
+        || event.type === 'message'
+        || event.type === 'turn-started'
+        || event.type === 'turn-completed'
+        || event.type === 'error';
+}
+
 function publishAssistantEvent(
     event: IAgentAssistantEvent,
     scope: IAgentAssistantChatScope | null = lastStateScope,
@@ -848,9 +946,12 @@ function publishAssistantEvent(
         effort: lastStateEffort,
     },
 ) {
+    const normalizedEvent = withAssistantErrorEnvelope(event);
     const payload = {
-        ...event,
-        state: event.state ?? currentState(scope, selection),
+        ...normalizedEvent,
+        ...(shouldAttachStateToAssistantEvent(normalizedEvent)
+            ? { state: normalizedEvent.state ?? currentState(scope, selection) }
+            : {}),
     } satisfies IAgentAssistantEvent;
     for (const window of BrowserWindow.getAllWindows()) {
         if (window.isDestroyed() || window.webContents.isDestroyed()) {
@@ -925,7 +1026,15 @@ function upsertAssistantMessage(
 }
 
 function appendAssistantDelta(session: IAssistantChatSession, messageId: string, delta: string) {
-    const message = upsertAssistantMessage(session, messageId, { pending: true });
+    touchChatSession(session);
+    const message = session.messages.find(candidate => candidate.id === messageId)
+        ?? addMessage(session, {
+            id: messageId,
+            role: 'assistant',
+            text: '',
+            pending: true,
+        });
+    message.pending = true;
     message.text += delta;
     publishAssistantEvent({
         type: 'message-delta',
@@ -1666,11 +1775,11 @@ export async function getAgentAssistantState(
 export async function installAgentAssistantCodex(): Promise<IAgentAssistantInstallResult> {
     if (!(await isAssistantFeatureEnabled())) {
         const error = await stopAssistantForDisabledFeature();
-        return {
+        return withAssistantErrorEnvelope({
             ok: false,
             state: currentState(),
             error,
-        };
+        });
     }
 
     if (installPromise) {
@@ -1705,11 +1814,11 @@ export async function installAgentAssistantCodex(): Promise<IAgentAssistantInsta
                 type: 'error',
                 error: lastError,
             });
-            return {
+            return withAssistantErrorEnvelope({
                 ok: false,
                 state: currentState(),
                 error: lastError,
-            };
+            });
         } finally {
             installPromise = null;
         }
@@ -1760,11 +1869,11 @@ export async function startAgentAssistantLogin(
             type: 'error',
             error: lastError,
         });
-        return {
+        return withAssistantErrorEnvelope({
             ok: false,
             state: currentState(),
             error: lastError,
-        };
+        });
     }
 }
 
@@ -1786,11 +1895,11 @@ export async function sendAgentAssistantMessage(
 ): Promise<IAgentAssistantSendMessageResult> {
     if (!(await isAssistantFeatureEnabled())) {
         const error = await stopAssistantForDisabledFeature();
-        return {
+        return withAssistantErrorEnvelope({
             ok: false,
             state: currentState(),
             error,
-        };
+        });
     }
 
     const selection = resolveAssistantSelection(request);
@@ -1803,11 +1912,11 @@ export async function sendAgentAssistantMessage(
         } else {
             lastError = error;
         }
-        return {
+        return withAssistantErrorEnvelope({
             ok: false,
             state: currentState(null, selection),
             error,
-        };
+        });
     }
     const session = getChatSession(scope, selection, { create: true });
 
@@ -1822,11 +1931,11 @@ export async function sendAgentAssistantMessage(
             lastError = message;
         }
         session.lastError = message;
-        return {
+        return withAssistantErrorEnvelope({
             ok: false,
             state: currentState(session.scope, session),
             error: message,
-        };
+        });
     }
 
     const {
@@ -1834,11 +1943,11 @@ export async function sendAgentAssistantMessage(
         attachments,
     } = normalizedRequest;
     if (!text && attachments.length === 0) {
-        return {
+        return withAssistantErrorEnvelope({
             ok: false,
             state: currentState(session.scope, session),
             error: 'Message is empty.',
-        };
+        });
     }
 
     if (selection.provider === 'claude') {
@@ -1864,11 +1973,11 @@ export async function sendAgentAssistantMessage(
         } catch (error) {
             const message = getErrorMessage(error);
             markClaudeTurnError(session, message);
-            return {
+            return withAssistantErrorEnvelope({
                 ok: false,
                 state: currentState(session.scope, session),
                 error: message,
-            };
+            });
         }
     }
 
@@ -1939,11 +2048,11 @@ export async function sendAgentAssistantMessage(
         };
     } catch (error) {
         if (currentThreadId && session.threadId !== currentThreadId) {
-            return {
+            return withAssistantErrorEnvelope({
                 ok: false,
                 state: currentState(session.scope, session),
                 error: getErrorMessage(error),
-            };
+            });
         }
         lastError = getErrorMessage(error);
         session.lastError = lastError;
@@ -1956,11 +2065,11 @@ export async function sendAgentAssistantMessage(
             text: lastError,
             error: lastError,
         });
-        return {
+        return withAssistantErrorEnvelope({
             ok: false,
             state: currentState(session.scope, session),
             error: lastError,
-        };
+        });
     }
 }
 

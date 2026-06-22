@@ -116,9 +116,15 @@ export function createBrowserAssistantState(): IAgentAssistantState {
 
 export const browserAgentCapability = {
     onWorkspaceSnapshotRequest: (_callback) => () => {},
-    submitWorkspaceSnapshot: (_response) => Promise.resolve(false),
+    submitWorkspaceSnapshot: (_response) => Promise.resolve({
+        accepted: false,
+        reason: 'unknown-request' as const,
+    }),
     onCommandRequest: (_callback) => () => {},
-    submitCommandResponse: (_response) => Promise.resolve(false),
+    submitCommandResponse: (_response) => Promise.resolve({
+        accepted: false,
+        reason: 'unknown-request' as const,
+    }),
     getMcpIntegrationStatus: () => Promise.resolve(createBrowserAgentMcpStatus()),
     setMcpIntegrationEnabled: (_enabled) => Promise.resolve({
         ok: false,

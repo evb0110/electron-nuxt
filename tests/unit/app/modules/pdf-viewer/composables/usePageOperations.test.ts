@@ -21,6 +21,7 @@ const pageOpsApi = {
 };
 
 type TBatchProgressListener = (progress: {
+    operation: 'document-open' | 'page-insert';
     requestId: string;
     processed: number;
     total: number;
@@ -164,6 +165,13 @@ describe('usePageOperations', () => {
 
         await expect(pageOps.extractPages([3])).resolves.toBe(false);
 
+        expect(pageOps.lastOutcome.value).toEqual({
+            status: 'canceled',
+            result: {
+                success: true,
+                canceled: true,
+            },
+        });
         expect(ensureHistoryBaselineForExternalMutation).not.toHaveBeenCalled();
         expect(reloadWorkingCopyIntoHistory).not.toHaveBeenCalled();
         expect(clearOcrCache).not.toHaveBeenCalled();
@@ -209,8 +217,30 @@ describe('usePageOperations', () => {
 
         await expect(pageOps.rotatePages([1], 10, 90)).resolves.toBe(false);
 
+        expect(pageOps.lastOutcome.value).toEqual({
+            status: 'stale',
+            phase: 'reload',
+        });
         expect(pageOpsApi.rotate).toHaveBeenCalledWith('/tmp/work.pdf', [1], 10, 90);
         expect(reloadWorkingCopyIntoHistory).toHaveBeenCalledWith({ markDirty: true });
+    });
+
+    it('returns detailed outcomes for API-level page operation failures', async () => {
+        const { pageOps } = createHarness();
+        pageOpsApi.rotate.mockResolvedValueOnce({ success: false });
+
+        await expect(pageOps.rotatePagesDetailed([1], 10, 90)).resolves.toEqual({
+            status: 'failed',
+            error: 'msg:errors.pageOps.rotate',
+            result: { success: false },
+        });
+
+        expect(pageOps.error.value).toBeNull();
+        expect(pageOps.lastOutcome.value).toEqual({
+            status: 'failed',
+            error: 'msg:errors.pageOps.rotate',
+            result: { success: false },
+        });
     });
 
     it('persists pending changes before extracting pages from the working copy', async () => {
@@ -304,6 +334,10 @@ describe('usePageOperations', () => {
             1,
         ])).resolves.toBe(false);
 
+        expect(pageOps.lastOutcome.value).toEqual({
+            status: 'blocked',
+            reason: 'missing-working-copy',
+        });
         expect(pageOpsApi.reorder).not.toHaveBeenCalled();
         expect(pageOps.isOperationInProgress.value).toBe(false);
     });
@@ -325,6 +359,16 @@ describe('usePageOperations', () => {
 
                 progressListeners.forEach((listener) => {
                     listener({
+                        operation: 'document-open',
+                        requestId,
+                        processed: 1,
+                        total: 3,
+                        percent: 33,
+                        elapsedMs: 500,
+                        estimatedRemainingMs: 1000,
+                    });
+                    listener({
+                        operation: 'page-insert',
                         requestId,
                         processed: 2,
                         total: 3,

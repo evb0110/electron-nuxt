@@ -99,18 +99,24 @@ async function ensureInitialized() {
 
     initialized.value = true;
     const updates = getUpdatesCapability();
+    let receivedPushedStatus = false;
+
+    statusUnsubscribe = updates.onStatus((nextStatus) => {
+        receivedPushedStatus = true;
+        applyStatus(nextStatus);
+    });
 
     try {
         const currentState = await updates.getState();
-        applyStatus(currentState);
+        if (!receivedPushedStatus) {
+            applyStatus(currentState);
+        }
     } catch (error) {
         BrowserLogger.error('updates', 'Failed to load update status', error);
-        status.value = { ...browserUnsupportedStatus() };
+        if (!receivedPushedStatus) {
+            status.value = { ...browserUnsupportedStatus() };
+        }
     }
-
-    statusUnsubscribe = updates.onStatus((nextStatus) => {
-        applyStatus(nextStatus);
-    });
 }
 
 async function checkForUpdates() {

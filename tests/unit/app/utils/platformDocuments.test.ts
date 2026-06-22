@@ -5,6 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
+import {
+    BROWSER_DOCUMENT_FULL_READ_TOO_LARGE,
+    BrowserDocumentReadError,
+} from '@app/platform/browser/browserDocumentReadError';
 
 const documentsMock = vi.hoisted(() => ({
     readFile: vi.fn(),
@@ -80,7 +84,8 @@ describe('platformDocuments', () => {
 
     it('reassembles a large browser document from range reads after the full-read limit error', async () => {
         const largeChunkSize = 4 * 1024 * 1024;
-        documentsMock.readFile.mockRejectedValueOnce(new Error(
+        documentsMock.readFile.mockRejectedValueOnce(new BrowserDocumentReadError(
+            BROWSER_DOCUMENT_FULL_READ_TOO_LARGE,
             'Browser document is too large to load fully into memory (huge.pdf: 128MB > 64MB limit)',
         ));
         documentsMock.statFile.mockResolvedValueOnce({ size: (largeChunkSize * 2) + 1 });
@@ -104,7 +109,8 @@ describe('platformDocuments', () => {
     });
 
     it('fails the fallback read when a range read returns no bytes before EOF', async () => {
-        documentsMock.readFile.mockRejectedValueOnce(new Error(
+        documentsMock.readFile.mockRejectedValueOnce(new BrowserDocumentReadError(
+            BROWSER_DOCUMENT_FULL_READ_TOO_LARGE,
             'Browser document is too large to load fully into memory (huge.pdf: 128MB > 64MB limit)',
         ));
         documentsMock.statFile.mockResolvedValueOnce({ size: 4 });
@@ -124,6 +130,20 @@ describe('platformDocuments', () => {
 
         const { readDocumentFileFully } = await import('@app/utils/platformDocuments');
         await expect(readDocumentFileFully('browser://forbidden.pdf')).rejects.toThrow('Permission denied');
+
+        expect(documentsMock.statFile).not.toHaveBeenCalled();
+        expect(documentsMock.readFileRange).not.toHaveBeenCalled();
+    });
+
+    it('does not fall back for unrelated errors that reuse the old browser limit text', async () => {
+        documentsMock.readFile.mockRejectedValueOnce(new Error(
+            'Browser document is too large to load fully into memory (not actually typed)',
+        ));
+
+        const { readDocumentFileFully } = await import('@app/utils/platformDocuments');
+        await expect(readDocumentFileFully('browser://huge.pdf')).rejects.toThrow(
+            'Browser document is too large to load fully into memory',
+        );
 
         expect(documentsMock.statFile).not.toHaveBeenCalled();
         expect(documentsMock.readFileRange).not.toHaveBeenCalled();

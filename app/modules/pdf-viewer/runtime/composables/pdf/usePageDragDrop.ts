@@ -375,17 +375,11 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             return;
         }
 
-        const files = e.dataTransfer.files;
         const droppedPaths: string[] = [];
         const seen = new Set<string>();
+        const filePaths = getDocumentsCapability().getPathsForFiles(Array.from(e.dataTransfer.files));
 
-        for (let i = 0; i < files.length; i++) {
-            const file = files[i];
-            if (!file) {
-                continue;
-            }
-
-            const filePath = getDocumentsCapability().getPathForFile(file);
+        for (const filePath of filePaths) {
             if (!filePath || seen.has(filePath) || !isSupportedPdfInsertFilePath(filePath)) {
                 continue;
             }

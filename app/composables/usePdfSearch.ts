@@ -9,6 +9,7 @@ import type {
     IResolvedSearchMatchOptions,
     ISearchMatchOptions,
 } from '@contracts/search';
+import { findSearchErrorEnvelope } from '@contracts/search';
 import { pageNumberToPageIndex } from '@contracts/pageNumbers';
 import {
     tryOnScopeDispose,
@@ -48,9 +49,10 @@ export const usePdfSearch = () => {
     const searchError = ref<string | null>(null);
     const searchProgress = ref<{
         processed: number;
-        total: number 
+        total: number;
     } | undefined>(undefined);
     const isTruncated = ref(false);
+    const wasSearchCanceled = ref(false);
     let searchRunId = 0;
     let scheduledResolve: ((applied: boolean) => void) | null = null;
     let progressCleanup: (() => void) | null = null;
@@ -59,6 +61,7 @@ export const usePdfSearch = () => {
     const MIN_QUERY_LENGTH = 2;
 
     const totalMatches = computed(() => results.value.length);
+    const hasPartialResults = computed(() => isSearching.value && (results.value.length > 0 || isTruncated.value));
     const currentMatch = computed(() => results.value.length > 0 ? currentResultIndex.value + 1 : 0);
     const currentResult = computed(() => {
         if (currentResultIndex.value >= 0 && currentResultIndex.value < results.value.length) {
@@ -166,6 +169,14 @@ export const usePdfSearch = () => {
     function normalizeSearchError(error: unknown) {
         if (error instanceof Error && error.message === 'ERR_BROWSER_SEARCH_TOO_LARGE') {
             return t('errors.search.browserTooLarge');
+        }
+        const envelope = findSearchErrorEnvelope(error);
+        if (envelope) {
+            BrowserLogger.debug('pdf-search', 'Search IPC failed with typed envelope', {
+                code: envelope.code,
+                retryable: envelope.retryable,
+            });
+            return envelope.message || t('errors.search.unavailable');
         }
         return t('errors.search.unavailable');
     }
@@ -380,6 +391,7 @@ export const usePdfSearch = () => {
         try {
             isSearching.value = true;
             isTruncated.value = false;
+            wasSearchCanceled.value = false;
             searchError.value = null;
             submittedSearchQuery.value = query;
             results.value = [];
@@ -403,14 +415,16 @@ export const usePdfSearch = () => {
                     processed: progress.processed,
                     total: progress.total,
                 };
+                if (progress.canceled) {
+                    wasSearchCanceled.value = true;
+                    isSearching.value = false;
+                    return;
+                }
                 if (progress.results) {
                     applySearchResponse({
                         results: progress.results,
                         truncated: Boolean(progress.truncated),
                     }, query, options, searchId);
-                    if (progress.results.length > 0 || progress.truncated) {
-                        isSearching.value = false;
-                    }
                 }
             });
 
@@ -432,6 +446,14 @@ export const usePdfSearch = () => {
                 searchId,
                 query, 
             });
+            if (response.canceled) {
+                wasSearchCanceled.value = true;
+                results.value = [];
+                pageMatches.value = new Map();
+                currentResultIndex.value = -1;
+                isTruncated.value = false;
+                return;
+            }
             applySearchResponse(response, query, options, searchId);
             isTruncated.value = response.truncated;
             analytics.track('search_executed', {
@@ -494,6 +516,7 @@ export const usePdfSearch = () => {
         // waiting for the debounce window / backend response.
         isSearching.value = true;
         isTruncated.value = false;
+        wasSearchCanceled.value = false;
         searchError.value = null;
 
         return new Promise<boolean>((resolve) => {
@@ -602,9 +625,11 @@ export const usePdfSearch = () => {
         isSearching,
         searchError,
         searchProgress,
+        hasPartialResults,
         totalMatches,
         currentMatch,
         isTruncated,
+        wasSearchCanceled,
         minQueryLength: MIN_QUERY_LENGTH,
         search,
         setSearchOption,

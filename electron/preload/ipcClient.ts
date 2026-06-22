@@ -15,6 +15,34 @@ type TPayloadEventChannel<TEventMap extends {[TChannel in keyof TEventMap]: unkn
 >;
 
 type TIpcResultDecoder<TResult> = (value: unknown) => TResult | null;
+type TIpcPayloadDecoder<TPayload> = (value: unknown) => TPayload | null;
+
+class PlatformIpcInvokeError extends Error {
+    readonly channel: string;
+    override readonly cause: unknown;
+
+    constructor(channel: string, cause: unknown) {
+        const message = cause instanceof Error && cause.message
+            ? cause.message
+            : `IPC invoke failed for ${channel}`;
+        super(message);
+        this.name = 'PlatformIpcInvokeError';
+        this.channel = channel;
+        this.cause = cause;
+    }
+}
+
+async function invokeWithChannelContext<TResult>(
+    ipcRenderer: Pick<IpcRenderer, 'invoke'>,
+    channel: string,
+    args: unknown[],
+) {
+    try {
+        return await ipcRenderer.invoke(channel, ...args) as TResult;
+    } catch (error) {
+        throw new PlatformIpcInvokeError(channel, error);
+    }
+}
 
 export function createTypedIpcInvoker<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec}>(
     ipcRenderer: Pick<IpcRenderer, 'invoke'>,
@@ -23,7 +51,7 @@ export function createTypedIpcInvoker<TMap extends {[TChannel in keyof TMap]: II
         channel: TChannel,
         ...args: TMap[TChannel]['args']
     ) {
-        return ipcRenderer.invoke(channel, ...args) as Promise<TMap[TChannel]['result']>;
+        return invokeWithChannelContext<TMap[TChannel]['result']>(ipcRenderer, channel, args);
     };
 }
 
@@ -35,10 +63,10 @@ export function createDecodedIpcInvoker<TMap extends {[TChannel in keyof TMap]: 
         decode: TIpcResultDecoder<TMap[TChannel]['result']>,
         ...args: TMap[TChannel]['args']
     ) {
-        const result: unknown = await ipcRenderer.invoke(channel, ...args);
+        const result: unknown = await invokeWithChannelContext<unknown>(ipcRenderer, channel, args);
         const decoded = decode(result);
         if (decoded === null) {
-            throw new Error(`Invalid IPC response for ${channel}`);
+            throw new PlatformIpcInvokeError(channel, new Error(`Invalid IPC response for ${channel}`));
         }
         return decoded;
     };
@@ -62,6 +90,21 @@ export function createTypedIpcEventSubscriber<
             callback: (payload: TEventMap[TChannel]) => void,
         ): TMenuEventUnsubscribe {
             const handler = (_event: IpcRendererEvent, payload: TEventMap[TChannel]) => callback(payload);
+            ipcRenderer.on(channel, handler);
+            return () => ipcRenderer.removeListener(channel, handler);
+        },
+
+        onDecodedPayload<TChannel extends TPayloadEventChannel<TEventMap>>(
+            channel: TChannel,
+            decode: TIpcPayloadDecoder<TEventMap[TChannel]>,
+            callback: (payload: TEventMap[TChannel]) => void,
+        ): TMenuEventUnsubscribe {
+            const handler = (_event: IpcRendererEvent, payload: unknown) => {
+                const decoded = decode(payload);
+                if (decoded !== null) {
+                    callback(decoded);
+                }
+            };
             ipcRenderer.on(channel, handler);
             return () => ipcRenderer.removeListener(channel, handler);
         },

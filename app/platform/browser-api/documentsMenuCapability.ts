@@ -1,20 +1,14 @@
-import type { IDocumentsMenuCapability } from '@contracts/electronApiDocuments';
+import type {
+    IDocumentsMenuCapability,
+    IOpenPdfDirectBatchProgress,
+} from '@contracts/electronApiDocuments';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 
-interface IOpenDocumentDirectBatchProgressPayload {
-    requestId: string;
-    processed: number;
-    total: number;
-    percent: number;
-    elapsedMs: number;
-    estimatedRemainingMs: number | null;
-}
-
 const openDocumentDirectBatchProgressListeners =
-    new Set<(progress: IOpenDocumentDirectBatchProgressPayload) => void>();
+    new Set<(progress: IOpenPdfDirectBatchProgress) => void>();
 
 export function emitBrowserOpenDocumentDirectBatchProgress(
-    progress: IOpenDocumentDirectBatchProgressPayload,
+    progress: IOpenPdfDirectBatchProgress,
 ) {
     openDocumentDirectBatchProgressListeners.forEach((listener) => {
         listener(progress);

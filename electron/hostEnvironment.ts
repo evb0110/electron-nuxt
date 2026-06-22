@@ -34,6 +34,11 @@ const zenWindowPlacementByWindow = new WeakMap<BrowserWindow, IZenWindowPlacemen
 const zenExitInProgressByWindow = new WeakSet<BrowserWindow>();
 const zenEscapeShortcutWindows = new Set<BrowserWindow>();
 let zenEscapeShortcutRegistered = false;
+interface IHostEnvironmentBroadcastState {
+    timeout: ReturnType<typeof setTimeout> | null;
+    lastSentSnapshot: IHostEnvironmentSnapshot | null;
+}
+const hostEnvironmentBroadcastStateByWindow = new WeakMap<BrowserWindow, IHostEnvironmentBroadcastState>();
 
 function resolvePlatform(): THostPlatform {
     if (process.platform === 'darwin') {
@@ -331,11 +336,51 @@ function broadcastHostEnvironmentForWindow(window: BrowserWindow) {
         return;
     }
     const snapshot = snapshotHostEnvironmentForWindow(window);
+    const state = getHostEnvironmentBroadcastState(window);
+    if (state.lastSentSnapshot && areHostEnvironmentSnapshotsEqual(state.lastSentSnapshot, snapshot)) {
+        return;
+    }
     try {
         window.webContents.send(HOST_ENV_CHANGE_CHANNEL, snapshot);
+        state.lastSentSnapshot = snapshot;
     } catch (error) {
         logger.warn(`Failed to send host environment update: ${getErrorMessage(error)}`);
     }
+}
+
+function areHostEnvironmentSnapshotsEqual(
+    left: IHostEnvironmentSnapshot,
+    right: IHostEnvironmentSnapshot,
+) {
+    return left.platform === right.platform
+        && left.osScaleFactor === right.osScaleFactor;
+}
+
+function getHostEnvironmentBroadcastState(window: BrowserWindow) {
+    let state = hostEnvironmentBroadcastStateByWindow.get(window);
+    if (!state) {
+        state = {
+            timeout: null,
+            lastSentSnapshot: null,
+        };
+        hostEnvironmentBroadcastStateByWindow.set(window, state);
+    }
+    return state;
+}
+
+function scheduleHostEnvironmentBroadcastForWindow(window: BrowserWindow) {
+    if (window.isDestroyed()) {
+        return;
+    }
+    const state = getHostEnvironmentBroadcastState(window);
+    if (state.timeout) {
+        return;
+    }
+    state.timeout = setTimeout(() => {
+        state.timeout = null;
+        broadcastHostEnvironmentForWindow(window);
+    }, 0);
+    state.timeout.unref?.();
 }
 
 function broadcastHostZenModeForWindow(
@@ -355,7 +400,7 @@ function broadcastHostZenModeForWindow(
 
 function broadcastHostEnvironmentToAllWindows() {
     for (const window of getAllRegisteredAppWindows()) {
-        broadcastHostEnvironmentForWindow(window);
+        scheduleHostEnvironmentBroadcastForWindow(window);
     }
 }
 
@@ -379,7 +424,7 @@ export function installHostEnvironmentDisplayWatcher() {
 export function attachHostEnvironmentToWindow(window: BrowserWindow) {
     const webContents = window.webContents;
     const handleMove = () => {
-        broadcastHostEnvironmentForWindow(window);
+        scheduleHostEnvironmentBroadcastForWindow(window);
     };
     const handleZenModeChange = () => {
         const isManagedExit = zenExitInProgressByWindow.has(window);
@@ -410,6 +455,11 @@ export function attachHostEnvironmentToWindow(window: BrowserWindow) {
     window.on('leave-full-screen', handleZenModeChange);
     webContents.on('before-input-event', handleBeforeInputEvent);
     window.once('closed', () => {
+        const hostEnvironmentBroadcastState = hostEnvironmentBroadcastStateByWindow.get(window);
+        if (hostEnvironmentBroadcastState?.timeout) {
+            clearTimeout(hostEnvironmentBroadcastState.timeout);
+        }
+        hostEnvironmentBroadcastStateByWindow.delete(window);
         window.removeListener('move', handleMove);
         window.removeListener('moved', handleMove);
         window.removeListener('enter-full-screen', handleZenModeChange);
