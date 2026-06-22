@@ -10,6 +10,7 @@ import type {
     IPdfNativeNoteTextSaveResult,
     IPdfNativeWorkingCopyExpectation,
     IPdfNoteTextUpdate,
+    IPdfSaveAsOptions,
 } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
@@ -40,8 +41,13 @@ export interface IDocumentsService {
         sourcePath: TOpenPath,
         originalPath?: string,
     ) => Promise<string>;
-    savePdfAs: (event: IpcMainInvokeEvent, workingPath: string) => Promise<string | null>;
-    savePdfDataAs: (event: IpcMainInvokeEvent, workingPath: string, data: Uint8Array) => Promise<{
+    savePdfAs: (event: IpcMainInvokeEvent, workingPath: string, options?: IPdfSaveAsOptions) => Promise<string | null>;
+    savePdfDataAs: (
+        event: IpcMainInvokeEvent,
+        workingPath: string,
+        data: Uint8Array,
+        options?: IPdfSaveAsOptions,
+    ) => Promise<{
         path: string | null;
         validation: IPdfValidationResult | null;
     }>;
@@ -49,6 +55,7 @@ export interface IDocumentsService {
         event: IpcMainInvokeEvent,
         workingPath: string,
         totalBytes: number,
+        options?: IPdfSaveAsOptions,
     ) => Promise<IBeginSerializedPdfSaveAsResult>;
     savePdfDialog: (event: IpcMainInvokeEvent, suggestedName: string) => Promise<string | null>;
     saveDocxAs: (event: IpcMainInvokeEvent, workingPath: string) => Promise<string | null>;

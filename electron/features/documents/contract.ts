@@ -1,6 +1,7 @@
 import type {
     IDocumentsFileCapability,
     IDocumentsMenuCapability,
+    IPdfSaveAsOptions,
     TOpenDocumentDirectBatchProgress,
 } from '@contracts/electronApiDocuments';
 import type {
@@ -145,15 +146,15 @@ export interface IDocumentsInvokeMap {
         result: Awaited<ReturnType<IDocumentsFileCapability['createWorkingCopyFromPath']>>;
     };
     [DOCUMENTS_CHANNELS.savePdfAs]: {
-        args: [workingPath: string];
+        args: [workingPath: string, options?: IPdfSaveAsOptions];
         result: Awaited<ReturnType<IDocumentsFileCapability['savePdfAs']>>;
     };
     [DOCUMENTS_CHANNELS.savePdfDataAs]: {
-        args: [workingPath: string, data: Uint8Array];
+        args: [workingPath: string, data: Uint8Array, options?: IPdfSaveAsOptions];
         result: Awaited<ReturnType<IDocumentsFileCapability['savePdfDataAs']>>;
     };
     [DOCUMENTS_CHANNELS.savePdfDataAsBegin]: {
-        args: [workingPath: string, totalBytes: number];
+        args: [workingPath: string, totalBytes: number, options?: IPdfSaveAsOptions];
         result: IBeginSerializedPdfSaveAsResult;
     };
     [DOCUMENTS_CHANNELS.savePdfDialog]: {

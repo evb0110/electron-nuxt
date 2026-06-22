@@ -77,6 +77,19 @@
                 @update:model-value="emit('update:tab-memory-policy', $event)"
             />
         </UFormField>
+
+        <UFormField
+            :label="t('settings.pdfSaveAs')"
+            :help="t('settings.optimizePdfOnSaveAsDescription')"
+            :ui="settingsFormFieldUi"
+        >
+            <USwitch
+                :model-value="settings.optimizePdfOnSaveAs"
+                :label="t('settings.optimizePdfOnSaveAs')"
+                size="sm"
+                @update:model-value="emit('update:optimize-pdf-on-save-as', $event)"
+            />
+        </UFormField>
     </fieldset>
 </template>
 
@@ -108,6 +121,7 @@ const emit = defineEmits<{
     'update:scroll-mode': [value: boolean | { value: boolean }];
     'update:tab-memory-policy': [value: string | { value: string }];
     'update:annotation-color': [value: string];
+    'update:optimize-pdf-on-save-as': [value: boolean];
 }>();
 
 const { t } = useTypedI18n();

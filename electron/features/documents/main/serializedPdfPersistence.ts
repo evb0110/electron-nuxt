@@ -10,6 +10,7 @@ import type {
     WebContents,
 } from 'electron';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
+import type { IPdfSaveAsOptions } from '@contracts/electronApiDocuments';
 import type {
     IBeginSerializedPdfPersistenceResult,
     IBeginSerializedPdfSaveAsResult,
@@ -32,6 +33,7 @@ import { updateRecentFilesMenu } from '@electron/menu';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
+import { optimizePdfForSaveAs } from '@electron/features/documents/main/pdfSaveAsOptimization';
 
 const SERIALIZED_PDF_SESSION_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES = 16 * 1024 * 1024 * 1024;
@@ -56,6 +58,7 @@ interface ISerializedPdfPersistenceSession {
     senderId: number;
     workingPath: string;
     targetPath: string;
+    saveAsOptions: IPdfSaveAsOptions | undefined;
     tempPath: string;
     totalBytes: number;
     receivedBytes: number;
@@ -179,6 +182,7 @@ async function createSession(options: {
     sender: WebContents;
     workingPath: string;
     targetPath: string;
+    saveAsOptions?: IPdfSaveAsOptions | undefined;
     totalBytes: number;
 }) {
     const tempPath = makeSiblingTempPath(options.targetPath);
@@ -193,6 +197,7 @@ async function createSession(options: {
         senderId: options.sender.id,
         workingPath: options.workingPath,
         targetPath: options.targetPath,
+        saveAsOptions: options.saveAsOptions,
         tempPath,
         totalBytes: options.totalBytes,
         receivedBytes: 0,
@@ -236,6 +241,7 @@ export async function beginSerializedPdfSaveAs(
     workingPath: unknown,
     totalBytes: unknown,
     targetPath: string | null,
+    saveAsOptions?: IPdfSaveAsOptions,
 ): Promise<IBeginSerializedPdfSaveAsResult> {
     const normalizedWorkingPath = normalizeWorkingPath(workingPath);
     const normalizedTotalBytes = normalizeTotalBytes(totalBytes);
@@ -254,6 +260,7 @@ export async function beginSerializedPdfSaveAs(
         sender: event.sender,
         workingPath: normalizedWorkingPath,
         targetPath,
+        saveAsOptions,
         totalBytes: normalizedTotalBytes,
     });
 
@@ -276,6 +283,9 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
     if (!validation.isValid) {
         return validation;
     }
+    const optimizedValidation = session.mode === 'save_as'
+        ? await optimizePdfForSaveAs(session.tempPath, session.saveAsOptions)
+        : null;
 
     let conflictValidation: IPdfValidationResult | null = null;
     await enqueueWorkingCopyMutation(session.workingPath, async () => {
@@ -300,7 +310,7 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
         }
     });
 
-    return conflictValidation ?? validation;
+    return conflictValidation ?? optimizedValidation ?? validation;
 }
 
 function getChunkBytes(value: unknown) {

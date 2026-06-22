@@ -91,6 +91,95 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(port1.close).toHaveBeenCalledTimes(1);
     });
 
+    it('invokes Save As with normalized lossless optimization options', async () => {
+        const ipcRenderer = {
+            invoke: vi.fn(async () => '/tmp/saved.pdf'),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        await expect(client.savePdfAs('/tmp/working.pdf', { optimizeLossless: true }))
+            .resolves
+            .toBe('/tmp/saved.pdf');
+
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.savePdfAs,
+            '/tmp/working.pdf',
+            { optimizeLossless: true },
+        );
+    });
+
+    it('passes lossless optimization options when starting streamed Save As persistence', async () => {
+        const port1 = new FakeMessagePort();
+        const port2 = new FakeMessagePort();
+        vi.stubGlobal('MessageChannel', class {
+            readonly port1 = port1;
+            readonly port2 = port2;
+        });
+        const ipcRenderer = {
+            invoke: vi.fn(async (channel: string) => {
+                if (channel === DOCUMENTS_CHANNELS.savePdfDataAsBegin) {
+                    return {
+                        sessionId: 'session-1',
+                        path: '/tmp/saved.pdf',
+                    };
+                }
+                throw new Error(`Unexpected invoke: ${channel}`);
+            }),
+            postMessage: vi.fn(() => {
+                queueMicrotask(() => {
+                    port1.emit({type: 'ready'});
+                });
+            }),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        port1.onPostMessage = (message) => {
+            if (isChunkMessage(message)) {
+                queueMicrotask(() => {
+                    port1.emit({
+                        type: 'ack',
+                        seq: message.seq,
+                    });
+                });
+                return;
+            }
+            if (message.type === 'complete') {
+                queueMicrotask(() => {
+                    port1.emit({
+                        type: 'result',
+                        path: '/tmp/saved.pdf',
+                        validation: {
+                            isValid: true,
+                            tool: 'qpdf',
+                            errors: [],
+                            warnings: [],
+                        },
+                    });
+                });
+            }
+        };
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        await expect(client.savePdfDataAs(
+            '/tmp/working.pdf',
+            new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+            { optimizeLossless: true },
+        )).resolves.toMatchObject({
+            path: '/tmp/saved.pdf',
+            validation: { isValid: true },
+        });
+
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.savePdfDataAsBegin,
+            '/tmp/working.pdf',
+            3,
+            { optimizeLossless: true },
+        );
+    });
+
     it('invokes the native repair channel with a checked absolute working path', async () => {
         const validation = {
             isValid: true,

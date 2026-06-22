@@ -52,6 +52,8 @@ export interface IOpenDjvuResult {
 
 export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
 
+export interface IPdfSaveAsOptions { optimizeLossless?: boolean; }
+
 export interface IPdfNoteTextUpdate {
     objectNumber: number;
     generationNumber: number;
@@ -264,7 +266,7 @@ export interface IDocumentsFileCapability {
     openPdfDirect: (path: TDocumentRef) => Promise<TOpenFileResult | null>;
     openDocumentDirectBatch: (paths: TDocumentRef[], requestId?: string) => Promise<TOpenFileResult | null>;
     openPdfDirectBatch: (paths: TDocumentRef[], requestId?: string) => Promise<TOpenFileResult | null>;
-    savePdfAs: (workingCopyPath: TDocumentRef) => Promise<TDocumentRef | null>;
+    savePdfAs: (workingCopyPath: TDocumentRef, options?: IPdfSaveAsOptions) => Promise<TDocumentRef | null>;
     savePdfDialog: (suggestedName: string) => Promise<string | null>;
     saveDocxAs: (workingCopyPath: TDocumentRef) => Promise<TDocumentRef | null>;
     readFile: (path: TDocumentRef) => Promise<Uint8Array>;
@@ -321,7 +323,7 @@ export interface IDocumentsFileCapability {
         modifiedAt: string,
         expectedBase: IPdfNativeWorkingCopyExpectation,
     ) => Promise<IPdfNativeSaveResult>;
-    savePdfDataAs: (workingCopyPath: TDocumentRef, data: Uint8Array) => Promise<{
+    savePdfDataAs: (workingCopyPath: TDocumentRef, data: Uint8Array, options?: IPdfSaveAsOptions) => Promise<{
         path: TDocumentRef | null;
         validation: IPdfValidationResult | null;
     }>;

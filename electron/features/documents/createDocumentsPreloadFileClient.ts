@@ -11,6 +11,7 @@ import type {
     IPdfNativeShapeAnnotation,
     IPdfNativeShapePoint,
     IPdfNativeWorkingCopyExpectation,
+    IPdfSaveAsOptions,
 } from '@contracts/electronApiDocuments';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import { toPageIndex } from '@contracts/pageNumbers';
@@ -99,6 +100,22 @@ function assertPositiveInteger(value: unknown, label: string): number {
         throw new TypeError(`${label} must be a positive integer`);
     }
     return value;
+}
+
+function assertPdfSaveAsOptions(value: unknown, label: string): IPdfSaveAsOptions | undefined {
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+    if (!isRecord(value)) {
+        throw new TypeError(`${label} must be an object`);
+    }
+    if (value.optimizeLossless !== undefined && typeof value.optimizeLossless !== 'boolean') {
+        throw new TypeError(`${label}.optimizeLossless must be a boolean`);
+    }
+
+    return value.optimizeLossless === true
+        ? { optimizeLossless: true }
+        : undefined;
 }
 
 function assertPdfNoteTextUpdates(
@@ -1045,14 +1062,21 @@ export function createDocumentsPreloadFileClient(
         openPdfDirect: openDocumentDirect,
         openDocumentDirectBatch,
         openPdfDirectBatch: openDocumentDirectBatch,
-        savePdfAs: (workingPath) => invoke(DOCUMENTS_CHANNELS.savePdfAs, workingPath),
-        savePdfDataAs: async (workingPath, data) => {
+        savePdfAs: (workingPath, options) =>
+            invoke(
+                DOCUMENTS_CHANNELS.savePdfAs,
+                assertAbsolutePath(workingPath, 'savePdfAs.workingPath'),
+                assertPdfSaveAsOptions(options, 'savePdfAs.options'),
+            ),
+        savePdfDataAs: async (workingPath, data, options) => {
             const checkedWorkingPath = assertAbsolutePath(workingPath, 'savePdfDataAs.workingPath');
             const checkedData = assertPersistenceData(data, 'savePdfDataAs.data');
+            const checkedOptions = assertPdfSaveAsOptions(options, 'savePdfDataAs.options');
             const beginResult = await invoke(
                 DOCUMENTS_CHANNELS.savePdfDataAsBegin,
                 checkedWorkingPath,
                 checkedData.byteLength,
+                checkedOptions,
             );
             if (!beginResult.sessionId) {
                 return {

@@ -72,6 +72,7 @@ export interface ISettingsData {
     defaultAnnotationColor: string;
     uiScale: TUiScalePreference;
     tabMemoryPolicy: TTabMemoryPolicy;
+    optimizePdfOnSaveAs: boolean;
     assistantPanelEnabled: boolean;
     agentMcpEnabled: boolean;
     suppressDefaultViewerPrompt?: boolean | undefined;

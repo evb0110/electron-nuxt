@@ -77,6 +77,7 @@ type TSharedSaveOperationDeps = Pick<
     | 'trySavePdfNativeMutations'
     | 'trySaveEmbeddedNoteTextUpdates'
     | 'saveWorkingCopyAs'
+    | 'optimizePdfOnSaveAs'
 >;
 
 interface IPageSaveOrchestrationDeps extends TSharedSaveOperationDeps {
@@ -238,6 +239,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         ...(trySavePdfNativeMutations !== undefined ? { trySavePdfNativeMutations } : {}),
         ...(trySaveEmbeddedNoteTextUpdates !== undefined ? { trySaveEmbeddedNoteTextUpdates } : {}),
         saveWorkingCopyAs,
+        ...(deps.optimizePdfOnSaveAs !== undefined ? { optimizePdfOnSaveAs: deps.optimizePdfOnSaveAs } : {}),
         markAnnotationSaved,
         markPageLabelsSaved,
         markBookmarksSaved,

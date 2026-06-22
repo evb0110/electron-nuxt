@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
     atomicReplace: vi.fn(),
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
     validatePdfFile: vi.fn(),
+    optimizePdfForSaveAs: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -96,6 +97,17 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
 vi.mock('@electron/features/documents/main/pdfConformance', () => ({validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args)}));
+vi.mock('@electron/features/documents/main/pdfSaveAsOptimization', () => ({
+    normalizePdfSaveAsOptions: (value: unknown) => (
+        value
+        && typeof value === 'object'
+        && 'optimizeLossless' in value
+        && value.optimizeLossless === true
+            ? { optimizeLossless: true }
+            : undefined
+    ),
+    optimizePdfForSaveAs: (...args: unknown[]) => mocks.optimizePdfForSaveAs(...args),
+}));
 
 describe('handleSavePdfAs', () => {
     let tempRoot = '';
@@ -117,6 +129,7 @@ describe('handleSavePdfAs', () => {
             issues: [],
             metadata: null,
         });
+        mocks.optimizePdfForSaveAs.mockResolvedValue(null);
     });
 
     afterEach(() => {
@@ -158,6 +171,32 @@ describe('handleSavePdfAs', () => {
         expect(
             mocks.atomicReplace.mock.invocationCallOrder[0]!,
         ).toBeLessThan(mocks.allowOpenPath.mock.invocationCallOrder[0]!);
+    });
+
+    it('runs lossless optimization before replacing the selected PDF path when requested', async () => {
+        const workingPath = join(tempRoot, 'working.pdf');
+        const targetPath = join(tempRoot, 'saved.pdf');
+        const tempPath = `${targetPath}.tmp`;
+        writeFileSync(workingPath, 'new-pdf');
+        writeFileSync(targetPath, 'old-pdf');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
+        mocks.showSaveDialog.mockResolvedValue({
+            canceled: false,
+            filePath: targetPath,
+        });
+
+        const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
+
+        await expect(handleSavePdfAs(
+            {sender: {id: 42}} as never,
+            workingPath,
+            { optimizeLossless: true },
+        )).resolves.toBe(targetPath);
+
+        expect(mocks.optimizePdfForSaveAs).toHaveBeenCalledWith(tempPath, { optimizeLossless: true });
+        expect(
+            mocks.optimizePdfForSaveAs.mock.invocationCallOrder[0]!,
+        ).toBeLessThan(mocks.atomicReplace.mock.invocationCallOrder[0]!);
     });
 
     it('does not copy the working PDF when validation fails', async () => {

@@ -60,6 +60,11 @@ describe('settings-sanitizer', () => {
         expect(sanitizeSettings({tabMemoryPolicy: 'unsupported' as never}).tabMemoryPolicy).toBe(DEFAULT_SETTINGS.tabMemoryPolicy);
     });
 
+    it('normalizes Save As PDF optimization setting', () => {
+        expect(sanitizeSettings({optimizePdfOnSaveAs: true}).optimizePdfOnSaveAs).toBe(true);
+        expect(sanitizeSettings({optimizePdfOnSaveAs: 'yes'}).optimizePdfOnSaveAs).toBe(false);
+    });
+
     it('normalizes agent MCP setting', () => {
         expect(sanitizeSettings({agentMcpEnabled: true}).agentMcpEnabled).toBe(true);
         expect(sanitizeSettings({agentMcpEnabled: 'yes'}).agentMcpEnabled).toBe(false);

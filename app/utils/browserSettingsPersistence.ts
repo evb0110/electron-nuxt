@@ -87,6 +87,7 @@ export function serializeBrowserSettingsPayload(settings: ISettingsData) {
         defaultAnnotationColor: sanitized.defaultAnnotationColor,
         uiScale: sanitized.uiScale,
         tabMemoryPolicy: sanitized.tabMemoryPolicy,
+        optimizePdfOnSaveAs: sanitized.optimizePdfOnSaveAs,
         assistantPanelEnabled: sanitized.assistantPanelEnabled,
     };
     if (sanitized.suppressDefaultViewerPrompt !== undefined) {

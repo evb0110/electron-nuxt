@@ -47,7 +47,10 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
         saveMode: 'rewrite' as const,
         didSaveAs: false,
     }));
-    const saveWorkingCopyAs = vi.fn(async (_data?: Uint8Array) => ({
+    const saveWorkingCopyAs = vi.fn(async (
+        _data?: Uint8Array,
+        _opts?: Parameters<IFileOperationsDeps['saveWorkingCopyAs']>[1],
+    ) => ({
         success: true,
         outPath: '/tmp/new.pdf',
         saveMode: 'save_as_rewrite' as const,
@@ -502,6 +505,26 @@ describe('useFileOperations', () => {
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
         expect(deps.isSavingAs.value).toBe(false);
         expect(deps.validatePdfPath).not.toHaveBeenCalled();
+    });
+
+    it('passes the PDF optimization setting to serialized Save As persistence', async () => {
+        const {
+            deps,
+            saveWorkingCopyAs,
+        } = createDeps({
+            annotationDirty: ref(true),
+            optimizePdfOnSaveAs: ref(true),
+        });
+        const { handleSaveAs } = useFileOperations(deps);
+
+        await handleSaveAs();
+
+        expect(saveWorkingCopyAs).toHaveBeenCalledOnce();
+        expect(saveWorkingCopyAs.mock.calls[0]?.[1]).toMatchObject({
+            saveMode: 'save_as_rewrite',
+            expectedWorkingPath: '/tmp/work.pdf',
+            optimizeLossless: true,
+        });
     });
 
     it('aborts save early when note windows cannot be persisted', async () => {

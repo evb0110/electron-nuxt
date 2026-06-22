@@ -604,15 +604,21 @@ export function createDocumentPersistence(
         opts?: {
             saveMode?: TPdfSaveMode;
             expectedWorkingPath?: TDocumentRef | null;
+            optimizeLossless?: boolean;
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'save_as_rewrite';
         return runPersistOperation(requestedSaveMode, true, async (workingPath) => {
             const previousWorkingPath = workingPath;
+            const saveAsOptions = opts?.optimizeLossless === true
+                ? { optimizeLossless: true }
+                : undefined;
             const saveAsResult = data
-                ? await savePdfBytesAs(workingPath, data)
+                ? await savePdfBytesAs(workingPath, data, saveAsOptions)
                 : {
-                    path: await getDocumentsCapability().savePdfAs(workingPath),
+                    path: saveAsOptions
+                        ? await getDocumentsCapability().savePdfAs(workingPath, saveAsOptions)
+                        : await getDocumentsCapability().savePdfAs(workingPath),
                     validation: null,
                 };
             if (saveAsResult.validation && !saveAsResult.validation.isValid) {

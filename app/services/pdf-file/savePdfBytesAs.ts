@@ -1,13 +1,17 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { IPdfSaveAsOptions } from '@contracts/electronApiDocuments';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
 export async function savePdfBytesAs(
     workingPath: TDocumentRef,
     data: Uint8Array,
+    options?: IPdfSaveAsOptions,
 ) {
     const documents = getDocumentsCapability();
     if (typeof documents.savePdfDataAs === 'function') {
-        return documents.savePdfDataAs(workingPath, data);
+        return options
+            ? documents.savePdfDataAs(workingPath, data, options)
+            : documents.savePdfDataAs(workingPath, data);
     }
 
     const validation = await documents.validatePdfData(data);
@@ -20,7 +24,9 @@ export async function savePdfBytesAs(
 
     await documents.writeFile(workingPath, data);
     return {
-        path: await documents.savePdfAs(workingPath),
+        path: options
+            ? await documents.savePdfAs(workingPath, options)
+            : await documents.savePdfAs(workingPath),
         validation,
     };
 }

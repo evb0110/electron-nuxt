@@ -73,6 +73,7 @@ describe('useSettings', () => {
             defaultAnnotationColor: '#ffd400',
             uiScale: 'auto',
             tabMemoryPolicy: 'conservative',
+            optimizePdfOnSaveAs: false,
             agentMcpEnabled: false,
             assistantPanelEnabled: false,
         });
@@ -100,6 +101,7 @@ describe('useSettings', () => {
             defaultAnnotationColor: '#ffd400',
             uiScale: 'auto',
             tabMemoryPolicy: 'conservative',
+            optimizePdfOnSaveAs: false,
             agentMcpEnabled: false,
             assistantPanelEnabled: false,
             suppressDefaultViewerPrompt: false,

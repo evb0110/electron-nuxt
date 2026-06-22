@@ -61,6 +61,7 @@ interface IPersistSerializedOptions {
     saveMode: TPdfSaveMode;
     preserveLoadedSource?: boolean;
     expectedWorkingPath?: TDocumentRef | null;
+    optimizeLossless?: boolean;
 }
 
 class SaveDocumentTimeoutError extends Error {
@@ -109,7 +110,9 @@ export interface IFileOperationsDeps {
     saveWorkingCopyAs: (data?: Uint8Array, opts?: {
         saveMode?: TPdfSaveMode;
         expectedWorkingPath?: TDocumentRef | null;
+        optimizeLossless?: boolean;
     }) => Promise<IPdfPersistResult>;
+    optimizePdfOnSaveAs?: Ref<boolean>;
     getWorkingCopySize?: (path: TDocumentRef) => Promise<number | null>;
     trySaveEmbeddedNoteTextUpdates?: (
         updates: IPdfNoteTextUpdate[],
@@ -265,6 +268,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         repairWorkingCopy,
         saveWorkingCopy,
         saveWorkingCopyAs,
+        optimizePdfOnSaveAs,
         getWorkingCopySize,
         trySaveEmbeddedNoteTextUpdates,
         trySavePdfNativeMutations,
@@ -1715,6 +1719,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     }
 
     async function handleSaveAs() {
+        const optimizeLossless = optimizePdfOnSaveAs?.value === true;
         return runSaveFlow({
             mode: 'save_as',
             operationKind: 'save-as',
@@ -1723,8 +1728,14 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             totalPhase: 'handle-save-as-total',
             failureLogMessage: 'Save As failed',
             saveIndicator: isSavingAs,
-            persistSerialized: saveWorkingCopyAs,
-            persistUnserialized: opts => saveWorkingCopyAs(undefined, opts),
+            persistSerialized: (data, opts) => saveWorkingCopyAs(data, {
+                ...opts,
+                optimizeLossless,
+            }),
+            persistUnserialized: opts => saveWorkingCopyAs(undefined, {
+                ...opts,
+                optimizeLossless,
+            }),
             shouldPreferWorkingCopy: false,
         });
     }

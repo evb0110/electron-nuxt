@@ -433,6 +433,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         trySavePdfNativeMutations,
         trySaveEmbeddedNoteTextUpdates,
         saveWorkingCopyAs,
+        optimizePdfOnSaveAs: computed(() => appSettings.value.optimizePdfOnSaveAs),
         persistAllAnnotationNotes: (force) => persistAllAnnotationNotes(force),
         consumePendingEmbeddedTextUpdates: () => consumePendingEmbeddedTextUpdates(),
         restorePendingEmbeddedTextUpdates: updates => restorePendingEmbeddedTextUpdates(updates),

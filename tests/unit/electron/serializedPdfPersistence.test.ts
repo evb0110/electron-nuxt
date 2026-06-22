@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
     allowOpenPath: vi.fn(),
     addRecentFile: vi.fn(),
     updateRecentFilesMenu: vi.fn(),
+    optimizePdfForSaveAs: vi.fn(),
 }));
 
 vi.mock('@electron/utils/atomicReplace', () => ({
@@ -41,6 +42,7 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
 vi.mock('@electron/features/documents/main/pdfConformance', () => ({validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args)}));
+vi.mock('@electron/features/documents/main/pdfSaveAsOptimization', () => ({ optimizePdfForSaveAs: (...args: unknown[]) => mocks.optimizePdfForSaveAs(...args) }));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({
     getWorkingCopyOriginalFileExpectation: (...args: unknown[]) => mocks.getWorkingCopyOriginalFileExpectation(...args),
@@ -67,6 +69,7 @@ describe('serializedPdfPersistence', () => {
         });
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(null);
+        mocks.optimizePdfForSaveAs.mockResolvedValue(null);
         mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, await readFile(sourcePath));
             await unlink(sourcePath);
@@ -113,6 +116,31 @@ describe('serializedPdfPersistence', () => {
         expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath, 42);
         expect(mocks.addRecentFile).toHaveBeenCalledWith(targetPath);
         expect(mocks.updateRecentFilesMenu).toHaveBeenCalled();
+    });
+
+    it('runs lossless optimization for streamed Save As before replacing the selected target', async () => {
+        const workingPath = join(tempRoot, 'working.pdf');
+        const targetPath = join(tempRoot, 'saved.pdf');
+        const tempPath = `${targetPath}.tmp`;
+        writeFileSync(workingPath, 'old-working');
+        writeFileSync(targetPath, 'old-target');
+
+        const result = await runSaveAsSession({
+            workingPath,
+            targetPath,
+            bytes: Buffer.from('new-pdf'),
+            options: { optimizeLossless: true },
+        });
+
+        expect(result).toMatchObject({
+            type: 'result',
+            path: targetPath,
+            validation: { isValid: true },
+        });
+        expect(mocks.optimizePdfForSaveAs).toHaveBeenCalledWith(tempPath, { optimizeLossless: true });
+        expect(
+            mocks.optimizePdfForSaveAs.mock.invocationCallOrder[0]!,
+        ).toBeLessThan(mocks.atomicReplace.mock.invocationCallOrder[0]!);
     });
 
     it('preserves the Save As working copy when target replacement fails', async () => {
@@ -392,6 +420,7 @@ async function runSaveAsSession(options: {
     workingPath: string;
     targetPath: string;
     bytes: Uint8Array;
+    options?: { optimizeLossless?: boolean };
 }) {
     const {
         attachSerializedPdfPersistencePort,
@@ -404,6 +433,7 @@ async function runSaveAsSession(options: {
         options.workingPath,
         options.bytes.byteLength,
         options.targetPath,
+        options.options,
     );
     const port = new FakeMessagePort();
     const resultPromise = port.nextResult();

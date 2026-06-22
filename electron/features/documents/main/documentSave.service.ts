@@ -3,6 +3,7 @@ import {
     rm,
     writeFile,
 } from 'fs/promises';
+import type { IPdfSaveAsOptions } from '@contracts/electronApiDocuments';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import {
     basename,
@@ -27,6 +28,7 @@ import { normalizeIpcWritePayload } from '@electron/features/documents/main/docu
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
+import { optimizePdfForSaveAs } from '@electron/features/documents/main/pdfSaveAsOptimization';
 
 export type TShowSaveDialogWithExtension = (
     event: Electron.IpcMainInvokeEvent,
@@ -41,6 +43,7 @@ export type TShowSaveDialogWithExtension = (
 export async function savePdfAs(
     event: Electron.IpcMainInvokeEvent,
     workingPath: string,
+    options: IPdfSaveAsOptions | undefined,
     showSaveDialogWithExtension: TShowSaveDialogWithExtension,
 ) {
     const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
@@ -92,6 +95,7 @@ export async function savePdfAs(
             }
 
             await copyFileCopyOnWrite(normalizedWorkingPath, tempPath);
+            await optimizePdfForSaveAs(tempPath, options);
             await atomicReplace(tempPath, targetPath);
             replaced = true;
         } finally {
@@ -113,6 +117,7 @@ export async function savePdfDataAs(
     event: Electron.IpcMainInvokeEvent,
     workingPath: string,
     data: unknown,
+    options: IPdfSaveAsOptions | undefined,
     showSaveDialogWithExtension: TShowSaveDialogWithExtension,
 ): Promise<{
     path: string | null;
@@ -163,6 +168,7 @@ export async function savePdfDataAs(
                 validation,
             };
         }
+        const optimizedValidation = await optimizePdfForSaveAs(tempPath, options);
 
         await atomicReplace(tempPath, targetPath);
         replaced = true;
@@ -174,7 +180,7 @@ export async function savePdfDataAs(
 
         return {
             path: targetPath,
-            validation,
+            validation: optimizedValidation ?? validation,
         };
     } finally {
         if (!replaced) {

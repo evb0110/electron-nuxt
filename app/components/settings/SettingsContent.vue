@@ -25,6 +25,7 @@
                 @update:scroll-mode="applyScrollMode"
                 @update:tab-memory-policy="applyTabMemoryPolicy"
                 @update:annotation-color="updateSetting('defaultAnnotationColor', $event)"
+                @update:optimize-pdf-on-save-as="updateSetting('optimizePdfOnSaveAs', $event)"
             />
         </section>
 

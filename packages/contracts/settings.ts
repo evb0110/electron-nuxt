@@ -49,6 +49,7 @@ export const DEFAULT_SETTINGS: ISettingsData = {
     defaultAnnotationColor: DEFAULT_ANNOTATION_COLOR,
     uiScale: 'auto',
     tabMemoryPolicy: 'conservative',
+    optimizePdfOnSaveAs: false,
     assistantPanelEnabled: false,
     agentMcpEnabled: false,
 };
@@ -159,6 +160,7 @@ export function sanitizeSettings(raw: unknown): ISettingsData {
         defaultAnnotationColor: normalizeDefaultAnnotationColor(value?.defaultAnnotationColor),
         uiScale: normalizeUiScale(value?.uiScale),
         tabMemoryPolicy: normalizeTabMemoryPolicy(value?.tabMemoryPolicy),
+        optimizePdfOnSaveAs: value?.optimizePdfOnSaveAs === true,
         assistantPanelEnabled: isBoolean(value?.assistantPanelEnabled)
             ? value.assistantPanelEnabled
             : DEFAULT_SETTINGS.assistantPanelEnabled,
