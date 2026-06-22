@@ -12,6 +12,7 @@ import type {
     IPdfNativeShapeAnnotation,
     IPdfNativeShapePoint,
     IPdfNativeWorkingCopyExpectation,
+    IPdfOptimizeOptions,
     IPdfSaveAsOptions,
 } from '@contracts/electronApiDocuments';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
@@ -83,6 +84,12 @@ const PDF_PERSISTENCE_ERROR_PHASES = new Set<TPdfPersistenceErrorPhase>([
     'complete',
     'commit',
     'cancel',
+]);
+const PDF_OPTIMIZE_PRESETS = new Set<IPdfOptimizeOptions['preset']>([
+    'lossless',
+    'balancedScanned',
+    'smallScanned',
+    'blackAndWhite',
 ]);
 
 interface ISerializedPdfPersistencePortResult {
@@ -161,6 +168,17 @@ function assertPdfSaveAsOptions(value: unknown, label: string): IPdfSaveAsOption
     return value.optimizeLossless === true
         ? { optimizeLossless: true }
         : undefined;
+}
+
+function assertPdfOptimizeOptions(value: unknown, label: string): IPdfOptimizeOptions {
+    if (!isRecord(value)) {
+        throw new TypeError(`${label} must be an object`);
+    }
+    if (!PDF_OPTIMIZE_PRESETS.has(value.preset as IPdfOptimizeOptions['preset'])) {
+        throw new TypeError(`${label}.preset is invalid`);
+    }
+
+    return { preset: value.preset as IPdfOptimizeOptions['preset'] };
 }
 
 function assertPdfNoteTextUpdates(
@@ -1374,6 +1392,15 @@ export function createDocumentsPreloadFileClient(
             invoke(
                 DOCUMENTS_CHANNELS.fileOptimizePdfForInteraction,
                 assertAbsolutePath(path, 'optimizePdfForInteraction.path'),
+            ),
+        optimizePdfAsCopy: (path, options, requestId) =>
+            invoke(
+                DOCUMENTS_CHANNELS.fileOptimizePdfAsCopy,
+                assertAbsolutePath(path, 'optimizePdfAsCopy.path'),
+                assertPdfOptimizeOptions(options, 'optimizePdfAsCopy.options'),
+                typeof requestId === 'string'
+                    ? assertNonEmptyString(requestId, 'optimizePdfAsCopy.requestId', 128)
+                    : undefined,
             ),
         savePdfData: async (path, data) => {
             const checkedPath = assertAbsolutePath(path, 'savePdfData.path');

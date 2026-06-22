@@ -22,6 +22,15 @@
         @update:open="handlePrintOpenChange"
     />
 
+    <PdfOptimizeDialog
+        :open="optimizeDialogOpen"
+        :is-running="optimizeDialogRunning"
+        :progress="optimizeDialogProgress"
+        :error="optimizeDialogError"
+        @submit="handleOptimizeSubmit"
+        @update:open="handleOptimizeOpenChange"
+    />
+
     <PdfCropDialog
         :open="cropDialogOpen"
         :loading="cropDialogLoading"
@@ -49,6 +58,7 @@
 <script setup lang="ts">
 import { PdfCropDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfCropDialog';
 import { PdfExportScopeDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfExportScopeDialog';
+import { PdfOptimizeDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfOptimizeDialog';
 import { PdfPrintDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfPrintDialog';
 
 const DjvuConvertDialog = defineAsyncComponent(
@@ -57,6 +67,7 @@ const DjvuConvertDialog = defineAsyncComponent(
 );
 
 type TPdfExportScopeDialogProps = InstanceType<typeof PdfExportScopeDialog>['$props'];
+type TPdfOptimizeDialogProps = InstanceType<typeof PdfOptimizeDialog>['$props'];
 type TPdfPrintDialogProps = InstanceType<typeof PdfPrintDialog>['$props'];
 type TPdfCropDialogProps = InstanceType<typeof PdfCropDialog>['$props'];
 type TDjvuConvertDialogProps = InstanceType<typeof DjvuConvertDialog>['$props'];
@@ -71,6 +82,10 @@ defineProps<{
     printStatus: TPdfPrintDialogProps['status'];
     printError: TPdfPrintDialogProps['error'];
     isPreparingPrint: boolean;
+    optimizeDialogOpen: boolean;
+    optimizeDialogRunning: boolean;
+    optimizeDialogProgress: TPdfOptimizeDialogProps['progress'];
+    optimizeDialogError: TPdfOptimizeDialogProps['error'];
     cropDialogOpen: boolean;
     cropDialogLoading: boolean;
     cropDialogPageNumber: number;
@@ -93,6 +108,8 @@ const emit = defineEmits<{
     'export-open-change': [value: boolean];
     'print-submit': [payload: TRequiredHandler<TPdfPrintDialogProps['onSubmit']>[0]];
     'print-open-change': [value: boolean];
+    'optimize-submit': [payload: TRequiredHandler<TPdfOptimizeDialogProps['onSubmit']>[0]];
+    'optimize-open-change': [value: boolean];
     'crop-apply': [payload: TRequiredHandler<TPdfCropDialogProps['onApply']>[0]];
     'crop-remove': [payload: TRequiredHandler<TPdfCropDialogProps['onRemove']>[0]];
     'crop-open-change': [value: boolean];
@@ -114,6 +131,14 @@ function handlePrintSubmit(payload: TRequiredHandler<TPdfPrintDialogProps['onSub
 
 function handlePrintOpenChange(value: boolean) {
     emit('print-open-change', value);
+}
+
+function handleOptimizeSubmit(payload: TRequiredHandler<TPdfOptimizeDialogProps['onSubmit']>[0]) {
+    emit('optimize-submit', payload);
+}
+
+function handleOptimizeOpenChange(value: boolean) {
+    emit('optimize-open-change', value);
 }
 
 function handleCropApply(payload: TRequiredHandler<TPdfCropDialogProps['onApply']>[0]) {

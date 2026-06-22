@@ -15,6 +15,7 @@ import type {
     IScrollSnapshot,
 } from '@app/types/pdf';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
 import {
     getEmbeddedMutationBaseData as resolveEmbeddedMutationBaseData,
     usePdfSerialization,
@@ -75,6 +76,7 @@ type TSharedSaveOperationDeps = Pick<
     | 'saveFile'
     | 'repairWorkingCopy'
     | 'optimizeWorkingCopy'
+    | 'optimizeWorkingCopyAsCopy'
     | 'saveWorkingCopy'
     | 'trySavePdfNativeMutations'
     | 'trySaveEmbeddedNoteTextUpdates'
@@ -224,6 +226,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         handleSave: handleSaveWithReload,
         handleRepairSave: handleRepairSaveWithReload,
         handleOptimizePdfForInteraction: handleOptimizePdfForInteractionWithReload,
+        handleOptimizePdfAsCopy: handleOptimizePdfAsCopyWithReload,
         handleSaveAs: handleSaveAsWithReload,
     } = useFileOperations({
         isSaving,
@@ -246,6 +249,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         saveFile,
         ...(repairWorkingCopy ? { repairWorkingCopy } : {}),
         ...(optimizeWorkingCopy ? { optimizeWorkingCopy } : {}),
+        ...(deps.optimizeWorkingCopyAsCopy ? { optimizeWorkingCopyAsCopy: deps.optimizeWorkingCopyAsCopy } : {}),
         saveWorkingCopy,
         getWorkingCopySize: async path => (await getDocumentsCapability().statFile(path)).size,
         ...(trySavePdfNativeMutations !== undefined ? { trySavePdfNativeMutations } : {}),
@@ -350,6 +354,17 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         }
 
         return handleOptimizePdfForInteractionWithReload();
+    }
+
+    async function handleOptimizePdfAsCopy(options: IPdfOptimizeOptions, requestId?: string) {
+        if (canSave.value) {
+            const saved = await handleSaveWithReload();
+            if (!saved) {
+                return false;
+            }
+        }
+
+        return handleOptimizePdfAsCopyWithReload(options, requestId);
     }
 
     async function handleSaveAs() {
@@ -538,6 +553,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         handleSave,
         handleRepairSave,
         handleOptimizePdfForInteraction,
+        handleOptimizePdfAsCopy,
         handleSaveAs,
         saveForExternalRead,
         handleExportDocx,

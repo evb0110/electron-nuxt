@@ -410,7 +410,7 @@ export default {
         'edit': 'Editar',
         'save': 'Guardar',
         'repairAndSave': 'Reparar PDF e guardar',
-        'optimizePdfForInteraction': 'Otimizar PDF para abertura mais rápida',
+        'optimizePdfForInteraction': 'Otimizar PDF...',
         'saveAs': 'Guardar Como...',
         'print': 'Imprimir...',
         'printCurrentPage': 'Imprimir Página Atual...',
@@ -490,6 +490,7 @@ export default {
         'documentsFilter': 'Documentos',
         'imagesFilter': 'Imagens',
         'savePdfAs': 'Guardar PDF Como',
+        'saveOptimizedPdfAs': 'Guardar PDF otimizado como',
         'savePdf': 'Guardar PDF',
         'pdfFiles': 'Ficheiros PDF',
         'saveOcrTextAs': 'Guardar Texto OCR Como',
@@ -533,6 +534,41 @@ export default {
             'codexMissingDetail': 'Depois de instalar o Codex, volte aqui e ative a definição novamente.',
         },
         'agentAssistant': {'disabledMessage': 'Ative o EVB Assistant nas Definições para usar a conversa do assistente.'},
+    },
+    'optimizePdf': {
+        'title': 'Otimizar PDF',
+        'dialogDescription': 'Cria uma cópia otimizada com uma pipeline nativa baseada em ficheiros para documentos digitalizados grandes.',
+        'presetLabel': 'Predefinição',
+        'flattenWarning': 'As predefinições raster recriam páginas como imagens. Texto, ligações, formulários, camadas e anotações editáveis podem ser achatados na cópia otimizada.',
+        'saveCopyAction': 'Guardar cópia otimizada',
+        'successTitle': 'PDF otimizado guardado',
+        'errorDescription': 'Não foi possível otimizar este PDF.',
+        'progress': {
+            'preparing': 'A preparar...',
+            'rendering': 'A reduzir páginas...',
+            'assembling': 'A montar PDF...',
+            'optimizing': 'A otimizar estrutura...',
+            'validating': 'A validar PDF...',
+            'complete': 'Concluído',
+        },
+        'presets': {
+            'lossless': {
+                'label': 'Reescrita sem perdas',
+                'description': 'Reescreve e lineariza o PDF sem rasterizar páginas. Melhor primeiro passo para abrir mais rapidamente.',
+            },
+            'balancedScanned': {
+                'label': 'PDF digitalizado equilibrado',
+                'description': 'Renderiza páginas a 200 DPI com recompressão JPEG a cores para livros e artigos digitalizados.',
+            },
+            'smallScanned': {
+                'label': 'PDF digitalizado menor',
+                'description': 'Renderiza páginas a 150 DPI em tons de cinzento com compressão JPEG mais forte.',
+            },
+            'blackAndWhite': {
+                'label': 'Digitalização preto e branco',
+                'description': 'Usa uma passagem em tons de cinzento com compressão mais forte para documentos em papel com muito texto.',
+            },
+        },
     },
     'combinePdf': {
         'title': 'Combinar ficheiros em PDF',

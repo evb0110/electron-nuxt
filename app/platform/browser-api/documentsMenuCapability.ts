@@ -18,6 +18,7 @@ export function emitBrowserOpenDocumentDirectBatchProgress(
 export const browserDocumentsMenuCapability: IDocumentsMenuCapability = {
     setMenuDocumentState: async (_hasDocument) => {},
     setMenuTabCount: async (_tabCount) => {},
+    onPdfOptimizeProgress: noopUnsubscribe,
     onMenuOpenPdf: noopUnsubscribe,
     onMenuInsertImageFromFile: noopUnsubscribe,
     onMenuPasteImageFromClipboard: noopUnsubscribe,

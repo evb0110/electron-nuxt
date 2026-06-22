@@ -203,6 +203,55 @@ describe('createDocumentsPreloadFileClient', () => {
         );
     });
 
+    it('invokes optimize-as-copy with checked options and request id', async () => {
+        const result = {
+            path: '/tmp/optimized.pdf',
+            validation: {
+                isValid: true,
+                tool: 'qpdf' as const,
+                errors: [],
+                warnings: [],
+            },
+            preset: 'smallScanned' as const,
+            originalBytes: 100,
+            optimizedBytes: 50,
+            pageCount: 3,
+        };
+        const ipcRenderer = {
+            invoke: vi.fn(async () => result),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        await expect(client.optimizePdfAsCopy?.(
+            '/tmp/working.pdf',
+            { preset: 'smallScanned' },
+            'request-1',
+        )).resolves.toBe(result);
+
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.fileOptimizePdfAsCopy,
+            '/tmp/working.pdf',
+            { preset: 'smallScanned' },
+            'request-1',
+        );
+    });
+
+    it('rejects invalid optimize-as-copy options before invoking IPC', async () => {
+        const ipcRenderer = {
+            invoke: vi.fn(),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        expect(() => client.optimizePdfAsCopy?.(
+            '/tmp/working.pdf',
+            { preset: 'ultra' } as never,
+        )).toThrow('optimizePdfAsCopy.options.preset is invalid');
+
+        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
+    });
+
     it('reads files through range chunks without hydrating the full file', async () => {
         const ipcRenderer = {
             invoke: vi.fn(async (channel: string, ...args: unknown[]) => {

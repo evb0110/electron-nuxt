@@ -533,6 +533,146 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }
     });
 
+    it('consumes a fit-height paged target render when the target becomes the current page', async () => {
+        vi.useFakeTimers();
+        try {
+            const currentPage = ref(1);
+            const pagedNavigationTargetPage = ref<number | null>(null);
+            const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+            const computeFitWidthScale = vi.fn(() => false);
+            const scrollToPage = vi.fn();
+
+            usePdfViewerRerenderCoordinator(createDeps({
+                currentPage,
+                pagedNavigationTargetPage,
+                zoomMode: computed(() => 'fit-height' as const),
+                fitMode: computed(() => 'height' as const),
+                reRenderAllVisiblePages,
+                scrollToPage,
+                ensurePageMetricsInRange: vi.fn(async () => true),
+                computeFitWidthScale,
+            }));
+
+            pagedNavigationTargetPage.value = 4;
+            await flushCurrentPageFitRerender();
+
+            expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
+            expect(reRenderAllVisiblePages).toHaveBeenLastCalledWith(
+                expect.any(Function),
+                expect.objectContaining({ rerenderSource: 'fit-height-paged-target' }),
+            );
+
+            pagedNavigationTargetPage.value = null;
+            currentPage.value = 4;
+            await flushCurrentPageFitRerender();
+
+            expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
+            expect(reRenderAllVisiblePages.mock.calls.some(([
+                , options,
+            ]) => (
+                options?.rerenderSource === 'fit-height-current-page'
+            ))).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('consumes a pending fit-height paged target render when the target commits before render unwinds', async () => {
+        vi.useFakeTimers();
+        try {
+            const currentPage = ref(1);
+            const pagedNavigationTargetPage = ref<number | null>(null);
+            const renderBlocker = createDeferred();
+            const reRenderAllVisiblePages = vi.fn<TReRenderAllVisiblePagesMock>(async () => {
+                await renderBlocker.promise;
+            });
+
+            usePdfViewerRerenderCoordinator(createDeps({
+                currentPage,
+                pagedNavigationTargetPage,
+                zoomMode: computed(() => 'fit-height' as const),
+                fitMode: computed(() => 'height' as const),
+                reRenderAllVisiblePages,
+                ensurePageMetricsInRange: vi.fn(async () => true),
+                computeFitWidthScale: vi.fn(() => false),
+            }));
+
+            pagedNavigationTargetPage.value = 4;
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(300);
+            await nextTick();
+            await Promise.resolve();
+
+            expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
+            expect(reRenderAllVisiblePages).toHaveBeenLastCalledWith(
+                expect.any(Function),
+                expect.objectContaining({ rerenderSource: 'fit-height-paged-target' }),
+            );
+
+            currentPage.value = 4;
+            pagedNavigationTargetPage.value = null;
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(300);
+            await nextTick();
+            await Promise.resolve();
+
+            expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
+            expect(reRenderAllVisiblePages.mock.calls.some(([
+                , options,
+            ]) => (
+                options?.rerenderSource === 'fit-height-current-page'
+            ))).toBe(false);
+
+            renderBlocker.resolve();
+            await Promise.resolve();
+            await nextTick();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('consumes a fit-width paged target render when the target becomes the current page', async () => {
+        vi.useFakeTimers();
+        try {
+            const currentPage = ref(1);
+            const pagedNavigationTargetPage = ref<number | null>(null);
+            const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+            const computeFitWidthScale = vi.fn(() => false);
+            const syncCurrentPageFromViewport = vi.fn(async () => {});
+
+            usePdfViewerRerenderCoordinator(createDeps({
+                currentPage,
+                pagedNavigationTargetPage,
+                zoomMode: computed(() => 'fit-width' as const),
+                fitMode: computed(() => 'width' as const),
+                reRenderAllVisiblePages,
+                syncCurrentPageFromViewport,
+                ensurePageMetricsInRange: vi.fn(async () => true),
+                computeFitWidthScale,
+            }));
+
+            pagedNavigationTargetPage.value = 4;
+            await flushCurrentPageFitRerender();
+
+            expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
+            expect(reRenderAllVisiblePages).toHaveBeenLastCalledWith(
+                expect.any(Function),
+                expect.objectContaining({ rerenderSource: 'fit-width-paged-target' }),
+            );
+
+            pagedNavigationTargetPage.value = null;
+            currentPage.value = 4;
+            await flushCurrentPageFitRerender();
+
+            expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
+            expect(syncCurrentPageFromViewport).not.toHaveBeenCalledWith(
+                expect.objectContaining({ source: 'fit-width-current-page' }),
+            );
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('keeps fit-rerender suppression active until an overlapping paged target finishes', async () => {
         vi.useFakeTimers();
         try {

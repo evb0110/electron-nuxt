@@ -16,6 +16,7 @@ import type {
     IPdfNativeFreeTextNote,
     IPdfNativeMutationSet,
     IPdfNoteTextUpdate,
+    IPdfOptimizeOptions,
 } from '@contracts/electronApiDocuments';
 import { isTimeoutError } from '@contracts/isTimeoutError';
 import type {
@@ -111,6 +112,14 @@ export interface IFileOperationsDeps {
         saveMode?: TPdfSaveMode;
         expectedWorkingPath?: TDocumentRef | null;
     }) => Promise<IPdfPersistResult>;
+    optimizeWorkingCopyAsCopy?: (
+        options: IPdfOptimizeOptions,
+        requestId?: string,
+        opts?: {
+            saveMode?: TPdfSaveMode;
+            expectedWorkingPath?: TDocumentRef | null;
+        },
+    ) => Promise<IPdfPersistResult>;
     saveWorkingCopyAs: (data?: Uint8Array, opts?: {
         saveMode?: TPdfSaveMode;
         expectedWorkingPath?: TDocumentRef | null;
@@ -282,6 +291,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         saveFile,
         repairWorkingCopy,
         optimizeWorkingCopy,
+        optimizeWorkingCopyAsCopy,
         saveWorkingCopy,
         saveWorkingCopyAs,
         optimizePdfOnSaveAs,
@@ -1853,10 +1863,79 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         });
     }
 
+    async function handleOptimizePdfAsCopy(options: IPdfOptimizeOptions, requestId?: string) {
+        if (!optimizeWorkingCopyAsCopy || hasSaveOperationInProgress()) {
+            return false;
+        }
+        const saveStartedAtMs = nowMs();
+        let saveSucceededForTelemetry = false;
+        isSavingAs.value = true;
+        saveOperationInProgress = true;
+        const expectedWorkingPath = workingCopyPath.value;
+        const reloadWaiter = preparePostSaveReload?.() ?? null;
+
+        return runWithDocumentOperationLease('optimize-pdf', async () => {
+            try {
+                const saveResult = await validateWorkingCopySnapshot('save_as_rewrite');
+                if (!saveResult || saveResult.workingPath !== expectedWorkingPath) {
+                    reloadWaiter?.cancel();
+                    return false;
+                }
+
+                const persisted = await timedSavePhase(
+                    'persist-optimize-copy-native-working-copy',
+                    () => optimizeWorkingCopyAsCopy(options, requestId, {
+                        saveMode: saveResult.saveMode,
+                        expectedWorkingPath,
+                    }),
+                    result => ({
+                        saveMode: saveResult.saveMode,
+                        success: result.success,
+                        didSaveAs: result.didSaveAs,
+                    }),
+                );
+                const saveSucceeded = finalizeSuccessfulSave(persisted, {
+                    completeSaveState: !reloadWaiter,
+                    markShapeStateSaved: !reloadWaiter,
+                    resetAnnotationStorage: false,
+                });
+                await finalizeSaveReload(reloadWaiter, saveSucceeded, {
+                    completeSaveStateOnSuccess: Boolean(reloadWaiter),
+                    markShapeStateSavedOnSuccess: Boolean(reloadWaiter),
+                    resetAnnotationStorageOnSuccess: false,
+                });
+                if (saveSucceeded) {
+                    trackSaveCompleted('save_as', persisted, false);
+                }
+                saveSucceededForTelemetry = saveSucceeded;
+                return saveSucceeded;
+            } catch (error) {
+                reloadWaiter?.cancel();
+                BrowserLogger.error('workspace', 'PDF optimization failed', error);
+                toast.add({
+                    color: 'error',
+                    title: t('errors.file.save'),
+                    description: getErrorMessage(error),
+                });
+                return false;
+            } finally {
+                logSavePhase(
+                    'handle-optimize-pdf-total',
+                    saveStartedAtMs,
+                    { success: saveSucceededForTelemetry },
+                    SLOW_SAVE_TOTAL_WARN_MS,
+                );
+                saveOperationInProgress = false;
+                isSavingAs.value = false;
+            }
+        });
+    }
+
     return {
         handleSave,
         handleRepairSave,
         handleOptimizePdfForInteraction,
+        handleOptimizePdfAsCopy,
         handleSaveAs,
     };
 };

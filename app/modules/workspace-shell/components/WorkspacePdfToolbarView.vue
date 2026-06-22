@@ -54,6 +54,7 @@
                 :has-pdf="toolbarHasPdf"
                 :can-save="snapshot.canSave"
                 :can-repair-save="snapshot.canRepairSave"
+                :can-optimize-pdf="snapshot.canOptimizePdf"
                 :can-undo="snapshot.canUndo"
                 :can-redo="snapshot.canRedo"
                 :can-export-docx="snapshot.canExportDocx"

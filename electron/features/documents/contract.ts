@@ -2,6 +2,8 @@ import type {
     IDocumentsFileCapability,
     IDocumentsMenuCapability,
     IPdfSaveAsOptions,
+    IPdfOptimizeOptions,
+    IPdfOptimizeProgress,
     TOpenBatchProgressOperation,
     TOpenDocumentDirectBatchProgress,
 } from '@contracts/electronApiDocuments';
@@ -50,6 +52,7 @@ export const DOCUMENTS_CHANNELS = {
     fileSave: 'file:save',
     fileRepairPdf: 'file:repairPdf',
     fileOptimizePdfForInteraction: 'file:optimizePdfForInteraction',
+    fileOptimizePdfAsCopy: 'file:optimizePdfAsCopy',
     fileSavePdfData: 'file:savePdfData',
     fileSavePdfDataBegin: 'file:savePdfData:begin',
     fileSavePdfDataPort: 'file:savePdfData:port',
@@ -100,6 +103,7 @@ export const DOCUMENTS_EVENT_CHANNELS = {
     menuOpenRecentFile: 'menu:openRecentFile',
     menuOpenExternalPaths: 'menu:openExternalPaths',
     menuClearRecentFiles: 'menu:clearRecentFiles',
+    pdfOptimizeProgress: 'pdf:optimize:progress',
     openDocumentDirectBatchProgress: 'dialog:openPdfDirectBatch:progress',
     openPdfDirectBatchProgress: 'dialog:openPdfDirectBatch:progress',
 } as const;
@@ -108,6 +112,8 @@ export type TOpenBatchProgressPayload = ICreatePdfFromInputPathsProgress & {
     operation: TOpenBatchProgressOperation;
     requestId: string;
 };
+
+export type TPdfOptimizeProgressPayload = IPdfOptimizeProgress;
 
 export interface IDocumentsInvokeMap {
     [DOCUMENTS_CHANNELS.openDocumentDialog]: {
@@ -256,6 +262,10 @@ export interface IDocumentsInvokeMap {
         args: [path: string];
         result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['optimizePdfForInteraction']>>>;
     };
+    [DOCUMENTS_CHANNELS.fileOptimizePdfAsCopy]: {
+        args: [path: string, options: IPdfOptimizeOptions, requestId?: string];
+        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['optimizePdfAsCopy']>>>;
+    };
     [DOCUMENTS_CHANNELS.fileSavePdfData]: {
         args: [path: string, data: Uint8Array];
         result: Awaited<ReturnType<IDocumentsFileCapability['savePdfData']>>;
@@ -367,6 +377,7 @@ export interface IDocumentsEventMap {
     [DOCUMENTS_EVENT_CHANNELS.menuOpenRecentFile]: string;
     [DOCUMENTS_EVENT_CHANNELS.menuOpenExternalPaths]: string[];
     [DOCUMENTS_EVENT_CHANNELS.menuClearRecentFiles]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.pdfOptimizeProgress]: TPdfOptimizeProgressPayload;
     [DOCUMENTS_EVENT_CHANNELS.openDocumentDirectBatchProgress]: TOpenDocumentDirectBatchProgress;
 }
 

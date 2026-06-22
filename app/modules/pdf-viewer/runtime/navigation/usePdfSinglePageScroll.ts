@@ -98,6 +98,7 @@ interface IMountedPageVisualState {
     buffered: boolean;
     hasCanvas: boolean;
     hasSkeleton: boolean;
+    hasVisibleSkeleton: boolean;
     mounted: boolean;
     renderedClass: boolean;
 }
@@ -184,6 +185,46 @@ function resolveWheelTargetAnchor(
     return targetPageIsTall
         ? resolveSnapAnchorForWheelDirection(direction)
         : 'top';
+}
+
+function isPageSkeletonVisible(skeleton: Element | null) {
+    if (!skeleton) {
+        return false;
+    }
+
+    const htmlSkeleton = skeleton as HTMLElement;
+    const inlineOpacity = htmlSkeleton.style?.opacity ?? '';
+    if (
+        htmlSkeleton.style?.display === 'none'
+        || htmlSkeleton.style?.visibility === 'hidden'
+        || (inlineOpacity.length > 0 && Number(inlineOpacity) <= 0)
+    ) {
+        return false;
+    }
+
+    if (
+        typeof window !== 'undefined'
+        && typeof window.getComputedStyle === 'function'
+        && skeleton instanceof window.Element
+    ) {
+        const style = window.getComputedStyle(skeleton);
+        if (
+            style.display === 'none'
+            || style.visibility === 'hidden'
+            || Number(style.opacity || '1') <= 0
+        ) {
+            return false;
+        }
+    }
+
+    if (typeof htmlSkeleton.getBoundingClientRect === 'function') {
+        const rect = htmlSkeleton.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 interface IUsePdfSinglePageScrollOptions {
@@ -1225,6 +1266,7 @@ export const usePdfSinglePageScroll = (
                 buffered: false,
                 hasCanvas: false,
                 hasSkeleton: false,
+                hasVisibleSkeleton: false,
                 mounted: false,
                 renderedClass: false,
             };
@@ -1236,6 +1278,7 @@ export const usePdfSinglePageScroll = (
                 buffered: false,
                 hasCanvas: false,
                 hasSkeleton: false,
+                hasVisibleSkeleton: false,
                 mounted: false,
                 renderedClass: false,
             };
@@ -1245,10 +1288,13 @@ export const usePdfSinglePageScroll = (
             ? (selector: string) => pageElement.querySelector(selector)
             : () => null;
 
+        const skeleton = queryPageElement('.pdf-page-skeleton');
+
         return {
             buffered: pageElement.classList?.contains('page_container--buffered') === true,
             hasCanvas: queryPageElement('.page_canvas canvas') !== null,
-            hasSkeleton: queryPageElement('.pdf-page-skeleton') !== null,
+            hasSkeleton: skeleton !== null,
+            hasVisibleSkeleton: isPageSkeletonVisible(skeleton),
             mounted: true,
             renderedClass: pageElement.classList?.contains('page_container--rendered') === true,
         };
@@ -1262,7 +1308,7 @@ export const usePdfSinglePageScroll = (
         const hasUsableCanvas = state.hasCanvas
             && state.renderedClass
             && freshlyRendered
-            && !state.hasSkeleton;
+            && !state.hasVisibleSkeleton;
         return {
             freshlyRendered,
             hasUsableCanvas,

@@ -187,6 +187,12 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
                 && !deps.isAnySaving.value
                 && !deps.isHistoryBusy.value
                 && !deps.isDjvuMode.value,
+            canOptimizePdf: deps.hasPdf.value
+                && !deps.isOpeningDocument.value
+                && !deps.hasOpenError.value
+                && !deps.isAnySaving.value
+                && !deps.isHistoryBusy.value
+                && !deps.isDjvuMode.value,
             canUndo: deps.canUndo.value,
             canRedo: deps.canRedo.value,
             canExportDocx: deps.canExportDocx.value,

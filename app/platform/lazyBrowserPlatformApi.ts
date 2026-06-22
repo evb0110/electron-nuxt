@@ -468,6 +468,10 @@ const lazyDocumentsCapability: IDocumentsCapability = {
         'documents',
         'onOpenDocumentDirectBatchProgress',
     ]),
+    onPdfOptimizeProgress: lazyEvent<IDocumentsCapability['onPdfOptimizeProgress']>([
+        'documents',
+        'onPdfOptimizeProgress',
+    ]),
     onOpenPdfDirectBatchProgress: lazyEvent<IDocumentsCapability['onOpenPdfDirectBatchProgress']>([
         'documents',
         'onOpenPdfDirectBatchProgress',

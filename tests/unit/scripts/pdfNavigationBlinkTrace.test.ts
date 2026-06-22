@@ -410,6 +410,32 @@ describe('pdf navigation blink trace summary', () => {
         expect(summary.firstTargetCanvasRegressionSample).toMatchObject({ atMs: 150 });
     });
 
+    it('flags translucent skeletons over mounted canvas before visual finalization', () => {
+        const summary = summarizeTrace({
+            trace: {samples: [{
+                atMs: 100,
+                skeletonPages: [2],
+                visiblePages: [{
+                    canvasSizes: [{
+                        clientHeight: 400,
+                        clientWidth: 300,
+                        height: 800,
+                        width: 600,
+                    }],
+                    page: 2,
+                    skeletonOpacity: '0.55',
+                    skeletonVisible: true,
+                    visualReady: false,
+                }],
+            }]},
+            renderTrace: [],
+        });
+
+        expect(summary.skeletonVisualOverlapSampleCount).toBe(0);
+        expect(summary.translucentSkeletonCanvasOverlapSampleCount).toBe(1);
+        expect(summary.firstTranslucentSkeletonCanvasOverlapSample).toMatchObject({ atMs: 100 });
+    });
+
     it('flags non-final target commits after the final request', () => {
         const samples = [{
             atMs: 250,

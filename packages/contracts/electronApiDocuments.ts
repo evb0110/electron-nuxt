@@ -70,6 +70,40 @@ export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
 
 export interface IPdfSaveAsOptions { optimizeLossless?: boolean; }
 
+export type TPdfOptimizePreset =
+    | 'lossless'
+    | 'balancedScanned'
+    | 'smallScanned'
+    | 'blackAndWhite';
+
+export type TPdfOptimizeProgressPhase =
+    | 'preparing'
+    | 'rendering'
+    | 'assembling'
+    | 'optimizing'
+    | 'validating'
+    | 'complete';
+
+export interface IPdfOptimizeOptions { preset: TPdfOptimizePreset; }
+
+export interface IPdfOptimizeProgress {
+    requestId: string;
+    preset: TPdfOptimizePreset;
+    phase: TPdfOptimizeProgressPhase;
+    processed: number;
+    total: number;
+    percent: number;
+}
+
+export interface IPdfOptimizeResult {
+    path: TDocumentRef | null;
+    validation: IPdfValidationResult | null;
+    preset: TPdfOptimizePreset;
+    originalBytes: number | null;
+    optimizedBytes: number | null;
+    pageCount: number | null;
+}
+
 export interface IPdfNoteTextUpdate {
     objectNumber: number;
     generationNumber: number;
@@ -236,8 +270,10 @@ export interface IDocumentsMenuCapability {
         hasDocument: boolean;
         canSave: boolean;
         canRepairSave?: boolean;
+        canOptimizePdf?: boolean;
     }) => Promise<void>;
     setMenuTabCount: (tabCount: number) => Promise<void>;
+    onPdfOptimizeProgress: (callback: (progress: IPdfOptimizeProgress) => void) => TMenuEventUnsubscribe;
     onMenuOpenPdf: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuInsertImageFromFile: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuPasteImageFromClipboard: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
@@ -330,6 +366,11 @@ export interface IDocumentsFileCapability {
     ) => Promise<IPdfValidationResult>;
     repairPdf?: (path: TDocumentRef) => Promise<IPdfValidationResult>;
     optimizePdfForInteraction?: (path: TDocumentRef) => Promise<IPdfValidationResult>;
+    optimizePdfAsCopy?: (
+        path: TDocumentRef,
+        options: IPdfOptimizeOptions,
+        requestId?: string,
+    ) => Promise<IPdfOptimizeResult>;
     savePdfNoteTextUpdates?: (
         path: TDocumentRef,
         updates: IPdfNoteTextUpdate[],

@@ -2,6 +2,7 @@ import type { IpcRenderer } from 'electron';
 import type {
     IDocumentsMenuCapability,
     TOpenDocumentDirectBatchProgress,
+    IPdfOptimizeProgress,
 } from '@contracts/electronApiDocuments';
 import {
     DOCUMENTS_CHANNELS,
@@ -100,12 +101,19 @@ export function createDocumentsPreloadMenuClient(
         DOCUMENTS_EVENT_CHANNELS.openDocumentDirectBatchProgress,
         callback,
     );
+    const onPdfOptimizeProgress = (
+        callback: (progress: IPdfOptimizeProgress) => void,
+    ): TMenuEventUnsubscribe => eventSubscriber.onPayload(
+        DOCUMENTS_EVENT_CHANNELS.pdfOptimizeProgress,
+        callback,
+    );
 
     return {
         setMenuDocumentState: (state) =>
             invoke(DOCUMENTS_CHANNELS.menuSetDocumentState, state),
         setMenuTabCount: (tabCount) =>
             invoke(DOCUMENTS_CHANNELS.menuSetTabCount, tabCount),
+        onPdfOptimizeProgress,
         ...noArgMenuSubscriptions,
         onMenuOpenRecentFile: (callback: (filePath: string) => void): TMenuEventUnsubscribe =>
             eventSubscriber.onPayload(DOCUMENTS_EVENT_CHANNELS.menuOpenRecentFile, callback),

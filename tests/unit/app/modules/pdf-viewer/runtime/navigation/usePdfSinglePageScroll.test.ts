@@ -42,6 +42,7 @@ interface IScrollHarnessOptions {
     mountedPageNumbers?: number[];
     canvasReadyPageNumbers?: number[];
     freshRenderedPageNumbers?: number[];
+    hiddenSkeletonPageNumbers?: number[];
     skeletonPageNumbers?: number[];
     visuallyReadyPageNumbers?: number[];
     getMostVisiblePage?: (viewer: HTMLElement | null) => number;
@@ -118,6 +119,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         options?.freshRenderedPageNumbers ?? options?.visuallyReadyPageNumbers ?? mountedPageNumbers,
     );
     const skeletonPageNumbers = new Set(options?.skeletonPageNumbers ?? []);
+    const hiddenSkeletonPageNumbers = new Set(options?.hiddenSkeletonPageNumbers ?? []);
     const pageElements = pageGeometries.map((page, index) => {
         const mountedPage = mountedPageNumbers[index] ?? index + 1;
         return cast<HTMLElement>({
@@ -134,7 +136,9 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
                     return canvasReadyPageNumbers.has(mountedPage) ? {} : null;
                 }
                 if (selector === '.pdf-page-skeleton') {
-                    return skeletonPageNumbers.has(mountedPage) ? {} : null;
+                    return skeletonPageNumbers.has(mountedPage)
+                        ? {style: {display: hiddenSkeletonPageNumbers.has(mountedPage) ? 'none' : ''}}
+                        : null;
                 }
                 return null;
             }),
@@ -2794,6 +2798,32 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(true);
 
         hidePageSkeleton(2);
+        singlePageScroll.releasePagedNavigationHoldForPage(2);
+
+        expect(currentPage.value).toBe(2);
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
+    });
+
+    it('commits paged navigation when a hidden skeleton node remains after render finalization', async () => {
+        const {
+            currentPage,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            suppressPagedRowRender: () => true,
+            visuallyReadyPageNumbers: [
+                1,
+                2,
+            ],
+            freshRenderedPageNumbers: [
+                1,
+                2,
+            ],
+            hiddenSkeletonPageNumbers: [2],
+            skeletonPageNumbers: [2],
+        });
+
+        singlePageScroll.scrollToPage(2);
+        await nextTick();
         singlePageScroll.releasePagedNavigationHoldForPage(2);
 
         expect(currentPage.value).toBe(2);

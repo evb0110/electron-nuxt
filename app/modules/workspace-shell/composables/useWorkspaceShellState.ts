@@ -12,6 +12,7 @@ export interface IWorkspaceShellState {
     activeWorkspaceHasDocument: ComputedRef<boolean>;
     activeWorkspaceCanSave: ComputedRef<boolean>;
     activeWorkspaceCanRepairSave: ComputedRef<boolean>;
+    activeWorkspaceCanOptimizePdf: ComputedRef<boolean>;
     activeTabHasDocumentHint: ComputedRef<boolean>;
     hasDocument: ComputedRef<boolean>;
     tabCount: ComputedRef<number>;
@@ -42,6 +43,12 @@ export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions):
         return snapshot?.canRepairSave === true
             || (snapshot?.canRepairSave === undefined && workspaceHasPdf(workspace));
     });
+    const activeWorkspaceCanOptimizePdf = computed(() => {
+        const workspace = options.activeWorkspace.value;
+        const snapshot = workspace?.getToolbarSnapshot?.();
+        return snapshot?.canOptimizePdf === true
+            || (snapshot?.canOptimizePdf === undefined && activeWorkspaceCanRepairSave.value);
+    });
     const activeTabHasDocumentHint = computed(() => {
         const tab = activeTab.value;
         if (!tab) {
@@ -58,6 +65,7 @@ export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions):
         activeWorkspaceHasDocument,
         activeWorkspaceCanSave,
         activeWorkspaceCanRepairSave,
+        activeWorkspaceCanOptimizePdf,
         activeTabHasDocumentHint,
         hasDocument,
         tabCount,

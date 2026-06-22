@@ -407,7 +407,7 @@ export default {
         'edit': 'Bearbeiten',
         'save': 'Speichern',
         'repairAndSave': 'PDF reparieren und speichern',
-        'optimizePdfForInteraction': 'PDF für schnelleres Öffnen optimieren',
+        'optimizePdfForInteraction': 'PDF optimieren...',
         'saveAs': 'Speichern unter...',
         'print': 'Drucken...',
         'printCurrentPage': 'Aktuelle Seite drucken...',
@@ -487,6 +487,7 @@ export default {
         'documentsFilter': 'Dokumente',
         'imagesFilter': 'Bilder',
         'savePdfAs': 'PDF speichern unter',
+        'saveOptimizedPdfAs': 'Optimiertes PDF speichern unter',
         'savePdf': 'PDF speichern',
         'pdfFiles': 'PDF-Dateien',
         'saveOcrTextAs': 'OCR-Text speichern unter',
@@ -530,6 +531,41 @@ export default {
             'codexMissingDetail': 'Kehren Sie nach der Installation hierher zurück und aktivieren Sie die Einstellung erneut.',
         },
         'agentAssistant': {'disabledMessage': 'Aktivieren Sie EVB Assistant in den Einstellungen, um den Assistenten-Chat zu verwenden.'},
+    },
+    'optimizePdf': {
+        'title': 'PDF optimieren',
+        'dialogDescription': 'Erstellt eine optimierte Kopie mit einer nativen Dateipipeline für große gescannte Dokumente.',
+        'presetLabel': 'Voreinstellung',
+        'flattenWarning': 'Raster-Voreinstellungen bauen Seiten als Bilder neu auf. Text, Links, Formulare, Ebenen und bearbeitbare Anmerkungen können in der optimierten Kopie reduziert werden.',
+        'saveCopyAction': 'Optimierte Kopie speichern',
+        'successTitle': 'Optimiertes PDF gespeichert',
+        'errorDescription': 'Dieses PDF konnte nicht optimiert werden.',
+        'progress': {
+            'preparing': 'Vorbereitung...',
+            'rendering': 'Seiten werden herunterskaliert...',
+            'assembling': 'PDF wird zusammengesetzt...',
+            'optimizing': 'Struktur wird optimiert...',
+            'validating': 'PDF wird geprüft...',
+            'complete': 'Fertig',
+        },
+        'presets': {
+            'lossless': {
+                'label': 'Verlustfreie Neuschreibung',
+                'description': 'Schreibt und linearisiert das PDF ohne Seiten zu rastern. Bester erster Schritt für schnelleres Öffnen.',
+            },
+            'balancedScanned': {
+                'label': 'Ausgewogenes Scan-PDF',
+                'description': 'Rendert Seiten mit 200 DPI und farbiger JPEG-Neukomprimierung für gescannte Bücher und Artikel.',
+            },
+            'smallScanned': {
+                'label': 'Kleineres Scan-PDF',
+                'description': 'Rendert Seiten mit 150 DPI in Graustufen mit stärkerer JPEG-Komprimierung.',
+            },
+            'blackAndWhite': {
+                'label': 'Schwarz-Weiß-Scan',
+                'description': 'Verwendet einen Graustufen-Scan-Durchlauf mit stärkerer Komprimierung für textlastige Papierdokumente.',
+            },
+        },
     },
     'combinePdf': {
         'title': 'Dateien zu PDF zusammenführen',

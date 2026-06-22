@@ -36,6 +36,7 @@ describe('tab session memory policy', () => {
             isPreparingCurrentPagePrint: false,
             canSave: true,
             canRepairSave: true,
+            canOptimizePdf: true,
             canUndo: false,
             canRedo: false,
             canExportDocx: false,

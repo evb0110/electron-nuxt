@@ -9,6 +9,7 @@ import type {
     IPdfNativeFreeTextNote,
     IPdfNativeMutationSet,
     IPdfNoteTextUpdate,
+    IPdfOptimizeOptions,
 } from '@contracts/electronApiDocuments';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
 import type { IPdfLoadedState } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
@@ -445,6 +446,91 @@ export function createDocumentPersistence(
         }, opts?.expectedWorkingPath);
     }
 
+    async function optimizeWorkingCopyAsCopy(
+        options: IPdfOptimizeOptions,
+        requestId?: string,
+        opts?: {
+            saveMode?: TPdfSaveMode;
+            expectedWorkingPath?: TDocumentRef | null;
+        },
+    ): Promise<IPdfPersistResult> {
+        const requestedSaveMode = opts?.saveMode ?? 'save_as_rewrite';
+        return runPersistOperation(requestedSaveMode, true, async (workingPath) => {
+            const previousWorkingPath = workingPath;
+            const optimizePdfAsCopy = getDocumentsCapability().optimizePdfAsCopy;
+            if (!optimizePdfAsCopy) {
+                return createFailedPersistResult(requestedSaveMode, true);
+            }
+
+            const optimizeResult = await optimizePdfAsCopy(workingPath, options, requestId);
+            if (optimizeResult.validation && !optimizeResult.validation.isValid) {
+                state.error.value = optimizeResult.validation.errors.join('\n') || deps.t('errors.file.save');
+                return createFailedPersistResult(requestedSaveMode, true);
+            }
+            if (!state.isActiveWorkingCopy(previousWorkingPath)) {
+                BrowserLogger.debug('workspace', 'Skipped stale optimized-copy completion', {
+                    workingPath: previousWorkingPath,
+                    currentWorkingPath: state.workingCopyPath.value,
+                    savedPath: optimizeResult.path,
+                    saveMode: requestedSaveMode,
+                });
+                return createStalePersistResult(requestedSaveMode, true);
+            }
+
+            const savedPath = optimizeResult.path;
+            if (savedPath) {
+                let savedWorkingPath = previousWorkingPath;
+                if (shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath)) {
+                    const nextWorkingPath = await getDocumentsCapability().createWorkingCopyFromPath(savedPath);
+                    if (!state.isActiveWorkingCopy(previousWorkingPath)) {
+                        BrowserLogger.debug('workspace', 'Skipped stale optimized-copy working-copy refresh', {
+                            workingPath: previousWorkingPath,
+                            currentWorkingPath: state.workingCopyPath.value,
+                            nextWorkingPath,
+                            savedPath,
+                            saveMode: requestedSaveMode,
+                        });
+                        if (!state.isActiveWorkingCopy(nextWorkingPath)) {
+                            void getDocumentsCapability().cleanupFile(nextWorkingPath);
+                        }
+                        return createStalePersistResult(requestedSaveMode, true);
+                    }
+                    state.workingCopyPath.value = nextWorkingPath;
+                    savedWorkingPath = nextWorkingPath;
+                    if (previousWorkingPath !== nextWorkingPath) {
+                        try {
+                            await getDocumentsCapability().cleanupFile(previousWorkingPath);
+                        } catch (cleanupError) {
+                            BrowserLogger.warn('workspace', 'Optimized copy succeeded but previous working-copy cleanup failed', {
+                                previousWorkingPath,
+                                nextWorkingPath,
+                                savedPath,
+                                error: cleanupError,
+                            });
+                        }
+                    }
+                }
+                if (!state.isActiveWorkingCopy(savedWorkingPath)) {
+                    BrowserLogger.debug('workspace', 'Skipped stale optimized-copy state commit', {
+                        workingPath: savedWorkingPath,
+                        currentWorkingPath: state.workingCopyPath.value,
+                        savedPath,
+                        saveMode: requestedSaveMode,
+                    });
+                    return createStalePersistResult(requestedSaveMode, true);
+                }
+                state.originalPath.value = savedPath;
+                state.requiresSaveAsOnFirstSave.value = false;
+                if (!await commitPersistedPdfState(undefined, savedWorkingPath)) {
+                    return createStalePersistResult(requestedSaveMode, true);
+                }
+                state.lastSaveMode.value = requestedSaveMode;
+            }
+
+            return createPersistResult(Boolean(savedPath), requestedSaveMode, true, savedPath);
+        }, opts?.expectedWorkingPath);
+    }
+
     async function trySaveEmbeddedNoteTextUpdates(
         updates: IPdfNoteTextUpdate[],
         opts: {
@@ -754,6 +840,7 @@ export function createDocumentPersistence(
         saveFile,
         repairWorkingCopy,
         optimizeWorkingCopy,
+        optimizeWorkingCopyAsCopy,
         saveWorkingCopy,
         saveWorkingCopyAs,
         trySaveEmbeddedNoteTextUpdates,

@@ -10,6 +10,8 @@ import type {
     IPdfNativeNoteTextSaveResult,
     IPdfNativeWorkingCopyExpectation,
     IPdfNoteTextUpdate,
+    IPdfOptimizeOptions,
+    IPdfOptimizeResult,
     IPdfSaveAsOptions,
 } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
@@ -95,6 +97,12 @@ export interface IDocumentsService {
     saveFile: (event: IpcMainInvokeEvent, workingPath: string) => Promise<boolean>;
     repairPdf: (event: IpcMainInvokeEvent, workingPath: string) => Promise<IPdfValidationResult>;
     optimizePdfForInteraction: (event: IpcMainInvokeEvent, workingPath: string) => Promise<IPdfValidationResult>;
+    optimizePdfAsCopy: (
+        event: IpcMainInvokeEvent,
+        workingPath: string,
+        options: IPdfOptimizeOptions,
+        requestId?: string,
+    ) => Promise<IPdfOptimizeResult>;
     savePdfData: (event: IpcMainInvokeEvent, workingPath: string, data: Uint8Array) => Promise<IPdfValidationResult>;
     savePdfNoteTextUpdates: (
         event: IpcMainInvokeEvent,

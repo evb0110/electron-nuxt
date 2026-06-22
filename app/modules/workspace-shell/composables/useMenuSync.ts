@@ -15,6 +15,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
         hasDocument: boolean;
         canSave: boolean;
         canRepairSave: boolean;
+        canOptimizePdf: boolean;
     } | null = null;
     let lastSyncedMenuTabCount: number | null = null;
 
@@ -22,10 +23,12 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
         const hasDocument = shellState.hasDocument.value;
         const canSave = shellState.activeWorkspaceCanSave.value;
         const canRepairSave = shellState.activeWorkspaceCanRepairSave.value;
+        const canOptimizePdf = shellState.activeWorkspaceCanOptimizePdf.value;
         if (
             lastSyncedMenuDocumentState?.hasDocument === hasDocument
             && lastSyncedMenuDocumentState.canSave === canSave
             && lastSyncedMenuDocumentState.canRepairSave === canRepairSave
+            && lastSyncedMenuDocumentState.canOptimizePdf === canOptimizePdf
         ) {
             return;
         }
@@ -33,6 +36,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             hasDocument,
             canSave,
             canRepairSave,
+            canOptimizePdf,
         };
         const setMenuDocumentState = getPlatformAPI().documents?.setMenuDocumentState;
         if (!setMenuDocumentState) {
@@ -42,6 +46,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             hasDocument,
             canSave,
             canRepairSave,
+            canOptimizePdf,
         }), {
             scope: 'menu-sync',
             message: 'Failed to sync menu document state',

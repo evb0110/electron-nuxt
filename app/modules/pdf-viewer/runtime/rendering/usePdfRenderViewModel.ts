@@ -136,10 +136,6 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
             delayedSkeleton.markPageRendered(page);
             return false;
         }
-        if (options.hasMountedPageCanvas(page) && options.isPageRendering(page)) {
-            delayedSkeleton.markPageRendered(page);
-            return false;
-        }
         if (shouldBlockPageSkeletons.value) {
             delayedSkeleton.hidePage(page);
             return false;

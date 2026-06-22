@@ -91,6 +91,7 @@ export interface IDesktopMenuCapability {
         hasDocument: boolean;
         canSave: boolean;
         canRepairSave?: boolean;
+        canOptimizePdf?: boolean;
     }): Promise<void>;
     setMenuTabCount(tabCount: number): Promise<void>;
     onMenuOpenPdf(callback: TMenuEventCallback): TMenuEventUnsubscribe;

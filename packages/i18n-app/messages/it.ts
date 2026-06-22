@@ -407,7 +407,7 @@ export default {
         'edit': 'Modifica',
         'save': 'Salva',
         'repairAndSave': 'Ripara PDF e salva',
-        'optimizePdfForInteraction': 'Ottimizza PDF per apertura più rapida',
+        'optimizePdfForInteraction': 'Ottimizza PDF...',
         'saveAs': 'Salva con nome...',
         'print': 'Stampa...',
         'printCurrentPage': 'Stampa pagina corrente...',
@@ -487,6 +487,7 @@ export default {
         'documentsFilter': 'Documenti',
         'imagesFilter': 'Immagini',
         'savePdfAs': 'Salva PDF con nome',
+        'saveOptimizedPdfAs': 'Salva PDF ottimizzato con nome',
         'savePdf': 'Salva PDF',
         'pdfFiles': 'File PDF',
         'saveOcrTextAs': 'Salva testo OCR con nome',
@@ -530,6 +531,41 @@ export default {
             'codexMissingDetail': 'Dopo aver installato Codex, torna qui e attiva di nuovo l’impostazione.',
         },
         'agentAssistant': {'disabledMessage': 'Attiva EVB Assistant nelle Impostazioni per usare la chat dell’assistente.'},
+    },
+    'optimizePdf': {
+        'title': 'Ottimizza PDF',
+        'dialogDescription': 'Crea una copia ottimizzata con una pipeline nativa basata su file per grandi documenti scansionati.',
+        'presetLabel': 'Predefinito',
+        'flattenWarning': 'I predefiniti raster ricostruiscono le pagine come immagini. Testo, collegamenti, moduli, livelli e annotazioni modificabili possono essere appiattiti nella copia ottimizzata.',
+        'saveCopyAction': 'Salva copia ottimizzata',
+        'successTitle': 'PDF ottimizzato salvato',
+        'errorDescription': 'Impossibile ottimizzare questo PDF.',
+        'progress': {
+            'preparing': 'Preparazione...',
+            'rendering': 'Riduzione delle pagine...',
+            'assembling': 'Assemblaggio PDF...',
+            'optimizing': 'Ottimizzazione struttura...',
+            'validating': 'Convalida PDF...',
+            'complete': 'Completato',
+        },
+        'presets': {
+            'lossless': {
+                'label': 'Riscrittura senza perdita',
+                'description': 'Riscrive e linearizza il PDF senza rasterizzare le pagine. Il miglior primo passo per un’apertura più rapida.',
+            },
+            'balancedScanned': {
+                'label': 'PDF scansionato bilanciato',
+                'description': 'Renderizza le pagine a 200 DPI con ricompressione JPEG a colori per libri e articoli scansionati.',
+            },
+            'smallScanned': {
+                'label': 'PDF scansionato più piccolo',
+                'description': 'Renderizza le pagine a 150 DPI in scala di grigi con compressione JPEG più forte.',
+            },
+            'blackAndWhite': {
+                'label': 'Scansione bianco e nero',
+                'description': 'Usa un passaggio in stile scala di grigi con compressione più forte per documenti cartacei ricchi di testo.',
+            },
+        },
     },
     'combinePdf': {
         'title': 'Unisci file in PDF',

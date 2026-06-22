@@ -170,6 +170,13 @@ function isRepairSaveEnabled(template: IMenuItemLike[]) {
     return Boolean(repairSaveItem?.enabled);
 }
 
+function isOptimizePdfEnabled(template: IMenuItemLike[]) {
+    const fileMenu = template.find(item => item.label === 'menu.file');
+    const submenu = Array.isArray(fileMenu?.submenu) ? fileMenu.submenu : [];
+    const optimizeItem = submenu.find(item => item.label === 'menu.optimizePdfForInteraction');
+    return Boolean(optimizeItem?.enabled);
+}
+
 function getFileMenuSubmenu(template: IMenuItemLike[]) {
     const fileMenu = template.find(item => item.label === 'menu.file');
     return Array.isArray(fileMenu?.submenu) ? fileMenu.submenu : [];
@@ -245,8 +252,37 @@ describe('menu per-window document state', () => {
 
         expect(isSaveEnabled(template)).toBe(false);
         expect(isRepairSaveEnabled(template)).toBe(true);
+        expect(isOptimizePdfEnabled(template)).toBe(true);
         expect(fileSubmenu.find(item => item.label === 'menu.saveAs')?.enabled).toBe(true);
         expect(fileSubmenu.find(item => item.label === 'menu.print')?.enabled).toBe(true);
+    });
+
+    it('tracks optimize availability separately from repair availability', () => {
+        const firstWindow = mocks.createWindow(1, 'First Window');
+        mocks.windows.push(firstWindow);
+        mocks.focusWindow(firstWindow);
+
+        setupMenu();
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: false,
+            canRepairSave: true,
+            canOptimizePdf: false,
+        });
+
+        let template = getLastMenuTemplate();
+        expect(isRepairSaveEnabled(template)).toBe(true);
+        expect(isOptimizePdfEnabled(template)).toBe(false);
+
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: false,
+            canRepairSave: true,
+            canOptimizePdf: true,
+        });
+
+        template = getLastMenuTemplate();
+        expect(isOptimizePdfEnabled(template)).toBe(true);
     });
 
     it('disables move-to-new-window when focused window has one tab', () => {

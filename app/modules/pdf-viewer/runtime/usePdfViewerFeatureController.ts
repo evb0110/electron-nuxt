@@ -780,13 +780,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         );
     }
     function isPageVisuallyReady(pageNumber: number) {
-        return (
-            isPageRenderedForClass(pageNumber)
-            || (
-                hasMountedPageCanvas(pageNumber)
-                && isPageRendering(pageNumber)
-            )
-        );
+        return isPageRenderedForClass(pageNumber);
     }
     const shouldShowNavigationSkeleton = (pageNumber: number) => shouldShowPdfNavigationSkeleton({
         pageNumber,

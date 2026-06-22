@@ -407,7 +407,7 @@ export default {
         'edit': 'Bewerken',
         'save': 'Opslaan',
         'repairAndSave': 'PDF repareren en opslaan',
-        'optimizePdfForInteraction': 'PDF optimaliseren voor sneller openen',
+        'optimizePdfForInteraction': 'PDF optimaliseren...',
         'saveAs': 'Opslaan als...',
         'print': 'Afdrukken...',
         'printCurrentPage': 'Huidige pagina afdrukken...',
@@ -487,6 +487,7 @@ export default {
         'documentsFilter': 'Documenten',
         'imagesFilter': 'Afbeeldingen',
         'savePdfAs': 'PDF opslaan als',
+        'saveOptimizedPdfAs': 'Geoptimaliseerde PDF opslaan als',
         'savePdf': 'PDF opslaan',
         'pdfFiles': 'PDF-bestanden',
         'saveOcrTextAs': 'OCR-tekst opslaan als',
@@ -530,6 +531,41 @@ export default {
             'codexMissingDetail': 'Keer na de installatie van Codex hier terug en schakel de instelling opnieuw in.',
         },
         'agentAssistant': {'disabledMessage': 'Schakel EVB Assistant in bij Instellingen om assistentchat te gebruiken.'},
+    },
+    'optimizePdf': {
+        'title': 'PDF optimaliseren',
+        'dialogDescription': 'Maak een geoptimaliseerde kopie met een native bestandspipeline voor grote gescande documenten.',
+        'presetLabel': 'Preset',
+        'flattenWarning': 'Rasterpresets bouwen pagina’s opnieuw op als afbeeldingen. Tekst, links, formulieren, lagen en bewerkbare annotaties kunnen in de geoptimaliseerde kopie worden afgevlakt.',
+        'saveCopyAction': 'Geoptimaliseerde kopie opslaan',
+        'successTitle': 'Geoptimaliseerde PDF opgeslagen',
+        'errorDescription': 'Deze PDF kon niet worden geoptimaliseerd.',
+        'progress': {
+            'preparing': 'Voorbereiden...',
+            'rendering': 'Pagina’s verkleinen...',
+            'assembling': 'PDF samenstellen...',
+            'optimizing': 'Structuur optimaliseren...',
+            'validating': 'PDF valideren...',
+            'complete': 'Voltooid',
+        },
+        'presets': {
+            'lossless': {
+                'label': 'Verliesloos herschrijven',
+                'description': 'Herschrijft en lineariseert de PDF zonder pagina’s te rasteren. Beste eerste stap voor sneller openen.',
+            },
+            'balancedScanned': {
+                'label': 'Gebalanceerde scan-PDF',
+                'description': 'Rendert pagina’s op 200 DPI met JPEG-hercompressie in kleur voor gescande boeken en artikelen.',
+            },
+            'smallScanned': {
+                'label': 'Kleinere scan-PDF',
+                'description': 'Rendert pagina’s op 150 DPI in grijstinten met sterkere JPEG-compressie.',
+            },
+            'blackAndWhite': {
+                'label': 'Zwart-witscan',
+                'description': 'Gebruikt een grijstinten-scanpass met sterkere compressie voor tekstrijke papieren documenten.',
+            },
+        },
     },
     'combinePdf': {
         'title': 'Bestanden samenvoegen tot PDF',

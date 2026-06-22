@@ -407,7 +407,7 @@ export default {
         'edit': 'Edit',
         'save': 'Save',
         'repairAndSave': 'Repair PDF and Save',
-        'optimizePdfForInteraction': 'Optimize PDF for Faster Opening',
+        'optimizePdfForInteraction': 'Optimize PDF...',
         'saveAs': 'Save As...',
         'print': 'Print...',
         'printCurrentPage': 'Print Current Page...',
@@ -487,6 +487,7 @@ export default {
         'documentsFilter': 'Documents',
         'imagesFilter': 'Images',
         'savePdfAs': 'Save PDF As',
+        'saveOptimizedPdfAs': 'Save Optimized PDF As',
         'savePdf': 'Save PDF',
         'pdfFiles': 'PDF Files',
         'saveOcrTextAs': 'Save OCR Text As',
@@ -530,6 +531,41 @@ export default {
             'codexMissingDetail': 'After installing Codex, return here and enable the setting again.',
         },
         'agentAssistant': {'disabledMessage': 'Enable EVB Assistant in Settings to use assistant chat.'},
+    },
+    'optimizePdf': {
+        'title': 'Optimize PDF',
+        'dialogDescription': 'Create an optimized copy using a native file pipeline for large scanned documents.',
+        'presetLabel': 'Preset',
+        'flattenWarning': 'Raster presets rebuild pages as images. Text, links, forms, layers, and editable annotations may be flattened in the optimized copy.',
+        'saveCopyAction': 'Save Optimized Copy',
+        'successTitle': 'Optimized PDF saved',
+        'errorDescription': 'Unable to optimize this PDF.',
+        'progress': {
+            'preparing': 'Preparing...',
+            'rendering': 'Downsampling pages...',
+            'assembling': 'Assembling PDF...',
+            'optimizing': 'Optimizing structure...',
+            'validating': 'Validating PDF...',
+            'complete': 'Complete',
+        },
+        'presets': {
+            'lossless': {
+                'label': 'Lossless rewrite',
+                'description': 'Rewrites and linearizes the PDF without rasterizing pages. Best first step for faster opening.',
+            },
+            'balancedScanned': {
+                'label': 'Balanced scanned PDF',
+                'description': 'Renders pages at 200 DPI with color JPEG recompression for scanned books and articles.',
+            },
+            'smallScanned': {
+                'label': 'Smaller scanned PDF',
+                'description': 'Renders pages at 150 DPI in grayscale with stronger JPEG compression.',
+            },
+            'blackAndWhite': {
+                'label': 'Black and white scan',
+                'description': 'Uses a grayscale scan-style pass with heavier compression for text-heavy paper documents.',
+            },
+        },
     },
     'combinePdf': {
         'title': 'Combine Files to PDF',

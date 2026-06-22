@@ -351,6 +351,10 @@
             :print-status="printStatus"
             :print-error="printError"
             :is-preparing-print="isPreparingPrint"
+            :optimize-dialog-open="optimizeDialogOpen"
+            :optimize-dialog-running="isOptimizeDialogRunning"
+            :optimize-dialog-progress="optimizeProgress"
+            :optimize-dialog-error="optimizeDialogError"
             :crop-dialog-open="cropDialogOpen"
             :crop-dialog-loading="cropDialogLoading"
             :crop-dialog-page-number="cropDialogPageNumber"
@@ -370,6 +374,8 @@
             @export-open-change="handleExportScopeDialogOpenChange"
             @print-submit="handlePrintDialogSubmit"
             @print-open-change="handlePrintDialogOpenChange"
+            @optimize-submit="handleOptimizeDialogSubmit"
+            @optimize-open-change="handleOptimizeDialogOpenChange"
             @crop-apply="handleCropApply"
             @crop-remove="handleCropRemove"
             @crop-open-change="cropDialogOpen = $event"
@@ -416,7 +422,11 @@ import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composa
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type {
+    IPdfOptimizeOptions,
+    IPdfOptimizeProgress,
+    TOpenFileResult,
+} from '@contracts/electronApiDocuments';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TStartSection } from '@app/types/startSection';
 import type { IPdfPageMatches } from '@app/types/pdf';
@@ -518,6 +528,7 @@ function handleToggleFullscreen() {
 
 const { t } = useTypedI18n();
 const analytics = useAnalytics();
+const toast = useToast();
 const { isResolved: recentFilesResolved } = useRecentFiles();
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
@@ -658,7 +669,7 @@ const {
     searchFocusRequest,
     handleSave,
     handleRepairSave,
-    handleOptimizePdfForInteraction,
+    handleOptimizePdfAsCopy,
     handleSaveAs,
     handlePrint,
     handlePrintCurrentPage,
@@ -858,6 +869,73 @@ const canRepairSave = computed(() => (
     && !isHistoryBusy.value
     && !isDjvuMode.value
 ));
+const canOptimizePdf = computed(() => canRepairSave.value);
+const optimizeDialogOpen = ref(false);
+const optimizeProgress = ref<IPdfOptimizeProgress | null>(null);
+const optimizeDialogError = ref<string | null>(null);
+const optimizeRequestId = ref<string | null>(null);
+const isOptimizeDialogRunning = computed(() => optimizeRequestId.value !== null);
+
+function createOptimizeRequestId() {
+    const randomId = globalThis.crypto?.randomUUID?.();
+    return randomId
+        ? `pdf-optimize-${randomId}`
+        : `pdf-optimize-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function handleOptimizePdfForInteraction() {
+    if (!canOptimizePdf.value) {
+        return false;
+    }
+
+    optimizeDialogError.value = null;
+    optimizeProgress.value = null;
+    optimizeDialogOpen.value = true;
+    return true;
+}
+
+function handleOptimizeDialogOpenChange(value: boolean) {
+    if (!value && isOptimizeDialogRunning.value) {
+        return;
+    }
+
+    optimizeDialogOpen.value = value;
+    if (value) {
+        optimizeDialogError.value = null;
+        optimizeProgress.value = null;
+    }
+}
+
+async function handleOptimizeDialogSubmit(options: IPdfOptimizeOptions) {
+    if (isOptimizeDialogRunning.value) {
+        return;
+    }
+
+    const requestId = createOptimizeRequestId();
+    optimizeRequestId.value = requestId;
+    optimizeDialogError.value = null;
+    optimizeProgress.value = {
+        requestId,
+        preset: options.preset,
+        phase: 'preparing',
+        processed: 0,
+        total: 1,
+        percent: 0,
+    };
+
+    const success = await handleOptimizePdfAsCopy(options, requestId);
+    if (success) {
+        optimizeDialogOpen.value = false;
+        toast.add({
+            color: 'success',
+            title: t('optimizePdf.successTitle'),
+        });
+    } else {
+        optimizeProgress.value = null;
+    }
+
+    optimizeRequestId.value = null;
+}
 const documentMetadataAvailable = computed(() => (
     toolbarHasPdf.value
     && totalPages.value > 0
@@ -970,6 +1048,7 @@ const workspaceToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => ({
     isPreparingCurrentPagePrint: isPreparingCurrentPagePrint.value,
     canSave: canSave.value,
     canRepairSave: canRepairSave.value,
+    canOptimizePdf: canOptimizePdf.value,
     canUndo: canUndo.value,
     canRedo: canRedo.value,
     canExportDocx: canExportDocx.value,
@@ -1340,7 +1419,7 @@ const {
 const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleSave,
     handleRepairSave,
-    handleOptimizePdfForInteraction,
+    handleOptimizePdfForInteraction: () => Promise.resolve(handleOptimizePdfForInteraction()),
     handleSaveAs,
     handlePrint,
     handlePrintCurrentPage: () => {
@@ -1445,11 +1524,22 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleOcrComplete: payload => handleOcrComplete(payload as Parameters<typeof handleOcrComplete>[0]),
 });
 
+let unsubscribeOptimizeProgress: (() => void) | null = null;
+
 onMounted(() => {
+    unsubscribeOptimizeProgress = getDocumentsCapability().onPdfOptimizeProgress?.((progress) => {
+        if (progress.requestId !== optimizeRequestId.value) {
+            return;
+        }
+
+        optimizeProgress.value = progress;
+    }) ?? null;
     emit('expose-ready', workspaceExpose);
 });
 
 onBeforeUnmount(() => {
+    unsubscribeOptimizeProgress?.();
+    unsubscribeOptimizeProgress = null;
     emit('expose-released');
 });
 

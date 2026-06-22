@@ -23,6 +23,7 @@ import { cast } from '@tests/helpers/cast';
 function createHarness(options?: {
     hasMountedPageCanvas?: (page: number) => boolean;
     isPageBuffered?: (page: number) => boolean;
+    isPageRenderedForClass?: (page: number) => boolean;
     isPageRendering?: (page: number) => boolean;
     pagedNavigationTargetPage?: Ref<number | null>;
     shouldShowSkeletonImmediately?: (page: number) => boolean;
@@ -53,7 +54,7 @@ function createHarness(options?: {
         skeletonContentInsets: ref(null),
         pagesToRender: computed(() => mountedPages.value),
         isPageBuffered: options?.isPageBuffered ?? vi.fn(() => false),
-        isPageRenderedForClass: vi.fn(() => false),
+        isPageRenderedForClass: options?.isPageRenderedForClass ?? vi.fn(() => false),
         isPageRendering: options?.isPageRendering ?? vi.fn(() => false),
         hasMountedPageCanvas: options?.hasMountedPageCanvas ?? vi.fn(() => false),
         shouldShowSkeletonImmediately: options?.shouldShowSkeletonImmediately,
@@ -185,7 +186,7 @@ describe('usePdfRenderViewModel', () => {
         scope.stop();
     });
 
-    it('hides page skeletons while an active render has mounted a canvas', () => {
+    it('keeps page skeletons visible while an active render has only mounted an unfinished canvas', () => {
         vi.useFakeTimers();
         try {
             const hasMountedCanvas = ref(false);
@@ -208,6 +209,36 @@ describe('usePdfRenderViewModel', () => {
 
             hasMountedCanvas.value = true;
             isRendering.value = true;
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
+
+            scope.stop();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('hides page skeletons after the page is finalized as rendered', () => {
+        vi.useFakeTimers();
+        try {
+            const isRendered = ref(false);
+            const {
+                scope,
+                viewModel,
+            } = createHarness({
+                hasMountedPageCanvas: () => true,
+                isPageRenderedForClass: () => isRendered.value,
+                isPageRendering: () => true,
+                shouldShowSkeleton: () => true,
+            });
+
+            if (!viewModel) {
+                throw new Error('Failed to create PDF render view model');
+            }
+
+            vi.advanceTimersByTime(PDF_VIEWER_PAGE_SKELETON_DELAY_MS);
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
+
+            isRendered.value = true;
             expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
 
             scope.stop();

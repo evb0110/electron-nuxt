@@ -3,6 +3,7 @@ export interface IWorkspaceHasPdfState {
     getToolbarSnapshot?: () => {
         canSave: boolean;
         canRepairSave?: boolean;
+        canOptimizePdf?: boolean;
     };
 }
 

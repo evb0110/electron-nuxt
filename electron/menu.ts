@@ -37,6 +37,7 @@ const MENU_REBUILD_DEBOUNCE_MS = 40;
 const menuDocumentStateByWindow = new Map<number, boolean>();
 const menuSaveStateByWindow = new Map<number, boolean>();
 const menuRepairSaveStateByWindow = new Map<number, boolean>();
+const menuOptimizePdfStateByWindow = new Map<number, boolean>();
 const menuTabCountByWindow = new Map<number, number>();
 const trackedWindowIds = new Set<number>();
 let listenersRegistered = false;
@@ -123,6 +124,14 @@ function getWindowRepairSaveState(window: BrowserWindow | null) {
     }
 
     return menuRepairSaveStateByWindow.get(window.id) ?? getWindowDocumentState(window);
+}
+
+function getWindowOptimizePdfState(window: BrowserWindow | null) {
+    if (!window) {
+        return false;
+    }
+
+    return menuOptimizePdfStateByWindow.get(window.id) ?? getWindowRepairSaveState(window);
 }
 
 function getWindowTabCount(window: BrowserWindow | null) {
@@ -332,6 +341,7 @@ function getFileMenu(
     documentActionsEnabled: boolean,
     saveActionEnabled: boolean,
     repairSaveActionEnabled: boolean,
+    optimizePdfActionEnabled: boolean,
 ): MenuItemConstructorOptions {
     return {
         label: te('menu.file'),
@@ -358,7 +368,7 @@ function getFileMenu(
             }),
             createWindowMenuAction({
                 label: te('menu.optimizePdfForInteraction'),
-                enabled: repairSaveActionEnabled,
+                enabled: optimizePdfActionEnabled,
                 channel: DOCUMENTS_EVENT_CHANNELS.menuOptimizePdfForInteraction,
             }),
             createWindowMenuAction({
@@ -753,13 +763,14 @@ function buildMenuTemplate(activeWindow: BrowserWindow | null): MenuItemConstruc
     const documentActionsEnabled = getWindowDocumentState(activeWindow);
     const saveActionEnabled = getWindowSaveState(activeWindow);
     const repairSaveActionEnabled = getWindowRepairSaveState(activeWindow);
+    const optimizePdfActionEnabled = getWindowOptimizePdfState(activeWindow);
 
     if (config.isMac) {
         template.push(getMacAppMenu());
     }
 
     template.push(
-        getFileMenu(documentActionsEnabled, saveActionEnabled, repairSaveActionEnabled),
+        getFileMenu(documentActionsEnabled, saveActionEnabled, repairSaveActionEnabled, optimizePdfActionEnabled),
         getEditMenu(documentActionsEnabled),
         getPagesMenu(documentActionsEnabled),
         getViewMenu(documentActionsEnabled),
@@ -825,6 +836,7 @@ function trackWindowForMenu(window: BrowserWindow) {
         menuDocumentStateByWindow.delete(window.id);
         menuSaveStateByWindow.delete(window.id);
         menuRepairSaveStateByWindow.delete(window.id);
+        menuOptimizePdfStateByWindow.delete(window.id);
         menuTabCountByWindow.delete(window.id);
         rebuildMenu();
     });
@@ -872,6 +884,7 @@ export function setMenuDocumentState(windowId: number, state: boolean | {
     hasDocument: boolean;
     canSave: boolean;
     canRepairSave?: boolean;
+    canOptimizePdf?: boolean;
 }) {
     const normalizedDocument = typeof state === 'boolean'
         ? Boolean(state)
@@ -882,10 +895,14 @@ export function setMenuDocumentState(windowId: number, state: boolean | {
     const normalizedRepairSave = typeof state === 'boolean'
         ? normalizedDocument
         : state.canRepairSave ?? normalizedDocument;
+    const normalizedOptimizePdf = typeof state === 'boolean'
+        ? normalizedDocument
+        : state.canOptimizePdf ?? normalizedRepairSave;
     if (
         menuDocumentStateByWindow.get(windowId) === normalizedDocument
         && menuSaveStateByWindow.get(windowId) === normalizedSave
         && menuRepairSaveStateByWindow.get(windowId) === normalizedRepairSave
+        && menuOptimizePdfStateByWindow.get(windowId) === normalizedOptimizePdf
     ) {
         return;
     }
@@ -893,6 +910,7 @@ export function setMenuDocumentState(windowId: number, state: boolean | {
     menuDocumentStateByWindow.set(windowId, normalizedDocument);
     menuSaveStateByWindow.set(windowId, normalizedSave);
     menuRepairSaveStateByWindow.set(windowId, normalizedRepairSave);
+    menuOptimizePdfStateByWindow.set(windowId, normalizedOptimizePdf);
     rebuildMenuForWindowStateChange(windowId);
 }
 

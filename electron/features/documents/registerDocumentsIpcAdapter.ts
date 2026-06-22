@@ -242,6 +242,8 @@ export function registerDocumentsIpcAdapter(
     register(DOCUMENTS_CHANNELS.fileRepairPdf, (event, workingPath) => service.repairPdf(event, workingPath));
     register(DOCUMENTS_CHANNELS.fileOptimizePdfForInteraction, (event, workingPath) =>
         service.optimizePdfForInteraction(event, workingPath));
+    register(DOCUMENTS_CHANNELS.fileOptimizePdfAsCopy, (event, workingPath, options, requestId) =>
+        service.optimizePdfAsCopy(event, workingPath, options, requestId));
     register(DOCUMENTS_CHANNELS.fileSavePdfData, (event, workingPath, data) =>
         service.savePdfData(event, workingPath, data));
     register(DOCUMENTS_CHANNELS.fileSavePdfNoteTextUpdates, (event, workingPath, updates, modifiedAt) =>

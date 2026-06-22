@@ -123,7 +123,6 @@ const repeatParagraphs = computed(() => {
     align-items: flex-start;
     overflow: hidden;
     pointer-events: none;
-    animation: pdf-page-skeleton-pulse 0.9s ease-in-out infinite;
     box-sizing: border-box;
     z-index: 7;
 }
@@ -136,6 +135,7 @@ const repeatParagraphs = computed(() => {
     height: 100%;
     padding: 0;
     box-sizing: border-box;
+    animation: pdf-page-skeleton-pulse 0.9s ease-in-out infinite;
 }
 
 .inner > * {

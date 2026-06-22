@@ -53,6 +53,7 @@ import {
     handleRepairPdfSave,
     handleSerializedPdfSave,
 } from '@electron/features/documents/main/workingCopySave';
+import { handleOptimizePdfAsCopy } from '@electron/features/documents/main/handleOptimizePdfAsCopy';
 import {
     handleNativePdfMutationsApplyToWorkingCopy,
     handleNativeNoteChangesSave,
@@ -127,6 +128,8 @@ export function createDocumentsService(): IDocumentsService {
         repairPdf: (...args: TDocumentsServiceArgs<'repairPdf'>) => handleRepairPdfSave(...args),
         optimizePdfForInteraction: (...args: TDocumentsServiceArgs<'optimizePdfForInteraction'>) =>
             handleOptimizePdfForInteraction(...args),
+        optimizePdfAsCopy: (...args: TDocumentsServiceArgs<'optimizePdfAsCopy'>) =>
+            handleOptimizePdfAsCopy(...args),
         savePdfData: (...args: TDocumentsServiceArgs<'savePdfData'>) => handleSerializedPdfSave(...args),
         savePdfNoteTextUpdates: (...args: TDocumentsServiceArgs<'savePdfNoteTextUpdates'>) =>
             handleNativeNoteTextSave(...args),

@@ -49,6 +49,7 @@ describe('useMenuSync', () => {
             hasDocument: false,
             canSave: false,
             canRepairSave: false,
+            canOptimizePdf: false,
         });
         expect(mocks.setMenuTabCount).toHaveBeenCalledWith(1);
 
@@ -66,6 +67,7 @@ describe('useMenuSync', () => {
             hasDocument: true,
             canSave: false,
             canRepairSave: true,
+            canOptimizePdf: true,
         });
         expect(mocks.setMenuTabCount).toHaveBeenLastCalledWith(2);
     });
@@ -93,6 +95,7 @@ describe('useMenuSync', () => {
             hasDocument: true,
             canSave: false,
             canRepairSave: true,
+            canOptimizePdf: true,
         });
 
         canSaveRef.value = true;
@@ -102,6 +105,48 @@ describe('useMenuSync', () => {
             hasDocument: true,
             canSave: true,
             canRepairSave: true,
+            canOptimizePdf: true,
+        });
+    });
+
+    it('syncs optimize availability independently from repair availability', async () => {
+        const canOptimizePdfRef = ref(false);
+
+        useMenuSync({
+            activeWorkspace: ref({
+                hasPdf: true,
+                getToolbarSnapshot: () => ({
+                    canSave: true,
+                    canRepairSave: true,
+                    canOptimizePdf: canOptimizePdfRef.value,
+                }),
+            }),
+            activeTabId: ref<string | null>('tab-1'),
+            tabs: ref([{
+                id: 'tab-1',
+                fileName: 'example.pdf',
+                originalPath: null,
+                isDirty: false,
+                isDjvu: false,
+            }]),
+        });
+        await nextTick();
+
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
+            hasDocument: true,
+            canSave: true,
+            canRepairSave: true,
+            canOptimizePdf: false,
+        });
+
+        canOptimizePdfRef.value = true;
+        await nextTick();
+
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
+            hasDocument: true,
+            canSave: true,
+            canRepairSave: true,
+            canOptimizePdf: true,
         });
     });
 

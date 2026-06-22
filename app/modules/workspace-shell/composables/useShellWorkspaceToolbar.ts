@@ -35,6 +35,7 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
     const shellToolbarTotalPages = ref(0);
     const shellToolbarCanSave = ref(false);
     const shellToolbarCanRepairSave = ref(false);
+    const shellToolbarCanOptimizePdf = ref(false);
     const shellToolbarCanUndo = ref(false);
     const shellToolbarCanRedo = ref(false);
     const shellToolbarCanExportDocx = ref(false);
@@ -79,6 +80,7 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
 
         shellToolbarCanSave.value = snapshot.canSave;
         shellToolbarCanRepairSave.value = snapshot.canRepairSave;
+        shellToolbarCanOptimizePdf.value = snapshot.canOptimizePdf;
         shellToolbarCanUndo.value = snapshot.canUndo;
         shellToolbarCanRedo.value = snapshot.canRedo;
         shellToolbarCanExportDocx.value = snapshot.canExportDocx;
@@ -151,6 +153,7 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
             isPreparingCurrentPagePrint: shellToolbarIsPreparingCurrentPagePrint.value,
             canSave: shellToolbarCanSave.value,
             canRepairSave: shellToolbarCanRepairSave.value,
+            canOptimizePdf: shellToolbarCanOptimizePdf.value,
             canUndo: shellToolbarCanUndo.value,
             canRedo: shellToolbarCanRedo.value,
             canExportDocx: shellToolbarCanExportDocx.value,

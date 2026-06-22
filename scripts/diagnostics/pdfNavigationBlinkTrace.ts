@@ -13,7 +13,10 @@ import {
     startDiagnosticFrameCapture,
 } from '@scripts/diagnostics/diagnosticFrameCapture';
 import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
+import {
+    goToPageViaToolbar,
+    openPdfInApp,
+} from '@tests/e2e/electron/helpers/viewerCore';
 import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
@@ -61,6 +64,7 @@ interface ITraceSummary {
     firstNonFinalPagedCommitAfterFinalRequest: unknown;
     firstNonFinalWorkspacePageAcceptAfterFinalRequest: unknown;
     firstSkeletonAfterVisualSample: unknown;
+    firstTranslucentSkeletonCanvasOverlapSample: unknown;
     firstSkeletonVisualOverlapSample: unknown;
     firstTargetCanvasRegressionSample: unknown;
     firstTargetFeedbackGeometryMismatchSample: unknown;
@@ -79,6 +83,7 @@ interface ITraceSummary {
     postReadyUnstableSampleCount: number;
     skeletonAfterVisualSampleCount: number;
     skeletonSampleCount: number;
+    translucentSkeletonCanvasOverlapSampleCount: number;
     skeletonVisualOverlapSampleCount: number;
     targetCanvasRegressionSampleCount: number;
     targetFeedbackHeightDeltaPx: number;
@@ -622,6 +627,18 @@ async function waitForToolbarPage(
     await waitForWorkspaceToolbarSnapshot(page, {currentPage: pageNumber}, {timeoutMs: 20_000});
 }
 
+async function goToStartPage(
+    page: Awaited<ReturnType<typeof startElectronE2ESession>>['page'],
+    pageNumber: number,
+) {
+    await goToPageViaWorkspace(page, pageNumber);
+    try {
+        await waitForToolbarPage(page, pageNumber);
+    } catch {
+        await goToPageViaToolbar(page, pageNumber);
+    }
+}
+
 async function waitForPageCanvas(
     page: Awaited<ReturnType<typeof startElectronE2ESession>>['page'],
     pageNumber: number,
@@ -1077,6 +1094,36 @@ function sampleHasSkeletonVisualOverlap(sample: Record<string, unknown>) {
     ));
 }
 
+function pageInfoHasVisibleCanvasElement(pageInfo: Record<string, unknown>) {
+    const canvasSizes = Array.isArray(pageInfo.canvasSizes)
+        ? pageInfo.canvasSizes
+        : [];
+    return canvasSizes.some((size) => {
+        if (!size || typeof size !== 'object') {
+            return false;
+        }
+        const canvasSize = size as Record<string, unknown>;
+        const width = readFiniteNumber(canvasSize.width) ?? 0;
+        const height = readFiniteNumber(canvasSize.height) ?? 0;
+        const clientWidth = readFiniteNumber(canvasSize.clientWidth) ?? 0;
+        const clientHeight = readFiniteNumber(canvasSize.clientHeight) ?? 0;
+        return width > 0
+            && height > 0
+            && clientWidth > 0
+            && clientHeight > 0;
+    });
+}
+
+function sampleHasTranslucentSkeletonCanvasOverlap(sample: Record<string, unknown>) {
+    return readVisiblePages(sample).some((pageInfo) => {
+        const skeletonOpacity = Number(pageInfo.skeletonOpacity ?? '1');
+        return pageInfo.skeletonVisible === true
+            && Number.isFinite(skeletonOpacity)
+            && skeletonOpacity < 0.99
+            && pageInfoHasVisibleCanvasElement(pageInfo);
+    });
+}
+
 function sampleHasSkeletonAfterVisual(
     sample: Record<string, unknown>,
     pagesSeenWithVisual: Set<number>,
@@ -1289,6 +1336,7 @@ export function summarizeTrace(payload: {
     const blankSamples = samples.filter(sample => Array.isArray(sample.blankVisiblePages) && sample.blankVisiblePages.length > 0);
     const skeletonSamples = samples.filter(sample => Array.isArray(sample.skeletonPages) && sample.skeletonPages.length > 0);
     const skeletonVisualOverlapSamples = samples.filter(sampleHasSkeletonVisualOverlap);
+    const translucentSkeletonCanvasOverlapSamples = samples.filter(sampleHasTranslucentSkeletonCanvasOverlap);
     let maxBlankRunMs = 0;
     let maxCenteredBlankRunMs = 0;
     let blankRunStartedAt: number | null = null;
@@ -1482,6 +1530,7 @@ export function summarizeTrace(payload: {
         firstNonFinalPagedCommitAfterFinalRequest: nonFinalPagedCommitsAfterFinalRequest[0] ?? null,
         firstNonFinalWorkspacePageAcceptAfterFinalRequest: nonFinalWorkspacePageAcceptsAfterFinalRequest[0] ?? null,
         firstSkeletonAfterVisualSample: skeletonAfterVisualSamples[0] ?? null,
+        firstTranslucentSkeletonCanvasOverlapSample: translucentSkeletonCanvasOverlapSamples[0] ?? null,
         firstSkeletonVisualOverlapSample: skeletonVisualOverlapSamples[0] ?? null,
         firstTargetCanvasRegressionSample: targetCanvasRegressionSamples[0] ?? null,
         firstTargetFeedbackGeometryMismatchSample: targetFeedbackGeometry.firstMismatchSample,
@@ -1500,6 +1549,7 @@ export function summarizeTrace(payload: {
         postReadyUnstableSampleCount: postReadyUnstableSamples.length,
         skeletonAfterVisualSampleCount: skeletonAfterVisualSamples.length,
         skeletonSampleCount: skeletonSamples.length,
+        translucentSkeletonCanvasOverlapSampleCount: translucentSkeletonCanvasOverlapSamples.length,
         skeletonVisualOverlapSampleCount: skeletonVisualOverlapSamples.length,
         targetCanvasRegressionSampleCount: targetCanvasRegressionSamples.length,
         targetFeedbackHeightDeltaPx: targetFeedbackGeometry.maxHeightDeltaPx,
@@ -1516,6 +1566,12 @@ function assertTraceSummary(summary: ITraceSummary) {
     const failures: string[] = [];
     if (summary.skeletonVisualOverlapSampleCount > 0) {
         failures.push(`skeleton overlapped visual content in ${summary.skeletonVisualOverlapSampleCount} samples`);
+    }
+    if (summary.translucentSkeletonCanvasOverlapSampleCount > 0) {
+        failures.push(
+            'translucent skeleton overlapped mounted canvas in '
+            + `${summary.translucentSkeletonCanvasOverlapSampleCount} samples`,
+        );
     }
     if (summary.skeletonAfterVisualSampleCount > 0) {
         failures.push(`skeleton appeared after visual readiness in ${summary.skeletonAfterVisualSampleCount} samples`);
@@ -1598,9 +1654,10 @@ async function main() {
         await enablePdfDiagnostics(session.page);
         await openPdfInApp(session.page, options.pdf, 120_000);
         await installBlinkSampler(session.page);
-        await goToPageViaWorkspace(session.page, options.startPage);
-        await waitForToolbarPage(session.page, options.startPage);
         await configureFitHeightPagedMode(session.page);
+        await goToStartPage(session.page, options.startPage);
+        await configureFitHeightPagedMode(session.page);
+        await waitForToolbarPage(session.page, options.startPage);
         if (options.waitForStartCanvas) {
             await waitForPageCanvas(session.page, options.startPage);
         }
