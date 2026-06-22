@@ -571,14 +571,83 @@ describe('usePdfDocument range loading', () => {
         await expect(loadPromise).resolves.not.toBeNull();
     });
 
-    it('rejects oversized aggregate PDF.js range requests before reading or allocating them', async () => {
+    it('fulfills a large PDF.js range request with bounded platform reads', async () => {
+        const deferred = Promise.withResolvers<{
+            numPages: number;
+            getPage: ReturnType<typeof vi.fn>;
+            destroy: ReturnType<typeof vi.fn>;
+        }>();
+        const destroy = vi.fn(() => Promise.resolve());
+
+        pdfjsState.getDocument.mockReturnValue({
+            promise: deferred.promise,
+            destroy,
+        });
+        electronApi.documents.readFileRange.mockImplementation(async (
+            _path: string,
+            _offset: number,
+            length: number,
+        ) => new Uint8Array(length));
+
+        const documentState = usePdfDocument();
+        const loadPromise = documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/large-range.pdf',
+            size: 80 * 1024 * 1024,
+        });
+
+        await vi.waitFor(() => {
+            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+        });
+
+        const range = (pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined)?.range;
+        expect(range).toBeInstanceOf(MockPdfDataRangeTransport);
+
+        electronApi.documents.readFileRange.mockClear();
+        range?.onDataRange.mockClear();
+        range?.requestDataRange?.(2 * 1024 * 1024, 12 * 1024 * 1024);
+
+        await vi.waitFor(() => {
+            expect(range?.onDataRange).toHaveBeenCalledTimes(1);
+        });
+        expect(electronApi.documents.readFileRange).toHaveBeenNthCalledWith(
+            1,
+            '/tmp/large-range.pdf',
+            2 * 1024 * 1024,
+            8 * 1024 * 1024,
+        );
+        expect(electronApi.documents.readFileRange).toHaveBeenNthCalledWith(
+            2,
+            '/tmp/large-range.pdf',
+            10 * 1024 * 1024,
+            2 * 1024 * 1024,
+        );
+        expect(range?.onDataRange.mock.calls[0]?.[0]).toBe(2 * 1024 * 1024);
+        expect(range?.onDataRange.mock.calls[0]?.[1]).toHaveLength(10 * 1024 * 1024);
+
+        deferred.resolve({
+            numPages: 1,
+            getPage: vi.fn(async () => ({
+                cleanup: vi.fn(),
+                getViewport: vi.fn(() => ({
+                    width: 100,
+                    height: 200,
+                })),
+            })),
+            destroy,
+        });
+
+        await expect(loadPromise).resolves.not.toBeNull();
+    });
+
+    it('rejects pathological aggregate PDF.js range requests before reading or allocating them', async () => {
         const deferred = Promise.withResolvers<{
             numPages: number;
             getPage: ReturnType<typeof vi.fn>;
             destroy: ReturnType<typeof vi.fn>;
         }>();
         const destroy = vi.fn(() => {
-            deferred.reject(new Error('oversized range load aborted'));
+            deferred.reject(new Error('pathological range load aborted'));
             return Promise.resolve();
         });
 
@@ -596,8 +665,8 @@ describe('usePdfDocument range loading', () => {
         const documentState = usePdfDocument();
         const loadPromise = documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/oversized-range.pdf',
-            size: 80 * 1024 * 1024,
+            path: '/tmp/pathological-range.pdf',
+            size: 2 * 1024 * 1024 * 1024,
         });
 
         await vi.waitFor(() => {
@@ -608,7 +677,7 @@ describe('usePdfDocument range loading', () => {
         expect(range).toBeInstanceOf(MockPdfDataRangeTransport);
 
         electronApi.documents.readFileRange.mockClear();
-        range?.requestDataRange?.(2 * 1024 * 1024, 40 * 1024 * 1024);
+        range?.requestDataRange?.(0, 1024 * 1024 * 1024 + 1);
 
         await expect(loadPromise).resolves.toBeNull();
         expect(electronApi.documents.readFileRange).not.toHaveBeenCalled();

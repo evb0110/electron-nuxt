@@ -336,6 +336,10 @@ const lazyDocumentsCapability: IDocumentsCapability = {
         'documents',
         'onMenuRepairSave',
     ]),
+    onMenuOptimizePdfForInteraction: lazyEvent<IDocumentsCapability['onMenuOptimizePdfForInteraction']>([
+        'documents',
+        'onMenuOptimizePdfForInteraction',
+    ]),
     onMenuSaveAs: lazyEvent<IDocumentsCapability['onMenuSaveAs']>([
         'documents',
         'onMenuSaveAs',

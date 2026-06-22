@@ -24,6 +24,7 @@ export const READER_COMMANDS = [
     'fullscreen',
     'ocr',
     'open-file',
+    'optimize-pdf-for-interaction',
     'overflow-menu',
     'page-navigation',
     'print',
@@ -155,6 +156,13 @@ export const READER_COMMAND_DESCRIPTORS = Object.freeze({
         labelKey: 'toolbar.openPdf',
         icon: 'ph:folder-open',
         requiresDocument: false,
+    },
+    'optimize-pdf-for-interaction': {
+        id: 'optimize-pdf-for-interaction',
+        category: 'document',
+        labelKey: 'menu.optimizePdfForInteraction',
+        icon: 'ph:gauge',
+        requiresDocument: true,
     },
     'overflow-menu': {
         id: 'overflow-menu',

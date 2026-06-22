@@ -529,6 +529,34 @@ describe('useFileOperations', () => {
         expectWorkspaceSaveMarked(deps);
     });
 
+    it('optimizes clean documents through the native working-copy optimize path when available', async () => {
+        const optimizeWorkingCopy = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({optimizeWorkingCopy});
+        const { handleOptimizePdfForInteraction } = useFileOperations(deps);
+
+        await handleOptimizePdfForInteraction();
+
+        expect(optimizeWorkingCopy).toHaveBeenCalledWith({
+            saveMode: 'rewrite',
+            expectedWorkingPath: '/tmp/work.pdf',
+        });
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.validatePdfPath).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+        expectWorkspaceSaveMarked(deps);
+    });
+
     it('blocks large unsupported serialized saves before reading or materializing full PDF bytes', async () => {
         const getWorkingCopySize = vi.fn(async () => 512 * 1024 * 1024 + 1);
         const {

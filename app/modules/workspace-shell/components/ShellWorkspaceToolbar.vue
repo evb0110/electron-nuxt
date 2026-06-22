@@ -29,6 +29,7 @@
         @open-settings="handleOpenSettings"
         @save="handleSave"
         @repair-save="handleRepairSave"
+        @optimize-pdf-for-interaction="handleOptimizePdfForInteraction"
         @save-as="handleSaveAs"
         @print="handlePrint"
         @print-current-page="handlePrintCurrentPage"
@@ -107,6 +108,7 @@ const emit = defineEmits<{
     'open-settings': [];
     'save': [];
     'repair-save': [];
+    'optimize-pdf-for-interaction': [];
     'save-as': [];
     'print': [];
     'print-current-page': [];
@@ -197,6 +199,10 @@ function handleSave() {
 
 function handleRepairSave() {
     emit('repair-save');
+}
+
+function handleOptimizePdfForInteraction() {
+    emit('optimize-pdf-for-interaction');
 }
 
 function handleSaveAs() {

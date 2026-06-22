@@ -26,6 +26,19 @@ const QPDF_SAVE_AS_OPTIMIZE_TIMEOUT_MS = parseIntegerEnv(
     10 * 60 * 1000,
     1_000,
 );
+const DEFAULT_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES = 64 * 1024 * 1024;
+const LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES = parseIntegerEnv(
+    'EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES',
+    DEFAULT_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES,
+    1,
+);
+
+interface IPdfSaveOptimizationOptions {
+    force?: boolean;
+    minBytes?: number;
+    skipSemanticPreflight?: boolean;
+    label?: string;
+}
 
 export function normalizePdfSaveAsOptions(value: unknown): IPdfSaveAsOptions | undefined {
     if (!isRecord(value)) {
@@ -55,8 +68,16 @@ async function shouldSkipOptimization(filePath: string) {
     return null;
 }
 
-async function rewritePdfLosslessly(inputPath: string, outputPath: string) {
+function normalizeMinBytes(value: number | undefined) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
+        return LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES;
+    }
+    return Math.floor(value);
+}
+
+async function rewritePdfLosslessly(inputPath: string, outputPath: string, label: string) {
     await runNativeToolCommand(getNativeToolPaths().qpdf, [
+        '--linearize',
         '--stream-data=preserve',
         '--object-streams=generate',
         inputPath,
@@ -66,8 +87,82 @@ async function rewritePdfLosslessly(inputPath: string, outputPath: string) {
             0,
             3,
         ],
-        commandLabel: 'qpdf(save-as-optimize)',
+        commandLabel: label,
         timeoutMs: QPDF_SAVE_AS_OPTIMIZE_TIMEOUT_MS,
+    });
+}
+
+export async function optimizePdfForSave(
+    tempPath: string,
+    options: IPdfSaveOptimizationOptions = {},
+): Promise<IPdfValidationResult | null> {
+    const label = options.label ?? 'qpdf(save-optimize)';
+    let originalStats;
+    try {
+        originalStats = await stat(tempPath);
+    } catch (error) {
+        logger.warn(`Skipping PDF save optimization for "${tempPath}": ${getErrorMessage(error)}`);
+        return null;
+    }
+
+    if (options.force !== true && originalStats.size < normalizeMinBytes(options.minBytes)) {
+        return null;
+    }
+
+    if (options.skipSemanticPreflight !== true) {
+        try {
+            const skipReason = await shouldSkipOptimization(tempPath);
+            if (skipReason) {
+                logger.debug(`Skipping PDF save optimization for "${tempPath}": ${skipReason}`);
+                return null;
+            }
+        } catch (error) {
+            logger.warn(`Skipping PDF save optimization for "${tempPath}": ${getErrorMessage(error)}`);
+            return null;
+        }
+    }
+
+    const optimizedPath = makeSiblingTempPath(tempPath);
+    let consumedOptimizedPath = false;
+    try {
+        await rewritePdfLosslessly(tempPath, optimizedPath, label);
+        const optimizedStats = await stat(optimizedPath);
+
+        const validation = await validatePdfFile(optimizedPath);
+        if (!validation.isValid) {
+            logger.warn(
+                `Discarding PDF save optimization for "${tempPath}": optimized file failed validation`,
+            );
+            return null;
+        }
+
+        await atomicReplace(optimizedPath, tempPath);
+        consumedOptimizedPath = true;
+        logger.debug(
+            `Applied PDF save optimization for "${tempPath}": ${
+                originalStats.size
+            } -> ${optimizedStats.size} bytes`,
+        );
+        return validation;
+    } catch (error) {
+        logger.warn(`PDF save optimization failed for "${tempPath}": ${getErrorMessage(error)}`);
+        return null;
+    } finally {
+        if (!consumedOptimizedPath) {
+            await rm(optimizedPath, { force: true }).catch(() => undefined);
+        }
+    }
+}
+
+export function optimizeLargePdfForSave(tempPath: string) {
+    return optimizePdfForSave(tempPath, {label: 'qpdf(save-optimize-large)'});
+}
+
+export function optimizeGeneratedPdfForInteraction(tempPath: string) {
+    return optimizePdfForSave(tempPath, {
+        force: true,
+        skipSemanticPreflight: true,
+        label: 'qpdf(generated-pdf-optimize)',
     });
 }
 
@@ -76,60 +171,11 @@ export async function optimizePdfForSaveAs(
     options?: IPdfSaveAsOptions,
 ): Promise<IPdfValidationResult | null> {
     if (options?.optimizeLossless !== true) {
-        return null;
+        return optimizeLargePdfForSave(tempPath);
     }
 
-    try {
-        const skipReason = await shouldSkipOptimization(tempPath);
-        if (skipReason) {
-            logger.debug(`Skipping Save As PDF optimization for "${tempPath}": ${skipReason}`);
-            return null;
-        }
-    } catch (error) {
-        logger.warn(`Skipping Save As PDF optimization for "${tempPath}": ${getErrorMessage(error)}`);
-        return null;
-    }
-
-    const optimizedPath = makeSiblingTempPath(tempPath);
-    let consumedOptimizedPath = false;
-    try {
-        await rewritePdfLosslessly(tempPath, optimizedPath);
-        const [
-            originalStats,
-            optimizedStats,
-        ] = await Promise.all([
-            stat(tempPath),
-            stat(optimizedPath),
-        ]);
-        if (optimizedStats.size >= originalStats.size) {
-            logger.debug(
-                `Discarding Save As PDF optimization for "${tempPath}": optimized file is not smaller`,
-            );
-            return null;
-        }
-
-        const validation = await validatePdfFile(optimizedPath);
-        if (!validation.isValid) {
-            logger.warn(
-                `Discarding Save As PDF optimization for "${tempPath}": optimized file failed validation`,
-            );
-            return null;
-        }
-
-        await atomicReplace(optimizedPath, tempPath);
-        consumedOptimizedPath = true;
-        logger.debug(
-            `Applied Save As PDF optimization for "${tempPath}": ${
-                originalStats.size
-            } -> ${optimizedStats.size} bytes`,
-        );
-        return validation;
-    } catch (error) {
-        logger.warn(`Save As PDF optimization failed for "${tempPath}": ${getErrorMessage(error)}`);
-        return null;
-    } finally {
-        if (!consumedOptimizedPath) {
-            await rm(optimizedPath, { force: true }).catch(() => undefined);
-        }
-    }
+    return optimizePdfForSave(tempPath, {
+        force: true,
+        label: 'qpdf(save-as-optimize)',
+    });
 }

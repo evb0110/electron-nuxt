@@ -1,4 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import { useDjvuMode } from '@app/composables/useDjvuMode';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
@@ -10,7 +11,7 @@ import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
 interface IDjvuConversionState {
     isConverting: boolean;
-    phase: 'converting' | 'bookmarks' | null;
+    phase: 'converting' | 'bookmarks' | 'optimizing' | null;
     percent: number;
 }
 
@@ -27,6 +28,8 @@ export type TOpenDjvuFile = (
     setOriginalPath?: (path: TDocumentRef | null) => void,
     closeFile?: () => void | Promise<void>,
 ) => Promise<void>;
+
+type TOpenConvertedPdf = (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
 
 function ensurePdfSuggestedName(name: string) {
     const trimmedName = name.trim();
@@ -356,8 +359,7 @@ export const useDjvu = () => {
     async function convertToPdf(
         subsample: number,
         preserveBookmarks: boolean,
-        loadPdfFromPath: (path: TDocumentRef) => Promise<void>,
-        setOriginalPath?: (path: TDocumentRef | null) => void,
+        openConvertedPdf: TOpenConvertedPdf,
     ) {
         const sourcePath = djvuSourcePath.value;
         if (!sourcePath) {
@@ -426,29 +428,12 @@ export const useDjvu = () => {
                 pdfPath: result.pdfPath, 
             });
 
-            const tempPath = djvuTempPdfPath.value;
-            exitDjvuMode();
-            activeViewingJobId.value = null;
-
-            if (tempPath) {
-                try {
-                    await djvu.cleanupTemp(tempPath);
-                } catch (cleanupError) {
-                    logSuppressedError('Failed to cleanup DjVu temp PDF after conversion', cleanupError);
-                }
-            }
-
+            const openResult = await openConvertedPdf(result.pdfPath);
             if (generation !== conversionGeneration) {
                 return;
             }
-
-            const openResult = await documents.openDocumentDirect(result.pdfPath);
-            if (generation !== conversionGeneration) {
-                return;
-            }
-            if (openResult && openResult.kind === 'pdf') {
-                await loadPdfFromPath(openResult.workingPath);
-                setOriginalPath?.(openResult.originalPath);
+            if (openResult && openResult.status === 'failed') {
+                viewingError.value = openResult.error || t('errors.file.open');
             }
         } catch (error) {
             const message = error instanceof Error && error.message.trim().length > 0

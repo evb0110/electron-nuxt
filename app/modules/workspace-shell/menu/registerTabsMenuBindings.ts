@@ -63,6 +63,11 @@ const documentMenuActions: IDocumentMenuAction[] = [
         run: deps => deps.activeWorkspace.value?.handleRepairSave(),
     },
     {
+        name: 'optimize-pdf-for-interaction',
+        register: 'onMenuOptimizePdfForInteraction',
+        run: deps => deps.activeWorkspace.value?.handleOptimizePdfForInteraction(),
+    },
+    {
         name: 'save-as',
         register: 'onMenuSaveAs',
         run: deps => deps.activeWorkspace.value?.handleSaveAs(),

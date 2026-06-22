@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => {
         convertDjvuToPdfFile: vi.fn(),
         cancelConversion: vi.fn(),
         embedBookmarksIntoPdfFile: vi.fn(),
+        optimizeGeneratedPdfForInteraction: vi.fn(),
         createDjvuPdfBookmarkTask: vi.fn(),
         consumeAllowedDjvuWritePath: vi.fn(),
         safeSendToWindow: vi.fn(),
@@ -77,6 +78,7 @@ vi.mock('@electron/djvu/metadata', () => ({
 
 vi.mock('@electron/djvu/parseDjvuOutline', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
 vi.mock('@electron/djvu/embedBookmarksIntoPdfFile', () => ({embedBookmarksIntoPdfFile: mocks.embedBookmarksIntoPdfFile}));
+vi.mock('@electron/features/documents/public/pdfSaveAsOptimization', () => ({optimizeGeneratedPdfForInteraction: (...args: unknown[]) => mocks.optimizeGeneratedPdfForInteraction(...args)}));
 vi.mock('@electron/djvu/exportPaths', () => ({consumeAllowedDjvuWritePath: mocks.consumeAllowedDjvuWritePath}));
 vi.mock('@electron/djvu/safeSendToWindow', () => ({safeSendToWindow: mocks.safeSendToWindow}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
@@ -168,6 +170,7 @@ describe('handleDjvuConvertToPdf', () => {
         });
         mocks.cancelConversion.mockReturnValue(false);
         mocks.embedBookmarksIntoPdfFile.mockResolvedValue(123);
+        mocks.optimizeGeneratedPdfForInteraction.mockResolvedValue(null);
         mocks.createDjvuPdfBookmarkTask.mockImplementation(() => {
             if (mocks.bookmarkTaskState.mode === 'startup-error') {
                 throw new mocks.StartupError('bookmark worker missing');
@@ -221,6 +224,8 @@ describe('handleDjvuConvertToPdf', () => {
         );
         expect(mocks.createDjvuPdfBookmarkTask).toHaveBeenCalledTimes(1);
         expect(mocks.embedBookmarksIntoPdfFile).toHaveBeenCalledTimes(1);
+        expect(mocks.optimizeGeneratedPdfForInteraction)
+            .toHaveBeenCalledWith('/tmp/djvu-export-test/convert-123.bookmarks.pdf');
         expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
     });
 
@@ -374,6 +379,11 @@ describe('handleDjvuConvertToPdf', () => {
             '/tmp/djvu-export-test/convert-123.convert.pdf',
             '/tmp/.staged-output.tmp',
         );
+        expect(mocks.optimizeGeneratedPdfForInteraction)
+            .toHaveBeenCalledWith('/tmp/djvu-export-test/convert-123.convert.pdf');
+        expect(
+            mocks.optimizeGeneratedPdfForInteraction.mock.invocationCallOrder[0]!,
+        ).toBeLessThan(mocks.copyFile.mock.invocationCallOrder[0]!);
         expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/.staged-output.tmp', '/tmp/output.pdf');
     });
 

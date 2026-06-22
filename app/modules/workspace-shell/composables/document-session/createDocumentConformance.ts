@@ -14,6 +14,10 @@ interface IConformanceProfileRequest {
     requestId: number;
 }
 
+export interface IPdfConformanceDeferralOptions { fileSize?: number | null }
+
+const MAX_EAGER_PDF_CONFORMANCE_BYTES = 64 * 1024 * 1024;
+
 export function createDocumentConformance(state: IDocumentSessionState) {
     let conformanceProfileRequestId = 0;
     let conformanceProfileInFlight: IConformanceProfileRequest | null = null;
@@ -39,9 +43,25 @@ export function createDocumentConformance(state: IDocumentSessionState) {
         return false;
     }
 
-    function deferPdfConformanceProfile(path: TDocumentRef) {
+    function deferPdfConformanceProfile(
+        path: TDocumentRef,
+        options?: IPdfConformanceDeferralOptions,
+    ) {
         const requestId = ++conformanceProfileRequestId;
         state.pdfConformanceProfile.value = null;
+        if (
+            typeof options?.fileSize === 'number'
+            && options.fileSize > MAX_EAGER_PDF_CONFORMANCE_BYTES
+        ) {
+            conformanceProfileInFlight = null;
+            BrowserLogger.debug('pdf-file', 'Skipped eager conformance analysis for large PDF', {
+                path,
+                size: options.fileSize,
+                maxEagerBytes: MAX_EAGER_PDF_CONFORMANCE_BYTES,
+            });
+            return;
+        }
+
         const promise = readPdfConformanceProfile(path);
         conformanceProfileInFlight = {
             path,

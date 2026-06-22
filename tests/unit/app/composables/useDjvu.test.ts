@@ -72,6 +72,10 @@ vi.mock('@app/composables/useDjvuMode', () => {
 
 const { useDjvu } = await import('@app/composables/useDjvu');
 
+function createUnusedConvertedPdfOpen() {
+    return vi.fn(async () => ({status: 'cancelled' as const}));
+}
+
 describe('useDjvu', () => {
     let viewingErrorCallback: ((data: IViewingErrorData) => void) | null = null;
 
@@ -236,7 +240,7 @@ describe('useDjvu', () => {
 
             const djvu = useDjvu();
             await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
-            await djvu.convertToPdf(1, true, vi.fn(async () => {}));
+            await djvu.convertToPdf(1, true, createUnusedConvertedPdfOpen());
 
             expect(mockElectronAPI.documents.savePdfDialog).toHaveBeenCalledWith('input.pdf');
         });
@@ -251,7 +255,7 @@ describe('useDjvu', () => {
 
             const djvu = useDjvu();
             await djvu.openDjvuFile('browser://documents/source/', vi.fn(async () => {}));
-            await djvu.convertToPdf(1, true, vi.fn(async () => {}));
+            await djvu.convertToPdf(1, true, createUnusedConvertedPdfOpen());
 
             expect(mockElectronAPI.documents.savePdfDialog).toHaveBeenCalledWith('djvu.documentFallback.pdf');
         });
@@ -270,7 +274,7 @@ describe('useDjvu', () => {
 
             const djvu = useDjvu();
             await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
-            await djvu.convertToPdf(1, true, vi.fn(async () => {}));
+            await djvu.convertToPdf(1, true, createUnusedConvertedPdfOpen());
 
             expect(djvu.viewingError.value).toBe('Windows converter failed');
             expect(djvu.conversionState.value.isConverting).toBe(false);
@@ -291,11 +295,65 @@ describe('useDjvu', () => {
 
             const djvu = useDjvu();
             await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
-            await djvu.convertToPdf(1, true, vi.fn(async () => {}));
+            await djvu.convertToPdf(1, true, createUnusedConvertedPdfOpen());
 
             expect(djvu.viewingError.value).toBe('Browser converter failed');
             expect(mockElectronAPI.documents.cleanupFile)
                 .toHaveBeenCalledWith('browser://documents/output/out.pdf');
+        });
+
+        it('opens the converted PDF through the workspace direct-open flow', async () => {
+            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'view-1',
+            });
+            mockElectronAPI.documents.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
+            mockElectronAPI.djvu.convertToPdf.mockResolvedValue({
+                success: true,
+                pdfPath: '/tmp/out.pdf',
+                jobId: 'convert-1',
+            });
+            const openConvertedPdf = vi.fn(async () => ({
+                status: 'opened' as const,
+                result: {
+                    kind: 'pdf' as const,
+                    originalPath: '/tmp/out.pdf',
+                    workingPath: '/tmp/out-working.pdf',
+                },
+            }));
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
+            await djvu.convertToPdf(1, true, openConvertedPdf);
+
+            expect(openConvertedPdf).toHaveBeenCalledWith('/tmp/out.pdf');
+            expect(djvu.conversionState.value.isConverting).toBe(false);
+        });
+
+        it('shows the direct-open error when a converted PDF cannot be opened', async () => {
+            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'view-1',
+            });
+            mockElectronAPI.documents.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
+            mockElectronAPI.djvu.convertToPdf.mockResolvedValue({
+                success: true,
+                pdfPath: '/tmp/out.pdf',
+                jobId: 'convert-1',
+            });
+            const openConvertedPdf = vi.fn(async () => ({
+                status: 'failed' as const,
+                error: 'Converted PDF could not be opened',
+            }));
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
+            await djvu.convertToPdf(1, true, openConvertedPdf);
+
+            expect(openConvertedPdf).toHaveBeenCalledWith('/tmp/out.pdf');
+            expect(djvu.viewingError.value).toBe('Converted PDF could not be opened');
         });
     });
 

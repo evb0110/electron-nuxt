@@ -227,6 +227,7 @@ export interface IDocumentsMenuCapability {
     onMenuPasteImageFromClipboard: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuSave: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuRepairSave: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuOptimizePdfForInteraction: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuSaveAs: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuPrint: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuPrintCurrentPage: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
@@ -302,6 +303,7 @@ export interface IDocumentsFileCapability {
     saveFile: (path: TDocumentRef) => Promise<boolean>;
     savePdfData: (path: TDocumentRef, data: Uint8Array) => Promise<IPdfValidationResult>;
     repairPdf?: (path: TDocumentRef) => Promise<IPdfValidationResult>;
+    optimizePdfForInteraction?: (path: TDocumentRef) => Promise<IPdfValidationResult>;
     savePdfNoteTextUpdates?: (
         path: TDocumentRef,
         updates: IPdfNoteTextUpdate[],

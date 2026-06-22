@@ -22,6 +22,7 @@ type TNoArgDocumentMenuSubscriptions = Pick<
     | 'onMenuPasteImageFromClipboard'
     | 'onMenuSave'
     | 'onMenuRepairSave'
+    | 'onMenuOptimizePdfForInteraction'
     | 'onMenuSaveAs'
     | 'onMenuPrint'
     | 'onMenuPrintCurrentPage'
@@ -64,6 +65,7 @@ export function createDocumentsPreloadMenuClient(
         onMenuPasteImageFromClipboard: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuPasteImageFromClipboard),
         onMenuSave: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuSave),
         onMenuRepairSave: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuRepairSave),
+        onMenuOptimizePdfForInteraction: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuOptimizePdfForInteraction),
         onMenuSaveAs: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuSaveAs),
         onMenuPrint: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuPrint),
         onMenuPrintCurrentPage: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuPrintCurrentPage),

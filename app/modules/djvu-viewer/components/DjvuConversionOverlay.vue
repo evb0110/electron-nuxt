@@ -15,7 +15,7 @@ const { t } = useTypedI18n();
 
 const { phase } = defineProps<{
     isConverting: boolean;
-    phase: 'converting' | 'bookmarks' | null;
+    phase: 'converting' | 'bookmarks' | 'optimizing' | null;
     percent: number;
 }>();
 
@@ -27,6 +27,9 @@ const overlayTitle = computed(() => {
     }
     if (phase === 'bookmarks') {
         return t('djvu.overlayBookmarks');
+    }
+    if (phase === 'optimizing') {
+        return t('djvu.overlayOptimizing');
     }
     return t('djvu.overlayPreparing');
 });

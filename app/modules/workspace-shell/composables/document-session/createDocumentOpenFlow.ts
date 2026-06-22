@@ -7,6 +7,7 @@ import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TPdfSource } from '@app/types/pdf';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
 import type { IPdfLoadedState } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
+import type { IPdfConformanceDeferralOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import type { createEpochGuard } from '@app/modules/workspace-shell/composables/document-session/createEpochGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
@@ -26,7 +27,10 @@ interface ICreateDocumentOpenFlowDeps {
     analytics: TAnalytics;
     clearPdfConformanceProfile: () => void;
     cleanupPreviousWorkingCopy: (path: TDocumentRef, nextPath: TDocumentRef) => Promise<void>;
-    deferPdfConformanceProfile: (path: TDocumentRef) => void;
+    deferPdfConformanceProfile: (
+        path: TDocumentRef,
+        options?: IPdfConformanceDeferralOptions,
+    ) => void;
     incrementSessionVersion: () => void;
     loadEpoch: TEpochGuard;
     openEpoch: TEpochGuard;
@@ -71,6 +75,22 @@ export function createDocumentOpenFlow(
                 ? new Uint8Array(snapshot)
                 : snapshot.slice();
         return new Blob([ownedSnapshot], { type: 'application/pdf' });
+    }
+
+    function getLoadedPdfFileSize(nextState: IPdfLoadedState) {
+        if (nextState.pdfData) {
+            return nextState.pdfData.byteLength;
+        }
+        const source = nextState.pdfSrc;
+        if (
+            source
+            && typeof source === 'object'
+            && 'kind' in source
+            && source.kind === 'path'
+        ) {
+            return source.size;
+        }
+        return null;
     }
 
     async function pickFileToOpen() {
@@ -454,7 +474,7 @@ export function createDocumentOpenFlow(
             await deps.cleanupPreviousWorkingCopy(options.previousPath, path);
         }
 
-        deps.deferPdfConformanceProfile(path);
+        deps.deferPdfConformanceProfile(path, { fileSize: getLoadedPdfFileSize(nextState) });
     }
 
     async function readPdfStateFromPath(path: TDocumentRef): Promise<IPdfLoadedState> {

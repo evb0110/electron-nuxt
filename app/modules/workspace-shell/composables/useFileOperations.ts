@@ -107,6 +107,10 @@ export interface IFileOperationsDeps {
         saveMode?: TPdfSaveMode;
         expectedWorkingPath?: TDocumentRef | null;
     }) => Promise<IPdfPersistResult>;
+    optimizeWorkingCopy?: (opts?: {
+        saveMode?: TPdfSaveMode;
+        expectedWorkingPath?: TDocumentRef | null;
+    }) => Promise<IPdfPersistResult>;
     saveWorkingCopyAs: (data?: Uint8Array, opts?: {
         saveMode?: TPdfSaveMode;
         expectedWorkingPath?: TDocumentRef | null;
@@ -197,8 +201,8 @@ interface ISaveFlowConfig {
     operationKind: TDocumentOperationKind;
     saveMode: TPdfSaveMode;
     persistOpenNotesAbortMessage: string;
-    totalPhase: 'handle-save-total' | 'handle-save-as-total';
-    failureLogMessage: 'Save failed' | 'Save As failed' | 'Repair save failed';
+    totalPhase: 'handle-save-total' | 'handle-save-as-total' | 'handle-optimize-pdf-total';
+    failureLogMessage: 'Save failed' | 'Save As failed' | 'Repair save failed' | 'PDF optimization failed';
     saveIndicator: Ref<boolean>;
     persistSerialized: (
         data: Uint8Array,
@@ -208,7 +212,7 @@ interface ISaveFlowConfig {
         saveMode: TPdfSaveMode;
         expectedWorkingPath?: TDocumentRef | null;
     }) => Promise<IPdfPersistResult>;
-    persistRepair?: (opts: {
+    persistNativeWorkingCopy?: (opts: {
         saveMode: TPdfSaveMode;
         expectedWorkingPath?: TDocumentRef | null;
     }) => Promise<IPdfPersistResult>;
@@ -277,6 +281,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         validatePdfPath,
         saveFile,
         repairWorkingCopy,
+        optimizeWorkingCopy,
         saveWorkingCopy,
         saveWorkingCopyAs,
         optimizePdfOnSaveAs,
@@ -1193,21 +1198,21 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         return 'native-mutations';
     }
 
-    function shouldUseRepairWorkingCopySave(config: ISaveFlowConfig, context: ISaveFlowContext) {
+    function shouldUseNativeWorkingCopySave(config: ISaveFlowConfig, context: ISaveFlowContext) {
         return config.forceSerialize === true
             && config.forceRewrite === true
             && !context.shouldSerializeDirtyState
             && Boolean(context.expectedOriginalPath)
             && Boolean(context.expectedWorkingPath)
-            && Boolean(config.persistRepair);
+            && Boolean(config.persistNativeWorkingCopy);
     }
 
     async function executeSelectedSavePath(config: ISaveFlowConfig, context: ISaveFlowContext) {
         if (selectSavePath(config, context) === 'working-copy') {
             return executeWorkingCopySave(config, context);
         }
-        if (shouldUseRepairWorkingCopySave(config, context)) {
-            return executeRepairWorkingCopySave(config, context);
+        if (shouldUseNativeWorkingCopySave(config, context)) {
+            return executeNativeWorkingCopySave(config, context);
         }
 
         const nativeOutcome = await executeNativeMutationSave(config, context);
@@ -1238,15 +1243,15 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         return saveSucceeded;
     }
 
-    async function executeRepairWorkingCopySave(config: ISaveFlowConfig, context: ISaveFlowContext) {
-        if (!config.persistRepair) {
+    async function executeNativeWorkingCopySave(config: ISaveFlowConfig, context: ISaveFlowContext) {
+        if (!config.persistNativeWorkingCopy) {
             return false;
         }
-        const saveSucceeded = await saveRepairedWorkingCopy(
+        const saveSucceeded = await saveNativeWorkingCopy(
             config.saveMode,
             context.reloadWaiter.current,
             config.mode,
-            config.persistRepair,
+            config.persistNativeWorkingCopy,
             context.expectedWorkingPath,
             context.saveStateSnapshot,
         );
@@ -1677,7 +1682,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         return true;
     }
 
-    async function saveRepairedWorkingCopy(
+    async function saveNativeWorkingCopy(
         saveMode: TPdfSaveMode,
         reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null,
         mode: 'save' | 'save_as',
@@ -1689,7 +1694,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         saveStateSnapshot?: ISaveStateSnapshot,
     ) {
         if (!expectedWorkingPath || workingCopyPath.value !== expectedWorkingPath) {
-            BrowserLogger.debug('workspace', 'Skipped stale repair persistence before native repair', {
+            BrowserLogger.debug('workspace', 'Skipped stale native working-copy persistence before native write', {
                 expectedWorkingPath,
                 currentWorkingPath: workingCopyPath.value,
                 saveMode,
@@ -1698,7 +1703,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         }
 
         const persisted = await timedSavePhase(
-            `persist-${mode}-repair`,
+            `persist-${mode}-native-working-copy`,
             () => persist({
                 saveMode,
                 expectedWorkingPath,
@@ -1823,7 +1828,25 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             saveIndicator: isSaving,
             persistSerialized: saveFile,
             persistUnserialized: saveWorkingCopy,
-            ...(repairWorkingCopy ? { persistRepair: repairWorkingCopy } : {}),
+            ...(repairWorkingCopy ? { persistNativeWorkingCopy: repairWorkingCopy } : {}),
+            shouldPreferWorkingCopy: true,
+            forceSerialize: true,
+            forceRewrite: true,
+        });
+    }
+
+    async function handleOptimizePdfForInteraction() {
+        return runSaveFlow({
+            mode: 'save',
+            operationKind: 'optimize-pdf',
+            saveMode: 'rewrite',
+            persistOpenNotesAbortMessage: 'PDF optimization aborted because annotation note persistence failed',
+            totalPhase: 'handle-optimize-pdf-total',
+            failureLogMessage: 'PDF optimization failed',
+            saveIndicator: isSaving,
+            persistSerialized: saveFile,
+            persistUnserialized: saveWorkingCopy,
+            ...(optimizeWorkingCopy ? { persistNativeWorkingCopy: optimizeWorkingCopy } : {}),
             shouldPreferWorkingCopy: true,
             forceSerialize: true,
             forceRewrite: true,
@@ -1833,6 +1856,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     return {
         handleSave,
         handleRepairSave,
+        handleOptimizePdfForInteraction,
         handleSaveAs,
     };
 };

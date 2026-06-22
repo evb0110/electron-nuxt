@@ -11,6 +11,7 @@ interface IUseDocumentWorkspaceToolbarOptions {
     closeAllDropdowns: () => void;
     handleSave: () => unknown;
     handleRepairSave: () => unknown;
+    handleOptimizePdfForInteraction: () => unknown;
     handleSaveAs: () => unknown;
     handleExportDocx: () => unknown;
     handleUndo: () => unknown;
@@ -185,6 +186,9 @@ export const useDocumentWorkspaceToolbar = (options: IUseDocumentWorkspaceToolba
         },
         handleToolbarRepairSave() {
             runToolbarAction(options.handleRepairSave);
+        },
+        handleToolbarOptimizePdfForInteraction() {
+            runToolbarAction(options.handleOptimizePdfForInteraction);
         },
         handleToolbarSaveAs() {
             runToolbarAction(options.handleSaveAs);

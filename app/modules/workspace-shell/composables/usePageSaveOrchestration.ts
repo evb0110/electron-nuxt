@@ -74,6 +74,7 @@ type TSharedSaveOperationDeps = Pick<
     | 'validatePdfPath'
     | 'saveFile'
     | 'repairWorkingCopy'
+    | 'optimizeWorkingCopy'
     | 'saveWorkingCopy'
     | 'trySavePdfNativeMutations'
     | 'trySaveEmbeddedNoteTextUpdates'
@@ -172,6 +173,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         validatePdfPath,
         saveFile,
         repairWorkingCopy,
+        optimizeWorkingCopy,
         saveWorkingCopy,
         trySavePdfNativeMutations,
         trySaveEmbeddedNoteTextUpdates,
@@ -221,6 +223,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     const {
         handleSave: handleSaveWithReload,
         handleRepairSave: handleRepairSaveWithReload,
+        handleOptimizePdfForInteraction: handleOptimizePdfForInteractionWithReload,
         handleSaveAs: handleSaveAsWithReload,
     } = useFileOperations({
         isSaving,
@@ -242,6 +245,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         validatePdfPath,
         saveFile,
         ...(repairWorkingCopy ? { repairWorkingCopy } : {}),
+        ...(optimizeWorkingCopy ? { optimizeWorkingCopy } : {}),
         saveWorkingCopy,
         getWorkingCopySize: async path => (await getDocumentsCapability().statFile(path)).size,
         ...(trySavePdfNativeMutations !== undefined ? { trySavePdfNativeMutations } : {}),
@@ -335,6 +339,17 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
 
     async function handleRepairSave() {
         return handleRepairSaveWithReload();
+    }
+
+    async function handleOptimizePdfForInteraction() {
+        if (canSave.value) {
+            const saved = await handleSaveWithReload();
+            if (!saved) {
+                return false;
+            }
+        }
+
+        return handleOptimizePdfForInteractionWithReload();
     }
 
     async function handleSaveAs() {
@@ -522,6 +537,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         rewritePageLabels,
         handleSave,
         handleRepairSave,
+        handleOptimizePdfForInteraction,
         handleSaveAs,
         saveForExternalRead,
         handleExportDocx,

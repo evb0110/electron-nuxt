@@ -87,6 +87,21 @@ interface IUsePdfViewerAnnotationRuntimeOptions {
 }
 
 export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRuntimeOptions) => {
+    const sourcePdfFileSize = computed(() => {
+        const source = options.src.value;
+        if (!source) {
+            return null;
+        }
+        if (
+            typeof source === 'object'
+            && 'kind' in source
+            && source.kind === 'path'
+        ) {
+            return source.size;
+        }
+        return source instanceof Blob ? source.size : null;
+    });
+
     function registerShapeHistoryCommand(command: {
         cmd: () => void;
         undo: () => void;
@@ -122,6 +137,7 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         viewerContainer: options.viewerContainer,
         workingCopyPath: options.workingCopyPath,
         sourcePdfData: options.sourcePdfData,
+        sourcePdfFileSize,
         visibleRange: options.visibleRange,
         bufferPages: options.bufferPages,
         shapeComposable,

@@ -53,6 +53,7 @@
                 @open-settings="openSettingsPage"
                 @save="handleFallbackSave"
                 @repair-save="handleFallbackRepairSave"
+                @optimize-pdf-for-interaction="handleFallbackOptimizePdfForInteraction"
                 @save-as="handleFallbackSaveAs"
                 @print="handleFallbackPrint"
                 @print-current-page="handleFallbackPrintCurrentPage"
@@ -429,6 +430,10 @@ function handleFallbackSave() {
 
 function handleFallbackRepairSave() {
     runFallbackWorkspaceAction(workspace => workspace.handleRepairSave());
+}
+
+function handleFallbackOptimizePdfForInteraction() {
+    runFallbackWorkspaceAction(workspace => workspace.handleOptimizePdfForInteraction());
 }
 
 function handleFallbackSaveAs() {

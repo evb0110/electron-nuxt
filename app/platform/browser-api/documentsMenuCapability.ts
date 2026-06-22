@@ -29,6 +29,7 @@ export const browserDocumentsMenuCapability: IDocumentsMenuCapability = {
     onMenuPasteImageFromClipboard: noopUnsubscribe,
     onMenuSave: noopUnsubscribe,
     onMenuRepairSave: noopUnsubscribe,
+    onMenuOptimizePdfForInteraction: noopUnsubscribe,
     onMenuSaveAs: noopUnsubscribe,
     onMenuPrint: noopUnsubscribe,
     onMenuPrintCurrentPage: noopUnsubscribe,

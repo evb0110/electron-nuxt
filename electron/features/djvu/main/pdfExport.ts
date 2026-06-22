@@ -46,6 +46,7 @@ import {
 } from '@electron/features/djvu/main/pdfWorkerClient';
 import { getErrorMessage } from '@electron/utils/error';
 import { createAbortError } from '@electron/utils/abort';
+import { optimizeGeneratedPdfForInteraction } from '@electron/features/documents/public/pdfSaveAsOptimization';
 
 const logger = createLogger('djvu-pdfExport');
 const canceledJobIds = new Set<string>();
@@ -443,14 +444,19 @@ export async function handleDjvuConvertToPdf(
             }
 
             throwIfCanceled(jobId);
-            await replaceFileAtomically(
-                bookmarks.length > 0 ? tempBookmarkedPdfPath : tempPdfPath,
-                normalizedOutputPath,
-            );
+            const finalTempPdfPath = bookmarks.length > 0 ? tempBookmarkedPdfPath : tempPdfPath;
+            safeSendToWindow(window, 'djvu:progress', {
+                jobId,
+                phase: 'optimizing' as const,
+                percent: 96,
+            });
+            await optimizeGeneratedPdfForInteraction(finalTempPdfPath);
+            throwIfCanceled(jobId);
+            await replaceFileAtomically(finalTempPdfPath, normalizedOutputPath);
 
             safeSendToWindow(window, 'djvu:progress', {
                 jobId,
-                phase: 'bookmarks' as const,
+                phase: 'optimizing' as const,
                 percent: 100,
             });
 

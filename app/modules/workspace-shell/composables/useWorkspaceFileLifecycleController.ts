@@ -32,6 +32,7 @@ export const useWorkspaceFileLifecycleController = () => {
         closeFile,
         saveFile,
         repairWorkingCopy,
+        optimizeWorkingCopy,
         saveWorkingCopy,
         trySavePdfNativeMutations,
         trySaveEmbeddedNoteTextUpdates,
@@ -91,9 +92,7 @@ export const useWorkspaceFileLifecycleController = () => {
     });
 
     function handleDjvuConvert(subsample: number, preserveBookmarks: boolean) {
-        return djvuConvertToPdf(subsample, preserveBookmarks, loadPdfFromPath, (path) => {
-            originalPath.value = path;
-        });
+        return djvuConvertToPdf(subsample, preserveBookmarks, openFileDirectWithDjvuCleanup);
     }
 
     function handleDjvuCancel() {
@@ -139,6 +138,7 @@ export const useWorkspaceFileLifecycleController = () => {
         closeFile,
         saveFile,
         repairWorkingCopy,
+        optimizeWorkingCopy,
         saveWorkingCopy,
         trySavePdfNativeMutations,
         trySaveEmbeddedNoteTextUpdates,

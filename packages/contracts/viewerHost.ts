@@ -96,6 +96,7 @@ export interface IDesktopMenuCapability {
     onMenuOpenPdf(callback: TMenuEventCallback): TMenuEventUnsubscribe;
     onMenuSave(callback: TMenuEventCallback): TMenuEventUnsubscribe;
     onMenuRepairSave(callback: TMenuEventCallback): TMenuEventUnsubscribe;
+    onMenuOptimizePdfForInteraction(callback: TMenuEventCallback): TMenuEventUnsubscribe;
     onMenuSaveAs(callback: TMenuEventCallback): TMenuEventUnsubscribe;
     onMenuPrint(callback: TMenuEventCallback): TMenuEventUnsubscribe;
     onMenuPrintCurrentPage(callback: TMenuEventCallback): TMenuEventUnsubscribe;

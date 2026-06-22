@@ -88,6 +88,7 @@ export interface ICloseFileFromUiOptions {persist?: boolean;}
 export interface IWorkspaceFilePort {
     handleSave: () => Promise<boolean>;
     handleRepairSave: () => Promise<boolean>;
+    handleOptimizePdfForInteraction: () => Promise<boolean>;
     handleSaveAs: () => Promise<boolean>;
     handlePrint: () => void | Promise<void>;
     handlePrintCurrentPage: () => void | Promise<void>;

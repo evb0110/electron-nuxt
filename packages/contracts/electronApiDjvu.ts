@@ -6,7 +6,7 @@ import type {
 
 export interface IDjvuProgress {
     jobId: string;
-    phase: 'converting' | 'bookmarks' | 'loading';
+    phase: 'converting' | 'bookmarks' | 'optimizing' | 'loading';
     current?: number;
     total?: number;
     percent: number;

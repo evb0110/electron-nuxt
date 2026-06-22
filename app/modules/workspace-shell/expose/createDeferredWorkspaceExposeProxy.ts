@@ -87,6 +87,10 @@ export function createDeferredWorkspaceExposeProxy(
     const proxy: IWorkspaceExpose = {
         handleSave: mountWaitBoolean('handleSave', workspace => workspace.handleSave()),
         handleRepairSave: mountWaitBoolean('handleRepairSave', workspace => workspace.handleRepairSave()),
+        handleOptimizePdfForInteraction: mountWaitBoolean(
+            'handleOptimizePdfForInteraction',
+            workspace => workspace.handleOptimizePdfForInteraction(),
+        ),
         handleSaveAs: mountWaitBoolean('handleSaveAs', workspace => workspace.handleSaveAs()),
         handlePrint: mountWaitVoid('handlePrint', workspace => workspace.handlePrint()),
         handlePrintCurrentPage: mountWaitVoid('handlePrintCurrentPage', workspace => workspace.handlePrintCurrentPage()),

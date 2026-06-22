@@ -152,6 +152,21 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         return deps.handleRepairSave();
     }
 
+    async function handleOptimizePdfForInteractionFromCommandSurface() {
+        if (
+            !deps.hasPdf.value
+            || deps.isOpeningDocument.value
+            || deps.hasOpenError.value
+            || deps.isAnySaving.value
+            || deps.isHistoryBusy.value
+            || deps.isDjvuMode.value
+        ) {
+            return false;
+        }
+
+        return deps.handleOptimizePdfForInteraction();
+    }
+
     function getToolbarSnapshot(): IWorkspaceToolbarSnapshot {
         const currentPage = normalizeToolbarSnapshotPage(
             deps.documentViewerRef?.value?.getCurrentPage?.()
@@ -244,6 +259,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
     return {
         handleSave: handleSaveFromCommandSurface,
         handleRepairSave: handleRepairSaveFromCommandSurface,
+        handleOptimizePdfForInteraction: handleOptimizePdfForInteractionFromCommandSurface,
         handleSaveAs: deps.handleSaveAs,
         handlePrint: deps.handlePrint,
         handlePrintCurrentPage: deps.handlePrintCurrentPage,

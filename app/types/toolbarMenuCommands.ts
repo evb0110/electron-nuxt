@@ -2,6 +2,7 @@ export type TToolbarAppMenuCommand =
     | 'open-file'
     | 'save'
     | 'repair-save'
+    | 'optimize-pdf-for-interaction'
     | 'save-as'
     | 'print'
     | 'print-current-page'

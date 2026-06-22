@@ -54,6 +54,7 @@ function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBinding
 function createElectronApi() {
     let onMenuOpenPdf: (() => void) | null = null;
     let onMenuRepairSave: (() => void) | null = null;
+    let onMenuOptimizePdfForInteraction: (() => void) | null = null;
     let onMenuPrint: (() => void) | null = null;
     let onMenuPrintCurrentPage: (() => void) | null = null;
     let onMenuOpenExternalPaths: ((paths: string[]) => void) | null = null;
@@ -70,6 +71,12 @@ function createElectronApi() {
             onMenuRepairSave = callback;
             return () => {
                 onMenuRepairSave = null;
+            };
+        }),
+        onMenuOptimizePdfForInteraction: vi.fn((callback: () => void) => {
+            onMenuOptimizePdfForInteraction = callback;
+            return () => {
+                onMenuOptimizePdfForInteraction = null;
             };
         }),
         onMenuPrint: vi.fn((callback: () => void) => {
@@ -105,6 +112,9 @@ function createElectronApi() {
         },
         emitRepairSave() {
             onMenuRepairSave?.();
+        },
+        emitOptimizePdfForInteraction() {
+            onMenuOptimizePdfForInteraction?.();
         },
         emitPrint() {
             onMenuPrint?.();
@@ -144,6 +154,20 @@ describe('registerTabsMenuBindings', () => {
         await flushMicrotasks();
 
         expect(handleRepairSave).toHaveBeenCalledTimes(1);
+    });
+
+    it('routes the optimize PDF menu command to the active workspace', async () => {
+        const handleOptimizePdfForInteraction = vi.fn(async () => {});
+        const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(
+            cast<IWorkspaceExpose>({handleOptimizePdfForInteraction}),
+        )});
+        const electronApi = createElectronApi();
+
+        registerTabsMenuBindings(electronApi.api, deps);
+        electronApi.emitOptimizePdfForInteraction();
+        await flushMicrotasks();
+
+        expect(handleOptimizePdfForInteraction).toHaveBeenCalledTimes(1);
     });
 
     it('routes the menu print command to the active workspace', async () => {

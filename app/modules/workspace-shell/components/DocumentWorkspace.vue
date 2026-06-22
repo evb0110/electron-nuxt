@@ -42,6 +42,7 @@
                 @open-settings="handleOpenSettings"
                 @save="handleToolbarSave"
                 @repair-save="handleToolbarRepairSave"
+                @optimize-pdf-for-interaction="handleToolbarOptimizePdfForInteraction"
                 @save-as="handleToolbarSaveAs"
                 @print="handlePrint"
                 @print-current-page="handlePrintCurrentPage"
@@ -657,6 +658,7 @@ const {
     searchFocusRequest,
     handleSave,
     handleRepairSave,
+    handleOptimizePdfForInteraction,
     handleSaveAs,
     handlePrint,
     handlePrintCurrentPage,
@@ -920,6 +922,7 @@ const {
     handleToolbarRedo,
     handleToolbarSave,
     handleToolbarRepairSave,
+    handleToolbarOptimizePdfForInteraction,
     handleToolbarSaveAs,
     handleToolbarToggleContinuousScroll,
     handleToolbarToggleSidebar,
@@ -930,6 +933,7 @@ const {
     closeAllDropdowns,
     handleSave,
     handleRepairSave,
+    handleOptimizePdfForInteraction,
     handleSaveAs,
     handleExportDocx,
     handleUndo,
@@ -1336,6 +1340,7 @@ const {
 const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleSave,
     handleRepairSave,
+    handleOptimizePdfForInteraction,
     handleSaveAs,
     handlePrint,
     handlePrintCurrentPage: () => {

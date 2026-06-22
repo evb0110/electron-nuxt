@@ -540,6 +540,25 @@ describe('usePdfFile', () => {
     });
 
     describe('loadPdfFromPath', () => {
+        it('keeps large PDFs path-backed without eager conformance analysis', async () => {
+            const largePdfSize = 128 * 1024 * 1024;
+            mockDocuments.statFile.mockResolvedValue({ size: largePdfSize });
+
+            const file = createTestPdfFile();
+            await file.loadPdfFromPath('/tmp/large.pdf');
+
+            expect(file.workingCopyPath.value).toBe('/tmp/large.pdf');
+            expect(file.pdfData.value).toBeNull();
+            expect(file.pdfSrc.value).toEqual({
+                kind: 'path',
+                path: '/tmp/large.pdf',
+                size: largePdfSize,
+            });
+            expect(file.pdfConformanceProfile.value).toBeNull();
+            expect(mockDocuments.readFile).not.toHaveBeenCalled();
+            expect(mockDocuments.analyzePdfConformance).not.toHaveBeenCalled();
+        });
+
         it('keeps the previous working copy when loading the next file fails', async () => {
             const oldPdf = new Uint8Array([
                 1,
@@ -1167,7 +1186,7 @@ describe('usePdfFile', () => {
             });
         });
 
-        it('keeps the current conformance profile after native note text saves', async () => {
+        it('checks conformance on demand and keeps the profile after native note text saves for large PDFs', async () => {
             const largePdfSize = 128 * 1024 * 1024;
             const unsignedProfile = {
                 isSigned: false,
@@ -1193,9 +1212,8 @@ describe('usePdfFile', () => {
 
             const file = createTestPdfFile();
             await file.loadPdfFromPath('/tmp/large.pdf');
-            await vi.waitFor(() => {
-                expect(file.pdfConformanceProfile.value).toEqual(unsignedProfile);
-            });
+            expect(file.pdfConformanceProfile.value).toBeNull();
+            expect(mockDocuments.analyzePdfConformance).not.toHaveBeenCalled();
 
             await expect(file.trySaveEmbeddedNoteTextUpdates([{
                 objectNumber: 42,
@@ -1206,6 +1224,7 @@ describe('usePdfFile', () => {
                 preserveLoadedSource: true,
                 modifiedAt: 'D:20260609133855+03\'00\'',
             })).resolves.toMatchObject({success: true});
+            expect(file.pdfConformanceProfile.value).toEqual(unsignedProfile);
 
             await expect(file.trySaveEmbeddedNoteTextUpdates([{
                 objectNumber: 42,
@@ -1223,7 +1242,10 @@ describe('usePdfFile', () => {
         });
 
         it('reuses deferred conformance analysis when native note text save starts before it settles', async () => {
-            const largePdfSize = 128 * 1024 * 1024;
+            const pdfBytes = new Uint8Array([
+                1,
+                2,
+            ]);
             const unsignedProfile = {
                 isSigned: false,
                 isEncrypted: false,
@@ -1235,7 +1257,8 @@ describe('usePdfFile', () => {
                 saveRestrictions: [] as string[],
             };
             const conformanceGate = deferred<typeof unsignedProfile>();
-            mockDocuments.statFile.mockResolvedValue({ size: largePdfSize });
+            mockDocuments.statFile.mockResolvedValue({ size: pdfBytes.length });
+            mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
             mockDocuments.analyzePdfConformance.mockImplementation(() => conformanceGate.promise);
             mockDocuments.savePdfNoteTextUpdates.mockResolvedValue({
                 applied: true,
@@ -1248,8 +1271,9 @@ describe('usePdfFile', () => {
             });
 
             const file = createTestPdfFile();
-            await file.loadPdfFromPath('/tmp/large.pdf');
+            await file.loadPdfFromPath('/tmp/small.pdf');
             expect(file.pdfConformanceProfile.value).toBeNull();
+            expect(mockDocuments.analyzePdfConformance).toHaveBeenCalledTimes(1);
 
             const savePromise = file.trySaveEmbeddedNoteTextUpdates([{
                 objectNumber: 42,

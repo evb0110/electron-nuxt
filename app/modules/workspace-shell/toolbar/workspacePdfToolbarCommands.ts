@@ -3,6 +3,7 @@ export const workspacePdfToolbarCommands = [
     'open-settings',
     'save',
     'repair-save',
+    'optimize-pdf-for-interaction',
     'save-as',
     'print',
     'print-current-page',

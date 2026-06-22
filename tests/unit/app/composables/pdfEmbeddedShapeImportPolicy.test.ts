@@ -7,8 +7,15 @@ import { embeddedShapeImportInitialRenderMaxBytes } from '@app/modules/pdf-viewe
 import { resolveEmbeddedShapeImportLoadPolicy } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-import-policy/resolveEmbeddedShapeImportLoadPolicy';
 
 describe('resolveEmbeddedShapeImportLoadPolicy', () => {
-    it('awaits path-backed embedded drawings before the first page render', () => {
+    it('awaits path-backed embedded drawings before the first page render when size is unknown', () => {
         expect(resolveEmbeddedShapeImportLoadPolicy(null, '/tmp/book.pdf')).toEqual({
+            awaitBeforeInitialRender: true,
+            deferUntilAfterInitialRender: false,
+        });
+    });
+
+    it('awaits small path-backed embedded drawings before the first page render', () => {
+        expect(resolveEmbeddedShapeImportLoadPolicy(null, '/tmp/book.pdf', 1024)).toEqual({
             awaitBeforeInitialRender: true,
             deferUntilAfterInitialRender: false,
         });
@@ -28,6 +35,18 @@ describe('resolveEmbeddedShapeImportLoadPolicy', () => {
         )).toEqual({
             awaitBeforeInitialRender: false,
             deferUntilAfterInitialRender: true,
+        });
+    });
+
+    it('skips automatic path-backed embedded drawing imports above the in-memory threshold', () => {
+        expect(resolveEmbeddedShapeImportLoadPolicy(
+            null,
+            '/tmp/large-book.pdf',
+            embeddedShapeImportInitialRenderMaxBytes + 1,
+        )).toEqual({
+            awaitBeforeInitialRender: false,
+            deferUntilAfterInitialRender: false,
+            skipAutomaticImport: true,
         });
     });
 });

@@ -325,6 +325,11 @@ function getFileMenu(
                 channel: 'menu:repairSave',
             }),
             createWindowMenuAction({
+                label: te('menu.optimizePdfForInteraction'),
+                enabled: repairSaveActionEnabled,
+                channel: 'menu:optimizePdfForInteraction',
+            }),
+            createWindowMenuAction({
                 label: te('menu.saveAs'),
                 accelerator: 'CmdOrCtrl+Shift+S',
                 enabled: documentActionsEnabled,

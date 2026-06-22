@@ -23,6 +23,10 @@ import { originalPathSaveBaseMatches } from '@electron/features/documents/main/o
 import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import {
+    optimizeLargePdfForSave,
+    optimizePdfForSave,
+} from '@electron/features/documents/main/pdfSaveAsOptimization';
 
 const QPDF_REPAIR_SAVE_TIMEOUT_MS = parseIntegerEnv(
     'EVB_QPDF_REPAIR_SAVE_TIMEOUT_MS',
@@ -67,12 +71,21 @@ async function replaceOriginalWithValidatedTemp(
     workingPath: string,
     senderWebContentsId: number,
     writeTemp: (tempPath: string) => Promise<void>,
+    options: { optimize?: 'large' | 'force' } = {},
 ) {
     const tempPath = makeSiblingTempPath(originalPath);
     let replaced = false;
     try {
         await writeTemp(tempPath);
-        const validation = await validatePdfFile(tempPath);
+        const optimizedValidation = options.optimize === 'force'
+            ? await optimizePdfForSave(tempPath, {
+                force: true,
+                label: 'qpdf(optimize-current-pdf)',
+            })
+            : options.optimize === 'large'
+                ? await optimizeLargePdfForSave(tempPath)
+                : null;
+        const validation = optimizedValidation ?? await validatePdfFile(tempPath);
         if (!validation.isValid) {
             return validation;
         }
@@ -130,6 +143,7 @@ export async function handleFileSave(
                 normalizedWorkingPath,
                 event.sender.id,
                 tempPath => copyFileCopyOnWrite(normalizedWorkingPath, tempPath),
+                { optimize: 'large' },
             );
             if (queuedValidation.isValid) {
                 refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, event.sender.id);
@@ -172,6 +186,7 @@ export async function handleSerializedPdfSave(
                 normalizedWorkingPath,
                 event.sender.id,
                 tempPath => writeFile(tempPath, payload),
+                { optimize: 'large' },
             );
             if (queuedValidation.isValid) {
                 try {
@@ -219,6 +234,7 @@ export async function handleRepairPdfSave(
                 normalizedWorkingPath,
                 event.sender.id,
                 tempPath => repairPdfWithQpdf(normalizedWorkingPath, tempPath),
+                { optimize: 'large' },
             );
             if (queuedValidation.isValid) {
                 try {
@@ -241,5 +257,49 @@ export async function handleRepairPdfSave(
             throw err;
         }
         throw new Error(`Failed to repair and save: ${getErrorMessage(err)}`);
+    }
+}
+
+export async function handleOptimizePdfForInteraction(
+    event: Electron.IpcMainInvokeEvent,
+    workingPath: string,
+): Promise<IPdfValidationResult> {
+    if (!workingPath || workingPath.trim() === '') {
+        throw new Error('Invalid file path');
+    }
+
+    const normalizedWorkingPath = workingPath.trim();
+    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, event.sender.id);
+
+    try {
+        const validation = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+            if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+                throw new Error('Working copy path is not managed');
+            }
+
+            const queuedValidation = await replaceOriginalWithValidatedTemp(
+                originalPath,
+                normalizedWorkingPath,
+                event.sender.id,
+                tempPath => copyFileCopyOnWrite(normalizedWorkingPath, tempPath),
+                { optimize: 'force' },
+            );
+            if (queuedValidation.isValid) {
+                try {
+                    await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
+                    refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, event.sender.id);
+                } catch (syncError) {
+                    return withWorkingCopySyncWarning(queuedValidation, syncError);
+                }
+            }
+
+            return queuedValidation;
+        });
+        return validation;
+    } catch (err) {
+        if (err instanceof WorkingCopyMissingError) {
+            throw err;
+        }
+        throw new Error(`Failed to optimize PDF: ${getErrorMessage(err)}`);
     }
 }

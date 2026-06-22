@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => ({
     addRecentFile: vi.fn(),
     updateRecentFilesMenu: vi.fn(),
     optimizePdfForSaveAs: vi.fn(),
+    optimizeLargePdfForSave: vi.fn(),
     copyFileCopyOnWrite: vi.fn(),
 }));
 
@@ -44,7 +45,10 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
 vi.mock('@electron/features/documents/main/pdfConformance', () => ({validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args)}));
-vi.mock('@electron/features/documents/main/pdfSaveAsOptimization', () => ({ optimizePdfForSaveAs: (...args: unknown[]) => mocks.optimizePdfForSaveAs(...args) }));
+vi.mock('@electron/features/documents/main/pdfSaveAsOptimization', () => ({
+    optimizePdfForSaveAs: (...args: unknown[]) => mocks.optimizePdfForSaveAs(...args),
+    optimizeLargePdfForSave: (...args: unknown[]) => mocks.optimizeLargePdfForSave(...args),
+}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({
     getWorkingCopyOriginalFileExpectation: (...args: unknown[]) => mocks.getWorkingCopyOriginalFileExpectation(...args),
@@ -74,6 +78,7 @@ describe('serializedPdfPersistence', () => {
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(null);
         mocks.optimizePdfForSaveAs.mockResolvedValue(null);
+        mocks.optimizeLargePdfForSave.mockResolvedValue(null);
         mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, await readFile(sourcePath));
             await unlink(sourcePath);
@@ -246,6 +251,7 @@ describe('serializedPdfPersistence', () => {
         });
         expect(readFileSyncUtf8(workingPath)).toBe('old-original');
         expect(readFileSyncUtf8(originalPath)).toBe('external-change');
+        expect(mocks.optimizeLargePdfForSave).toHaveBeenCalledWith(`${originalPath}.tmp`);
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
     });
@@ -273,6 +279,7 @@ describe('serializedPdfPersistence', () => {
         });
         expect(readFileSyncUtf8(originalPath)).toBe('new-pdf');
         expect(readFileSyncUtf8(workingPath)).toBe('old-working');
+        expect(mocks.optimizeLargePdfForSave).toHaveBeenCalledWith(`${originalPath}.tmp`);
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
     });
 
@@ -295,6 +302,10 @@ describe('serializedPdfPersistence', () => {
         });
         expect(readFileSyncUtf8(originalPath)).toBe('new-pdf');
         expect(readFileSyncUtf8(workingPath)).toBe('new-pdf');
+        expect(mocks.optimizeLargePdfForSave).toHaveBeenCalledWith(`${originalPath}.tmp`);
+        expect(
+            mocks.optimizeLargePdfForSave.mock.invocationCallOrder[0]!,
+        ).toBeLessThan(mocks.atomicReplace.mock.invocationCallOrder[0]!);
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledWith(workingPath, 42);
         expect(mocks.copyFileCopyOnWrite.mock.invocationCallOrder[0]!)
             .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[0]!);

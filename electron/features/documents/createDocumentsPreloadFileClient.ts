@@ -1185,6 +1185,11 @@ export function createDocumentsPreloadFileClient(
                 DOCUMENTS_CHANNELS.fileRepairPdf,
                 assertAbsolutePath(path, 'repairPdf.path'),
             ),
+        optimizePdfForInteraction: (path) =>
+            invoke(
+                DOCUMENTS_CHANNELS.fileOptimizePdfForInteraction,
+                assertAbsolutePath(path, 'optimizePdfForInteraction.path'),
+            ),
         savePdfData: async (path, data) => {
             const checkedPath = assertAbsolutePath(path, 'savePdfData.path');
             const checkedData = assertPersistenceData(data, 'savePdfData.data');

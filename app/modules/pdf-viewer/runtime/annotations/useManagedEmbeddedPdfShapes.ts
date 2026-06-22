@@ -32,6 +32,7 @@ interface IUseManagedEmbeddedPdfShapesOptions {
     viewerContainer: Ref<HTMLElement | null>;
     workingCopyPath: Ref<string | null>;
     sourcePdfData: Ref<Uint8Array | null>;
+    sourcePdfFileSize: Ref<number | null>;
     visibleRange: Ref<IManagedEmbeddedPdfShapesPageRange>;
     bufferPages: Ref<number>;
     shapeComposable: ReturnType<typeof useAnnotationShapes>;
@@ -59,6 +60,7 @@ export const useManagedEmbeddedPdfShapes = ({
     viewerContainer,
     workingCopyPath,
     sourcePdfData,
+    sourcePdfFileSize,
     visibleRange,
     bufferPages,
     shapeComposable,
@@ -649,7 +651,17 @@ export const useManagedEmbeddedPdfShapes = ({
         const loadPolicy = resolveEmbeddedShapeImportLoadPolicy(
             sourcePdfData.value,
             workingCopyPath.value,
+            sourcePdfFileSize.value,
         );
+        if (loadPolicy.skipAutomaticImport) {
+            logger.debug('pdf-shapes', 'Skipping automatic managed shape import for large path-backed source', {
+                token,
+                path: workingCopyPath.value,
+                sourceFileSize: sourcePdfFileSize.value,
+            });
+            settleViewerLoadSettle(token);
+            return;
+        }
         if (loadPolicy.deferUntilAfterInitialRender) {
             logger.debug('pdf-shapes', 'Deferring managed shape import until after initial PDF render', {
                 token,
@@ -681,6 +693,7 @@ export const useManagedEmbeddedPdfShapes = ({
         const loadPolicy = resolveEmbeddedShapeImportLoadPolicy(
             sourcePdfData.value,
             workingCopyPath.value,
+            sourcePdfFileSize.value,
         );
         if (!loadPolicy.awaitBeforeInitialRender) {
             return Promise.resolve();
@@ -716,12 +729,26 @@ export const useManagedEmbeddedPdfShapes = ({
         () => [
             sourcePdfData.value,
             workingCopyPath.value,
+            sourcePdfFileSize.value,
         ] as const,
         async ([
             data,
             path,
+            fileSize,
         ]) => {
-            const loadPolicy = resolveEmbeddedShapeImportLoadPolicy(data, path);
+            const loadPolicy = resolveEmbeddedShapeImportLoadPolicy(data, path, fileSize);
+            if (loadPolicy.skipAutomaticImport) {
+                logger.debug('pdf-shapes', 'Skipped managed shape import for large path-backed source', {
+                    path,
+                    sourceFileSize: fileSize,
+                    lastImportedPath: lastEmbeddedShapeImportPath,
+                    hasBaseline: hasEmbeddedShapeImportBaseline,
+                });
+                if (path !== lastEmbeddedShapeImportPath || !hasEmbeddedShapeImportBaseline) {
+                    await clearManagedShapesForDeferredImport();
+                }
+                return;
+            }
             if (loadPolicy.deferUntilAfterInitialRender) {
                 logger.debug('pdf-shapes', 'Queued managed shape import for deferred path-backed source', {
                     path,

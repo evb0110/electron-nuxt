@@ -39,6 +39,7 @@ const allCommands = createCommandMap(Object.fromEntries(READER_COMMANDS.map(comm
 const desktopInlineCommands = {
     ...allCommands,
     'open-file': false,
+    'optimize-pdf-for-interaction': false,
     'print-current-page': false,
 };
 

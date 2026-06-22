@@ -102,6 +102,7 @@ const emit = defineEmits<{
     'open-file': [];
     save: [];
     'repair-save': [];
+    'optimize-pdf-for-interaction': [];
     'save-as': [];
     print: [];
     'print-current-page': [];
@@ -120,6 +121,7 @@ const emitMenuCommand = {
     'open-file': () => emit('open-file'),
     save: () => emit('save'),
     'repair-save': () => emit('repair-save'),
+    'optimize-pdf-for-interaction': () => emit('optimize-pdf-for-interaction'),
     'save-as': () => emit('save-as'),
     print: () => emit('print'),
     'print-current-page': () => emit('print-current-page'),
@@ -169,7 +171,8 @@ const appMenuItems = computed(() => {
             disabled: !hasInteractiveDocument.value || !canSave || isAnySaving || isHistoryBusy || isDjvuMode,
             shortcut: shortcutLabels.value.save,
         }),
-        createCommandItem('repair-save', t('menu.repairAndSave'), 'i-ph-arrows-clockwise', {disabled: !hasInteractiveDocument.value || !canRepairSave || isAnySaving || isHistoryBusy || isDjvuMode}),
+        createCommandItem('repair-save', t('menu.repairAndSave'), 'i-ph-magic-wand', {disabled: !hasInteractiveDocument.value || !canRepairSave || isAnySaving || isHistoryBusy || isDjvuMode}),
+        createCommandItem('optimize-pdf-for-interaction', t('menu.optimizePdfForInteraction'), 'i-ph-gauge', {disabled: !hasInteractiveDocument.value || !canRepairSave || isAnySaving || isHistoryBusy || isDjvuMode}),
         createCommandItem('save-as', t('menu.saveAs'), getReaderCommandMenuIcon('save-as'), {
             disabled: !hasInteractiveDocument.value || isAnySaving || isHistoryBusy || isDjvuMode,
             shortcut: shortcutLabels.value.saveAs,

@@ -31,7 +31,8 @@ interface IPdfPreloadedRange {
     data: Uint8Array;
 }
 
-const MAX_AGGREGATE_PDF_RANGE_BYTES = 32 * 1024 * 1024;
+const PDF_RANGE_SUBREAD_BYTES = 8 * 1024 * 1024;
+const MAX_AGGREGATE_PDF_RANGE_BYTES = 1024 * 1024 * 1024;
 
 function destroyPdfDocumentDeferred(
     document: PDFDocumentProxy,
@@ -549,7 +550,7 @@ export const usePdfDocument = () => {
                 return;
             }
 
-            const requestedLength = end - cursor;
+            const requestedLength = Math.min(PDF_RANGE_SUBREAD_BYTES, end - cursor);
             const chunk = await getDocumentsCapability().readFileRange(src.path, cursor, requestedLength);
             if (version !== renderVersion) {
                 logPdfRenderTrace('pdf-document-range-request-stale-after-read', {

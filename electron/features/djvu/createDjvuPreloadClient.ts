@@ -39,7 +39,7 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
         cleanupTemp: (tempPdfPath) => invoke(DJVU_CHANNELS.cleanupTemp, tempPdfPath),
         onProgress: (callback: (progress: {
             jobId: string;
-            phase: 'converting' | 'bookmarks' | 'loading';
+            phase: 'converting' | 'bookmarks' | 'optimizing' | 'loading';
             current?: number;
             total?: number;
             percent: number;

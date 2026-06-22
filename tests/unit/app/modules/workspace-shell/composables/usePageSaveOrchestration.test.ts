@@ -19,11 +19,13 @@ const fileOperationMocks = vi.hoisted((): {
     capturedDeps: unknown;
     handleSave: ReturnType<typeof vi.fn>;
     handleRepairSave: ReturnType<typeof vi.fn>;
+    handleOptimizePdfForInteraction: ReturnType<typeof vi.fn>;
     handleSaveAs: ReturnType<typeof vi.fn>;
 } => ({
     capturedDeps: null,
     handleSave: vi.fn(),
     handleRepairSave: vi.fn(),
+    handleOptimizePdfForInteraction: vi.fn(),
     handleSaveAs: vi.fn(),
 }));
 const platformMocks = vi.hoisted(() => ({
@@ -39,6 +41,7 @@ vi.mock('@app/modules/workspace-shell/composables/useFileOperations', () => ({us
     return {
         handleSave: fileOperationMocks.handleSave,
         handleRepairSave: fileOperationMocks.handleRepairSave,
+        handleOptimizePdfForInteraction: fileOperationMocks.handleOptimizePdfForInteraction,
         handleSaveAs: fileOperationMocks.handleSaveAs,
     };
 })}));
@@ -244,6 +247,82 @@ describe('usePageSaveOrchestration', () => {
         }));
 
         expect(orchestration.canSave.value).toBe(true);
+    });
+
+    it('saves dirty changes before optimizing the PDF for interaction', async () => {
+        fileOperationMocks.handleSave.mockResolvedValueOnce(true);
+        fileOperationMocks.handleOptimizePdfForInteraction.mockResolvedValueOnce(true);
+        const orchestration = usePageSaveOrchestration(cast({
+            pdfData: ref(null),
+            pdfDocument: shallowRef({ numPages: 1 } as PDFDocumentProxy),
+            pdfViewerRef: ref({
+                scrollToPage: vi.fn(),
+                saveDocument: vi.fn(async () => new Uint8Array([1])),
+                getMarkupSubtypeOverrides: vi.fn(() => undefined),
+                getAllShapes: vi.fn(() => []),
+                getDeletedEmbeddedShapeAnnotationIds: vi.fn(() => []),
+            }),
+            requestDocxExport: vi.fn(async () => true),
+            openOcrPopup: vi.fn(),
+            isExportingDocx: ref(false),
+            workingCopyPath: ref('/tmp/document.pdf'),
+            annotationComments: ref([]),
+            totalPages: ref(1),
+            pageLabelsDirty: ref(false),
+            pageLabelRanges: ref([]),
+            bookmarksDirty: ref(false),
+            bookmarkItems: ref([]),
+            isSaving: ref(false),
+            isSavingAs: ref(false),
+            annotationDirty: ref(false),
+            annotationNoteWindowsCount: ref(0),
+            hasAnnotationChanges: vi.fn(() => false),
+            markAnnotationSaved: vi.fn(),
+            markPageLabelsSaved: vi.fn(),
+            markBookmarksSaved: vi.fn(),
+            isDirty: ref(true),
+            hasPendingUnsavedChanges: computed(() => true),
+            persistAllAnnotationNotes: vi.fn(async () => true),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => null),
+            consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
+            loadRecentFiles: vi.fn(),
+            clearOcrCache: vi.fn(),
+            reloadWorkingCopyIntoHistory: vi.fn(async () => true),
+            currentPage: ref(1),
+            waitForPdfReload: vi.fn(async () => {}),
+            resetSearchCache: vi.fn(),
+            validatePdfPath: vi.fn(async () => ({
+                isValid: true,
+                tool: 'qpdf',
+                errors: [],
+                warnings: [],
+            })),
+            saveFile: vi.fn(async () => ({
+                success: true,
+                outPath: '/tmp/document.pdf',
+                saveMode: 'rewrite',
+                didSaveAs: false,
+            })),
+            saveWorkingCopy: vi.fn(async () => ({
+                success: true,
+                outPath: '/tmp/document.pdf',
+                saveMode: 'rewrite',
+                didSaveAs: false,
+            })),
+            saveWorkingCopyAs: vi.fn(async () => ({
+                success: true,
+                outPath: '/tmp/document-copy.pdf',
+                saveMode: 'save_as_rewrite',
+                didSaveAs: true,
+            })),
+        }));
+
+        await expect(orchestration.handleOptimizePdfForInteraction()).resolves.toBe(true);
+
+        expect(fileOperationMocks.handleSave).toHaveBeenCalledOnce();
+        expect(fileOperationMocks.handleOptimizePdfForInteraction).toHaveBeenCalledOnce();
+        expect(fileOperationMocks.handleSave.mock.invocationCallOrder[0]!)
+            .toBeLessThan(fileOperationMocks.handleOptimizePdfForInteraction.mock.invocationCallOrder[0]!);
     });
 
     it('applies OCR results by replacing the working copy from the temp PDF path', async () => {

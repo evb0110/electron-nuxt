@@ -13,6 +13,7 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
     return cast<Parameters<typeof createWorkspaceExpose>[0]>({
         handleSave: vi.fn(async () => {}),
         handleRepairSave: vi.fn(async () => {}),
+        handleOptimizePdfForInteraction: vi.fn(async () => {}),
         handleSaveAs: vi.fn(async () => {}),
         handlePrint: vi.fn(async () => {}),
         handlePrintCurrentPage: vi.fn(async () => {}),
@@ -141,6 +142,18 @@ describe('createWorkspaceExpose', () => {
 
         expect(deps.handleRepairSave).toHaveBeenCalledOnce();
         expect(exposed.getToolbarSnapshot().canRepairSave).toBe(true);
+    });
+
+    it('runs PDF optimization when a PDF is open even if ordinary save is disabled', async () => {
+        const deps = createDeps({
+            hasPdf: ref(true),
+            canSave: ref(false),
+        });
+        const exposed = createWorkspaceExpose(deps);
+
+        await exposed.handleOptimizePdfForInteraction();
+
+        expect(deps.handleOptimizePdfForInteraction).toHaveBeenCalledOnce();
     });
 
     it('ignores save while another save operation is active', async () => {

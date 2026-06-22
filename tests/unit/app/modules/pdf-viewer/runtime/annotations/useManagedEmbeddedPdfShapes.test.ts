@@ -193,13 +193,15 @@ describe('useManagedEmbeddedPdfShapes', () => {
             });
 
         const viewerContainer = ref<HTMLElement | null>(createRenderedViewerContainer());
-        const sourcePdfData = ref<Uint8Array | null>(new Uint8Array([1]));
+        const initialSourcePdfData = new Uint8Array([1]);
+        const sourcePdfData = ref<Uint8Array | null>(initialSourcePdfData);
         const invalidatePages = vi.fn();
         const renderVisiblePages = vi.fn(async () => {});
         const managedShapes = useManagedEmbeddedPdfShapes({
             viewerContainer,
             workingCopyPath: ref('/tmp/work.pdf'),
             sourcePdfData,
+            sourcePdfFileSize: ref(initialSourcePdfData.byteLength),
             visibleRange: ref({
                 start: 1,
                 end: 1,
@@ -268,6 +270,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             viewerContainer: ref(null),
             workingCopyPath: ref(null),
             sourcePdfData: ref(null),
+            sourcePdfFileSize: ref(null),
             visibleRange: ref({
                 start: 1,
                 end: 1,
@@ -321,6 +324,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             viewerContainer,
             workingCopyPath: ref('/tmp/work.pdf'),
             sourcePdfData: ref<Uint8Array | null>(new Uint8Array([1])),
+            sourcePdfFileSize: ref(1),
             visibleRange: ref({
                 start: 1,
                 end: 1,

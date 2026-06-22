@@ -34,7 +34,10 @@ import { updateRecentFilesMenu } from '@electron/menu';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
-import { optimizePdfForSaveAs } from '@electron/features/documents/main/pdfSaveAsOptimization';
+import {
+    optimizeLargePdfForSave,
+    optimizePdfForSaveAs,
+} from '@electron/features/documents/main/pdfSaveAsOptimization';
 
 const SERIALIZED_PDF_SESSION_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES = 16 * 1024 * 1024 * 1024;
@@ -296,7 +299,7 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
     }
     const optimizedValidation = session.mode === 'save_as'
         ? await optimizePdfForSaveAs(session.tempPath, session.saveAsOptions)
-        : null;
+        : await optimizeLargePdfForSave(session.tempPath);
     const committedValidation = optimizedValidation ?? validation;
 
     let conflictValidation: IPdfValidationResult | null = null;

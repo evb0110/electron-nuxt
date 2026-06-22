@@ -13,6 +13,7 @@ import type {
 const FILE_PORT_METHODS = [
     'handleSave',
     'handleRepairSave',
+    'handleOptimizePdfForInteraction',
     'handleSaveAs',
     'handlePrint',
     'handlePrintCurrentPage',

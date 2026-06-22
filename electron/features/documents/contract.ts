@@ -46,6 +46,7 @@ export const DOCUMENTS_CHANNELS = {
     fileWriteDocx: 'file:writeDocx',
     fileSave: 'file:save',
     fileRepairPdf: 'file:repairPdf',
+    fileOptimizePdfForInteraction: 'file:optimizePdfForInteraction',
     fileSavePdfData: 'file:savePdfData',
     fileSavePdfDataBegin: 'file:savePdfData:begin',
     fileSavePdfDataPort: 'file:savePdfData:port',
@@ -70,6 +71,7 @@ export const DOCUMENTS_EVENT_CHANNELS = {
     menuPasteImageFromClipboard: 'menu:pasteImageFromClipboard',
     menuSave: 'menu:save',
     menuRepairSave: 'menu:repairSave',
+    menuOptimizePdfForInteraction: 'menu:optimizePdfForInteraction',
     menuSaveAs: 'menu:saveAs',
     menuPrint: 'menu:print',
     menuPrintCurrentPage: 'menu:printCurrentPage',
@@ -233,6 +235,10 @@ export interface IDocumentsInvokeMap {
         args: [path: string];
         result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['repairPdf']>>>;
     };
+    [DOCUMENTS_CHANNELS.fileOptimizePdfForInteraction]: {
+        args: [path: string];
+        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['optimizePdfForInteraction']>>>;
+    };
     [DOCUMENTS_CHANNELS.fileSavePdfData]: {
         args: [path: string, data: Uint8Array];
         result: Awaited<ReturnType<IDocumentsFileCapability['savePdfData']>>;
@@ -318,6 +324,7 @@ export interface IDocumentsEventMap {
     [DOCUMENTS_EVENT_CHANNELS.menuPasteImageFromClipboard]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuSave]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuRepairSave]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuOptimizePdfForInteraction]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuSaveAs]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuPrint]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuPrintCurrentPage]: undefined;

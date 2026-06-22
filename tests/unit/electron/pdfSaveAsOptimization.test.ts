@@ -11,6 +11,7 @@ import {
     mkdtempSync,
     readFileSync,
     rmSync,
+    truncateSync,
     writeFileSync,
 } from 'fs';
 import {
@@ -81,7 +82,7 @@ describe('pdfSaveAsOptimization', () => {
         });
     });
 
-    it('does nothing when lossless optimization is not enabled', async () => {
+    it('skips automatic save optimization for small PDFs', async () => {
         const tempPath = join(tempRoot, 'document.pdf');
         writeFileSync(tempPath, 'original-pdf');
         const { optimizePdfForSaveAs } = await import('@electron/features/documents/main/pdfSaveAsOptimization');
@@ -92,7 +93,7 @@ describe('pdfSaveAsOptimization', () => {
         expect(readFileSyncUtf8(tempPath)).toBe('original-pdf');
     });
 
-    it('keeps valid smaller qpdf output and replaces the temp PDF', async () => {
+    it('keeps valid qpdf output and replaces the temp PDF', async () => {
         const tempPath = join(tempRoot, 'document.pdf');
         const optimizedPath = `${tempPath}.optimized`;
         writeFileSync(tempPath, 'original-pdf');
@@ -108,6 +109,7 @@ describe('pdfSaveAsOptimization', () => {
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/native/qpdf',
             [
+                '--linearize',
                 '--stream-data=preserve',
                 '--object-streams=generate',
                 tempPath,
@@ -121,7 +123,7 @@ describe('pdfSaveAsOptimization', () => {
         expect(existsSync(optimizedPath)).toBe(false);
     });
 
-    it('discards qpdf output that is not smaller', async () => {
+    it('keeps valid qpdf output even when it is not smaller', async () => {
         const tempPath = join(tempRoot, 'document.pdf');
         const optimizedPath = `${tempPath}.optimized`;
         writeFileSync(tempPath, 'tiny');
@@ -130,12 +132,59 @@ describe('pdfSaveAsOptimization', () => {
         });
         const { optimizePdfForSaveAs } = await import('@electron/features/documents/main/pdfSaveAsOptimization');
 
-        await expect(optimizePdfForSaveAs(tempPath, { optimizeLossless: true })).resolves.toBeNull();
+        await expect(optimizePdfForSaveAs(tempPath, { optimizeLossless: true }))
+            .resolves
+            .toMatchObject({ isValid: true });
 
-        expect(mocks.validatePdfFile).not.toHaveBeenCalled();
-        expect(mocks.atomicReplace).not.toHaveBeenCalled();
-        expect(readFileSyncUtf8(tempPath)).toBe('tiny');
+        expect(mocks.validatePdfFile).toHaveBeenCalledWith(optimizedPath);
+        expect(mocks.atomicReplace).toHaveBeenCalledWith(optimizedPath, tempPath);
+        expect(readFileSyncUtf8(tempPath)).toBe('larger-pdf');
         expect(existsSync(optimizedPath)).toBe(false);
+    });
+
+    it('automatically optimizes large PDFs on save', async () => {
+        const tempPath = join(tempRoot, 'large.pdf');
+        const optimizedPath = `${tempPath}.optimized`;
+        writeFileSync(tempPath, 'large-pdf');
+        truncateSync(tempPath, (64 * 1024 * 1024) + 1);
+        mocks.runNativeToolCommand.mockImplementation(async () => {
+            await writeFile(optimizedPath, 'linearized-pdf');
+        });
+        const { optimizeLargePdfForSave } = await import('@electron/features/documents/main/pdfSaveAsOptimization');
+
+        await expect(optimizeLargePdfForSave(tempPath))
+            .resolves
+            .toMatchObject({ isValid: true });
+
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/native/qpdf',
+            expect.arrayContaining(['--linearize']),
+            expect.objectContaining({ commandLabel: 'qpdf(save-optimize-large)' }),
+        );
+        expect(readFileSyncUtf8(tempPath)).toBe('linearized-pdf');
+    });
+
+    it('optimizes generated PDFs without semantic preflight', async () => {
+        const tempPath = join(tempRoot, 'generated.pdf');
+        const optimizedPath = `${tempPath}.optimized`;
+        writeFileSync(tempPath, 'generated-pdf');
+        mocks.runNativeToolCommand.mockImplementation(async () => {
+            await writeFile(optimizedPath, 'linearized-generated-pdf');
+        });
+        const { optimizeGeneratedPdfForInteraction } =
+            await import('@electron/features/documents/main/pdfSaveAsOptimization');
+
+        await expect(optimizeGeneratedPdfForInteraction(tempPath))
+            .resolves
+            .toMatchObject({ isValid: true });
+
+        expect(mocks.analyzePdfConformanceFile).not.toHaveBeenCalled();
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/native/qpdf',
+            expect.arrayContaining(['--linearize']),
+            expect.objectContaining({ commandLabel: 'qpdf(generated-pdf-optimize)' }),
+        );
+        expect(readFileSyncUtf8(tempPath)).toBe('linearized-generated-pdf');
     });
 
     it('skips PDFs where rewriting can alter document semantics', async () => {
