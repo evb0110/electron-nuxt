@@ -52,3 +52,4 @@ auto-imports.d.ts
 # intentionally excluded from git, Electron packages, and web deploys.
 tests/fixtures/electron/large-pdf-fixtures/*
 !tests/fixtures/electron/large-pdf-fixtures/README.md
+/output/
