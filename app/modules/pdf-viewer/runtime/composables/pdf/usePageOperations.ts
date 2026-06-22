@@ -210,7 +210,7 @@ export const usePageOperations = (deps: {
         return didSucceed;
     }
 
-    async function rotatePages(pages: number[], angle: TPageOpsRotation) {
+    async function rotatePages(pages: number[], totalPages: number, angle: TPageOpsRotation) {
         if (pages.length === 0) {
             return false;
         }
@@ -220,7 +220,7 @@ export const usePageOperations = (deps: {
             operationName: 'rotatePages',
             errorKey: 'errors.pageOps.rotate',
             shouldReload: true,
-            run: (path) => getPageOpsCapability().rotate(path, [...pages], angle),
+            run: (path) => getPageOpsCapability().rotate(path, [...pages], totalPages, angle),
         });
         if (didSucceed) {
             analytics.track('page_operation_completed', {
@@ -335,7 +335,7 @@ export const usePageOperations = (deps: {
         return didSucceed;
     }
 
-    async function cropPages(pages: number[], margins: ICropMargins) {
+    async function cropPages(pages: number[], totalPages: number, margins: ICropMargins) {
         if (pages.length === 0) {
             return false;
         }
@@ -344,7 +344,7 @@ export const usePageOperations = (deps: {
             operationName: 'cropPages',
             errorKey: 'errors.pageOps.crop',
             shouldReload: true,
-            run: (path) => getPageOpsCapability().crop(path, [...pages], margins),
+            run: (path) => getPageOpsCapability().crop(path, [...pages], totalPages, margins),
         });
         if (didSucceed) {
             analytics.track('page_operation_completed', {
@@ -356,7 +356,7 @@ export const usePageOperations = (deps: {
         return didSucceed;
     }
 
-    async function removeCrop(pages: number[]) {
+    async function removeCrop(pages: number[], totalPages: number) {
         if (pages.length === 0) {
             return false;
         }
@@ -365,7 +365,7 @@ export const usePageOperations = (deps: {
             operationName: 'removeCrop',
             errorKey: 'errors.pageOps.removeCrop',
             shouldReload: true,
-            run: (path) => getPageOpsCapability().removeCrop(path, [...pages]),
+            run: (path) => getPageOpsCapability().removeCrop(path, [...pages], totalPages),
         });
         if (didSucceed) {
             analytics.track('page_operation_completed', {

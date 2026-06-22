@@ -127,7 +127,9 @@ function isRectangularHighlightSourceSvg(svg: SVGElement) {
 
 function removeCompositeOverlay(host: HTMLElement) {
     if (typeof host.querySelector === 'function') {
-        host.querySelector<SVGSVGElement>(`:scope > .${OVERLAY_CLASS}`)?.remove();
+        host.querySelector<SVGSVGElement>(
+            `:scope > .${OVERLAY_CLASS}:not(.${PRESERVE_SNAPSHOT_CLASS})`,
+        )?.remove();
     }
     queryAll<SVGElement>(
         host,
@@ -139,7 +141,9 @@ function removeCompositeOverlay(host: HTMLElement) {
 
 function renderCompositeOverlay(host: HTMLElement, fragments: IHighlightPaintFragment[]) {
     if (typeof host.querySelector === 'function') {
-        host.querySelector<SVGSVGElement>(`:scope > .${OVERLAY_CLASS}`)?.remove();
+        host.querySelector<SVGSVGElement>(
+            `:scope > .${OVERLAY_CLASS}:not(.${PRESERVE_SNAPSHOT_CLASS})`,
+        )?.remove();
     }
     if (fragments.length === 0) {
         return;

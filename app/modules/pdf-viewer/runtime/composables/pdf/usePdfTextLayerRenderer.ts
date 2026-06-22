@@ -818,6 +818,7 @@ export const usePdfTextLayerRenderer = (deps: {
         throwIfAborted(signal);
         textLayerDiv.dataset.pdfTextLayerRendering = 'true';
         textLayerDiv.dataset.pdfTextLayerReady = 'false';
+        clearHighlights(textLayerDiv);
         clearTextLayerTextMapping(textLayerDiv);
         textLayerDiv.innerHTML = '';
         textLayerDiv.style.setProperty('--scale-factor', String(scale));
@@ -912,6 +913,7 @@ export const usePdfTextLayerRenderer = (deps: {
         const searchMatches = toValue(deps.searchPageMatches);
         const currentMatch = toValue(deps.currentSearchMatch) ?? null;
         if (!searchMatches || searchMatches.size === 0) {
+            clearHighlights(textLayerDiv);
             clearWordBoxes(container);
             pageHighlightState.signatureByPage.set(pageNumber, buildPageHighlightSignature(null, currentMatch));
             return;

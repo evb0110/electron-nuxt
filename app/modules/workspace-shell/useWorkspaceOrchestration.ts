@@ -162,12 +162,14 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pageLabelRanges,
         pageLabelsDirty,
         markPageLabelsSaved,
+        getPageLabelsRevision,
     } = pageLabelState;
     const {
         bookmarkItems,
         bookmarksDirty,
         bookmarkEditMode,
         markBookmarksSaved,
+        getBookmarksRevision,
     } = bookmarkState;
 
     const pageContextMenuControls = usePageContextMenu();
@@ -211,6 +213,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleAnnotationToolChange,
         handleAnnotationModified,
         markAnnotationSaved,
+        getAnnotationSaveStateToken,
         resetAnnotationTracking,
         annotationNoteWindows,
         hasOpenAnnotationNotes,
@@ -423,8 +426,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         markNativeFreeTextNotesSaved,
         markNativeFreeTextNotesDeleted,
         markAnnotationSaved: markAnnotationSavedAndClearPreservedSource,
+        getAnnotationSaveStateToken,
         markPageLabelsSaved,
+        getPageLabelsSaveStateToken: getPageLabelsRevision,
         markBookmarksSaved,
+        getBookmarksSaveStateToken: getBookmarksRevision,
         isDirty,
         hasPendingUnsavedChanges,
         validatePdfPath: path => getDocumentsCapability().validatePdfPath(path),

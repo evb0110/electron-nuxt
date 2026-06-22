@@ -11,6 +11,7 @@ import { isRecord } from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import {
+    assertCropMarginsFitSelectedPages,
     cropPagesLocal,
     getPageGeometryLocal,
     removeCropFromPagesLocal,
@@ -157,6 +158,7 @@ export async function cropPages(
     signal?: AbortSignal,
 ) {
     await ensureManagedWorkingCopy(workingCopyPath, senderWebContentsId);
+    await assertCropMarginsFitSelectedPages(workingCopyPath, pages, margins, signal);
     try {
         await runCropWorkerTask<undefined>({
             type: 'crop',

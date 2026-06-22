@@ -97,6 +97,16 @@ function createOriginalChangedValidationResult() {
     return createEmptyPdfValidationResult('Original file changed on disk; save skipped to avoid overwriting external edits');
 }
 
+function withWorkingCopySyncWarning(validation: IPdfValidationResult, error: unknown): IPdfValidationResult {
+    return {
+        ...validation,
+        warnings: [
+            ...validation.warnings,
+            `Saved target file, but failed to refresh the working copy: ${getErrorMessage(error)}`,
+        ],
+    };
+}
+
 function normalizeWorkingPath(workingPath: unknown) {
     const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
     if (!normalizedWorkingPath) {
@@ -286,8 +296,10 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
     const optimizedValidation = session.mode === 'save_as'
         ? await optimizePdfForSaveAs(session.tempPath, session.saveAsOptions)
         : null;
+    const committedValidation = optimizedValidation ?? validation;
 
     let conflictValidation: IPdfValidationResult | null = null;
+    let syncWarningValidation: IPdfValidationResult | null = null;
     await enqueueWorkingCopyMutation(session.workingPath, async () => {
         if (!await ensureWorkingCopyDirectory(session.workingPath, session.senderId)) {
             throw new Error('Working copy path is not managed');
@@ -295,7 +307,11 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
 
         if (session.mode === 'save_as') {
             await atomicReplace(session.tempPath, session.targetPath);
-            await copyFileCopyOnWrite(session.targetPath, session.workingPath);
+            try {
+                await copyFileCopyOnWrite(session.targetPath, session.workingPath);
+            } catch (syncError) {
+                syncWarningValidation = withWorkingCopySyncWarning(committedValidation, syncError);
+            }
             setWorkingCopyOriginalPath(session.workingPath, session.targetPath, session.senderId);
             allowOpenPath(session.targetPath, session.senderId);
             await addRecentFile(session.targetPath);
@@ -306,11 +322,15 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
                 return;
             }
             await atomicReplace(session.tempPath, session.targetPath);
-            await copyFileCopyOnWrite(session.targetPath, session.workingPath);
+            try {
+                await copyFileCopyOnWrite(session.targetPath, session.workingPath);
+            } catch (syncError) {
+                syncWarningValidation = withWorkingCopySyncWarning(committedValidation, syncError);
+            }
         }
     });
 
-    return conflictValidation ?? optimizedValidation ?? validation;
+    return conflictValidation ?? syncWarningValidation ?? committedValidation;
 }
 
 function getChunkBytes(value: unknown) {

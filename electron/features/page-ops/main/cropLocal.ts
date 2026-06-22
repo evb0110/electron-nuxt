@@ -81,13 +81,43 @@ async function mutatePdfPages(
     await savePdfAtomically(pdfDoc, workingCopyPath);
 }
 
-export async function cropPagesLocal(
+export async function assertCropMarginsFitSelectedPages(
     workingCopyPath: string,
     pages: number[],
     margins: ICropMargins,
     signal?: AbortSignal,
 ) {
     assertValidMargins(margins);
+    if (signal?.aborted) {
+        throw signal.reason instanceof Error ? signal.reason : new DOMException('Operation aborted', 'AbortError');
+    }
+    const pdfBytes = await readFile(workingCopyPath);
+    if (signal?.aborted) {
+        throw signal.reason instanceof Error ? signal.reason : new DOMException('Operation aborted', 'AbortError');
+    }
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const allPages = pdfDoc.getPages();
+    assertValidRequestedPages(pages, allPages.length);
+
+    for (const pageNum of pages) {
+        const page = allPages[pageNum - 1]!;
+        const mediaBox = resolvePdfLibMediaBox(page);
+        const cropWidth = mediaBox.width - margins.left - margins.right;
+        const cropHeight = mediaBox.height - margins.top - margins.bottom;
+
+        if (cropWidth <= 0 || cropHeight <= 0) {
+            throw new Error(`Crop margins consume page ${pageNum}`);
+        }
+    }
+}
+
+export async function cropPagesLocal(
+    workingCopyPath: string,
+    pages: number[],
+    margins: ICropMargins,
+    signal?: AbortSignal,
+) {
+    await assertCropMarginsFitSelectedPages(workingCopyPath, pages, margins, signal);
 
     if (await tryCropPagesWithNativePageOps(workingCopyPath, pages, margins, signal)) {
         return;
@@ -103,11 +133,6 @@ export async function cropPagesLocal(
             const cropY = mediaBox.y + margins.bottom;
             const cropWidth = mediaBox.width - margins.left - margins.right;
             const cropHeight = mediaBox.height - margins.top - margins.bottom;
-
-            if (cropWidth <= 0 || cropHeight <= 0) {
-                log.debug(`Skipping page ${pageNum}: crop dimensions invalid (${cropWidth}x${cropHeight})`);
-                continue;
-            }
 
             page.setCropBox(cropX, cropY, cropWidth, cropHeight);
         }

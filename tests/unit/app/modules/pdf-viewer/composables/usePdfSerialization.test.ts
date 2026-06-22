@@ -267,6 +267,35 @@ describe('usePdfSerialization FreeText note comments', () => {
     });
 });
 
+describe('usePdfSerialization embedded annotation deletes', () => {
+    it('rejects unresolved queued embedded annotation deletes', async () => {
+        const source = await createBlankPdfData();
+        const serializer = createSerializationHarness();
+        const pendingDelete: IAnnotationCommentSummary = {
+            id: '999R',
+            stableKey: 'ann:0:999R',
+            sortIndex: null,
+            pageIndex: 0,
+            pageNumber: 1,
+            text: '',
+            kindLabel: 'Note',
+            subtype: 'Text',
+            author: null,
+            modifiedAt: null,
+            color: null,
+            uid: null,
+            annotationId: '999R',
+            source: 'pdf',
+            hasNote: true,
+            markerRect: null,
+        };
+
+        await expect(serializer.serializePdfForSave(source, { pendingDeletes: [pendingDelete] }))
+            .rejects
+            .toThrow('Unable to resolve embedded annotation deletes');
+    });
+});
+
 describe('usePdfSerialization embedPlacedImageToPage', () => {
     it('uses the native working-copy path for JPEG placed images when available', async () => {
         const baseBytes = new Uint8Array([1]);
@@ -460,6 +489,25 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
         const lastAnnot = getAnnotDict(doc, annotRefs[1]!);
         expect(firstAnnot?.get(PDFName.of('Subtype'))?.toString()).toBe('/FreeText');
         expect(lastAnnot?.get(PDFName.of('Subtype'))?.toString()).toBe('/Stamp');
+    });
+
+    it('rejects placed image finalization when the target page cannot be applied', async () => {
+        const serializer = createSerializationHarness();
+        const source = await createBlankPdfData();
+
+        await expect(serializer.embedPlacedImageToPage(source, {
+            pageNumber: 2,
+            x: 0.1,
+            y: 0.25,
+            width: 0.3,
+            height: 0.2,
+            rotationDegrees: 0,
+            fileName: 'missing-page.png',
+            mimeType: 'image/png',
+            bytes: ONE_PIXEL_PNG,
+            targetPixelWidth: 180,
+            targetPixelHeight: 160,
+        })).rejects.toThrow('page 2 does not exist');
     });
 });
 

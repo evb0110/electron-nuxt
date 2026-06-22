@@ -256,11 +256,15 @@ export async function runSerializationWorkerRequest<K extends TSerializationWork
             );
         }
     }).catch(async (error: unknown) => {
-        if (
-            isPdfSerializationWorkerOperationError(error)
-            || isPdfSerializationWorkerTimeoutError(error)
-        ) {
+        if (isPdfSerializationWorkerOperationError(error)) {
             throw error;
+        }
+
+        if (isPdfSerializationWorkerTimeoutError(error)) {
+            if (serializationWorkerClient.isActiveWorker(worker)) {
+                serializationWorkerClient.resetWorker(error);
+            }
+            return runDirectWithYield(typedRequest);
         }
 
         if (serializationWorkerClient.isActiveWorker(worker)) {

@@ -16,15 +16,6 @@ export function buildPdfAnnotationSavePlan(
     ) {
         // FreeText sticky notes are replayed by our serializer. Large scanned PDFs can
         // make PDF.js saveDocument stall, so keep replayable-only note saves off that path.
-        if (input.liveAnnotationChanges.hasUnknownChanges) {
-            return {
-                route: 'source-replay',
-                expectedCost: 'full-document',
-                reason: 'pending-embedded-annotation-operations-with-unknown-live-storage',
-                unreplayableLiveAnnotationIds: [],
-            };
-        }
-
         if (!input.liveAnnotationChanges.hasChanges) {
             return {
                 route: 'source-replay',

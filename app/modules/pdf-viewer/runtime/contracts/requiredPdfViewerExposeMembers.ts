@@ -24,6 +24,7 @@ export const requiredPdfViewerExposeMembers = [
     'preparePersistedManagedShapesForSave',
     'restorePreparedManagedShapesAfterFailedSave',
     'saveDocument',
+    'commitPdfEditorsForSave',
     'clearAnnotationHistory',
     'renderLoadedPdfPagesForBrowserPrint',
     'highlightSelection',

@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
         createWorkingCopyFromPath: vi.fn(),
         savePdfAs: vi.fn(),
     },
+    savePdfBytesToWorkingCopy: vi.fn(),
     shouldRefreshWorkingCopyAfterSaveAs: vi.fn(),
 }));
 
@@ -23,6 +24,7 @@ vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentsCapability: () => mocks.documentsCapability,
     shouldRefreshWorkingCopyAfterSaveAs: mocks.shouldRefreshWorkingCopyAfterSaveAs,
 }));
+vi.mock('@app/services/pdf-file/savePdfBytesToWorkingCopy', () => ({savePdfBytesToWorkingCopy: mocks.savePdfBytesToWorkingCopy}));
 
 function createPersistenceHarness() {
     const state = createDocumentSessionState({ isDesktopRuntime: ref(false) });
@@ -65,6 +67,10 @@ describe('createDocumentPersistence', () => {
         mocks.documentsCapability.cleanupFile.mockResolvedValue(undefined);
         mocks.documentsCapability.createWorkingCopyFromPath.mockResolvedValue('/tmp/new-working.pdf');
         mocks.documentsCapability.savePdfAs.mockResolvedValue('/tmp/saved.pdf');
+        mocks.savePdfBytesToWorkingCopy.mockResolvedValue({
+            isValid: true,
+            errors: [],
+        });
         mocks.shouldRefreshWorkingCopyAfterSaveAs.mockReturnValue(true);
     });
 
@@ -81,5 +87,40 @@ describe('createDocumentPersistence', () => {
         expect(result.outPath).toBe('/tmp/saved.pdf');
         expect(state.originalPath.value).toBe('/tmp/saved.pdf');
         expect(state.workingCopyPath.value).toBe('/tmp/new-working.pdf');
+    });
+
+    it('records a fresh reload source without replacing the visible source when preserving the live session', async () => {
+        const {
+            persistence,
+            state,
+        } = createPersistenceHarness();
+        state.pdfSrc.value = {
+            kind: 'path',
+            path: '/tmp/old-working.pdf',
+            size: 1,
+        };
+
+        const result = await persistence.saveFile(new Uint8Array([
+            1,
+            2,
+            3,
+        ]), { preserveLoadedSource: true });
+
+        expect(result.success).toBe(true);
+        expect(state.pdfSrc.value).toEqual({
+            kind: 'path',
+            path: '/tmp/old-working.pdf',
+            size: 1,
+        });
+        expect(state.pdfReloadSrc.value).toEqual({
+            kind: 'path',
+            path: '/tmp/old-working.pdf',
+            size: 3,
+        });
+        expect(state.pdfData.value).toEqual(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
     });
 });

@@ -23,7 +23,9 @@ function queryAll<T extends Element>(
 
 function removeCompositeOverlay(host: HTMLElement) {
     if (typeof host.querySelector === 'function') {
-        host.querySelector<SVGSVGElement>(`:scope > .${OVERLAY_CLASS}`)?.remove();
+        host.querySelector<SVGSVGElement>(
+            `:scope > .${OVERLAY_CLASS}:not(.${PRESERVE_SNAPSHOT_CLASS})`,
+        )?.remove();
     }
     queryAll<SVGElement>(
         host,

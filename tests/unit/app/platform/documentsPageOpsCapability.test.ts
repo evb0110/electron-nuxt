@@ -80,7 +80,7 @@ describe('createBrowserPageOpsCapability', () => {
             1,
             2,
             3,
-        ], 90);
+        ], 3, 90);
 
         expect(result.success).toBe(true);
         expect(browserDocumentStoreMock.write).toHaveBeenCalledTimes(1);
@@ -159,7 +159,7 @@ describe('createBrowserPageOpsCapability', () => {
             writeBytesToHandle: vi.fn(),
         });
 
-        await expect(pageOps.rotate('/tmp/work.pdf', [4], 90)).rejects.toThrow(
+        await expect(pageOps.rotate('/tmp/work.pdf', [4], 3, 90)).rejects.toThrow(
             'rotatePages: page number 4 is out of range 1-3',
         );
         expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
@@ -193,7 +193,7 @@ describe('createBrowserPageOpsCapability', () => {
         expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
     });
 
-    it('uses the worker for crop mutations above the direct browser budget', async () => {
+    it('uses the worker for crop mutations within the full-read budget', async () => {
         const pdfBytes = new Uint8Array([
             1,
             2,
@@ -207,7 +207,7 @@ describe('createBrowserPageOpsCapability', () => {
             ]),
             pageCount: 1,
         };
-        browserDocumentStoreMock.stat.mockResolvedValue({ size: 120 * 1024 * 1024 });
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
         browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
         browserPageOpsWorkerMock.canUse.mockReturnValue(true);
         browserPageOpsWorkerMock.run.mockResolvedValue(workerResult);
@@ -225,7 +225,7 @@ describe('createBrowserPageOpsCapability', () => {
             writeBytesToHandle: vi.fn(),
         });
 
-        const result = await pageOps.crop('/tmp/work.pdf', [1], {
+        const result = await pageOps.crop('/tmp/work.pdf', [1], 1, {
             top: 12,
             bottom: 8,
             left: 6,
@@ -346,7 +346,7 @@ describe('createBrowserPageOpsCapability', () => {
             writeBytesToHandle: vi.fn(),
         });
 
-        const rotatePromise = pageOps.rotate('/tmp/work.pdf', [1], 90);
+        const rotatePromise = pageOps.rotate('/tmp/work.pdf', [1], 1, 90);
         const deletePromise = pageOps.delete('/tmp/work.pdf', [1], 1);
         await vi.waitFor(() => {
             expect(browserPageOpsWorkerMock.run).toHaveBeenCalledTimes(1);
@@ -362,7 +362,7 @@ describe('createBrowserPageOpsCapability', () => {
         expect(storedBytes).toEqual(new Uint8Array([3]));
     });
 
-    it('uses the worker for geometry inspection above the direct browser budget', async () => {
+    it('rejects geometry inspection above the browser full-read budget', async () => {
         const pdfBytes = new Uint8Array([
             7,
             8,
@@ -395,12 +395,11 @@ describe('createBrowserPageOpsCapability', () => {
             writeBytesToHandle: vi.fn(),
         });
 
-        await expect(pageOps.getPageGeometry('/tmp/work.pdf', 1)).resolves.toEqual(geometry);
-        expect(browserPageOpsWorkerMock.run).toHaveBeenCalledWith('getPageGeometry', {
-            data: pdfBytes,
-            pageNumber: 1,
-        });
-        expect(browserDocumentStoreMock.read).toHaveBeenCalledTimes(1);
+        await expect(pageOps.getPageGeometry('/tmp/work.pdf', 1)).rejects.toThrow(
+            'Inspecting page geometry is unavailable in the browser for PDFs larger than 64MB',
+        );
+        expect(browserPageOpsWorkerMock.run).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
     });
 
     it('returns crop boxes and rotation when inspecting page geometry directly', async () => {
@@ -695,7 +694,7 @@ describe('createBrowserPageOpsCapability', () => {
             1,
             ['browser://documents/picked/image.png'],
         )).rejects.toThrow(
-            'Inserting pages is unavailable in the browser for jobs larger than 96MB',
+            'Inserting pages is unavailable in the browser for PDFs larger than 64MB',
         );
         expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
         expect(createCombinedPdfFromPaths).not.toHaveBeenCalled();

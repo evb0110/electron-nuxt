@@ -9,6 +9,8 @@ interface ISavePdfDocumentWithCommittedEditorsOptions {
     isPdfDocumentCurrent?: (pdfDocument: PDFDocumentProxy) => boolean;
 }
 
+interface ICommitPdfEditorsForSaveOptions {annotationUiManager: AnnotationEditorUIManager | null;}
+
 async function waitForCommittedEditorsToSettle() {
     await nextTick();
 
@@ -50,8 +52,7 @@ export async function savePdfDocumentWithCommittedEditors(
         return null;
     }
 
-    options.annotationUiManager?.commitOrRemove();
-    await waitForCommittedEditorsToSettle();
+    await commitPdfEditorsForSave(options);
     if (!isSaveTargetCurrent(options, pdfDocument)) {
         return null;
     }
@@ -68,4 +69,11 @@ export async function savePdfDocumentWithCommittedEditors(
         }
         throw error;
     }
+}
+
+export async function commitPdfEditorsForSave(
+    options: ICommitPdfEditorsForSaveOptions,
+) {
+    options.annotationUiManager?.commitOrRemove();
+    await waitForCommittedEditorsToSettle();
 }

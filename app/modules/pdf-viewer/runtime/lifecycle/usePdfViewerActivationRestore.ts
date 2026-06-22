@@ -91,23 +91,35 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
         );
     }
 
-    function hasRenderedContentInRange(range: IPageRange) {
+    function hasRenderedContentForPage(pageNumber: number) {
+        if (!viewerContainer.value) {
+            return false;
+        }
+
+        return isPageRendered(pageNumber) || hasMountedPageCanvas(pageNumber);
+    }
+
+    function hasRenderedContentForEveryPageInRange(range: IPageRange) {
         if (!viewerContainer.value) {
             return false;
         }
 
         for (let page = range.start; page <= range.end; page += 1) {
-            if (isPageRendered(page) || hasMountedPageCanvas(page)) {
-                return true;
+            if (!hasRenderedContentForPage(page)) {
+                return false;
             }
         }
 
-        return false;
+        return true;
     }
 
-    function isActiveDocumentRestoreRunCurrent(runId: number) {
+    function isActiveDocumentRestoreRunCurrent(
+        runId: number,
+        document: PDFDocumentProxy | null = pdfDocument.value,
+    ) {
         return isActivationRunCurrent(runId)
-            && Boolean(pdfDocument.value);
+            && Boolean(document)
+            && pdfDocument.value === document;
     }
 
     function isActivationRunCurrent(runId: number) {
@@ -168,22 +180,26 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
     }
 
     async function renderActiveDocumentAfterActivation(runId: number) {
+        const document = pdfDocument.value;
         if (!await waitForActivationViewerContainer(runId)) {
             return;
         }
         await restoreCurrentPageViewportForActivation();
-        if (!isActiveDocumentRestoreRunCurrent(runId)) {
+        if (!isActiveDocumentRestoreRunCurrent(runId, document)) {
             return;
         }
 
         const activationRange = { ...visibleRange.value };
         await renderVisiblePages(activationRange, { preserveRenderedPages: true });
-        if (!isActiveDocumentRestoreRunCurrent(runId)) {
+        if (!isActiveDocumentRestoreRunCurrent(runId, document)) {
             return;
         }
 
         const currentRow = getCurrentPageRowRange();
-        if (hasRenderedContentInRange(currentRow)) {
+        if (
+            hasRenderedContentForPage(currentPage.value)
+            && hasRenderedContentForEveryPageInRange(currentRow)
+        ) {
             applySearchHighlights();
             return;
         }
@@ -192,7 +208,7 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
             scrollToPage(currentPage.value);
             await waitForActivationRenderFrame();
             updateVisibleRange(viewerContainer.value, numPages.value);
-            if (!isActiveDocumentRestoreRunCurrent(runId)) {
+            if (!isActiveDocumentRestoreRunCurrent(runId, document)) {
                 return;
             }
         }
@@ -202,7 +218,7 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
             forceRerender: true,
             bufferOverride: 0,
         });
-        if (!isActiveDocumentRestoreRunCurrent(runId)) {
+        if (!isActiveDocumentRestoreRunCurrent(runId, document)) {
             return;
         }
         applySearchHighlights();

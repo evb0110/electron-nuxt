@@ -25,6 +25,7 @@ const highlightPageMock = vi.fn<THighlightPageMock>(() => ({
     elements: [],
     currentMatchRanges: [],
 }));
+const clearHighlightsMock = vi.hoisted(() => vi.fn());
 const renderPageWordBoxesMock = vi.fn();
 const clearWordBoxesMock = vi.fn();
 const ocrTextContentMock = vi.hoisted(() => ({
@@ -39,7 +40,7 @@ vi.stubGlobal('DOMMatrix', class {
 });
 
 vi.mock('@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight', () => ({usePdfSearchHighlight: () => ({
-    clearHighlights: vi.fn(),
+    clearHighlights: clearHighlightsMock,
     highlightPage: highlightPageMock,
     scrollToHighlight: vi.fn(),
     getCurrentMatchRanges: vi.fn(() => []),
@@ -131,6 +132,7 @@ describe('usePdfTextLayerRenderer', () => {
             elements: [],
             currentMatchRanges: [],
         });
+        clearHighlightsMock.mockClear();
     });
 
     it('prefers embedded pdf.js text content over OCR sidecar text when a page already has text', async () => {
@@ -810,5 +812,59 @@ describe('usePdfTextLayerRenderer', () => {
 
         expect(didScroll).toBe(true);
         expect(root.scrollLeft).toBeGreaterThan(1000);
+    });
+
+    it('clears existing highlights before replacing text-layer DOM', async () => {
+        const renderer = usePdfTextLayerRenderer({
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+            effectiveScale: ref(1),
+        });
+        const textLayerDiv = document.createElement('div');
+        textLayerDiv.textContent = 'stale';
+
+        await renderer.renderTextLayer(
+            cast<PDFPageProxy>({
+                pageNumber: 1,
+                getTextContent: vi.fn().mockResolvedValue({items: []}),
+            }),
+            textLayerDiv,
+            cast<ReturnType<PDFPageProxy['getViewport']>>({
+                width: 100,
+                height: 100,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 100,
+                    pageHeight: 100,
+                },
+            }),
+            1,
+            1,
+            1,
+        );
+
+        expect(clearHighlightsMock).toHaveBeenCalledWith(textLayerDiv);
+    });
+
+    it('clears highlights when search state is empty after rerender', () => {
+        const renderer = usePdfTextLayerRenderer({
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+            effectiveScale: ref(1),
+        });
+        const container = document.createElement('div');
+        const textLayerDiv = document.createElement('div');
+
+        renderer.applyPageSearchHighlights(
+            container,
+            textLayerDiv,
+            1,
+            null,
+        );
+
+        expect(clearHighlightsMock).toHaveBeenCalledWith(textLayerDiv);
+        expect(clearWordBoxesMock).toHaveBeenCalledWith(container);
     });
 });

@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
     isAllowedOriginalSavePath: vi.fn(),
     getNativeToolPaths: vi.fn(),
     runNativeToolCommand: vi.fn(),
+    copyFileCopyOnWrite: vi.fn(),
 }));
 
 vi.mock('@electron/utils/atomicReplace', () => ({
@@ -48,6 +49,7 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     normalizePathForLookup: (path: string) => path.trim(),
 }));
 vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args)}));
+vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
 vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths: (...args: unknown[]) => mocks.getNativeToolPaths(...args)}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 
@@ -73,6 +75,9 @@ describe('workingCopySave', () => {
             signal: null,
             stdout: '',
             stderr: '',
+        });
+        mocks.copyFileCopyOnWrite.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            await writeFile(targetPath, await readFile(sourcePath));
         });
     });
 
@@ -153,6 +158,26 @@ describe('workingCopySave', () => {
         expect(readFileSyncUtf8(workingPath)).toBe('old-original');
         expect(readFileSyncUtf8(originalPath)).toBe('external-change');
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
+    });
+
+    it('reports serialized save success with a warning when copy-back fails after replacing the original', async () => {
+        const workingPath = join(tempRoot, 'copyback-working.pdf');
+        const originalPath = join(tempRoot, 'copyback-original.pdf');
+        writeFileSync(workingPath, 'old-working');
+        writeFileSync(originalPath, 'old-original');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        mocks.copyFileCopyOnWrite.mockRejectedValueOnce(new Error('copy-back failed'));
+        const { handleSerializedPdfSave } = await import('@electron/features/documents/main/workingCopySave');
+
+        await expect(handleSerializedPdfSave(event, workingPath, Buffer.from('serialized-pdf')))
+            .resolves
+            .toMatchObject({
+                isValid: true,
+                warnings: [expect.stringContaining('copy-back failed')],
+            });
+
+        expect(readFileSyncUtf8(originalPath)).toBe('serialized-pdf');
+        expect(readFileSyncUtf8(workingPath)).toBe('old-working');
     });
 
     it('repairs through qpdf before atomically replacing the original and working copy', async () => {

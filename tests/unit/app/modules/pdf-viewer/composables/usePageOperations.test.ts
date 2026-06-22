@@ -130,7 +130,7 @@ describe('usePageOperations', () => {
         const rotatePromise = pageOps.rotatePages([
             2,
             4,
-        ], 90);
+        ], 10, 90);
         expect(pageOps.isOperationInProgress.value).toBe(true);
 
         pendingRotate.resolve({ success: true });
@@ -139,7 +139,7 @@ describe('usePageOperations', () => {
         expect(pageOpsApi.rotate).toHaveBeenCalledWith('/tmp/work.pdf', [
             2,
             4,
-        ], 90);
+        ], 10, 90);
         expect(ensureHistoryBaselineForExternalMutation).toHaveBeenCalledOnce();
         expect(clearOcrCache).toHaveBeenCalledWith('/tmp/work.pdf');
         expect(resetSearchCache).toHaveBeenCalledOnce();
@@ -207,9 +207,9 @@ describe('usePageOperations', () => {
             return false;
         });
 
-        await expect(pageOps.rotatePages([1], 90)).resolves.toBe(false);
+        await expect(pageOps.rotatePages([1], 10, 90)).resolves.toBe(false);
 
-        expect(pageOpsApi.rotate).toHaveBeenCalledWith('/tmp/work.pdf', [1], 90);
+        expect(pageOpsApi.rotate).toHaveBeenCalledWith('/tmp/work.pdf', [1], 10, 90);
         expect(reloadWorkingCopyIntoHistory).toHaveBeenCalledWith({ markDirty: true });
     });
 
@@ -245,7 +245,7 @@ describe('usePageOperations', () => {
         const { pageOps } = createHarness('/tmp/work.pdf', { runWithDocumentOperationLease });
         pageOpsApi.rotate.mockResolvedValueOnce({ success: true });
 
-        const rotatePromise = pageOps.rotatePages([1], 90);
+        const rotatePromise = pageOps.rotatePages([1], 10, 90);
         await Promise.resolve();
 
         expect(runWithDocumentOperationLeaseSpy).toHaveBeenCalledWith('page-operation', expect.any(Function));
@@ -255,7 +255,7 @@ describe('usePageOperations', () => {
         leaseRelease.resolve(undefined);
         await expect(rotatePromise).resolves.toBe(true);
 
-        expect(pageOpsApi.rotate).toHaveBeenCalledWith('/tmp/work.pdf', [1], 90);
+        expect(pageOpsApi.rotate).toHaveBeenCalledWith('/tmp/work.pdf', [1], 10, 90);
         expect(pageOps.isOperationInProgress.value).toBe(false);
     });
 

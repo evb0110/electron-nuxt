@@ -31,6 +31,8 @@ interface IPdfPreloadedRange {
     data: Uint8Array;
 }
 
+const MAX_AGGREGATE_PDF_RANGE_BYTES = 32 * 1024 * 1024;
+
 function destroyPdfDocumentDeferred(
     document: PDFDocumentProxy,
     message: string,
@@ -419,6 +421,7 @@ export const usePdfDocument = () => {
             'Failed to destroy PDF loading task after load failure',
         );
         revokeActiveObjectUrl();
+        clearAcceptedDocumentState();
     }
 
     function destroyLoadingTaskAfterRangeReadFailure() {
@@ -426,6 +429,36 @@ export const usePdfDocument = () => {
             'PDF loading task destroy rejected after range read failure',
             'Failed to destroy PDF loading task after range read failure',
         );
+    }
+
+    function clearAcceptedDocumentState() {
+        cleanupPageCache();
+        pageMetricLoads.clear();
+        if (pdfDocument.value) {
+            destroyPdfDocumentDeferred(pdfDocument.value, 'Failed to destroy PDF document after load failure');
+            pdfDocument.value = null;
+        }
+        numPages.value = 0;
+        resetLoadMetadata();
+    }
+
+    function invalidateDocumentAfterRangeReadFailure(version: number) {
+        if (version !== renderVersion) {
+            return;
+        }
+
+        if (!pdfDocument.value) {
+            abortActiveRangeTransport('Failed to abort PDF range transport after range read failure');
+            destroyLoadingTaskAfterRangeReadFailure();
+            return;
+        }
+
+        incrementRenderVersion();
+        isLoading.value = false;
+        abortActiveRangeTransport('Failed to abort PDF range transport after range read failure');
+        destroyLoadingTaskAfterRangeReadFailure();
+        revokeActiveObjectUrl();
+        clearAcceptedDocumentState();
     }
 
     function createRangeReadFailureHandler() {
@@ -476,6 +509,9 @@ export const usePdfDocument = () => {
         const totalLength = end - begin;
         if (!Number.isSafeInteger(totalLength) || totalLength <= 0) {
             throw new Error(`Invalid PDF range request ${begin}..${end}`);
+        }
+        if (totalLength > MAX_AGGREGATE_PDF_RANGE_BYTES) {
+            throw new Error(`PDF range request ${begin}..${end} exceeds ${MAX_AGGREGATE_PDF_RANGE_BYTES} byte limit`);
         }
 
         const preloadedRange = preloadedRanges.find((range) => {
@@ -615,7 +651,7 @@ export const usePdfDocument = () => {
                         error,
                     );
                     failRangeRead(error);
-                    destroyLoadingTaskAfterRangeReadFailure();
+                    invalidateDocumentAfterRangeReadFailure(version);
                 }
             })();
         };

@@ -16,18 +16,21 @@ export async function applyPlacedImage(
     doc: PDFDocument,
     placement: IPdfSerializedPlacedImagePayload | null,
 ) {
-    if (!placement || placement.bytes.length === 0) {
+    if (!placement) {
         return false;
+    }
+    if (placement.bytes.length === 0) {
+        throw new Error('Unable to apply placed image: image payload is empty');
     }
 
     const page = doc.getPages()[placement.pageNumber - 1];
     if (!page) {
-        return false;
+        throw new Error(`Unable to apply placed image: page ${placement.pageNumber} does not exist`);
     }
 
     const pageView = tryResolvePdfLibPageView(page);
     if (!pageView) {
-        return false;
+        throw new Error(`Unable to apply placed image: page ${placement.pageNumber} view is unavailable`);
     }
 
     const embedMimeType = placement.mimeType;
@@ -43,7 +46,7 @@ export async function applyPlacedImage(
         height: placement.height,
     }, pageView, pageRotation);
     if (!pdfRect) {
-        return false;
+        throw new Error('Unable to apply placed image: placement rectangle is invalid');
     }
 
     const x = Math.min(pdfRect[0], pdfRect[2]);
@@ -51,7 +54,7 @@ export async function applyPlacedImage(
     const width = Math.abs(pdfRect[2] - pdfRect[0]);
     const height = Math.abs(pdfRect[3] - pdfRect[1]);
     if (width <= 0 || height <= 0) {
-        return false;
+        throw new Error('Unable to apply placed image: placement rectangle has no area');
     }
 
     const rotationDegrees = 0 - (placement.rotationDegrees ?? 0);

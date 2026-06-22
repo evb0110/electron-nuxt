@@ -137,8 +137,11 @@ export interface IFileOperationsDeps {
     markNativeFreeTextNotesSaved?: (notes: IPdfNativeFreeTextNote[]) => void;
     markNativeFreeTextNotesDeleted?: (deletes: IPdfNativeAnnotationDelete[]) => void;
     markAnnotationSaved: (opts?: { preserveLivePdfjsSession?: boolean }) => void;
+    getAnnotationSaveStateToken?: () => unknown;
     markPageLabelsSaved: () => void;
+    getPageLabelsSaveStateToken?: () => unknown;
     markBookmarksSaved: () => void;
+    getBookmarksSaveStateToken?: () => unknown;
     hasAnnotationChanges: () => boolean;
     hasLivePdfJsAnnotationChanges?: () => boolean;
     hasSavedPdfJsAnnotationBaselineChanges?: () => boolean;
@@ -163,6 +166,7 @@ export interface IFileOperationsDeps {
         },
     ) => Promise<Uint8Array>;
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
+    commitPdfEditorsForSave?: () => Promise<void>;
     consumePendingEmbeddedTextUpdates: () => Map<string, string> | null;
     restorePendingEmbeddedTextUpdates?: (updates: Map<string, string> | null | undefined) => void;
     consumePendingEmbeddedAnnotationDeletes: () => IAnnotationCommentSummary[] | null;
@@ -227,6 +231,7 @@ interface ISaveFlowContext {
     expectedOriginalPath: TDocumentRef | null;
     expectedWorkingPath: TDocumentRef | null;
     forcePdfjsMaterialize: boolean;
+    saveStateSnapshot: ISaveStateSnapshot;
     hasPendingDeletes: boolean;
     hasPendingTexts: boolean;
     includeManagedShapesForLiveSource: boolean;
@@ -242,6 +247,12 @@ interface ISaveFlowContext {
 }
 
 type TSavePath = 'working-copy' | 'native-mutations';
+
+interface ISaveStateSnapshot {
+    annotation: unknown;
+    pageLabels: unknown;
+    bookmarks: unknown;
+}
 
 export const useFileOperations = (deps: IFileOperationsDeps) => {
     const analytics = useAnalytics();
@@ -275,8 +286,11 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         markNativeFreeTextNotesSaved,
         markNativeFreeTextNotesDeleted,
         markAnnotationSaved,
+        getAnnotationSaveStateToken,
         markPageLabelsSaved,
+        getPageLabelsSaveStateToken,
         markBookmarksSaved,
+        getBookmarksSaveStateToken,
         hasAnnotationChanges,
         hasLivePdfJsAnnotationChanges,
         hasSavedPdfJsAnnotationBaselineChanges,
@@ -291,6 +305,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         getAnnotationCommentsSnapshot,
         serializePdfForSave,
         persistAllAnnotationNotes,
+        commitPdfEditorsForSave,
         consumePendingEmbeddedTextUpdates,
         restorePendingEmbeddedTextUpdates,
         consumePendingEmbeddedAnnotationDeletes,
@@ -480,15 +495,40 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         markShapeStateSaved?: boolean | undefined;
         preserveLivePdfjsSession?: boolean | undefined;
         resetAnnotationStorage?: boolean | undefined;
+        saveStateSnapshot?: ISaveStateSnapshot | undefined;
+    }
+
+    function isSaveStateTokenUnchanged(
+        snapshotToken: unknown,
+        getCurrentToken: (() => unknown) | undefined,
+    ) {
+        return !getCurrentToken || Object.is(getCurrentToken(), snapshotToken);
+    }
+
+    function captureSaveStateSnapshot(): ISaveStateSnapshot {
+        return {
+            annotation: getAnnotationSaveStateToken?.(),
+            pageLabels: getPageLabelsSaveStateToken?.(),
+            bookmarks: getBookmarksSaveStateToken?.(),
+        };
     }
 
     function completeSuccessfulSaveState(opts?: ISuccessfulSaveStateCompletionOptions) {
-        if (opts?.resetAnnotationStorage !== false) {
-            pdfDocument.value?.annotationStorage?.resetModified();
+        const snapshot = opts?.saveStateSnapshot;
+        const shouldMarkAnnotationSaved = !snapshot
+            || isSaveStateTokenUnchanged(snapshot.annotation, getAnnotationSaveStateToken);
+        if (shouldMarkAnnotationSaved) {
+            if (opts?.resetAnnotationStorage !== false) {
+                pdfDocument.value?.annotationStorage?.resetModified();
+            }
+            markAnnotationSaved({ preserveLivePdfjsSession: opts?.preserveLivePdfjsSession === true });
         }
-        markAnnotationSaved({ preserveLivePdfjsSession: opts?.preserveLivePdfjsSession === true });
-        markPageLabelsSaved();
-        markBookmarksSaved();
+        if (!snapshot || isSaveStateTokenUnchanged(snapshot.pageLabels, getPageLabelsSaveStateToken)) {
+            markPageLabelsSaved();
+        }
+        if (!snapshot || isSaveStateTokenUnchanged(snapshot.bookmarks, getBookmarksSaveStateToken)) {
+            markBookmarksSaved();
+        }
         if (opts?.markShapeStateSaved !== false) {
             markShapeStateSaved?.();
             if (opts?.preserveLivePdfjsSession !== true) {
@@ -498,10 +538,11 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     }
 
     function finalizeSuccessfulSave(result: IPdfPersistResult, opts?: {
-        completeSaveState?: boolean;
-        markShapeStateSaved?: boolean;
-        preserveLivePdfjsSession?: boolean;
-        resetAnnotationStorage?: boolean;
+        completeSaveState?: boolean | undefined;
+        markShapeStateSaved?: boolean | undefined;
+        preserveLivePdfjsSession?: boolean | undefined;
+        resetAnnotationStorage?: boolean | undefined;
+        saveStateSnapshot?: ISaveStateSnapshot | undefined;
     }) {
         if (!result.success) {
             return false;
@@ -524,6 +565,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 markShapeStateSaved: opts?.markShapeStateSaved,
                 preserveLivePdfjsSession: opts?.preserveLivePdfjsSession,
                 resetAnnotationStorage: opts?.resetAnnotationStorage,
+                saveStateSnapshot: opts?.saveStateSnapshot,
             });
         }
 
@@ -843,6 +885,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             markShapeStateSavedOnSuccess?: boolean;
             preserveLivePdfjsSessionOnSuccess?: boolean;
             resetAnnotationStorageOnSuccess?: boolean;
+            saveStateSnapshot?: ISaveStateSnapshot;
         },
     ) {
         if (!saveSucceeded) {
@@ -856,6 +899,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     markShapeStateSaved: opts.markShapeStateSavedOnSuccess,
                     preserveLivePdfjsSession: opts.preserveLivePdfjsSessionOnSuccess,
                     resetAnnotationStorage: opts.resetAnnotationStorageOnSuccess,
+                    saveStateSnapshot: opts.saveStateSnapshot,
                 });
             }
             return;
@@ -869,6 +913,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     markShapeStateSaved: opts.markShapeStateSavedOnSuccess,
                     preserveLivePdfjsSession: opts.preserveLivePdfjsSessionOnSuccess,
                     resetAnnotationStorage: opts.resetAnnotationStorageOnSuccess,
+                    saveStateSnapshot: opts.saveStateSnapshot,
                 });
             }
         });
@@ -953,6 +998,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         ) => Promise<IPdfPersistResult>,
         preserveLoadedSource: boolean,
         expectedWorkingPath: TDocumentRef | null = null,
+        saveStateSnapshot?: ISaveStateSnapshot,
     ) {
         let preparedShapeStateSnapshot: unknown = null;
         try {
@@ -980,6 +1026,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 completeSaveState: !reloadWaiter,
                 markShapeStateSaved: !reloadWaiter,
                 preserveLivePdfjsSession: preserveLoadedSource && !reloadWaiter,
+                saveStateSnapshot,
             })) {
                 preparedShapeStateSnapshot = null;
                 trackSaveCompleted(mode, persisted, true);
@@ -1003,6 +1050,10 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         }
 
         return true;
+    }
+
+    async function commitActivePdfEditorsForSave() {
+        await commitPdfEditorsForSave?.();
     }
 
     function consumePendingEmbeddedAnnotationChanges() {
@@ -1060,7 +1111,12 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         if (!await persistOpenAnnotationNotes(config.persistOpenNotesAbortMessage)) {
             return null;
         }
+        await timedSavePhase(
+            'commit-pdf-editors-for-save',
+            commitActivePdfEditorsForSave,
+        );
 
+        const saveStateSnapshot = captureSaveStateSnapshot();
         const pendingChanges = consumePendingEmbeddedAnnotationChanges();
         const shapeStateDirty = hasShapeChanges?.() ?? false;
         const dirtyState = collectDocumentDirtyState({
@@ -1084,6 +1140,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             expectedOriginalPath,
             expectedWorkingPath,
             forcePdfjsMaterialize,
+            saveStateSnapshot,
             hasPendingDeletes: pendingChanges.hasPendingDeletes,
             hasPendingTexts: pendingChanges.hasPendingTexts,
             includeManagedShapesForLiveSource,
@@ -1168,12 +1225,14 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             config.mode,
             config.persistUnserialized,
             context.expectedWorkingPath,
+            context.saveStateSnapshot,
         );
         clearSaveIndicator(config.mode);
         await finalizeSaveReload(context.reloadWaiter.current, saveSucceeded, {
             completeSaveStateOnSuccess: Boolean(context.reloadWaiter.current),
             markShapeStateSavedOnSuccess: Boolean(context.reloadWaiter.current),
             resetAnnotationStorageOnSuccess: false,
+            saveStateSnapshot: context.saveStateSnapshot,
         });
         context.reloadWaiter.markFinalized();
         return saveSucceeded;
@@ -1189,12 +1248,14 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             config.mode,
             config.persistRepair,
             context.expectedWorkingPath,
+            context.saveStateSnapshot,
         );
         clearSaveIndicator(config.mode);
         await finalizeSaveReload(context.reloadWaiter.current, saveSucceeded, {
             completeSaveStateOnSuccess: Boolean(context.reloadWaiter.current),
             markShapeStateSavedOnSuccess: Boolean(context.reloadWaiter.current),
             resetAnnotationStorageOnSuccess: false,
+            saveStateSnapshot: context.saveStateSnapshot,
         });
         context.reloadWaiter.markFinalized();
         return saveSucceeded;
@@ -1326,6 +1387,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             completeSaveState: true,
             markShapeStateSaved: canMarkShapeStateSaved,
             preserveLivePdfjsSession: true,
+            saveStateSnapshot: context.saveStateSnapshot,
         });
         if (saveSucceeded) {
             if (nativeMutationPlan.freeTextNotes.length) {
@@ -1444,6 +1506,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 context.includeManagedShapesForLiveSource,
                 config.forceRewrite === true,
                 persistenceExpectedWorkingPath,
+                context.saveStateSnapshot,
                 () => clearSaveIndicator(config.mode),
             );
         }
@@ -1533,6 +1596,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         ) => Promise<IPdfPersistResult>,
         preserveLoadedSource = false,
         expectedWorkingPath: TDocumentRef | null = null,
+        saveStateSnapshot?: ISaveStateSnapshot,
     ) {
         if (!rawData) {
             return false;
@@ -1557,6 +1621,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             persist,
             preserveLoadedSource,
             expectedWorkingPath,
+            saveStateSnapshot,
         );
     }
 
@@ -1570,6 +1635,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             expectedWorkingPath?: TDocumentRef | null;
         }) => Promise<IPdfPersistResult>,
         expectedWorkingPath: TDocumentRef | null,
+        saveStateSnapshot?: ISaveStateSnapshot,
     ) {
         const saveResult = await validateWorkingCopySnapshot(saveMode);
         if (!saveResult) {
@@ -1602,6 +1668,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             completeSaveState: !reloadWaiter,
             markShapeStateSaved: !reloadWaiter,
             resetAnnotationStorage: false,
+            saveStateSnapshot,
         })) {
             return false;
         }
@@ -1619,6 +1686,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             expectedWorkingPath?: TDocumentRef | null;
         }) => Promise<IPdfPersistResult>,
         expectedWorkingPath: TDocumentRef | null,
+        saveStateSnapshot?: ISaveStateSnapshot,
     ) {
         if (!expectedWorkingPath || workingCopyPath.value !== expectedWorkingPath) {
             BrowserLogger.debug('workspace', 'Skipped stale repair persistence before native repair', {
@@ -1645,6 +1713,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             completeSaveState: !reloadWaiter,
             markShapeStateSaved: !reloadWaiter,
             resetAnnotationStorage: false,
+            saveStateSnapshot,
         })) {
             return false;
         }
@@ -1670,6 +1739,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         includeManagedShapesForLiveSource = false,
         forceRewrite = false,
         expectedWorkingPath: TDocumentRef | null,
+        saveStateSnapshot: ISaveStateSnapshot,
         onPersistenceSettled?: () => void,
     ) {
         const saveSucceeded = await saveSerializedChanges(
@@ -1686,11 +1756,13 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             persist,
             preserveLoadedSource,
             expectedWorkingPath,
+            saveStateSnapshot,
         );
         onPersistenceSettled?.();
         await finalizeSaveReload(reloadWaiter, saveSucceeded, {
             completeSaveStateOnSuccess: Boolean(reloadWaiter),
             markShapeStateSavedOnSuccess: Boolean(reloadWaiter),
+            saveStateSnapshot,
         });
         return saveSucceeded;
     }

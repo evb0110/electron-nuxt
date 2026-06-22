@@ -77,6 +77,7 @@ interface IAnnotationEditorLike {
 interface IUsePdfViewerDocumentLifecycleOptions {
     viewerContainer: Ref<HTMLElement | null>;
     src: ComputedRef<TPdfSource | null>;
+    reloadSrc?: ComputedRef<TPdfSource | null> | undefined;
     zoom: ComputedRef<number>;
     zoomMode: ComputedRef<TZoomMode>;
     effectiveScale: Ref<number>;
@@ -394,6 +395,13 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         });
     }
 
+    function releasePlanPreservedVisualSnapshotNow(
+        plan: IReloadPlan,
+        reason: string,
+    ) {
+        releasePreservedVisualSnapshotNow(plan.preservedVisibleContent, reason);
+    }
+
     function capturePreservedVisibleContentState(
         request?: IPreservedVisibleContentRequest,
     ): IPreservedVisibleContentState {
@@ -511,6 +519,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             return;
         }
 
+        releasePlanPreservedVisualSnapshotNow(plan, 'preserved-load-failure');
         options.emit('update:document', null);
         options.cleanupRenderedPages();
         options.editor.destroyAnnotationEditor();
@@ -720,9 +729,15 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         };
     }
 
-    function loadPdfForPlan(plan: IReloadPlan) {
+    function resolveLoadSourceForPlan(isReload: boolean) {
+        return isReload
+            ? options.reloadSrc?.value ?? options.src.value
+            : options.src.value;
+    }
+
+    function loadPdfForPlan(plan: IReloadPlan, isReload: boolean) {
         return options.loadPdf(
-            options.src.value as TPdfSource,
+            resolveLoadSourceForPlan(isReload) as TPdfSource,
             plan.isSelectiveReload || plan.shouldPreserveVisibleContent
                 ? { preservePageStructure: true }
                 : undefined,
@@ -903,8 +918,9 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
 
             applyPreLoadStateReset(plan, isReload);
 
-            const loaded = await loadPdfForPlan(plan);
+            const loaded = await loadPdfForPlan(plan, isReload);
             if (!isDocumentLoadActive(activeLoadToken)) {
+                releasePlanPreservedVisualSnapshotNow(plan, 'load-superseded');
                 settleVisualReloadTransition('load-superseded');
                 return;
             }
@@ -914,6 +930,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 return;
             }
             if (!isLoadedDocumentVersionActive(loaded.version)) {
+                releasePlanPreservedVisualSnapshotNow(plan, 'load-version-superseded');
                 settleVisualReloadTransition('load-version-superseded');
                 return;
             }
@@ -927,6 +944,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                     options.currentPage.value,
                 );
                 if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
+                    releasePlanPreservedVisualSnapshotNow(plan, 'metric-prime-superseded');
                     settleVisualReloadTransition('metric-prime-superseded');
                     return;
                 }
@@ -936,6 +954,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             restorePreservedScrollPosition(plan, preservedScrollPosition);
             await options.beforeInitialRender?.();
             if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
+                releasePlanPreservedVisualSnapshotNow(plan, 'before-initial-render-superseded');
                 settleVisualReloadTransition('before-initial-render-superseded');
                 return;
             }
@@ -948,6 +967,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                     options.emit('update:zoom', nextZoom);
                     await waitForZoomPropSync(nextZoom);
                     if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
+                        releasePlanPreservedVisualSnapshotNow(plan, 'zoom-sync-superseded');
                         settleVisualReloadTransition('zoom-sync-superseded');
                         return;
                     }
@@ -961,6 +981,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                         viewportInteractionEpoch,
                     );
                     if (!reconciled) {
+                        releasePlanPreservedVisualSnapshotNow(plan, 'fresh-scroll-superseded');
                         settleVisualReloadTransition('fresh-scroll-superseded');
                         return;
                     }
@@ -969,6 +990,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                     options.scrollToPage(options.currentPage.value);
                     await nextTick();
                     if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
+                        releasePlanPreservedVisualSnapshotNow(plan, 'restore-scroll-superseded');
                         settleVisualReloadTransition('restore-scroll-superseded');
                         return;
                     }
@@ -983,6 +1005,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             try {
                 await renderInitialLoadedPage(plan, preservedScrollPosition);
                 if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
+                    releasePlanPreservedVisualSnapshotNow(plan, 'initial-render-superseded');
                     settleVisualReloadTransition('initial-render-superseded');
                     return;
                 }
@@ -999,6 +1022,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                     options.scrollToPage(options.currentPage.value);
                     await nextTick();
                     if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
+                        releasePlanPreservedVisualSnapshotNow(plan, 'post-render-scroll-superseded');
                         settleVisualReloadTransition('post-render-scroll-superseded');
                         return;
                     }
@@ -1009,11 +1033,13 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 } else {
                     await options.syncCurrentPageFromViewport({ source: 'load-from-source' });
                     if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
+                        releasePlanPreservedVisualSnapshotNow(plan, 'current-page-sync-superseded');
                         settleVisualReloadTransition('current-page-sync-superseded');
                         return;
                     }
                 }
             } catch (error) {
+                releasePlanPreservedVisualSnapshotNow(plan, 'initial-render-error');
                 settleVisualReloadTransition('initial-render-error');
                 logAsyncStageError('render visible pages after source load', error);
             }

@@ -56,6 +56,7 @@ interface IPdfViewerForSave {
     getDeletedEmbeddedShapeAnnotationIds: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
     hasShapes?: boolean | Ref<boolean>;
+    commitPdfEditorsForSave?: () => Promise<void>;
 }
 
 interface IOcrCompletePayload extends IOcrSearchablePdfResult {
@@ -106,8 +107,11 @@ interface IPageSaveOrchestrationDeps extends TSharedSaveOperationDeps {
     markNativeFreeTextNotesSaved?: IFileOperationsDeps['markNativeFreeTextNotesSaved'];
     markNativeFreeTextNotesDeleted?: IFileOperationsDeps['markNativeFreeTextNotesDeleted'];
     markAnnotationSaved: (opts?: { preserveLivePdfjsSession?: boolean }) => void;
+    getAnnotationSaveStateToken?: () => unknown;
     markPageLabelsSaved: () => void;
+    getPageLabelsSaveStateToken?: () => unknown;
     markBookmarksSaved: () => void;
+    getBookmarksSaveStateToken?: () => unknown;
     isDirty: Ref<boolean>;
     hasPendingUnsavedChanges?: ComputedRef<boolean>;
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
@@ -158,8 +162,11 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         markNativeFreeTextNotesSaved,
         markNativeFreeTextNotesDeleted,
         markAnnotationSaved,
+        getAnnotationSaveStateToken,
         markPageLabelsSaved,
+        getPageLabelsSaveStateToken,
         markBookmarksSaved,
+        getBookmarksSaveStateToken,
         isDirty,
         hasPendingUnsavedChanges,
         validatePdfPath,
@@ -230,6 +237,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         untitledBookmarkLabel: t('bookmarks.untitled'),
         pdfDocument,
         saveDocument: () => pdfViewerRef.value?.saveDocument() ?? Promise.resolve(null),
+        commitPdfEditorsForSave: () => pdfViewerRef.value?.commitPdfEditorsForSave?.() ?? Promise.resolve(),
         getSourcePdfData,
         validatePdfPath,
         saveFile,
@@ -241,8 +249,11 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         saveWorkingCopyAs,
         ...(deps.optimizePdfOnSaveAs !== undefined ? { optimizePdfOnSaveAs: deps.optimizePdfOnSaveAs } : {}),
         markAnnotationSaved,
+        ...(getAnnotationSaveStateToken ? { getAnnotationSaveStateToken } : {}),
         markPageLabelsSaved,
+        ...(getPageLabelsSaveStateToken ? { getPageLabelsSaveStateToken } : {}),
         markBookmarksSaved,
+        ...(getBookmarksSaveStateToken ? { getBookmarksSaveStateToken } : {}),
         hasAnnotationChanges,
         ...(hasLivePdfJsAnnotationChanges ? { hasLivePdfJsAnnotationChanges } : {}),
         ...(hasSavedPdfJsAnnotationBaselineChanges ? { hasSavedPdfJsAnnotationBaselineChanges } : {}),

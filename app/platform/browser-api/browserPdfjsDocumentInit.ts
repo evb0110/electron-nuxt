@@ -51,11 +51,16 @@ async function createPdfjsDocumentInitFromBrowserDocument(
     options: ICreateBrowserPdfjsDocumentInitOptions = {},
 ) {
     const { size } = await browserDocumentStore.stat(path);
+    const contentSignature = await browserDocumentStore.getContentSignature(path);
     const initialData = await browserDocumentStore.readRange(
         path,
         0,
         Math.min(size, PDFJS_RANGE_CHUNK_SIZE),
     );
+    await assertBrowserDocumentUnchanged(path, size, contentSignature);
+    if (initialData.byteLength !== Math.min(size, PDFJS_RANGE_CHUNK_SIZE)) {
+        throw new Error(`Browser PDF source returned ${initialData.byteLength} bytes for initial ${Math.min(size, PDFJS_RANGE_CHUNK_SIZE)} byte range`);
+    }
 
     if (size <= PDFJS_RANGE_CHUNK_SIZE) {
         return createPdfjsDocumentInit(pdfjsLib, initialData);
@@ -82,11 +87,15 @@ async function createPdfjsDocumentInitFromBrowserDocument(
 
         private async loadRange(begin: number, end: number) {
             try {
-                const chunk = await browserDocumentStore.readRange(
+                const length = end - begin;
+                await assertBrowserDocumentUnchanged(path, size, contentSignature);
+                const chunk = await readCompleteBrowserDocumentRange(
                     path,
                     begin,
-                    Math.max(0, end - begin),
+                    Math.max(0, length),
+                    end,
                 );
+                await assertBrowserDocumentUnchanged(path, size, contentSignature);
                 if (this.aborted) {
                     return;
                 }
@@ -117,6 +126,59 @@ async function createPdfjsDocumentInitFromBrowserDocument(
         useSystemFonts: false,
     } satisfies TPdfjsDocumentInit;
     return init;
+}
+
+async function assertBrowserDocumentUnchanged(
+    path: string,
+    expectedSize: number,
+    expectedContentSignature: string,
+) {
+    const [
+        { size },
+        contentSignature,
+    ] = await Promise.all([
+        browserDocumentStore.stat(path),
+        browserDocumentStore.getContentSignature(path),
+    ]);
+    if (size !== expectedSize || contentSignature !== expectedContentSignature) {
+        throw new Error('Browser PDF source changed while PDF.js range transport was active');
+    }
+}
+
+async function readCompleteBrowserDocumentRange(
+    path: string,
+    begin: number,
+    length: number,
+    end: number,
+) {
+    if (length <= 0) {
+        return new Uint8Array();
+    }
+
+    let cursor = begin;
+    let output: Uint8Array | null = null;
+    let outputOffset = 0;
+    while (cursor < end) {
+        const chunk = await browserDocumentStore.readRange(path, cursor, end - cursor);
+        if (chunk.byteLength === 0) {
+            throw new Error(`Browser PDF range read returned no bytes at ${cursor} before requested end ${end}`);
+        }
+        if (cursor === begin && chunk.byteLength === length) {
+            return chunk;
+        }
+        output ??= new Uint8Array(length);
+        if (chunk.byteLength > output.byteLength - outputOffset) {
+            throw new Error(`Browser PDF range read returned ${chunk.byteLength} bytes for ${output.byteLength - outputOffset} remaining bytes`);
+        }
+        output.set(chunk, outputOffset);
+        outputOffset += chunk.byteLength;
+        cursor += chunk.byteLength;
+    }
+
+    if (!output) {
+        throw new Error(`Browser PDF range read produced no output for ${begin}..${end}`);
+    }
+    return output;
 }
 
 export {

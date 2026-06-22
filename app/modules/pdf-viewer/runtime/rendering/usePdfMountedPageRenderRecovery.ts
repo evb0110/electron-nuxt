@@ -28,8 +28,10 @@ interface IUsePdfMountedPageRenderRecoveryOptions {
         options: {
             preserveRenderedPages: true;
             bufferOverride: 0;
+            preserveInFlightRequiredPages: true;
         },
     ) => Promise<void>;
+    resolveRecoveryRange?: ((pageNumber: number) => IPageRange | null | undefined) | undefined;
 }
 
 const MOUNTED_PAGE_RENDER_RETRY_DELAYS_MS = [
@@ -108,6 +110,26 @@ export const usePdfMountedPageRenderRecovery = (options: IUsePdfMountedPageRende
             .filter(pageNumber => canRecoverPage(pageNumber));
     }
 
+    function getRecoveryRenderRanges(pageNumbers: number[]) {
+        const pagesToRender = new Set<number>();
+        for (const pageNumber of pageNumbers) {
+            const range = options.resolveRecoveryRange?.(pageNumber) ?? {
+                start: pageNumber,
+                end: pageNumber,
+            };
+            const start = normalizePageNumber(range.start, options.numPages.value);
+            const end = normalizePageNumber(range.end, options.numPages.value);
+            if (start === null || end === null) {
+                pagesToRender.add(pageNumber);
+                continue;
+            }
+            for (let page = Math.min(start, end); page <= Math.max(start, end); page += 1) {
+                pagesToRender.add(page);
+            }
+        }
+        return toContiguousPageRanges([...pagesToRender]);
+    }
+
     function pruneUnrecoverablePendingPages() {
         for (const pageNumber of Array.from(pendingPages.keys())) {
             if (!canTrackPendingPage(pageNumber) || !isPageMountedForRecovery(pageNumber)) {
@@ -182,10 +204,11 @@ export const usePdfMountedPageRenderRecovery = (options: IUsePdfMountedPageRende
                 return;
             }
 
-            for (const range of toContiguousPageRanges(getRecoverablePages())) {
+            for (const range of getRecoveryRenderRanges(getRecoverablePages())) {
                 await options.renderVisiblePages(range, {
                     preserveRenderedPages: true,
                     bufferOverride: 0,
+                    preserveInFlightRequiredPages: true,
                 });
             }
         } catch (error) {

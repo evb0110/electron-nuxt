@@ -411,6 +411,96 @@ describe('useFileOperations', () => {
         expectWorkspaceSaveMarked(deps);
     });
 
+    it('commits active PDF.js editors before collecting save state and choosing the save route', async () => {
+        const annotationStorage = {
+            resetModified: vi.fn(),
+            serializable: {
+                map: new Map(),
+                hash: '',
+                transfer: [],
+            },
+            modifiedIds: { ids: new Set() },
+        };
+        const commitPdfEditorsForSave = vi.fn(async () => {
+            annotationStorage.serializable = {
+                map: new Map([[
+                    'active-editor',
+                    { value: 'typed text' },
+                ]]),
+                hash: 'typed-text',
+                transfer: [],
+            };
+        });
+        const consumePendingEmbeddedTextUpdates = vi.fn(() => null);
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            pageLabelsDirty: ref(true),
+            pdfDocument: shallowRef(cast({ annotationStorage })),
+            saveDocument: vi.fn(async () => new Uint8Array([7])),
+            getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
+            commitPdfEditorsForSave,
+            consumePendingEmbeddedTextUpdates,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(commitPdfEditorsForSave).toHaveBeenCalledOnce();
+        expect(consumePendingEmbeddedTextUpdates).toHaveBeenCalledOnce();
+        expect(commitPdfEditorsForSave.mock.invocationCallOrder[0]!)
+            .toBeLessThan(consumePendingEmbeddedTextUpdates.mock.invocationCallOrder[0]!);
+        expect(deps.saveDocument).toHaveBeenCalledOnce();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
+            7,
+            2,
+            3,
+            6,
+            4,
+            5,
+        ]);
+    });
+
+    it('does not mark newer annotation, page-label, or bookmark edits clean after an older snapshot saves', async () => {
+        let annotationToken = 'annotation-before';
+        let pageLabelsToken = 'labels-before';
+        let bookmarksToken = 'bookmarks-before';
+        const saveFile = vi.fn(async () => {
+            annotationToken = 'annotation-after';
+            pageLabelsToken = 'labels-after';
+            bookmarksToken = 'bookmarks-after';
+            return {
+                success: true,
+                outPath: '/tmp/work.pdf',
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            };
+        });
+        const {
+            deps,
+            resetModified,
+        } = createDeps({
+            annotationDirty: ref(true),
+            pageLabelsDirty: ref(true),
+            bookmarksDirty: ref(true),
+            saveFile,
+            getAnnotationSaveStateToken: () => annotationToken,
+            getPageLabelsSaveStateToken: () => pageLabelsToken,
+            getBookmarksSaveStateToken: () => bookmarksToken,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await expect(handleSave()).resolves.toBe(true);
+
+        expect(saveFile).toHaveBeenCalledOnce();
+        expect(resetModified).not.toHaveBeenCalled();
+        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
+        expect(deps.markPageLabelsSaved).not.toHaveBeenCalled();
+        expect(deps.markBookmarksSaved).not.toHaveBeenCalled();
+    });
+
     it('repair-saves clean documents through the native working-copy repair path when available', async () => {
         const repairWorkingCopy = vi.fn(async () => ({
             success: true,

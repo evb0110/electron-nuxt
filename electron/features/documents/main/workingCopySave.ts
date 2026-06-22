@@ -36,6 +36,16 @@ function createOriginalChangedValidationResult(): IPdfValidationResult {
     };
 }
 
+function withWorkingCopySyncWarning(validation: IPdfValidationResult, error: unknown): IPdfValidationResult {
+    return {
+        ...validation,
+        warnings: [
+            ...validation.warnings,
+            `Saved original file, but failed to refresh the working copy: ${getErrorMessage(error)}`,
+        ],
+    };
+}
+
 function getValidatedOriginalPath(workingPath: string, senderWebContentsId: number) {
     const originalPath = getWorkingCopyOriginalPath(workingPath, senderWebContentsId)?.originalPath;
 
@@ -157,7 +167,11 @@ export async function handleSerializedPdfSave(
                 tempPath => writeFile(tempPath, payload),
             );
             if (queuedValidation.isValid) {
-                await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
+                try {
+                    await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
+                } catch (syncError) {
+                    return withWorkingCopySyncWarning(queuedValidation, syncError);
+                }
             }
 
             return queuedValidation;
@@ -199,7 +213,11 @@ export async function handleRepairPdfSave(
                 tempPath => repairPdfWithQpdf(normalizedWorkingPath, tempPath),
             );
             if (queuedValidation.isValid) {
-                await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
+                try {
+                    await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
+                } catch (syncError) {
+                    return withWorkingCopySyncWarning(queuedValidation, syncError);
+                }
             }
 
             return queuedValidation;

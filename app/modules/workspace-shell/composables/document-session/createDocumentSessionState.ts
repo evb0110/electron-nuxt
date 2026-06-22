@@ -24,6 +24,7 @@ export interface IDocumentSessionState {
     originalPath: Ref<TDocumentRef | null>;
     pdfConformanceProfile: Ref<IPdfConformanceProfile | null>;
     pdfData: ShallowRef<Uint8Array | null>;
+    pdfReloadSrc: Ref<TPdfSource | null>;
     pdfSrc: Ref<TPdfSource | null>;
     pendingDjvu: Ref<TDocumentRef | null>;
     requiresSaveAsOnFirstSave: Ref<boolean>;
@@ -36,6 +37,7 @@ export function createDocumentSessionState(
     deps: ICreateDocumentSessionStateDeps,
 ): IDocumentSessionState {
     const pdfSrc = ref<TPdfSource | null>(null);
+    const pdfReloadSrc = ref<TPdfSource | null>(null);
     const pdfData = shallowRef<Uint8Array | null>(null);
     const workingCopyPath = ref<TDocumentRef | null>(null);
     const originalPath = ref<TDocumentRef | null>(null);
@@ -60,6 +62,7 @@ export function createDocumentSessionState(
 
     function resetForClose() {
         pdfSrc.value = null;
+        pdfReloadSrc.value = null;
         pdfData.value = null;
         workingCopyPath.value = null;
         originalPath.value = null;
@@ -82,6 +85,7 @@ export function createDocumentSessionState(
         originalPath,
         pdfConformanceProfile,
         pdfData,
+        pdfReloadSrc,
         pdfSrc,
         pendingDjvu,
         requiresSaveAsOnFirstSave,

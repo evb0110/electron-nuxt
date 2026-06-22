@@ -70,6 +70,10 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
             || deps.appAnnotationUndoDepth.value > 0,
     );
     const annotationCursorMode = computed(() => {
+        if (deps.hasOpenAnnotationNotes.value) {
+            return true;
+        }
+
         if (deps.dragMode.value) {
             return false;
         }

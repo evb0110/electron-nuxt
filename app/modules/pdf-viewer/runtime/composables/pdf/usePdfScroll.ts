@@ -68,13 +68,53 @@ function getLayoutPageTop(
     return Math.max(0, (metrics.pageTops[index] ?? 0) - metrics.paddingTop);
 }
 
-function getLayoutPageBottom(
+function getLayoutRowTop(
+    metrics: TPageLayoutMetrics,
+    rowIndex: number,
+) {
+    const rowStartPage = metrics.rowStartPages[rowIndex] ?? 1;
+    return getLayoutPageTop(metrics, Math.max(0, rowStartPage - 1));
+}
+
+function getLayoutRowBottom(
+    metrics: TPageLayoutMetrics,
+    rowIndex: number,
+) {
+    const rowTop = getLayoutRowTop(metrics, rowIndex);
+    const rowHeight = metrics.rowHeights[rowIndex] ?? 0;
+    return rowTop + rowHeight;
+}
+
+function getLayoutRowWidth(
+    metrics: TPageLayoutMetrics,
+    rowIndex: number,
+) {
+    const rowStartPage = metrics.rowStartPages[rowIndex] ?? 1;
+    const rowEndPage = metrics.rowEndPages[rowIndex] ?? rowStartPage;
+    let width = 0;
+
+    for (let pageNumber = rowStartPage; pageNumber <= rowEndPage; pageNumber += 1) {
+        width += metrics.pageWidths[pageNumber - 1] ?? 0;
+    }
+
+    return width;
+}
+
+function getLayoutPageLeft(
     metrics: TPageLayoutMetrics,
     index: number,
+    containerWidth: number,
 ) {
-    const pageTop = getLayoutPageTop(metrics, index);
-    const pageHeight = metrics.pageHeights[index] ?? 0;
-    return pageTop + pageHeight;
+    const rowIndex = metrics.pageRowIndices[index] ?? 0;
+    const rowStartPage = metrics.rowStartPages[rowIndex] ?? index + 1;
+    const rowWidth = getLayoutRowWidth(metrics, rowIndex);
+    let pageLeft = Math.max(0, (containerWidth - rowWidth) / 2);
+
+    for (let pageNumber = rowStartPage; pageNumber < index + 1; pageNumber += 1) {
+        pageLeft += metrics.pageWidths[pageNumber - 1] ?? 0;
+    }
+
+    return pageLeft;
 }
 
 function getMarkerCenter(markerRect: IAnnotationMarkerRect | null | undefined) {
@@ -163,18 +203,17 @@ function resolveMarkerScrollLeft(options: {
     return scrollClamp?.scrollLeft ?? markerTargetLeft;
 }
 
-function findFirstVisibleLayoutPageIndex(
+function findFirstVisibleLayoutRowIndex(
     metrics: TPageLayoutMetrics,
     viewportTop: number,
-    totalPages: number,
 ) {
     let low = 0;
-    let high = totalPages - 1;
+    let high = metrics.rowHeights.length - 1;
     let result = -1;
 
     while (low <= high) {
         const mid = low + Math.floor((high - low) / 2);
-        if (getLayoutPageBottom(metrics, mid) > viewportTop) {
+        if (getLayoutRowBottom(metrics, mid) > viewportTop) {
             result = mid;
             high = mid - 1;
         } else {
@@ -185,18 +224,17 @@ function findFirstVisibleLayoutPageIndex(
     return result;
 }
 
-function findLastVisibleLayoutPageIndex(
+function findLastVisibleLayoutRowIndex(
     metrics: TPageLayoutMetrics,
     viewportBottom: number,
-    totalPages: number,
 ) {
     let low = 0;
-    let high = totalPages - 1;
+    let high = metrics.rowHeights.length - 1;
     let result = -1;
 
     while (low <= high) {
         const mid = low + Math.floor((high - low) / 2);
-        if (getLayoutPageTop(metrics, mid) < viewportBottom) {
+        if (getLayoutRowTop(metrics, mid) < viewportBottom) {
             result = mid;
             low = mid + 1;
         } else {
@@ -457,45 +495,76 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
             return null;
         }
 
-        const firstVisibleIndex = findFirstVisibleLayoutPageIndex(
+        const firstVisibleRowIndex = findFirstVisibleLayoutRowIndex(
             metrics,
             viewportTop,
-            layoutPageCount,
         );
-        if (firstVisibleIndex === -1) {
+        if (firstVisibleRowIndex === -1) {
             return null;
         }
 
-        const lastVisibleIndex = findLastVisibleLayoutPageIndex(
+        const lastVisibleRowIndex = findLastVisibleLayoutRowIndex(
             metrics,
             viewportBottom,
-            layoutPageCount,
         );
-        if (lastVisibleIndex === -1 || lastVisibleIndex < firstVisibleIndex) {
+        if (
+            lastVisibleRowIndex === -1
+            || lastVisibleRowIndex < firstVisibleRowIndex
+        ) {
             return null;
         }
 
+        const viewportLeft = Math.max(0, container.scrollLeft);
+        const viewportRight = viewportLeft + container.clientWidth;
+        let firstVisiblePage: number | null = null;
+        let lastVisiblePage: number | null = null;
         let mostVisiblePage: number | null = null;
         let maxVisibleArea = 0;
+
+        const firstVisibleIndex = clamp(
+            (metrics.rowStartPages[firstVisibleRowIndex] ?? 1) - 1,
+            0,
+            layoutPageCount - 1,
+        );
+        const lastVisibleIndex = clamp(
+            (metrics.rowEndPages[lastVisibleRowIndex] ?? layoutPageCount) - 1,
+            0,
+            layoutPageCount - 1,
+        );
 
         for (let index = firstVisibleIndex; index <= lastVisibleIndex; index += 1) {
             const pageTop = getLayoutPageTop(metrics, index);
             const pageHeight = metrics.pageHeights[index] ?? 0;
             const pageBottom = pageTop + pageHeight;
+            const pageLeft = getLayoutPageLeft(metrics, index, container.clientWidth);
+            const pageWidth = metrics.pageWidths[index] ?? 0;
+            const pageRight = pageLeft + pageWidth;
             const visibleTop = Math.max(pageTop, viewportTop);
             const visibleBottom = Math.min(pageBottom, viewportBottom);
-            const visibleArea = Math.max(0, visibleBottom - visibleTop);
+            const visibleLeft = Math.max(pageLeft, viewportLeft);
+            const visibleRight = Math.min(pageRight, viewportRight);
+            const visibleArea = Math.max(0, visibleBottom - visibleTop)
+                * Math.max(0, visibleRight - visibleLeft);
 
-            if (visibleArea > maxVisibleArea) {
-                maxVisibleArea = visibleArea;
-                mostVisiblePage = index + 1;
+            if (visibleArea > 0) {
+                firstVisiblePage ??= index + 1;
+                lastVisiblePage = index + 1;
+
+                if (visibleArea > maxVisibleArea) {
+                    maxVisibleArea = visibleArea;
+                    mostVisiblePage = index + 1;
+                }
             }
+        }
+
+        if (firstVisiblePage === null || lastVisiblePage === null) {
+            return null;
         }
 
         return {
             range: {
-                start: clamp(firstVisibleIndex + 1, 1, totalPages),
-                end: clamp(lastVisibleIndex + 1, 1, totalPages),
+                start: clamp(firstVisiblePage, 1, totalPages),
+                end: clamp(lastVisiblePage, 1, totalPages),
             },
             mostVisiblePage:
                 maxVisibleArea > 0 && mostVisiblePage !== null

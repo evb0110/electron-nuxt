@@ -1098,7 +1098,7 @@ describe('usePdfPageRenderer resilience', () => {
         );
     });
 
-    it('does not treat hidden annotation preflight work as a stalled canvas render', async () => {
+    it('reports hidden annotation preflight stalls as canvas prepare timeouts', async () => {
         vi.useFakeTimers();
         const { pageContainer } = createPageContainer();
         const containerRoot = createContainerRoot(pageContainer);
@@ -1149,11 +1149,15 @@ describe('usePdfPageRenderer resilience', () => {
             end: 1,
         });
 
-        await vi.advanceTimersByTimeAsync(16_000);
+        await vi.advanceTimersByTimeAsync(15_000);
         await renderPromise;
 
-        expect(onRenderStall).not.toHaveBeenCalled();
-        expect(renderer.isPageRendered(1)).toBe(true);
+        expect(onRenderStall).toHaveBeenCalledWith({
+            pageNumber: 1,
+            stage: 'canvas-prepare',
+            timeoutMs: 15_000,
+        });
+        expect(renderer.isPageRendered(1)).toBe(false);
     });
 
     it('does not render visible pages while inactive', async () => {

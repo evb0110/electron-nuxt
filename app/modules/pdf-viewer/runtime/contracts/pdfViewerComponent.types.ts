@@ -19,6 +19,7 @@ import type {
 
 export interface IPdfViewerProps {
     src: TPdfSource | null;
+    reloadSrc?: TPdfSource | null | undefined;
     sourcePdfData?: Uint8Array | null | undefined;
     suppressLoadingOverlay?: boolean | undefined;
     bufferPages?: number | undefined;

@@ -15,6 +15,7 @@ import {
 import type { Ref } from 'vue';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import { usePdfSinglePageScroll } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageScroll';
+import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { accumulateWheelForPageFlips } from '@app/utils/document-viewer/single-page-wheel/accumulateWheelForPageFlips';
 import { resolveWheelPageFlipStepDelta } from '@app/utils/document-viewer/single-page-wheel/resolveWheelPageFlipStepDelta';
 import { resolveSnapAnchorForWheelDirection } from '@app/utils/document-viewer/single-page-wheel/resolveSnapAnchorForWheelDirection';
@@ -237,6 +238,129 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         singlePageScroll,
     };
 }
+
+function createSinglePageNavigationControllerHarness() {
+    const pageGeometries: ITestPageGeometry[] = [
+        {
+            offsetTop: 20,
+            offsetHeight: 100,
+        },
+        {
+            offsetTop: 140,
+            offsetHeight: 100,
+        },
+        {
+            offsetTop: 260,
+            offsetHeight: 100,
+        },
+    ];
+    let scrollTop = 0;
+    const visuallyReadyPageNumbers = new Set([
+        1,
+        2,
+    ]);
+    const pageElements = pageGeometries.map((page, index) => {
+        const pageNumber = index + 1;
+        return cast<HTMLElement>({
+            ...page,
+            offsetLeft: 0,
+            offsetWidth: 100,
+            dataset: {page: String(pageNumber)},
+            classList: { contains: vi.fn((className: string) => (
+                className === 'page_container--rendered'
+                && visuallyReadyPageNumbers.has(pageNumber)
+            )) },
+            querySelector: vi.fn((selector: string) => (
+                selector === '.page_canvas canvas'
+                && visuallyReadyPageNumbers.has(pageNumber)
+                    ? {}
+                    : null
+            )),
+        });
+    });
+    const container = cast<HTMLElement>({
+        clientHeight: 100,
+        clientWidth: 100,
+        scrollHeight: 400,
+        scrollWidth: 100,
+        querySelector: vi.fn((selector: string) => {
+            const match = selector.match(/\.page_container\[data-page="(\d+)"\]/);
+            if (!match?.[1]) {
+                return null;
+            }
+            const pageNumber = Number.parseInt(match[1], 10);
+            return pageElements[pageNumber - 1] ?? null;
+        }),
+        querySelectorAll: vi.fn(() => pageElements),
+    });
+    Object.defineProperty(container, 'scrollTop', {
+        get: () => scrollTop,
+        set: (value: number) => {
+            scrollTop = clamp(value, 0, 300);
+        },
+    });
+    Object.defineProperty(container, 'scrollLeft', {
+        get: () => 0,
+        set: () => {},
+    });
+
+    const currentPage = ref(1);
+    const requestedCurrentPage = ref<number | undefined>(undefined);
+    const visibleRange = ref({
+        start: 1,
+        end: 1,
+    });
+    const cancelPendingSearchScroll = vi.fn();
+    const emitCurrentPage = vi.fn((page: number) => {
+        currentPage.value = page;
+    });
+    const singlePageScroll = usePdfSinglePageNavigationController({
+        requestedCurrentPage,
+        viewerContainer: shallowRef(container),
+        numPages: ref(3),
+        currentPage,
+        scaledMargin: ref(20),
+        viewMode: ref<TPdfViewMode>('single'),
+        continuousScroll: ref(false),
+        isLoading: ref(false),
+        pdfDocument: shallowRef({} as PDFDocumentProxy),
+        getMostVisiblePage: () => currentPage.value,
+        scrollToPageInternal: vi.fn(),
+        updateVisibleRange: vi.fn(),
+        updateCurrentPage: vi.fn(() => currentPage.value),
+        renderVisiblePages: vi.fn(async () => {}),
+        visibleRange,
+        emitCurrentPage,
+        cancelPendingSearchScroll,
+    });
+
+    return {
+        cancelPendingSearchScroll,
+        requestedCurrentPage,
+        singlePageScroll,
+    };
+}
+
+describe('usePdfSinglePageNavigationController', () => {
+    it('cancels stale pending navigation when requested page reverts to the current page', async () => {
+        const {
+            cancelPendingSearchScroll,
+            requestedCurrentPage,
+            singlePageScroll,
+        } = createSinglePageNavigationControllerHarness();
+
+        singlePageScroll.scrollToPage(3);
+
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(3);
+
+        requestedCurrentPage.value = 1;
+        await nextTick();
+
+        expect(cancelPendingSearchScroll).toHaveBeenCalledOnce();
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
+        expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
+    });
+});
 
 describe('usePdfSinglePageScroll helpers', () => {
     it('accumulates small deltas and flips only after threshold', () => {
@@ -800,6 +924,24 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         }
     });
 
+    it('ignores stale search completion after newer paged navigation takes ownership', () => {
+        const {singlePageScroll} = createSinglePageScrollHarness({visuallyReadyPageNumbers: [
+            1,
+            2,
+        ]});
+
+        singlePageScroll.beginSearchNavigation(2, 500);
+        singlePageScroll.scrollToPage(3);
+
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(3);
+        expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(true);
+
+        singlePageScroll.endSearchNavigation(0);
+
+        expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(3);
+        expect(singlePageScroll.isProgrammaticNavigationActive.value).toBe(true);
+    });
+
     it('reveals a mounted paged search target without committing the current page', async () => {
         const {
             container,
@@ -1186,6 +1328,26 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         } finally {
             singlePageScroll.resetContinuousScrollState();
         }
+    });
+
+    it('clears a continuous navigation anchor when target metric hydration fails', async () => {
+        const waitMacrotask = () => new Promise(resolve => setTimeout(resolve, 0));
+        const ensurePageMetricsInRange = vi.fn(async () => {
+            throw new Error('metric hydration failed');
+        });
+        const {singlePageScroll} = createSinglePageScrollHarness({
+            continuousScroll: true,
+            ensurePageMetricsInRange,
+        });
+
+        singlePageScroll.scrollToPage(3, {pageYRatio: 0});
+
+        expect(singlePageScroll.continuousNavigationTargetPage.value).toBe(3);
+
+        await Promise.resolve();
+        await waitMacrotask();
+
+        expect(singlePageScroll.continuousNavigationTargetPage.value).toBeNull();
     });
 
     it('uses mounted exact DOM immediately for continuous fit snaps even when metric hydration is available', () => {
@@ -2234,6 +2396,36 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         singlePageScroll.scrollToPage(2, { pageYRatio: 0.25 });
 
         expect(container.scrollTop).toBe(220);
+    });
+
+    it('scrollToPage in facing-first-single mode honors destination y against the target page height', () => {
+        const {
+            container,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            viewMode: 'facing-first-single',
+            continuousScroll: false,
+            clientHeight: 100,
+            scrollHeight: 520,
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 70,
+                },
+                {
+                    offsetTop: 110,
+                    offsetHeight: 200,
+                },
+                {
+                    offsetTop: 110,
+                    offsetHeight: 60,
+                },
+            ],
+        });
+
+        singlePageScroll.scrollToPage(3, { pageYRatio: 0.5 });
+
+        expect(container.scrollTop).toBe(120);
     });
 
     it('scrollToPage in facing-first-single mode frames the full spread row', () => {

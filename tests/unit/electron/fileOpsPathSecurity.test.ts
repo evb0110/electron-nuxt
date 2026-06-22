@@ -649,6 +649,41 @@ describe('fileOps path security', () => {
             '/tmp/electron-test/export.docx',
         );
     });
+
+    it('serializes concurrent first range handle opens for the same path', async () => {
+        const firstOpen = deferred<{
+            close: ReturnType<typeof vi.fn>;
+            read: ReturnType<typeof vi.fn>;
+        }>();
+        const close = vi.fn(async () => {});
+        const read = vi.fn(async (buffer: Buffer, _offset: number, length: number, position: number) => {
+            buffer.fill(position === 0 ? 1 : 2, 0, length);
+            return { bytesRead: length };
+        });
+        mocks.open.mockImplementationOnce(() => firstOpen.promise);
+
+        const firstRead = handleFileReadRange(event, '/tmp/electron-test/safe.pdf', 0, 2);
+        const secondRead = handleFileReadRange(event, '/tmp/electron-test/safe.pdf', 2, 2);
+        await waitForSettledQueueTurn();
+
+        expect(mocks.open).toHaveBeenCalledTimes(1);
+
+        firstOpen.resolve({
+            close,
+            read,
+        });
+
+        await expect(firstRead).resolves.toEqual(new Uint8Array([
+            1,
+            1,
+        ]));
+        await expect(secondRead).resolves.toEqual(new Uint8Array([
+            2,
+            2,
+        ]));
+        expect(mocks.open).toHaveBeenCalledTimes(1);
+        expect(close).not.toHaveBeenCalled();
+    });
 });
 
 function deferred<T>() {

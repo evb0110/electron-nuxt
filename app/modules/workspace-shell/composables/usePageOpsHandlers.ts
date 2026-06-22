@@ -83,10 +83,38 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         ...(runWithDocumentOperationLease !== undefined ? { runWithDocumentOperationLease } : {}),
     });
 
+    async function runStructuralPageMutation(run: () => Promise<boolean>) {
+        const didSucceed = await run();
+        if (didSucceed) {
+            setSelectedThumbnailPages([]);
+        }
+        return didSucceed;
+    }
+
+    async function pageOpsDeleteAndClearSelection(pages: number[], expectedTotalPages: number) {
+        return runStructuralPageMutation(() => pageOpsDelete(pages, expectedTotalPages));
+    }
+
+    async function pageOpsInsertAndClearSelection(expectedTotalPages: number, afterPage: number) {
+        return runStructuralPageMutation(() => pageOpsInsert(expectedTotalPages, afterPage));
+    }
+
+    async function pageOpsInsertFileAndClearSelection(
+        expectedTotalPages: number,
+        afterPage: number,
+        filePaths: TDocumentRef[],
+    ) {
+        return runStructuralPageMutation(() => pageOpsInsertFile(expectedTotalPages, afterPage, filePaths));
+    }
+
+    async function pageOpsReorderAndClearSelection(newOrder: number[]) {
+        return runStructuralPageMutation(() => pageOpsReorder(newOrder));
+    }
+
     function handlePageContextMenuDelete() {
         const pages = pageContextMenu.value.pages;
         closePageContextMenu();
-        void pageOpsDelete(pages, totalPages.value);
+        void pageOpsDeleteAndClearSelection(pages, totalPages.value);
     }
 
     function handlePageContextMenuExtract() {
@@ -103,7 +131,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
 
     async function handlePageRotate(pages: number[], angle: 90 | 180 | 270) {
         const reloadWaiter = preparePdfReloadWaiter(currentPage.value, { captureScrollSnapshot: false });
-        const didRotate = await pageOpsRotate(pages, angle);
+        const didRotate = await pageOpsRotate(pages, totalPages.value, angle);
         if (!didRotate) {
             reloadWaiter.cancel();
             return false;
@@ -130,7 +158,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         if (pages.length === 0) {
             return;
         }
-        void pageOpsInsert(totalPages.value, Math.min(...pages) - 1);
+        void pageOpsInsertAndClearSelection(totalPages.value, Math.min(...pages) - 1);
     }
 
     function handlePageContextMenuInsertAfter() {
@@ -139,14 +167,14 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         if (pages.length === 0) {
             return;
         }
-        void pageOpsInsert(totalPages.value, Math.max(...pages));
+        void pageOpsInsertAndClearSelection(totalPages.value, Math.max(...pages));
     }
 
     function handlePageFileDrop(payload: {
         afterPage: number;
         filePaths: TDocumentRef[];
     }) {
-        void pageOpsInsertFile(totalPages.value, payload.afterPage, payload.filePaths);
+        void pageOpsInsertFileAndClearSelection(totalPages.value, payload.afterPage, payload.filePaths);
     }
 
     function handlePageContextMenuSelectAll() {
@@ -173,7 +201,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         // Cropping changes page geometry, so forcing selective rerendering
         // reuses stale layout metrics and can visibly stretch pages.
         const reloadWaiter = preparePdfReloadWaiter(currentPage.value, { captureScrollSnapshot: false });
-        const didCrop = await pageOpsCrop(pages, margins);
+        const didCrop = await pageOpsCrop(pages, totalPages.value, margins);
         if (!didCrop) {
             reloadWaiter.cancel();
             return false;
@@ -185,7 +213,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     async function handleRemoveCrop(pages: number[]) {
         // Removing crop also changes the effective viewport size.
         const reloadWaiter = preparePdfReloadWaiter(currentPage.value, { captureScrollSnapshot: false });
-        const didRemoveCrop = await pageOpsRemoveCrop(pages);
+        const didRemoveCrop = await pageOpsRemoveCrop(pages, totalPages.value);
         if (!didRemoveCrop) {
             reloadWaiter.cancel();
             return false;
@@ -197,10 +225,10 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     return {
         isPageOperationInProgress,
         pageOpBatchProgress,
-        pageOpsDelete,
+        pageOpsDelete: pageOpsDeleteAndClearSelection,
         pageOpsExtract,
-        pageOpsInsert,
-        pageOpsReorder,
+        pageOpsInsert: pageOpsInsertAndClearSelection,
+        pageOpsReorder: pageOpsReorderAndClearSelection,
         handlePageContextMenuDelete,
         handlePageContextMenuExtract,
         handlePageContextMenuExport,

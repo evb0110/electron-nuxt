@@ -34,8 +34,8 @@ export interface IPageOpsCapability {
         sourcePaths: TDocumentRef[],
         requestId?: string,
     ) => Promise<IPageOpsResult>;
-    rotate: (workingCopyPath: TDocumentRef, pages: number[], angle: TPageOpsRotationAngle) => Promise<IPageOpsResult>;
-    crop: (workingCopyPath: TDocumentRef, pages: number[], margins: ICropMargins) => Promise<IPageOpsResult>;
-    removeCrop: (workingCopyPath: TDocumentRef, pages: number[]) => Promise<IPageOpsResult>;
+    rotate: (workingCopyPath: TDocumentRef, pages: number[], totalPages: number, angle: TPageOpsRotationAngle) => Promise<IPageOpsResult>;
+    crop: (workingCopyPath: TDocumentRef, pages: number[], totalPages: number, margins: ICropMargins) => Promise<IPageOpsResult>;
+    removeCrop: (workingCopyPath: TDocumentRef, pages: number[], totalPages: number) => Promise<IPageOpsResult>;
     getPageGeometry: (workingCopyPath: TDocumentRef, pageNumber: number) => Promise<IPageGeometry>;
 }

@@ -36,6 +36,7 @@ const { usePageOpsHandlers } = await import('@app/modules/workspace-shell/compos
 function createHarness() {
     const invalidateThumbnailPages = vi.fn();
     const invalidatePages = vi.fn();
+    const setSelectedThumbnailPages = vi.fn();
     const reloadWaiterCancel = vi.fn();
     const pageContextMenu = ref({
         visible: false,
@@ -51,7 +52,7 @@ function createHarness() {
         currentPage: ref(4),
         totalPages: ref(10),
         selectedThumbnailPages: ref<number[]>([]),
-        setSelectedThumbnailPages: vi.fn(),
+        setSelectedThumbnailPages,
         invalidateThumbnailPages,
         pdfViewerRef: ref({ invalidatePages }),
         pageContextMenu,
@@ -68,6 +69,7 @@ function createHarness() {
         handlers,
         invalidateThumbnailPages,
         invalidatePages,
+        setSelectedThumbnailPages,
         pageContextMenu,
         preparePdfReloadWaiter,
         reloadWaiterCancel,
@@ -101,7 +103,7 @@ describe('usePageOpsHandlers crop reload strategy', () => {
         expect(operationMocks.rotatePages).toHaveBeenCalledWith([
             2,
             3,
-        ], 90);
+        ], 10, 90);
     });
 
     it('cancels the page-only reload waiter when rotation fails', async () => {
@@ -139,8 +141,8 @@ describe('usePageOpsHandlers crop reload strategy', () => {
         expect(invalidatePages).not.toHaveBeenCalled();
         expect(preparePdfReloadWaiter).toHaveBeenNthCalledWith(1, 4, { captureScrollSnapshot: false });
         expect(preparePdfReloadWaiter).toHaveBeenNthCalledWith(2, 4, { captureScrollSnapshot: false });
-        expect(operationMocks.cropPages).toHaveBeenCalledWith([4], margins);
-        expect(operationMocks.removeCrop).toHaveBeenCalledWith([4]);
+        expect(operationMocks.cropPages).toHaveBeenCalledWith([4], 10, margins);
+        expect(operationMocks.removeCrop).toHaveBeenCalledWith([4], 10);
     });
 
     it('cancels the page-only reload waiter when crop fails', async () => {
@@ -168,5 +170,39 @@ describe('usePageOpsHandlers crop reload strategy', () => {
         handlers.handlePageContextMenuInsertAfter();
 
         expect(operationMocks.insertPages).not.toHaveBeenCalled();
+    });
+
+    it('clears thumbnail selection after successful structural page mutations', async () => {
+        const {
+            handlers,
+            setSelectedThumbnailPages,
+        } = createHarness();
+        operationMocks.deletePages.mockResolvedValueOnce(true);
+        operationMocks.insertPages.mockResolvedValueOnce(true);
+        operationMocks.reorderPages.mockResolvedValueOnce(true);
+
+        await handlers.pageOpsDelete([2], 10);
+        await handlers.pageOpsInsert(10, 2);
+        await handlers.pageOpsReorder([
+            2,
+            1,
+        ]);
+
+        expect(setSelectedThumbnailPages).toHaveBeenCalledTimes(3);
+        expect(setSelectedThumbnailPages).toHaveBeenNthCalledWith(1, []);
+        expect(setSelectedThumbnailPages).toHaveBeenNthCalledWith(2, []);
+        expect(setSelectedThumbnailPages).toHaveBeenNthCalledWith(3, []);
+    });
+
+    it('keeps thumbnail selection when a structural page mutation fails', async () => {
+        const {
+            handlers,
+            setSelectedThumbnailPages,
+        } = createHarness();
+        operationMocks.deletePages.mockResolvedValueOnce(false);
+
+        await handlers.pageOpsDelete([2], 10);
+
+        expect(setSelectedThumbnailPages).not.toHaveBeenCalled();
     });
 });

@@ -27,6 +27,7 @@ export const usePdfFile = () => {
         originalPath,
         pdfConformanceProfile,
         pdfData,
+        pdfReloadSrc,
         pdfSrc,
         pendingDjvu,
         resetForClose,
@@ -159,6 +160,7 @@ export const usePdfFile = () => {
 
     return {
         pdfSrc,
+        pdfReloadSrc,
         pdfData,
         workingCopyPath,
         originalPath,

@@ -219,10 +219,29 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         if (renderOptions?.maxCanvasPixelsOverride !== undefined) {
             canvasRenderOptions.maxCanvasPixels = renderOptions.maxCanvasPixelsOverride;
         }
-        const preparedCanvasRender = await canvasRenderer.prepareCanvasRender(
+        let prepareStageTimedOut = false;
+        const prepareCanvasRenderPromise = canvasRenderer.prepareCanvasRender(
             pdfPage,
             scale,
             canvasRenderOptions,
+        );
+        void prepareCanvasRenderPromise.then((preparedCanvasRender) => {
+            if (prepareStageTimedOut && preparedCanvasRender) {
+                canvasRenderer.cleanupCanvasRenderResult?.(preparedCanvasRender);
+            }
+        }, () => {});
+        const preparedCanvasRender = await withPageStageTimeout(
+            prepareCanvasRenderPromise,
+            {
+                pageNumber,
+                stage: 'canvas-prepare',
+                timeoutMs: PDF_PAGE_RENDER_TIMEOUT_MS,
+            },
+            () => getRenderVersion() === version && shouldContinue(),
+            () => {
+                prepareStageTimedOut = true;
+            },
+            onRenderStall,
         );
         if (!preparedCanvasRender) {
             return null;

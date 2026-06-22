@@ -571,6 +571,133 @@ describe('usePdfDocument range loading', () => {
         await expect(loadPromise).resolves.not.toBeNull();
     });
 
+    it('rejects oversized aggregate PDF.js range requests before reading or allocating them', async () => {
+        const deferred = Promise.withResolvers<{
+            numPages: number;
+            getPage: ReturnType<typeof vi.fn>;
+            destroy: ReturnType<typeof vi.fn>;
+        }>();
+        const destroy = vi.fn(() => {
+            deferred.reject(new Error('oversized range load aborted'));
+            return Promise.resolve();
+        });
+
+        pdfjsState.getDocument.mockReturnValue({
+            promise: deferred.promise,
+            destroy,
+        });
+        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        const documentState = usePdfDocument();
+        const loadPromise = documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/oversized-range.pdf',
+            size: 80 * 1024 * 1024,
+        });
+
+        await vi.waitFor(() => {
+            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+        });
+
+        const range = (pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined)?.range;
+        expect(range).toBeInstanceOf(MockPdfDataRangeTransport);
+
+        electronApi.documents.readFileRange.mockClear();
+        range?.requestDataRange?.(2 * 1024 * 1024, 40 * 1024 * 1024);
+
+        await expect(loadPromise).resolves.toBeNull();
+        expect(electronApi.documents.readFileRange).not.toHaveBeenCalled();
+        expect(range?.onDataRange).not.toHaveBeenCalled();
+        expect(destroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('invalidates an accepted document when a later range read rejects', async () => {
+        const documentDestroy = vi.fn();
+        const taskDestroy = vi.fn(() => Promise.resolve());
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 1,
+                getPage: vi.fn(async () => ({
+                    cleanup: vi.fn(),
+                    getViewport: vi.fn(() => ({
+                        width: 100,
+                        height: 200,
+                    })),
+                })),
+                destroy: documentDestroy,
+            }),
+            destroy: taskDestroy,
+        });
+        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        const documentState = usePdfDocument();
+        await expect(documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/post-load-range-failure.pdf',
+            size: (1024 * 1024 * 2) + 512,
+        })).resolves.not.toBeNull();
+
+        const range = (pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined)?.range;
+        expect(documentState.pdfDocument.value).not.toBeNull();
+
+        electronApi.documents.readFileRange.mockRejectedValue(new Error('post-load read failed'));
+        range?.requestDataRange?.(1024 * 1024, (1024 * 1024) + 512);
+
+        await vi.waitFor(() => {
+            expect(documentState.pdfDocument.value).toBeNull();
+        });
+
+        expect(documentState.numPages.value).toBe(0);
+        expect(taskDestroy).toHaveBeenCalledTimes(1);
+        expect(documentDestroy).toHaveBeenCalledTimes(1);
+        expect(range?.abort).toHaveBeenCalledTimes(1);
+    });
+
+    it('unpublishes an accepted document when initial metric priming fails', async () => {
+        const documentDestroy = vi.fn();
+        const taskDestroy = vi.fn(() => Promise.resolve());
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 2,
+                getPage: vi.fn(async () => {
+                    throw new Error('page 1 unavailable');
+                }),
+                destroy: documentDestroy,
+            }),
+            destroy: taskDestroy,
+        });
+        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        const documentState = usePdfDocument();
+        const result = await documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/metric-prime-failure.pdf',
+            size: 2048,
+        });
+
+        expect(result).toBeNull();
+        expect(documentState.pdfDocument.value).toBeNull();
+        expect(documentState.numPages.value).toBe(0);
+        expect(documentState.pageMetrics.value).toEqual([]);
+        expect(taskDestroy).toHaveBeenCalledTimes(1);
+        expect(documentDestroy).toHaveBeenCalledTimes(1);
+    });
+
     it('destroys the PDF.js loading task and aborts range transport when document parsing fails', async () => {
         const destroy = vi.fn(() => Promise.resolve());
         pdfjsState.getDocument.mockReturnValue({

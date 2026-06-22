@@ -169,6 +169,7 @@
                         v-if="pdfSrc"
                         ref="pdfViewerRef"
                         :src="pdfSrc!"
+                        :reload-src="pdfReloadSrc"
                         :source-pdf-data="viewerSourcePdfData"
                         :suppress-loading-overlay="pendingDocumentOpen"
                         :is-any-saving="isAnySaving"
@@ -541,6 +542,7 @@ const w = useWorkspaceOrchestration({
 
 const {
     pdfSrc,
+    pdfReloadSrc,
     pdfData,
     pdfError,
     workingCopyPath,

@@ -253,7 +253,9 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     let activeAnnotationUiManager: AnnotationEditorUIManager | null =
         toValue(deps.annotationUiManager) ?? null;
     let annotationLayerRenderToken = 0;
+    let annotationEditorLayerRenderToken = 0;
     const annotationLayerPageRenderTokens = new Map<number, number>();
+    const annotationEditorLayerPageRenderTokens = new Map<number, number>();
     const fallbackL10n: IPdfjsL10n = {
         getLanguage: () => 'en',
         getDirection: () => 'ltr',
@@ -729,7 +731,9 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 return null;
             }
             if (!shouldContinueLayerRender(options)) {
-                annotationLayerDiv.innerHTML = '';
+                if (annotationLayerPageRenderTokens.get(pageNumber) === renderToken) {
+                    annotationLayerDiv.innerHTML = '';
+                }
                 return null;
             }
             const hiddenAnnotationIds = getNormalizedHiddenAnnotationIds();
@@ -853,9 +857,13 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             });
             if (
                 annotationLayerPageRenderTokens.get(pageNumber) !== renderToken
-                || !shouldContinueLayerRender(options)
             ) {
-                annotationLayerDiv.innerHTML = '';
+                return null;
+            }
+            if (!shouldContinueLayerRender(options)) {
+                if (annotationLayerPageRenderTokens.get(pageNumber) === renderToken) {
+                    annotationLayerDiv.innerHTML = '';
+                }
                 return null;
             }
             tracePdfAnnotationSaveDom(
@@ -899,16 +907,24 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         if (!shouldContinueLayerRender(options)) {
             return false;
         }
-        tracePdfAnnotationSaveDom(
-            'editor-layer:render:start',
-            container,
-            { pageNumber },
-        );
         let shouldWaitForDrawLayerVisuals =
             hasPdfPageDrawLayerVisualContent(container);
         let snapshotRelease = syncEditorLayersWithCurrentDocument(
             container,
             annotationEditorLayerDiv,
+        );
+        const renderToken = ++annotationEditorLayerRenderToken;
+        annotationEditorLayerPageRenderTokens.set(pageNumber, renderToken);
+        const isCurrentEditorLayerRender = () => (
+            annotationEditorLayerPageRenderTokens.get(pageNumber) === renderToken
+        );
+        tracePdfAnnotationSaveDom(
+            'editor-layer:render:start',
+            container,
+            {
+                pageNumber,
+                renderToken,
+            },
         );
 
         try {
@@ -985,6 +1001,9 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 pageNumber,
                 textLayerDiv,
             });
+            if (!isCurrentEditorLayerRender()) {
+                return false;
+            }
             if (!shouldContinueLayerRender(options)) {
                 cleanupEditorLayer(pageNumber);
                 return false;
@@ -1060,7 +1079,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     ) {
         const editorLayer = annotationEditorLayers.get(pageNumber);
         if (willReplaceAnnotationEditorLayer(pageNumber, signatures)) {
-            cleanupEditorLayer(pageNumber);
+            cleanupEditorLayer(pageNumber, { preserveRenderToken: true });
             return undefined;
         }
 
@@ -1216,8 +1235,14 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         managedAnnotationSignatures.set(pageNumber, signatures.managed);
     }
 
-    function cleanupEditorLayer(pageNumber: number) {
+    function cleanupEditorLayer(
+        pageNumber: number,
+        options?: { preserveRenderToken?: boolean },
+    ) {
         cancelHighlightCompositeRefresh(pageNumber);
+        if (options?.preserveRenderToken !== true) {
+            annotationEditorLayerPageRenderTokens.delete(pageNumber);
+        }
         hiddenAnnotationSignatures.delete(pageNumber);
         managedAnnotationSignatures.delete(pageNumber);
         const container = annotationEditorLayerContainers.get(pageNumber);
@@ -1262,6 +1287,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
 
     function clearAllLayers() {
         annotationLayerPageRenderTokens.clear();
+        annotationEditorLayerPageRenderTokens.clear();
         for (const pageNumber of [...annotationEditorLayerRefreshRafIds.keys()]) {
             cancelHighlightCompositeRefresh(pageNumber);
         }

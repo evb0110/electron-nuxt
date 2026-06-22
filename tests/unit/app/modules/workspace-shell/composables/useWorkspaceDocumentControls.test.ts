@@ -12,12 +12,18 @@ import {
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
-const mocks = vi.hoisted(() => ({ pageOpsDeps: null as null | { onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void; } }));
+const mocks = vi.hoisted(() => ({ pageOpsDeps: null as null | {
+    onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
+    ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
+} }));
 
 vi.mock('@app/modules/workspace-shell/composables/usePageStatusBar', () => ({ usePageStatusBar: () => ({}) }));
 
 vi.mock('@app/modules/workspace-shell/composables/usePageOpsHandlers', () => ({ usePageOpsHandlers: (deps: unknown) => {
-    mocks.pageOpsDeps = deps as { onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void; };
+    mocks.pageOpsDeps = deps as {
+        onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
+        ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
+    };
     return {};
 } }));
 
@@ -66,6 +72,7 @@ function createOptions() {
         })),
         clearOcrCache: vi.fn(),
         resetSearchCache: vi.fn(),
+        ensureWorkingCopyFreshForRead: vi.fn(async () => true),
         isExportingDocx: ref(false),
         isAnyAnnotationNoteSaving: ref(false),
         annotationNoteWindows: ref([]),
@@ -104,5 +111,13 @@ describe('useWorkspaceDocumentControls', () => {
         await mocks.pageOpsDeps?.onExtractedDocument?.('C:\\Users\\andrej\\Downloads\\extract.pdf');
 
         expect(options.emitOpenInNewTab).toHaveBeenCalledWith('C:\\Users\\andrej\\Downloads\\extract.pdf');
+    });
+
+    it('forwards the fresh working-copy guard to page operations', () => {
+        const options = createOptions();
+
+        useWorkspaceDocumentControls(options);
+
+        expect(mocks.pageOpsDeps?.ensureWorkingCopyFreshForRead).toBe(options.ensureWorkingCopyFreshForRead);
     });
 });

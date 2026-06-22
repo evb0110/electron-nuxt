@@ -190,6 +190,10 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         annotationSavedRevision.value = annotationRevision.value;
     }
 
+    function getAnnotationRevision() {
+        return annotationRevision.value;
+    }
+
     function resetAnnotationTracking() {
         annotationRevision.value = 0;
         annotationSavedRevision.value = 0;
@@ -232,6 +236,7 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         handleAnnotationModified,
         markAnnotationDirty,
         markAnnotationSaved,
+        getAnnotationRevision,
         resetAnnotationTracking,
         markAnnotationCommentsLoading,
         applyAnnotationComments,

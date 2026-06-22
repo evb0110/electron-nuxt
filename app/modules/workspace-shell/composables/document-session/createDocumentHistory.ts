@@ -333,6 +333,7 @@ export function createDocumentHistory(
         if (nextState.pdfData) {
             state.pdfData.value = nextState.pdfData;
             state.pdfSrc.value = nextState.pdfSrc;
+            state.pdfReloadSrc.value = nextState.pdfSrc;
             await pushHistorySnapshot(nextState.pdfData, { reuseSnapshot: true });
         } else {
             const snapshotEntry = await createPathHistoryEntry(path, nextState.pdfSrc.size);
@@ -342,6 +343,7 @@ export function createDocumentHistory(
             }
             state.pdfData.value = nextState.pdfData;
             state.pdfSrc.value = nextState.pdfSrc;
+            state.pdfReloadSrc.value = nextState.pdfSrc;
             pushHistoryEntry(snapshotEntry);
         }
 
@@ -408,6 +410,7 @@ export function createDocumentHistory(
             }
             state.pdfData.value = entry.snapshot;
             state.pdfSrc.value = deps.toPdfBlob(entry.snapshot);
+            state.pdfReloadSrc.value = state.pdfSrc.value;
             if (workingPath && state.isActiveWorkingCopy(workingPath)) {
                 deps.deferPdfConformanceProfile(workingPath);
             } else {

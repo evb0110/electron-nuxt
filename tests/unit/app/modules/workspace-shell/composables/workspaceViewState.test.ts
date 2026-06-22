@@ -10,7 +10,10 @@ import {
 } from 'vue';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/useWorkspaceViewState';
 
-function createState(options?: { dragMode?: boolean; }) {
+function createState(options?: {
+    dragMode?: boolean;
+    hasOpenAnnotationNotes?: boolean;
+}) {
     return useWorkspaceViewState({
         fitMode: ref('width'),
         zoomMode: ref('fit-width'),
@@ -31,7 +34,7 @@ function createState(options?: { dragMode?: boolean; }) {
         }),
         hasLivePdfJsAnnotationChanges: ref(false),
         appAnnotationUndoDepth: ref(0),
-        hasOpenAnnotationNotes: ref(false),
+        hasOpenAnnotationNotes: ref(options?.hasOpenAnnotationNotes ?? false),
         canUndoHistory: ref(false),
         canRedoHistory: ref(false),
         currentPage: ref(1),
@@ -143,6 +146,14 @@ describe('useWorkspaceViewState', () => {
     it('disables annotation cursor when drag mode is enabled', () => {
         const state = createState({ dragMode: true });
         expect(state.annotationCursorMode.value).toBe(false);
+    });
+
+    it('keeps annotation cursor enabled for open note windows in drag mode', () => {
+        const state = createState({
+            dragMode: true,
+            hasOpenAnnotationNotes: true,
+        });
+        expect(state.annotationCursorMode.value).toBe(true);
     });
 
     it('keeps annotation cursor enabled outside hand-tool mode', () => {

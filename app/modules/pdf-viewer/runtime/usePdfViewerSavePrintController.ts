@@ -2,7 +2,10 @@ import type {
     AnnotationEditorUIManager,
     PDFDocumentProxy,
 } from 'pdfjs-dist';
-import { savePdfDocumentWithCommittedEditors } from '@app/modules/pdf-viewer/engine/pdf-save-document/savePdfDocumentWithCommittedEditors';
+import {
+    commitPdfEditorsForSave as commitPdfEditorsForSaveBridge,
+    savePdfDocumentWithCommittedEditors,
+} from '@app/modules/pdf-viewer/engine/pdf-save-document/savePdfDocumentWithCommittedEditors';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 
 interface IUsePdfViewerSavePrintControllerOptions {
@@ -17,6 +20,10 @@ export const usePdfViewerSavePrintController = (options: IUsePdfViewerSavePrintC
             annotationUiManager: options.getAnnotationUiManager(),
             getCurrentPdfDocument: options.getPdfDocument,
         });
+    }
+
+    async function commitPdfEditorsForSave() {
+        await commitPdfEditorsForSaveBridge({annotationUiManager: options.getAnnotationUiManager()});
     }
 
     async function renderLoadedPdfPagesForBrowserPrint(
@@ -39,6 +46,7 @@ export const usePdfViewerSavePrintController = (options: IUsePdfViewerSavePrintC
     }
 
     return {
+        commitPdfEditorsForSave,
         saveViewerDocument,
         renderLoadedPdfPagesForBrowserPrint,
     };

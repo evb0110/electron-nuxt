@@ -126,6 +126,11 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
             isTextLayerRendered = true;
         } catch (textLayerError) {
             if (isPageRenderTimeoutError(textLayerError)) {
+                clearPdfSelectionForLayerTeardown({
+                    target: textLayerDiv,
+                    root: container,
+                });
+                textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
                 throw textLayerError;
             }
             if (

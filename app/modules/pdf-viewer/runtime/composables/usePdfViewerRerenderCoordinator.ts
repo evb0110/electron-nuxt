@@ -683,14 +683,12 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
 
     watch(viewMode, async () => {
         const runId = ++viewModeRunId;
-        const interactionEpoch = getCurrentUserViewportInteractionEpoch();
         const document = pdfDocument.value;
         cancelDestinationNavigationTarget?.();
         if (!document || isLoading.value) {
             return;
         }
 
-        const pageToSnapTo = getMostVisiblePage(viewerContainer.value, numPages.value);
         const targetViewMode = viewMode.value;
         resetContinuousScrollState();
         const updated = computeFitWidthScale(viewerContainer.value);
@@ -704,15 +702,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             return;
         }
         syncHorizontalScrollAfterLayoutUpdate();
-        await nextTick();
-        if (
-            !isViewerAsyncRunActive(runId, viewModeRunId, document)
-            || viewMode.value !== targetViewMode
-            || !canApplyDelayedViewportScroll('view-mode', runId, interactionEpoch)
-        ) {
-            return;
-        }
-        scrollToPage(pageToSnapTo);
         syncHorizontalScrollAfterLayoutUpdate();
     });
 

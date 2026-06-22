@@ -123,6 +123,42 @@ function createDeps(overrides: Partial<TCoordinatorDeps> = {}): TCoordinatorDeps
 }
 
 describe('usePdfViewerRerenderCoordinator', () => {
+    it('does not overwrite view-mode snapshot restoration with a bare page snap', async () => {
+        const viewMode = ref<'single' | 'facing'>('single');
+        const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+        const scrollToPage = vi.fn();
+        const syncHorizontalScrollForZoomMode = vi.fn(() => true);
+
+        usePdfViewerRerenderCoordinator(createDeps({
+            currentPage: ref(4),
+            visibleRange: ref({
+                start: 4,
+                end: 4,
+            }),
+            viewMode: computed(() => viewMode.value),
+            getVisibleRange: () => ({
+                start: 4,
+                end: 4,
+            }),
+            reRenderAllVisiblePages,
+            scrollToPage,
+            getMostVisiblePage: vi.fn(() => 4),
+            syncHorizontalScrollForZoomMode,
+        }));
+
+        viewMode.value = 'facing';
+        await nextTick();
+        await Promise.resolve();
+        await nextTick();
+
+        expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
+            expect.any(Function),
+            expect.objectContaining({disableHorizontalAnchorRestore: false}),
+        );
+        expect(scrollToPage).not.toHaveBeenCalled();
+        expect(syncHorizontalScrollForZoomMode).toHaveBeenCalled();
+    });
+
     it('skips scheduling a zoom rerender when the zoom change was already handled by reload recovery', async () => {
         const zoom = ref(1);
         const consumeSuppressedZoomRerender = vi.fn(() => true);

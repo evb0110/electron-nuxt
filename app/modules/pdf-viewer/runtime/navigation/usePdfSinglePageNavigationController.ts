@@ -39,6 +39,22 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 options.numPages.value,
             );
             if (targetPage === options.currentPage.value) {
+                const activeNavigationAnchorPage = navigationAnchorPage.value;
+                if (
+                    activeNavigationAnchorPage !== null
+                    && activeNavigationAnchorPage !== targetPage
+                ) {
+                    logPdfRenderTrace('viewer-requested-current-page-cancel-stale-navigation', {
+                        requestedPage: pageNumber,
+                        targetPage,
+                        activeNavigationAnchorPage,
+                        viewerCurrentPage: options.currentPage.value,
+                    });
+                    options.cancelPendingSearchScroll();
+                    singlePageScroll.cancelProgrammaticNavigation();
+                    return;
+                }
+
                 logPdfRenderTrace('viewer-requested-current-page-skip', {
                     requestedPage: pageNumber,
                     targetPage,

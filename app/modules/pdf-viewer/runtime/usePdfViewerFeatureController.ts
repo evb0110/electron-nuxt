@@ -45,6 +45,7 @@ import { runGuardedTask } from '@app/utils/asyncGuard';
 export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdfViewerEmit) => {
     const {
         src,
+        reloadSrc,
         sourcePdfData,
         suppressLoadingOverlay,
         bufferPages,
@@ -620,6 +621,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
     const runtimeLifecycle = usePdfViewerRuntimeLifecycle({
         viewerContainer,
         src,
+        reloadSrc,
         zoom,
         zoomMode,
         fitMode,
@@ -777,6 +779,14 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
             shouldShowNavigationSkeleton(pageNumber)
             && !isPageVisuallyReady(pageNumber)
             && !isPageRendering(pageNumber)
+        ),
+        resolveRecoveryRange: pageNumber => (
+            pageNumber >= visibleRange.value.start && pageNumber <= visibleRange.value.end
+                ? visibleRange.value
+                : {
+                    start: pageNumber,
+                    end: pageNumber,
+                }
         ),
         renderVisiblePages,
     });

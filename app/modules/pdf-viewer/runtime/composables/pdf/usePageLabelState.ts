@@ -34,6 +34,7 @@ export const usePageLabelState = (deps: {
     const pageLabelsDirty = ref(false);
     const pageLabelsResolved = ref(true);
     let pageLabelSyncGeneration = 0;
+    let pageLabelRevision = 0;
     let disposed = false;
 
     function materializePageLabels(
@@ -101,6 +102,7 @@ export const usePageLabelState = (deps: {
             pageLabelRanges.value = nextRanges;
             pageLabels.value = materializePageLabels(doc.numPages, nextRanges, labels);
             pageLabelsDirty.value = false;
+            pageLabelRevision += 1;
         } finally {
             if (isCurrentSync()) {
                 pageLabelsResolved.value = true;
@@ -131,8 +133,13 @@ export const usePageLabelState = (deps: {
         pageLabelRanges.value = normalized;
         pageLabels.value = materializePageLabels(totalPages.value, normalized);
         pageLabelsDirty.value = true;
+        pageLabelRevision += 1;
         markDirty();
         onPageLabelsDirty?.();
+    }
+
+    function getPageLabelsRevision() {
+        return pageLabelRevision;
     }
 
     function scheduleSyncPageLabelsFromDocument(doc: PDFDocumentProxy | null) {
@@ -165,6 +172,7 @@ export const usePageLabelState = (deps: {
         pageLabelsResolved,
         syncPageLabelsFromDocument,
         markPageLabelsSaved,
+        getPageLabelsRevision,
         handlePageLabelRangesUpdate,
     };
 };

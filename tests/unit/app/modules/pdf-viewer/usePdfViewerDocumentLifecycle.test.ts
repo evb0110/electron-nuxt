@@ -631,4 +631,81 @@ describe('usePdfViewerDocumentLifecycle', () => {
         expect(callOrder.indexOf('search')).toBeGreaterThan(settleIndex);
         expect(callOrder.indexOf('annotation-sync')).toBeGreaterThan(settleIndex);
     });
+
+    it('uses the deferred reload source for explicit source reloads', async () => {
+        const currentPage = ref(1);
+        const visibleRange = ref({
+            start: 1,
+            end: 1,
+        });
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
+        const numPages = ref(1);
+        const visibleSource = new Blob([new Uint8Array([1])], { type: 'application/pdf' });
+        const reloadSource = {
+            kind: 'path' as const,
+            path: '/tmp/fresh-working-copy.pdf',
+            size: 3,
+        };
+        const loadPdf = vi.fn(async () => {
+            pdfDocument.value = { numPages: numPages.value } as PDFDocumentProxy;
+            return { version: 1 };
+        });
+
+        const { scheduleLoadFromSource } = usePdfViewerDocumentLifecycle({
+            viewerContainer: ref(cast<HTMLElement>({ querySelector: vi.fn(() => ({})) })),
+            src: computed(() => visibleSource),
+            reloadSrc: computed(() => reloadSource),
+            zoom: computed(() => 1),
+            zoomMode: computed(() => 'fit-width' as const),
+            effectiveScale: ref(1),
+            currentPage,
+            visibleRange,
+            basePageWidth: ref(612),
+            basePageHeight: ref(792),
+            annotationUiManager: shallowRef(null),
+            annotationCommentsCache: ref([]),
+            activeCommentStableKey: ref(null),
+            pdfDocument,
+            numPages,
+            isLoading: ref(false),
+            getRenderVersion: () => 1,
+            loadPdf,
+            ensurePageMetricsInRange: vi.fn(async () => false),
+            getPage: vi.fn(async () => ({}) as PDFPageProxy),
+            renderVisiblePages: vi.fn(async () => {}),
+            getVisibleRange: () => visibleRange.value,
+            reRenderVisiblePagesAndSyncCurrentPage: vi.fn(async () => {}),
+            syncCurrentPageFromViewport: vi.fn(async () => {}),
+            applySearchHighlights: vi.fn(),
+            updateVisibleRange: vi.fn(),
+            scrollToPage: vi.fn(),
+            cleanupRenderedPages: vi.fn(),
+            invalidateScaleCache: vi.fn(),
+            resetScale: vi.fn(),
+            resetInsets: vi.fn(),
+            setupPagePlaceholders: vi.fn(),
+            computeFitWidthScale: vi.fn(() => true),
+            computeSkeletonInsets: vi.fn(async () => {}),
+            invalidateRenderedPages: vi.fn(),
+            consumePendingInvalidation: () => null,
+            commentSync: {
+                incrementSyncToken: vi.fn(),
+                scheduleAnnotationCommentsSync: vi.fn(),
+            },
+            editor: {
+                destroyAnnotationEditor: vi.fn(),
+                initAnnotationEditor: vi.fn(),
+            },
+            pinCurrentPageDuringRecovery: vi.fn(),
+            suppressNextZoomRerender: vi.fn(),
+            beginVisualReloadTransition: vi.fn(() => 17),
+            endVisualReloadTransition: vi.fn(),
+            emit: vi.fn(),
+        });
+
+        scheduleLoadFromSource(true);
+        await flushLifecycleTasks();
+
+        expect(loadPdf).toHaveBeenCalledWith(reloadSource, undefined);
+    });
 });

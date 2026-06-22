@@ -100,6 +100,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         handleAnnotationModified,
         markAnnotationDirty,
         markAnnotationSaved: markAnnotationRevisionSaved,
+        getAnnotationRevision,
         resetAnnotationTracking: resetAnnotationRevisionTracking,
         markAnnotationCommentsLoading,
         applyAnnotationComments,
@@ -116,6 +117,13 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         savedAnnotationStorageFingerprint.value = captureAnnotationStorageFingerprint();
         savedAnnotationStorageFingerprintPreservesLiveSession.value = opts?.preserveLivePdfjsSession === true;
         markAnnotationRevisionSaved();
+    }
+
+    function getAnnotationSaveStateToken() {
+        return JSON.stringify({
+            revision: getAnnotationRevision(),
+            storage: captureAnnotationStorageFingerprint(),
+        });
     }
 
     function resetAnnotationTracking() {
@@ -206,6 +214,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         handleAnnotationModified,
         markAnnotationDirty,
         markAnnotationSaved,
+        getAnnotationSaveStateToken,
         resetAnnotationTracking,
         markAnnotationCommentsLoading,
         applyAnnotationComments,

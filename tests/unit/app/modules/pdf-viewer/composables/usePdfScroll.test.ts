@@ -8,13 +8,19 @@ import { usePdfScroll } from '@app/modules/pdf-viewer/runtime/composables/pdf/us
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
 import { cast } from '@tests/helpers/cast';
 
-function createContainerStub() {
+function createContainerStub(options?: {
+    clientWidth?: number;
+    scrollLeft?: number;
+}) {
     let scrollTop = 0;
+    let scrollLeft = options?.scrollLeft ?? 0;
 
     const container = cast<HTMLElement>({
+        clientWidth: options?.clientWidth ?? 200,
         clientHeight: 200,
         scrollHeight: 2000,
         scrollTop: 0,
+        scrollLeft,
         querySelector: () => null,
         querySelectorAll: () => [],
     });
@@ -25,21 +31,38 @@ function createContainerStub() {
             scrollTop = value;
         },
     });
+    Object.defineProperty(container, 'scrollLeft', {
+        get: () => scrollLeft,
+        set: (value: number) => {
+            scrollLeft = value;
+        },
+    });
 
     return {
         container,
+        getScrollLeft: () => scrollLeft,
         getScrollTop: () => scrollTop,
     };
 }
 
-function createPageElementStub(pageNumber: number, top: number, height: number, buffered = false) {
+function createPageElementStub(
+    pageNumber: number,
+    top: number,
+    height: number,
+    buffered = false,
+    options?: {
+        left?: number;
+        width?: number;
+    },
+) {
+    const width = options?.width ?? 200;
     return cast<HTMLElement>({
         dataset: { page: String(pageNumber) },
-        offsetLeft: 0,
+        offsetLeft: options?.left ?? 0,
         offsetTop: top,
-        offsetWidth: 200,
+        offsetWidth: width,
         offsetHeight: height,
-        clientWidth: 200,
+        clientWidth: width,
         clientHeight: height,
         classList: { contains: (className: string) => buffered && className === 'page_container--buffered' },
     });
@@ -390,6 +413,112 @@ describe('usePdfScroll page layout fallback', () => {
             end: 4,
         });
         expect(scroll.getMostVisiblePage(container, 10)).toBe(4);
+    });
+
+    it('uses horizontal DOM overlap when spread pages share the same row', () => {
+        const leftPage = createPageElementStub(1, 0, 200, false, {
+            left: 0,
+            width: 200,
+        });
+        const rightPage = createPageElementStub(2, 0, 200, false, {
+            left: 200,
+            width: 200,
+        });
+        const container = cast<HTMLElement>({
+            clientHeight: 200,
+            clientWidth: 200,
+            scrollHeight: 200,
+            scrollWidth: 400,
+            scrollLeft: 200,
+            scrollTop: 0,
+            querySelector: () => null,
+            querySelectorAll: () => [
+                leftPage,
+                rightPage,
+            ],
+        });
+        const scroll = usePdfScroll();
+
+        expect(scroll.getVisiblePageRange(container, 2)).toEqual({
+            start: 2,
+            end: 2,
+        });
+        expect(scroll.getMostVisiblePage(container, 2)).toBe(2);
+    });
+
+    it('uses horizontal layout overlap when fallback spread pages share the same row', () => {
+        const { container } = createContainerStub({
+            clientWidth: 200,
+            scrollLeft: 200,
+        });
+        const scroll = usePdfScroll();
+        scroll.setPageLayoutMetrics(buildPageLayoutMetrics({
+            pageMetrics: [
+                {
+                    width: 200,
+                    height: 200,
+                },
+                {
+                    width: 200,
+                    height: 200,
+                },
+            ],
+            totalPages: 2,
+            viewMode: 'facing',
+            scale: 1,
+            gap: 20,
+            paddingTop: 0,
+            paddingBottom: 0,
+            fallbackWidth: 200,
+            fallbackHeight: 200,
+        }));
+
+        expect(scroll.getVisiblePageRange(container, 2)).toEqual({
+            start: 2,
+            end: 2,
+        });
+        expect(scroll.getMostVisiblePage(container, 2)).toBe(2);
+    });
+
+    it('keeps visible tall spread siblings in the layout fallback range', () => {
+        const {
+            container,
+            getScrollTop,
+        } = createContainerStub({ clientWidth: 600 });
+        const scroll = usePdfScroll();
+        scroll.setPageLayoutMetrics(buildPageLayoutMetrics({
+            pageMetrics: [
+                {
+                    width: 200,
+                    height: 500,
+                },
+                {
+                    width: 200,
+                    height: 100,
+                },
+                {
+                    width: 200,
+                    height: 100,
+                },
+            ],
+            totalPages: 3,
+            viewMode: 'facing',
+            scale: 1,
+            gap: 20,
+            paddingTop: 0,
+            paddingBottom: 0,
+            fallbackWidth: 200,
+            fallbackHeight: 100,
+        }));
+
+        container.scrollTop = 250;
+
+        expect(getScrollTop()).toBe(250);
+        expect(scroll.getVisiblePageRange(container, 3)).toEqual({
+            start: 1,
+            end: 1,
+        });
+        expect(scroll.getMostVisiblePage(container, 3)).toBe(1);
     });
 
     it('scrolls to spread rows using row-aware layout metrics', () => {

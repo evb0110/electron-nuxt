@@ -35,6 +35,7 @@ interface IRangeReadHandleCacheEntry {
 }
 
 const rangeReadHandles = new Map<string, IRangeReadHandleCacheEntry>();
+const rangeReadHandleOpens = new Map<string, Promise<IRangeReadHandleCacheEntry>>();
 
 function scheduleRangeReadHandleIdleClose(
     resolvedPath: string,
@@ -69,6 +70,14 @@ async function closeRangeReadHandleEntry(
 }
 
 async function closeCachedRangeReadHandle(resolvedPath: string) {
+    const pendingOpen = rangeReadHandleOpens.get(resolvedPath);
+    if (pendingOpen) {
+        await pendingOpen
+            .then(entry => closeRangeReadHandleEntry(resolvedPath, entry))
+            .catch(() => undefined);
+        return;
+    }
+
     const entry = rangeReadHandles.get(resolvedPath);
     if (!entry) {
         return;
@@ -100,20 +109,57 @@ async function getRangeReadHandle(resolvedPath: string) {
         await closeRangeReadHandleEntry(resolvedPath, cachedEntry);
     }
 
+    const pendingOpen = rangeReadHandleOpens.get(resolvedPath);
+    if (pendingOpen) {
+        const pendingEntry = await pendingOpen;
+        const currentEntry = rangeReadHandles.get(resolvedPath);
+        if (
+            currentEntry === pendingEntry
+            && pendingEntry.size === size
+            && pendingEntry.mtimeMs === mtimeMs
+        ) {
+            rangeReadHandles.delete(resolvedPath);
+            rangeReadHandles.set(resolvedPath, pendingEntry);
+            scheduleRangeReadHandleIdleClose(resolvedPath, pendingEntry);
+            return pendingEntry.handle;
+        }
+        await closeRangeReadHandleEntry(resolvedPath, pendingEntry);
+        return getRangeReadHandle(resolvedPath);
+    }
+
     while (rangeReadHandles.size >= RANGE_READ_HANDLE_CACHE_LIMIT) {
         await closeLeastRecentlyUsedRangeReadHandle();
     }
 
-    const handle = await openFileHandle(resolvedPath, 'r');
-    const entry: IRangeReadHandleCacheEntry = {
-        handle,
-        mtimeMs,
-        size,
-        idleTimer: null,
-    };
-    rangeReadHandles.set(resolvedPath, entry);
-    scheduleRangeReadHandleIdleClose(resolvedPath, entry);
-    return handle;
+    const openPromise = (async () => {
+        const handle = await openFileHandle(resolvedPath, 'r');
+        const winningEntry = rangeReadHandles.get(resolvedPath);
+        if (
+            winningEntry
+            && winningEntry.size === size
+            && winningEntry.mtimeMs === mtimeMs
+        ) {
+            await handle.close().catch(() => undefined);
+            return winningEntry;
+        }
+
+        const entry: IRangeReadHandleCacheEntry = {
+            handle,
+            mtimeMs,
+            size,
+            idleTimer: null,
+        };
+        rangeReadHandles.set(resolvedPath, entry);
+        scheduleRangeReadHandleIdleClose(resolvedPath, entry);
+        return entry;
+    })();
+    rangeReadHandleOpens.set(resolvedPath, openPromise);
+    const entry = await openPromise.finally(() => {
+        if (rangeReadHandleOpens.get(resolvedPath) === openPromise) {
+            rangeReadHandleOpens.delete(resolvedPath);
+        }
+    });
+    return entry.handle;
 }
 
 onWorkingCopyMutationSettled((workingCopyPath) => {
@@ -121,6 +167,14 @@ onWorkingCopyMutationSettled((workingCopyPath) => {
 });
 
 export async function clearCachedRangeReadHandlesForTests() {
+    await Promise.all(
+        Array.from(rangeReadHandleOpens.entries(), async ([
+            resolvedPath,
+            pendingEntry,
+        ]) => pendingEntry
+            .then(entry => closeRangeReadHandleEntry(resolvedPath, entry))
+            .catch(() => undefined)),
+    );
     await Promise.all(
         Array.from(rangeReadHandles.entries(), async ([
             resolvedPath,

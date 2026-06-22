@@ -37,15 +37,15 @@ export interface IPageOpsInvokeMap {
         result: Awaited<ReturnType<TPageOpsApi['insertFile']>>;
     };
     [PAGE_OPS_CHANNELS.rotate]: {
-        args: [workingCopyPath: string, pages: number[], angle: Parameters<TPageOpsApi['rotate']>[2]];
+        args: [workingCopyPath: string, pages: number[], totalPages: number, angle: Parameters<TPageOpsApi['rotate']>[3]];
         result: Awaited<ReturnType<TPageOpsApi['rotate']>>;
     };
     [PAGE_OPS_CHANNELS.crop]: {
-        args: [workingCopyPath: string, pages: number[], margins: ICropMargins];
+        args: [workingCopyPath: string, pages: number[], totalPages: number, margins: ICropMargins];
         result: Awaited<ReturnType<TPageOpsApi['crop']>>;
     };
     [PAGE_OPS_CHANNELS.removeCrop]: {
-        args: [workingCopyPath: string, pages: number[]];
+        args: [workingCopyPath: string, pages: number[], totalPages: number];
         result: Awaited<ReturnType<TPageOpsApi['removeCrop']>>;
     };
     [PAGE_OPS_CHANNELS.getPageGeometry]: {

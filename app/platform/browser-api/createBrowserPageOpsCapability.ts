@@ -68,9 +68,9 @@ interface ICreateBrowserPageOpsOptions {
 
 const BROWSER_PAGE_OP_PDF_MAX_BYTES = 64 * 1024 * 1024;
 const BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
-const BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES = 128 * 1024 * 1024;
+const BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES = BROWSER_PAGE_OP_PDF_MAX_BYTES;
 const BROWSER_PAGE_OP_INSERT_MAX_BYTES = BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES;
-const BROWSER_PAGE_OP_GEOMETRY_MAX_BYTES = 128 * 1024 * 1024;
+const BROWSER_PAGE_OP_GEOMETRY_MAX_BYTES = BROWSER_PAGE_OP_PDF_MAX_BYTES;
 const BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES = 64 * 1024 * 1024;
 const BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES = 96 * 1024 * 1024;
 
@@ -495,7 +495,7 @@ export function createBrowserPageOpsCapability(
                 );
             });
         },
-        async rotate(workingCopyPath, pages, angle) {
+        async rotate(workingCopyPath, pages, _totalPages, angle) {
             return serializeWorkingCopyMutation(workingCopyPath, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,
@@ -519,7 +519,7 @@ export function createBrowserPageOpsCapability(
                 );
             });
         },
-        async crop(workingCopyPath, pages, margins) {
+        async crop(workingCopyPath, pages, _totalPages, margins) {
             return serializeWorkingCopyMutation(workingCopyPath, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,
@@ -543,7 +543,7 @@ export function createBrowserPageOpsCapability(
                 );
             });
         },
-        async removeCrop(workingCopyPath, pages) {
+        async removeCrop(workingCopyPath, pages, _totalPages) {
             return serializeWorkingCopyMutation(workingCopyPath, async () => {
                 const result = await runWorkerBackedPdfOperation({
                     path: workingCopyPath,

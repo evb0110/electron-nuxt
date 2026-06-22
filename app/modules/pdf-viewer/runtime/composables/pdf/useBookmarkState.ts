@@ -16,6 +16,7 @@ export const useBookmarkState = (deps: {
     const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
     const bookmarksDirty = ref(false);
     const bookmarkEditMode = ref(false);
+    let bookmarkRevision = 0;
 
     function markBookmarksSaved() {
         bookmarksDirty.value = false;
@@ -27,6 +28,7 @@ export const useBookmarkState = (deps: {
         dirty: boolean;
     }) {
         bookmarkItems.value = payload.bookmarks;
+        bookmarkRevision += 1;
 
         if (payload.dirty) {
             if (!bookmarksDirty.value) {
@@ -41,11 +43,16 @@ export const useBookmarkState = (deps: {
         onBookmarksSynchronized?.();
     }
 
+    function getBookmarksRevision() {
+        return bookmarkRevision;
+    }
+
     return {
         bookmarkItems,
         bookmarksDirty,
         bookmarkEditMode,
         markBookmarksSaved,
+        getBookmarksRevision,
         handleBookmarksChange,
     };
 };

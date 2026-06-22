@@ -28,12 +28,12 @@ export function createDocumentsPreloadPageOpsClient(
             requestId?: string,
         ) =>
             invoke(PAGE_OPS_CHANNELS.insertFile, workingCopyPath, totalPages, afterPage, sourcePaths, requestId),
-        rotate: (workingCopyPath, pages, angle) =>
-            invoke(PAGE_OPS_CHANNELS.rotate, workingCopyPath, pages, angle),
-        crop: (workingCopyPath, pages, margins) =>
-            invoke(PAGE_OPS_CHANNELS.crop, workingCopyPath, pages, margins),
-        removeCrop: (workingCopyPath, pages) =>
-            invoke(PAGE_OPS_CHANNELS.removeCrop, workingCopyPath, pages),
+        rotate: (workingCopyPath, pages, totalPages, angle) =>
+            invoke(PAGE_OPS_CHANNELS.rotate, workingCopyPath, pages, totalPages, angle),
+        crop: (workingCopyPath, pages, totalPages, margins) =>
+            invoke(PAGE_OPS_CHANNELS.crop, workingCopyPath, pages, totalPages, margins),
+        removeCrop: (workingCopyPath, pages, totalPages) =>
+            invoke(PAGE_OPS_CHANNELS.removeCrop, workingCopyPath, pages, totalPages),
         getPageGeometry: (workingCopyPath, pageNumber) =>
             invoke(PAGE_OPS_CHANNELS.getPageGeometry, workingCopyPath, pageNumber),
     };

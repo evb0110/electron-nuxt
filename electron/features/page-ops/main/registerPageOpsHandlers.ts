@@ -127,6 +127,13 @@ function validateInsertPageArgs(
     };
 }
 
+function validateExpectedTotalPages(totalPages: unknown) {
+    if (typeof totalPages !== 'number' || !Number.isSafeInteger(totalPages) || totalPages < 1) {
+        throw new Error('Invalid totalPages');
+    }
+    return totalPages;
+}
+
 async function handlePageOpsDelete(
     event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
@@ -134,21 +141,19 @@ async function handlePageOpsDelete(
     totalPages: number,
 ) {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
-    if (!Number.isSafeInteger(totalPages) || totalPages < 1) {
-        throw new Error('Invalid totalPages');
-    }
+    const expectedTotalPages = validateExpectedTotalPages(totalPages);
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath);
-        if (mainTotalPages !== totalPages) {
+        if (mainTotalPages !== expectedTotalPages) {
             throw new Error('Renderer page count is stale');
         }
         validatePageNumbers(pages, 'deletePages', {
             totalPages: mainTotalPages,
             requireUnique: true,
         });
-        const operationResult = await deletePages(queuedWorkingCopyPath, pages, totalPages, event.sender?.id);
+        const operationResult = await deletePages(queuedWorkingCopyPath, pages, expectedTotalPages, event.sender?.id);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
         return operationResult;
     });
@@ -289,9 +294,11 @@ async function handlePageOpsRotate(
     event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
     pages: number[],
+    totalPages: number,
     angle: TRotationAngle,
 ) {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
+    const expectedTotalPages = validateExpectedTotalPages(totalPages);
     validatePageNumbers(pages, 'rotatePages', {requireUnique: true});
 
     if (![
@@ -304,6 +311,14 @@ async function handlePageOpsRotate(
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath);
+        if (mainTotalPages !== expectedTotalPages) {
+            throw new Error('Renderer page count is stale');
+        }
+        validatePageNumbers(pages, 'rotatePages', {
+            totalPages: mainTotalPages,
+            requireUnique: true,
+        });
         await rotatePages(queuedWorkingCopyPath, pages, angle, event.sender?.id);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
@@ -352,9 +367,11 @@ async function handlePageOpsCrop(
     event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
     pages: number[],
+    totalPages: number,
     margins: ICropMargins,
 ) {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
+    const expectedTotalPages = validateExpectedTotalPages(totalPages);
     validatePageNumbers(pages, 'cropPages', {requireUnique: true});
     if (
         !margins
@@ -372,6 +389,14 @@ async function handlePageOpsCrop(
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath);
+        if (mainTotalPages !== expectedTotalPages) {
+            throw new Error('Renderer page count is stale');
+        }
+        validatePageNumbers(pages, 'cropPages', {
+            totalPages: mainTotalPages,
+            requireUnique: true,
+        });
         await cropPages(queuedWorkingCopyPath, pages, margins, event.sender?.id);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
@@ -382,12 +407,22 @@ async function handlePageOpsRemoveCrop(
     event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
     pages: number[],
+    totalPages: number,
 ) {
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
+    const expectedTotalPages = validateExpectedTotalPages(totalPages);
     validatePageNumbers(pages, 'removeCrop', {requireUnique: true});
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath);
+        if (mainTotalPages !== expectedTotalPages) {
+            throw new Error('Renderer page count is stale');
+        }
+        validatePageNumbers(pages, 'removeCrop', {
+            totalPages: mainTotalPages,
+            requireUnique: true,
+        });
         await removeCropFromPages(queuedWorkingCopyPath, pages, event.sender?.id);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });

@@ -89,6 +89,7 @@ export const usePdfViewerExposeControllers = (options: IUsePdfViewerExposeContro
     });
 
     const {
+        commitPdfEditorsForSave,
         saveViewerDocument,
         renderLoadedPdfPagesForBrowserPrint,
     } = usePdfViewerSavePrintController({
@@ -100,6 +101,7 @@ export const usePdfViewerExposeControllers = (options: IUsePdfViewerExposeContro
         captureViewerScrollSnapshot,
         restoreViewerScrollSnapshot,
         applyFitWidthToCurrentPage,
+        commitPdfEditorsForSave,
         saveViewerDocument,
         renderLoadedPdfPagesForBrowserPrint,
     };

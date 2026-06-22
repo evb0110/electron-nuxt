@@ -234,6 +234,7 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
         }
 
         const source = options.source ?? 'default';
+        const syncRunId = ++currentPageSyncRunId;
         if (options.resizeAnchor && isAnchoredCurrentPageSyncSource(source)) {
             BrowserLogger.diagnostic(
                 'pdf-nav',
@@ -259,7 +260,6 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
             );
             return;
         }
-        const syncRunId = ++currentPageSyncRunId;
         if (options.stabilize) {
             const stablePage = await resolveStableCurrentPageFromViewport(syncRunId, source);
             if (!stablePage || syncRunId !== currentPageSyncRunId) {

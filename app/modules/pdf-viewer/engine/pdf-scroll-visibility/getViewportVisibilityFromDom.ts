@@ -35,6 +35,8 @@ function isBufferedPageElement(element: HTMLElement) {
 function collectVisiblePageMetrics(container: HTMLElement): IVisiblePageMetrics {
     const viewportTop = container.scrollTop;
     const viewportBottom = viewportTop + container.clientHeight;
+    const viewportLeft = container.scrollLeft;
+    const viewportRight = viewportLeft + container.clientWidth;
     const pageContainers = container.querySelectorAll<HTMLElement>('.page_container');
 
     let firstVisiblePage: number | null = null;
@@ -54,9 +56,14 @@ function collectVisiblePageMetrics(container: HTMLElement): IVisiblePageMetrics 
 
         const pageTop = pageElement.offsetTop;
         const pageBottom = pageTop + pageElement.offsetHeight;
+        const pageLeft = pageElement.offsetLeft;
+        const pageRight = pageLeft + pageElement.offsetWidth;
         const visibleTop = Math.max(pageTop, viewportTop);
         const visibleBottom = Math.min(pageBottom, viewportBottom);
-        const visibleArea = Math.max(0, visibleBottom - visibleTop);
+        const visibleLeft = Math.max(pageLeft, viewportLeft);
+        const visibleRight = Math.min(pageRight, viewportRight);
+        const visibleArea = Math.max(0, visibleBottom - visibleTop)
+            * Math.max(0, visibleRight - visibleLeft);
 
         if (visibleArea > 0) {
             firstVisiblePage ??= pageNumber;

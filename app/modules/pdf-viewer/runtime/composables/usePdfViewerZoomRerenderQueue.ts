@@ -20,6 +20,7 @@ interface IUsePdfViewerZoomRerenderQueueOptions {
     summarizeViewerMetricsForLog: (container: HTMLElement | null) => unknown;
     reRenderVisiblePagesAndSyncCurrentPage: (syncOptions?: ICurrentPageSyncOptions) => Promise<void>;
     buildResizeAnchorContext: () => IResizeAnchorContext;
+    scheduleEndResizeTransition?: (token: number, reason: string, page: number | null) => void;
     isZoomInteractionLocked?: (() => boolean) | undefined;
     isZoomGestureSessionLocked?: (() => boolean) | undefined;
     setZoomRerenderBusy?: ((busy: boolean) => void) | undefined;
@@ -33,6 +34,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
         summarizeViewerMetricsForLog,
         reRenderVisiblePagesAndSyncCurrentPage,
         buildResizeAnchorContext,
+        scheduleEndResizeTransition,
         isZoomInteractionLocked,
         isZoomGestureSessionLocked,
         setZoomRerenderBusy,
@@ -169,8 +171,25 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
         });
     }
 
+    function cancelDeferredResizeRerender(reason: string) {
+        const deferred = deferredResizeSyncAfterZoom;
+        deferredResizeSyncAfterZoom = null;
+        if (!deferred?.syncOptions.resizeAnchor) {
+            return;
+        }
+        scheduleEndResizeTransition?.(
+            deferred.syncOptions.resizeAnchor.transitionToken,
+            reason,
+            deferred.syncOptions.resizeAnchor.page,
+        );
+    }
+
     function flushDeferredResizeRerender(source: string) {
         if (isZoomRerenderBusy() || !deferredResizeSyncAfterZoom) {
+            return;
+        }
+        if (!isDocumentReadyForZoomRerender()) {
+            cancelDeferredResizeRerender('deferred-resize-document-not-ready');
             return;
         }
         const deferred = deferredResizeSyncAfterZoom;
@@ -321,6 +340,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
 
     function resetZoomRerenderQueueState(reason: string) {
         pendingZoomSyncOptions = null;
+        cancelDeferredResizeRerender(`zoom-queue-reset:${reason}`);
         clearZoomRerenderDeferredTimer();
         clearZoomSettleCheckTimer();
         zoomGestureLowResRerenderUsed = false;
@@ -346,7 +366,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
         zoomRerenderQueueProcessing = false;
         lastZoomRerenderFrameAtMs = 0;
         zoomGestureLowResRerenderUsed = false;
-        deferredResizeSyncAfterZoom = null;
+        cancelDeferredResizeRerender('zoom-queue-cleanup');
         lastReportedZoomBusy = false;
         setZoomRerenderBusy?.(false);
     }

@@ -433,6 +433,7 @@ export function createDocumentOpenFlow(
         state.workingCopyPath.value = path;
         state.pdfData.value = nextState.pdfData;
         state.pdfSrc.value = nextState.pdfSrc;
+        state.pdfReloadSrc.value = nextState.pdfSrc;
         deps.clearPdfConformanceProfile();
 
         if (!options?.preserveHistory) {
@@ -514,6 +515,7 @@ export function createDocumentOpenFlow(
 
         if (opts?.resetSourceBeforeCommit && state.pdfSrc.value) {
             state.pdfSrc.value = null;
+            state.pdfReloadSrc.value = null;
             await nextTick();
             if (!deps.loadEpoch.isCurrent(requestId)) {
                 return;
@@ -545,6 +547,7 @@ export function createDocumentOpenFlow(
 
         state.pdfData.value = snapshot;
         state.pdfSrc.value = toPdfBlob(snapshot);
+        state.pdfReloadSrc.value = state.pdfSrc.value;
         return true;
     }
 

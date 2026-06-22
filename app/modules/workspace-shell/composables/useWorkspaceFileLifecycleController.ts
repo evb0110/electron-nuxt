@@ -7,6 +7,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 export const useWorkspaceFileLifecycleController = () => {
     const {
         pdfSrc,
+        pdfReloadSrc,
         pdfData,
         workingCopyPath,
         originalPath,
@@ -113,6 +114,7 @@ export const useWorkspaceFileLifecycleController = () => {
 
     return {
         pdfSrc,
+        pdfReloadSrc,
         pdfData,
         workingCopyPath,
         originalPath,

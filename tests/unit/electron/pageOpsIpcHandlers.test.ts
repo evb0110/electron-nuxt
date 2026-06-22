@@ -277,8 +277,8 @@ describe('registerPageOpsHandlers', () => {
         });
 
         const handler = getHandler('page-ops:rotate');
-        const first = handler({sender: {id: 1}}, '/tmp/a.pdf', [1], 90) as Promise<{ success: boolean }>;
-        const second = handler({sender: {id: 1}}, '/tmp/b.pdf', [1], 90) as Promise<{ success: boolean }>;
+        const first = handler({sender: {id: 1}}, '/tmp/a.pdf', [1], 3, 90) as Promise<{ success: boolean }>;
+        const second = handler({sender: {id: 1}}, '/tmp/b.pdf', [1], 3, 90) as Promise<{ success: boolean }>;
 
         await flushQueuedMutationStart();
 
@@ -302,6 +302,40 @@ describe('registerPageOpsHandlers', () => {
 
         expect(mocks.getPdfPageCount).toHaveBeenCalledWith('/tmp/stale-reorder.pdf');
         expect(mocks.reorderPages).not.toHaveBeenCalled();
+    });
+
+    it('rejects stale rotate page selections inside the mutation queue', async () => {
+        mocks.getPdfPageCount.mockResolvedValueOnce(2);
+        const handler = getHandler('page-ops:rotate');
+
+        await expect(handler({sender: {id: 1}}, '/tmp/stale-rotate.pdf', [3], 3, 90))
+            .rejects.toThrow('Renderer page count is stale');
+
+        expect(mocks.rotatePages).not.toHaveBeenCalled();
+    });
+
+    it('rejects stale crop page selections inside the mutation queue', async () => {
+        mocks.getPdfPageCount.mockResolvedValueOnce(2);
+        const handler = getHandler('page-ops:crop');
+
+        await expect(handler({sender: {id: 1}}, '/tmp/stale-crop.pdf', [3], 3, {
+            top: 0,
+            bottom: 0,
+            left: 0,
+            right: 0,
+        })).rejects.toThrow('Renderer page count is stale');
+
+        expect(mocks.cropPages).not.toHaveBeenCalled();
+    });
+
+    it('rejects stale remove-crop page selections inside the mutation queue', async () => {
+        mocks.getPdfPageCount.mockResolvedValueOnce(2);
+        const handler = getHandler('page-ops:remove-crop');
+
+        await expect(handler({sender: {id: 1}}, '/tmp/stale-remove-crop.pdf', [3], 3))
+            .rejects.toThrow('Renderer page count is stale');
+
+        expect(mocks.removeCropFromPages).not.toHaveBeenCalled();
     });
 
     it('rejects insert-file batches above the shared open-input cap', async () => {
@@ -484,7 +518,7 @@ describe('registerPageOpsHandlers', () => {
     it('rejects invalid crop margins before reaching page crop mutations', async () => {
         const handler = getHandler('page-ops:crop');
 
-        await expect(handler({sender: {id: 1}}, '/tmp/crop.pdf', [1], {
+        await expect(handler({sender: {id: 1}}, '/tmp/crop.pdf', [1], 3, {
             top: Number.NaN,
             bottom: 0,
             left: 0,
@@ -622,7 +656,7 @@ describe('registerPageOpsHandlers', () => {
     it('removes stale OCR artifacts after mutating the working copy', async () => {
         const handler = getHandler('page-ops:rotate');
 
-        await expect(handler({sender: {id: 1}}, '/tmp/a.pdf', [1], 90)).resolves.toEqual({success: true});
+        await expect(handler({sender: {id: 1}}, '/tmp/a.pdf', [1], 3, 90)).resolves.toEqual({success: true});
 
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/a.pdf.ocr', {
             recursive: true,

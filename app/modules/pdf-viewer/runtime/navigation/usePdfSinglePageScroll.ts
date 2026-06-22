@@ -1042,20 +1042,25 @@ export const usePdfSinglePageScroll = (
     function endSearchNavigation(settleMs = SEARCH_NAVIGATION_DEFAULT_SETTLE_MS) {
         navigationEffects.clearSearchSettle();
         const runId = getActiveSearchNavigationRunId();
+        if (runId === null || !isNavigationRunCurrent(runId)) {
+            return;
+        }
 
         if (settleMs <= 0) {
             snapSuppressUntil.value = 0;
             isProgrammaticNavigationActive.value = false;
             clearProgrammaticNavigationReleaseTimer();
-            if (runId !== null && isNavigationRunCurrent(runId)) {
-                clearNavigationFeedbackPage('search-navigation-canceled', runId);
-                dispatchNavigationMachine({ type: 'CANCEL' });
-            }
+            clearNavigationFeedbackPage('search-navigation-canceled', runId);
+            dispatchNavigationMachine({ type: 'CANCEL' });
             return;
         }
 
         const targetPage = searchNavigationTargetPage.value;
-        if (runId !== null && targetPage !== null && isNavigationRunCurrent(runId)) {
+        if (targetPage === null) {
+            return;
+        }
+
+        if (isNavigationRunCurrent(runId)) {
             dispatchNavigationMachine({
                 type: 'SCROLL_APPLIED',
                 txn: runId,
@@ -1064,7 +1069,7 @@ export const usePdfSinglePageScroll = (
         }
         markProgrammaticNavigation(Math.max(SEARCH_NAVIGATION_DEFAULT_SETTLE_MS, settleMs + PROGRAMMATIC_NAVIGATION_RELEASE_RETRY_MS));
         navigationEffects.armSearchSettle(settleMs, () => {
-            if (runId !== null && isNavigationRunCurrent(runId)) {
+            if (isNavigationRunCurrent(runId)) {
                 clearNavigationFeedbackPage('search-navigation-finished', runId);
                 dispatchNavigationMachine({ type: 'CANCEL' });
             }
@@ -1851,11 +1856,22 @@ export const usePdfSinglePageScroll = (
         markerRect?: IScrollToPageOptions['markerRect'];
         markerPageTop?: number | undefined;
         markerPageHeight?: number | undefined;
+        pageYBaseTop?: number | undefined;
+        pageYPageHeight?: number | undefined;
     }) {
         if (typeof options.pageYRatio === 'number' && Number.isFinite(options.pageYRatio)) {
+            const pageYBaseTop = typeof options.pageYBaseTop === 'number'
+                && Number.isFinite(options.pageYBaseTop)
+                ? options.pageYBaseTop
+                : options.baseTop;
+            const pageYPageHeight = typeof options.pageYPageHeight === 'number'
+                && Number.isFinite(options.pageYPageHeight)
+                && options.pageYPageHeight > 0
+                ? options.pageYPageHeight
+                : options.targetHeight;
             return Math.min(
                 options.maxTop,
-                Math.max(0, options.baseTop + clamp(options.pageYRatio, 0, 1) * options.targetHeight),
+                Math.max(0, pageYBaseTop + clamp(options.pageYRatio, 0, 1) * pageYPageHeight),
             );
         }
 
@@ -1986,6 +2002,8 @@ export const usePdfSinglePageScroll = (
             markerRect: options?.markerRect,
             markerPageTop: targetEl.offsetTop,
             markerPageHeight: targetPageHeight,
+            pageYBaseTop: targetEl.offsetTop - scaledMargin.value,
+            pageYPageHeight: targetPageHeight,
         });
         const targetLeft = resolveMountedPageMarkerScrollLeft({
             containerWidth,
@@ -2482,6 +2500,9 @@ export const usePdfSinglePageScroll = (
                     {
                         scope: 'pdf-single-page-scroll',
                         message: 'Failed to hydrate target page metrics before scrollToPage',
+                        onError: () => {
+                            clearContinuousNavigationTarget(runId, targetPage);
+                        },
                     },
                 );
                 return false;

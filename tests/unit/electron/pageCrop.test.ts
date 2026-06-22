@@ -155,6 +155,17 @@ describe('page crop operations', () => {
         })).rejects.toThrow('Invalid crop margins');
     });
 
+    it('rejects crop margins that consume the selected page', async () => {
+        await createPdf(pdfPath);
+
+        await expect(cropPages(pdfPath, [1], {
+            top: 0,
+            bottom: 0,
+            left: 120,
+            right: 80,
+        })).rejects.toThrow('Crop margins consume page 1');
+    });
+
     it('recovers the working-copy directory before local crop reads', async () => {
         await createPdf(pdfPath);
 

@@ -90,6 +90,13 @@ export function createDocumentPersistence(
                     return false;
                 }
                 state.pdfData.value = snapshot;
+                state.pdfReloadSrc.value = state.pdfSrc.value instanceof Blob
+                    ? deps.toPdfBlob(snapshot)
+                    : {
+                        kind: 'path',
+                        path,
+                        size: snapshot.byteLength,
+                    };
                 await deps.markCurrentHistoryEntryClean(snapshot, { recordSnapshotChange: false });
             } else {
                 const nextState = await deps.readPdfStateFromPath(path);
@@ -97,6 +104,7 @@ export function createDocumentPersistence(
                     return false;
                 }
                 state.pdfData.value = nextState.pdfData;
+                state.pdfReloadSrc.value = nextState.pdfSrc;
                 await deps.markCurrentHistoryEntryClean(nextState.pdfData, { recordSnapshotChange: false });
             }
         } else if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
@@ -106,6 +114,7 @@ export function createDocumentPersistence(
             }
             state.pdfData.value = snapshot;
             state.pdfSrc.value = deps.toPdfBlob(snapshot);
+            state.pdfReloadSrc.value = state.pdfSrc.value;
             await deps.markCurrentHistoryEntryClean(snapshot);
         } else {
             const nextState = await deps.readPdfStateFromPath(path);
@@ -114,6 +123,7 @@ export function createDocumentPersistence(
             }
             state.pdfData.value = nextState.pdfData;
             state.pdfSrc.value = nextState.pdfSrc;
+            state.pdfReloadSrc.value = nextState.pdfSrc;
             await deps.markCurrentHistoryEntryClean(nextState.pdfData);
         }
 
@@ -219,6 +229,7 @@ export function createDocumentPersistence(
 
         state.pdfData.value = snapshot;
         state.pdfSrc.value = deps.toPdfBlob(snapshot);
+        state.pdfReloadSrc.value = state.pdfSrc.value;
         await deps.pushHistorySnapshot(snapshot, { reuseSnapshot: true });
 
         if (expectedWorkingPath) {

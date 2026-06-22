@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
     addRecentFile: vi.fn(),
     updateRecentFilesMenu: vi.fn(),
     optimizePdfForSaveAs: vi.fn(),
+    copyFileCopyOnWrite: vi.fn(),
 }));
 
 vi.mock('@electron/utils/atomicReplace', () => ({
@@ -51,6 +52,7 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     setWorkingCopyOriginalPath: (...args: [string, string, number?]) => mocks.setWorkingCopyOriginalPath(...args),
 }));
 vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: vi.fn(() => true)}));
+vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args)}));
 vi.mock('@electron/recentFiles', () => ({addRecentFile: (...args: unknown[]) => mocks.addRecentFile(...args)}));
 vi.mock('@electron/menu', () => ({updateRecentFilesMenu: (...args: unknown[]) => mocks.updateRecentFilesMenu(...args)}));
@@ -73,6 +75,9 @@ describe('serializedPdfPersistence', () => {
         mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, await readFile(sourcePath));
             await unlink(sourcePath);
+        });
+        mocks.copyFileCopyOnWrite.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            await writeFile(targetPath, await readFile(sourcePath));
         });
     });
 
@@ -240,6 +245,31 @@ describe('serializedPdfPersistence', () => {
         expect(readFileSyncUtf8(workingPath)).toBe('old-original');
         expect(readFileSyncUtf8(originalPath)).toBe('external-change');
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
+    });
+
+    it('returns committed success with a warning when streamed Save to original copy-back fails', async () => {
+        const workingPath = join(tempRoot, 'copyback-working.pdf');
+        const originalPath = join(tempRoot, 'copyback-original.pdf');
+        writeFileSync(workingPath, 'old-working');
+        writeFileSync(originalPath, 'old-original');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        mocks.copyFileCopyOnWrite.mockRejectedValueOnce(new Error('copy-back failed'));
+
+        const result = await runSaveToOriginalSession({
+            workingPath,
+            bytes: Buffer.from('new-pdf'),
+        });
+
+        expect(result).toMatchObject({
+            type: 'result',
+            path: originalPath,
+            validation: {
+                isValid: true,
+                warnings: [expect.stringContaining('copy-back failed')],
+            },
+        });
+        expect(readFileSyncUtf8(originalPath)).toBe('new-pdf');
+        expect(readFileSyncUtf8(workingPath)).toBe('old-working');
     });
 
     it('rejects Save As before opening a temp stream when the sender does not own the working copy', async () => {

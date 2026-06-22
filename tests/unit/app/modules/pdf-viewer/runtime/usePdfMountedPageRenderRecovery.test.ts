@@ -87,6 +87,7 @@ describe('usePdfMountedPageRenderRecovery', () => {
             {
                 preserveRenderedPages: true,
                 bufferOverride: 0,
+                preserveInFlightRequiredPages: true,
             },
         );
 
@@ -188,6 +189,7 @@ describe('usePdfMountedPageRenderRecovery', () => {
             {
                 preserveRenderedPages: true,
                 bufferOverride: 0,
+                preserveInFlightRequiredPages: true,
             },
         );
 
@@ -222,6 +224,7 @@ describe('usePdfMountedPageRenderRecovery', () => {
             {
                 preserveRenderedPages: true,
                 bufferOverride: 0,
+                preserveInFlightRequiredPages: true,
             },
         );
 
@@ -282,6 +285,46 @@ describe('usePdfMountedPageRenderRecovery', () => {
         );
 
         warnSpy.mockRestore();
+        scope.stop();
+    });
+
+    it('renders the resolved visible row for a late-mounted row sibling', async () => {
+        vi.useFakeTimers();
+        const scope = effectScope();
+        const renderVisiblePages = vi.fn(async () => {});
+        const pagesNeedingRender = ref(new Set([4]));
+        const recovery = scope.run(() => usePdfMountedPageRenderRecovery({
+            isActive: computed(() => true),
+            isLoading: ref(false),
+            hasDocument: computed(() => true),
+            numPages: ref(10),
+            shouldRecoverPage: pageNumber => pagesNeedingRender.value.has(pageNumber),
+            resolveRecoveryRange: () => ({
+                start: 3,
+                end: 4,
+            }),
+            renderVisiblePages,
+        }));
+
+        if (!recovery) {
+            throw new Error('Failed to create mounted page render recovery harness');
+        }
+
+        recovery.queueMountedPageRender(4);
+        await flushTimersAndTicks();
+
+        expect(renderVisiblePages).toHaveBeenCalledWith(
+            {
+                start: 3,
+                end: 4,
+            },
+            {
+                preserveRenderedPages: true,
+                bufferOverride: 0,
+                preserveInFlightRequiredPages: true,
+            },
+        );
+
         scope.stop();
     });
 });

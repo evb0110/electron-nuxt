@@ -197,22 +197,24 @@ export async function consumeOcrResultIntoActiveWorkspace(page: Page, requestId:
     };
 }
 
-export async function rotatePages(page: Page, workingCopyPath: string, pages: number[], angle: 90 | 180 | 270) {
+export async function rotatePages(page: Page, workingCopyPath: string, pages: number[], totalPages: number, angle: 90 | 180 | 270) {
     return evaluateInPage(page, async ({
         workingPath,
         targetPages,
+        expectedTotalPages,
         targetAngle,
     }) => {
-        const api = (window as IE2EWindow & {electronAPI?: {pageOps?: {rotate?: (workingCopyPath: string, pages: number[], angle: 90 | 180 | 270) => Promise<{ success: boolean }>;};};}).electronAPI;
+        const api = (window as IE2EWindow & {electronAPI?: {pageOps?: {rotate?: (workingCopyPath: string, pages: number[], totalPages: number, angle: 90 | 180 | 270) => Promise<{ success: boolean }>;};};}).electronAPI;
 
         const rotate = api?.pageOps?.rotate;
         if (!rotate) {
             throw new Error('electronAPI.pageOps.rotate is unavailable');
         }
-        return rotate(workingPath, targetPages, targetAngle);
+        return rotate(workingPath, targetPages, expectedTotalPages, targetAngle);
     }, {
         workingPath: workingCopyPath,
         targetPages: pages,
+        expectedTotalPages: totalPages,
         targetAngle: angle,
     });
 }

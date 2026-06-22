@@ -171,14 +171,14 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
         const rasterizedBytes = await rasterizePlacedImage(payload);
         if (!rasterizedBytes) {
-            BrowserLogger.warn(PDF_SERIALIZATION_LOG_SECTION, 'Failed to rasterize placed image for worker serialization', {
+            BrowserLogger.error(PDF_SERIALIZATION_LOG_SECTION, 'Failed to rasterize placed image for worker serialization', {
                 pageNumber: payload.pageNumber,
                 fileName: payload.fileName,
                 mimeType: payload.mimeType,
                 targetPixelWidth: payload.targetPixelWidth,
                 targetPixelHeight: payload.targetPixelHeight,
             });
-            return null;
+            throw new Error('Failed to rasterize placed image for PDF embedding');
         }
 
         return {
@@ -483,6 +483,9 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             if (nativeResult) {
                 return nativeResult;
             }
+        }
+        if (!serializedPlacement) {
+            throw new Error('Failed to prepare placed image for PDF embedding');
         }
         const payload = createEmptySavePayload();
         payload.placedImage = serializedPlacement;

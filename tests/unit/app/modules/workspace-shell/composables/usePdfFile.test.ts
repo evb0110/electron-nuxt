@@ -148,6 +148,16 @@ describe('usePdfFile', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockHasElectronAPI.mockReturnValue(true);
+        mockDocuments.openPdfDialog.mockReset();
+        mockDocuments.openPdfDirect.mockReset();
+        mockDocuments.openPdfDirectBatch.mockReset();
+        mockDocuments.readFile.mockReset();
+        mockDocuments.readFileRange.mockReset();
+        mockDocuments.writeFile.mockReset();
+        mockDocuments.saveFile.mockReset();
+        mockDocuments.savePdfAs.mockReset();
+        mockDocuments.statFile.mockReset();
+        mockDocuments.cleanupFile.mockReset();
         mockDocuments.cleanupFile.mockResolvedValue(undefined);
         mockDocuments.createWorkingCopyFromData.mockReset();
         mockDocuments.createWorkingCopyFromPath.mockReset();
@@ -796,7 +806,7 @@ describe('usePdfFile', () => {
             file.closeFile();
             writeGate.resolve(undefined);
 
-            await expect(undo).resolves.toBe(true);
+            await expect(undo).resolves.toBe(false);
             expect(file.workingCopyPath.value).toBeNull();
             expect(file.pdfData.value).toBeNull();
             expect(file.pdfSrc.value).toBeNull();
@@ -818,11 +828,11 @@ describe('usePdfFile', () => {
                 workingPath: '/tmp/undo.pdf',
             });
             mockDocuments.statFile
-                .mockResolvedValueOnce({ size: bytes1.length })
-                .mockResolvedValueOnce({ size: bytes2.length });
+                .mockResolvedValue({ size: bytes2.length })
+                .mockResolvedValueOnce({ size: bytes1.length });
             mockDocuments.readFile
-                .mockResolvedValueOnce(bytes1.buffer)
-                .mockResolvedValueOnce(bytes2.buffer);
+                .mockResolvedValue(bytes2.buffer)
+                .mockResolvedValueOnce(bytes1.buffer);
             mockDocuments.writeFile.mockResolvedValue(undefined);
 
             const file = createTestPdfFile();
@@ -1482,6 +1492,7 @@ describe('usePdfFile', () => {
                 saveRestrictions: ['signed_original_requires_save_as'] as string[],
             });
             mockDocuments.writeFile.mockResolvedValue(undefined);
+            mockDocuments.createWorkingCopyFromData.mockResolvedValue('/tmp/staged-signed.pdf');
             mockDocuments.savePdfAs.mockResolvedValue('/exports/signed-copy.pdf');
 
             const file = createTestPdfFile();
@@ -1490,7 +1501,8 @@ describe('usePdfFile', () => {
             const result = await file.saveFile(pdfBytes, { saveMode: 'rewrite' });
 
             expect(mockDocuments.saveFile).not.toHaveBeenCalled();
-            expect(mockDocuments.savePdfAs).toHaveBeenCalledWith('/tmp/signed.pdf');
+            expect(mockDocuments.createWorkingCopyFromData).toHaveBeenCalledWith('signed.pdf', pdfBytes);
+            expect(mockDocuments.savePdfAs).toHaveBeenCalledWith('/tmp/staged-signed.pdf');
             expect(result).toEqual({
                 success: true,
                 outPath: '/exports/signed-copy.pdf',

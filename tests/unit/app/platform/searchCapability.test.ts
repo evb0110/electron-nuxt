@@ -312,7 +312,7 @@ describe('createBrowserSearchCapability', () => {
 
         expect(firstRun.results).toHaveLength(30);
         expect(secondRun.results).toHaveLength(30);
-        expect(browserDocumentStoreMock.stat).toHaveBeenCalledTimes(6);
+        expect(browserDocumentStoreMock.stat).toHaveBeenCalledTimes(8);
         expect(browserDocumentStoreMock.readRange).toHaveBeenCalledTimes(2);
         expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(2);
         expect(yieldToBrowserMock.mock.calls.length).toBeGreaterThanOrEqual(2);
@@ -447,9 +447,7 @@ describe('createBrowserSearchCapability', () => {
             2,
             3,
         ]));
-        browserDocumentStoreMock.getContentSignature
-            .mockResolvedValueOnce('content-token-1')
-            .mockResolvedValueOnce('content-token-2');
+        browserDocumentStoreMock.getContentSignature.mockResolvedValue('content-token-1');
         pdfjsModule.getDocument
             .mockReturnValueOnce({promise: Promise.resolve(firstDocument)})
             .mockReturnValueOnce({promise: Promise.resolve(secondDocument)});
@@ -461,6 +459,7 @@ describe('createBrowserSearchCapability', () => {
             results: [expect.objectContaining({ pageNumber: 1 })],
             truncated: false,
         });
+        browserDocumentStoreMock.getContentSignature.mockResolvedValue('content-token-2');
         await expect(capability.run('/tmp/test.pdf', 'bar')).resolves.toEqual({
             results: [expect.objectContaining({ pageNumber: 1 })],
             truncated: false,

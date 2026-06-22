@@ -45,6 +45,7 @@ type TPdfDocumentResult = ReturnType<typeof usePdfDocument>;
 export interface IUsePdfViewerRuntimeLifecycleOptions {
     viewerContainer: Ref<HTMLElement | null>;
     src: ComputedRef<TPdfSource | null>;
+    reloadSrc?: ComputedRef<TPdfSource | null> | undefined;
     isAnySaving?: ComputedRef<boolean> | undefined;
     zoom: ComputedRef<number>;
     zoomMode: ComputedRef<TZoomMode>;
@@ -161,6 +162,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
     const {
         viewerContainer,
         src,
+        reloadSrc,
         zoom,
         zoomMode,
         fitMode,
@@ -404,6 +406,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
     } = usePdfViewerDocumentLifecycle({
         viewerContainer,
         src,
+        reloadSrc,
         zoom,
         zoomMode,
         effectiveScale,
@@ -455,6 +458,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         summarizeViewerMetricsForLog,
         reRenderVisiblePagesAndSyncCurrentPage: (syncOptions) => rerenderVisiblePagesAndSyncCurrentPage(syncOptions),
         buildResizeAnchorContext: () => buildResizeAnchorContext(),
+        scheduleEndResizeTransition,
         isZoomInteractionLocked,
         isZoomGestureSessionLocked,
         setZoomRerenderBusy,

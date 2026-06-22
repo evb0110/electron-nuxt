@@ -128,7 +128,10 @@ export interface IPdfViewerShapePersistenceExpose {
     restorePreparedManagedShapesAfterFailedSave?: (snapshot: unknown) => Promise<void>;
 }
 
-export interface IPdfViewerSaveExpose {saveDocument: () => Promise<Uint8Array | null>;}
+export interface IPdfViewerSaveExpose {
+    saveDocument: () => Promise<Uint8Array | null>;
+    commitPdfEditorsForSave?: () => Promise<void>;
+}
 
 export interface IPdfViewerBrowserPrintExpose {renderLoadedPdfPagesForBrowserPrint?: (
     targetDocument: IBrowserPrintDocument,
