@@ -39,6 +39,7 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
     numPages: Ref<number>;
     currentPage: Ref<number>;
     pagedNavigationTargetPage?: Readonly<Ref<number | null>> | undefined;
+    navigationAnchorPage?: Readonly<Ref<number | null>> | undefined;
     visibleRange: Ref<IPageRange>;
     zoom: ComputedRef<number>;
     zoomMode?: ComputedRef<TZoomMode> | undefined;
@@ -121,6 +122,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         numPages,
         currentPage,
         pagedNavigationTargetPage,
+        navigationAnchorPage,
         visibleRange,
         zoom,
         zoomMode,
@@ -684,7 +686,10 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     watch(viewMode, async () => {
         const runId = ++viewModeRunId;
         const document = pdfDocument.value;
-        cancelDestinationNavigationTarget?.();
+        const activeNavigationAnchorPage = navigationAnchorPage?.value ?? null;
+        if (activeNavigationAnchorPage === null) {
+            cancelDestinationNavigationTarget?.();
+        }
         if (!document || isLoading.value) {
             return;
         }
@@ -702,6 +707,9 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             return;
         }
         syncHorizontalScrollAfterLayoutUpdate();
+        if (activeNavigationAnchorPage !== null) {
+            scrollToPage(activeNavigationAnchorPage, { preferExactDom: true });
+        }
         syncHorizontalScrollAfterLayoutUpdate();
     });
 
@@ -917,10 +925,11 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             // pre-toggle viewport — matching pdf.js's scrollMode setter
             // (which calls _setCurrentPageNumber(currentPageNumber, reset=true)
             // anchored at the page top-left), and Adobe / Preview behavior.
-            const pageToSnapTo = getMostVisiblePage(
-                viewerContainer.value,
-                numPages.value,
-            );
+            const pageToSnapTo = navigationAnchorPage?.value
+                ?? getMostVisiblePage(
+                    viewerContainer.value,
+                    numPages.value,
+                );
             resetContinuousScrollState();
             if (fitMode.value === 'height' && pdfDocument.value) {
                 computeFitWidthScale(viewerContainer.value);

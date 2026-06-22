@@ -304,7 +304,7 @@ describe('useAnnotationSync helpers / tryExtractPdfLinkAnnotation', () => {
         100,
     ];
 
-    it('returns null when url is missing', () => {
+    it('returns null when both url and destination are missing', () => {
         const link = __test__.tryExtractPdfLinkAnnotation(
             {
                 id: 'l-1',
@@ -321,6 +321,59 @@ describe('useAnnotationSync helpers / tryExtractPdfLinkAnnotation', () => {
             0,
         );
         expect(link).toBeNull();
+    });
+
+    it('builds link from destination-only annotations', () => {
+        const link = __test__.tryExtractPdfLinkAnnotation(
+            {
+                id: 'l-dest',
+                dest: 'section-2',
+                rect: [
+                    10,
+                    10,
+                    50,
+                    50,
+                ],
+            },
+            1,
+            0,
+            pageView,
+            0,
+        );
+        expect(link?.id).toBe('l-dest');
+        expect(link?.url).toBeUndefined();
+        expect(link?.dest).toBe('section-2');
+        expect(link?.rect).toBeDefined();
+    });
+
+    it('preserves array destinations from PDF.js link annotations', () => {
+        const dest = [
+            {
+                num: 3,
+                gen: 0,
+            },
+            {name: 'XYZ'},
+            10,
+            20,
+            null,
+        ];
+        const link = __test__.tryExtractPdfLinkAnnotation(
+            {
+                id: 'l-array-dest',
+                dest,
+                rect: [
+                    10,
+                    10,
+                    50,
+                    50,
+                ],
+            },
+            1,
+            0,
+            pageView,
+            0,
+        );
+        expect(link?.dest).toBe(dest);
     });
 
     it('returns null when rect is missing', () => {

@@ -116,6 +116,29 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         });
     });
 
+    it('drops a forced preferred anchor snapshot when the captured page disagrees', () => {
+        const { lifecycle } = createResizeLifecycle(ref(true));
+
+        const anchor = lifecycle.buildResizeAnchorContext({
+            forcePreferredAnchorPage: true,
+            preferredAnchorPage: 9,
+            trustPreferredAnchorPage: true,
+        });
+
+        expect(anchor.page).toBe(9);
+        expect(anchor.snapshot).toBeNull();
+        expect(captureScrollSnapshotMock).toHaveBeenNthCalledWith(1, null, {
+            anchorViewportX: null,
+            anchorViewportY: null,
+            preferredAnchorPage: 9,
+        });
+        expect(captureScrollSnapshotMock).toHaveBeenNthCalledWith(2, null, {
+            anchorViewportX: null,
+            anchorViewportY: null,
+            preferredAnchorPage: 9,
+        });
+    });
+
     it('ignores resize observer callbacks while inactive', () => {
         const {
             computeFitWidthScale,

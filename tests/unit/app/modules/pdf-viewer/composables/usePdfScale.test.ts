@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { usePdfScale } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScale';
+import { ZOOM } from '@app/constants/pdfLayout';
 import type {
     IPdfPageMetric,
     TFitMode,
@@ -247,5 +248,33 @@ describe('usePdfScale', () => {
 
         expect(currentPage.value).toBe(1);
         expect(scale.effectiveScale.value * pageMetrics[2]!.height).toBeCloseTo(860, 6);
+    });
+
+    it('clamps fit-width scale to the maximum zoom level', () => {
+        const { scale } = createScaleComposable({
+            width: 10,
+            height: 10,
+            mode: 'width',
+        });
+        const container = createContainer(10_000, 900);
+
+        scale.computeFitWidthScale(container);
+
+        expect(scale.fitWidthScale.value).toBe(ZOOM.MAX);
+        expect(scale.isFitWidthScaleCurrent(container)).toBe(true);
+    });
+
+    it('clamps fit-height scale to the minimum zoom level', () => {
+        const { scale } = createScaleComposable({
+            width: 10_000,
+            height: 10_000,
+            mode: 'height',
+        });
+        const container = createContainer(1_000, 100);
+
+        scale.computeFitWidthScale(container);
+
+        expect(scale.fitWidthScale.value).toBe(ZOOM.MIN);
+        expect(scale.isFitWidthScaleCurrent(container)).toBe(true);
     });
 });

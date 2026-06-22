@@ -76,6 +76,7 @@ export const usePdfViewerExposeControllers = (options: IUsePdfViewerExposeContro
         zoom: options.zoom,
         effectiveScale: options.effectiveScale,
         viewMode: options.viewMode,
+        currentPage: options.currentPage,
         numPages: options.numPages,
         pageMetricsVersion: options.pageMetricsVersion,
         visibleRange: options.visibleRange,

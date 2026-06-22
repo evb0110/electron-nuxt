@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
     ensureWorkingCopyDirectory: vi.fn(),
     getWorkingCopyOriginalFileExpectation: vi.fn(),
     getWorkingCopyOriginalPath: vi.fn(),
+    refreshWorkingCopyOriginalFileExpectation: vi.fn(),
     isAllowedOriginalSavePath: vi.fn(),
     getNativeToolPaths: vi.fn(),
     runNativeToolCommand: vi.fn(),
@@ -47,6 +48,7 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     getWorkingCopyOriginalFileExpectation: (...args: unknown[]) => mocks.getWorkingCopyOriginalFileExpectation(...args),
     getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args),
     normalizePathForLookup: (path: string) => path.trim(),
+    refreshWorkingCopyOriginalFileExpectation: (...args: unknown[]) => mocks.refreshWorkingCopyOriginalFileExpectation(...args),
 }));
 vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args)}));
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
@@ -110,6 +112,9 @@ describe('workingCopySave', () => {
         await expect(savePromise).resolves.toBe(true);
         expect(readFileSyncUtf8(originalPath)).toBe('new-working');
         expect(mocks.atomicReplace).toHaveBeenCalledWith(`${originalPath}.tmp`, originalPath);
+        expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledWith(workingPath, 42);
+        expect(mocks.atomicReplace.mock.invocationCallOrder[0]!)
+            .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[0]!);
     });
 
     it('routes serialized PDF save and working-copy copy-back through the shared mutation queue', async () => {
@@ -135,6 +140,9 @@ describe('workingCopySave', () => {
         await expect(savePromise).resolves.toMatchObject({isValid: true});
         expect(readFileSyncUtf8(workingPath)).toBe('serialized-pdf');
         expect(readFileSyncUtf8(originalPath)).toBe('serialized-pdf');
+        expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledWith(workingPath, 42);
+        expect(mocks.copyFileCopyOnWrite.mock.invocationCallOrder[0]!)
+            .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[0]!);
     });
 
     it('skips copy-back when the original file changed since the working copy was opened', async () => {
@@ -158,6 +166,7 @@ describe('workingCopySave', () => {
         expect(readFileSyncUtf8(workingPath)).toBe('old-original');
         expect(readFileSyncUtf8(originalPath)).toBe('external-change');
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
     });
 
     it('reports serialized save success with a warning when copy-back fails after replacing the original', async () => {
@@ -178,6 +187,7 @@ describe('workingCopySave', () => {
 
         expect(readFileSyncUtf8(originalPath)).toBe('serialized-pdf');
         expect(readFileSyncUtf8(workingPath)).toBe('old-working');
+        expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
     });
 
     it('repairs through qpdf before atomically replacing the original and working copy', async () => {
@@ -211,6 +221,9 @@ describe('workingCopySave', () => {
         }));
         expect(readFileSyncUtf8(originalPath)).toBe('repaired-pdf');
         expect(readFileSyncUtf8(workingPath)).toBe('repaired-pdf');
+        expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledWith(workingPath, 42);
+        expect(mocks.copyFileCopyOnWrite.mock.invocationCallOrder[0]!)
+            .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[0]!);
     });
 });
 

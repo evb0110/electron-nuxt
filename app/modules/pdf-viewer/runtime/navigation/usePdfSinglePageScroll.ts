@@ -35,7 +35,7 @@ import { createPdfNavigationRuntime } from '@app/modules/pdf-viewer/runtime/navi
 import { createWheelFlipGate } from '@app/modules/pdf-viewer/runtime/navigation/createWheelFlipGate';
 import { createNavigationSettleEffects } from '@app/modules/pdf-viewer/runtime/navigation/createNavigationSettleEffects';
 
-const HORIZONTAL_INTENT_REJECT_RATIO = 2.5;
+const HORIZONTAL_INTENT_REJECT_RATIO = 1;
 const PAGE_SCROLL_EDGE_EPSILON = 1;
 const WHEEL_DELTA_EPSILON = 0.01;
 const CONTINUOUS_PROGRAMMATIC_RENDER_SETTLE_DELAYS_MS = [
@@ -464,15 +464,7 @@ export const usePdfSinglePageScroll = (
             return;
         }
 
-        const fromRange = resolvePageRowRange(currentPage.value);
         const targetRange = resolvePageRowRange(targetPage);
-        if (
-            fromRange.start === targetRange.start
-            && fromRange.end === targetRange.end
-        ) {
-            clearPagedNavigationHold();
-            return;
-        }
 
         clearPagedNavigationHold();
         pagedNavigationHold.value = {
@@ -871,10 +863,35 @@ export const usePdfSinglePageScroll = (
     ) {
         const container = viewerContainer.value;
         const targetTop = resolveContinuousNavigationTargetTop(pageNumber, scrollOptions);
-        return Boolean(
-            container
-            && targetTop !== null
-            && Math.abs(container.scrollTop - targetTop) <= CONTINUOUS_NAVIGATION_REAPPLY_EPSILON,
+        const targetLeft = resolveContinuousNavigationTargetLeft(pageNumber, scrollOptions);
+        if (!container || targetTop === null) {
+            return false;
+        }
+
+        return Math.abs(container.scrollTop - targetTop) <= CONTINUOUS_NAVIGATION_REAPPLY_EPSILON
+        && (
+            targetLeft === null
+            || Math.abs(container.scrollLeft - targetLeft) <= CONTINUOUS_NAVIGATION_REAPPLY_EPSILON
+        );
+    }
+
+    function shouldCancelProgrammaticNavigationForViewportScroll() {
+        const targetPage = continuousNavigationTargetPage.value;
+        if (!continuousScroll.value || targetPage === null || !viewerContainer.value) {
+            return false;
+        }
+
+        const targetTop = resolveContinuousNavigationTargetTop(
+            targetPage,
+            continuousNavigationTargetScrollOptions,
+        );
+        if (targetTop === null) {
+            return false;
+        }
+
+        return !isContinuousNavigationTargetAligned(
+            targetPage,
+            continuousNavigationTargetScrollOptions,
         );
     }
 
@@ -1242,7 +1259,10 @@ export const usePdfSinglePageScroll = (
         state: IMountedPageVisualState,
     ): IMountedPageVisualReadiness {
         const freshlyRendered = options.isPageFreshlyRenderedForNavigation?.(pageNumber) ?? state.renderedClass;
-        const hasUsableCanvas = state.hasCanvas && state.renderedClass && freshlyRendered;
+        const hasUsableCanvas = state.hasCanvas
+            && state.renderedClass
+            && freshlyRendered
+            && !state.hasSkeleton;
         return {
             freshlyRendered,
             hasUsableCanvas,
@@ -1955,6 +1975,40 @@ export const usePdfSinglePageScroll = (
         );
     }
 
+    function resolveContinuousNavigationTargetLeft(
+        pageNumber: number,
+        scrollOptions?: IScrollToPageOptions,
+    ) {
+        if (!scrollOptions?.markerRect) {
+            return null;
+        }
+        const container = viewerContainer.value;
+        if (!container) {
+            return null;
+        }
+
+        const targetPageElement = getPageContainerByNumber(container, pageNumber);
+        if (!targetPageElement) {
+            return null;
+        }
+
+        const containerWidth = Number.isFinite(container.clientWidth) && container.clientWidth > 0
+            ? container.clientWidth
+            : 0;
+        const scrollWidth = Number.isFinite(container.scrollWidth) && container.scrollWidth > 0
+            ? container.scrollWidth
+            : containerWidth;
+        const maxLeft = Math.max(0, scrollWidth - containerWidth);
+        const pageWidth = targetPageElement.offsetWidth || targetPageElement.clientWidth || 0;
+        return resolveMountedPageMarkerScrollLeft({
+            containerWidth,
+            maxLeft,
+            markerRect: scrollOptions.markerRect,
+            pageLeft: targetPageElement.offsetLeft,
+            pageWidth,
+        });
+    }
+
     function applySnapToMountedPage(
         pageNumber: number,
         anchor: TPageSnapAnchor,
@@ -2567,6 +2621,7 @@ export const usePdfSinglePageScroll = (
         revealSearchNavigationTarget,
         endSearchNavigation,
         isProgrammaticNavigationActive,
+        shouldCancelProgrammaticNavigationForViewportScroll,
         isSearchNavigationLocked,
         searchNavigationState,
         searchNavigationTargetPage,

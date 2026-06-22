@@ -28,8 +28,7 @@ export const usePdfScale = (
     currentPage: MaybeRefOrGetter<number>,
 ) => {
     const fitWidthScale = ref(1);
-    const lastContainerSize = ref<number | null>(null);
-    const lastBaseDimension = ref<number | null>(null);
+    const lastFitScaleSignature = ref<string | null>(null);
 
     const effectiveScale = computed(() => toValue(zoom) * fitWidthScale.value);
 
@@ -117,16 +116,27 @@ export const usePdfScale = (
         return rawSize - BASE_MARGIN * (columns + 1);
     }
 
-    function hasUnchangedFitDimensions(rawSize: number, baseDimension: number) {
-        return lastContainerSize.value !== null
-            && lastBaseDimension.value !== null
-            && Math.abs(rawSize - lastContainerSize.value) < 1
-            && Math.abs(baseDimension - lastBaseDimension.value) < 0.001;
+    function buildFitScaleSignature(options: {
+        mode: TFitMode;
+        rawSize: number;
+        availableSize: number;
+        baseDimension: number;
+        scalePage: number;
+        totalPages: number;
+    }) {
+        return [
+            options.mode,
+            toValue(viewMode),
+            getViewColumnCount(toValue(viewMode), options.totalPages),
+            options.scalePage,
+            Math.round(options.rawSize),
+            Math.round(options.availableSize),
+            options.baseDimension.toFixed(3),
+        ].join('|');
     }
 
-    function rememberFitDimensions(rawSize: number, baseDimension: number) {
-        lastContainerSize.value = rawSize;
-        lastBaseDimension.value = baseDimension;
+    function clampFitScale(scale: number) {
+        return Math.min(ZOOM.MAX, Math.max(ZOOM.MIN, scale));
     }
 
     function logMissingFitDimensions(
@@ -186,20 +196,28 @@ export const usePdfScale = (
         const baseDimension = mode === 'height'
             ? resolveFitHeightBaseDimension(normalizedPageMetrics, height, scalePage)
             : width;
+        const fitScaleSignature = buildFitScaleSignature({
+            mode,
+            rawSize,
+            availableSize,
+            baseDimension,
+            scalePage,
+            totalPages,
+        });
 
-        if (hasUnchangedFitDimensions(rawSize, baseDimension)) {
+        if (lastFitScaleSignature.value === fitScaleSignature) {
             BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: dimensions unchanged mode=${mode}`, {
                 rawSize,
-                previousRawSize: lastContainerSize.value,
+                availableSize,
                 baseDimension,
-                previousBaseDimension: lastBaseDimension.value,
+                fitScaleSignature,
             });
             return false;
         }
 
-        rememberFitDimensions(rawSize, baseDimension);
+        lastFitScaleSignature.value = fitScaleSignature;
 
-        const newScale = Math.min(availableSize / baseDimension, ZOOM.MAX);
+        const newScale = clampFitScale(availableSize / baseDimension);
 
         if (Math.abs(newScale - fitWidthScale.value) < 0.001) {
             BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: delta below epsilon mode=${mode}`, {
@@ -225,6 +243,7 @@ export const usePdfScale = (
             numPages: totalPages,
             currentPage: toValue(currentPage),
             scalePage,
+            fitScaleSignature,
             previousScale: fitWidthScale.value,
             nextScale: newScale,
         });
@@ -262,14 +281,13 @@ export const usePdfScale = (
         const baseDimension = mode === 'height'
             ? resolveFitHeightBaseDimension(normalizedPageMetrics, height, scalePage)
             : width;
-        const expectedScale = Math.min(availableSize / baseDimension, ZOOM.MAX);
+        const expectedScale = clampFitScale(availableSize / baseDimension);
 
         return Math.abs(expectedScale - fitWidthScale.value) < 0.001;
     }
 
     function invalidateScaleCache() {
-        lastContainerSize.value = null;
-        lastBaseDimension.value = null;
+        lastFitScaleSignature.value = null;
     }
 
     function resetScale() {

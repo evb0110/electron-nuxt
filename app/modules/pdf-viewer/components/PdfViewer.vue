@@ -62,6 +62,7 @@
             @open-note="handleMarkerOpenNote"
             @context-menu="handleMarkerContextMenu"
             @move-marker="handleMarkerMove"
+            @link-destination="handleLinkDestination"
         />
     </div>
 </template>
@@ -121,6 +122,7 @@ const {
     handleMarkerOpenNote,
     handleMarkerContextMenu,
     handleMarkerMove,
+    handleLinkDestination,
     handleViewerContainerRef,
     pdfViewerPublicApi,
 } = controller;

@@ -11,7 +11,19 @@ export const usePdfViewerScrollSnapshot = (options: {
     scrollToPage: (page: number) => void;
 }) => {
     function captureViewerScrollSnapshot() {
-        return captureScrollSnapshot(options.viewerContainer.value, { preferredAnchorPage: options.currentPage.value });
+        const domSnapshot = captureScrollSnapshot(options.viewerContainer.value);
+        const preferredAnchorPage = options.currentPage.value;
+        if (
+            !domSnapshot
+            || typeof domSnapshot.anchorPage !== 'number'
+            || !Number.isFinite(domSnapshot.anchorPage)
+            || Math.abs(domSnapshot.anchorPage - preferredAnchorPage) <= 1
+        ) {
+            return captureScrollSnapshot(options.viewerContainer.value, { preferredAnchorPage })
+                ?? domSnapshot;
+        }
+
+        return domSnapshot;
     }
 
     function restoreViewerScrollSnapshot(

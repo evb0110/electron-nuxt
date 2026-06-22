@@ -23,6 +23,7 @@ interface IUsePdfViewerFitWidthControllerOptions {
     zoom: ComputedRef<number>;
     effectiveScale: ComputedRef<number>;
     viewMode: ComputedRef<TPdfViewMode>;
+    currentPage: Ref<number>;
     numPages: Ref<number>;
     pageMetricsVersion: Ref<number>;
     visibleRange: Ref<IPageRange>;
@@ -107,6 +108,7 @@ export const usePdfViewerFitWidthController = (options: IUsePdfViewerFitWidthCon
             options.zoom.value,
             options.effectiveScale.value,
             options.viewMode.value,
+            options.currentPage.value,
             options.numPages.value,
             options.pageMetricsVersion.value,
         ] as const,

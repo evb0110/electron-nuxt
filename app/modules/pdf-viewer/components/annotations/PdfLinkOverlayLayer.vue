@@ -6,7 +6,7 @@
             class="pdf-link-overlay"
             role="link"
             tabindex="0"
-            :data-href="link.url"
+            :data-href="link.url ?? ''"
             :style="{
                 left: `${link.rect.left * 100}%`,
                 top: `${link.rect.top * 100}%`,
@@ -17,8 +17,8 @@
             @click.prevent="handleClick($event, link)"
             @auxclick.prevent
             @contextmenu.prevent
-            @keydown.enter.prevent="openLink(link.url)"
-            @keydown.space.prevent="openLink(link.url)"
+            @keydown.enter.prevent="activateLink(link)"
+            @keydown.space.prevent="activateLink(link)"
         />
     </div>
 </template>
@@ -30,6 +30,7 @@ import { getShellCapability } from '@app/utils/getShellCapability';
 import { normalizeAllowedExternalUrl } from '@contracts/externalUrl';
 
 defineProps<{links: ILinkAnnotation[];}>();
+const emit = defineEmits<{'navigate-destination': [dest: NonNullable<ILinkAnnotation['dest']>];}>();
 
 const DRAG_THRESHOLD_PX = 5;
 let pointerDownPos: {
@@ -60,6 +61,17 @@ function openLink(url: string) {
     });
 }
 
+function activateLink(link: ILinkAnnotation) {
+    if (link.url) {
+        openLink(link.url);
+        return;
+    }
+
+    if (link.dest !== undefined) {
+        emit('navigate-destination', link.dest);
+    }
+}
+
 function handleClick(event: MouseEvent, link: ILinkAnnotation) {
     if (pointerDownPos) {
         const dx = event.clientX - pointerDownPos.x;
@@ -70,7 +82,7 @@ function handleClick(event: MouseEvent, link: ILinkAnnotation) {
         }
     }
     pointerDownPos = null;
-    openLink(link.url);
+    activateLink(link);
 }
 </script>
 

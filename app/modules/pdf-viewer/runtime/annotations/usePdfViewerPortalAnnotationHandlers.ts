@@ -34,6 +34,10 @@ interface IUsePdfViewerPortalAnnotationHandlersOptions {
     addPendingCommentEditorKey: (key: string) => void;
     getEditorPendingKey: (editor: IPdfjsEditor, pageIndex: number) => string;
     markModified: () => void;
+    getAnnotationTool?: (() => string) | undefined;
+    cancelAnnotationTool?: (() => void) | undefined;
+    isCommentPlacementActive?: (() => boolean) | undefined;
+    cancelCommentPlacement?: (() => void) | undefined;
 }
 
 export const usePdfViewerPortalAnnotationHandlers = (options: IUsePdfViewerPortalAnnotationHandlersOptions) => {
@@ -45,12 +49,24 @@ export const usePdfViewerPortalAnnotationHandlers = (options: IUsePdfViewerPorta
         options.refreshHiddenAnnotationPage(comment);
     }
 
+    function prepareMarkerInteraction() {
+        const annotationTool = options.getAnnotationTool?.();
+        if (annotationTool && annotationTool !== 'none') {
+            options.cancelAnnotationTool?.();
+        }
+        if (options.isCommentPlacementActive?.() === true) {
+            options.cancelCommentPlacement?.();
+        }
+    }
+
     function handleMarkerOpenNote(comment: IAnnotationCommentSummary) {
+        prepareMarkerInteraction();
         options.activeCommentStableKey.value = comment.stableKey;
         options.emitAnnotationOpenNote(comment);
     }
 
     function handleMarkerContextMenu(comment: IAnnotationCommentSummary, event: MouseEvent) {
+        prepareMarkerInteraction();
         options.activeCommentStableKey.value = comment.stableKey;
         options.emitAnnotationContextMenu(options.buildAnnotationContextMenuPayload(
             comment,

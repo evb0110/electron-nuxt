@@ -14,7 +14,7 @@ Add `--video` when a visual blink needs frame-by-frame review:
 pnpm exec tsx scripts/diagnostics/pdfNavigationBlinkTrace.ts --video --out .devkit/pdf-navigation-blink-trace.json
 ```
 
-If `--pdf` is omitted, the script reads `EVB_DIAGNOSTIC_PDF_PATH` and otherwise falls back to `.devkit/manual-pdf-fixtures/navigation-source.pdf`.
+If `--pdf` is omitted, the script reads `EVB_DIAGNOSTIC_PDF_PATH` and otherwise falls back to `.devkit/manual-pdf-fixtures/page-jump-source.pdf`.
 
 Use `--video-dir <dir>` to control where visual artifacts go. The recorder writes timestamped JPEG frames under `<dir>/frames`, then creates `trace.mp4` and `contact-sheet.jpg` when `ffmpeg` is available. Capture uses CDP `Page.startScreencast` so macOS screen-recording permission is not required; if CDP screencast startup fails, it falls back to timestamped Puppeteer screenshots.
 

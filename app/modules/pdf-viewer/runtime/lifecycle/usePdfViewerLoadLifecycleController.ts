@@ -20,6 +20,7 @@ export const usePdfViewerLoadLifecycleController = (options: IUsePdfViewerLoadLi
 
     const {
         setPendingInitialVisualReadyToken,
+        cancelInitialVisualReady,
         handleRenderedPageStateChanged,
         handlePageCanvasMounted,
         handlePageRendered,
@@ -50,6 +51,7 @@ export const usePdfViewerLoadLifecycleController = (options: IUsePdfViewerLoadLi
 
     return {
         waitForViewerLoadSettled,
+        cancelInitialVisualReady,
         handleRenderedPageStateChanged,
         handlePageCanvasMounted,
         handlePageRendered,

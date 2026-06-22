@@ -201,6 +201,46 @@ describe('createPdfReloadWaiter', () => {
         );
     });
 
+    it('skips stale scroll restoration after user viewport interaction during reload settle', async () => {
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
+        const restoreScrollSnapshot = vi.fn();
+        const scrollToPage = vi.fn();
+        let viewportEpoch = 1;
+        let resolveViewerSettle = () => {};
+        const viewerSettlePromise = new Promise<void>((resolve) => {
+            resolveViewerSettle = resolve;
+        });
+
+        const waiter = createPdfReloadWaiter({
+            pdfDocument,
+            pdfViewerRef: ref({
+                scrollToPage,
+                restoreScrollSnapshot,
+                waitForViewerLoadSettled: () => viewerSettlePromise,
+                getUserViewportInteractionEpoch: () => viewportEpoch,
+            }),
+            resetSearchCache: vi.fn(),
+            pageToRestore: 4,
+            scrollSnapshot: {
+                width: 300,
+                height: 400,
+                centerX: 120,
+                centerY: 220,
+                anchorPage: 4,
+            },
+        });
+
+        pdfDocument.value = cast({ id: 'after' });
+        await Promise.resolve();
+
+        viewportEpoch = 2;
+        resolveViewerSettle();
+        await waiter.promise;
+
+        expect(restoreScrollSnapshot).not.toHaveBeenCalled();
+        expect(scrollToPage).not.toHaveBeenCalled();
+    });
+
     it('contains restore failures and falls back to page restore', async () => {
         const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
         const scrollToPage = vi.fn();

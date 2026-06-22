@@ -119,4 +119,28 @@ describe('usePdfViewerInitialVisualLifecycle', () => {
         expect(emitInitialVisualReady).toHaveBeenCalledOnce();
         expect(emitInitialVisualReady).toHaveBeenCalledWith({ pageNumber: 2 });
     });
+
+    it('cancels a scheduled initial visual ready callback', async () => {
+        const frameQueue = installRequestAnimationFrameQueue();
+        const renderedPageStateVersion = ref(0);
+        const emitInitialVisualReady = vi.fn();
+        const markDelayedSkeletonPageRendered = vi.fn();
+        const syncManagedShapesAfterPageRendered = vi.fn();
+
+        const lifecycle = usePdfViewerInitialVisualLifecycle({
+            renderedPageStateVersion,
+            emitInitialVisualReady,
+            markDelayedSkeletonPageRendered,
+            syncManagedShapesAfterPageRendered,
+        });
+
+        lifecycle.setPendingInitialVisualReadyToken(11);
+        lifecycle.handlePageRendered(1);
+        lifecycle.cancelInitialVisualReady();
+
+        await frameQueue.runNextFrame();
+        await frameQueue.runNextFrame();
+
+        expect(emitInitialVisualReady).not.toHaveBeenCalled();
+    });
 });

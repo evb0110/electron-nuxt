@@ -3,9 +3,13 @@ import {
     expect,
     it,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    nextTick,
+    ref,
+} from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { useAnnotationMarkerViewModel } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel';
+import { cast } from '@tests/helpers/cast';
 
 const labels = {
     annotation: 'Annotation',
@@ -109,5 +113,53 @@ describe('useAnnotationMarkerViewModel', () => {
 
         const pageMarkers = markersByPage.value.get(1) ?? [];
         expect(pageMarkers).toHaveLength(0);
+    });
+
+    it('recomputes marker placement when the marker geometry version changes', async () => {
+        const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([createComment({
+            hasNote: true,
+            subtype: 'Highlight',
+            markerRect: {
+                left: 0,
+                top: 0.1,
+                width: 0.001,
+                height: 0.001,
+            },
+        })]);
+        const pageWidth = ref(100);
+        const pageContainer = cast<HTMLElement>({getBoundingClientRect: () => ({
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: pageWidth.value,
+            bottom: 100,
+            width: pageWidth.value,
+            height: 100,
+            toJSON: () => ({}),
+        })});
+        const viewerContainer = ref(cast<HTMLElement>({querySelector: (selector: string) => (
+            selector === '.page_container[data-page="1"]'
+                ? pageContainer
+                : null
+        )}));
+        const markerGeometryVersion = ref(0);
+
+        const { markersByPage } = useAnnotationMarkerViewModel({
+            viewerContainer,
+            annotationCommentsCache,
+            activeCommentStableKey: ref<string | null>(null),
+            markerGeometryVersion,
+            labels,
+        });
+
+        const initialLeft = markersByPage.value.get(1)?.[0]?.leftPercent;
+        expect(initialLeft).toBe(10);
+
+        pageWidth.value = 400;
+        markerGeometryVersion.value += 1;
+        await nextTick();
+
+        expect(markersByPage.value.get(1)?.[0]?.leftPercent).toBe(2.5);
     });
 });

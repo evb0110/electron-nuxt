@@ -131,15 +131,8 @@ import type {
     IBookmarkMenuPayload,
 } from '@app/types/pdfOutline';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-import type { IBookmarkDestinationTarget } from '@app/utils/pdfOutlineHelpers';
-import {
-    resolveBookmarkDestinationTarget,
-    resolveImmediateBookmarkDestinationTarget,
-    shouldEmitResolvedBookmarkDestinationTarget,
-} from '@app/utils/pdfOutlineHelpers';
+import { navigateToBookmarkDestination } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/navigateToBookmarkDestination';
 import { usePdfOutlineItemState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineItemState';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getErrorMessage } from '@app/utils/error';
 
 const { t } = useTypedI18n();
 
@@ -390,72 +383,6 @@ function shouldSkipBookmarkNavigation(multiSelect: boolean, rangeSelect: boolean
     return isEditing.value || (treeContext.isEditMode.value && (multiSelect || rangeSelect));
 }
 
-function emitBookmarkDestinationTarget(target: IBookmarkDestinationTarget) {
-    const options = typeof target.pageYRatio === 'number'
-        ? {pageYRatio: target.pageYRatio}
-        : undefined;
-    emit('go-to-page', target.page, options);
-}
-
-function emitImmediateBookmarkDestinationTarget(navigationRequestId: number) {
-    if (!treeContext.isBookmarkNavigationRequestCurrent(navigationRequestId)) {
-        return null;
-    }
-
-    const target = resolveImmediateBookmarkDestinationTarget(item);
-    if (!target) {
-        return null;
-    }
-
-    emitBookmarkDestinationTarget(target);
-    return target;
-}
-
-/**
- * Starts with the cached page-index jump, then lets slower PDF.js destination
- * resolution refine the target. The request id prevents an older async
- * destination from stealing a later rapid bookmark click.
- */
-async function navigateToBookmarkDestination(navigationRequestId: number) {
-    const immediateTarget = emitImmediateBookmarkDestinationTarget(navigationRequestId);
-
-    if (pdfDocument && item.dest) {
-        try {
-            const target = await resolveBookmarkDestinationTarget(pdfDocument, item.dest);
-            if (
-                target !== null
-                && treeContext.isBookmarkNavigationRequestCurrent(navigationRequestId)
-            ) {
-                if (shouldEmitResolvedBookmarkDestinationTarget(target, immediateTarget)) {
-                    emitBookmarkDestinationTarget(target);
-                }
-                return;
-            }
-        } catch (error) {
-            if (!isKnownBookmarkDestinationIssue(error)) {
-                BrowserLogger.error('pdfOutline', 'Failed to navigate to bookmark destination', error);
-            }
-        }
-    }
-
-    if (
-        immediateTarget === null
-        &&
-        typeof item.pageIndex === 'number'
-        && treeContext.isBookmarkNavigationRequestCurrent(navigationRequestId)
-    ) {
-        emit('go-to-page', item.pageIndex + 1, {pageYRatio: 0});
-    }
-}
-
-function isKnownBookmarkDestinationIssue(error: unknown) {
-    const message = getErrorMessage(error);
-    return (
-        message.includes('does not point to a /Page dictionary') ||
-        message.includes('page must be a reference')
-    );
-}
-
 function emitBookmarkActivation(multiSelect: boolean, rangeSelect: boolean) {
     const wasActive = isActive.value;
     emit('activate', {
@@ -491,7 +418,13 @@ async function continueBookmarkClickNavigation(
         return;
     }
 
-    await navigateToBookmarkDestination(navigationRequestId);
+    await navigateToBookmarkDestination({
+        item,
+        pdfDocument,
+        navigationRequestId,
+        isBookmarkNavigationRequestCurrent: treeContext.isBookmarkNavigationRequestCurrent,
+        emitGoToPage: (page, options) => emit('go-to-page', page, options),
+    });
 }
 
 async function handleClick(event?: MouseEvent | KeyboardEvent) {

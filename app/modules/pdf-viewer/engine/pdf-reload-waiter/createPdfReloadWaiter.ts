@@ -67,12 +67,25 @@ function restoreReloadScroll(
     }
 }
 
+function readUserViewportInteractionEpoch(viewer: IPdfReloadWaiterViewer | null) {
+    try {
+        const epoch = viewer?.getUserViewportInteractionEpoch?.();
+        return typeof epoch === 'number' && Number.isFinite(epoch)
+            ? epoch
+            : null;
+    } catch (error) {
+        logReloadWaiterRecovery('viewport interaction epoch read', error);
+        return null;
+    }
+}
+
 export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
     const initialDoc = options.pdfDocument.value;
     const isCancelled = ref(false);
     const shouldRestoreScroll = options.restoreScroll !== false;
     const captureScrollSnapshot = options.captureScrollSnapshot !== false;
     const scrollSnapshot = captureReloadScrollSnapshot(options, shouldRestoreScroll, captureScrollSnapshot);
+    const initialViewportInteractionEpoch = readUserViewportInteractionEpoch(options.pdfViewerRef.value);
 
     const promise = until(() => ({
         doc: options.pdfDocument.value,
@@ -129,6 +142,19 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
                 return;
             }
             if (!shouldRestoreScroll) {
+                return;
+            }
+            const currentViewportInteractionEpoch = readUserViewportInteractionEpoch(viewer ?? null);
+            if (
+                initialViewportInteractionEpoch !== null
+                && currentViewportInteractionEpoch !== null
+                && currentViewportInteractionEpoch !== initialViewportInteractionEpoch
+            ) {
+                BrowserLogger.diagnostic('loader', 'Skipped PDF reload scroll restore after user viewport interaction', {
+                    initialViewportInteractionEpoch,
+                    currentViewportInteractionEpoch,
+                    pageToRestore: options.pageToRestore,
+                });
                 return;
             }
             restoreReloadScroll(viewer ?? null, scrollSnapshot, options.pageToRestore, captureScrollSnapshot);

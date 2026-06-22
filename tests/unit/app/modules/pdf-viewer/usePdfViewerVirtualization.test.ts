@@ -330,8 +330,6 @@ describe('usePdfViewerVirtualization', () => {
             capturedAtMs: 0,
             windowStart: 30,
             windowEnd: 34,
-            topSpacerHeight: 1234,
-            bottomSpacerHeight: 5678,
         });
         const virtualization = usePdfViewerVirtualization({
             bufferPages: computed(() => 0),
@@ -364,6 +362,37 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.bottomVirtualSpacerStyle.value).not.toEqual({height: '5678px'});
     });
 
+    it('expands the continuous virtual window by the navigation anchor buffer', () => {
+        const virtualization = usePdfViewerVirtualization({
+            bufferPages: computed(() => 0),
+            viewMode: computed(() => 'single'),
+            numPages: ref(100),
+            currentPage: ref(60),
+            continuousScroll: computed(() => true),
+            basePageWidth: ref(300),
+            basePageHeight: ref(100),
+            pageMetrics: ref(Array.from({ length: 100 }, () => ({
+                width: 300,
+                height: 100,
+            }))),
+            pageMetricsVersion: ref(0),
+            effectiveScale: ref(1),
+            scaledMargin: ref(20),
+            visibleRange: ref({
+                start: 60,
+                end: 60,
+            }),
+            navigationAnchorPage: ref(40),
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref(null),
+        });
+
+        expect(virtualization.virtualWindowStart.value).toBe(22);
+        expect(virtualization.virtualWindowEnd.value).toBe(78);
+        expect(virtualization.pagesToRender.value).toContain(22);
+        expect(virtualization.pagesToRender.value).toContain(58);
+    });
+
     it('keeps a compatible zoom freeze while the navigation anchor is inside it', () => {
         const effectiveScale = ref(1);
         const virtualization = usePdfViewerVirtualization({
@@ -392,8 +421,6 @@ describe('usePdfViewerVirtualization', () => {
                 capturedAtMs: 0,
                 windowStart: 30,
                 windowEnd: 34,
-                topSpacerHeight: 1234,
-                bottomSpacerHeight: 5678,
             }),
         });
 

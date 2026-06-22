@@ -191,6 +191,46 @@ describe('createPdfSearchMatchScroller', () => {
         expect(scrollToCurrentMatch).toHaveBeenCalledTimes(1);
     });
 
+    it('waits for pending render finalization before using a mounted stale canvas', async () => {
+        const scrollToCurrentMatch = vi.fn(() => true);
+        const scheduleRenderForSinglePage = vi.fn();
+        let renderPending = true;
+        let rendered = false;
+
+        setTimeout(() => {
+            renderPending = false;
+            rendered = true;
+        }, 200);
+
+        const scroller = createPdfSearchMatchScroller({
+            getContainer: () => createContainerWithMountedPage(5, {
+                rendered,
+                textLayerReady: true,
+                hasCanvas: true,
+            }),
+            getCurrentSearchMatch: () => ({pageIndex: 4}),
+            scrollToCurrentMatch,
+            scheduleRenderForSinglePage,
+            scrollToPage: vi.fn(),
+            suppressSnap: vi.fn(),
+            beginSearchNavigation: vi.fn(),
+            endSearchNavigation: vi.fn(),
+            isPageRenderPending: () => renderPending,
+        });
+
+        scroller.requestScrollToMatch(4);
+
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(199);
+
+        expect(scrollToCurrentMatch).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(80);
+
+        expect(scheduleRenderForSinglePage).toHaveBeenCalledWith(5);
+        expect(scrollToCurrentMatch).toHaveBeenCalledTimes(1);
+    });
+
     it('does not restart the target page render on every highlight poll', async () => {
         const scheduleRenderForSinglePage = vi.fn();
 
@@ -264,6 +304,30 @@ describe('createPdfSearchMatchScroller', () => {
 
         expect(scrollToPage).not.toHaveBeenCalled();
         expect(endSearchNavigation).toHaveBeenCalledWith(120);
+    });
+
+    it('does not fall back to page-level positioning after the match target changes', async () => {
+        const scrollToPage = vi.fn();
+        let currentMatch: { pageIndex: number } | null = {pageIndex: 9};
+
+        const scroller = createPdfSearchMatchScroller({
+            getContainer: () => createContainerWithMountedPage(10),
+            getCurrentSearchMatch: () => currentMatch,
+            scrollToCurrentMatch: () => false,
+            scheduleRenderForSinglePage: vi.fn(),
+            scrollToPage,
+            suppressSnap: vi.fn(),
+            beginSearchNavigation: vi.fn(),
+            endSearchNavigation: vi.fn(),
+        });
+
+        scroller.requestScrollToMatch(9);
+        currentMatch = {pageIndex: 1};
+
+        await Promise.resolve();
+        await vi.runAllTimersAsync();
+
+        expect(scrollToPage).not.toHaveBeenCalled();
     });
 
     it('falls back to page-level positioning once on timeout', async () => {

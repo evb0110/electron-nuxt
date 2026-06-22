@@ -100,7 +100,8 @@ export interface ITextMarkupAnnotationProperties {
 export interface ILinkAnnotation {
     id: string;
     pageNumber: number;
-    url: string;
+    url?: string | undefined;
+    dest?: string | unknown[] | undefined;
     rect: IAnnotationMarkerRect;
 }
 

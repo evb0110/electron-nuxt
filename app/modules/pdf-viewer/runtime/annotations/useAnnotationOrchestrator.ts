@@ -38,6 +38,7 @@ interface IUseAnnotationOrchestratorOptions {
     annotationL10n: ShallowRef<GenericL10n | null>;
     annotationCommentsCache: Ref<IAnnotationCommentSummary[]>;
     activeCommentStableKey: Ref<string | null>;
+    markerGeometryVersion?: Ref<number> | undefined;
     authorName: Ref<string | null | undefined>;
     stopDrag: () => void;
     scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => void;
@@ -96,6 +97,7 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         annotationL10n,
         annotationCommentsCache,
         activeCommentStableKey,
+        markerGeometryVersion,
         authorName,
         stopDrag,
         scrollToPage,
@@ -220,6 +222,7 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         viewerContainer,
         annotationCommentsCache,
         activeCommentStableKey,
+        markerGeometryVersion,
         labels: {
             annotation: t('annotations.annotationLabel'),
             note: t('annotations.stickyNoteLabel'),

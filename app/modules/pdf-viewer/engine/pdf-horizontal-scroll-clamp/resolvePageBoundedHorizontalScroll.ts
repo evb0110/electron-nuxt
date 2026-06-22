@@ -1,6 +1,8 @@
 import { clamp } from 'es-toolkit/math';
 import type { IPageBoundedHorizontalScrollInput } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/pdfHorizontalScrollClampTypes';
 
+export const HORIZONTAL_SCROLL_CLAMP_EPSILON_PX = 1.5;
+
 function isFinitePositive(value: number) {
     return Number.isFinite(value) && value > 0;
 }
@@ -20,7 +22,7 @@ export function resolvePageBoundedHorizontalScroll(
 
     const pageLeft = normalizeNonNegative(input.pageLeft);
     const margin = normalizeNonNegative(input.margin);
-    const epsilon = normalizeNonNegative(input.epsilon ?? 0.5);
+    const epsilon = normalizeNonNegative(input.epsilon ?? HORIZONTAL_SCROLL_CLAMP_EPSILON_PX);
     const contentViewportWidth = Math.max(0, viewportWidth - margin * 2);
 
     if (pageWidth <= contentViewportWidth + epsilon) {

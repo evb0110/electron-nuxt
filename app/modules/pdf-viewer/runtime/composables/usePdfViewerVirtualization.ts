@@ -18,8 +18,6 @@ export interface IZoomVirtualizationFreeze {
     capturedAtMs: number;
     windowStart: number;
     windowEnd: number;
-    topSpacerHeight: number;
-    bottomSpacerHeight: number;
 }
 
 interface IUsePdfViewerVirtualizationOptions {

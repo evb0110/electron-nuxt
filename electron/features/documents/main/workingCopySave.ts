@@ -9,7 +9,10 @@ import {
 } from '@electron/utils/atomicReplace';
 import { getErrorMessage } from '@electron/utils/error';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
-import { getWorkingCopyOriginalPath } from '@electron/file-access/workingCopyStore';
+import {
+    getWorkingCopyOriginalPath,
+    refreshWorkingCopyOriginalFileExpectation,
+} from '@electron/file-access/workingCopyStore';
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 import { WorkingCopyMissingError } from '@electron/file-access/workingCopyMissingError';
 import { normalizeIpcWritePayload } from '@electron/features/documents/main/documentFileWriteAtomic';
@@ -122,12 +125,16 @@ export async function handleFileSave(
                 throw new Error('Working copy path is not managed');
             }
 
-            return replaceOriginalWithValidatedTemp(
+            const queuedValidation = await replaceOriginalWithValidatedTemp(
                 originalPath,
                 normalizedWorkingPath,
                 event.sender.id,
                 tempPath => copyFileCopyOnWrite(normalizedWorkingPath, tempPath),
             );
+            if (queuedValidation.isValid) {
+                refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, event.sender.id);
+            }
+            return queuedValidation;
         });
         if (!validation.isValid) {
             throw new Error(`PDF validation failed: ${validation.errors.join('; ')}`);
@@ -169,6 +176,7 @@ export async function handleSerializedPdfSave(
             if (queuedValidation.isValid) {
                 try {
                     await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
+                    refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, event.sender.id);
                 } catch (syncError) {
                     return withWorkingCopySyncWarning(queuedValidation, syncError);
                 }
@@ -215,6 +223,7 @@ export async function handleRepairPdfSave(
             if (queuedValidation.isValid) {
                 try {
                     await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
+                    refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, event.sender.id);
                 } catch (syncError) {
                     return withWorkingCopySyncWarning(queuedValidation, syncError);
                 }

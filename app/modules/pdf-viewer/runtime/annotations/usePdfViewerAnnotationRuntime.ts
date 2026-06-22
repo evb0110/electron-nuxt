@@ -53,6 +53,7 @@ interface IUsePdfViewerAnnotationRuntimeOptions {
     annotationSettings: ComputedRef<IAnnotationSettings | null>;
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
     annotationL10n: ShallowRef<GenericL10n | null>;
+    renderedPageStateVersion: Ref<number>;
     authorName: ComputedRef<string | null | undefined>;
     appAnnotationHistory: ReturnType<typeof usePdfAppAnnotationHistory>;
     pdfjsAnnotationEditorState: Ref<IAnnotationEditorState>;
@@ -198,6 +199,7 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         annotationL10n: options.annotationL10n,
         annotationCommentsCache,
         activeCommentStableKey,
+        markerGeometryVersion: options.renderedPageStateVersion,
         authorName: options.authorName,
         stopDrag: options.stopDrag,
         scrollToPage: options.scrollToPage,
@@ -292,6 +294,10 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         addPendingCommentEditorKey: key => annotations.commentSync.pendingCommentEditorKeys.add(key),
         getEditorPendingKey: annotations.identity.getEditorPendingKey,
         markModified: emitForcedAnnotationMutation,
+        getAnnotationTool: () => options.annotationTool.value,
+        cancelAnnotationTool: options.emitAnnotationToolCancel,
+        isCommentPlacementActive: () => highlightComposable.isPlacingComment.value,
+        cancelCommentPlacement: highlightComposable.cancelCommentPlacement,
     });
 
     function handleSourceChanged(next: TPdfSource | null, previous: TPdfSource | null) {

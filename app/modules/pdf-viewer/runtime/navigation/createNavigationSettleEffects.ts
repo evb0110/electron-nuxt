@@ -24,6 +24,7 @@ export function createNavigationSettleEffects(deps: ICreateNavigationSettleEffec
     let continuousNavigationResizeObserver: ResizeObserver | null = null;
     let continuousNavigationResizeObservedElements: HTMLElement[] = [];
     let isContinuousNavigationLayoutReapplyQueued = false;
+    let pendingContinuousNavigationLayoutReapplyEvent: IContinuousLayoutReapplyEvent | null = null;
 
     function clearPagedSettle() {
         if (pagedNavigationSettleTimer !== null) {
@@ -138,27 +139,38 @@ export function createNavigationSettleEffects(deps: ICreateNavigationSettleEffec
         reason: TContinuousLayoutReapplyReason,
         scrollOptions?: IScrollToPageOptions,
     ) {
-        if (isContinuousNavigationLayoutReapplyQueued) {
-            return;
-        }
-
-        isContinuousNavigationLayoutReapplyQueued = true;
-        const reapply = () => {
+        const event: IContinuousLayoutReapplyEvent = {
+            pageNumber,
+            reason,
+            runId,
+            scrollOptions,
+        };
+        const flush = () => {
+            const pending = pendingContinuousNavigationLayoutReapplyEvent;
+            pendingContinuousNavigationLayoutReapplyEvent = null;
             isContinuousNavigationLayoutReapplyQueued = false;
-            deps.onLayoutReapply({
-                pageNumber,
-                reason,
-                runId,
-                scrollOptions,
-            });
+            if (pending) {
+                deps.onLayoutReapply(pending);
+            }
         };
 
-        if (reason === 'mutation' || reason === 'resize') {
-            reapply();
+        if (isContinuousNavigationLayoutReapplyQueued) {
+            if (reason === 'mutation' || reason === 'resize') {
+                pendingContinuousNavigationLayoutReapplyEvent = event;
+                flush();
+            }
             return;
         }
 
-        void nextTick(reapply);
+        pendingContinuousNavigationLayoutReapplyEvent = event;
+        isContinuousNavigationLayoutReapplyQueued = true;
+
+        if (reason === 'mutation' || reason === 'resize') {
+            flush();
+            return;
+        }
+
+        void nextTick(flush);
     }
 
     function clearLayoutObservers() {
@@ -168,6 +180,7 @@ export function createNavigationSettleEffects(deps: ICreateNavigationSettleEffec
         continuousNavigationResizeObserver = null;
         continuousNavigationResizeObservedElements = [];
         isContinuousNavigationLayoutReapplyQueued = false;
+        pendingContinuousNavigationLayoutReapplyEvent = null;
     }
 
     function attachLayoutObservers(

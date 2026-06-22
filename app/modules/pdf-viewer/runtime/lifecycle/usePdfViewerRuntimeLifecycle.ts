@@ -64,6 +64,7 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     annotations: TAnnotationOrchestrator;
     currentPage: Ref<number>;
     pagedNavigationTargetPage?: Readonly<Ref<number | null>> | undefined;
+    navigationAnchorPage?: Readonly<Ref<number | null>> | undefined;
     visibleRange: Ref<{
         start: number;
         end: number;
@@ -124,6 +125,7 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     resetContinuousScrollState: () => void;
     cancelDestinationNavigationTarget?: (() => void) | undefined;
     getUserViewportInteractionEpoch?: (() => number) | undefined;
+    cancelInitialVisualReady?: (() => void) | undefined;
     startDrag: (e: MouseEvent, container: HTMLElement | null) => void;
     onDrag: (e: MouseEvent, container: HTMLElement | null) => void;
     stopDrag: () => void;
@@ -386,7 +388,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         isResizing,
         pdfDocument,
         currentPage,
-        pendingNavigationAnchorPage: options.pagedNavigationTargetPage,
+        pendingNavigationAnchorPage: options.navigationAnchorPage ?? options.pagedNavigationTargetPage,
         visibleRange,
         numPages,
         computeFitWidthScale,
@@ -475,6 +477,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         numPages,
         currentPage,
         pagedNavigationTargetPage: options.pagedNavigationTargetPage,
+        navigationAnchorPage: options.navigationAnchorPage,
         visibleRange,
         zoom,
         fitMode,
@@ -561,6 +564,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
             return;
         }
         invalidateDocumentLoad();
+        options.cancelInitialVisualReady?.();
         cancelPendingSearchScroll?.();
         cancelInFlightPageRenders?.();
         cleanupRenderedPages();
@@ -572,6 +576,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
 
     onUnmounted(() => {
         resetRenderStallRecoveryState();
+        options.cancelInitialVisualReady?.();
         cleanupZoomRerenderQueue();
         cleanupResizeLifecycle();
         inlineIndicators.cleanup();
@@ -588,6 +593,8 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         if (newSrc !== oldSrc) {
             nextActivationRestoreRunId();
             resetRenderStallRecoveryState();
+            resetZoomRerenderQueueState('source-change');
+            options.cancelInitialVisualReady?.();
             cancelDestinationNavigationTarget?.();
             const isReload = !!oldSrc && !!newSrc;
             if (!newSrc) {

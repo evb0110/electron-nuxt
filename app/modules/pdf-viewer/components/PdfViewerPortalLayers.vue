@@ -11,7 +11,10 @@
     </template>
     <template v-for="(links, pageNum) in linksByPage" :key="`links-${pageNum}`">
         <Teleport v-if="linkLayerTargets.get(Number(pageNum))" :to="linkLayerTargets.get(Number(pageNum))!">
-            <PdfLinkOverlayLayer :links="links" />
+            <PdfLinkOverlayLayer
+                :links="links"
+                @navigate-destination="handleLinkDestination"
+            />
         </Teleport>
     </template>
 </template>
@@ -44,6 +47,7 @@ const emit = defineEmits<{
     'open-note': [comment: IAnnotationCommentSummary];
     'context-menu': [comment: IAnnotationCommentSummary, event: MouseEvent];
     'move-marker': [comment: IAnnotationCommentSummary, markerRect: IAnnotationMarkerRect];
+    'link-destination': [dest: NonNullable<ILinkAnnotation['dest']>];
 }>();
 
 const portalTargetRefreshTick = ref(0);
@@ -69,6 +73,10 @@ function handleContextMenu(comment: IAnnotationCommentSummary, event: MouseEvent
 
 function handleMoveMarker(comment: IAnnotationCommentSummary, markerRect: IAnnotationMarkerRect) {
     emit('move-marker', comment, markerRect);
+}
+
+function handleLinkDestination(dest: NonNullable<ILinkAnnotation['dest']>) {
+    emit('link-destination', dest);
 }
 
 function refreshPortalTargets() {

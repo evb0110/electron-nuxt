@@ -88,6 +88,7 @@ export interface IDocumentViewerExpose {
     getPendingNavigationTargetPage?: () => number | null;
     scrollToPage: (page: number, options?: IScrollToPageOptions) => void;
     cancelProgrammaticNavigation?: () => void;
+    getUserViewportInteractionEpoch?: () => number;
     captureScrollSnapshot?: () => IScrollSnapshot | null;
     restoreScrollSnapshot?: (
         snapshot: IScrollSnapshot | null,

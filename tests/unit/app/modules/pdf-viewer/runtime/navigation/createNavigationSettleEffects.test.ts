@@ -72,4 +72,33 @@ describe('createNavigationSettleEffects', () => {
             scrollOptions: undefined,
         });
     });
+
+    it('flushes mutation reapply immediately when it supersedes a queued scroll reapply', async () => {
+        const onLayoutReapply = vi.fn();
+        const effects = createNavigationSettleEffects({
+            getLayoutObserverElements: () => [],
+            hasLayoutMutation: () => false,
+            onLayoutReapply,
+        });
+        const markerRect = {
+            left: 0.11,
+            top: 0.22,
+            width: 0.33,
+            height: 0.44,
+        };
+
+        effects.scheduleLayoutReapply(3, 97, 'scroll');
+        effects.scheduleLayoutReapply(4, 98, 'mutation', { markerRect });
+
+        expect(onLayoutReapply).toHaveBeenCalledExactlyOnceWith({
+            pageNumber: 98,
+            reason: 'mutation',
+            runId: 4,
+            scrollOptions: { markerRect },
+        });
+
+        await nextTick();
+
+        expect(onLayoutReapply).toHaveBeenCalledTimes(1);
+    });
 });

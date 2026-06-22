@@ -23,6 +23,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {
     getWorkingCopyOriginalPath,
+    refreshWorkingCopyOriginalFileExpectation,
     setWorkingCopyOriginalPath,
 } from '@electron/file-access/workingCopyStore';
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
@@ -324,6 +325,7 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
             await atomicReplace(session.tempPath, session.targetPath);
             try {
                 await copyFileCopyOnWrite(session.targetPath, session.workingPath);
+                refreshWorkingCopyOriginalFileExpectation(session.workingPath, session.senderId);
             } catch (syncError) {
                 syncWarningValidation = withWorkingCopySyncWarning(committedValidation, syncError);
             }

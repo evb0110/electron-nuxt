@@ -19,8 +19,6 @@ export interface IZoomVirtualizationLogOptions {
     virtualizedContinuousMode: Ref<boolean>;
     virtualWindowStart: Ref<number>;
     virtualWindowEnd: Ref<number>;
-    topVirtualSpacerStyle: Ref<Record<string, string> | null>;
-    bottomVirtualSpacerStyle: Ref<Record<string, string> | null>;
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
     summarizeViewerStateForLog: () => IViewerStateForLog | null;
 }

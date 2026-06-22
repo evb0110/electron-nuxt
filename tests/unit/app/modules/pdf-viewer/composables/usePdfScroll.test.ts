@@ -355,6 +355,98 @@ describe('usePdfScroll page layout fallback', () => {
         }
     });
 
+    it('clears marker reapply observers when exact DOM navigation misses its target', () => {
+        const originalMutationObserver = globalThis.MutationObserver;
+        const originalResizeObserver = globalThis.ResizeObserver;
+        const mutationDisconnect = vi.fn();
+        const resizeDisconnect = vi.fn();
+        const container = cast<HTMLElement>({
+            clientHeight: 200,
+            clientWidth: 200,
+            scrollHeight: 2_000,
+            scrollWidth: 200,
+            scrollLeft: 0,
+            scrollTop: 0,
+            querySelector: () => null,
+            querySelectorAll: () => [],
+        });
+
+        class FakeMutationObserver {
+            observe = vi.fn();
+            disconnect = mutationDisconnect;
+        }
+
+        class FakeResizeObserver {
+            observe = vi.fn();
+            disconnect = resizeDisconnect;
+        }
+
+        Object.defineProperty(globalThis, 'MutationObserver', {
+            configurable: true,
+            value: FakeMutationObserver,
+        });
+        Object.defineProperty(globalThis, 'ResizeObserver', {
+            configurable: true,
+            value: FakeResizeObserver,
+        });
+
+        try {
+            const scroll = usePdfScroll();
+            scroll.setPageLayoutMetrics(buildPageLayoutMetrics({
+                pageMetrics: [
+                    {
+                        width: 200,
+                        height: 100,
+                    },
+                    {
+                        width: 200,
+                        height: 500,
+                    },
+                ],
+                totalPages: 2,
+                viewMode: 'single',
+                scale: 1,
+                gap: 20,
+                paddingTop: 20,
+                paddingBottom: 20,
+                fallbackWidth: 200,
+                fallbackHeight: 100,
+            }));
+
+            const markerRect = {
+                left: 0.1,
+                top: 0.45,
+                width: 0.1,
+                height: 0.1,
+            };
+            scroll.scrollToPage(container, 2, 2, 20, { markerRect });
+            scroll.scrollToPage(container, 2, 2, 20, {
+                markerRect,
+                preferExactDom: true,
+            });
+
+            expect(mutationDisconnect).toHaveBeenCalledOnce();
+            expect(resizeDisconnect).toHaveBeenCalledOnce();
+        } finally {
+            if (originalMutationObserver) {
+                Object.defineProperty(globalThis, 'MutationObserver', {
+                    configurable: true,
+                    value: originalMutationObserver,
+                });
+            } else {
+                delete (globalThis as { MutationObserver?: unknown }).MutationObserver;
+            }
+            if (originalResizeObserver) {
+                Object.defineProperty(globalThis, 'ResizeObserver', {
+                    configurable: true,
+                    value: originalResizeObserver,
+                });
+            } else {
+                delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+            }
+        }
+    });
+
     it('prefers mounted DOM visibility when layout metrics disagree during virtualization', () => {
         const mountedPage = createPageElementStub(5, 500, 200);
         const container = cast<HTMLElement>({
@@ -661,5 +753,42 @@ describe('usePdfScroll page layout fallback', () => {
         scroll.scrollToPage(container, 2, 3, 20, { markerRect: farRightMarkerRect });
 
         expect(getScrollLeft()).toBe(440);
+    });
+
+    it('applies marker horizontal positioning from layout metrics before the page mounts', () => {
+        const {
+            container,
+            getScrollLeft,
+        } = createContainerStub({ clientWidth: 200 });
+        const scroll = usePdfScroll();
+        scroll.setPageLayoutMetrics(buildPageLayoutMetrics({
+            pageMetrics: [
+                {
+                    width: 200,
+                    height: 200,
+                },
+                {
+                    width: 200,
+                    height: 200,
+                },
+            ],
+            totalPages: 2,
+            viewMode: 'facing',
+            scale: 1,
+            gap: 20,
+            paddingTop: 0,
+            paddingBottom: 0,
+            fallbackWidth: 200,
+            fallbackHeight: 200,
+        }));
+
+        scroll.scrollToPage(container, 2, 2, 20, {markerRect: {
+            left: 0.8,
+            top: 0.25,
+            width: 0.2,
+            height: 0.1,
+        }});
+
+        expect(getScrollLeft()).toBe(220);
     });
 });

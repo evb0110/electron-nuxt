@@ -55,8 +55,6 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
         virtualizedContinuousMode,
         virtualWindowStart,
         virtualWindowEnd,
-        topVirtualSpacerStyle,
-        bottomVirtualSpacerStyle,
         zoomVirtualizationFreeze,
         summarizeViewerStateForLog,
     } = options;
@@ -108,8 +106,6 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
         virtualizedContinuousMode,
         virtualWindowStart,
         virtualWindowEnd,
-        topVirtualSpacerStyle,
-        bottomVirtualSpacerStyle,
         zoomVirtualizationFreeze,
         summarizeViewerStateForLog,
         getActiveSessionId: () => activeWheelZoomSession?.id ?? null,

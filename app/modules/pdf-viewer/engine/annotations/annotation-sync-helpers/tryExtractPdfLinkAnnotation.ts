@@ -4,6 +4,13 @@ import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-ge
 import { getOptionalString } from '@app/services/pdfjs/runtime';
 import type { IPdfAnnotationRecord } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 
+function isPdfDestination(value: unknown): value is string | unknown[] {
+    return (
+        (typeof value === 'string' && value.trim().length > 0)
+        || Array.isArray(value)
+    );
+}
+
 export function tryExtractPdfLinkAnnotation(
     annotation: IPdfAnnotationRecord,
     pageNumber: number,
@@ -12,7 +19,8 @@ export function tryExtractPdfLinkAnnotation(
     pageRotation: TPageRotation,
 ): ILinkAnnotation | null {
     const url = getOptionalString(annotation, 'url');
-    if (!url || !annotation.rect) {
+    const dest = annotation.dest;
+    if ((!url && !isPdfDestination(dest)) || !annotation.rect) {
         return null;
     }
     const rect = toMarkerRectFromPdfRect(annotation.rect, pageView, pageRotation);
@@ -22,7 +30,8 @@ export function tryExtractPdfLinkAnnotation(
     return {
         id: annotation.id ?? `link-${pageNumber}-${annotationIndex}`,
         pageNumber,
-        url,
+        ...(url ? { url } : {}),
+        ...(isPdfDestination(dest) ? { dest } : {}),
         rect,
     };
 }

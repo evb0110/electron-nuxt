@@ -49,14 +49,14 @@ interface IUsePdfViewerWheelZoomOptions {
     virtualizedContinuousMode: Ref<boolean>;
     virtualWindowStart: Ref<number>;
     virtualWindowEnd: Ref<number>;
-    topVirtualSpacerStyle: Ref<Record<string, string> | null>;
-    bottomVirtualSpacerStyle: Ref<Record<string, string> | null>;
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
     singlePageScroll: {
         suppressSnapFor: (ms: number) => void;
         handleWheel: (event: WheelEvent) => boolean;
         handleScroll: () => void;
         cancelProgrammaticNavigation: () => void;
+        isProgrammaticNavigationActive?: Ref<boolean>;
+        shouldCancelProgrammaticNavigationForViewportScroll?: () => boolean;
     };
     cancelPendingSearchScroll: () => void;
     markUserViewportInteraction?: (() => void) | undefined;
@@ -101,8 +101,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         virtualizedContinuousMode,
         virtualWindowStart,
         virtualWindowEnd,
-        topVirtualSpacerStyle,
-        bottomVirtualSpacerStyle,
         zoomVirtualizationFreeze,
         singlePageScroll,
         cancelPendingSearchScroll,
@@ -188,8 +186,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         virtualizedContinuousMode,
         virtualWindowStart,
         virtualWindowEnd,
-        topVirtualSpacerStyle,
-        bottomVirtualSpacerStyle,
         zoomVirtualizationFreeze,
         summarizeViewerStateForLog,
     });
@@ -206,6 +202,19 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
 
     function clampZoomLevel(level: number) {
         return clamp(level, ZOOM.MIN, ZOOM.MAX);
+    }
+
+    function resolveCumulativeDeltaForEffectiveZoom(startZoom: number, targetZoom: number) {
+        if (
+            !Number.isFinite(startZoom)
+            || startZoom <= 0
+            || !Number.isFinite(targetZoom)
+            || targetZoom <= 0
+        ) {
+            return null;
+        }
+
+        return -Math.log(targetZoom / startZoom) / WHEEL_ZOOM_SENSITIVITY;
     }
 
     function resolveZoomBaselineScale() {
@@ -293,7 +302,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         session: ReturnType<typeof ensureWheelZoomSession>['session'],
     ) {
         session.cumulativeDelta += delta;
-        const zoomFactor = Math.exp(-session.cumulativeDelta * WHEEL_ZOOM_SENSITIVITY);
+        let zoomFactor = Math.exp(-session.cumulativeDelta * WHEEL_ZOOM_SENSITIVITY);
         if (!Number.isFinite(zoomFactor) || zoomFactor <= 0) {
             return {
                 valid: false as const,
@@ -301,7 +310,18 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             };
         }
 
-        const nextEffectiveZoom = clampZoomLevel(session.startZoom * zoomFactor);
+        const rawNextEffectiveZoom = session.startZoom * zoomFactor;
+        const nextEffectiveZoom = clampZoomLevel(rawNextEffectiveZoom);
+        if (Math.abs(rawNextEffectiveZoom - nextEffectiveZoom) >= 0.001) {
+            const clampedCumulativeDelta = resolveCumulativeDeltaForEffectiveZoom(
+                session.startZoom,
+                nextEffectiveZoom,
+            );
+            if (clampedCumulativeDelta !== null) {
+                session.cumulativeDelta = clampedCumulativeDelta;
+                zoomFactor = nextEffectiveZoom / session.startZoom;
+            }
+        }
         const baselineScale = resolveZoomBaselineScale();
 
         return {
@@ -774,6 +794,21 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
 
         if (context.zoomInteractionLocked || context.zoomScrollExpected) {
             suppressSinglePageSnapForWheelZoom();
+        }
+
+        if (
+            !context.zoomInteractionLocked
+            && !context.zoomScrollExpected
+            && (
+                singlePageScroll.isProgrammaticNavigationActive?.value !== true
+                || singlePageScroll.shouldCancelProgrammaticNavigationForViewportScroll?.() === true
+            )
+        ) {
+            if (markUserViewportInteraction) {
+                markUserViewportInteraction();
+            } else {
+                singlePageScroll.cancelProgrammaticNavigation();
+            }
         }
 
         singlePageScroll.handleScroll();

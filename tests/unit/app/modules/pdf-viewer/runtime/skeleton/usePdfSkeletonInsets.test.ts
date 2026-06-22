@@ -16,7 +16,11 @@ import type {
     PDFPageProxy,
 } from '@app/types/pdf';
 
-interface ISkeletonInsetsHarness {skeleton: ReturnType<typeof usePdfSkeletonInsets>;}
+interface ISkeletonInsetsHarness {
+    basePageHeight: ReturnType<typeof ref<number | null>>;
+    basePageWidth: ReturnType<typeof ref<number | null>>;
+    skeleton: ReturnType<typeof usePdfSkeletonInsets>;
+}
 
 async function mountSkeletonInsetsHarness(): Promise<ISkeletonInsetsHarness> {
     const basePageWidth = ref<number | null>(600);
@@ -34,7 +38,11 @@ async function mountSkeletonInsetsHarness(): Promise<ISkeletonInsetsHarness> {
         throw new Error('Failed to mount skeleton insets harness');
     }
 
-    return { skeleton };
+    return {
+        basePageHeight,
+        basePageWidth,
+        skeleton,
+    };
 }
 
 describe('usePdfSkeletonInsets', () => {
@@ -69,5 +77,38 @@ describe('usePdfSkeletonInsets', () => {
         await skeleton.computeSkeletonInsets(pdfPage, 1, () => 2);
 
         expect(skeleton.skeletonContentInsets.value).toBeNull();
+    });
+
+    it('recomputes cached fallback insets when base page metrics change', async () => {
+        const {
+            basePageHeight,
+            basePageWidth,
+            skeleton,
+        } = await mountSkeletonInsetsHarness();
+        const pdfPage = {} as PDFPageProxy;
+
+        await skeleton.computeSkeletonInsets(pdfPage, 1, () => 1);
+        expect(skeleton.scaledSkeletonPadding.value).toEqual({
+            top: 120,
+            right: 72,
+            bottom: 120,
+            left: 72,
+        });
+
+        basePageWidth.value = 1_200;
+        basePageHeight.value = 400;
+
+        expect(skeleton.scaledSkeletonPadding.value).toEqual({
+            top: 60,
+            right: 144,
+            bottom: 60,
+            left: 144,
+        });
+        expect(skeleton.skeletonContentInsets.value).toEqual({
+            top: 40,
+            right: 96,
+            bottom: 40,
+            left: 96,
+        });
     });
 });

@@ -12,6 +12,7 @@ import {
     nextTick,
     ref,
 } from 'vue';
+import { ZOOM } from '@app/constants/pdfLayout';
 
 const captureScrollSnapshot = vi.fn();
 const restoreScrollFromSnapshot = vi.fn();
@@ -102,11 +103,14 @@ describe('usePdfViewerWheelZoom', () => {
         const zoomMode = ref<'fit-width' | 'custom'>('fit-width');
         const effectiveScale = ref(1);
         const zoomVirtualizationFreeze = ref(null);
+        const isProgrammaticNavigationActive = ref(false);
         const singlePageScroll = {
             suppressSnapFor: vi.fn(),
             handleWheel: vi.fn(() => false),
             handleScroll: vi.fn(),
             cancelProgrammaticNavigation: vi.fn(),
+            isProgrammaticNavigationActive,
+            shouldCancelProgrammaticNavigationForViewportScroll: vi.fn(() => false),
         };
         const cancelPendingSearchScroll = vi.fn();
         const markUserViewportInteraction = vi.fn(() => {
@@ -130,8 +134,6 @@ describe('usePdfViewerWheelZoom', () => {
             virtualizedContinuousMode: ref(true),
             virtualWindowStart: ref(2),
             virtualWindowEnd: ref(8),
-            topVirtualSpacerStyle: ref({ height: '120px' }),
-            bottomVirtualSpacerStyle: ref({ height: '240px' }),
             zoomVirtualizationFreeze,
             singlePageScroll,
             cancelPendingSearchScroll,
@@ -148,6 +150,7 @@ describe('usePdfViewerWheelZoom', () => {
             scope,
             zoom,
             effectiveScale,
+            isProgrammaticNavigationActive,
             viewerContainer,
             zoomVirtualizationFreeze,
             singlePageScroll,
@@ -188,8 +191,6 @@ describe('usePdfViewerWheelZoom', () => {
                 sessionId: 1,
                 windowStart: 2,
                 windowEnd: 8,
-                topSpacerHeight: 120,
-                bottomSpacerHeight: 240,
             }));
         } finally {
             setup.scope.stop();
@@ -207,6 +208,35 @@ describe('usePdfViewerWheelZoom', () => {
                 clientY: 160,
             });
             setup.wheelZoom.handleViewerWheel(zoomEvent);
+
+            const plainWheelEvent = createWheelEvent({
+                deltaY: 80,
+                clientX: 130,
+                clientY: 180,
+            });
+            setup.wheelZoom.handleViewerWheel(plainWheelEvent);
+
+            expect(plainWheelEvent.defaultPrevented).toBe(true);
+            expect(setup.singlePageScroll.handleWheel).not.toHaveBeenCalled();
+            expect(setup.cancelPendingSearchScroll).toHaveBeenCalled();
+        } finally {
+            setup.scope.stop();
+        }
+    });
+
+    it('suppresses non-modifier wheel packets during the expected post-zoom scroll window', () => {
+        const setup = setupWheelZoom();
+
+        try {
+            const zoomEvent = createWheelEvent({
+                deltaY: -120,
+                ctrlKey: true,
+                clientX: 120,
+                clientY: 160,
+            });
+            setup.wheelZoom.handleViewerWheel(zoomEvent);
+
+            vi.advanceTimersByTime(600);
 
             const plainWheelEvent = createWheelEvent({
                 deltaY: 80,
@@ -244,6 +274,45 @@ describe('usePdfViewerWheelZoom', () => {
         }
     });
 
+    it('marks viewer scroll as user interaction unless programmatic navigation owns it', () => {
+        const setup = setupWheelZoom();
+
+        try {
+            setup.viewerContainer.value!.scrollTop = 180;
+            setup.wheelZoom.handleViewerScroll(new Event('scroll'));
+
+            expect(setup.markUserViewportInteraction).toHaveBeenCalledOnce();
+            expect(setup.singlePageScroll.handleScroll).toHaveBeenCalledOnce();
+
+            setup.isProgrammaticNavigationActive.value = true;
+            setup.viewerContainer.value!.scrollTop = 260;
+            setup.wheelZoom.handleViewerScroll(new Event('scroll'));
+
+            expect(setup.markUserViewportInteraction).toHaveBeenCalledOnce();
+            expect(setup.singlePageScroll.handleScroll).toHaveBeenCalledTimes(2);
+        } finally {
+            setup.scope.stop();
+        }
+    });
+
+    it('cancels programmatic navigation when a held scroll target is overridden', () => {
+        const setup = setupWheelZoom();
+
+        try {
+            setup.isProgrammaticNavigationActive.value = true;
+            setup.singlePageScroll.shouldCancelProgrammaticNavigationForViewportScroll.mockReturnValue(true);
+            setup.viewerContainer.value!.scrollTop = 260;
+
+            setup.wheelZoom.handleViewerScroll(new Event('scroll'));
+
+            expect(setup.markUserViewportInteraction).toHaveBeenCalledOnce();
+            expect(setup.singlePageScroll.cancelProgrammaticNavigation).toHaveBeenCalledOnce();
+            expect(setup.singlePageScroll.handleScroll).toHaveBeenCalledOnce();
+        } finally {
+            setup.scope.stop();
+        }
+    });
+
     it('preserves programmatic navigation ownership for consumed single-page wheel packets', () => {
         const setup = setupWheelZoom();
         setup.singlePageScroll.handleWheel.mockReturnValue(true);
@@ -261,6 +330,80 @@ describe('usePdfViewerWheelZoom', () => {
             expect(setup.singlePageScroll.handleWheel).toHaveBeenCalledWith(event);
             expect(setup.singlePageScroll.cancelProgrammaticNavigation).not.toHaveBeenCalled();
             expect(setup.markUserViewportInteraction).not.toHaveBeenCalled();
+        } finally {
+            setup.scope.stop();
+        }
+    });
+
+    it('rebases cumulative wheel delta at the maximum zoom clamp', () => {
+        const setup = setupWheelZoom();
+
+        try {
+            const zoomInToMax = createWheelEvent({
+                deltaY: -10_000,
+                ctrlKey: true,
+                clientX: 120,
+                clientY: 160,
+            });
+            setup.wheelZoom.handleViewerWheel(zoomInToMax);
+
+            expect(setup.emit).toHaveBeenCalledWith('update:effectiveZoom', ZOOM.MAX);
+            expect(setup.emit).toHaveBeenCalledWith('update:zoom', ZOOM.MAX);
+
+            setup.effectiveScale.value = ZOOM.MAX;
+            setup.zoom.value = ZOOM.MAX;
+            setup.emit.mockClear();
+
+            const smallZoomOut = createWheelEvent({
+                deltaY: 120,
+                ctrlKey: true,
+                clientX: 120,
+                clientY: 160,
+            });
+            setup.wheelZoom.handleViewerWheel(smallZoomOut);
+
+            const emittedEffectiveZoom = setup.emit.mock.calls.find(
+                call => call[0] === 'update:effectiveZoom',
+            )?.[1] as number | undefined;
+            expect(emittedEffectiveZoom).toBeTypeOf('number');
+            expect(emittedEffectiveZoom).toBeLessThan(ZOOM.MAX);
+        } finally {
+            setup.scope.stop();
+        }
+    });
+
+    it('rebases cumulative wheel delta at the minimum zoom clamp', () => {
+        const setup = setupWheelZoom();
+
+        try {
+            const zoomOutToMin = createWheelEvent({
+                deltaY: 10_000,
+                ctrlKey: true,
+                clientX: 120,
+                clientY: 160,
+            });
+            setup.wheelZoom.handleViewerWheel(zoomOutToMin);
+
+            expect(setup.emit).toHaveBeenCalledWith('update:effectiveZoom', ZOOM.MIN);
+            expect(setup.emit).toHaveBeenCalledWith('update:zoom', ZOOM.MIN);
+
+            setup.effectiveScale.value = ZOOM.MIN;
+            setup.zoom.value = ZOOM.MIN;
+            setup.emit.mockClear();
+
+            const smallZoomIn = createWheelEvent({
+                deltaY: -120,
+                ctrlKey: true,
+                clientX: 120,
+                clientY: 160,
+            });
+            setup.wheelZoom.handleViewerWheel(smallZoomIn);
+
+            const emittedEffectiveZoom = setup.emit.mock.calls.find(
+                call => call[0] === 'update:effectiveZoom',
+            )?.[1] as number | undefined;
+            expect(emittedEffectiveZoom).toBeTypeOf('number');
+            expect(emittedEffectiveZoom).toBeGreaterThan(ZOOM.MIN);
         } finally {
             setup.scope.stop();
         }

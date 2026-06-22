@@ -17,8 +17,6 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
         virtualizedContinuousMode,
         virtualWindowStart,
         virtualWindowEnd,
-        topVirtualSpacerStyle,
-        bottomVirtualSpacerStyle,
         zoomVirtualizationFreeze,
         summarizeViewerStateForLog,
         getActiveSessionId,
@@ -38,16 +36,11 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
             return;
         }
 
-        const topSpacerHeight = Number.parseFloat(topVirtualSpacerStyle.value?.height ?? '0');
-        const bottomSpacerHeight = Number.parseFloat(bottomVirtualSpacerStyle.value?.height ?? '0');
-
         zoomVirtualizationFreeze.value = {
             sessionId,
             capturedAtMs: Date.now(),
             windowStart: virtualWindowStart.value,
             windowEnd: virtualWindowEnd.value,
-            topSpacerHeight: Number.isFinite(topSpacerHeight) ? Math.max(0, topSpacerHeight) : 0,
-            bottomSpacerHeight: Number.isFinite(bottomSpacerHeight) ? Math.max(0, bottomSpacerHeight) : 0,
         };
 
         BrowserLogger.diagnosticThrottled(
@@ -168,7 +161,8 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
     function isZoomInteractionLocked(nowMs = Date.now()) {
         const sessionLocked = isWheelZoomGestureLocked(nowMs);
         const coreLocked = isZoomRerenderBusyFromCore || nowMs <= zoomRerenderBusyLockUntilMs;
-        return sessionLocked || coreLocked;
+        const expectedScrollLocked = nowMs <= expectedZoomScrollUntilMs;
+        return sessionLocked || coreLocked || expectedScrollLocked;
     }
 
     function cleanupZoomInteractionLock() {

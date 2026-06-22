@@ -4,6 +4,7 @@ import type {
 } from 'vue';
 import { getCurrentSpreadRenderedBoundsFromMetrics } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromMetrics';
 import { resolveHorizontalScrollClampForActiveSpread as resolveActiveSpreadHorizontalScrollClamp } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolveHorizontalScrollClampForActiveSpread';
+import { HORIZONTAL_SCROLL_CLAMP_EPSILON_PX } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
 import { usePdfViewerVirtualization } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import type {
@@ -48,8 +49,6 @@ interface IUsePdfViewportViewModelOptions {
         zoomSnapSuppressed: Ref<boolean>;
     };
 }
-
-const HORIZONTAL_SCROLL_CLAMP_EPSILON_PX = 1.5;
 
 export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions) => {
     const fitWidthHorizontalScrollLocked = ref(false);

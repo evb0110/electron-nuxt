@@ -35,9 +35,11 @@ import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-
 import { usePdfViewerSelectionToolState } from '@app/modules/pdf-viewer/tools/public';
 import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
 import { isStandaloneSpreadPage } from '@app/utils/pdfViewMode';
+import { resolveBookmarkDestinationTarget } from '@app/utils/pdfOutlineHelpers';
 import type {
     IAnnotationEditorState,
     IAnnotationModifiedPayload,
+    ILinkAnnotation,
 } from '@app/types/annotations';
 import type { IPageRange } from '@app/types/pdf';
 import { runGuardedTask } from '@app/utils/asyncGuard';
@@ -100,6 +102,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
     const cropSelection = usePdfCropSelection({ viewerContainer });
     const {
         waitForViewerLoadSettled,
+        cancelInitialVisualReady,
         handleRenderedPageStateChanged,
         handlePageCanvasMounted,
         handlePageRendered,
@@ -185,6 +188,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         annotationSettings,
         annotationUiManager,
         annotationL10n,
+        renderedPageStateVersion,
         authorName,
         appAnnotationHistory,
         pdfjsAnnotationEditorState,
@@ -457,6 +461,30 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         singlePageScroll.cancelProgrammaticNavigation();
     }
 
+    function handleLinkDestination(dest: NonNullable<ILinkAnnotation['dest']>) {
+        runGuardedTask(async () => {
+            const document = pdfDocument.value;
+            if (!document) {
+                return;
+            }
+
+            const target = await resolveBookmarkDestinationTarget(document, dest);
+            if (!target) {
+                return;
+            }
+
+            singlePageScroll.scrollToPage(
+                target.page,
+                typeof target.pageYRatio === 'number'
+                    ? { pageYRatio: target.pageYRatio }
+                    : undefined,
+            );
+        }, {
+            scope: 'pdf-viewer',
+            message: 'Failed to navigate PDF link destination',
+        });
+    }
+
     const {
         pendingImagePlacement,
         isPendingImagePlacementFinalizing,
@@ -564,8 +592,6 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         virtualizedContinuousMode,
         virtualWindowStart,
         virtualWindowEnd,
-        topVirtualSpacerStyle,
-        bottomVirtualSpacerStyle,
         zoomVirtualizationFreeze,
         singlePageScroll,
         cancelPendingSearchScroll,
@@ -640,6 +666,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         annotations,
         currentPage: viewerCurrentPage,
         pagedNavigationTargetPage: singlePageScroll.pagedNavigationTargetPage,
+        navigationAnchorPage,
         visibleRange,
         effectiveScale,
         basePageWidth,
@@ -670,6 +697,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         resetContinuousScrollState: () => singlePageScroll.resetContinuousScrollState(),
         cancelDestinationNavigationTarget: () => singlePageScroll.cancelProgrammaticNavigation(),
         getUserViewportInteractionEpoch: () => userViewportInteractionEpoch.value,
+        cancelInitialVisualReady,
         startDrag,
         onDrag,
         stopDrag,
@@ -914,6 +942,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         viewerContainer,
         viewerRuntime,
         singlePageScroll,
+        getUserViewportInteractionEpoch: () => userViewportInteractionEpoch.value,
         cancelPendingSearchScroll,
         annotationRuntime,
         appAnnotationHistory,
@@ -921,6 +950,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         restoreViewerScrollSnapshot,
         applyFitWidthToCurrentPage,
         waitForViewerLoadSettled,
+        renderVisiblePages,
         preserveNextSourceReloadVisibleContent,
         getPagePreview,
         saveViewerDocument,
@@ -978,6 +1008,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         handleMarkerOpenNote,
         handleMarkerContextMenu,
         handleMarkerMove,
+        handleLinkDestination,
         handleViewerContainerRef,
         pdfViewerPublicApi,
     };

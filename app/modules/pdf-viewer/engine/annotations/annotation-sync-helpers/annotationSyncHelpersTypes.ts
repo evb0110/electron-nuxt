@@ -23,6 +23,7 @@ export interface IPdfAnnotationRecord {
     quadPoints?: ArrayLike<number> | null;
     popupRef?: string | null;
     url?: string;
+    dest?: string | unknown[] | null;
 }
 
 export interface IPdfPageAnnotationBundle {

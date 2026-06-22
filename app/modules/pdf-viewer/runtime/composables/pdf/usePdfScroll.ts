@@ -692,6 +692,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
         const metrics = pageLayoutMetrics.value;
         if (metrics && metrics.totalPages === totalPages) {
             if (options?.preferExactDom) {
+                clearMarkerTargetReapply();
                 logPdfNav(
                     `[PDF-NAV] usePdfScroll.scrollToPage source=anchor-only targetPage=${targetPage}`
                     + ` reason=dom-missing scrollTop(before)=${container.scrollTop.toFixed(1)}`,
@@ -711,6 +712,14 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
                 pageYRatio: options?.pageYRatio,
                 markerRect: options?.markerRect,
             });
+            const pageIndex = targetPage - 1;
+            const nextLeft = resolveMarkerScrollLeft({
+                pageLeft: getLayoutPageLeft(metrics, pageIndex, container.clientWidth),
+                pageWidth: metrics.pageWidths[pageIndex] ?? 0,
+                containerWidth: container.clientWidth,
+                margin,
+                markerRect: options?.markerRect,
+            });
             logPdfNav(
                 `[PDF-NAV] usePdfScroll.scrollToPage source=layout targetPage=${targetPage}`
                 + ` pageHeight=${pageHeight.toFixed(1)} gap=${metrics.gap.toFixed(1)}`
@@ -718,8 +727,12 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
                 + ` top=${top.toFixed(1)} margin=${margin.toFixed(1)}`
                 + ` marker=${options?.markerRect ? 'true' : 'false'}`
                 + ` pageY=${typeof options?.pageYRatio === 'number' ? options.pageYRatio.toFixed(3) : 'none'}`
+                + ` nextLeft=${nextLeft === null ? 'none' : nextLeft.toFixed(1)}`
                 + ` nextTop=${nextTop.toFixed(1)} scrollTop(before)=${container.scrollTop.toFixed(1)}`,
             );
+            if (nextLeft !== null) {
+                container.scrollLeft = nextLeft;
+            }
             container.scrollTop = nextTop;
             currentPage.value = targetPage;
             armMarkerTargetReapply(container, targetPage, totalPages, margin, options);

@@ -17,6 +17,7 @@ interface IUseAnnotationMarkerViewModelOptions {
     viewerContainer: Ref<HTMLElement | null>;
     annotationCommentsCache: Ref<IAnnotationCommentSummary[]>;
     activeCommentStableKey: Ref<string | null>;
+    markerGeometryVersion?: Ref<number> | undefined;
     labels: {
         annotation: string;
         note: string;
@@ -163,6 +164,7 @@ export const useAnnotationMarkerViewModel = (options: IUseAnnotationMarkerViewMo
         viewerContainer,
         annotationCommentsCache,
         activeCommentStableKey,
+        markerGeometryVersion,
         labels,
     } = options;
 
@@ -181,6 +183,7 @@ export const useAnnotationMarkerViewModel = (options: IUseAnnotationMarkerViewMo
         [
             annotationCommentsCache,
             activeCommentStableKey,
+            ...(markerGeometryVersion ? [markerGeometryVersion] : []),
         ],
         recompute,
         { immediate: true },

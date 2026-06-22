@@ -199,10 +199,19 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             currentPage: currentPage.value,
             preferSnapshotAnchorPage: optionsOverride?.preferSnapshotAnchorPage,
         });
-        const snapshot = captureScrollSnapshot(
+        const recapturedSnapshot = captureScrollSnapshot(
             viewerContainer.value,
             getSnapshotCaptureOptions(optionsOverride, anchorPage),
-        ) ?? initialSnapshot;
+        );
+        let snapshot = recapturedSnapshot ?? initialSnapshot;
+        if (
+            forcePreferredAnchorPage
+            && anchorPage !== null
+            && snapshot
+            && snapshot.anchorPage !== anchorPage
+        ) {
+            snapshot = null;
+        }
         BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'anchor-build-captured', ZOOM_QUEUE_LOG_THROTTLE_MS, '[anchor-build] captured', {
             optionsOverride: optionsOverride ?? null,
             snapshotAnchorPage,

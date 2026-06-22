@@ -8,4 +8,5 @@ export interface IPdfReloadWaiterViewer {
         options?: { fallbackPage?: number | null; },
     ) => void;
     waitForViewerLoadSettled?: () => Promise<void>;
+    getUserViewportInteractionEpoch?: () => number;
 }

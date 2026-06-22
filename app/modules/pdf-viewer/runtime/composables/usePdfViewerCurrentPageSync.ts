@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { tryOnScopeDispose } from '@vueuse/core';
 import {
     countBy,
     maxBy,
@@ -71,12 +72,24 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
     let currentPageSyncRunId = 0;
     let currentPageEmitEventId = 0;
 
+    function invalidateCurrentPageSync() {
+        currentPageSyncRunId += 1;
+    }
+
+    function isCurrentPageSyncDocumentReady() {
+        return Boolean(
+            pdfDocument.value
+            && !isLoading.value
+            && numPages.value > 0,
+        );
+    }
+
     function summarizeViewerMetricsForLog(container: HTMLElement | null) {
         return summarizeViewerMetrics(container);
     }
 
     function summarizeVisiblePageSnapshotForLog(container: HTMLElement | null) {
-        if (!container || numPages.value <= 0) {
+        if (!container || !isCurrentPageSyncDocumentReady()) {
             return null;
         }
         return getVisiblePageDebugSnapshot(container, numPages.value, 8).map((entry) => ({
@@ -178,7 +191,7 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
             sampleIndex < CURRENT_PAGE_SYNC_SAMPLE_COUNT;
             sampleIndex += 1
         ) {
-            if (syncRunId !== currentPageSyncRunId) {
+            if (syncRunId !== currentPageSyncRunId || !isCurrentPageSyncDocumentReady()) {
                 return null;
             }
             const sampledPage = getMostVisiblePage(container, numPages.value);
@@ -205,6 +218,9 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
             if (sampleIndex + 1 < CURRENT_PAGE_SYNC_SAMPLE_COUNT) {
                 await nextTick();
                 await waitForVisualFrames();
+                if (syncRunId !== currentPageSyncRunId || !isCurrentPageSyncDocumentReady()) {
+                    return null;
+                }
             }
         }
 
@@ -229,7 +245,7 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
     }
 
     async function syncCurrentPageFromViewport(options: ICurrentPageSyncOptions = {}) {
-        if (!pdfDocument.value || isLoading.value || numPages.value <= 0) {
+        if (!isCurrentPageSyncDocumentReady()) {
             return;
         }
 
@@ -262,7 +278,11 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
         }
         if (options.stabilize) {
             const stablePage = await resolveStableCurrentPageFromViewport(syncRunId, source);
-            if (!stablePage || syncRunId !== currentPageSyncRunId) {
+            if (
+                !stablePage
+                || syncRunId !== currentPageSyncRunId
+                || !isCurrentPageSyncDocumentReady()
+            ) {
                 return;
             }
 
@@ -278,6 +298,18 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
         const page = updateCurrentPage(viewerContainer.value, numPages.value);
         emitCurrentPageIfChanged(page, source, null, false);
     }
+
+    watch(
+        () => [
+            pdfDocument.value,
+            isLoading.value,
+            numPages.value,
+        ] as const,
+        invalidateCurrentPageSync,
+        { flush: 'sync' },
+    );
+
+    tryOnScopeDispose(invalidateCurrentPageSync);
 
     return {
         summarizeViewerMetricsForLog,

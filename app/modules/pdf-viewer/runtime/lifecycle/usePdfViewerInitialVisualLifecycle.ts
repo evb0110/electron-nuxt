@@ -60,6 +60,11 @@ export const usePdfViewerInitialVisualLifecycle = (options: IUsePdfViewerInitial
         scheduledInitialVisualReadyToken = null;
     }
 
+    function cancelInitialVisualReady() {
+        pendingInitialVisualReadyToken = null;
+        scheduledInitialVisualReadyToken = null;
+    }
+
     function handleRenderedPageStateChanged() {
         renderedPageStateVersion.value += 1;
     }
@@ -104,6 +109,7 @@ export const usePdfViewerInitialVisualLifecycle = (options: IUsePdfViewerInitial
 
     return {
         setPendingInitialVisualReadyToken,
+        cancelInitialVisualReady,
         handleRenderedPageStateChanged,
         handlePageCanvasMounted,
         handlePageRendered,

@@ -51,6 +51,8 @@ interface IPendingRequestToken {
     canceled: boolean;
 }
 
+type TWaitForMatchAndScrollResult = 'scrolled' | 'canceled' | 'timed-out';
+
 const SEARCH_SCROLL_RETRY_DELAY_MS = 40;
 
 const SEARCH_SCROLL_MIN_WAIT_TIMEOUT_MS = 3000;
@@ -173,6 +175,7 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
     function isTargetPageDisplayReady(state: ReturnType<typeof getTargetPageWarmupState>) {
         return state.containerInDOM
             && state.hasCanvas
+            && (!state.renderPending || state.rendered)
             && !state.textLayerRendering
             && !state.textLayerMarkedNotReady;
     }
@@ -189,7 +192,7 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         token: IPendingRequestToken,
         targetPageIndex: number,
         initialRenderRequestAt: number,
-    ) {
+    ): Promise<TWaitForMatchAndScrollResult> {
         const startedAt = Date.now();
         const maxDeadline = startedAt + SEARCH_SCROLL_MAX_WAIT_TIMEOUT_MS;
         let deadline = startedAt + SEARCH_SCROLL_MIN_WAIT_TIMEOUT_MS;
@@ -199,7 +202,7 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
 
         while (true) {
             if (!isTokenActive(token)) {
-                return false;
+                return 'canceled';
             }
 
             const nowAtTop = Date.now();
@@ -231,7 +234,8 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
                 logPdfNav(
                     `[PDF-NAV] requestScrollToMatch aborting: match changed from pageIndex=${targetPageIndex} to ${deps.getCurrentSearchMatch()?.pageIndex ?? 'null'}`,
                 );
-                return false;
+                cancelActiveRequest(0);
+                return 'canceled';
             }
 
             const warmupState = getTargetPageWarmupState(targetPageIndex);
@@ -270,7 +274,7 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
                 `[PDF-NAV] tryScrollNow attempt=${attempt} scrollToCurrentMatch=${matchScrolled}`,
             );
             if (matchScrolled) {
-                return true;
+                return 'scrolled';
             }
 
             logPdfNav(
@@ -288,7 +292,7 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
             await delay(SEARCH_SCROLL_RETRY_DELAY_MS);
         }
 
-        return false;
+        return 'timed-out';
     }
 
     function isStaleScrollRequest(
@@ -377,7 +381,7 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         matchPageIndex: number,
         initialRenderRequestAt: number,
     ) {
-        const didScroll = await waitForMatchAndScroll(
+        const result = await waitForMatchAndScroll(
             token,
             matchPageIndex,
             initialRenderRequestAt,
@@ -386,9 +390,13 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
             return;
         }
 
-        if (didScroll) {
+        if (result === 'scrolled') {
             deps.suppressSnap?.();
             cancelActiveRequest(SEARCH_SCROLL_SETTLE_MS);
+            return;
+        }
+
+        if (result === 'canceled') {
             return;
         }
 
