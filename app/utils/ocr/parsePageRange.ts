@@ -8,7 +8,7 @@ export function parsePageRange(
     totalPages: number,
 ): number[] {
     if (rangeType === 'current') {
-        return [currentPage];
+        return currentPage >= 1 && currentPage <= totalPages ? [currentPage] : [];
     }
 
     if (rangeType === 'all') {
@@ -17,25 +17,28 @@ export function parsePageRange(
 
     const pages = new Set<number>();
     const parts = customRange.split(',').map(p => p.trim());
+    const singlePagePattern = /^\d+$/u;
+    const pageRangePattern = /^(\d+)\s*-\s*(\d+)$/u;
 
     for (const part of parts) {
-        if (part.includes('-')) {
-            const segments = part.split('-');
-            const startStr = segments[0];
-            const endStr = segments[1];
-            if (startStr && endStr) {
-                const start = parseInt(startStr.trim(), 10);
-                const end = parseInt(endStr.trim(), 10);
-                if (!isNaN(start) && !isNaN(end)) {
-                    range(Math.max(1, start), Math.min(totalPages, end) + 1)
-                        .forEach(page => pages.add(page));
-                }
+        const rangeMatch = pageRangePattern.exec(part);
+        if (rangeMatch) {
+            const start = Number(rangeMatch[1]);
+            const end = Number(rangeMatch[2]);
+            if (start <= end) {
+                range(Math.max(1, start), Math.min(totalPages, end) + 1)
+                    .forEach(page => pages.add(page));
             }
-        } else {
-            const num = parseInt(part, 10);
-            if (!isNaN(num) && num >= 1 && num <= totalPages) {
-                pages.add(num);
-            }
+            continue;
+        }
+
+        if (!singlePagePattern.test(part)) {
+            continue;
+        }
+
+        const num = Number(part);
+        if (num >= 1 && num <= totalPages) {
+            pages.add(num);
         }
     }
 

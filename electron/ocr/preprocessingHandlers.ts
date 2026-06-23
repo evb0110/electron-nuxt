@@ -22,6 +22,107 @@ const PREPROCESS_MAX_IMAGE_BYTES = (() => {
     }
     return Math.min(parsed, 512) * 1024 * 1024;
 })();
+const PREPROCESS_MAX_DECODED_PIXELS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_PREPROCESS_MAX_DECODED_PIXELS ?? '45000000', 10);
+    if (!Number.isFinite(parsed) || parsed < 1_000_000) {
+        return 45_000_000;
+    }
+    return Math.min(parsed, 250_000_000);
+})();
+const PREPROCESS_MAX_IMAGE_DIMENSION = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_PREPROCESS_MAX_IMAGE_DIMENSION ?? '32767', 10);
+    if (!Number.isFinite(parsed) || parsed < 1024) {
+        return 32767;
+    }
+    return Math.min(parsed, 100_000);
+})();
+
+interface IImageDimensions {
+    width: number;
+    height: number;
+}
+
+function readPngDimensions(bytes: Uint8Array<ArrayBufferLike>): IImageDimensions | null {
+    const pngSignature = [
+        0x89,
+        0x50,
+        0x4e,
+        0x47,
+        0x0d,
+        0x0a,
+        0x1a,
+        0x0a,
+    ];
+    if (bytes.byteLength < 24 || !pngSignature.every((value, index) => bytes[index] === value)) {
+        return null;
+    }
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return {
+        width: view.getUint32(16),
+        height: view.getUint32(20),
+    };
+}
+
+function readJpegDimensions(bytes: Uint8Array<ArrayBufferLike>): IImageDimensions | null {
+    if (bytes.byteLength < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
+        return null;
+    }
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let offset = 2;
+    while (offset + 9 < bytes.byteLength) {
+        if (bytes[offset] !== 0xff) {
+            offset++;
+            continue;
+        }
+        const marker = bytes[offset + 1] ?? 0;
+        offset += 2;
+        if (marker === 0xd8 || marker === 0xd9) {
+            continue;
+        }
+        if (offset + 2 > bytes.byteLength) {
+            return null;
+        }
+        const segmentLength = view.getUint16(offset);
+        if (segmentLength < 2 || offset + segmentLength > bytes.byteLength) {
+            return null;
+        }
+        const isStartOfFrame = (marker >= 0xc0 && marker <= 0xc3)
+            || (marker >= 0xc5 && marker <= 0xc7)
+            || (marker >= 0xc9 && marker <= 0xcb)
+            || (marker >= 0xcd && marker <= 0xcf);
+        if (isStartOfFrame && segmentLength >= 7) {
+            return {
+                height: view.getUint16(offset + 3),
+                width: view.getUint16(offset + 5),
+            };
+        }
+        offset += segmentLength;
+    }
+    return null;
+}
+
+function readImageDimensions(bytes: Uint8Array<ArrayBufferLike>): IImageDimensions {
+    const dimensions = readPngDimensions(bytes) ?? readJpegDimensions(bytes);
+    if (!dimensions) {
+        throw new Error('Invalid preprocessing payload: imageData must be a PNG or JPEG image with readable dimensions');
+    }
+    return dimensions;
+}
+
+function validateDecodedDimensions(bytes: Uint8Array<ArrayBufferLike>, label = 'imageData') {
+    const dimensions = readImageDimensions(bytes);
+    if (
+        dimensions.width <= 0
+        || dimensions.height <= 0
+        || dimensions.width > PREPROCESS_MAX_IMAGE_DIMENSION
+        || dimensions.height > PREPROCESS_MAX_IMAGE_DIMENSION
+        || dimensions.width * dimensions.height > PREPROCESS_MAX_DECODED_PIXELS
+    ) {
+        throw new Error(
+            `Invalid preprocessing payload: ${label} decoded dimensions ${dimensions.width}x${dimensions.height} exceed preprocessing limits`,
+        );
+    }
+}
 
 function normalizePreprocessImageData(imageData: unknown): Uint8Array<ArrayBufferLike> {
     let bytes: Uint8Array<ArrayBufferLike>;
@@ -40,7 +141,16 @@ function normalizePreprocessImageData(imageData: unknown): Uint8Array<ArrayBuffe
     if (bytes.byteLength > PREPROCESS_MAX_IMAGE_BYTES) {
         throw new Error(`Invalid preprocessing payload: imageData exceeds ${PREPROCESS_MAX_IMAGE_BYTES} bytes`);
     }
+    validateDecodedDimensions(bytes);
     return bytes;
+}
+
+function createPreprocessingAbortResult(imageData: Uint8Array<ArrayBufferLike>, error: string) {
+    return {
+        success: false,
+        imageData,
+        error,
+    };
 }
 
 export async function handlePreprocessingValidate() {
@@ -84,11 +194,7 @@ export async function handlePreprocessPage(
         event.sender.on('did-start-navigation', handleNavigation);
 
         if (event.sender.isDestroyed()) {
-            return {
-                success: false,
-                imageData: normalizedImageData,
-                error: 'Renderer disconnected before preprocessing started',
-            };
+            return createPreprocessingAbortResult(normalizedImageData, 'Renderer disconnected before preprocessing started');
         }
 
         if (!usePreprocessing) {
@@ -100,6 +206,9 @@ export async function handlePreprocessPage(
         }
 
         const validation = await validatePreprocessingSetup();
+        if (abortController.signal.aborted) {
+            return createPreprocessingAbortResult(normalizedImageData, 'Renderer disconnected during preprocessing');
+        }
         if (!validation.valid) {
             return {
                 success: true,
@@ -122,6 +231,9 @@ export async function handlePreprocessPage(
 
             if (!result.success) {
                 log.debug(`Preprocessing failed: ${result.error}`);
+                if (abortController.signal.aborted) {
+                    return createPreprocessingAbortResult(normalizedImageData, 'Renderer disconnected during preprocessing');
+                }
                 return {
                     success: true,
                     imageData: normalizedImageData,
@@ -131,6 +243,7 @@ export async function handlePreprocessPage(
 
             const preprocessedBuffer = await readFile(outputPath);
             const preprocessedData = new Uint8Array(preprocessedBuffer);
+            validateDecodedDimensions(preprocessedData, 'preprocessed imageData');
 
             log.debug(`Preprocessing successful: ${inputPath} -> ${outputPath}`);
 
@@ -153,11 +266,7 @@ export async function handlePreprocessPage(
         }
     } catch (err) {
         if (abortController.signal.aborted) {
-            return {
-                success: false,
-                imageData: normalizedImageData,
-                error: 'Renderer disconnected during preprocessing',
-            };
+            return createPreprocessingAbortResult(normalizedImageData, 'Renderer disconnected during preprocessing');
         }
         const errMsg = getErrorMessage(err);
         log.debug(`Preprocessing error: ${errMsg}`);

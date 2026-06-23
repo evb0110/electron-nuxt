@@ -1,13 +1,19 @@
 import type { PageViewport } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IOcrWord } from '@app/types/pdf';
+import type { IOcrWord } from '@contracts/shared';
+import type {
+    IOcrIndexV2Page,
+    TOcrIndexRotation,
+} from '@contracts/ocrIndex';
 import { createWordBoxOverlays } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/createWordBoxOverlays';
 import { isOcrDebugEnabled } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/isOcrDebugEnabled';
+import {
+    loadCachedOcrManifest,
+    loadCachedOcrPageData,
+} from '@app/modules/pdf-viewer/engine/ocr/ocrIndexArtifactLoader';
 import { transformOcrWordToViewport } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport';
 import { transformWordBox } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox';
-import type { IOcrIndexV2Page } from '@contracts/ocrIndex';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { readOptionalOcrArtifactJson } from '@app/utils/platformOcrArtifacts';
 
 export const usePdfWordBoxes = () => {
     function clearWordBoxes(container: HTMLElement) {
@@ -21,6 +27,7 @@ export const usePdfWordBoxes = () => {
         pdfPageWidth: number | undefined,
         pdfPageHeight: number | undefined,
         currentMatchWords?: Set<string>,
+        rotation: TOcrIndexRotation = 0,
     ) {
         const canvas = pageContainer.querySelector<HTMLCanvasElement>('canvas');
         if (!canvas) {
@@ -67,6 +74,7 @@ export const usePdfWordBoxes = () => {
             renderedPageWidth,
             renderedPageHeight,
             currentMatchWords,
+            rotation,
         );
 
         let boxContainer = pageContainer.querySelector<HTMLElement>('.pdf-word-boxes-layer');
@@ -93,13 +101,11 @@ export const usePdfWordBoxes = () => {
         workingCopyPath: TDocumentRef,
         pageNumber: number,
     ): Promise<IOcrIndexV2Page | null> {
-        try {
-            const pageFile = `page-${String(pageNumber).padStart(4, '0')}.json`;
-            return await readOptionalOcrArtifactJson<IOcrIndexV2Page>(workingCopyPath, pageFile);
-        } catch (error) {
-            BrowserLogger.warn('ocr-debug', 'Failed to load OCR page data', error);
+        const manifest = await loadCachedOcrManifest(workingCopyPath, 'ocr-debug');
+        if (!manifest) {
             return null;
         }
+        return loadCachedOcrPageData(workingCopyPath, pageNumber, manifest, 'ocr-debug');
     }
 
     async function renderOcrDebugBoxes(
@@ -182,8 +188,6 @@ export const usePdfWordBoxes = () => {
                 top: ${transformed.y}px;
                 width: ${transformed.width}px;
                 height: ${transformed.height}px;
-                border: 1px solid rgba(255, 140, 0, 0.7);
-                background: rgba(255, 140, 0, 0.15);
                 pointer-events: none;
                 box-sizing: border-box;
             `;

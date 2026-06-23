@@ -376,38 +376,24 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     }
 
     async function acknowledgeOcrResultFile(payload: IOcrCompletePayload) {
-        let didCleanupViaAck = false;
-        if (payload.requiresCleanupAck) {
-            try {
-                const ackResult = await getOcrCapability().acknowledgeResultFile(payload.requestId, payload.pdfPath);
-                didCleanupViaAck = ackResult.cleaned;
-                if (!ackResult.cleaned && ackResult.error) {
-                    BrowserLogger.warn('ocr', 'OCR cleanup acknowledgement was rejected', {
-                        requestId: payload.requestId,
-                        path: payload.pdfPath,
-                        error: ackResult.error,
-                    });
-                }
-            } catch (ackErr) {
-                BrowserLogger.warn('ocr', 'Failed to acknowledge OCR temp result file', {
-                    requestId: payload.requestId,
-                    path: payload.pdfPath,
-                    error: ackErr,
-                });
-            }
-        }
-
-        if (didCleanupViaAck) {
+        if (!payload.requiresCleanupAck) {
             return;
         }
 
         try {
-            await getDocumentsCapability().cleanupOcrTemp(payload.pdfPath);
-        } catch (cleanupErr) {
-            BrowserLogger.warn('ocr', 'Failed to cleanup temp OCR result file', {
+            const ackResult = await getOcrCapability().acknowledgeResultFile(payload.requestId, payload.pdfPath);
+            if (!ackResult.cleaned && ackResult.error) {
+                BrowserLogger.warn('ocr', 'OCR cleanup acknowledgement was rejected', {
+                    requestId: payload.requestId,
+                    path: payload.pdfPath,
+                    error: ackResult.error,
+                });
+            }
+        } catch (ackErr) {
+            BrowserLogger.warn('ocr', 'Failed to acknowledge OCR temp result file', {
                 requestId: payload.requestId,
                 path: payload.pdfPath,
-                error: cleanupErr,
+                error: ackErr,
             });
         }
     }
@@ -431,11 +417,13 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         clearOcrCache(payload.sourceWorkingCopyPath);
         resetSearchCache();
 
+        let didReplaceWorkingCopy = false;
         try {
             await getDocumentsCapability().replaceWorkingCopyFromPath(
                 payload.sourceWorkingCopyPath,
                 payload.pdfPath,
             );
+            didReplaceWorkingCopy = true;
             if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
                 BrowserLogger.debug('ocr', 'Skipped stale OCR reload wait after document switch', {
                     sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
@@ -460,7 +448,9 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             void restorePromise;
             throw error;
         } finally {
-            await acknowledgeOcrResultFile(payload);
+            if (didReplaceWorkingCopy) {
+                await acknowledgeOcrResultFile(payload);
+            }
         }
 
         if (restorePromise === null) {
@@ -529,7 +519,20 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     }
 
     async function handleOcrComplete(payload: IOcrCompletePayload) {
-        return applyOcrCompleteResult(payload);
+        try {
+            await applyOcrCompleteResult(payload);
+        } catch (error) {
+            BrowserLogger.error('ocr', 'Failed to apply OCR result', {
+                requestId: payload.requestId,
+                sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
+                pdfPath: payload.pdfPath,
+                error,
+            });
+            toast.add({
+                color: 'error',
+                title: t('errors.ocr.createSearchablePdf'),
+            });
+        }
     }
 
     async function getEmbeddedMutationBaseData() {

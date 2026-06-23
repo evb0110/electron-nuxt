@@ -102,12 +102,21 @@ export async function getPageCount(
         ], commandOptions);
         const parsed = parseInt((result.stdout ?? '').trim(), 10);
         if (Number.isFinite(parsed) && parsed > 0) {
-            return parsed;
+            return {
+                pageCount: parsed,
+                warnings: [],
+            };
         }
-    } catch {
-        // Use fallback
+    } catch (err) {
+        return {
+            pageCount: fallback,
+            warnings: [`qpdf page-count failed; using OCR page fallback ${fallback}: ${err instanceof Error ? err.message : String(err)}`],
+        };
     }
-    return fallback;
+    return {
+        pageCount: fallback,
+        warnings: [`qpdf page-count returned no usable page count; using OCR page fallback ${fallback}`],
+    };
 }
 
 function buildValidOcrPageEntries(ocrPdfMap: Map<number, string>, pageCount: number) {
@@ -268,6 +277,11 @@ function appendOcrLayer(
     page: PDFPage,
     embeddedPage: Awaited<ReturnType<PDFDocument['embedPage']>>,
 ) {
+    const rotation = ((page.getRotation().angle % 360) + 360) % 360;
+    if (rotation !== 0) {
+        throw new Error(`Cannot safely add OCR text layer to rotated PDF page (${rotation} degrees)`);
+    }
+
     const { xObject } = cloneMutablePageResources(page);
     const xObjectName = xObject.uniqueKey('EvbOcrLayer');
     xObject.set(xObjectName, embeddedPage.ref);

@@ -98,7 +98,7 @@ export interface IOcrCompleteResult extends IOcrErrorEnvelopeCarrier {
     errors: string[];
 }
 
-export interface IPreprocessingValidationResult {
+export interface IPreprocessingValidationResult extends IOcrErrorEnvelopeCarrier {
     valid: boolean;
     available: string[];
     missing: string[];
@@ -139,7 +139,7 @@ export interface IOcrToolValidationResult extends IOcrErrorEnvelopeCarrier {
     errors: string[];
 }
 
-export interface IPreprocessPageResult {
+export interface IPreprocessPageResult extends IOcrErrorEnvelopeCarrier {
     success: boolean;
     imageData: Uint8Array;
     message?: string;

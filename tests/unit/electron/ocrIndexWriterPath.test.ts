@@ -10,7 +10,9 @@ const mocks = vi.hoisted(() => ({
     lstat: vi.fn<(path: string) => Promise<{ isSymbolicLink: () => boolean }>>(),
     readFile: vi.fn<(path: string, encoding: string) => Promise<string>>(),
     realpath: vi.fn<(path: string) => Promise<string>>(),
+    rename: vi.fn<(source: string, target: string) => Promise<void>>(),
     stat: vi.fn<(path: string) => Promise<{ mtimeMs: number }>>(),
+    unlink: vi.fn<(path: string) => Promise<void>>(),
     writeFile: vi.fn<(path: string, data: string, encoding: string) => Promise<void>>(),
     loadCompactSearchIndex: vi.fn(),
     persistCompactSearchIndex: vi.fn(),
@@ -24,9 +26,10 @@ vi.mock('fs/promises', () => ({
     lstat: (path: string) => mocks.lstat(path),
     readFile: (path: string, encoding: string) => mocks.readFile(path, encoding),
     realpath: (path: string) => mocks.realpath(path),
+    rename: (source: string, target: string) => mocks.rename(source, target),
     stat: (path: string) => mocks.stat(path),
+    unlink: (path: string) => mocks.unlink(path),
     mkdir: vi.fn(),
-    rename: vi.fn(),
     writeFile: (path: string, data: string, encoding: string) => mocks.writeFile(path, data, encoding),
 }));
 
@@ -38,6 +41,7 @@ vi.mock('@electron/search/searchIndexSidecar', () => ({
 
 const {
     resolveSafeOcrIndexBasePath,
+    writeOcrIndexV1,
     writeOcrIndexV2,
 } = await import('@electron/ocr/worker/indexWriter');
 
@@ -87,11 +91,37 @@ describe('resolveSafeOcrIndexBasePath', () => {
     });
 });
 
+describe('writeOcrIndexV1', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.rename.mockResolvedValue();
+        mocks.unlink.mockResolvedValue();
+        mocks.writeFile.mockResolvedValue();
+    });
+
+    it('writes the legacy index through a temp file before renaming it into place', async () => {
+        await writeOcrIndexV1('/tmp/work.pdf', [{
+            pageNumber: 1,
+            text: 'page one',
+            imageWidth: 100,
+            imageHeight: 200,
+            words: [],
+        }], 1);
+
+        const targetPath = '/tmp/work.pdf.index.json';
+        const tempPath = mocks.writeFile.mock.calls[0]?.[0] ?? '';
+        expect(tempPath).toMatch(/^\/tmp\/work\.pdf\.index\.json\.\d+\..+\.tmp$/u);
+        expect(mocks.rename).toHaveBeenCalledWith(tempPath, targetPath);
+    });
+});
+
 describe('writeOcrIndexV2', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.readFile.mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }));
+        mocks.rename.mockResolvedValue();
         mocks.stat.mockResolvedValue({mtimeMs: 1});
+        mocks.unlink.mockResolvedValue();
         mocks.writeFile.mockResolvedValue();
         mocks.loadCompactSearchIndex.mockResolvedValue(null);
         mocks.persistCompactSearchIndex.mockResolvedValue(undefined);
@@ -169,8 +199,8 @@ describe('writeOcrIndexV2', () => {
         expect(manifest.pages).toEqual({2: { path: 'page-0002.json' }});
     });
 
-    it('uses a unique temp file for each v2 page and manifest write', async () => {
-        await writeOcrIndexV2('/tmp/work.pdf', [
+    it('rejects duplicate OCR page data before writing v2 page files', async () => {
+        await expect(writeOcrIndexV2('/tmp/work.pdf', [
             {
                 pageNumber: 1,
                 text: 'first pass',
@@ -185,14 +215,104 @@ describe('writeOcrIndexV2', () => {
                 imageHeight: 200,
                 words: [],
             },
-        ], 1, ['eng'], 300, vi.fn());
+        ], 1, ['eng'], 300, vi.fn())).rejects.toThrow('Duplicate OCR page number 1');
+
+        expect(mocks.writeFile).not.toHaveBeenCalled();
+    });
+
+    it('uses a unique temp file for each v2 page and manifest write', async () => {
+        await writeOcrIndexV2('/tmp/work.pdf', [
+            {
+                pageNumber: 1,
+                text: 'first pass',
+                imageWidth: 100,
+                imageHeight: 200,
+                words: [],
+            },
+            {
+                pageNumber: 2,
+                text: 'second pass',
+                imageWidth: 100,
+                imageHeight: 200,
+                words: [],
+            },
+        ], 2, ['eng'], 300, vi.fn());
 
         const tempPaths = mocks.writeFile.mock.calls.map(([path]) => path);
         expect(tempPaths).toHaveLength(3);
         expect(new Set(tempPaths).size).toBe(tempPaths.length);
         expect(tempPaths).toEqual(expect.arrayContaining([
             expect.stringMatching(/\/tmp\/work\.pdf\.ocr\/page-0001\.json\..+\.tmp$/),
+            expect.stringMatching(/\/tmp\/work\.pdf\.ocr\/page-0002\.json\..+\.tmp$/),
             expect.stringMatching(/\/tmp\/work\.pdf\.ocr\/manifest\.json\..+\.tmp$/),
         ]));
+    });
+
+    it('drops preserved manifest page paths that escape the OCR sidecar directory', async () => {
+        mocks.readFile.mockResolvedValue(JSON.stringify({
+            version: 2,
+            createdAt: 1,
+            source: { pdfPath: '/tmp/work.pdf' },
+            pageCount: 2,
+            pageBox: 'crop',
+            ocr: {
+                engine: 'tesseract',
+                languages: ['eng'],
+                renderDpi: 300,
+            },
+            pages: {
+                1: { path: '../stolen.json' },
+                2: { path: 'page-0002.json' },
+            },
+        }));
+
+        await writeOcrIndexV2('/tmp/work.pdf', [{
+            pageNumber: 1,
+            text: 'page one',
+            imageWidth: 100,
+            imageHeight: 200,
+            words: [],
+        }], 2, ['eng'], 300, vi.fn());
+
+        const manifestWrite = mocks.writeFile.mock.calls.find(([path]) => path.startsWith('/tmp/work.pdf.ocr/manifest.json.'));
+        const manifest = JSON.parse(manifestWrite?.[1] ?? '{}') as { pages: Record<string, { path: string }> };
+        expect(manifest.pages).toEqual({
+            1: { path: 'page-0001.json' },
+            2: { path: 'page-0002.json' },
+        });
+    });
+
+    it('cleans temp files and restores page backups when manifest rename fails', async () => {
+        mocks.rename.mockImplementation(async (source: string, target: string) => {
+            if (source.includes('/manifest.json.')) {
+                throw new Error('rename failed');
+            }
+            if (target.includes('/page-0001.json.') && target.endsWith('.tmp')) {
+                throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+            }
+        });
+
+        await expect(writeOcrIndexV2('/tmp/work.pdf', [{
+            pageNumber: 1,
+            text: 'page one',
+            imageWidth: 100,
+            imageHeight: 200,
+            words: [],
+        }], 1, ['eng'], 300, vi.fn())).rejects.toThrow('rename failed');
+
+        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/work.pdf.ocr/page-0001.json');
+        expect(mocks.unlink).toHaveBeenCalledWith(expect.stringMatching(/\/tmp\/work\.pdf\.ocr\/manifest\.json\..+\.tmp$/));
+    });
+
+    it('surfaces compact search sidecar write failures', async () => {
+        mocks.persistCompactSearchIndex.mockRejectedValueOnce(new Error('compact write failed'));
+
+        await expect(writeOcrIndexV2('/tmp/work.pdf', [{
+            pageNumber: 1,
+            text: 'page one',
+            imageWidth: 100,
+            imageHeight: 200,
+            words: [],
+        }], 1, ['eng'], 300, vi.fn())).rejects.toThrow('compact write failed');
     });
 });

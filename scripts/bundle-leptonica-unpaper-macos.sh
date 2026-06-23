@@ -16,6 +16,8 @@ case "$ARCH" in
 esac
 
 DEST="$PROJECT_ROOT/resources/tesseract/$PLATFORM_ARCH"
+UNPAPER_TAG="unpaper-7.0.0"
+UNPAPER_COMMIT="5211a623d48858eae154213a61bccbc368b19ca0"
 
 echo "=========================================="
 echo "Building Leptonica + Unpaper for $PLATFORM_ARCH"
@@ -86,13 +88,15 @@ fi
 
 cd unpaper
 
-# Fetch latest tags
-git fetch origin
+git fetch --tags origin "$UNPAPER_TAG"
 
-# Get latest release tag
-LATEST_TAG=$(git describe --tags --abbrev=0 --match "v*" 2>/dev/null || echo "HEAD")
-echo "Checking out: $LATEST_TAG"
-git checkout "$LATEST_TAG"
+echo "Checking out pinned unpaper release: $UNPAPER_TAG ($UNPAPER_COMMIT)"
+git checkout "$UNPAPER_TAG"
+ACTUAL_UNPAPER_COMMIT="$(git rev-parse HEAD)"
+if [ "$ACTUAL_UNPAPER_COMMIT" != "$UNPAPER_COMMIT" ]; then
+  echo "Error: Pinned unpaper tag resolved to $ACTUAL_UNPAPER_COMMIT, expected $UNPAPER_COMMIT"
+  exit 1
+fi
 
 # Configure Meson build with minimal dependencies
 # Note: Unpaper can optionally use ImageMagick, but we skip it for minimal footprint

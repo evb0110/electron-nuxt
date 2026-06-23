@@ -70,6 +70,7 @@ export async function runOcr(
 
         let stdout = '';
         let stderr = '';
+        let stdoutTruncated = false;
         let stderrTruncated = false;
         let timedOut = false;
         let aborted = false;
@@ -148,6 +149,7 @@ export async function runOcr(
         proc.stdout?.on('data', (data: Buffer) => {
             const appended = appendTextChunkWithByteCap(stdout, data, TESSERACT_MAX_STDOUT_BYTES);
             stdout = appended.text;
+            stdoutTruncated = stdoutTruncated || appended.truncated;
         });
 
         proc.stderr?.on('data', (data: Buffer) => {
@@ -175,7 +177,13 @@ export async function runOcr(
                 return;
             }
 
-            if (code === 0) {
+            if (code === 0 && stdoutTruncated) {
+                finalize({
+                    success: false,
+                    text: '',
+                    error: `Tesseract output exceeded maximum size (${TESSERACT_MAX_STDOUT_BYTES} bytes)`,
+                });
+            } else if (code === 0) {
                 finalize({
                     success: true,
                     text: stdout.trim(),

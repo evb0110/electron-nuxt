@@ -83,7 +83,31 @@ describe('browser OCR capability', () => {
         }], 'request-2')).resolves.toMatchObject({
             started: false,
             jobId: 'request-2',
+            installed: [],
             error: 'Browser OCR is unavailable; use the desktop app to create searchable PDFs.',
+            errorEnvelope: { code: 'OCR_WORKER_UNAVAILABLE' },
+        });
+    });
+
+    it('returns Electron-compatible unavailable shapes for browser-only OCR operations', async () => {
+        const { browserOcrCapability } = await import('@app/platform/browser-api/browserOcrCapability');
+
+        await expect(browserOcrCapability.cancel('request-5')).resolves.toMatchObject({
+            canceled: false,
+            reason: 'not-found',
+            errorEnvelope: { code: 'OCR_WORKER_UNAVAILABLE' },
+        });
+        await expect(browserOcrCapability.acknowledgeResultFile('request-5')).resolves.toMatchObject({
+            cleaned: false,
+            errorEnvelope: { code: 'OCR_WORKER_UNAVAILABLE' },
+        });
+        await expect(browserOcrCapability.preprocessing.validate()).resolves.toMatchObject({
+            valid: false,
+            errorEnvelope: { code: 'OCR_WORKER_UNAVAILABLE' },
+        });
+        await expect(browserOcrCapability.preprocessing.preprocessPage(new Uint8Array([1]), true)).resolves.toMatchObject({
+            success: false,
+            errorEnvelope: { code: 'OCR_WORKER_UNAVAILABLE' },
         });
     });
 

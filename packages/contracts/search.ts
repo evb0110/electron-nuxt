@@ -1,4 +1,5 @@
 import type { TPageNumber } from '@contracts/pageNumbers';
+import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import type { IOcrWord } from '@contracts/shared';
 import { isRecord } from '@contracts/runtimeGuards';
 
@@ -20,6 +21,7 @@ export interface IPdfSearchResult {
     words?: IOcrWord[];
     pageWidth?: number;
     pageHeight?: number;
+    rotation?: TOcrIndexRotation;
 }
 
 export interface IPdfSearchResponse {

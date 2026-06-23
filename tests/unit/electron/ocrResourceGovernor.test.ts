@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type { ocrResourceGovernor as importedOcrResourceGovernor } from '@electron/ocr/ocrResourceGovernor';
 
 const mocks = vi.hoisted(() => ({
     availableParallelism: vi.fn(() => 8),
@@ -29,6 +30,12 @@ async function flushMicrotasks() {
     await Promise.resolve();
 }
 
+type TOcrResourceGovernor = typeof importedOcrResourceGovernor;
+
+async function loadOcrResourceGovernor(): Promise<TOcrResourceGovernor> {
+    return (await import('@electron/ocr/ocrResourceGovernor')).ocrResourceGovernor;
+}
+
 describe('ocr resource governor', () => {
     beforeEach(() => {
         vi.resetModules();
@@ -39,12 +46,12 @@ describe('ocr resource governor', () => {
 
     afterEach(async () => {
         vi.unstubAllEnvs();
-        const { ocrResourceGovernor } = await import('@electron/ocr/ocrResourceGovernor');
+        const ocrResourceGovernor = await loadOcrResourceGovernor();
         ocrResourceGovernor.reset();
     });
 
     it('rejects queued acquire promises removed by releaseJob', async () => {
-        const { ocrResourceGovernor } = await import('@electron/ocr/ocrResourceGovernor');
+        const ocrResourceGovernor = await loadOcrResourceGovernor();
 
         vi.stubEnv('OCR_GLOBAL_PAGE_SLOTS', '1');
         const activeLease = await ocrResourceGovernor.acquire({
@@ -66,7 +73,7 @@ describe('ocr resource governor', () => {
     });
 
     it('rejects queued acquire promises removed by reset', async () => {
-        const { ocrResourceGovernor } = await import('@electron/ocr/ocrResourceGovernor');
+        const ocrResourceGovernor = await loadOcrResourceGovernor();
 
         vi.stubEnv('OCR_GLOBAL_PAGE_SLOTS', '1');
         const activeLease = await ocrResourceGovernor.acquire({
@@ -87,37 +94,45 @@ describe('ocr resource governor', () => {
         ocrResourceGovernor.release(activeLease.token);
     });
 
-    it('keeps normal requests queued while a high-DPI request is active', async () => {
-        const { ocrResourceGovernor } = await import('@electron/ocr/ocrResourceGovernor');
+    it('grants normal requests while a high-DPI request is active when weighted slots remain', async () => {
+        const ocrResourceGovernor = await loadOcrResourceGovernor();
 
         const highDpiLease = await ocrResourceGovernor.acquire({
             jobId: 'job-high',
             pageNumber: 1,
             requestedDpi: 600,
         });
-        const normalAcquire = ocrResourceGovernor.acquire({
+        const normalLease = await ocrResourceGovernor.acquire({
             jobId: 'job-normal',
             pageNumber: 1,
             requestedDpi: 300,
         });
-        let wasGranted = false;
-        void normalAcquire.then(() => {
-            wasGranted = true;
-        });
-
-        await flushMicrotasks();
-
-        expect(wasGranted).toBe(false);
-
-        ocrResourceGovernor.release(highDpiLease.token);
-        const normalLease = await normalAcquire;
 
         expect(normalLease.effectiveDpi).toBe(300);
+        ocrResourceGovernor.release(highDpiLease.token);
         ocrResourceGovernor.release(normalLease.token);
     });
 
-    it('expands queued normal requests to the adaptive normal slot count after a high-DPI request releases', async () => {
-        const { ocrResourceGovernor } = await import('@electron/ocr/ocrResourceGovernor');
+    it('caps huge-page effective DPI below the legacy floor to honor the rendered-pixel budget', async () => {
+        const ocrResourceGovernor = await loadOcrResourceGovernor();
+
+        const lease = await ocrResourceGovernor.acquire({
+            jobId: 'job-huge-page',
+            pageNumber: 1,
+            requestedDpi: 300,
+            pageWidthIn: 500,
+            pageHeightIn: 500,
+        });
+        const renderedPixels = Math.ceil(500 * lease.effectiveDpi) * Math.ceil(500 * lease.effectiveDpi);
+
+        expect(lease.effectiveDpi).toBeLessThan(150);
+        expect(renderedPixels).toBeLessThanOrEqual(45_000_000);
+
+        ocrResourceGovernor.release(lease.token);
+    });
+
+    it('uses remaining weighted slots while a high-DPI request is active and drains the rest after release', async () => {
+        const ocrResourceGovernor = await loadOcrResourceGovernor();
 
         const highDpiLease = await ocrResourceGovernor.acquire({
             jobId: 'job-high',
@@ -155,7 +170,7 @@ describe('ocr resource governor', () => {
 
         await flushMicrotasks();
 
-        expect(grantedTokens).toHaveLength(0);
+        expect(grantedTokens).toHaveLength(2);
 
         ocrResourceGovernor.release(highDpiLease.token);
         const normalLeases = await Promise.all(queuedNormalAcquires);
@@ -171,7 +186,7 @@ describe('ocr resource governor', () => {
     });
 
     it('uses configured slot limits above the normal default when dispatching from no active leases', async () => {
-        const { ocrResourceGovernor } = await import('@electron/ocr/ocrResourceGovernor');
+        const ocrResourceGovernor = await loadOcrResourceGovernor();
 
         const highDpiLease = await ocrResourceGovernor.acquire({
             jobId: 'job-high',
@@ -194,7 +209,7 @@ describe('ocr resource governor', () => {
 
         await flushMicrotasks();
 
-        expect(grantedTokens).toHaveLength(0);
+        expect(grantedTokens).toHaveLength(2);
 
         ocrResourceGovernor.release(highDpiLease.token);
         const normalLeases = await Promise.all(queuedNormalAcquires);
@@ -209,9 +224,10 @@ describe('ocr resource governor', () => {
         normalLeases.forEach(lease => ocrResourceGovernor.release(lease.token));
     });
 
-    it('does not grant later normal requests ahead of a queued high-DPI request', async () => {
-        const { ocrResourceGovernor } = await import('@electron/ocr/ocrResourceGovernor');
+    it('skips a blocked high-DPI request to grant a later normal request that fits remaining slots', async () => {
+        const ocrResourceGovernor = await loadOcrResourceGovernor();
 
+        vi.stubEnv('OCR_GLOBAL_PAGE_SLOTS', '2');
         const activeNormalLease = await ocrResourceGovernor.acquire({
             jobId: 'job-active-normal',
             pageNumber: 1,
@@ -227,25 +243,14 @@ describe('ocr resource governor', () => {
             pageNumber: 1,
             requestedDpi: 300,
         });
-        let laterNormalLease: Awaited<typeof laterNormalAcquire> | null = null;
-        void laterNormalAcquire.then((lease) => {
-            laterNormalLease = lease;
-        });
+        const laterNormalLease = await laterNormalAcquire;
 
-        await flushMicrotasks();
-
-        expect(laterNormalLease).toBeNull();
-
+        expect(laterNormalLease).toEqual(expect.objectContaining({effectiveDpi: 300}));
+        ocrResourceGovernor.release(laterNormalLease.token);
         ocrResourceGovernor.release(activeNormalLease.token);
         const highDpiLease = await highDpiAcquire;
 
         expect(highDpiLease.effectiveDpi).toBe(600);
-        expect(laterNormalLease).toBeNull();
-
         ocrResourceGovernor.release(highDpiLease.token);
-        const grantedLaterNormalLease = await laterNormalAcquire;
-
-        expect(grantedLaterNormalLease.effectiveDpi).toBe(300);
-        ocrResourceGovernor.release(grantedLaterNormalLease.token);
     });
 });

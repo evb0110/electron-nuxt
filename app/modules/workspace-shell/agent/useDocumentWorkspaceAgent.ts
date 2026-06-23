@@ -11,8 +11,10 @@ import {
     getAgentStringInput,
     hasAgentInputKey,
     isAgentAnnotationTool,
+    isAgentOcrPageSegmentationMode,
     isAgentOcrQualityProfile,
     isAgentOcrPageRange,
+    isAgentOcrPreprocessingMode,
     isAgentRecord,
     isAgentSidebarTab,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
@@ -306,8 +308,13 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         const pageRange = getAgentStringInput(input, 'pageRange');
         const customRange = getAgentStringInput(input, 'customRange');
         const qualityProfile = getAgentStringInput(input, 'qualityProfile');
+        const preprocessingMode = getAgentStringInput(input, 'preprocessingMode');
+        const pageSegmentationMode = getAgentNumberInput(input, 'pageSegmentationMode');
         const parsedQualityProfile = isAgentOcrQualityProfile(qualityProfile)
             ? qualityProfile
+            : undefined;
+        const parsedPreprocessingMode = isAgentOcrPreprocessingMode(preprocessingMode)
+            ? preprocessingMode
             : undefined;
         const languages = getAgentStringArrayInput(input, 'languages')
             ?? getAgentStringArrayInput(input, 'selectedLanguages');
@@ -315,6 +322,8 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             ...(isAgentOcrPageRange(pageRange) ? {pageRange} : {}),
             ...(customRange === null ? {} : {customRange}),
             ...(parsedQualityProfile === undefined ? {} : {qualityProfile: parsedQualityProfile}),
+            ...(parsedPreprocessingMode === undefined ? {} : {preprocessingMode: parsedPreprocessingMode}),
+            ...(isAgentOcrPageSegmentationMode(pageSegmentationMode) ? {pageSegmentationMode} : {}),
             ...(languages === undefined ? {} : {languages}),
             open: true,
         };
@@ -594,9 +603,12 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         {
             ids: ['ocr.cancel'],
             parse: parseEmptyAgentActionInput,
-            run: () => ocrPopupRef.value?.cancelOcrForAgent() ?? {
-                ok: false,
-                error: 'OCR popup is not mounted.',
+            async run() {
+                const result = await ocrPopupRef.value?.cancelOcrForAgent();
+                return result ?? {
+                    ok: false,
+                    error: 'OCR popup is not mounted.',
+                };
             },
         },
         {

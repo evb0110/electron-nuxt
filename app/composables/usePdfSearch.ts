@@ -214,6 +214,7 @@ export const usePdfSearch = () => {
                 ...(result.words !== undefined ? { words: result.words } : {}),
                 ...(result.pageWidth !== undefined ? { pageWidth: result.pageWidth } : {}),
                 ...(result.pageHeight !== undefined ? { pageHeight: result.pageHeight } : {}),
+                ...(result.rotation !== undefined ? { rotation: result.rotation } : {}),
             };
         });
 
@@ -243,6 +244,7 @@ export const usePdfSearch = () => {
                     ...(result.words !== undefined ? { words: result.words } : {}),
                     ...(result.pageWidth !== undefined ? { pageWidth: result.pageWidth } : {}),
                     ...(result.pageHeight !== undefined ? { pageHeight: result.pageHeight } : {}),
+                    ...(result.rotation !== undefined ? { rotation: result.rotation } : {}),
                 })),
             };
 

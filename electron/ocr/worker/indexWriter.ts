@@ -6,6 +6,7 @@ import {
     realpath,
     rename,
     stat,
+    unlink,
     writeFile,
 } from 'fs/promises';
 import {
@@ -92,6 +93,13 @@ function parseOcrIndexV2Manifest(rawManifest: string): IOcrIndexV2Manifest | nul
             pages[pageNumber] = { path: rawPageMapping.path };
         }
     }
+    const parsedOcr = isRecord(parsed.ocr) ? parsed.ocr : null;
+    const parsedLanguages = Array.isArray(parsedOcr?.languages)
+        ? parsedOcr.languages.filter(language => typeof language === 'string')
+        : [];
+    const parsedRenderDpi = typeof parsedOcr?.renderDpi === 'number' && Number.isFinite(parsedOcr.renderDpi)
+        ? parsedOcr.renderDpi
+        : 0;
     return {
         version: 2,
         createdAt: typeof parsed.createdAt === 'number' && Number.isFinite(parsed.createdAt)
@@ -102,8 +110,8 @@ function parseOcrIndexV2Manifest(rawManifest: string): IOcrIndexV2Manifest | nul
         pageBox: 'crop',
         ocr: {
             engine: 'tesseract',
-            languages: [],
-            renderDpi: 0,
+            languages: parsedLanguages,
+            renderDpi: parsedRenderDpi,
         },
         pages,
     };
@@ -137,6 +145,7 @@ function copyPreservedPageMappings(
     manifest: IOcrIndexV2Manifest | null,
     workingCopyPath: string,
     pageCount: number,
+    ocrDir: string,
 ) {
     if (!manifest || !shouldPreserveExistingOcrManifest(manifest, workingCopyPath, pageCount)) {
         return {};
@@ -153,6 +162,7 @@ function copyPreservedPageMappings(
             && pageNumber <= pageCount
             && typeof pageMapping.path === 'string'
             && pageMapping.path.length > 0
+            && resolveManifestPagePath(ocrDir, pageMapping.path) !== null
         ) {
             pages[pageNumber] = { path: pageMapping.path };
         }
@@ -176,6 +186,71 @@ async function statMtimeMs(filePath: string) {
     }
 }
 
+async function unlinkIfPresent(filePath: string) {
+    try {
+        await unlink(filePath);
+    } catch {
+        // Keep cleanup best-effort.
+    }
+}
+
+async function renameIfPresent(sourcePath: string, targetPath: string) {
+    try {
+        await rename(sourcePath, targetPath);
+    } catch {
+        // Keep rollback best-effort.
+    }
+}
+
+async function writeUtf8FileAtomically(targetPath: string, content: string) {
+    const tempPath = createUniqueTempPath(targetPath);
+    try {
+        await writeFile(tempPath, content, 'utf-8');
+        await rename(tempPath, targetPath);
+    } catch (error) {
+        await unlinkIfPresent(tempPath);
+        throw error;
+    }
+}
+
+function assertValidOcrPageData(
+    ocrPageData: readonly IOcrPageWithWords[],
+    pageCount: number,
+) {
+    const seenPageNumbers = new Set<number>();
+    for (const pageData of ocrPageData) {
+        if (
+            !Number.isSafeInteger(pageData.pageNumber)
+            || pageData.pageNumber < 1
+            || pageData.pageNumber > pageCount
+        ) {
+            throw new Error(`Invalid OCR page number ${pageData.pageNumber}`);
+        }
+        if (seenPageNumbers.has(pageData.pageNumber)) {
+            throw new Error(`Duplicate OCR page number ${pageData.pageNumber}`);
+        }
+        seenPageNumbers.add(pageData.pageNumber);
+    }
+}
+
+async function moveExistingFileAside(filePath: string) {
+    const backupPath = createUniqueTempPath(`${filePath}.bak`);
+    try {
+        await rename(filePath, backupPath);
+        return backupPath;
+    } catch (error) {
+        if (
+            error
+            && typeof error === 'object'
+            && 'code' in error
+            && error.code === 'ENOENT'
+        ) {
+            return null;
+        }
+        throw error;
+    }
+}
+
 function ocrWordsOrUndefined(value: unknown) {
     return Array.isArray(value) && value.every(isOcrWord)
         ? value
@@ -183,6 +258,9 @@ function ocrWordsOrUndefined(value: unknown) {
 }
 
 function buildOcrSearchText(page: Pick<IOcrPageWithWords, 'text' | 'words'>) {
+    if (page.text.length > 0) {
+        return page.text;
+    }
     return page.words.length > 0
         ? buildOcrTextLayerIndexText(page.words)
         : page.text;
@@ -227,12 +305,12 @@ function parseOcrPageTextPayload(
     if (payload.text !== undefined && typeof payload.text !== 'string') {
         return null;
     }
-    const words = ocrWordsOrUndefined(payload.words);
-    if (words && words.length > 0) {
-        return buildOcrTextLayerIndexText(words);
+    if (typeof payload.text === 'string') {
+        return payload.text;
     }
-    return typeof payload.text === 'string'
-        ? payload.text
+    const words = ocrWordsOrUndefined(payload.words);
+    return words && words.length > 0
+        ? buildOcrTextLayerIndexText(words)
         : '';
 }
 
@@ -378,6 +456,7 @@ async function writeCompactSearchIndexForOcr(
             throw error;
         }
         log('warn', `Failed to write compact OCR search sidecar: ${getErrorMessage(error)}`);
+        throw error;
     }
 }
 
@@ -438,6 +517,7 @@ export async function writeOcrIndexV2(
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
+    assertValidOcrPageData(ocrPageData, pageCount);
     const ocrDir = `${workingCopyPath}.ocr`;
     await mkdir(ocrDir, { recursive: true });
     const manifestPath = join(ocrDir, 'manifest.json');
@@ -457,40 +537,76 @@ export async function writeOcrIndexV2(
             languages,
             renderDpi: extractionDpi,
         },
-        pages: copyPreservedPageMappings(existingManifest, workingCopyPath, pageCount),
+        pages: copyPreservedPageMappings(existingManifest, workingCopyPath, pageCount, ocrDir),
     };
 
-    for (const pd of ocrPageData) {
-        throwIfAborted(signal);
-        const pageFile = `page-${String(pd.pageNumber).padStart(4, '0')}.json`;
+    const tempPaths = new Set<string>();
+    const backups: Array<{
+        pagePath: string;
+        backupPath: string;
+    }> = [];
+    const writtenPagePaths = new Set<string>();
+    let manifestCommitted = false;
 
-        const pageData: IOcrIndexV2Page = {
-            pageNumber: pd.pageNumber,
-            rotation: 0,
-            render: {
-                dpi: extractionDpi,
-                imagePx: {
-                    w: pd.imageWidth,
-                    h: pd.imageHeight,
+    try {
+        for (const pd of ocrPageData) {
+            throwIfAborted(signal);
+            const pageFile = `page-${String(pd.pageNumber).padStart(4, '0')}.json`;
+
+            const pageData: IOcrIndexV2Page = {
+                pageNumber: pd.pageNumber,
+                rotation: 0,
+                render: {
+                    dpi: extractionDpi,
+                    imagePx: {
+                        w: pd.imageWidth,
+                        h: pd.imageHeight,
+                    },
                 },
-            },
-            text: pd.text,
-            words: pd.words,
-        };
+                text: pd.text,
+                words: pd.words,
+            };
 
-        const pagePath = join(ocrDir, pageFile);
-        const tempPath = createUniqueTempPath(pagePath);
-        await writeFile(tempPath, JSON.stringify(pageData), 'utf-8');
-        await rename(tempPath, pagePath);
+            const pagePath = join(ocrDir, pageFile);
+            const tempPath = createUniqueTempPath(pagePath);
+            tempPaths.add(tempPath);
+            await writeFile(tempPath, JSON.stringify(pageData), 'utf-8');
+            throwIfAborted(signal);
 
-        manifest.pages[pd.pageNumber] = { path: pageFile };
+            const backupPath = await moveExistingFileAside(pagePath);
+            if (backupPath) {
+                backups.push({
+                    pagePath,
+                    backupPath,
+                });
+            }
+            await rename(tempPath, pagePath);
+            tempPaths.delete(tempPath);
+            writtenPagePaths.add(pagePath);
+
+            manifest.pages[pd.pageNumber] = { path: pageFile };
+        }
+
+        throwIfAborted(signal);
+        const tempManifestPath = createUniqueTempPath(manifestPath);
+        tempPaths.add(tempManifestPath);
+        await writeFile(tempManifestPath, JSON.stringify(manifest), 'utf-8');
+        throwIfAborted(signal);
+        await rename(tempManifestPath, manifestPath);
+        tempPaths.delete(tempManifestPath);
+        manifestCommitted = true;
+    } catch (error) {
+        await Promise.all(Array.from(tempPaths, path => unlinkIfPresent(path)));
+        if (!manifestCommitted) {
+            await Promise.all(Array.from(writtenPagePaths, path => unlinkIfPresent(path)));
+            await Promise.all(backups.map(backup => renameIfPresent(backup.backupPath, backup.pagePath)));
+        }
+        throw error;
+    } finally {
+        if (manifestCommitted) {
+            await Promise.all(backups.map(backup => unlinkIfPresent(backup.backupPath)));
+        }
     }
-
-    throwIfAborted(signal);
-    const tempManifestPath = createUniqueTempPath(manifestPath);
-    await writeFile(tempManifestPath, JSON.stringify(manifest), 'utf-8');
-    throwIfAborted(signal);
-    await rename(tempManifestPath, manifestPath);
 
     await writeCompactSearchIndexForOcr(
         workingCopyPath,
@@ -524,5 +640,5 @@ export async function writeOcrIndexV1(
         pages: indexPageData,
     });
 
-    await writeFile(`${indexPath}.index.json`, indexContent, 'utf-8');
+    await writeUtf8FileAtomically(`${indexPath}.index.json`, indexContent);
 }

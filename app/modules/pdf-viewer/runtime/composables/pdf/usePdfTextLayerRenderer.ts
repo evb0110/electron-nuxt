@@ -6,8 +6,9 @@ import { clamp } from 'es-toolkit/math';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
-    IOcrWord,
 } from '@app/types/pdf';
+import type { IOcrWord } from '@contracts/shared';
+import { buildOcrWordKey } from '@contracts/ocrText';
 import type { TextContent } from 'pdfjs-dist/types/src/display/api';
 import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
 import { useTextLayerSelection } from '@app/modules/pdf-viewer/runtime/composables/useTextLayerSelection';
@@ -132,22 +133,12 @@ export const usePdfTextLayerRenderer = (deps: {
         pageHighlightState.signatureByPage.clear();
     });
 
-    function buildWordKey(word: {
-        text: string;
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-    }) {
-        return `${word.text}|${word.x}|${word.y}|${word.width}|${word.height}`;
-    }
-
     function collectWordsFromPageMatches(pageMatchData: IPdfPageMatches) {
         const wordsByKey = new Map<string, NonNullable<NonNullable<IPdfPageMatches['matches'][number]['words']>[number]>>();
 
         pageMatchData.matches.forEach((match) => {
             match.words?.forEach((word) => {
-                wordsByKey.set(buildWordKey(word), word);
+                wordsByKey.set(buildOcrWordKey(word), word);
             });
         });
 
@@ -302,16 +293,16 @@ export const usePdfTextLayerRenderer = (deps: {
         }
 
         const wordsByKey = new Map(collectWordsFromPageMatches(pageMatchData).map(word => [
-            buildWordKey(word),
+            buildOcrWordKey(word),
             word,
         ]));
         currentGeometryMatch?.words.forEach((word) => {
-            wordsByKey.set(buildWordKey(word), word);
+            wordsByKey.set(buildOcrWordKey(word), word);
         });
         const allWords = Array.from(wordsByKey.values());
         const currentMatchWords = new Set<string>();
         resolveCurrentMatchWords(pageMatchData, currentMatchValue, pageIndex).forEach((word) => {
-            currentMatchWords.add(buildWordKey(word));
+            currentMatchWords.add(buildOcrWordKey(word));
         });
 
         logPdfNav(
@@ -328,6 +319,7 @@ export const usePdfTextLayerRenderer = (deps: {
             geometrySource.pageWidth,
             geometrySource.pageHeight,
             currentMatchWords.size > 0 ? currentMatchWords : undefined,
+            geometrySource.rotation ?? 0,
         );
     }
 
@@ -1084,6 +1076,7 @@ export const usePdfTextLayerRenderer = (deps: {
                     pageHeight,
                     renderedPageWidth,
                     renderedPageHeight,
+                    currentMatchValue.rotation ?? geometryMatch?.rotation ?? 0,
                 ))
                 .filter(box => box.width > 0 || box.height > 0);
 

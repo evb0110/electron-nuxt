@@ -1,12 +1,19 @@
 import { useTypedI18n } from '@app/composables/useTypedI18n';
-import { ocrErrorMessageKeys } from '@app/utils/ocr/ocrErrorMessageKeys';
+import {
+    ocrErrorCodeMessageKeys,
+    ocrErrorMessageKeys,
+} from '@app/utils/ocr/ocrErrorMessageKeys';
 import type { IOcrErrorEnvelope } from '@contracts/electronApiOcr';
 import type { TOcrErrorFallbackKey } from '@app/utils/ocr/ocrErrorMessageKeys';
 
 const REMOTE_METHOD_PREFIX_RE = /^Error invoking remote method '[^']+':\s*/u;
+const ERROR_PREFIX_RE = /^(?:Error:\s*)+/u;
 
 function normalizeOcrErrorMessage(message: string) {
-    return message.replace(REMOTE_METHOD_PREFIX_RE, '').trim();
+    return message
+        .replace(REMOTE_METHOD_PREFIX_RE, '')
+        .replace(ERROR_PREFIX_RE, '')
+        .trim();
 }
 
 function truncateOcrErrorDetails(message: string) {
@@ -78,6 +85,17 @@ export const useOcrErrorLocalizer = () => {
             || normalized === 'Invalid file path: writes only allowed within temp directory'
         ) {
             return t(fallbackKey);
+        }
+
+        if (envelope !== null) {
+            const codeMessageKey = ocrErrorCodeMessageKeys[envelope.code];
+            if (codeMessageKey !== undefined) {
+                const codeMessage = t(codeMessageKey);
+                if (!normalized || normalized === envelope.code || normalized === codeMessage) {
+                    return codeMessage;
+                }
+                return `${codeMessage}: ${truncateOcrErrorDetails(normalized)}`;
+            }
         }
 
         return `${t(fallbackKey)}: ${truncateOcrErrorDetails(normalized)}`;

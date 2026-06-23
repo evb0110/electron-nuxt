@@ -1,10 +1,12 @@
 #!/bin/bash
 # Download Tesseract language data files from tessdata_best
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 TESSDATA_DIR="$PROJECT_ROOT/resources/tesseract/tessdata"
+TESSDATA_BEST_REF="e12c65a915945e4c28e237a9b52bc4a8f39a0cec"
+TESSDATA_BASE_URL="https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/${TESSDATA_BEST_REF}"
 
 mkdir -p "$TESSDATA_DIR"
 
@@ -26,6 +28,7 @@ NODE
 )"
 
 echo "Downloading tessdata_best language files to $TESSDATA_DIR..."
+echo "Pinned tessdata_best ref: $TESSDATA_BEST_REF"
 
 for lang in $LANGS; do
   FILE="$TESSDATA_DIR/${lang}.traineddata"
@@ -33,8 +36,27 @@ for lang in $LANGS; do
     echo "  $lang: already exists ($(du -h "$FILE" | cut -f1))"
   else
     echo "  $lang: downloading..."
-    curl -sL -o "$FILE" \
-      "https://github.com/tesseract-ocr/tessdata_best/raw/main/${lang}.traineddata"
+    TMP_FILE="$(mktemp "$TESSDATA_DIR/${lang}.traineddata.XXXXXX")"
+    cleanup_download_tmp() {
+      rm -f "$TMP_FILE"
+    }
+    if ! curl --fail --location --show-error --silent --retry 3 --retry-delay 2 --output "$TMP_FILE" \
+      "$TESSDATA_BASE_URL/${lang}.traineddata"; then
+      cleanup_download_tmp
+      exit 1
+    fi
+    if [ ! -s "$TMP_FILE" ]; then
+      echo "Error: downloaded tessdata for $lang is empty"
+      cleanup_download_tmp
+      exit 1
+    fi
+    bytes="$(wc -c < "$TMP_FILE" | tr -d '[:space:]')"
+    if [ "$bytes" -lt 1024 ]; then
+      echo "Error: downloaded tessdata for $lang is unexpectedly small ($bytes bytes)"
+      cleanup_download_tmp
+      exit 1
+    fi
+    mv "$TMP_FILE" "$FILE"
     echo "  $lang: done ($(du -h "$FILE" | cut -f1))"
   fi
 done

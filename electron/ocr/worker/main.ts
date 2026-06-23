@@ -67,7 +67,10 @@ import {
     writeOcrIndexV1,
     writeOcrIndexV2,
 } from '@electron/ocr/worker/indexWriter';
-import { parseOcrWorkerInboundMessage } from '@electron/ocr/worker/inboundMessage';
+import {
+    parseInvalidOcrWorkerStartMessage,
+    parseOcrWorkerInboundMessage,
+} from '@electron/ocr/worker/inboundMessage';
 import { resolveWorkerPaths } from '@electron/ocr/worker/resolveWorkerPaths';
 import {
     buildPopplerEnv,
@@ -76,11 +79,19 @@ import {
 } from '@electron/ocr/worker/popplerStage';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
+import { buildOcrErrorEnvelope } from '@electron/ocr/contracts';
 
 const initialWorkerData: unknown = workerData;
 const paths = resolveWorkerPaths(initialWorkerData);
 const activeJobControllers = new Map<string, AbortController>();
 const OCR_PAGE_SIZES_TIMEOUT_MS = 30_000;
+const OCR_RESOURCE_ACQUIRE_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_RESOURCE_ACQUIRE_TIMEOUT_MS ?? '30000', 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return 30_000;
+    }
+    return Math.min(Math.max(parsed, 1_000), 120_000);
+})();
 interface IOcrResourceSlotLease {
     token: string;
     effectiveDpi: number;
@@ -183,6 +194,13 @@ async function acquireOcrResourceSlot(
         });
     });
 
+    const timeout = setTimeout(() => {
+        const pending = pendingResourceAcquires.get(requestId);
+        pendingResourceAcquires.delete(requestId);
+        pending?.reject(new Error(`OCR resource acquire timed out after ${OCR_RESOURCE_ACQUIRE_TIMEOUT_MS}ms`));
+    }, OCR_RESOURCE_ACQUIRE_TIMEOUT_MS);
+    timeout.unref?.();
+
     const abortListener = () => {
         const pending = pendingResourceAcquires.get(requestId);
         pendingResourceAcquires.delete(requestId);
@@ -196,6 +214,7 @@ async function acquireOcrResourceSlot(
     try {
         return await leasePromise;
     } finally {
+        clearTimeout(timeout);
         signal.removeEventListener('abort', abortListener);
         pendingResourceAcquires.delete(requestId);
     }
@@ -407,7 +426,21 @@ async function processOcrPages(
         };
     }, concurrency);
 
-    const pageResults = await Promise.all(targetPages.map(page => processPageWithLimit(page)));
+    const settledPageResults = await Promise.allSettled(targetPages.map(page => processPageWithLimit(page)));
+    const rejectedResult = settledPageResults.find(result => result.status === 'rejected');
+    if (rejectedResult?.status === 'rejected') {
+        throw rejectedResult.reason instanceof Error
+            ? rejectedResult.reason
+            : new Error('OCR page processing failed');
+    }
+    const pageResults = settledPageResults.map((result) => {
+        if (result.status === 'rejected') {
+            throw result.reason instanceof Error
+                ? result.reason
+                : new Error('OCR page processing failed');
+        }
+        return result.value;
+    });
 
     const errors: string[] = [];
     const ocrPageData: IOcrPageWithWords[] = [];
@@ -463,10 +496,12 @@ async function writeOcrIndexes(
     effectiveRenderDpi: number,
     signal: AbortSignal,
 ) {
+    const warnings: string[] = [];
     const validatedWorkingCopyPath = await resolveOcrIndexPath(sourcePdfPath);
     if (!validatedWorkingCopyPath) {
-        log('warn', 'Skipping OCR index writes due to invalid source PDF path');
-        return;
+        const warning = 'Skipping OCR index writes due to invalid source PDF path';
+        log('warn', warning);
+        return [warning];
     }
 
     try {
@@ -484,7 +519,9 @@ async function writeOcrIndexes(
             throw v2Err;
         }
         const v2ErrMsg = getErrorMessage(v2Err);
-        log('warn', `Failed to write OCR index v2: ${v2ErrMsg}`);
+        const warning = `Failed to write OCR index v2: ${v2ErrMsg}`;
+        log('warn', warning);
+        warnings.push(warning);
     }
 
     try {
@@ -496,6 +533,8 @@ async function writeOcrIndexes(
         }
         // Non-blocking - don't fail OCR if index save fails
     }
+
+    return warnings;
 }
 
 async function validateSourcePdf(jobId: string, sourcePdfPath: string, pageCount: number) {
@@ -504,6 +543,16 @@ async function validateSourcePdf(jobId: string, sourcePdfPath: string, pageCount
         throw new Error(`Source PDF is empty: ${sourcePdfPath}`);
     }
     log('debug', `Processing OCR job ${jobId}: sourcePath=${sourcePdfPath}, pdfBytes=${sourceStat.size}, pages=${pageCount}`);
+}
+
+function assertUniqueOcrPageNumbers(pages: readonly IOcrPdfPageRequest[]) {
+    const seenPageNumbers = new Set<number>();
+    for (const page of pages) {
+        if (seenPageNumbers.has(page.pageNumber)) {
+            throw new Error(`Duplicate OCR page number ${page.pageNumber}`);
+        }
+        seenPageNumbers.add(page.pageNumber);
+    }
 }
 
 function logPopplerEnvironment(popplerEnv?: NodeJS.ProcessEnv) {
@@ -742,6 +791,7 @@ async function processOcrJob(
     activeJobControllers.set(jobId, abortController);
     const tempFiles = new Set<string>();
     const keepFiles = new Set<string>();
+    const jobWarnings: string[] = [];
 
     const trackTempFile = (filePath: string) => {
         tempFiles.add(filePath);
@@ -749,11 +799,12 @@ async function processOcrJob(
     };
 
     try {
+        assertUniqueOcrPageNumbers(pages);
         await validateSourcePdf(jobId, sourcePdfPath, pages.length);
 
         const sessionId = `ocr-${randomUUID()}`;
         sendStageProgress(jobId, pages, 'pdf-prep');
-        const popplerSourcePdfPath = await preparePdfForPoppler(
+        const preparedPopplerPdf = await preparePdfForPoppler(
             paths,
             log,
             sourcePdfPath,
@@ -761,6 +812,8 @@ async function processOcrJob(
             trackTempFile,
             abortController.signal,
         );
+        const popplerSourcePdfPath = preparedPopplerPdf.pdfPath;
+        jobWarnings.push(...preparedPopplerPdf.warnings);
         const popplerEnv = buildPopplerEnv(paths);
         logPopplerEnvironment(popplerEnv);
 
@@ -793,6 +846,10 @@ async function processOcrJob(
             ocrPdfMap,
             effectiveRenderDpi: actualRenderDpi,
         } = await processOcrPages(jobId, targetPages, concurrency, pageContext);
+        const completionMessages = [
+            ...jobWarnings,
+            ...errors,
+        ];
 
         log('debug', `OCR done. ocrPageData=${ocrPageData.length}, ocrPdfMap=${ocrPdfMap.size}, errors=${errors.length}, renderDpi=${actualRenderDpi}`);
 
@@ -805,13 +862,15 @@ async function processOcrJob(
         );
 
         if (ocrPageData.length === 0 || ocrPdfMap.size === 0) {
-            sendEmptyOcrResultFailure(jobId, errors);
+            sendEmptyOcrResultFailure(jobId, completionMessages);
             return;
         }
 
         const ocrPageNumbers = Array.from(ocrPdfMap.keys()).sort((a, b) => a - b);
         const maxOcrPage = ocrPageNumbers[ocrPageNumbers.length - 1] ?? 1;
-        const pageCount = await getPageCount(paths.qpdfBinary, sourcePdfPath, maxOcrPage, abortController.signal);
+        const pageCountResult = await getPageCount(paths.qpdfBinary, sourcePdfPath, maxOcrPage, abortController.signal);
+        const pageCount = pageCountResult.pageCount;
+        completionMessages.push(...pageCountResult.warnings);
 
         sendStageProgress(jobId, targetPages, 'merging');
         const mergedPdfPath = await assembleMergedOcrPdf(
@@ -821,7 +880,7 @@ async function processOcrJob(
             pageCount,
             sessionId,
             trackTempFile,
-            errors,
+            completionMessages,
             abortController.signal,
         );
         if (!mergedPdfPath) {
@@ -830,14 +889,24 @@ async function processOcrJob(
 
         const allLanguages = uniq(targetPages.flatMap(p => p.languages));
         sendStageProgress(jobId, targetPages, 'indexing');
-        await writeOcrIndexes(sourcePdfPath, ocrPageData, pageCount, allLanguages, actualRenderDpi, abortController.signal);
+        completionMessages.push(...await writeOcrIndexes(sourcePdfPath, ocrPageData, pageCount, allLanguages, actualRenderDpi, abortController.signal));
+        sendProgress(
+            jobId,
+            targetPages[targetPages.length - 1]?.pageNumber ?? 0,
+            targetPages.length,
+            targetPages.length,
+            {
+                phase: 'indexing',
+                phaseProgress: 100,
+            },
+        );
 
         keepFiles.add(mergedPdfPath);
         sendComplete(jobId, {
             success: true,
             pdfPath: mergedPdfPath,
             requiresCleanupAck: true,
-            errors,
+            errors: completionMessages,
         });
     } catch (err) {
         const errMsg = getErrorMessage(err);
@@ -864,6 +933,21 @@ async function processOcrJob(
 parentPort?.on('message', async (rawMessage: unknown) => {
     const message = parseOcrWorkerInboundMessage(rawMessage);
     if (!message) {
+        const invalidStart = parseInvalidOcrWorkerStartMessage(rawMessage);
+        if (invalidStart) {
+            log('warn', invalidStart.error);
+            sendComplete(invalidStart.jobId, {
+                success: false,
+                errors: [invalidStart.error],
+                errorEnvelope: buildOcrErrorEnvelope(
+                    'OCR_INVALID_PAYLOAD',
+                    invalidStart.error,
+                ),
+            });
+            sendCleanupComplete(invalidStart.jobId);
+            return;
+        }
+
         log('warn', 'Ignoring malformed inbound OCR worker message');
         return;
     }
@@ -890,6 +974,12 @@ parentPort?.on('message', async (rawMessage: unknown) => {
                 token: message.token,
                 effectiveDpi: message.effectiveDpi,
             });
+            return;
+        }
+        case 'resource-denied': {
+            const pending = pendingResourceAcquires.get(message.requestId);
+            pendingResourceAcquires.delete(message.requestId);
+            pending?.reject(new Error(message.reason));
             return;
         }
     }

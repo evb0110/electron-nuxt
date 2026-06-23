@@ -2,7 +2,10 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { uniq } from 'es-toolkit/array';
 import type { IOcrPreparingJob } from '@electron/ocr/jobManager.types';
-import { ensureTessdataLanguages } from '@electron/ocr/languageModels';
+import {
+    ensureRuntimeTessdataSeeded,
+    ensureTessdataLanguages,
+} from '@electron/ocr/languageModels';
 import { getOcrToolPaths } from '@electron/ocr/paths';
 import type { IOcrPdfPageRequest } from '@electron/ocr/worker/types';
 import { createTimeoutError } from '@electron/ocr/jobManagerProtocol';
@@ -45,10 +48,11 @@ export async function prepareLanguageModelsForJob(
     timeoutMs: number,
 ) {
     const languages = getOcrJobLanguages(pages);
-    logMissingLanguageModels(languages);
 
     const modelPrepTimeout = startModelPrepTimeout(preparingJob, timeoutMs);
     try {
+        await ensureRuntimeTessdataSeeded({ signal: preparingJob.abortController.signal });
+        logMissingLanguageModels(languages);
         await ensureTessdataLanguages(languages, { signal: preparingJob.abortController.signal });
     } finally {
         clearTimeout(modelPrepTimeout);

@@ -1,0 +1,114 @@
+import {
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import { resolve } from 'path';
+import {
+    createPendingResultFileStore,
+    findPendingOcrResultFileForPath,
+} from '@electron/ocr/createPendingResultFileStore';
+
+describe('createPendingResultFileStore', () => {
+    const logger = {
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+    };
+    const removeResultFile = vi.fn(async () => true);
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('does not track result files that do not require cleanup acknowledgement', () => {
+        const store = createPendingResultFileStore({
+            logger,
+            ttlMs: 60_000,
+            removeResultFile,
+        });
+
+        store.track('42:ocr-1', 'ocr-1', 42, '/tmp/ocr-1.pdf', false);
+
+        expect(store.find(42, 'ocr-1')).toBeNull();
+        expect(findPendingOcrResultFileForPath(42, '/tmp/ocr-1.pdf')).toBeNull();
+        expect(removeResultFile).not.toHaveBeenCalled();
+    });
+
+    it('keeps ownership and reports failure when acknowledgement cannot delete the file', async () => {
+        removeResultFile
+            .mockResolvedValueOnce(false)
+            .mockResolvedValueOnce(true);
+        const store = createPendingResultFileStore({
+            logger,
+            ttlMs: 60_000,
+            removeResultFile,
+        });
+
+        store.track('42:ocr-1', 'ocr-1', 42, '/tmp/ocr-1.pdf', true);
+
+        await expect(store.acknowledge(42, 'ocr-1', '/tmp/ocr-1.pdf')).resolves.toEqual({
+            cleaned: false,
+            error: 'Failed to delete pending OCR result file',
+        });
+        expect(store.find(42, 'ocr-1')).not.toBeNull();
+        expect(findPendingOcrResultFileForPath(42, '/tmp/ocr-1.pdf')).not.toBeNull();
+
+        await expect(store.acknowledge(42, 'ocr-1', '/tmp/ocr-1.pdf')).resolves.toEqual({ cleaned: true });
+        expect(store.find(42, 'ocr-1')).toBeNull();
+        expect(findPendingOcrResultFileForPath(42, '/tmp/ocr-1.pdf')).toBeNull();
+    });
+
+    it('matches owned OCR results across macOS /var and /private/var path aliases', async () => {
+        const store = createPendingResultFileStore({
+            logger,
+            ttlMs: 60_000,
+            removeResultFile,
+            canonicalizePath: (filePath: string) => filePath.startsWith('/var/folders/')
+                ? filePath.replace('/var/folders/', '/private/var/folders/')
+                : filePath,
+        });
+        const rendererPath = '/var/folders/app/T/evb-viewer/ocr-1-merged.pdf';
+        const canonicalPath = resolve('/private/var/folders/app/T/evb-viewer/ocr-1-merged.pdf');
+
+        store.track('42:ocr-1', 'ocr-1', 42, rendererPath, true);
+
+        expect(store.find(42, 'ocr-1')?.pdfPath).toBe(canonicalPath);
+        expect(findPendingOcrResultFileForPath(42, rendererPath)?.pdfPath).toBe(canonicalPath);
+        expect(findPendingOcrResultFileForPath(42, canonicalPath)?.pdfPath).toBe(canonicalPath);
+
+        await expect(store.acknowledge(42, 'ocr-1', rendererPath)).resolves.toEqual({ cleaned: true });
+        expect(removeResultFile).toHaveBeenCalledWith(canonicalPath);
+        expect(store.find(42, 'ocr-1')).toBeNull();
+    });
+
+    it('does not delete a newer pending result when stale cleanup finishes late', async () => {
+        const removeResolver: {current: ((removed: boolean) => void) | null} = {current: null};
+        removeResultFile.mockImplementationOnce(() => new Promise<boolean>((resolveRemoveFile) => {
+            removeResolver.current = resolveRemoveFile;
+        }));
+        const store = createPendingResultFileStore({
+            logger,
+            ttlMs: 100,
+            removeResultFile,
+        });
+
+        store.track('42:ocr-1', 'ocr-1', 42, '/tmp/ocr-old.pdf', true);
+        const evictionPromise = store.evictStale(Date.now() + 1_000);
+        await vi.waitFor(() => {
+            expect(removeResultFile).toHaveBeenCalledWith(resolve('/tmp/ocr-old.pdf'));
+        });
+
+        store.track('42:ocr-1', 'ocr-1', 42, '/tmp/ocr-new.pdf', true);
+        if (!removeResolver.current) {
+            throw new Error('removeResultFile promise was not created');
+        }
+        removeResolver.current(true);
+        await evictionPromise;
+
+        expect(store.find(42, 'ocr-1')?.pdfPath).toBe(resolve('/tmp/ocr-new.pdf'));
+    });
+});

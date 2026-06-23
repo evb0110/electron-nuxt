@@ -5,6 +5,7 @@ import type {
     IOcrErrorEnvelope,
     IOcrProgress,
     TOcrErrorCode,
+    TOcrProgressPhase,
 } from '@contracts/electronApiOcr';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { isRecord } from '@contracts/runtimeGuards';
@@ -32,6 +33,30 @@ const OCR_ERROR_CODES = new Set<TOcrErrorCode>([
     'OCR_WORKER_UNAVAILABLE',
     'OCR_TOOLS_VALIDATION_FAILED',
 ]);
+const OCR_PROGRESS_PHASES = new Set<TOcrProgressPhase>([
+    'preparing',
+    'model-prep',
+    'pdf-prep',
+    'dpi-inspection',
+    'page-size-probing',
+    'processing',
+    'merging',
+    'indexing',
+]);
+
+function buildMalformedCompleteResult(requestId: string, message = 'Malformed OCR completion payload'): IOcrCompleteResult {
+    return {
+        requestId,
+        success: false,
+        errors: [message],
+        errorEnvelope: {
+            code: 'OCR_INVALID_PAYLOAD',
+            message,
+            retryable: false,
+            timestamp: Date.now(),
+        },
+    };
+}
 
 function assertRequestId(value: unknown, fieldName: string) {
     return assertNonEmptyString(value, fieldName, 128);
@@ -51,7 +76,13 @@ function decodeOcrProgress(payload: unknown): IOcrProgress | null {
     ) {
         return null;
     }
-    if (payload.phase !== undefined && typeof payload.phase !== 'string') {
+    if (
+        payload.phase !== undefined
+        && (
+            typeof payload.phase !== 'string'
+            || !OCR_PROGRESS_PHASES.has(payload.phase as TOcrProgressPhase)
+        )
+    ) {
         return null;
     }
     if (payload.phaseProgress !== undefined && !isFiniteNumber(payload.phaseProgress)) {
@@ -104,26 +135,31 @@ function decodeOcrErrorEnvelope(payload: unknown): IOcrErrorEnvelope | null {
 }
 
 function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
+    if (!isRecord(payload)) {
+        return null;
+    }
+    if (typeof payload.requestId !== 'string') {
+        return null;
+    }
+
     if (
-        !isRecord(payload)
-        || typeof payload.requestId !== 'string'
-        || typeof payload.success !== 'boolean'
+        typeof payload.success !== 'boolean'
         || !Array.isArray(payload.errors)
         || payload.errors.some(error => typeof error !== 'string')
     ) {
-        return null;
+        return buildMalformedCompleteResult(payload.requestId);
     }
     if (payload.pdfPath !== undefined && typeof payload.pdfPath !== 'string') {
-        return null;
+        return buildMalformedCompleteResult(payload.requestId);
     }
     if (payload.requiresCleanupAck !== undefined && typeof payload.requiresCleanupAck !== 'boolean') {
-        return null;
+        return buildMalformedCompleteResult(payload.requestId);
     }
     const errorEnvelope = payload.errorEnvelope === undefined
         ? null
         : decodeOcrErrorEnvelope(payload.errorEnvelope);
     if (payload.errorEnvelope !== undefined && errorEnvelope === null) {
-        return null;
+        return buildMalformedCompleteResult(payload.requestId, 'Malformed OCR completion error envelope');
     }
     const errors = payload.errors.map(error => error as string);
 

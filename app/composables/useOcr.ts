@@ -20,6 +20,7 @@ import type {
 } from '@app/utils/ocr/ocrTypes';
 import { parsePageRange } from '@app/utils/ocr/parsePageRange';
 import { hasRtlOcrLanguage } from '@app/utils/ocr/hasRtlOcrLanguage';
+import { resolveOcrExportLanguages } from '@app/utils/ocr/resolveOcrExportLanguages';
 import { useOcrErrorLocalizer } from '@app/composables/useOcrErrorLocalizer';
 import { getOcrCapability } from '@app/utils/getOcrCapability';
 import { getErrorMessage } from '@app/utils/error';
@@ -66,6 +67,8 @@ export const useOcr = () => {
         customRange: '',
         selectedLanguages: ['eng'],
         qualityProfile: 'balanced',
+        preprocessingMode: 'off',
+        pageSegmentationMode: null,
     });
     const progress = ref<IOcrUiProgress>({
         isRunning: false,
@@ -268,6 +271,8 @@ export const useOcr = () => {
             customRange: source.customRange,
             selectedLanguages: [...source.selectedLanguages],
             qualityProfile: source.qualityProfile,
+            preprocessingMode: source.preprocessingMode,
+            pageSegmentationMode: source.pageSegmentationMode,
         };
     }
 
@@ -281,14 +286,17 @@ export const useOcr = () => {
                     .filter(Boolean),
             ),
             qualityProfile: source.qualityProfile,
+            preprocessingMode: source.preprocessingMode,
+            pageSegmentationMode: source.pageSegmentationMode,
         };
     }
 
     function getDocxExportLanguages() {
-        const sourceSettings = activeRunSettings.value
-            ?? lastCompletedRunSettings.value
-            ?? settings.value;
-        return [...sourceSettings.selectedLanguages];
+        return resolveOcrExportLanguages(
+            lastCompletedRunSettings.value,
+            activeRunSettings.value,
+            settings.value,
+        );
     }
 
     function beginRunProgress(pages: number[], runSettings: IOcrSettings) {
@@ -389,10 +397,14 @@ export const useOcr = () => {
     }
 
     function buildSearchablePdfOptions(runSettings: IOcrSettings): IOcrSearchablePdfOptions {
-        return {
+        const options: IOcrSearchablePdfOptions = {
             qualityProfile: runSettings.qualityProfile,
-            preprocessingMode: runSettings.qualityProfile === 'poor-scan' ? 'clean' : 'off',
+            preprocessingMode: runSettings.preprocessingMode,
         };
+        if (runSettings.pageSegmentationMode !== null) {
+            options.pageSegmentationMode = runSettings.pageSegmentationMode;
+        }
+        return options;
     }
 
     function applyOcrResponseErrors(response: TOcrCompleteResult, requestId: string) {
@@ -600,12 +612,11 @@ export const useOcr = () => {
         error.value = null;
         const runSettings = createRunSettingsSnapshot(settings.value);
         const pages = getSelectedOcrPages(currentPage, totalPages, runSettings);
+        clearResults();
 
         if (!validateOcrRunRequest(pages, workingCopyPath, runSettings)) {
             return;
         }
-
-        clearResults();
 
         const {
             runToken,

@@ -14,6 +14,11 @@ export { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 
+export interface IPreparedPopplerPdf {
+    pdfPath: string;
+    warnings: string[];
+}
+
 export async function renderPdfPageToPng(
     paths: IWorkerPaths,
     log: TWorkerLog,
@@ -57,7 +62,7 @@ export async function preparePdfForPoppler(
     sessionId: string,
     trackTempFile: (path: string) => string,
     signal?: AbortSignal,
-) {
+): Promise<IPreparedPopplerPdf> {
     const normalizedPdfPath = trackTempFile(join(paths.tempDir, `${sessionId}-poppler-input.pdf`));
 
     try {
@@ -85,12 +90,19 @@ export async function preparePdfForPoppler(
         }
 
         log('debug', `Prepared Poppler input via qpdf: ${normalizedPdfPath} (${normalizedStat.size} bytes)`);
-        return normalizedPdfPath;
+        return {
+            pdfPath: normalizedPdfPath,
+            warnings: [],
+        };
     } catch (err) {
         if (signal?.aborted) {
             throw signal.reason instanceof Error ? signal.reason : err;
         }
-        log('warn', `qpdf preflight failed; falling back to original PDF for Poppler commands: ${getErrorMessage(err)}`);
-        return sourcePdfPath;
+        const warning = `qpdf preflight failed; falling back to original PDF for Poppler commands: ${getErrorMessage(err)}`;
+        log('warn', warning);
+        return {
+            pdfPath: sourcePdfPath,
+            warnings: [warning],
+        };
     }
 }

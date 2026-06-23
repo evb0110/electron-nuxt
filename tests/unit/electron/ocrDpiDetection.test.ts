@@ -88,12 +88,15 @@ describe('ocr dpi detection', () => {
 
     it('samples large selected page spans instead of probing the full range', async () => {
         mocks.runOcrCommand.mockResolvedValue({
-            stdout: '',
+            stdout: [
+                'page   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio',
+                '   1     0 image    1000  1000  rgb     3   8  image  no      3421  0   600   600 1.0K 1.0%',
+            ].join('\n'),
             stderr: '',
             exitCode: 0,
         });
 
-        await detectSourceDpiDetails(
+        const result = await detectSourceDpiDetails(
             '/tmp/input.pdf',
             '/bin/pdfimages',
             vi.fn(),
@@ -131,6 +134,8 @@ describe('ocr dpi detection', () => {
             ],
             expect.anything(),
         );
+        expect(result.documentDpi).toBeNull();
+        expect(result.pageDpiByNumber.get(1)).toBe(600);
     });
 
     it('downgrades recoverable pdfimages runner errors to debug logs', async () => {

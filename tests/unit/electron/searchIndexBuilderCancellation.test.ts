@@ -165,7 +165,7 @@ describe('buildSearchIndex assembly', () => {
     it('skips PDF text extraction when existing index already covers expected pages', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         const cachedIndex = {
-            schemaVersion: 5,
+            schemaVersion: 6,
             pdfPath: '/tmp/file.pdf',
             createdAt: 1,
             pages: [
@@ -415,7 +415,7 @@ describe('buildSearchIndex assembly', () => {
             }),
         ]);
         expect(result.pageCount).toBe(2);
-        expect(result.schemaVersion).toBe(5);
+        expect(result.schemaVersion).toBe(6);
         expect(result.textSource).toEqual({
             kind: 'ocr-v2-text-layer',
             version: 1,
@@ -465,6 +465,7 @@ describe('buildSearchIndex assembly', () => {
             if (path.endsWith('page-1.json')) {
                 return JSON.stringify({
                     pageNumber: 1,
+                    rotation: 0,
                     render: {
                         dpi: 300,
                         imagePx: {
@@ -484,6 +485,7 @@ describe('buildSearchIndex assembly', () => {
             if (path.endsWith('page-2.json')) {
                 return JSON.stringify({
                     pageNumber: 2,
+                    rotation: 90,
                     render: {
                         dpi: 300,
                         imagePx: {
@@ -536,6 +538,7 @@ describe('buildSearchIndex assembly', () => {
                 text: 'json \n',
                 pageWidth: 100,
                 pageHeight: 200,
+                rotation: 0,
                 words: [expect.objectContaining({ text: 'json' })],
             }),
             expect.objectContaining({
@@ -543,6 +546,7 @@ describe('buildSearchIndex assembly', () => {
                 text: 'geometry \n',
                 pageWidth: 100,
                 pageHeight: 200,
+                rotation: 90,
                 words: [expect.objectContaining({ text: 'geometry' })],
             }),
         ]);
@@ -551,12 +555,14 @@ describe('buildSearchIndex assembly', () => {
             text: 'json \n',
             pageWidth: 100,
             pageHeight: 200,
+            rotation: 0,
         }));
         expect(onPageIndexed).toHaveBeenCalledWith(expect.objectContaining({
             pageNumber: 2,
             text: 'geometry \n',
             pageWidth: 100,
             pageHeight: 200,
+            rotation: 90,
         }));
     });
 

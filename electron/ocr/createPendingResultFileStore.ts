@@ -1,14 +1,52 @@
+import { realpathSync } from 'fs';
+import { resolve } from 'path';
 import type { ILogger } from '@electron/utils/createLogger';
 import type { IOcrPendingResultFile } from '@electron/ocr/jobManager.types';
 
 interface ICreatePendingResultFileStoreOptions {
     logger: ILogger;
     ttlMs: number;
-    removeResultFile: (path: string) => Promise<void>;
+    removeResultFile: (path: string) => Promise<boolean>;
+    canonicalizePath?: (path: string) => string;
+}
+
+interface IPendingResultFileOwnershipRegistry { findByPath: (webContentsId: number, pdfPath: string) => IOcrPendingResultFile | null; }
+
+let activeOwnershipRegistry: IPendingResultFileOwnershipRegistry | null = null;
+
+function canonicalizePendingResultPath(pdfPath: string) {
+    const resolvedPath = resolve(pdfPath);
+    try {
+        return realpathSync(resolvedPath);
+    } catch {
+        return resolvedPath;
+    }
+}
+
+function normalizePendingResultPath(
+    pdfPath: string,
+    canonicalizePath: (path: string) => string = canonicalizePendingResultPath,
+) {
+    const normalizedPath = pdfPath.trim();
+    if (!normalizedPath) {
+        return '';
+    }
+
+    try {
+        const canonicalPath = canonicalizePath(normalizedPath).trim();
+        return canonicalPath ? resolve(canonicalPath) : resolve(normalizedPath);
+    } catch {
+        return resolve(normalizedPath);
+    }
+}
+
+export function findPendingOcrResultFileForPath(webContentsId: number, pdfPath: string) {
+    return activeOwnershipRegistry?.findByPath(webContentsId, pdfPath) ?? null;
 }
 
 export function createPendingResultFileStore(options: ICreatePendingResultFileStoreOptions) {
     const pendingResultFiles = new Map<string, IOcrPendingResultFile>();
+    const canonicalizePath = options.canonicalizePath ?? canonicalizePendingResultPath;
 
     function clearPendingResultFileCleanupTimer(entry: IOcrPendingResultFile | null | undefined) {
         if (!entry?.cleanupTimer) {
@@ -30,19 +68,42 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
 
     async function removeTrackedEntry(entry: IOcrPendingResultFile | null) {
         if (!entry) {
-            return;
+            return true;
         }
-        await options.removeResultFile(entry.pdfPath);
+        const removed = await options.removeResultFile(entry.pdfPath);
+        if (removed && pendingResultFiles.get(entry.scopedJobId) === entry) {
+            removePendingResultFileEntry(entry.scopedJobId);
+        }
+        return removed;
     }
 
-    return {
+    const store = {
         find(webContentsId: number, requestId: string) {
             return Array.from(pendingResultFiles.values())
                 .find(entry => entry.webContentsId === webContentsId && entry.requestId === requestId)
                 ?? null;
         },
-        track(scopedJobId: string, requestId: string, webContentsId: number, pdfPath: string) {
-            const normalizedPath = typeof pdfPath === 'string' ? pdfPath.trim() : '';
+        findByPath(webContentsId: number, pdfPath: string) {
+            const normalizedPath = typeof pdfPath === 'string'
+                ? normalizePendingResultPath(pdfPath, canonicalizePath)
+                : '';
+            if (!normalizedPath) {
+                return null;
+            }
+
+            return Array.from(pendingResultFiles.values())
+                .find(entry => entry.webContentsId === webContentsId && entry.pdfPath === normalizedPath)
+                ?? null;
+        },
+        track(scopedJobId: string, requestId: string, webContentsId: number, pdfPath: string, requiresCleanupAck: boolean) {
+            if (!requiresCleanupAck) {
+                void removeTrackedEntry(removePendingResultFileEntry(scopedJobId));
+                return;
+            }
+
+            const normalizedPath = typeof pdfPath === 'string'
+                ? normalizePendingResultPath(pdfPath, canonicalizePath)
+                : '';
             if (!normalizedPath) {
                 return;
             }
@@ -53,13 +114,16 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
             }
 
             const cleanupTimer = setTimeout(() => {
-                const pending = removePendingResultFileEntry(scopedJobId);
+                const pending = pendingResultFiles.get(scopedJobId) ?? null;
                 if (!pending) {
                     return;
                 }
 
-                void options.removeResultFile(pending.pdfPath);
-                options.logger.warn(`Cleaned up stale OCR result file for job "${requestId}" after acknowledgement timeout`);
+                void removeTrackedEntry(pending).then((removed) => {
+                    if (removed) {
+                        options.logger.warn(`Cleaned up stale OCR result file for job "${requestId}" after acknowledgement timeout`);
+                    }
+                });
             }, options.ttlMs);
             cleanupTimer.unref?.();
 
@@ -83,17 +147,22 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
                 return;
             }
 
+            let removedCount = 0;
             for (const entry of staleEntries) {
-                await removeTrackedEntry(removePendingResultFileEntry(entry.scopedJobId));
+                if (await removeTrackedEntry(entry)) {
+                    removedCount += 1;
+                }
             }
 
-            options.logger.warn(`Cleaned up ${staleEntries.length} stale OCR result file(s) without renderer acknowledgement`);
+            if (removedCount > 0) {
+                options.logger.warn(`Cleaned up ${removedCount} stale OCR result file(s) without renderer acknowledgement`);
+            }
         },
         async cleanupForSender(webContentsId: number) {
             const pendingEntries = Array.from(pendingResultFiles.values())
                 .filter(entry => entry.webContentsId === webContentsId);
             for (const pendingEntry of pendingEntries) {
-                await removeTrackedEntry(removePendingResultFileEntry(pendingEntry.scopedJobId));
+                await removeTrackedEntry(pendingEntry);
             }
         },
         async acknowledge(webContentsId: number, requestId: string, pdfPathPayload?: string) {
@@ -106,7 +175,7 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
             }
 
             if (typeof pdfPathPayload === 'string' && pdfPathPayload.trim().length > 0) {
-                const normalizedPayloadPath = pdfPathPayload.trim();
+                const normalizedPayloadPath = normalizePendingResultPath(pdfPathPayload, canonicalizePath);
                 if (normalizedPayloadPath !== pending.pdfPath) {
                     return {
                         cleaned: false,
@@ -115,24 +184,28 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
                 }
             }
 
-            const removedEntry = removePendingResultFileEntry(pending.scopedJobId);
-            if (!removedEntry) {
+            const removed = await options.removeResultFile(pending.pdfPath);
+            if (!removed) {
                 return {
                     cleaned: false,
-                    error: `No pending OCR result file for requestId "${requestId}"`,
+                    error: 'Failed to delete pending OCR result file',
                 };
             }
 
-            await options.removeResultFile(removedEntry.pdfPath);
+            removePendingResultFileEntry(pending.scopedJobId);
             return { cleaned: true };
         },
         async shutdown() {
             const pendingEntries = Array.from(pendingResultFiles.values());
-            pendingResultFiles.clear();
             for (const pendingEntry of pendingEntries) {
-                clearPendingResultFileCleanupTimer(pendingEntry);
-                await options.removeResultFile(pendingEntry.pdfPath);
+                await removeTrackedEntry(pendingEntry);
+            }
+            if (activeOwnershipRegistry === store) {
+                activeOwnershipRegistry = null;
             }
         },
     };
+
+    activeOwnershipRegistry = store;
+    return store;
 }

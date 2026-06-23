@@ -1,4 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { IOcrIndexV2Manifest } from '@contracts/ocrIndex';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import {
@@ -6,7 +7,7 @@ import {
     readOptionalOcrArtifactJson,
 } from '@app/utils/platformOcrArtifacts';
 
-interface IOcrManifestIndex { pages: Record<number, { path: string }>; }
+type TOcrManifestIndex = Pick<IOcrIndexV2Manifest, 'pages'>;
 
 interface IOcrPageTextEntry { text?: string; }
 
@@ -14,7 +15,7 @@ interface ILegacyOcrIndex { pages?: IOcrPageTextEntry[]; }
 
 export async function loadOcrText(workingCopyPath: TDocumentRef) {
     try {
-        const manifest = await readOptionalOcrArtifactJson<IOcrManifestIndex>(workingCopyPath, 'manifest.json');
+        const manifest = await readOptionalOcrArtifactJson<TOcrManifestIndex>(workingCopyPath, 'manifest.json');
         if (manifest) {
 
             const pageEntries = Object.entries(manifest.pages ?? {})
@@ -52,10 +53,16 @@ export async function loadOcrText(workingCopyPath: TDocumentRef) {
         }
 
         const legacyTexts: string[] = [];
-        for (const page of index.pages ?? []) {
+        const legacyPages = index.pages ?? [];
+        for (let pageIndex = 0; pageIndex < legacyPages.length; pageIndex += 1) {
+            const page = legacyPages[pageIndex];
             const text = page?.text?.trim();
             if (text) {
                 legacyTexts.push(text);
+            }
+
+            if (pageIndex > 0 && pageIndex % 8 === 0) {
+                await yieldToBrowser();
             }
         }
 

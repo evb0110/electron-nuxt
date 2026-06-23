@@ -3,9 +3,43 @@ import {
     expect,
     it,
 } from 'vitest';
+import {
+    AVAILABLE_OCR_LANGUAGES,
+    GREEK_OCR_LANGUAGE_CODES,
+    RTL_OCR_LANGUAGE_CODES,
+    isGreekOcrLanguage,
+    isRtlOcrLanguage,
+} from '@contracts/ocrLanguages';
 import { resolveTesseractLanguageConfig } from '@electron/ocr/resolveTesseractLanguageConfig';
 
 describe('resolveTesseractLanguageConfig', () => {
+    it('derives the rtl language set from the canonical OCR language registry', () => {
+        const registryRtlCodes = AVAILABLE_OCR_LANGUAGES
+            .filter(language => language.script === 'rtl')
+            .map(language => language.code);
+
+        expect(Array.from(RTL_OCR_LANGUAGE_CODES)).toEqual(registryRtlCodes);
+        expect(registryRtlCodes.every(isRtlOcrLanguage)).toBe(true);
+
+        const config = resolveTesseractLanguageConfig([
+            'eng',
+            ...registryRtlCodes,
+            'fra',
+        ]);
+
+        expect(config.orderedLanguages.slice(0, registryRtlCodes.length)).toEqual(registryRtlCodes);
+        expect(config.hasRtl).toBe(registryRtlCodes.length > 0);
+    });
+
+    it('derives the Greek language set from the canonical OCR language registry', () => {
+        const registryGreekCodes = AVAILABLE_OCR_LANGUAGES
+            .filter(language => language.script === 'greek')
+            .map(language => language.code);
+
+        expect(Array.from(GREEK_OCR_LANGUAGE_CODES)).toEqual(registryGreekCodes);
+        expect(registryGreekCodes.every(isGreekOcrLanguage)).toBe(true);
+    });
+
     it('keeps non-rtl language order and applies spacing config', () => {
         const config = resolveTesseractLanguageConfig([
             'eng',

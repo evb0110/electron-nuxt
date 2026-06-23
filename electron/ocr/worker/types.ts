@@ -10,7 +10,7 @@ export interface IWorkerPaths {
     tesseractBinary: string;
     tessdataPath: string;
     pdftoppmBinary: string;
-    pdftotextBinary: string;
+    pdftotextBinary?: string;
     pdfimagesBinary?: string;
     popplerDataDir?: string;
     popplerFontConfigDir?: string;
@@ -67,6 +67,12 @@ export type TOcrWorkerInboundMessage =
         requestId: string;
         token: string;
         effectiveDpi: number;
+    }
+    | {
+        type: 'resource-denied';
+        jobId: string;
+        requestId: string;
+        reason: string;
     };
 
 interface IOcrWorkerProgressPayload {

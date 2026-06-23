@@ -26,7 +26,10 @@ directly, then compares the same profile names exposed by the app:
 - `balanced`: current EVB language ordering, spacing, and dictionary settings
 - `accurate`: EVB ordering and spacing while preserving Tesseract dictionaries
 - `poor-scan`: balanced settings plus `unpaper` cleanup and adaptive thresholding
-- `stock`: Tesseract without EVB wrapper options
+
+The benchmark can also include internal comparison baselines, such as `stock`
+for Tesseract without EVB wrapper options. Those baselines are not app-exposed
+quality profiles.
 
 Artifacts are written under `.devkit/tmp/ocr-profile-benchmark/<timestamp>/`.
 Start with `summary.csv` for a quick comparison and keep `summary.ndjson` for

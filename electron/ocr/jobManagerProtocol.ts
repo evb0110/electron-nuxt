@@ -1,5 +1,9 @@
 import type { TOcrWorkerOutboundMessage } from '@electron/ocr/worker/types';
-import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
+import type {
+    IOcrErrorEnvelope,
+    TOcrErrorCode,
+    TOcrProgressPhase,
+} from '@contracts/electronApiOcr';
 import {
     createAbortError,
     isAbortError,
@@ -28,6 +32,14 @@ const OCR_PROGRESS_PHASES = new Set<TOcrProgressPhase>([
     'processing',
     'merging',
     'indexing',
+]);
+
+const OCR_ERROR_CODES = new Set<TOcrErrorCode>([
+    'OCR_INVALID_PAYLOAD',
+    'OCR_INTERNAL_ERROR',
+    'OCR_QUEUE_BACKPRESSURE',
+    'OCR_WORKER_UNAVAILABLE',
+    'OCR_TOOLS_VALIDATION_FAILED',
 ]);
 
 function parseOptionalProgressPhase(value: unknown) {
@@ -122,10 +134,38 @@ function parseSuccessfulCompleteResult(
     };
 }
 
-function parseFailedCompleteResult(errors: string[]) {
+function parseOcrErrorEnvelope(value: unknown): IOcrErrorEnvelope | undefined {
+    if (!isRecord(value)) {
+        return undefined;
+    }
+    if (
+        typeof value.code !== 'string'
+        || !OCR_ERROR_CODES.has(value.code as TOcrErrorCode)
+        || typeof value.message !== 'string'
+        || typeof value.retryable !== 'boolean'
+        || !isFiniteNumber(value.timestamp)
+    ) {
+        return undefined;
+    }
+    if (value.details !== undefined && typeof value.details !== 'string') {
+        return undefined;
+    }
+
+    return {
+        code: value.code as TOcrErrorCode,
+        message: value.message,
+        retryable: value.retryable,
+        timestamp: value.timestamp,
+        ...(value.details === undefined ? {} : {details: value.details}),
+    };
+}
+
+function parseFailedCompleteResult(result: Record<string, unknown>, errors: string[]) {
+    const errorEnvelope = parseOcrErrorEnvelope(result.errorEnvelope);
     return {
         success: false as const,
         errors,
+        ...(errorEnvelope === undefined ? {} : {errorEnvelope}),
     };
 }
 
@@ -140,7 +180,7 @@ function parseWorkerCompleteResult(result: unknown) {
 
     return result.success
         ? parseSuccessfulCompleteResult(result, errors)
-        : parseFailedCompleteResult(errors);
+        : parseFailedCompleteResult(result, errors);
 }
 
 function parseWorkerCompleteMessage(message: Record<string, unknown>): TOcrWorkerManagerMessage | null {

@@ -738,6 +738,20 @@ export const OCR_RUN_INPUT_SCHEMA = {
             ],
             description: 'OCR quality profile. Defaults to the OCR popup current setting.',
         },
+        preprocessingMode: {
+            type: 'string',
+            enum: [
+                'off',
+                'clean',
+            ],
+            description: 'Optional image preprocessing mode before OCR. Defaults to the OCR popup current setting.',
+        },
+        pageSegmentationMode: {
+            type: 'integer',
+            minimum: 0,
+            maximum: 13,
+            description: 'Optional Tesseract page segmentation mode from 0 to 13.',
+        },
     },
     additionalProperties: false,
 };

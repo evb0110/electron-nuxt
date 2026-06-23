@@ -23,6 +23,7 @@ function createBrowserOcrJobUnavailableResult(requestId: string): IOcrJobStartRe
     return {
         started: false,
         jobId: requestId,
+        installed: [],
         error: BROWSER_OCR_UNAVAILABLE,
         errors: [BROWSER_OCR_UNAVAILABLE],
         errorEnvelope: createBrowserOcrUnavailableEnvelope(),
@@ -51,7 +52,12 @@ export const browserOcrCapability: IOcrCapability = {
         return Promise.resolve(createBrowserOcrBatchUnavailableResult());
     },
     cancel() {
-        return Promise.resolve({ canceled: false });
+        return Promise.resolve({
+            canceled: false,
+            reason: 'not-found',
+            error: BROWSER_OCR_UNAVAILABLE,
+            errorEnvelope: createBrowserOcrUnavailableEnvelope(),
+        });
     },
     getLanguages() {
         return Promise.resolve([]);
@@ -94,7 +100,11 @@ export const browserOcrCapability: IOcrCapability = {
         return Promise.resolve(createBrowserOcrJobUnavailableResult(requestId));
     },
     acknowledgeResultFile() {
-        return Promise.resolve({ cleaned: true });
+        return Promise.resolve({
+            cleaned: false,
+            error: BROWSER_OCR_UNAVAILABLE,
+            errorEnvelope: createBrowserOcrUnavailableEnvelope(),
+        });
     },
     createSearchablePdf(_sourcePdfPath, _pages, requestId) {
         return Promise.resolve(createBrowserOcrJobUnavailableResult(requestId));
@@ -107,6 +117,7 @@ export const browserOcrCapability: IOcrCapability = {
                 valid: false,
                 available: [],
                 missing: ['desktop-ocr'],
+                errorEnvelope: createBrowserOcrUnavailableEnvelope(),
             });
         },
         preprocessPage(imageData) {
@@ -114,6 +125,7 @@ export const browserOcrCapability: IOcrCapability = {
                 success: false,
                 imageData,
                 error: BROWSER_OCR_UNAVAILABLE,
+                errorEnvelope: createBrowserOcrUnavailableEnvelope(),
             });
         },
     },

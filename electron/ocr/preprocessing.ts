@@ -6,6 +6,7 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { app } from 'electron';
+import { buildTesseractEnv } from '@electron/ocr/buildTesseractEnv';
 import { createLogger } from '@electron/utils/createLogger';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import { appendTextChunkWithByteCap } from '@electron/native-tools/appendTextChunkWithByteCap';
@@ -65,8 +66,21 @@ function formatTruncatedOutput(text: string, truncated: boolean, maxBytes: numbe
         : text;
 }
 
+function prependPathEntry(entry: string, existing: string | undefined) {
+    return existing && existing.length > 0 ? `${entry}${process.platform === 'win32' ? ';' : ':'}${existing}` : entry;
+}
+
+function buildPreprocessingEnv(binary: string): NodeJS.ProcessEnv {
+    const binDir = dirname(binary);
+    const resourcesBase = resolveOcrResourcesBase(__dirname, app.isPackaged);
+    const env = buildTesseractEnv(join(resourcesBase, 'tesseract', 'tessdata'));
+    env.PATH = prependPathEntry(binDir, env.PATH);
+    return env;
+}
+
 function spawnPreprocessingProcess(binary: string, args: string[], stdio: 'ignore' | 'pipe') {
     return spawn(binary, args, createDetachedChildProcessSpawnOptions({
+        env: buildPreprocessingEnv(binary),
         shell: false,
         windowsHide: true,
         stdio: stdio === 'ignore'

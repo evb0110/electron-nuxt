@@ -10,11 +10,13 @@ import {
 const mocks = vi.hoisted(() => ({
     existsSync: vi.fn(),
     fileUrl: '/repo/electron/ocr/paths.ts',
+    app: {isPackaged: false},
     ensureRuntimeTessdataSeeded: vi.fn(),
     readdirSync: vi.fn(),
     runNativeToolCommand: vi.fn(),
 }));
 
+vi.mock('electron', () => ({app: mocks.app}));
 vi.mock('url', () => ({fileURLToPath: () => mocks.fileUrl}));
 vi.mock('fs', () => ({
     existsSync: (path: string) => mocks.existsSync(path),
@@ -32,11 +34,21 @@ describe('getOcrToolPaths resource base resolution', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        mocks.app.isPackaged = false;
         vi.spyOn(process, 'cwd').mockReturnValue('/repo');
         mocks.ensureRuntimeTessdataSeeded.mockResolvedValue(undefined);
         mocks.readdirSync.mockReturnValue([
+            'ara.traineddata',
+            'deu.traineddata',
+            'ell.traineddata',
             'eng.traineddata',
-            'osd.traineddata',
+            'fra.traineddata',
+            'grc.traineddata',
+            'heb.traineddata',
+            'kmr.traineddata',
+            'rus.traineddata',
+            'syr.traineddata',
+            'tur.traineddata',
             'README',
         ]);
         mocks.runNativeToolCommand.mockResolvedValue({
@@ -88,8 +100,17 @@ describe('getOcrToolPaths resource base resolution', () => {
                     found: true,
                     path: '/repo/resources/tesseract/tessdata',
                     languages: [
+                        'ara',
+                        'deu',
+                        'ell',
                         'eng',
-                        'osd',
+                        'fra',
+                        'grc',
+                        'heb',
+                        'kmr',
+                        'rus',
+                        'syr',
+                        'tur',
                     ],
                 },
                 pdftoppm: {
@@ -172,5 +193,20 @@ describe('getOcrToolPaths resource base resolution', () => {
                 languages: [],
             }},
         });
+    });
+
+    it('rejects tessdata directories missing canonical registry languages', async () => {
+        mocks.readdirSync.mockReturnValue([
+            'eng.traineddata',
+            'fra.traineddata',
+        ]);
+        const { validateOcrTools } = await import('@electron/ocr/paths');
+
+        const result = await validateOcrTools();
+
+        expect(result.valid).toBe(false);
+        expect(result.errors).toContainEqual(expect.stringContaining('Missing registry language models in tessdata:'));
+        expect(result.errors.join('\n')).toContain('ara');
+        expect(result.errors.join('\n')).toContain('tur');
     });
 });

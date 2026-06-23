@@ -40,18 +40,6 @@ export function parseOcrWorkerStartPayload(value: unknown): IOcrWorkerStartPaylo
     }
 }
 
-function parseWorkerDpi(value: unknown) {
-    const payload = parseOcrWorkerStartPayload({
-        sourcePdfPath: '/worker-resource-acquired-placeholder.pdf',
-        pages: [{
-            pageNumber: 1,
-            languages: ['eng'],
-        }],
-        renderDpi: value,
-    });
-    return payload?.renderDpi;
-}
-
 function isValidRequestId(value: unknown) {
     try {
         validateCancelRequestId(value);
@@ -65,8 +53,15 @@ function isValidRequestId(value: unknown) {
 }
 
 function parseResourceAcquiredDpi(value: unknown) {
-    const parsed = parseWorkerDpi(value);
-    return parsed ?? null;
+    if (
+        typeof value !== 'number'
+        || !Number.isFinite(value)
+        || !Number.isInteger(value)
+        || value < 1
+    ) {
+        return null;
+    }
+    return value;
 }
 
 function isValidWorkerId(value: unknown) {
@@ -127,6 +122,23 @@ export function parseOcrWorkerInboundMessage(value: unknown): TOcrWorkerInboundM
         };
     }
 
+    if (value.type === 'resource-denied') {
+        if (
+            typeof value.requestId !== 'string'
+            || !isValidRequestId(value.requestId)
+            || typeof value.reason !== 'string'
+            || value.reason.trim().length === 0
+        ) {
+            return null;
+        }
+        return {
+            type: 'resource-denied',
+            jobId,
+            requestId: value.requestId,
+            reason: value.reason,
+        };
+    }
+
     if (value.type !== 'start') {
         return null;
     }
@@ -140,5 +152,25 @@ export function parseOcrWorkerInboundMessage(value: unknown): TOcrWorkerInboundM
         type: 'start',
         jobId,
         data,
+    };
+}
+
+export function parseInvalidOcrWorkerStartMessage(value: unknown) {
+    if (
+        !isRecord(value)
+        || value.type !== 'start'
+        || typeof value.jobId !== 'string'
+        || !isValidWorkerId(value.jobId)
+    ) {
+        return null;
+    }
+
+    if (parseOcrWorkerStartPayload(value.data) !== null) {
+        return null;
+    }
+
+    return {
+        jobId: value.jobId,
+        error: 'Invalid OCR worker start payload',
     };
 }

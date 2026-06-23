@@ -31,14 +31,18 @@ describe('transformWordBox', () => {
         expect(result.isCurrent).toBe(false);
     });
 
-    it('uses uniform (min) scale when scales differ slightly', () => {
+    it('uses per-axis scaling when rendered dimensions are not proportional', () => {
         const result = transformWordBox(baseWord, 1000, 500, 2000, 900);
 
-        const expectedScale = Math.min(2000 / 1000, 900 / 500);
-        expect(result.x).toBeCloseTo(baseWord.x * expectedScale);
-        expect(result.y).toBeCloseTo(baseWord.y * expectedScale);
-        expect(result.width).toBeCloseTo(baseWord.width * expectedScale);
-        expect(result.height).toBeCloseTo(baseWord.height * expectedScale);
+        expect(result.x).toBeCloseTo(baseWord.x * 2);
+        expect(result.y).toBeCloseTo(baseWord.y * 1.8);
+        expect(result.width).toBeCloseTo(baseWord.width * 2);
+        expect(result.height).toBeCloseTo(baseWord.height * 1.8);
+    });
+
+    it('fails loudly for rotated OCR artifacts because this legacy transform is rotation-blind', () => {
+        expect(() => transformWordBox(baseWord, 1000, 500, 2000, 1000, 90))
+            .toThrow('transformOcrWordToViewport');
     });
 
     it('returns zero-size box when image dimensions are missing', () => {

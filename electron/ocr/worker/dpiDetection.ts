@@ -21,6 +21,7 @@ interface IPdfImagesProbe {
     args: string[];
     timeoutMs: number;
     label: string;
+    contributesDocumentDpi: boolean;
 }
 
 function getUniqueValidPages(pages: readonly number[] | undefined) {
@@ -78,6 +79,7 @@ function buildPdfImagesProbes(pdfPath: string, pages: readonly number[] | undefi
             ],
             timeoutMs: PDFIMAGES_TIMEOUT_MS,
             label: 'full-document',
+            contributesDocumentDpi: true,
         }];
     }
 
@@ -92,6 +94,7 @@ function buildPdfImagesProbes(pdfPath: string, pages: readonly number[] | undefi
             args: buildPdfImagesListArgs(pdfPath, pageRange.firstPage, pageRange.lastPage),
             timeoutMs: PDFIMAGES_TIMEOUT_MS,
             label: `${pageRange.firstPage}-${pageRange.lastPage}`,
+            contributesDocumentDpi: true,
         }];
     }
 
@@ -99,6 +102,7 @@ function buildPdfImagesProbes(pdfPath: string, pages: readonly number[] | undefi
         args: buildPdfImagesListArgs(pdfPath, pageNumber, pageNumber),
         timeoutMs: PDFIMAGES_SAMPLE_TIMEOUT_MS,
         label: String(pageNumber),
+        contributesDocumentDpi: false,
     }));
 }
 
@@ -195,7 +199,11 @@ export async function detectSourceDpiDetails(
                     probe.args,
                     commandOptions,
                 );
-                mergeDpiDetectionResults(combinedResult, parsePdfImagesListOutput(result.stdout));
+                const probeResult = parsePdfImagesListOutput(result.stdout);
+                if (!probe.contributesDocumentDpi) {
+                    probeResult.documentDpi = null;
+                }
+                mergeDpiDetectionResults(combinedResult, probeResult);
             } catch (err) {
                 if (signal?.aborted) {
                     throw signal.reason instanceof Error ? signal.reason : err;

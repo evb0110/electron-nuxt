@@ -34,11 +34,14 @@ export function resolveWorkerPaths(rawWorkerData: unknown): IWorkerPaths {
         tesseractBinary: readRequiredPath(rawWorkerData, 'tesseractBinary'),
         tessdataPath: readRequiredPath(rawWorkerData, 'tessdataPath'),
         pdftoppmBinary: readRequiredPath(rawWorkerData, 'pdftoppmBinary'),
-        pdftotextBinary: readRequiredPath(rawWorkerData, 'pdftotextBinary'),
         qpdfBinary: readRequiredPath(rawWorkerData, 'qpdfBinary'),
         tempDir: readRequiredPath(rawWorkerData, 'tempDir'),
     };
 
+    const pdftotextBinary = readOptionalPath(rawWorkerData, 'pdftotextBinary');
+    if (pdftotextBinary !== undefined) {
+        paths.pdftotextBinary = pdftotextBinary;
+    }
     const pdfimagesBinary = readOptionalPath(rawWorkerData, 'pdfimagesBinary');
     if (pdfimagesBinary !== undefined) {
         paths.pdfimagesBinary = pdfimagesBinary;

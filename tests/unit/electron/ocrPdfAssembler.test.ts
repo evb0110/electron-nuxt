@@ -14,6 +14,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    degrees,
     PDFDocument,
     PDFName,
     rgb,
@@ -342,6 +343,34 @@ describe('assembleSearchablePdf', () => {
                 260,
             ],
         ]);
+    });
+
+    it('rejects rotated pages instead of silently placing a misaligned OCR layer', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
+        const originalPath = join(tempDir, 'rotated-original.pdf');
+        const ocrPath = join(tempDir, 'ocr.pdf');
+        const originalPdf = await PDFDocument.create();
+        const page = originalPdf.addPage([
+            200,
+            300,
+        ]);
+        page.setRotation(degrees(90));
+        await writeFile(originalPath, await originalPdf.save());
+        await createPdfWithVisibleAndHiddenText(ocrPath, { hiddenText: 'ROTATED OCR' });
+
+        const ocrPages = new Map<number, string>();
+        ocrPages.set(1, ocrPath);
+
+        await expect(assembleSearchablePdf(
+            'qpdf-not-used',
+            originalPath,
+            ocrPages,
+            1,
+            tempDir,
+            'rotated-session',
+            vi.fn(),
+            path => path,
+        )).rejects.toThrow('Cannot safely add OCR text layer to rotated PDF page');
     });
 });
 

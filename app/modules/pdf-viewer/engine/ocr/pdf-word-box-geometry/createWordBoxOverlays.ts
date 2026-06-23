@@ -1,9 +1,7 @@
-import type { IOcrWord } from '@app/types/pdf';
+import type { IOcrWord } from '@contracts/shared';
+import type { TOcrIndexRotation } from '@contracts/ocrIndex';
+import { buildOcrWordKey } from '@contracts/ocrText';
 import { transformWordBox } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox';
-
-function buildWordBoxKey(word: IOcrWord) {
-    return `${word.text}|${word.x}|${word.y}|${word.width}|${word.height}`;
-}
 
 export function createWordBoxOverlays(
     words: IOcrWord[],
@@ -12,6 +10,7 @@ export function createWordBoxOverlays(
     renderedPageWidth: number,
     renderedPageHeight: number,
     currentMatchWords?: Set<string>,
+    rotation: TOcrIndexRotation = 0,
 ): HTMLElement[] {
     if (!words || words.length === 0) {
         return [];
@@ -26,6 +25,7 @@ export function createWordBoxOverlays(
             pdfPageHeight,
             renderedPageWidth,
             renderedPageHeight,
+            rotation,
         );
 
         if (box.width === 0 || box.height === 0) {
@@ -46,7 +46,7 @@ export function createWordBoxOverlays(
             box-sizing: border-box;
         `;
 
-        if (currentMatchWords?.has(buildWordBoxKey(word))) {
+        if (currentMatchWords?.has(buildOcrWordKey(word))) {
             boxDiv.classList.add('pdf-word-box--current');
             boxDiv.style.backgroundColor = 'var(--app-pdf-search-highlight-current-bg)';
         }

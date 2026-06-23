@@ -31,5 +31,10 @@ describe('download-tessdata.sh', () => {
         ]);
         expect(scriptSource).toContain('packages/contracts/ocrLanguages.ts');
         expect(scriptSource).toContain('source.matchAll(languageCodePattern)');
+        expect(scriptSource).toContain('TESSDATA_BEST_REF="e12c65a915945e4c28e237a9b52bc4a8f39a0cec"');
+        expect(scriptSource).toContain('raw.githubusercontent.com/tesseract-ocr/tessdata_best/${TESSDATA_BEST_REF}');
+        expect(scriptSource).toContain('curl --fail --location --show-error --silent --retry 3');
+        expect(scriptSource).toContain('[ ! -s "$TMP_FILE" ]');
+        expect(scriptSource).toContain('[ "$bytes" -lt 1024 ]');
     });
 });

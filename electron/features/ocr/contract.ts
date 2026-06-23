@@ -25,6 +25,7 @@ export const OCR_EVENT_CHANNELS = {
 } as const;
 
 type TOcrCreateSearchablePdfPage = Parameters<IOcrCapability['createSearchablePdf']>[1][number];
+type TOcrAcknowledgeResultFileArgs = Parameters<IOcrCapability['acknowledgeResultFile']>;
 type TOcrPreprocessing = IOcrCapability['preprocessing'];
 
 export interface IOcrInvokeMap {
@@ -45,7 +46,7 @@ export interface IOcrInvokeMap {
         result: Awaited<ReturnType<IOcrCapability['cancel']>>;
     };
     [OCR_CHANNELS.acknowledgeResultFile]: {
-        args: [requestId: string, pdfPath?: string];
+        args: TOcrAcknowledgeResultFileArgs;
         result: Awaited<ReturnType<IOcrCapability['acknowledgeResultFile']>>;
     };
     [OCR_CHANNELS.getLanguages]: {

@@ -13,6 +13,7 @@ import {
     readFileSync,
     realpathSync,
     rmSync,
+    utimesSync,
     writeFileSync,
 } from 'fs';
 import {
@@ -258,6 +259,27 @@ describe('workingCopy', () => {
         expect(findWorkingCopyPathByOriginalPath(originalPath)).toBe(firstWorkingPath);
 
         await clearAllWorkingCopies();
+    });
+
+    it('removes stale OCR sidecar directories with stale working-copy directories', async () => {
+        const { cleanupStaleWorkingCopyDirectories } = await import('@electron/file-access/workingCopyCleanup');
+        const appTempDir = join(tempRoot, 'evb-viewer');
+        const workDir = join(appTempDir, 'pdf-work-stale-ocr');
+        const ocrDir = `${workDir}.ocr`;
+        mkdirSync(workDir, {recursive: true});
+        mkdirSync(ocrDir, {recursive: true});
+        writeFileSync(join(workDir, 'document.pdf'), new Uint8Array([1]));
+        writeFileSync(join(ocrDir, 'manifest.json'), '{}');
+
+        const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
+        utimesSync(workDir, staleDate, staleDate);
+
+        await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({
+            removedDirectories: 1,
+            removedOcrDirectories: 1,
+        });
+        expect(existsSync(workDir)).toBe(false);
+        expect(existsSync(ocrDir)).toBe(false);
     });
 
     it('serializes mutation queue entries that use different spellings of one Windows path', async () => {

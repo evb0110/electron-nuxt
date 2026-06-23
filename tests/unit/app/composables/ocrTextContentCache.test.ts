@@ -3,9 +3,13 @@ import {
     expect,
     it,
 } from 'vitest';
+import type {
+    IOcrManifest,
+    IOcrPageData,
+} from '@app/modules/pdf-viewer/engine/ocr-text-content-cache/ocrTextContentCacheTypes';
 import { createOcrTextContentCache } from '@app/modules/pdf-viewer/engine/ocr-text-content-cache/createOcrTextContentCache';
 
-function makeManifest(id: string) {
+function makeManifest(id: string): IOcrManifest {
     return {
         version: 2,
         createdAt: 1,
@@ -21,7 +25,7 @@ function makeManifest(id: string) {
     };
 }
 
-function makePageData(text: string) {
+function makePageData(text: string): IOcrPageData {
     return {
         pageNumber: 1,
         rotation: 0 as const,

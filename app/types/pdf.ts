@@ -4,6 +4,7 @@ import type {
     ISearchMatchOptions,
 } from '@contracts/search';
 import type { TPageIndex } from '@contracts/pageNumbers';
+import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import type { TPdfPageLabelStyle } from '@contracts/pdfPageLabels';
 import type {
     IPdfValidationResult,
@@ -91,6 +92,7 @@ export interface IPdfSearchMatch {
     words?: IOcrWord[];
     pageWidth?: number;
     pageHeight?: number;
+    rotation?: TOcrIndexRotation;
 }
 
 export interface IPdfPageMatches {
@@ -106,6 +108,7 @@ export interface IPdfPageMatches {
         words?: IOcrWord[];
         pageWidth?: number;
         pageHeight?: number;
+        rotation?: TOcrIndexRotation;
     }>;
 }
 

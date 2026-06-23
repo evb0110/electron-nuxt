@@ -6,6 +6,7 @@ import type {
 import { uniq } from 'es-toolkit/array';
 import type { TAgentTextMarkupKind } from '@app/modules/pdf-viewer/public';
 import type {
+    TOcrPreprocessingMode,
     TOcrQualityProfile,
     TAgentOcrPageRange,
     TWorkspaceAgentSidebarTab,
@@ -136,6 +137,14 @@ export function isAgentOcrPageRange(value: unknown): value is TAgentOcrPageRange
 
 export function isAgentOcrQualityProfile(value: unknown): value is TOcrQualityProfile {
     return value === 'balanced' || value === 'accurate' || value === 'poor-scan';
+}
+
+export function isAgentOcrPreprocessingMode(value: unknown): value is TOcrPreprocessingMode {
+    return value === 'off' || value === 'clean';
+}
+
+export function isAgentOcrPageSegmentationMode(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 13;
 }
 
 export function getAgentNullableStringInput(input: Record<string, unknown> | undefined, key: string) {

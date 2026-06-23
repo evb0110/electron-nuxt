@@ -1,33 +1,11 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IOcrWord } from '@contracts/shared';
+import type {
+    IOcrIndexV2Manifest,
+    IOcrIndexV2Page,
+} from '@contracts/ocrIndex';
 
-export interface IOcrManifest {
-    version: number;
-    createdAt: number;
-    source: { pdfPath: string };
-    pageCount: number;
-    pageBox: 'crop';
-    ocr: {
-        engine: 'tesseract';
-        languages: string[];
-        renderDpi: number;
-    };
-    pages: Record<number, {path: string}>;
-}
-
-export interface IOcrPageData {
-    pageNumber: number;
-    rotation: 0 | 90 | 180 | 270;
-    render: {
-        dpi: number;
-        imagePx: {
-            w: number;
-            h: number;
-        };
-    };
-    text: string;
-    words: IOcrWord[];
-}
+export interface IOcrManifest extends IOcrIndexV2Manifest {}
+export interface IOcrPageData extends IOcrIndexV2Page {}
 
 export interface IOcrTextContentCacheStats {
     manifestEntries: number;

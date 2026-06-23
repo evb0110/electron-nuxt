@@ -87,7 +87,7 @@ describe('writeOcrIndexV2 compact search sidecar', () => {
             pages: [
                 {
                     pageNumber: 1,
-                    text: 'alpha beta \n',
+                    text: 'raw one',
                 },
                 {
                     pageNumber: 2,

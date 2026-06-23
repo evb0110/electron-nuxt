@@ -27,6 +27,7 @@ import {
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { parsePageNumber } from '@contracts/pageNumbers';
 import { isOcrWord } from '@contracts/shared';
+import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 
 interface IPendingSearchRequest {
     resolve: (response: ISearchResponse) => void;
@@ -168,6 +169,12 @@ function parsePositiveWorkerNumber(value: unknown) {
         : undefined;
 }
 
+function parseOcrRotation(value: unknown): TOcrIndexRotation | undefined {
+    return value === 0 || value === 90 || value === 180 || value === 270
+        ? value
+        : undefined;
+}
+
 function trimSearchTextSegment(value: string, maxLength: number, fromEnd = false) {
     if (value.length <= maxLength) {
         return {
@@ -273,6 +280,7 @@ function parseSearchMatch(value: unknown, pageCount?: number) {
         : undefined;
     const pageWidth = parsePositiveWorkerNumber(value.pageWidth);
     const pageHeight = parsePositiveWorkerNumber(value.pageHeight);
+    const rotation = parseOcrRotation(value.rotation);
     return {
         pageNumber,
         pageMatchIndex,
@@ -283,6 +291,7 @@ function parseSearchMatch(value: unknown, pageCount?: number) {
         ...(words !== undefined ? { words } : {}),
         ...(pageWidth !== undefined ? { pageWidth } : {}),
         ...(pageHeight !== undefined ? { pageHeight } : {}),
+        ...(rotation !== undefined ? { rotation } : {}),
     };
 }
 

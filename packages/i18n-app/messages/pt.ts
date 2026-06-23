@@ -299,6 +299,22 @@ export default {
                 'poor-scan': 'Digitalização fraca',
             },
         },
+        'preprocessing': {
+            'label': 'Preprocessing',
+            'options': {
+                'off': 'Off',
+                'clean': 'Clean scan',
+            },
+        },
+        'pageSegmentation': {
+            'label': 'Text layout',
+            'options': {
+                'auto': 'Auto',
+                'autoPage': 'Auto page',
+                'singleBlock': 'Single block',
+                'sparseText': 'Sparse text',
+            },
+        },
         'languages': 'Idiomas',
         'preparing': 'A preparar OCR...',
         'progressStage': {
@@ -1057,6 +1073,18 @@ export default {
             'createSearchablePdf': 'Falha ao criar PDF pesquisável',
             'noText': 'Nenhum texto OCR encontrado. Execute o OCR primeiro.',
             'exportDocx': 'Falha ao exportar DOCX',
+            'cancel': 'Failed to cancel OCR',
+            'alreadyRunning': 'OCR is already running',
+            'disabled': 'OCR is unavailable right now',
+            'noDocument': 'No OCR-ready PDF document is available',
+            'incomplete': 'OCR did not complete',
+            'errorCode': {
+                'invalidPayload': 'OCR request is invalid',
+                'internal': 'OCR failed unexpectedly',
+                'queueBackpressure': 'OCR queue is full',
+                'workerUnavailable': 'OCR worker is unavailable',
+                'toolsValidationFailed': 'OCR tools are not ready',
+            },
         },
         'pageOps': {
             'deleteAll': 'Não é possível eliminar todas as páginas do documento',

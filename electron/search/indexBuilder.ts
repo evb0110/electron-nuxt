@@ -20,6 +20,7 @@ import type { IOcrWord } from '@contracts/shared';
 import type {
     IOcrIndexV2Manifest,
     IOcrIndexV2Page,
+    TOcrIndexRotation,
 } from '@contracts/ocrIndex';
 import {
     OCR_TEXT_LAYER_INDEX_SOURCE,
@@ -54,6 +55,7 @@ export interface IPageIndex {
     words?: IOcrWord[];
     pageWidth?: number;
     pageHeight?: number;
+    rotation?: TOcrIndexRotation;
 }
 
 export interface IPdfSearchIndex {
@@ -70,7 +72,7 @@ export interface IPdfSearchIndex {
 
 const log = createLogger('indexBuilder');
 
-export const SEARCH_INDEX_SCHEMA_VERSION = 5;
+export const SEARCH_INDEX_SCHEMA_VERSION = 6;
 const SEARCH_PDFJS_FIRST_MAX_BYTES = (() => {
     const parsed = Number.parseInt(process.env.EVB_SEARCH_PDFJS_FIRST_MAX_MB ?? '96', 10);
     if (!Number.isFinite(parsed) || parsed < 16) {
@@ -96,6 +98,7 @@ interface IPageDataInput {
     text?: string;
     pageWidth?: number;
     pageHeight?: number;
+    rotation?: TOcrIndexRotation;
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -117,6 +120,12 @@ function isExpectedPageNumber(
 
 function finiteNumberOrUndefined(value: unknown) {
     return typeof value === 'number' && Number.isFinite(value)
+        ? value
+        : undefined;
+}
+
+function ocrRotationOrUndefined(value: unknown): TOcrIndexRotation | undefined {
+    return value === 0 || value === 90 || value === 180 || value === 270
         ? value
         : undefined;
 }
@@ -215,7 +224,7 @@ function parseOcrPagePayload(payload: unknown): IOcrIndexV2Page | null {
     }
     const page: IOcrIndexV2Page = {
         pageNumber: isPositiveInteger(payload.pageNumber) ? payload.pageNumber : 0,
-        rotation: 0,
+        rotation: ocrRotationOrUndefined(payload.rotation) ?? 0,
         render: {
             dpi: isRecord(payload.render)
                 ? finiteNumberOrUndefined(payload.render.dpi) ?? 0
@@ -320,6 +329,7 @@ async function loadOcrIndexPages(
                     text,
                     ...(pageData.render.imagePx.w > 0 ? { pageWidth: pageData.render.imagePx.w } : {}),
                     ...(pageData.render.imagePx.h > 0 ? { pageHeight: pageData.render.imagePx.h } : {}),
+                    rotation: pageData.rotation,
                     ...(words.length > 0 ? { words } : {}),
                 };
                 pagesByNumber.set(pageNum, indexedPage);
@@ -369,6 +379,10 @@ function parseSearchIndexPage(page: unknown): IPageIndex | null {
     const pageHeight = finiteNumberOrUndefined(page.pageHeight);
     if (pageHeight !== undefined) {
         normalizedPage.pageHeight = pageHeight;
+    }
+    const rotation = ocrRotationOrUndefined(page.rotation);
+    if (rotation !== undefined) {
+        normalizedPage.rotation = rotation;
     }
     return normalizedPage;
 }
@@ -520,6 +534,7 @@ function seedFromExistingIndex(
             text: page.text ?? '',
             ...(page.pageWidth !== undefined ? { pageWidth: page.pageWidth } : {}),
             ...(page.pageHeight !== undefined ? { pageHeight: page.pageHeight } : {}),
+            ...(page.rotation !== undefined ? { rotation: page.rotation } : {}),
             ...(page.words !== undefined ? { words: page.words } : {}),
         },
     ]));
@@ -606,6 +621,7 @@ function applyExtractedPages(
             text,
             ...(extractedPage.pageWidth !== undefined ? { pageWidth: extractedPage.pageWidth } : {}),
             ...(extractedPage.pageHeight !== undefined ? { pageHeight: extractedPage.pageHeight } : {}),
+            ...(extractedPage.rotation !== undefined ? { rotation: extractedPage.rotation } : {}),
             ...(extractedPage.words !== undefined ? { words: extractedPage.words } : {}),
         });
     }
@@ -856,6 +872,9 @@ function mergePageData(
         }
         if (page.pageHeight !== undefined) {
             indexedPage.pageHeight = page.pageHeight;
+        }
+        if (page.rotation !== undefined) {
+            indexedPage.rotation = page.rotation;
         }
         if (page.words.length > 0) {
             indexedPage.words = page.words;

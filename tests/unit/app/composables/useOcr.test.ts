@@ -323,7 +323,7 @@ describe('useOcr', () => {
         }
     });
 
-    it('passes poor scan OCR profile as clean searchable PDF options', async () => {
+    it('passes explicit OCR tuning options to searchable PDF creation', async () => {
         vi.stubGlobal('crypto', { randomUUID: () => '00000000-0000-4000-8000-000000000001' });
         mockOcr.onComplete.mockImplementation((handler) => {
             queueMicrotask(() => handler({
@@ -345,6 +345,8 @@ describe('useOcr', () => {
             ocr.settings.value = {
                 ...ocr.settings.value,
                 qualityProfile: 'poor-scan',
+                preprocessingMode: 'clean',
+                pageSegmentationMode: 6,
             };
 
             await ocr.runOcr(1, 1, '/tmp/work.pdf');
@@ -352,6 +354,7 @@ describe('useOcr', () => {
             expect(mockOcr.createSearchablePdf.mock.calls[0]?.[3]).toEqual({
                 qualityProfile: 'poor-scan',
                 preprocessingMode: 'clean',
+                pageSegmentationMode: 6,
             });
         } finally {
             scope.stop();
@@ -377,6 +380,62 @@ describe('useOcr', () => {
             expect(mockOcr.createSearchablePdf).not.toHaveBeenCalled();
             expect(ocr.error.value).toBe('errors.ocr.noLanguages');
             expect(ocr.progress.value.isRunning).toBe(false);
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('clears previous OCR results when a new run fails local validation', async () => {
+        interface IOcrCompleteTestResult {
+            requestId: string;
+            success: boolean;
+            pdfPath?: string;
+            requiresCleanupAck?: boolean;
+            errors: string[];
+        }
+
+        let completeHandler: ((result: IOcrCompleteTestResult) => void) | null = null;
+        const emitComplete = (result: IOcrCompleteTestResult) => {
+            const handler = completeHandler;
+            if (!handler) {
+                throw new Error('OCR completion handler was not registered');
+            }
+            handler(result);
+        };
+        mockOcr.onComplete.mockImplementation((handler) => {
+            completeHandler = handler;
+            return vi.fn();
+        });
+
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            const runPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+            await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
+            const requestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
+            emitComplete({
+                requestId,
+                success: true,
+                pdfPath: '/tmp/ocr-result.pdf',
+                requiresCleanupAck: true,
+                errors: [],
+            });
+            await runPromise;
+            expect(ocr.hasResults.value).toBe(true);
+
+            ocr.settings.value = {
+                ...ocr.settings.value,
+                selectedLanguages: [],
+            };
+            await ocr.runOcr(1, 1, '/tmp/work.pdf');
+
+            expect(ocr.error.value).toBe('errors.ocr.noLanguages');
+            expect(ocr.hasResults.value).toBe(false);
+            expect(mockOcr.createSearchablePdf).toHaveBeenCalledTimes(1);
         } finally {
             scope.stop();
         }
@@ -435,7 +494,7 @@ describe('useOcr', () => {
         try {
             await ocr.runOcr(1, 1, '/tmp/work.pdf');
 
-            expect(ocr.error.value).toBe('errors.ocr.start: OCR queue is full');
+            expect(ocr.error.value).toBe('errors.ocr.errorCode.queueBackpressure: OCR queue is full');
         } finally {
             scope.stop();
         }
@@ -489,7 +548,7 @@ describe('useOcr', () => {
             });
             await runPromise;
 
-            expect(ocr.error.value).toBe('errors.ocr.createSearchablePdf: OCR worker unavailable');
+            expect(ocr.error.value).toBe('errors.ocr.errorCode.workerUnavailable: OCR worker unavailable');
         } finally {
             scope.stop();
         }

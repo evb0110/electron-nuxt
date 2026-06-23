@@ -7,6 +7,7 @@ import type { IOcrWord } from '@contracts/shared';
 import {
     buildOcrTextLayerIndexText,
     buildOcrTextLayerItemText,
+    buildOcrWordKey,
     isLastOcrWordInLine,
 } from '@contracts/ocrText';
 
@@ -23,6 +24,16 @@ function word(text: string, y: number, height = 10): IOcrWord {
 describe('OCR text contracts', () => {
     it('builds item text with a trailing word separator', () => {
         expect(buildOcrTextLayerItemText(word('alpha', 0))).toBe('alpha ');
+    });
+
+    it('builds stable OCR word keys from text and geometry', () => {
+        expect(buildOcrWordKey({
+            text: 'alpha',
+            x: 1,
+            y: 2,
+            width: 3,
+            height: 4,
+        })).toBe('alpha|1|2|3|4');
     });
 
     it('returns empty index text for empty word arrays', () => {

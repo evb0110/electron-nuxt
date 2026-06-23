@@ -18,6 +18,7 @@ export type {
     IAgentOcrRunOptions,
     IOcrPopupAgentExpose,
     TAgentOcrPageRange,
+    TOcrPreprocessingMode,
     TOcrQualityProfile,
 } from '@app/types/ocrAgent';
 

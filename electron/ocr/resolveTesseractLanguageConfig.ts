@@ -3,12 +3,7 @@ import {
     partition,
     uniq,
 } from 'es-toolkit/array';
-
-const RTL_LANGUAGE_CODES = new Set([
-    'ara',
-    'heb',
-    'syr',
-]);
+import { isRtlOcrLanguage } from '@contracts/ocrLanguages';
 
 const LATIN_WORD_BOUNDARY_CONFIG = [
     '-c',
@@ -43,10 +38,6 @@ interface ITesseractLanguageConfig {
 }
 
 interface ITesseractLanguageConfigOptions { preserveDictionaries?: boolean; }
-
-function isRtlOcrLanguage(code: string) {
-    return RTL_LANGUAGE_CODES.has(code);
-}
 
 export function resolveTesseractLanguageConfig(
     languages: string[],

@@ -9,7 +9,9 @@ import {
 import { extname } from 'path';
 import type {
     IOcrCancelResult,
+    IOcrErrorEnvelope,
     IOcrProgress,
+    IOcrRecognizeBatchResult,
     IOcrRecognizeResult,
     IOcrToolValidationResult,
 } from '@contracts/electronApiOcr';
@@ -50,6 +52,11 @@ import {
     getSequentialProgressPage,
     getTesseractThreadLimit,
 } from '@electron/utils/concurrency';
+import {
+    OCR_QUEUE_MAX_BUFFERED_BYTES,
+    OCR_QUEUE_MAX_SIZE,
+    OCR_WORKER_POOL_SIZE,
+} from '@electron/ocr/jobManager.config';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import { requireManagedWorkingCopyPath } from '@electron/file-access/workingCopyCreation';
 import { getErrorMessage } from '@electron/utils/error';
@@ -57,6 +64,122 @@ import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import type { TOcrIpcMainRegistrar } from '@electron/features/ocr/ports';
 
 const log = createLogger('ocr-ipc');
+
+class PlainOcrBackpressureError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'PlainOcrBackpressureError';
+    }
+}
+
+class PlainOcrLimiter {
+    private activeCount = 0;
+    private queuedBytes = 0;
+    private readonly queue: Array<{
+        byteCost: number;
+        resolve: (release: () => void) => void;
+        reject: (error: Error) => void;
+        abortHandler: (() => void) | undefined;
+        signal: AbortSignal;
+    }> = [];
+
+    async run<T>(
+        byteCost: number,
+        signal: AbortSignal,
+        task: () => Promise<T>,
+    ): Promise<T> {
+        const release = await this.acquire(byteCost, signal);
+        try {
+            return await task();
+        } finally {
+            release();
+        }
+    }
+
+    private acquire(byteCost: number, signal: AbortSignal): Promise<() => void> {
+        if (signal.aborted) {
+            return Promise.reject(new Error('Tesseract aborted'));
+        }
+
+        if (this.queue.length === 0 && this.activeCount < OCR_WORKER_POOL_SIZE) {
+            return Promise.resolve(this.createLease());
+        }
+
+        if (this.queue.length >= OCR_QUEUE_MAX_SIZE) {
+            return Promise.reject(new PlainOcrBackpressureError(`OCR queue is full (${OCR_QUEUE_MAX_SIZE} jobs)`));
+        }
+        if (this.queuedBytes + byteCost > OCR_QUEUE_MAX_BUFFERED_BYTES) {
+            return Promise.reject(new PlainOcrBackpressureError(
+                `OCR queued image data exceeds maximum total size (${OCR_QUEUE_MAX_BUFFERED_BYTES} bytes)`,
+            ));
+        }
+
+        return new Promise<() => void>((resolve, reject) => {
+            const entry = {
+                byteCost,
+                resolve,
+                reject,
+                signal,
+                abortHandler: undefined as (() => void) | undefined,
+            };
+            entry.abortHandler = () => {
+                const index = this.queue.indexOf(entry);
+                if (index >= 0) {
+                    this.queue.splice(index, 1);
+                    this.queuedBytes -= byteCost;
+                }
+                reject(new Error('Tesseract aborted'));
+            };
+            this.queue.push(entry);
+            this.queuedBytes += byteCost;
+            signal.addEventListener('abort', entry.abortHandler, { once: true });
+        });
+    }
+
+    private createLease() {
+        this.activeCount += 1;
+        let released = false;
+        return () => {
+            if (released) {
+                return;
+            }
+            released = true;
+            this.activeCount = Math.max(0, this.activeCount - 1);
+            this.dispatch();
+        };
+    }
+
+    private dispatch() {
+        while (this.activeCount < OCR_WORKER_POOL_SIZE && this.queue.length > 0) {
+            const entry = this.queue.shift();
+            if (!entry) {
+                return;
+            }
+            this.queuedBytes -= entry.byteCost;
+            if (entry.abortHandler) {
+                entry.signal?.removeEventListener('abort', entry.abortHandler);
+            }
+            if (entry.signal?.aborted) {
+                entry.reject(new Error('Tesseract aborted'));
+                continue;
+            }
+            entry.resolve(this.createLease());
+        }
+    }
+}
+
+const plainOcrLimiter = new PlainOcrLimiter();
+
+function toPlainOcrErrorEnvelope(error: unknown): IOcrErrorEnvelope {
+    if (error instanceof PlainOcrBackpressureError) {
+        return buildOcrErrorEnvelope('OCR_QUEUE_BACKPRESSURE', error.message, {retryable: true});
+    }
+    return toOcrErrorEnvelope(error);
+}
+
+function createPlainOcrFailureEnvelope(message: string): IOcrErrorEnvelope {
+    return buildOcrErrorEnvelope('OCR_INTERNAL_ERROR', message || 'OCR failed');
+}
 
 function createSenderAbortSignal(sender: WebContents) {
     const controller = new AbortController();
@@ -105,7 +228,11 @@ async function handleOcrRecognize(
         const request = validateRecognizeRequest(requestPayload);
         pageNumber = request.pageNumber;
         const imageBuffer = Buffer.from(request.imageData);
-        const result = await runOcr(imageBuffer, request.languages, {signal: senderAbort.signal});
+        const result = await plainOcrLimiter.run(
+            imageBuffer.byteLength,
+            senderAbort.signal,
+            () => runOcr(imageBuffer, request.languages, {signal: senderAbort.signal}),
+        );
 
         const response: IOcrRecognizeResult = {
             pageNumber: request.pageNumber,
@@ -114,10 +241,13 @@ async function handleOcrRecognize(
         };
         if (typeof result.error === 'string') {
             response.error = result.error;
+            if (!result.success) {
+                response.errorEnvelope = createPlainOcrFailureEnvelope(result.error);
+            }
         }
         return response;
     } catch (error) {
-        const envelope = toOcrErrorEnvelope(error);
+        const envelope = toPlainOcrErrorEnvelope(error);
         log.warn(`ocr:recognize failed: ${envelope.message}`);
         return {
             pageNumber,
@@ -147,6 +277,7 @@ async function handleOcrRecognizeBatch(
         const window = BrowserWindow.fromWebContents(event.sender);
         const results: Record<number, string> = {};
         const errors: string[] = [];
+        let firstErrorEnvelope: IOcrErrorEnvelope | undefined;
         const progressPump = createIpcProgressPump<IOcrProgress>({
             channel: OCR_EVENT_CHANNELS.progress,
             getTarget: () => ({
@@ -181,26 +312,35 @@ async function handleOcrRecognizeBatch(
         try {
             await forEachConcurrent(targetPages, concurrency, async (page) => {
                 if (senderAbort.signal.aborted) {
-                    errors.push(`Page ${page.pageNumber}: Tesseract aborted`);
+                    const envelope = createPlainOcrFailureEnvelope('Tesseract aborted');
+                    errors.push(`Page ${page.pageNumber}: ${envelope.message}`);
+                    firstErrorEnvelope ??= envelope;
                     return;
                 }
 
                 const imageBuffer = Buffer.from(page.imageData);
 
                 try {
-                    const result = await runOcr(imageBuffer, page.languages, {
-                        threads: tesseractThreads,
-                        signal: senderAbort.signal,
-                    });
+                    const result = await plainOcrLimiter.run(
+                        imageBuffer.byteLength,
+                        senderAbort.signal,
+                        () => runOcr(imageBuffer, page.languages, {
+                            threads: tesseractThreads,
+                            signal: senderAbort.signal,
+                        }),
+                    );
 
                     if (result.success) {
                         results[page.pageNumber] = result.text;
                     } else {
-                        errors.push(`Page ${page.pageNumber}: ${result.error}`);
+                        const message = result.error ?? 'OCR failed';
+                        errors.push(`Page ${page.pageNumber}: ${message}`);
+                        firstErrorEnvelope ??= createPlainOcrFailureEnvelope(message);
                     }
                 } catch (err) {
-                    const errMsg = getErrorMessage(err);
-                    errors.push(`Page ${page.pageNumber}: ${errMsg}`);
+                    const envelope = toPlainOcrErrorEnvelope(err);
+                    errors.push(`Page ${page.pageNumber}: ${envelope.message}`);
+                    firstErrorEnvelope ??= envelope;
                 } finally {
                     processedCount += 1;
                     progressPump.enqueue({
@@ -215,12 +355,16 @@ async function handleOcrRecognizeBatch(
             progressPump.clear();
         }
 
-        return {
+        const response: IOcrRecognizeBatchResult = {
             results,
             errors,
         };
+        if (firstErrorEnvelope) {
+            response.errorEnvelope = firstErrorEnvelope;
+        }
+        return response;
     } catch (error) {
-        const envelope = toOcrErrorEnvelope(error);
+        const envelope = toPlainOcrErrorEnvelope(error);
         log.warn(`ocr:recognizeBatch failed: ${envelope.message}`);
         return {
             results: {},
@@ -338,10 +482,14 @@ async function handleOcrCreateSearchablePdf(
         );
 
         if (!result.started && result.error) {
+            const {
+                errorCode,
+                ...publicResult
+            } = result;
             return {
-                ...result,
+                ...publicResult,
                 errorEnvelope: buildOcrErrorEnvelope(
-                    mapStartFailureCode(result.error),
+                    errorCode ?? mapStartFailureCode(result.error),
                     result.error,
                     {retryable: true},
                 ),

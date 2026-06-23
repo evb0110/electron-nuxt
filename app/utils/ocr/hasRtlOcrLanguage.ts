@@ -1,9 +1,5 @@
-const RTL_OCR_LANGUAGES: ReadonlySet<string> = new Set([
-    'ara',
-    'heb',
-    'syr',
-]);
+import { isRtlOcrLanguage } from '@contracts/ocrLanguages';
 
 export function hasRtlOcrLanguage(languages: readonly string[]) {
-    return languages.some(lang => RTL_OCR_LANGUAGES.has(lang));
+    return languages.some(isRtlOcrLanguage);
 }

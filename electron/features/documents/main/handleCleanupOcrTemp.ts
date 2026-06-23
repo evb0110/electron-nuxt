@@ -4,11 +4,12 @@ import { isErrnoException } from '@contracts/runtimeGuards';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { findPendingOcrResultFileForPath } from '@electron/ocr/createPendingResultFileStore';
 
 const logger = createLogger('documents-fileOps');
 
 export async function handleCleanupOcrTemp(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
 ) {
     const normalizedPath = typeof filePath === 'string' ? filePath.trim() : '';
@@ -26,6 +27,9 @@ export async function handleCleanupOcrTemp(
         const isOcrArtifact = fileName.startsWith('ocr-') || fileName.startsWith('searchable-');
 
         if (!isOcrArtifact) {
+            return;
+        }
+        if (!findPendingOcrResultFileForPath(event.sender.id, resolvedPath)) {
             return;
         }
 

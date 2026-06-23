@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import {
+    parseInvalidOcrWorkerStartMessage,
     parseOcrWorkerInboundMessage,
     parseOcrWorkerStartPayload,
 } from '@electron/ocr/worker/inboundMessage';
@@ -113,6 +114,30 @@ describe('OCR worker inbound message parsing', () => {
             token: 'token',
             effectiveDpi: 180,
         });
+        expect(parseOcrWorkerInboundMessage({
+            type: 'resource-acquired',
+            jobId: 'job-1',
+            requestId: 'resource-low-dpi',
+            token: 'token',
+            effectiveDpi: 12,
+        })).toEqual({
+            type: 'resource-acquired',
+            jobId: 'job-1',
+            requestId: 'resource-low-dpi',
+            token: 'token',
+            effectiveDpi: 12,
+        });
+        expect(parseOcrWorkerInboundMessage({
+            type: 'resource-denied',
+            jobId: 'job-1',
+            requestId: 'resource-2',
+            reason: 'job is no longer active',
+        })).toEqual({
+            type: 'resource-denied',
+            jobId: 'job-1',
+            requestId: 'resource-2',
+            reason: 'job is no longer active',
+        });
     });
 
     it('rejects unknown or incomplete worker messages', () => {
@@ -125,8 +150,50 @@ describe('OCR worker inbound message parsing', () => {
             jobId: 'job-1',
         })).toBeNull();
         expect(parseOcrWorkerInboundMessage({
+            type: 'resource-acquired',
+            jobId: 'job-1',
+            requestId: 'resource-1',
+            token: 'token',
+            effectiveDpi: 0,
+        })).toBeNull();
+        expect(parseOcrWorkerInboundMessage({
+            type: 'resource-denied',
+            jobId: 'job-1',
+            requestId: 'resource-1',
+            reason: '',
+        })).toBeNull();
+        expect(parseOcrWorkerInboundMessage({
             type: 'unknown',
             jobId: 'job-1',
+        })).toBeNull();
+    });
+
+    it('detects invalid start payloads that still have a valid job id', () => {
+        expect(parseInvalidOcrWorkerStartMessage({
+            type: 'start',
+            jobId: 'job-1',
+            data: {
+                sourcePdfPath: '/tmp/source.pdf',
+                pages: [{
+                    pageNumber: 1,
+                    languages: ['not-a-real-language'],
+                }],
+            },
+        })).toEqual({
+            jobId: 'job-1',
+            error: 'Invalid OCR worker start payload',
+        });
+
+        expect(parseInvalidOcrWorkerStartMessage({
+            type: 'start',
+            jobId: 'job-1',
+            data: {
+                sourcePdfPath: '/tmp/source.pdf',
+                pages: [{
+                    pageNumber: 1,
+                    languages: ['eng'],
+                }],
+            },
         })).toBeNull();
     });
 });

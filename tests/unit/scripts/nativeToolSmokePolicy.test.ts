@@ -99,4 +99,19 @@ describe('native tool smoke policy', () => {
             'Packaged tool smoke test output for qpdf did not match any expected signature',
         );
     });
+
+    it('keeps packaged OCR verification production-like and registry-complete', () => {
+        const verifierSource = readFileSync(resolve(process.cwd(), 'scripts/verify-packaged-native-tools.sh'), 'utf-8');
+
+        expect(verifierSource).toContain('verify_tessdata_registry_complete "$tessdata_dir"');
+        expect(verifierSource).toContain('get_registry_language_codes');
+        expect(verifierSource).toContain('packages/contracts/ocrLanguages.ts');
+        expect(verifierSource).not.toContain('DYLD_LIBRARY_PATH=');
+        expect(verifierSource).not.toContain('LD_LIBRARY_PATH=');
+        expect(verifierSource).toContain('Unable to read Windows import table');
+        expect(verifierSource).toContain('No readable Windows import table entries found');
+        expect(verifierSource).toContain('run_host_packaged_tool_smoke "tesseract" "tesseract"');
+        expect(verifierSource).toContain('run_host_packaged_tool_smoke "unpaper" "unpaper|usage"');
+        expect(verifierSource).toContain('Windows unpaper preprocessing is explicitly unavailable');
+    });
 });

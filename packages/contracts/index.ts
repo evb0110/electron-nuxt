@@ -180,6 +180,10 @@ export type {
 export {
     AVAILABLE_OCR_LANGUAGES,
     AVAILABLE_OCR_LANGUAGE_CODES,
+    GREEK_OCR_LANGUAGE_CODES,
+    RTL_OCR_LANGUAGE_CODES,
+    isGreekOcrLanguage,
+    isRtlOcrLanguage,
 } from '@contracts/ocrLanguages';
 
 export {
@@ -220,6 +224,7 @@ export { isOcrWord } from '@contracts/shared';
 export {
     OCR_TEXT_LAYER_INDEX_SOURCE,
     OCR_TEXT_LAYER_INDEX_VERSION,
+    buildOcrWordKey,
     buildOcrTextLayerIndexText,
     buildOcrTextLayerItemText,
     isLastOcrWordInLine,

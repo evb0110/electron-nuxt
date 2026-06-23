@@ -129,6 +129,33 @@ describe('runOcr setup failure cleanup', () => {
         });
         expect(child.kill).toHaveBeenCalledWith('SIGKILL');
     });
+
+    it('fails instead of returning truncated successful plain OCR text', async () => {
+        vi.stubEnv('EVB_TESSERACT_MAX_STDOUT_BYTES', '1024');
+        try {
+            const child = new MockChildProcess();
+            const stdin = new MockStdin();
+            child.stdin = stdin;
+            mocks.spawn.mockReturnValue(child);
+
+            const { runOcr } = await import('@electron/ocr/runOcr');
+            const resultPromise = runOcr(Buffer.from('image'), ['eng']);
+            await vi.waitFor(() => {
+                expect(mocks.spawn).toHaveBeenCalledTimes(1);
+            });
+
+            child.stdout.emit('data', Buffer.alloc(2048, 'a'));
+            child.emit('close', 0);
+
+            await expect(resultPromise).resolves.toEqual({
+                success: false,
+                text: '',
+                error: 'Tesseract output exceeded maximum size (1024 bytes)',
+            });
+        } finally {
+            vi.unstubAllEnvs();
+        }
+    });
 });
 
 describe('Tesseract TSV geometry parsing', () => {
@@ -187,7 +214,7 @@ describe('Tesseract TSV geometry parsing', () => {
                     height: 30,
                 },
             ],
-            text: 'First faint\nSecond',
+            text: 'First\nSecond',
         });
     });
 });

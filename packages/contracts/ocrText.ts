@@ -7,6 +7,10 @@ export function buildOcrTextLayerItemText(word: Pick<IOcrWord, 'text'>) {
     return `${word.text} `;
 }
 
+export function buildOcrWordKey(word: Pick<IOcrWord, 'text' | 'x' | 'y' | 'width' | 'height'>) {
+    return `${word.text}|${word.x}|${word.y}|${word.width}|${word.height}`;
+}
+
 export function isLastOcrWordInLine(
     words: readonly IOcrWord[],
     index: number,

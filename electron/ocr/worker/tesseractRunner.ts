@@ -7,6 +7,7 @@ import {
 } from 'fs/promises';
 import type { IOcrWord } from '@contracts/shared';
 import type { IOcrSearchablePdfOptions } from '@contracts/electronApiOcr';
+import { isGreekOcrLanguage } from '@contracts/ocrLanguages';
 import type { IOcrFileResult } from '@electron/ocr/worker/types';
 import { resolveTesseractLanguageConfig } from '@electron/ocr/resolveTesseractLanguageConfig';
 import { getErrorMessage } from '@electron/utils/error';
@@ -36,6 +37,10 @@ const FILE_BASED_OCR_MAX_STDERR_BYTES = parseIntegerEnv('EVB_OCR_FILE_BASED_MAX_
 
 function shouldPreserveDictionaries(options: IOcrSearchablePdfOptions | undefined) {
     return options?.qualityProfile === 'accurate';
+}
+
+export function shouldNormalizeGreekMicroSign(languages: readonly string[]) {
+    return languages.some(isGreekOcrLanguage);
 }
 
 function buildTesseractProfileArgs(options: IOcrSearchablePdfOptions | undefined) {
@@ -179,6 +184,22 @@ export async function runOcrFileBased(
             });
         };
 
+        const scheduleForceFinalizeAfterTermination = (error: string) => {
+            if (handles.forceFinalizeHandle) {
+                return;
+            }
+            handles.forceFinalizeHandle = setTimeout(async () => {
+                await cleanupTempOutputs();
+                finalize({
+                    success: false,
+                    pageData: null,
+                    pdfPath: null,
+                    error,
+                });
+            }, FILE_BASED_OCR_KILL_GRACE_MS + 1_000);
+            handles.forceFinalizeHandle.unref?.();
+        };
+
         const getCloseFailureMessage = (code: number | null, stderrSummary: string) => {
             if (aborted) {
                 return 'Tesseract aborted';
@@ -199,7 +220,7 @@ export async function runOcrFileBased(
                 const { words } = parsedTsv;
                 let pageText = parsedTsv.text;
 
-                if (languages.includes('ell')) {
+                if (shouldNormalizeGreekMicroSign(languages)) {
                     for (const word of words) {
                         word.text = word.text.replace(/\u00B5/g, '\u03BC');
                     }
@@ -236,6 +257,7 @@ export async function runOcrFileBased(
             abortHandler = () => {
                 aborted = true;
                 void requestTermination();
+                scheduleForceFinalizeAfterTermination('Tesseract aborted');
             };
             signal.addEventListener('abort', abortHandler, { once: true });
         }
@@ -253,16 +275,7 @@ export async function runOcrFileBased(
             }, FILE_BASED_OCR_KILL_GRACE_MS);
             handles.killHandle.unref?.();
 
-            handles.forceFinalizeHandle = setTimeout(async () => {
-                await cleanupTempOutputs();
-                finalize({
-                    success: false,
-                    pageData: null,
-                    pdfPath: null,
-                    error: `Tesseract timed out after ${FILE_BASED_OCR_TIMEOUT_MS}ms`,
-                });
-            }, FILE_BASED_OCR_KILL_GRACE_MS + 1_000);
-            handles.forceFinalizeHandle.unref?.();
+            scheduleForceFinalizeAfterTermination(`Tesseract timed out after ${FILE_BASED_OCR_TIMEOUT_MS}ms`);
         }, FILE_BASED_OCR_TIMEOUT_MS);
         handles.timeoutHandle.unref?.();
 
@@ -314,9 +327,29 @@ interface IParsedTsvWordRow {
     height: number;
 }
 
+const TESSERACT_TSV_HEADER = [
+    'level',
+    'page_num',
+    'block_num',
+    'par_num',
+    'line_num',
+    'word_num',
+    'left',
+    'top',
+    'width',
+    'height',
+    'conf',
+    'text',
+] as const;
+
 function parsePositiveTsvInt(value: string | undefined) {
     const parsed = parseInt(value ?? '', 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseNonNegativeTsvInt(value: string | undefined) {
+    const parsed = parseInt(value ?? '', 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 export function parseTsvOcrData(tsvContent: string): {
@@ -334,7 +367,7 @@ export function parseTsvOcrData(tsvContent: string): {
     for (const row of iterateTsvRows(tsvContent)) {
         const level = parseInt(row.parts[0]!, 10);
         if (level === 4) {
-            const top = parsePositiveTsvInt(row.parts[7]);
+            const top = parseNonNegativeTsvInt(row.parts[7]);
             const height = parsePositiveTsvInt(row.parts[9]);
             if (top !== null && height !== null) {
                 lineBoxes.set(getTsvLineKey(row.parts), {
@@ -346,7 +379,6 @@ export function parseTsvOcrData(tsvContent: string): {
         }
         if (level !== 5) continue;
 
-        appendTsvTextRow(textState, row);
         const left = parseInt(row.parts[6]!, 10);
         const top = parseInt(row.parts[7]!, 10);
         const width = parseInt(row.parts[8]!, 10);
@@ -355,6 +387,7 @@ export function parseTsvOcrData(tsvContent: string): {
         if (confidence < 20) continue;
         if (width <= 0 || height <= 0) continue;
 
+        appendTsvTextRow(textState, row);
         acceptedWordRows.push({
             parts: row.parts,
             text: row.text,
@@ -430,7 +463,12 @@ function* iterateTsvRows(tsvContent: string): Generator<{
     parts: string[];
     text: string;
 }> {
-    const lines = tsvContent.trim().split('\n');
+    const lines = tsvContent.trim().split(/\r?\n/);
+    const header = lines[0]?.split('\t') ?? [];
+    const hasValidHeader = TESSERACT_TSV_HEADER.every((column, index) => header[index] === column);
+    if (!hasValidHeader) {
+        throw new Error('Invalid Tesseract TSV output');
+    }
     if (lines.length < 2) {
         return;
     }

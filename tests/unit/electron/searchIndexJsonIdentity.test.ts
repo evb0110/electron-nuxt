@@ -39,7 +39,7 @@ describe('search index JSON identity', () => {
         const pdfPath = join(tempDir, 'current.pdf');
         const otherPdfPath = join(tempDir, 'other.pdf');
         await writeFile(`${pdfPath}.index.json`, JSON.stringify({
-            schemaVersion: 5,
+            schemaVersion: 6,
             pdfPath: otherPdfPath,
             createdAt: Date.now(),
             pageCount: 1,

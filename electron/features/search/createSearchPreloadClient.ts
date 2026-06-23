@@ -7,6 +7,7 @@ import type {
     IPdfSearchResult,
     ISearchPreloadClient,
 } from '@contracts/search';
+import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import {
     normalizeOptionalSearchRequestId,
     normalizePdfSearchRequestPayload,
@@ -27,6 +28,10 @@ import {
 
 function isFiniteNumber(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isOcrRotation(value: unknown): value is TOcrIndexRotation {
+    return value === 0 || value === 90 || value === 180 || value === 270;
 }
 
 function decodeSearchExcerpt(value: unknown): IPdfSearchExcerpt | null {
@@ -73,6 +78,9 @@ function decodeSearchResult(value: unknown): IPdfSearchResult | null {
     if (value.pageHeight !== undefined && !isFiniteNumber(value.pageHeight)) {
         return null;
     }
+    if (value.rotation !== undefined && !isOcrRotation(value.rotation)) {
+        return null;
+    }
 
     return {
         pageNumber: toPageNumber(value.pageNumber),
@@ -84,6 +92,7 @@ function decodeSearchResult(value: unknown): IPdfSearchResult | null {
         ...(value.words === undefined ? {} : {words: value.words as NonNullable<IPdfSearchResult['words']>}),
         ...(value.pageWidth === undefined ? {} : {pageWidth: value.pageWidth}),
         ...(value.pageHeight === undefined ? {} : {pageHeight: value.pageHeight}),
+        ...(value.rotation === undefined ? {} : {rotation: value.rotation}),
     };
 }
 

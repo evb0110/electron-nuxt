@@ -73,6 +73,16 @@ const OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS = (() => {
     }
     return Math.min(parsed, 2_000);
 })();
+const OCR_WORKER_CLEANUP_GRACE_MS = (() => {
+    const parsed = Number.parseInt(
+        process.env.EVB_OCR_WORKER_CLEANUP_GRACE_MS ?? String(OCR_WORKER_TERMINATE_TIMEOUT_MS),
+        10,
+    );
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        return OCR_WORKER_TERMINATE_TIMEOUT_MS;
+    }
+    return Math.min(parsed, 60_000);
+})();
 
 const activeJobs = new Map<string, IOcrActiveJob>();
 const queuedJobs: IOcrQueuedJob[] = [];
@@ -81,6 +91,7 @@ const preparingJobs = new Map<string, IOcrPreparingJob>();
 const cancelledJobs = new Set<string>();
 const registeredSenderCleanupIds = new Set<number>();
 const progressPumpsByScopedJobId = new Map<string, ReturnType<typeof createIpcProgressPump<IOcrProgress>>>();
+const workerCleanupTimersByScopedJobId = new Map<string, NodeJS.Timeout>();
 
 function assertNever(value: never) {
     throw new Error(`Unhandled OCR worker message: ${JSON.stringify(value)}`);
@@ -118,7 +129,10 @@ function getOcrProgressPump(
             ),
         }),
         getKey: payload => payload.requestId,
-        isTerminal: payload => payload.totalPages > 0 && payload.processedCount >= payload.totalPages,
+        isTerminal: payload =>
+            payload.phase === 'indexing'
+            && payload.totalPages > 0
+            && payload.processedCount >= payload.totalPages,
         onError: error => {
             log.debug(`Failed to send OCR progress: ${getErrorMessage(error)}`);
         },
@@ -170,8 +184,9 @@ function sendOcrProgressStage(
     });
 }
 
-function getBufferedBytes() {
-    const preparingBytes = sumBy([...preparingJobs.values()], job => job.requestedBytes);
+function getBufferedBytes(options: { excludePreparingJobId?: string } = {}) {
+    const preparingBytes = sumBy([...preparingJobs.values()], job =>
+        job.scopedJobId === options.excludePreparingJobId ? 0 : job.requestedBytes);
     const activeBytes = sumBy([...activeJobs.values()], job => job.requestedBytes);
     const queuedBytes = sumBy(queuedJobs, job => job.requestedBytes);
     return preparingBytes + activeBytes + queuedBytes;
@@ -200,11 +215,16 @@ function evictStaleQueuedJobs(nowMs = Date.now()) {
 async function removeResultFile(path: string) {
     try {
         await unlink(path);
+        return true;
     } catch (err) {
         const code = isErrnoException(err) ? err.code : undefined;
+        if (code === 'ENOENT') {
+            return true;
+        }
         if (code !== 'ENOENT') {
             log.warn(`Failed to cleanup OCR temp result file "${path}": ${getErrorMessage(err)}`);
         }
+        return false;
     }
 }
 const pendingResultFileStore = createPendingResultFileStore({
@@ -232,7 +252,7 @@ function ensureQueueCapacity(
         };
     }
 
-    const bufferedBytes = getBufferedBytes();
+    const bufferedBytes = getBufferedBytes(options);
     if (bufferedBytes + additionalBytes > OCR_QUEUE_MAX_BUFFERED_BYTES) {
         return {
             ok: false,
@@ -277,6 +297,7 @@ function abortPreparingJob(
     if (!preparingJob.abortController.signal.aborted) {
         preparingJob.abortController.abort(createAbortError(reason));
     }
+    clearOcrProgressPump(scopedJobId, preparingJob.requestId);
     return true;
 }
 
@@ -286,6 +307,7 @@ function removeQueuedJob(scopedJobId: string) {
         return null;
     }
     queuedJobIds.delete(scopedJobId);
+    clearOcrProgressPump(scopedJobId, job.requestId);
     return job;
 }
 
@@ -296,6 +318,15 @@ function clearJobWatchdog(scopedJobId: string) {
     }
     clearTimeout(activeJob.watchdogTimer);
     activeJob.watchdogTimer = null;
+}
+
+function clearWorkerCleanupTimer(scopedJobId: string) {
+    const timer = workerCleanupTimersByScopedJobId.get(scopedJobId);
+    if (!timer) {
+        return;
+    }
+    clearTimeout(timer);
+    workerCleanupTimersByScopedJobId.delete(scopedJobId);
 }
 
 function resetJobWatchdog(job: IOcrQueuedJob) {
@@ -336,7 +367,9 @@ async function terminateWorkerSafely(
         if (OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS > 0) {
             await delay(OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS);
         }
-        await withTimeout(() => worker.terminate(), OCR_WORKER_TERMINATE_TIMEOUT_MS);
+        const terminatePromise = worker.terminate();
+        void terminatePromise.catch(() => undefined);
+        await withTimeout(() => terminatePromise, OCR_WORKER_TERMINATE_TIMEOUT_MS);
     } catch (error) {
         log.warn(`[${scopedJobId}] Failed to terminate OCR worker (${reason}): ${getErrorMessage(error)}`);
     }
@@ -358,14 +391,17 @@ function terminateAndFinalizeActiveJob(
     activeJob.terminatedByUs = true;
     if (options.markCancelled) {
         cancelledJobs.add(scopedJobId);
-        removePendingCompletionResultFile(activeJob);
+        if (!activeJob.terminalResultSent) {
+            removePendingCompletionResultFile(activeJob);
+        }
     }
     clearJobWatchdog(scopedJobId);
-    finalizeActiveJob(scopedJobId);
+    clearWorkerCleanupTimer(scopedJobId);
     void terminateWorkerSafely(scopedJobId, activeJob.worker, options.reason, activeJob.requestId).finally(() => {
         if (options.markCancelled) {
             cancelledJobs.delete(scopedJobId);
         }
+        finalizeActiveJob(scopedJobId);
     });
 }
 
@@ -442,6 +478,8 @@ function registerSenderCleanup(event: IpcMainInvokeEvent) {
 
     event.sender.once('destroyed', handleDestroyed);
     event.sender.once('render-process-gone', handleRenderProcessGone);
+    // Navigation can happen repeatedly during one renderer lifetime; this is
+    // registered once per sender and removed by the shared cleanup handler.
     event.sender.on('did-start-navigation', handleNavigation);
 }
 
@@ -479,10 +517,36 @@ function trackPendingCompletionResultFile(job: IOcrActiveJob) {
         return false;
     }
 
-    pendingResultFileStore.track(job.scopedJobId, job.requestId, job.webContentsId, result.pdfPath);
+    pendingResultFileStore.track(
+        job.scopedJobId,
+        job.requestId,
+        job.webContentsId,
+        result.pdfPath,
+        result.requiresCleanupAck,
+    );
     void pendingResultFileStore.evictStale();
     job.pendingCompletionResult = null;
     return true;
+}
+
+function startWorkerCleanupGraceTimer(job: IOcrActiveJob) {
+    clearWorkerCleanupTimer(job.scopedJobId);
+    if (OCR_WORKER_CLEANUP_GRACE_MS === 0) {
+        terminateAndFinalizeActiveJob(job.scopedJobId, { reason: 'worker cleanup grace disabled after terminal result' });
+        return;
+    }
+
+    const timer = setTimeout(() => {
+        const activeJob = activeJobs.get(job.scopedJobId);
+        if (!activeJob || activeJob.worker !== job.worker || !activeJob.terminalResultSent) {
+            return;
+        }
+
+        log.warn(`[${job.scopedJobId}] OCR worker cleanup did not complete within ${OCR_WORKER_CLEANUP_GRACE_MS}ms after terminal result`);
+        terminateAndFinalizeActiveJob(job.scopedJobId, { reason: 'worker cleanup timed out after terminal result' });
+    }, OCR_WORKER_CLEANUP_GRACE_MS);
+    timer.unref?.();
+    workerCleanupTimersByScopedJobId.set(job.scopedJobId, timer);
 }
 
 function sendPendingCompletionResult(job: IOcrActiveJob) {
@@ -498,6 +562,7 @@ function sendPendingCompletionResult(job: IOcrActiveJob) {
     }
     job.terminalResultSent = true;
     clearJobWatchdog(job.scopedJobId);
+    startWorkerCleanupGraceTimer(job);
     const terminalResult = result.success || result.errorEnvelope
         ? result
         : {
@@ -526,6 +591,7 @@ function removePendingCompletionResultFile(job: IOcrActiveJob) {
 
 function finalizeActiveJob(scopedJobId: string) {
     clearJobWatchdog(scopedJobId);
+    clearWorkerCleanupTimer(scopedJobId);
     ocrResourceGovernor.releaseJob(scopedJobId);
     const activeJob = activeJobs.get(scopedJobId);
     if (activeJob) {
@@ -581,10 +647,25 @@ function handleWorkerResourceMessage(
         resourceRequest.pageHeightIn = message.pageHeightIn;
     }
 
+    const sendResourceDenied = (reason: string) => {
+        const response: TOcrWorkerInboundMessage = {
+            type: 'resource-denied',
+            jobId: message.jobId,
+            requestId: message.requestId,
+            reason,
+        };
+        try {
+            worker.postMessage(response);
+        } catch (error) {
+            log.debug(`[${scopedJobId}] Failed to send OCR resource denial: ${getErrorMessage(error)}`);
+        }
+    };
+
     void ocrResourceGovernor.acquire(resourceRequest).then((lease) => {
         const active = activeJobs.get(scopedJobId);
         if (!active || active.worker !== worker || active.completed || active.terminatedByUs) {
             ocrResourceGovernor.release(lease.token);
+            sendResourceDenied(`OCR resource request denied because job ${message.jobId} is no longer active`);
             return;
         }
 
@@ -597,7 +678,9 @@ function handleWorkerResourceMessage(
         };
         worker.postMessage(response);
     }).catch((error: unknown) => {
-        log.warn(`[${scopedJobId}] Failed to grant OCR resource slot: ${getErrorMessage(error)}`);
+        const messageText = getErrorMessage(error);
+        sendResourceDenied(messageText);
+        log.warn(`[${scopedJobId}] Failed to grant OCR resource slot: ${messageText}`);
     });
 }
 
@@ -641,6 +724,10 @@ function handleWorkerMessage(
                 return;
             }
             const activeJob = activeJobs.get(scopedJobId);
+            if (activeJob?.terminalResultSent) {
+                log.debug(`Ignoring duplicate OCR completion for job "${requestId}" after terminal result`);
+                return;
+            }
             if (activeJob) {
                 activeJob.pendingCompletionResult = message.result;
                 sendPendingCompletionResult(activeJob);
@@ -678,7 +765,7 @@ function handleWorkerMessage(
                 sendPendingCompletionResult(activeJob);
             }
 
-            terminateAndFinalizeActiveJob(scopedJobId, { reason: 'worker reported cleanup completion' });
+            finalizeActiveJob(scopedJobId);
             return;
         }
         default:
@@ -723,8 +810,8 @@ function startQueuedJob(job: IOcrQueuedJob) {
     logQueueDepth(`OCR job ${job.requestId} activated`);
 
     worker.on('message', (message: unknown) => {
-        resetJobWatchdog(job);
         if (isWorkerResourceMessage(message)) {
+            resetJobWatchdog(job);
             handleWorkerResourceMessage(job.scopedJobId, worker, message);
             return;
         }
@@ -733,6 +820,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
             log.warn(`Ignoring malformed OCR worker message for job ${job.requestId}`);
             return;
         }
+        resetJobWatchdog(job);
         handleWorkerMessage(job.scopedJobId, job.requestId, job.webContentsId, worker, parsedMessage);
     });
 
@@ -748,7 +836,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
         if (!active) {
             return;
         }
-        if (active.completed || active.terminatedByUs) {
+        if (active.completed || active.terminatedByUs || active.terminalResultSent) {
             finalizeActiveJob(job.scopedJobId);
             return;
         }
@@ -764,9 +852,12 @@ function startQueuedJob(job: IOcrQueuedJob) {
 
         const active = activeJobs.get(job.scopedJobId);
         if (!active) {
+            if (code !== 0) {
+                log.error(`Worker exited with code ${code} after OCR job ${job.requestId} was no longer active`);
+            }
             return;
         }
-        const wasCompletedOrTerminated = wasCanceled || active?.completed || active?.terminatedByUs;
+        const wasCompletedOrTerminated = wasCanceled || active.completed || active.terminatedByUs || active.terminalResultSent;
 
         if (code !== 0 && !wasCompletedOrTerminated) {
             log.error(`Worker exited with code ${code} for job ${job.requestId}`);
@@ -821,13 +912,19 @@ interface IOcrQueueStartResult {
     started: boolean;
     jobId: string;
     error?: string;
+    errorCode?: TOcrErrorCode;
 }
 
-function createQueueFailure(requestId: string, error: string): IOcrQueueStartResult {
+function createQueueFailure(
+    requestId: string,
+    error: string,
+    errorCode: TOcrErrorCode = 'OCR_INTERNAL_ERROR',
+): IOcrQueueStartResult {
     return {
         started: false,
         jobId: requestId,
         error,
+        errorCode,
     };
 }
 
@@ -845,11 +942,19 @@ function findQueueBlockingResult(
         || queuedJobIds.has(scopedJobId)
         || (options.includePreparing && preparingJobs.has(scopedJobId));
     if (isExistingJob) {
-        return createQueueFailure(requestId, `OCR job with id "${requestId}" already exists`);
+        return createQueueFailure(
+            requestId,
+            `OCR job with id "${requestId}" already exists`,
+            'OCR_QUEUE_BACKPRESSURE',
+        );
     }
 
     if (pendingResultFileStore.find(event.sender.id, requestId)) {
-        return createQueueFailure(requestId, `OCR job with id "${requestId}" is waiting for result-file acknowledgement`);
+        return createQueueFailure(
+            requestId,
+            `OCR job with id "${requestId}" is waiting for result-file acknowledgement`,
+            'OCR_QUEUE_BACKPRESSURE',
+        );
     }
 
     return null;
@@ -983,6 +1088,7 @@ export async function handleOcrCreateSearchablePdfAsync(
         if (initialBlock) {
             return initialBlock;
         }
+        cancelledJobs.delete(scopedJobId);
 
         // Reserve the scoped id before long async prep to avoid duplicate in-flight
         // requests racing into the queue with the same requestId.
@@ -993,9 +1099,9 @@ export async function handleOcrCreateSearchablePdfAsync(
 
         const requestBytes = await estimateRequestBytes(sourcePdfPath, pages);
         preparingJob.requestedBytes = requestBytes;
-        const capacityResult = ensureQueueCapacity(0, { excludePreparingJobId: scopedJobId });
+        const capacityResult = ensureQueueCapacity(requestBytes, { excludePreparingJobId: scopedJobId });
         if (!capacityResult.ok) {
-            return createQueueFailure(requestId, capacityResult.error);
+            return createQueueFailure(requestId, capacityResult.error, 'OCR_QUEUE_BACKPRESSURE');
         }
 
         const modelPrepResult = await prepareLanguageModelsForQueueJob(
@@ -1017,9 +1123,9 @@ export async function handleOcrCreateSearchablePdfAsync(
         if (recheckBlock) {
             return recheckBlock;
         }
-        const recheckedCapacityResult = ensureQueueCapacity(0, { excludePreparingJobId: scopedJobId });
+        const recheckedCapacityResult = ensureQueueCapacity(requestBytes, { excludePreparingJobId: scopedJobId });
         if (!recheckedCapacityResult.ok) {
-            return createQueueFailure(requestId, recheckedCapacityResult.error);
+            return createQueueFailure(requestId, recheckedCapacityResult.error, 'OCR_QUEUE_BACKPRESSURE');
         }
         const canceledBeforeEnqueue = getCancelledBeforeStartResult(scopedJobId, requestId);
         if (canceledBeforeEnqueue) {
@@ -1047,6 +1153,7 @@ export async function handleOcrCreateSearchablePdfAsync(
                 started: false,
                 jobId: requestId,
                 error: 'OCR job was cancelled before it started',
+                errorCode: 'OCR_INTERNAL_ERROR',
             };
         }
         const errMsg = getErrorMessage(err);
@@ -1055,10 +1162,12 @@ export async function handleOcrCreateSearchablePdfAsync(
             started: false,
             jobId: requestId,
             error: errMsg,
+            errorCode: 'OCR_INTERNAL_ERROR',
         };
     } finally {
         if (isPreparingReserved) {
             preparingJobs.delete(scopedJobId);
+            clearOcrProgressPump(scopedJobId, requestId);
         }
         cleanupCancelledPreparation(scopedJobId);
     }
@@ -1127,9 +1236,13 @@ export function handleOcrCancel(
 }
 
 export async function shutdownOcrJobManager() {
+    for (const queuedJob of queuedJobs) {
+        clearOcrProgressPump(queuedJob.scopedJobId, queuedJob.requestId);
+    }
     queuedJobs.splice(0, queuedJobs.length);
     queuedJobIds.clear();
     for (const preparingJob of preparingJobs.values()) {
+        clearOcrProgressPump(preparingJob.scopedJobId, preparingJob.requestId);
         if (!preparingJob.abortController.signal.aborted) {
             preparingJob.abortController.abort(createAbortError('OCR job manager shutdown'));
         }

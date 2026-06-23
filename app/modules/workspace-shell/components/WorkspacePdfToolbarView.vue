@@ -548,10 +548,10 @@ function runOcrForAgent(options?: IAgentOcrRunOptions) {
 }
 
 function cancelOcrForAgent() {
-    return ocrPopupRef.value?.cancelOcrForAgent() ?? {
+    return ocrPopupRef.value?.cancelOcrForAgent() ?? Promise.resolve({
         ok: false,
         error: 'OCR popup is not mounted.',
-    };
+    });
 }
 
 function getAgentOcrSnapshot() {

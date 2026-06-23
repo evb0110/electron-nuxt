@@ -1,4 +1,5 @@
-import type { IOcrWord } from '@app/types/pdf';
+import type { IOcrWord } from '@contracts/shared';
+import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 export function transformWordBox(
@@ -7,7 +8,18 @@ export function transformWordBox(
     imageDimensionHeight: number | undefined,
     renderedPageWidth: number,
     renderedPageHeight: number,
+    rotation: TOcrIndexRotation = 0,
 ) {
+    if (rotation !== 0) {
+        BrowserLogger.error('word-box', 'Unsupported rotated OCR word-box transform', {
+            rotation,
+            word: word.text,
+        });
+        throw new Error(
+            `transformWordBox cannot map OCR boxes for rotated pages (${rotation} degrees); use transformOcrWordToViewport instead`,
+        );
+    }
+
     if (!imageDimensionWidth || !imageDimensionHeight) {
         BrowserLogger.warn('word-box', 'Missing dimensions', {
             imageDimensionWidth,
@@ -28,19 +40,17 @@ export function transformWordBox(
     const scaleX = renderedPageWidth / imageDimensionWidth;
     const scaleY = renderedPageHeight / imageDimensionHeight;
 
-    const scale = Math.min(scaleX, scaleY);
     if (Math.abs(scaleX - scaleY) > 0.05) {
-        BrowserLogger.warn('word-box', 'Asymmetric scales detected - using uniform scaling', {
+        BrowserLogger.debug('word-box', 'Asymmetric OCR word-box scales detected', {
             scaleX: scaleX.toFixed(3),
             scaleY: scaleY.toFixed(3),
-            usingUniformScale: scale.toFixed(3),
         });
     }
 
-    const x = word.x * scale;
-    const y = word.y * scale;
-    const width = word.width * scale;
-    const height = word.height * scale;
+    const x = word.x * scaleX;
+    const y = word.y * scaleY;
+    const width = word.width * scaleX;
+    const height = word.height * scaleY;
 
     if (y > renderedPageHeight || width > renderedPageWidth || height > renderedPageHeight) {
         BrowserLogger.error('word-box', 'Box out of bounds', {
@@ -62,7 +72,6 @@ export function transformWordBox(
             scales: {
                 scaleX,
                 scaleY,
-                uniformScale: scale,
             },
             transformed: {
                 x,

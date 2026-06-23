@@ -159,6 +159,138 @@ describe('registerOcrHandlers', () => {
         expect(mocks.runOcr).not.toHaveBeenCalled();
     });
 
+    it('rejects duplicate OCR batch page numbers before native OCR starts', async () => {
+        const handler = getHandler('ocr:recognizeBatch');
+
+        const result = await handler(
+            {sender: createMockSender(21)},
+            [
+                {
+                    pageNumber: 1,
+                    imageData: new Uint8Array([1]),
+                    languages: ['eng'],
+                },
+                {
+                    pageNumber: 1,
+                    imageData: new Uint8Array([2]),
+                    languages: ['eng'],
+                },
+            ],
+            'batch-duplicates',
+        ) as {
+            results: Record<number, string>;
+            errors: string[];
+            errorEnvelope?: {code: string};
+        };
+
+        expect(result.results).toEqual({});
+        expect(result.errors[0]).toContain('Duplicate OCR pageNumber');
+        expect(result.errorEnvelope).toMatchObject({ code: 'OCR_INVALID_PAYLOAD' });
+        expect(mocks.runOcr).not.toHaveBeenCalled();
+    });
+
+    it('rejects plain OCR image dimensions that exceed the pixel budget', async () => {
+        const handler = getHandler('ocr:recognize');
+
+        const result = await handler(
+            {sender: createMockSender(22)},
+            {
+                pageNumber: 1,
+                imageData: new Uint8Array([1]),
+                languages: ['eng'],
+                imageWidth: 45_000,
+                imageHeight: 1_001,
+            },
+        ) as {
+            success: boolean;
+            error?: string;
+            errorEnvelope?: {code: string};
+        };
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('maximum pixel count');
+        expect(result.errorEnvelope).toMatchObject({ code: 'OCR_INVALID_PAYLOAD' });
+        expect(mocks.runOcr).not.toHaveBeenCalled();
+    });
+
+    it('returns structured envelopes for plain OCR native failures', async () => {
+        const handler = getHandler('ocr:recognize');
+        mocks.runOcr.mockResolvedValue({
+            success: false,
+            text: '',
+            error: 'Tesseract output exceeded maximum size (1024 bytes)',
+        });
+
+        const result = await handler(
+            {sender: createMockSender(23)},
+            {
+                pageNumber: 7,
+                imageData: new Uint8Array([1]),
+                languages: ['eng'],
+            },
+        ) as {
+            pageNumber: number;
+            success: boolean;
+            error?: string;
+            errorEnvelope?: {
+                code: string;
+                message: string;
+            };
+        };
+
+        expect(result).toMatchObject({
+            pageNumber: 7,
+            success: false,
+            error: 'Tesseract output exceeded maximum size (1024 bytes)',
+            errorEnvelope: {
+                code: 'OCR_INTERNAL_ERROR',
+                message: 'Tesseract output exceeded maximum size (1024 bytes)',
+            },
+        });
+    });
+
+    it('applies plain OCR queue backpressure across concurrent recognize calls', async () => {
+        const handler = getHandler('ocr:recognize');
+        const deferredResults: Array<{resolve: (result: unknown) => void}> = [];
+        mocks.runOcr.mockImplementation(() => new Promise(resolve => {
+            deferredResults.push({resolve});
+        }));
+
+        const calls = Array.from({length: 11}, (_value, index) => handler(
+            {sender: createMockSender(100 + index)},
+            {
+                pageNumber: index + 1,
+                imageData: new Uint8Array([index + 1]),
+                languages: ['eng'],
+            },
+        ));
+
+        await vi.waitFor(() => {
+            expect(deferredResults).toHaveLength(2);
+        });
+        await expect(calls[10]).resolves.toMatchObject({
+            success: false,
+            errorEnvelope: {
+                code: 'OCR_QUEUE_BACKPRESSURE',
+                retryable: true,
+            },
+        });
+
+        let resolvedCount = 0;
+        while (resolvedCount < 10) {
+            await vi.waitFor(() => {
+                expect(deferredResults.length).toBeGreaterThan(resolvedCount);
+            });
+            resolvedCount += 1;
+            deferredResults[resolvedCount - 1]?.resolve({
+                success: true,
+                text: `done-${resolvedCount}`,
+            });
+        }
+
+        await expect(Promise.all(calls.slice(0, 10))).resolves.toHaveLength(10);
+    });
+
     it('returns typed worker-unavailable envelope for missing OCR worker path', async () => {
         mocks.handleOcrCreateSearchablePdfAsync.mockResolvedValue({
             started: false,
@@ -252,6 +384,40 @@ describe('registerOcrHandlers', () => {
         };
 
         expect(result.started).toBe(false);
+        expect(result.errorEnvelope).toMatchObject({
+            code: 'OCR_QUEUE_BACKPRESSURE',
+            retryable: true,
+        });
+    });
+
+    it('uses the typed start-failure code instead of reparsing the message', async () => {
+        mocks.handleOcrCreateSearchablePdfAsync.mockResolvedValue({
+            started: false,
+            jobId: 'job-duplicate',
+            error: 'OCR job with id "job-duplicate" already exists',
+            errorCode: 'OCR_QUEUE_BACKPRESSURE',
+        });
+
+        const handler = getHandler('ocr:createSearchablePdf');
+        const result = await handler(
+            {sender: createMockSender(14)},
+            '/tmp/working-copy.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-duplicate',
+        ) as {
+            started: boolean;
+            errorCode?: string;
+            errorEnvelope?: {
+                code: string;
+                retryable: boolean;
+            };
+        };
+
+        expect(result.started).toBe(false);
+        expect(result.errorCode).toBeUndefined();
         expect(result.errorEnvelope).toMatchObject({
             code: 'OCR_QUEUE_BACKPRESSURE',
             retryable: true,

@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
     ensureWorkingCopyDirectory: vi.fn<(path: string, senderId?: number) => Promise<boolean>>(),
     originalPathSaveBaseMatches: vi.fn(),
     isAllowedDjvuViewingPath: vi.fn<(path: string) => boolean>(),
+    findPendingOcrResultFileForPath: vi.fn(),
 }));
 
 vi.mock('fs', () => ({
@@ -73,6 +74,7 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
 }));
 vi.mock('@electron/features/documents/main/originalPathSaveBaseMatches', () => ({originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches}));
 vi.mock('@electron/djvu/viewing', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
+vi.mock('@electron/ocr/createPendingResultFileStore', () => ({findPendingOcrResultFileForPath: mocks.findPendingOcrResultFileForPath}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -92,6 +94,7 @@ const {
     handleFileWriteDocx,
     handleReplaceWorkingCopyFromPath,
 } = await import('@electron/features/documents/main/documentFileWriteHandlers');
+const { handleCleanupOcrTemp } = await import('@electron/features/documents/main/handleCleanupOcrTemp');
 const { handleAnalyzePdfConformance } = await import('@electron/features/documents/main/documentPdfValidationHandlers');
 const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
 
@@ -113,6 +116,14 @@ describe('fileOps path security', () => {
         mocks.originalPathSaveBaseMatches.mockResolvedValue(true);
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.isAllowedDjvuViewingPath.mockReturnValue(false);
+        mocks.findPendingOcrResultFileForPath.mockReturnValue({
+            scopedJobId: '42:ocr-1',
+            requestId: 'ocr-1',
+            webContentsId: 42,
+            pdfPath: '/tmp/electron-test/ocr-1-merged.pdf',
+            createdAtMs: Date.now(),
+            cleanupTimer: null,
+        });
         mocks.readFile.mockResolvedValue(Buffer.from([
             1,
             2,
@@ -357,6 +368,42 @@ describe('fileOps path security', () => {
         ).rejects.toThrow('Invalid source path: only OCR result files can replace a working copy');
 
         expect(mocks.copyFile).not.toHaveBeenCalled();
+    });
+
+    it('rejects working-copy replacement from OCR-looking files without pending-result ownership', async () => {
+        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/work.pdf');
+        mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
+        mocks.findPendingOcrResultFileForPath.mockReturnValue(null);
+
+        await expect(
+            handleReplaceWorkingCopyFromPath(
+                event,
+                '/tmp/electron-test/work.pdf',
+                '/tmp/electron-test/ocr-1-merged.pdf',
+            ),
+        ).rejects.toThrow('Invalid source path: OCR result is not owned by this renderer');
+
+        expect(mocks.findPendingOcrResultFileForPath).toHaveBeenCalledWith(42, '/tmp/electron-test/ocr-1-merged.pdf');
+        expect(mocks.copyFile).not.toHaveBeenCalled();
+    });
+
+    it('deletes legacy OCR temp files only when pending ownership matches the sender', async () => {
+        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
+
+        await handleCleanupOcrTemp(event, '/tmp/electron-test/ocr-1-merged.pdf');
+
+        expect(mocks.findPendingOcrResultFileForPath).toHaveBeenCalledWith(42, '/tmp/electron-test/ocr-1-merged.pdf');
+        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/electron-test/ocr-1-merged.pdf');
+    });
+
+    it('does not delete legacy OCR temp files without pending ownership', async () => {
+        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
+        mocks.findPendingOcrResultFileForPath.mockReturnValue(null);
+
+        await handleCleanupOcrTemp(event, '/tmp/electron-test/ocr-1-merged.pdf');
+
+        expect(mocks.findPendingOcrResultFileForPath).toHaveBeenCalledWith(42, '/tmp/electron-test/ocr-1-merged.pdf');
+        expect(mocks.unlink).not.toHaveBeenCalled();
     });
 
     it('falls back to mapped working copy for original file path reads', async () => {

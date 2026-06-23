@@ -37,7 +37,12 @@
                 <!-- CONFIGURE / ERROR STATE (config stays editable so errors stay recoverable) -->
                 <template v-if="viewState === 'configure' || viewState === 'error'">
                     <!-- Error banner -->
-                    <div v-if="viewState === 'error'" class="error">
+                    <div
+                        v-if="viewState === 'error'"
+                        class="error"
+                        role="alert"
+                        aria-live="assertive"
+                    >
                         <UIcon name="i-ph-warning-circle" class="size-4" />
                         <div class="error-content flex flex-1 flex-col gap-2">
                             <span class="error-text">{{ effectiveError }}</span>
@@ -57,7 +62,11 @@
                     </div>
 
                     <!-- Page Range Selection -->
-                    <div class="section">
+                    <div
+                        class="section"
+                        role="group"
+                        :aria-label="t('ocr.pages')"
+                    >
                         <div class="label">{{ t('ocr.pages') }}</div>
                         <div class="flex flex-col gap-1.5">
                             <label class="radio-item">
@@ -98,13 +107,20 @@
                                     :placeholder="t('ocr.customRangePlaceholder')"
                                     size="sm"
                                     class="custom-input"
+                                    :disabled="!showCustomRange"
+                                    :tabindex="showCustomRange ? 0 : -1"
+                                    :aria-hidden="!showCustomRange"
                                 />
                             </div>
                         </div>
                     </div>
 
                     <!-- Quality Profile Selection -->
-                    <div class="section">
+                    <div
+                        class="section"
+                        role="group"
+                        :aria-label="t('ocr.qualityProfile.label')"
+                    >
                         <div class="label">{{ t('ocr.qualityProfile.label') }}</div>
                         <div class="profile-options">
                             <label
@@ -124,8 +140,56 @@
                         </div>
                     </div>
 
-                    <!-- Language Selection -->
+                    <!-- OCR tuning -->
+                    <div
+                        class="section"
+                        role="group"
+                        :aria-label="t('ocr.preprocessing.label')"
+                    >
+                        <div class="label">{{ t('ocr.preprocessing.label') }}</div>
+                        <div class="profile-options">
+                            <label
+                                v-for="mode in ocrPreprocessingModeOptions"
+                                :key="mode"
+                                class="profile-option"
+                                :class="{ 'is-selected': settings.preprocessingMode === mode }"
+                            >
+                                <input
+                                    v-model="settings.preprocessingMode"
+                                    type="radio"
+                                    name="ocrPreprocessingMode"
+                                    :value="mode"
+                                >
+                                <span>{{ t(getPreprocessingModeLabelKey(mode), undefined) }}</span>
+                            </label>
+                        </div>
+                    </div>
+
                     <div class="section">
+                        <label class="label" for="ocr-page-segmentation-mode">
+                            {{ t('ocr.pageSegmentation.label') }}
+                        </label>
+                        <select
+                            id="ocr-page-segmentation-mode"
+                            v-model="pageSegmentationModeInput"
+                            class="select-field"
+                        >
+                            <option
+                                v-for="option in ocrPageSegmentationOptions"
+                                :key="option.value"
+                                :value="option.value"
+                            >
+                                {{ t(option.labelKey, undefined) }}
+                            </option>
+                        </select>
+                    </div>
+
+                    <!-- Language Selection -->
+                    <div
+                        class="section"
+                        role="group"
+                        :aria-label="t('ocr.languages')"
+                    >
                         <div class="label">{{ t('ocr.languages') }}</div>
                         <div class="flex flex-col gap-3">
                             <div
@@ -223,6 +287,8 @@
                 <div
                     v-else-if="viewState === 'running'"
                     class="ocr-progress-panel flex flex-col gap-3"
+                    role="status"
+                    aria-live="polite"
                 >
                     <AppProgressBar :value="progressPercent" />
                     <span class="progress-text">{{ progressStatusText }}</span>
@@ -232,6 +298,8 @@
                 <div
                     v-else
                     class="ocr-results-panel flex flex-col items-center gap-3"
+                    role="status"
+                    aria-live="polite"
                 >
                     <UIcon
                         :name="hasResultWarning ? 'i-ph-warning-circle' : 'i-ph-check-circle'"
@@ -241,7 +309,12 @@
                         ]"
                     />
                     <span class="results-text">{{ resultStatusText }}</span>
-                    <div v-if="hasResultWarning" class="results-warning">
+                    <div
+                        v-if="hasResultWarning"
+                        class="results-warning"
+                        role="alert"
+                        aria-live="assertive"
+                    >
                         <span class="results-warning-text">{{ effectiveError }}</span>
                         <AppTooltip :text="copyLogsTooltip" :delay-duration="1200">
                             <UButton
@@ -320,6 +393,7 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import type {
     TOcrProgressPhase,
+    TOcrPreprocessingMode,
     TOcrQualityProfile,
 } from '@contracts/electronApiOcr';
 import type { TTranslationKey } from '@i18n-app';
@@ -337,17 +411,47 @@ import type {
     IOcrSearchablePdfResult,
     TOcrPageRange,
 } from '@app/utils/ocr/ocrTypes';
+import { resolveOcrExportLanguages } from '@app/utils/ocr/resolveOcrExportLanguages';
 
 const { t } = useTypedI18n();
 const { copy: copyClipboardText } = useClipboard();
 type TOcrLanguageTranslationKey = Extract<TTranslationKey, `ocr.languageName.${string}`>;
 type TOcrQualityProfileLabelKey = Extract<TTranslationKey, `ocr.qualityProfile.options.${string}`>;
+type TOcrPreprocessingModeLabelKey = Extract<TTranslationKey, `ocr.preprocessing.options.${string}`>;
+type TOcrPageSegmentationLabelKey = Extract<TTranslationKey, `ocr.pageSegmentation.options.${string}`>;
 
 const ocrQualityProfileOptions = [
     'balanced',
     'accurate',
     'poor-scan',
 ] as const satisfies readonly TOcrQualityProfile[];
+
+const ocrPreprocessingModeOptions = [
+    'off',
+    'clean',
+] as const satisfies readonly TOcrPreprocessingMode[];
+
+const ocrPageSegmentationOptions = [
+    {
+        value: '',
+        labelKey: 'ocr.pageSegmentation.options.auto',
+    },
+    {
+        value: '3',
+        labelKey: 'ocr.pageSegmentation.options.autoPage',
+    },
+    {
+        value: '6',
+        labelKey: 'ocr.pageSegmentation.options.singleBlock',
+    },
+    {
+        value: '11',
+        labelKey: 'ocr.pageSegmentation.options.sparseText',
+    },
+] as const satisfies ReadonlyArray<{
+    value: string;
+    labelKey: TOcrPageSegmentationLabelKey;
+}>;
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -363,7 +467,9 @@ interface IProps {
 
 const {
     currentPage,
+    disabled = false,
     externalError = undefined,
+    hideTrigger = false,
     isExportingDocx,
     open,
     pdfDocument,
@@ -435,7 +541,9 @@ const hasSelectedAvailableLanguage = computed(() =>
 );
 
 const canRunOcr = computed(() =>
-    hasSelectedAvailableLanguage.value
+    !disabled
+    && !progress.value.isRunning
+    && hasSelectedAvailableLanguage.value
     && Boolean(pdfDocument)
     && Boolean(workingCopyPath),
 );
@@ -510,6 +618,21 @@ const resultStatusText = computed(() => (
     hasResultWarning.value ? t('ocr.partialComplete') : t('ocr.complete')
 ));
 
+const pageSegmentationModeInput = computed({
+    get: () => settings.value.pageSegmentationMode === null
+        ? ''
+        : String(settings.value.pageSegmentationMode),
+    set: (value: string) => {
+        const pageSegmentationMode = value === '' ? null : Number(value);
+        settings.value = {
+            ...settings.value,
+            pageSegmentationMode: isOcrPageSegmentationMode(pageSegmentationMode)
+                ? pageSegmentationMode
+                : null,
+        };
+    },
+});
+
 function getLanguageNameKey(code: string): TOcrLanguageTranslationKey {
     return `ocr.languageName.${code}` as TOcrLanguageTranslationKey;
 }
@@ -526,14 +649,27 @@ function isOcrQualityProfile(value: unknown): value is TOcrQualityProfile {
     return value === 'balanced' || value === 'accurate' || value === 'poor-scan';
 }
 
+function isOcrPreprocessingMode(value: unknown): value is TOcrPreprocessingMode {
+    return value === 'off' || value === 'clean';
+}
+
+function isOcrPageSegmentationMode(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 13;
+}
+
 function getQualityProfileLabelKey(profile: TOcrQualityProfile): TOcrQualityProfileLabelKey {
     return `ocr.qualityProfile.options.${profile}`;
+}
+
+function getPreprocessingModeLabelKey(mode: TOcrPreprocessingMode): TOcrPreprocessingModeLabelKey {
+    return `ocr.preprocessing.options.${mode}`;
 }
 
 function normalizeAgentLanguages(value: unknown) {
     if (!Array.isArray(value)) {
         return null;
     }
+    const availableCodes = availableLanguageCodes.value;
     const languages: string[] = [];
     for (const language of value) {
         if (typeof language !== 'string') {
@@ -541,11 +677,11 @@ function normalizeAgentLanguages(value: unknown) {
         }
 
         const trimmedLanguage = language.trim();
-        if (trimmedLanguage) {
+        if (trimmedLanguage && availableCodes.has(trimmedLanguage)) {
             languages.push(trimmedLanguage);
         }
     }
-    return languages.length > 0 ? Array.from(new Set(languages)) : null;
+    return Array.from(new Set(languages));
 }
 
 function applyAgentOcrOptions(options: IAgentOcrRunOptions) {
@@ -563,8 +699,14 @@ function applyAgentOcrOptions(options: IAgentOcrRunOptions) {
     if (isOcrQualityProfile(options.qualityProfile)) {
         nextSettings.qualityProfile = options.qualityProfile;
     }
+    if (isOcrPreprocessingMode(options.preprocessingMode)) {
+        nextSettings.preprocessingMode = options.preprocessingMode;
+    }
+    if (isOcrPageSegmentationMode(options.pageSegmentationMode)) {
+        nextSettings.pageSegmentationMode = options.pageSegmentationMode;
+    }
     const languages = normalizeAgentLanguages(options.languages);
-    if (languages) {
+    if (languages !== null) {
         nextSettings.selectedLanguages = languages;
     }
     settings.value = nextSettings;
@@ -577,6 +719,8 @@ function cloneSettingsSnapshot(value: IOcrSettings | null) {
             customRange: value.customRange,
             selectedLanguages: [...value.selectedLanguages],
             qualityProfile: value.qualityProfile,
+            preprocessingMode: value.preprocessingMode,
+            pageSegmentationMode: value.pageSegmentationMode,
         }
         : null;
 }
@@ -603,6 +747,8 @@ function createAgentOcrSnapshot() {
         pageRange: settings.value.pageRange,
         customRange: settings.value.customRange,
         qualityProfile: settings.value.qualityProfile,
+        preprocessingMode: settings.value.preprocessingMode,
+        pageSegmentationMode: settings.value.pageSegmentationMode,
         hasWorkingCopy: Boolean(workingCopyPath),
         error: effectiveError.value,
         hasResults: hasResults.value,
@@ -622,6 +768,31 @@ watch(isOpen, (value) => {
 
 watch(() => progress.value.isRunning, value => emit('update:running', value), {immediate: true});
 
+watch(() => settings.value.qualityProfile, (nextProfile, previousProfile) => {
+    if (isRunSettingsLocked.value) {
+        return;
+    }
+
+    if (nextProfile === 'poor-scan' && settings.value.preprocessingMode === 'off') {
+        settings.value = {
+            ...settings.value,
+            preprocessingMode: 'clean',
+        };
+        return;
+    }
+
+    if (
+        previousProfile === 'poor-scan'
+        && nextProfile !== 'poor-scan'
+        && settings.value.preprocessingMode === 'clean'
+    ) {
+        settings.value = {
+            ...settings.value,
+            preprocessingMode: 'off',
+        };
+    }
+});
+
 onBeforeUnmount(() => {
     emit('update:running', false);
     stopCopyLogsStateReset();
@@ -640,10 +811,11 @@ function formatLanguagesForDiagnostics(languages: readonly string[]) {
 }
 
 function getExportLanguages() {
-    const sourceSettings = lastCompletedRunSettings.value
-        ?? activeRunSettings.value
-        ?? settings.value;
-    return [...sourceSettings.selectedLanguages];
+    return resolveOcrExportLanguages(
+        lastCompletedRunSettings.value,
+        activeRunSettings.value,
+        settings.value,
+    );
 }
 
 function formatDebugLogEntry(entry: IDebugLogEntry) {
@@ -668,6 +840,12 @@ function buildOcrDiagnosticsLog(debugLogs: IDebugLogEntry[]) {
         `draftQualityProfile=${settings.value.qualityProfile}`,
         `activeRunQualityProfile=${activeRunSettings.value?.qualityProfile ?? '-'}`,
         `lastCompletedQualityProfile=${lastCompletedRunSettings.value?.qualityProfile ?? '-'}`,
+        `draftPreprocessingMode=${settings.value.preprocessingMode}`,
+        `activeRunPreprocessingMode=${activeRunSettings.value?.preprocessingMode ?? '-'}`,
+        `lastCompletedPreprocessingMode=${lastCompletedRunSettings.value?.preprocessingMode ?? '-'}`,
+        `draftPageSegmentationMode=${settings.value.pageSegmentationMode ?? '-'}`,
+        `activeRunPageSegmentationMode=${activeRunSettings.value?.pageSegmentationMode ?? '-'}`,
+        `lastCompletedPageSegmentationMode=${lastCompletedRunSettings.value?.pageSegmentationMode ?? '-'}`,
         `uiError=${effectiveError.value}`,
         '',
         '--- debug:log stream ---',
@@ -699,7 +877,7 @@ async function handleCopyLogs() {
 }
 
 function handleRunOcr() {
-    if (!pdfDocument || !workingCopyPath) {
+    if (!canRunOcr.value || !workingCopyPath) {
         return;
     }
     activeOcrSourcePath.value = workingCopyPath;
@@ -711,21 +889,45 @@ async function runOcrForAgent(options: IAgentOcrRunOptions = {}) {
     if (progress.value.isRunning) {
         return {
             ok: false,
-            error: 'OCR is already running.',
+            error: t('errors.ocr.alreadyRunning'),
             ocr: createAgentOcrSnapshot(),
         };
     }
 
-    applyAgentOcrOptions(options);
+    if (disabled) {
+        return {
+            ok: false,
+            error: t('errors.ocr.disabled'),
+            ocr: createAgentOcrSnapshot(),
+        };
+    }
+
     if (options.open !== false) {
         isOpen.value = true;
     }
     await loadLanguages();
+    applyAgentOcrOptions(options);
 
     if (!pdfDocument || !workingCopyPath) {
         return {
             ok: false,
-            error: 'No OCR-ready PDF document is available.',
+            error: t('errors.ocr.noDocument'),
+            ocr: createAgentOcrSnapshot(),
+        };
+    }
+
+    if (!hasSelectedAvailableLanguage.value) {
+        return {
+            ok: false,
+            error: t('errors.ocr.noLanguages'),
+            ocr: createAgentOcrSnapshot(),
+        };
+    }
+
+    if (!canRunOcr.value) {
+        return {
+            ok: false,
+            error: t('errors.ocr.start'),
             ocr: createAgentOcrSnapshot(),
         };
     }
@@ -746,7 +948,7 @@ async function runOcrForAgent(options: IAgentOcrRunOptions = {}) {
 
     return {
         ok: false,
-        error: effectiveError.value ?? 'OCR did not complete.',
+        error: effectiveError.value ?? t('errors.ocr.incomplete'),
         ocr: agentSnapshot,
     };
 }
@@ -757,10 +959,14 @@ function handleCancel() {
     void cancelOcr();
 }
 
-function cancelOcrForAgent() {
-    handleCancel();
+async function cancelOcrForAgent() {
+    activeOcrSourcePath.value = null;
+    activeOcrSourcePage.value = null;
+    const cancelResult = await cancelOcr();
     return {
-        ok: true,
+        ok: cancelResult.canceled,
+        cancel: cancelResult,
+        ...(cancelResult.canceled ? {} : {error: cancelResult.error ?? t('errors.ocr.cancel')}),
         ocr: createAgentOcrSnapshot(),
     };
 }
@@ -846,9 +1052,9 @@ defineExpose<IOcrPopupAgentExpose>({
     justify-content: center;
     width: var(--toolbar-control-height);
     height: var(--toolbar-control-height);
-    padding: 0.25rem;
+    padding: var(--app-toolbar-button-padding);
     border: 1px solid transparent;
-    border-radius: 0.4375rem;
+    border-radius: var(--app-toolbar-control-radius);
     background: transparent;
     color: var(--app-toolbar-control-inactive-fg);
     cursor: pointer;
@@ -900,7 +1106,7 @@ defineExpose<IOcrPopupAgentExpose>({
 }
 
 .label {
-    font-size: 0.6875rem;
+    font-size: var(--app-text-size-micro);
     color: var(--ui-text-muted);
     margin-bottom: 0.5rem;
     text-transform: uppercase;
@@ -911,7 +1117,7 @@ defineExpose<IOcrPopupAgentExpose>({
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    font-size: 0.875rem;
+    font-size: var(--app-text-size-body);
     cursor: pointer;
 }
 
@@ -955,6 +1161,17 @@ defineExpose<IOcrPopupAgentExpose>({
     color: var(--app-toolbar-control-hover-fg);
 }
 
+.select-field {
+    width: 100%;
+    min-height: var(--app-toolbar-control-height);
+    padding: 0 var(--app-space-lg);
+    border: 1px solid var(--app-toolbar-control-hover-border);
+    border-radius: var(--app-toolbar-button-radius);
+    background: var(--ui-bg);
+    color: var(--ui-text);
+    font-size: var(--app-text-size-body-sm);
+}
+
 .custom-range-reveal {
     display: grid;
     grid-template-rows: 0fr;
@@ -987,7 +1204,7 @@ defineExpose<IOcrPopupAgentExpose>({
     align-items: center;
     gap: 0.375rem;
     min-width: 0;
-    font-size: 0.8125rem;
+    font-size: var(--app-text-size-body-sm);
     cursor: pointer;
 }
 
@@ -1005,7 +1222,7 @@ defineExpose<IOcrPopupAgentExpose>({
 }
 
 .progress-text {
-    font-size: 0.75rem;
+    font-size: var(--app-text-size-kicker);
     color: var(--ui-text-muted);
     text-align: center;
 }
@@ -1024,7 +1241,7 @@ defineExpose<IOcrPopupAgentExpose>({
 }
 
 .results-text {
-    font-size: 0.875rem;
+    font-size: var(--app-text-size-body);
     color: var(--ui-text);
 }
 
@@ -1033,7 +1250,7 @@ defineExpose<IOcrPopupAgentExpose>({
     align-items: flex-start;
     gap: var(--app-space-sm);
     color: var(--ui-warning);
-    font-size: 0.75rem;
+    font-size: var(--app-text-size-kicker);
     text-align: left;
 }
 
@@ -1046,7 +1263,7 @@ defineExpose<IOcrPopupAgentExpose>({
     align-items: flex-start;
     gap: 0.5rem;
     color: var(--ui-error);
-    font-size: 0.75rem;
+    font-size: var(--app-text-size-kicker);
 }
 
 .error-content {

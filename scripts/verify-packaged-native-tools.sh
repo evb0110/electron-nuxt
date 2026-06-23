@@ -84,6 +84,47 @@ check_no_absolute_symlinks() {
   fi
 }
 
+get_registry_language_codes() {
+  PROJECT_ROOT="$(pwd)" node - <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const registryPath = path.join(process.env.PROJECT_ROOT, 'packages/contracts/ocrLanguages.ts');
+const source = fs.readFileSync(registryPath, 'utf8');
+const codes = [...source.matchAll(/code:\s*'([^']+)'/g)].map(match => match[1]).sort();
+if (codes.length === 0) {
+  throw new Error(`No OCR language codes found in ${registryPath}`);
+}
+process.stdout.write(codes.join('\n'));
+NODE
+}
+
+verify_tessdata_registry_complete() {
+  local tessdata_path="$1"
+  local missing=0
+  local registry_code
+  while IFS= read -r registry_code; do
+    [ -n "$registry_code" ] || continue
+    if [ ! -s "$tessdata_path/$registry_code.traineddata" ]; then
+      echo "Error: Missing packaged tessdata for registry language \"$registry_code\" ($tessdata_path/$registry_code.traineddata)"
+      missing=1
+    fi
+  done < <(get_registry_language_codes)
+
+  local traineddata_file
+  while IFS= read -r -d '' traineddata_file; do
+    local code
+    code="$(basename "$traineddata_file" .traineddata)"
+    if ! get_registry_language_codes | grep -Fxq "$code"; then
+      echo "Error: Packaged tessdata contains unregistered language \"$code\" ($traineddata_file)"
+      missing=1
+    fi
+  done < <(find "$tessdata_path" -maxdepth 1 -type f -name '*.traineddata' -print0)
+
+  if [ "$missing" -ne 0 ]; then
+    exit 1
+  fi
+}
+
 macos_macho_arch_for_release_arch() {
   case "$1" in
     arm64)
@@ -138,6 +179,8 @@ is_macos_app_adhoc_signed() {
 check_file "$native_tool_root/tesseract/$platform_arch/bin/tesseract$exe_suffix" "tesseract binary"
 if [ "$platform" != "win" ]; then
   check_file "$native_tool_root/tesseract/$platform_arch/bin/unpaper$exe_suffix" "unpaper binary"
+else
+  echo "Windows unpaper preprocessing is explicitly unavailable in this package; OCR preprocessing validation must report it missing."
 fi
 
 tessdata_dir="$resource_root/tesseract/tessdata"
@@ -149,6 +192,7 @@ if ! find "$tessdata_dir" -maxdepth 1 -type f -name '*.traineddata' -print -quit
   echo "Error: No traineddata files found in $tessdata_dir"
   exit 1
 fi
+verify_tessdata_registry_complete "$tessdata_dir"
 
 check_file "$native_tool_root/poppler/$platform_arch/bin/pdftoppm$exe_suffix" "pdftoppm binary"
 check_file "$native_tool_root/poppler/$platform_arch/bin/pdftotext$exe_suffix" "pdftotext binary"
@@ -206,40 +250,10 @@ find_tool_files() {
   done
 }
 
-build_macos_dyld_path() {
-  local resource_base="$1"
-  local dyld_paths=()
-  for candidate in \
-    "$resource_base/tesseract/$platform_arch/lib" \
-    "$resource_base/poppler/$platform_arch/lib" \
-    "$resource_base/qpdf/$platform_arch/lib" \
-    "$resource_base/djvulibre/$platform_arch/lib"
-  do
-    if [ -d "$candidate" ]; then
-      dyld_paths+=("$candidate")
-    fi
-  done
-
-  local joined_dyld_path=""
-  if [ "${#dyld_paths[@]}" -gt 0 ]; then
-    joined_dyld_path="$(IFS=:; printf '%s' "${dyld_paths[*]}")"
-  fi
-
-  printf '%s' "$joined_dyld_path"
-}
-
 run_macos_tool_once() {
-  local resource_base="$1"
-  shift
   local command_path="$1"
   shift
-  local joined_dyld_path
-  joined_dyld_path="$(build_macos_dyld_path "$resource_base")"
-
-  env \
-    DYLD_LIBRARY_PATH="$joined_dyld_path" \
-    LD_LIBRARY_PATH="$joined_dyld_path" \
-    "$command_path" "$@"
+  "$command_path" "$@"
 }
 
 run_macos_ad_hoc_payload_smoke_mirror() {
@@ -278,7 +292,7 @@ run_macos_ad_hoc_payload_smoke_mirror() {
   cp -R "$payload_root" "$mirror_payload_root"
 
   echo "Ad-hoc macOS app execution was killed by provenance policy; smoke testing copied signed payload outside .app: $mirror_tool_path $*"
-  if run_macos_tool_once "$mirror_root" "$mirror_tool_path" "$@" >"$output_file" 2>&1; then
+  if run_macos_tool_once "$mirror_tool_path" "$@" >"$output_file" 2>&1; then
     exit_code=0
   else
     exit_code=$?
@@ -320,7 +334,7 @@ run_macos_packaged_tool_smoke() {
   fi
   while true; do
     : >"$output_file"
-    if run_macos_tool_once "$native_tool_root" "$tool_path" "$@" >"$output_file" 2>&1
+    if run_macos_tool_once "$tool_path" "$@" >"$output_file" 2>&1
     then
       exit_code=0
     else
@@ -352,6 +366,80 @@ run_macos_packaged_tool_smoke() {
       exit 1
     fi
     exit "$exit_code"
+  fi
+
+  rm -f "$output_file"
+}
+
+host_release_arch() {
+  case "$(uname -m)" in
+    x86_64|amd64)
+      echo "x64"
+      ;;
+    arm64|aarch64)
+      echo "arm64"
+      ;;
+    *)
+      echo "unknown"
+      ;;
+  esac
+}
+
+host_can_execute_target() {
+  local target_platform="$1"
+  local target_arch="$2"
+  local host_os
+  host_os="$(uname -s)"
+  local host_arch
+  host_arch="$(host_release_arch)"
+
+  if [ "$host_arch" != "$target_arch" ]; then
+    return 1
+  fi
+
+  case "$target_platform:$host_os" in
+    linux:Linux)
+      return 0
+      ;;
+    win:MINGW*|win:MSYS*|win:CYGWIN*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+run_host_packaged_tool_smoke() {
+  local tool_name="$1"
+  shift
+  local expected_pattern="$1"
+  shift
+  local tool_path="$1"
+  shift
+  local output_file
+  output_file="$(mktemp)"
+
+  if [ ! -f "$tool_path" ]; then
+    echo "Error: Missing packaged tool for smoke test ($tool_path)"
+    exit 1
+  fi
+
+  echo "Smoke testing packaged tool: $tool_path $*"
+  local exit_code=0
+  "$tool_path" "$@" >"$output_file" 2>&1 || exit_code=$?
+  if [ "$exit_code" -ne 0 ]; then
+    cat "$output_file"
+    rm -f "$output_file"
+    echo "Error: Packaged tool smoke test failed ($tool_name) with exit code $exit_code"
+    exit "$exit_code"
+  fi
+
+  if ! grep -Eiq "$expected_pattern" "$output_file"; then
+    cat "$output_file"
+    rm -f "$output_file"
+    echo "Error: Packaged tool smoke test output for $tool_name did not match /$expected_pattern/"
+    exit 1
   fi
 
   rm -f "$output_file"
@@ -438,6 +526,13 @@ if [ "$platform" = "linux" ]; then
   if [ "$unresolved" -ne 0 ]; then
     exit 1
   fi
+
+  if host_can_execute_target "$platform" "$arch"; then
+    run_host_packaged_tool_smoke "tesseract" "tesseract" "$native_tool_root/tesseract/$platform_arch/bin/tesseract" --version
+    run_host_packaged_tool_smoke "unpaper" "unpaper|usage" "$native_tool_root/tesseract/$platform_arch/bin/unpaper" --help
+  else
+    echo "Skipping Linux OCR native tool smoke: host cannot execute $platform_arch"
+  fi
 fi
 
 if [ "$platform" = "win" ]; then
@@ -459,6 +554,23 @@ if [ "$platform" = "win" ]; then
 
   unresolved=0
   while IFS= read -r file; do
+    imports_file="$(mktemp)"
+    imports_error_file="$(mktemp)"
+    if ! objdump -p "$file" >"$imports_file" 2>"$imports_error_file"; then
+      echo "Error: Unable to read Windows import table for $file"
+      cat "$imports_error_file" | sed 's/^/  /'
+      rm -f "$imports_file" "$imports_error_file"
+      unresolved=1
+      continue
+    fi
+
+    if [ "$platform_arch" = "win32-arm64" ] && ! awk '/DLL Name:/{found=1} END{exit found ? 0 : 1}' "$imports_file"; then
+      echo "Error: No readable Windows import table entries found for $file"
+      rm -f "$imports_file" "$imports_error_file"
+      unresolved=1
+      continue
+    fi
+
     while IFS= read -r dep; do
       dep_lc="$(printf '%s' "$dep" | tr '[:upper:]' '[:lower:]')"
       if [[ "$dep_lc" =~ $system_dll_pattern ]]; then
@@ -472,7 +584,8 @@ if [ "$platform" = "win" ]; then
           unresolved=1
         fi
       fi
-    done < <(objdump -p "$file" 2>/dev/null | awk '/DLL Name:/{print $3}')
+    done < <(awk '/DLL Name:/{print $3}' "$imports_file")
+    rm -f "$imports_file" "$imports_error_file"
   done < <(find_tool_files "$platform_arch" "bin" | grep -Ei '\.(exe|dll)$' || true)
 
   rm -f "$bundled_dlls_file"
@@ -480,6 +593,12 @@ if [ "$platform" = "win" ]; then
 
   if [ "$unresolved" -ne 0 ]; then
     exit 1
+  fi
+
+  if host_can_execute_target "$platform" "$arch"; then
+    run_host_packaged_tool_smoke "tesseract" "tesseract" "$native_tool_root/tesseract/$platform_arch/bin/tesseract$exe_suffix" --version
+  else
+    echo "Skipping Windows OCR native tool smoke: host cannot execute $platform_arch"
   fi
 fi
 

@@ -39,7 +39,7 @@ describe('createOcrPreloadClient', () => {
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(OCR_CHANNELS.validateTools);
     });
 
-    it('drops malformed OCR progress and complete events before callbacks', async () => {
+    it('drops malformed OCR progress and converts malformed completions to failure callbacks', async () => {
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
         const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
             invoke: vi.fn(),
@@ -68,6 +68,13 @@ describe('createOcrPreloadClient', () => {
             currentPage: '1',
             processedCount: 1,
             totalPages: 2,
+        });
+        listeners.get(OCR_EVENT_CHANNELS.progress)?.({}, {
+            requestId: 'ocr-3',
+            currentPage: 1,
+            processedCount: 1,
+            totalPages: 2,
+            phase: 'not-a-contract-phase',
         });
         listeners.get(OCR_EVENT_CHANNELS.complete)?.({}, {
             requestId: 'ocr-1',
@@ -109,7 +116,7 @@ describe('createOcrPreloadClient', () => {
             requestId: 'ocr-1',
             currentPage: 1,
         }));
-        expect(completeCallback).toHaveBeenCalledTimes(2);
+        expect(completeCallback).toHaveBeenCalledTimes(4);
         expect(completeCallback).toHaveBeenCalledWith(expect.objectContaining({
             requestId: 'ocr-1',
             pdfPath: '/tmp/out.pdf',
@@ -123,6 +130,26 @@ describe('createOcrPreloadClient', () => {
                 retryable: true,
                 timestamp: 123,
             },
+        }));
+        expect(completeCallback).toHaveBeenCalledWith(expect.objectContaining({
+            requestId: 'ocr-2',
+            success: false,
+            errors: ['Malformed OCR completion payload'],
+            errorEnvelope: expect.objectContaining({
+                code: 'OCR_INVALID_PAYLOAD',
+                message: 'Malformed OCR completion payload',
+                retryable: false,
+            }),
+        }));
+        expect(completeCallback).toHaveBeenCalledWith(expect.objectContaining({
+            requestId: 'ocr-4',
+            success: false,
+            errors: ['Malformed OCR completion error envelope'],
+            errorEnvelope: expect.objectContaining({
+                code: 'OCR_INVALID_PAYLOAD',
+                message: 'Malformed OCR completion error envelope',
+                retryable: false,
+            }),
         }));
     });
 });

@@ -5,8 +5,18 @@ import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
 const OCR_PREPROCESS_TIMEOUT_MS = parseIntegerEnv('EVB_OCR_PREPROCESS_TIMEOUT_MS', 30_000, 1_000);
-const OCR_UNPAPER_PROBE_TIMEOUT_MS = parseIntegerEnv('EVB_OCR_UNPAPER_PROBE_TIMEOUT_MS', 3_000, 250);
-const unpaperProbeByBinary = new Map<string, Promise<boolean>>();
+const OCR_UNPAPER_PROBE_TIMEOUT_MS = parseIntegerEnv('EVB_OCR_UNPAPER_PROBE_TIMEOUT_MS', 10_000, 1_000);
+const OCR_UNPAPER_NEGATIVE_PROBE_TTL_MS = parseIntegerEnv('EVB_OCR_UNPAPER_NEGATIVE_PROBE_TTL_MS', 5 * 60_000, 1_000);
+const unpaperProbeByBinary = new Map<string, {
+    promise: Promise<boolean>;
+    negativeExpiresAtMs?: number;
+}>();
+
+function createOptionalPreprocessingLog(log: TWorkerLog): TWorkerLog {
+    return (level, message) => {
+        log(level === 'error' ? 'warn' : level, message);
+    };
+}
 
 async function isNonEmptyFile(path: string) {
     try {
@@ -23,14 +33,17 @@ async function probeUnpaperBinary(
 ) {
     const cachedProbe = unpaperProbeByBinary.get(unpaperBinary);
     if (cachedProbe) {
-        return cachedProbe;
+        if (cachedProbe.negativeExpiresAtMs === undefined || cachedProbe.negativeExpiresAtMs > Date.now()) {
+            return cachedProbe.promise;
+        }
+        unpaperProbeByBinary.delete(unpaperBinary);
     }
 
     const probe = runOcrCommand(unpaperBinary, ['--version'], {
         timeoutMs: OCR_UNPAPER_PROBE_TIMEOUT_MS,
         commandLabel: 'unpaper(version-probe)',
         signal,
-        log,
+        log: createOptionalPreprocessingLog(log),
     }).then(
         () => true,
         (error) => {
@@ -42,8 +55,17 @@ async function probeUnpaperBinary(
             return false;
         },
     );
+    void probe.then((isRunnable) => {
+        if (isRunnable) {
+            return;
+        }
+        const cached = unpaperProbeByBinary.get(unpaperBinary);
+        if (cached?.promise === probe) {
+            cached.negativeExpiresAtMs = Date.now() + OCR_UNPAPER_NEGATIVE_PROBE_TTL_MS;
+        }
+    }, () => {});
 
-    unpaperProbeByBinary.set(unpaperBinary, probe);
+    unpaperProbeByBinary.set(unpaperBinary, {promise: probe});
     return probe;
 }
 
@@ -77,7 +99,7 @@ export async function tryPreprocessOcrImage(
             timeoutMs: OCR_PREPROCESS_TIMEOUT_MS,
             commandLabel: 'unpaper(ocr-preprocess)',
             signal,
-            log,
+            log: createOptionalPreprocessingLog(log),
         });
         if (!await isNonEmptyFile(outputPath)) {
             log('warn', 'OCR preprocessing did not produce a usable image; using raw page render');

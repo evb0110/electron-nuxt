@@ -22,14 +22,18 @@ import {
     refreshWorkingCopyOriginalFileExpectation,
 } from '@electron/file-access/workingCopyStore';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
+import { findPendingOcrResultFileForPath } from '@electron/ocr/createPendingResultFileStore';
 
-function assertOcrPdfResultSourcePath(resolvedPath: string) {
+function assertOcrPdfResultSourcePath(resolvedPath: string, senderWebContentsId: number) {
     const fileName = basename(resolvedPath).toLowerCase();
     if (extname(fileName) !== '.pdf') {
         throw new Error('Invalid source path: OCR result must be a PDF');
     }
     if (!fileName.startsWith('ocr-') && !fileName.startsWith('searchable-')) {
         throw new Error('Invalid source path: only OCR result files can replace a working copy');
+    }
+    if (!findPendingOcrResultFileForPath(senderWebContentsId, resolvedPath)) {
+        throw new Error('Invalid source path: OCR result is not owned by this renderer');
     }
 }
 
@@ -101,7 +105,7 @@ export async function handleReplaceWorkingCopyFromPath(
     if (!resolvedSourcePath) {
         throw new Error('Invalid source path: OCR result must be within temp directory');
     }
-    assertOcrPdfResultSourcePath(resolvedSourcePath);
+    assertOcrPdfResultSourcePath(resolvedSourcePath, event.sender.id);
 
     return enqueueWorkingCopyMutation(resolvedWorkingCopyPath, async () => {
         if (!await ensureWorkingCopyDirectory(resolvedWorkingCopyPath, event.sender?.id)) {

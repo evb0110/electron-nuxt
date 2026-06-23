@@ -1,6 +1,7 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     TOcrProgressPhase,
+    TOcrPreprocessingMode,
     TOcrQualityProfile,
 } from '@contracts/electronApiOcr';
 
@@ -11,6 +12,8 @@ export interface IOcrSettings {
     customRange: string;
     selectedLanguages: string[];
     qualityProfile: TOcrQualityProfile;
+    preprocessingMode: TOcrPreprocessingMode;
+    pageSegmentationMode: number | null;
 }
 
 export interface IOcrUiProgress {
@@ -20,19 +23,6 @@ export interface IOcrUiProgress {
     totalPages: number;
     processedCount: number;
     phaseProgress: number | null;
-}
-
-export interface IOcrQualityMetrics {
-    totalWords: number;
-    avgConfidence: number;
-    lowConfidenceWords: number;
-    successRate: number;
-    pagesProcessed: number;
-    dpiUsed: number;
-    estimatedQuality: 'excellent' | 'good' | 'fair' | 'poor';
-    recommendedDpi?: number;
-    embedSuccess: boolean;
-    embedError?: string;
 }
 
 export interface IOcrSearchablePdfResult {
@@ -46,5 +36,4 @@ export interface IOcrResults {
     languages: string[];
     completedAt: number | null;
     searchablePdfResult: IOcrSearchablePdfResult | null;
-    metrics?: IOcrQualityMetrics;
 }

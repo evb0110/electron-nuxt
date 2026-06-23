@@ -2,23 +2,21 @@ import type { PageViewport } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IPdfRawDims } from '@app/types/pdf';
 import type { IOcrWord } from '@contracts/shared';
+import { isRtlOcrLanguage } from '@contracts/ocrLanguages';
 import {
     buildOcrTextLayerItemText,
     isLastOcrWordInLine,
 } from '@contracts/ocrText';
-import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
     IOcrManifest,
     IOcrPageData,
 } from '@app/modules/pdf-viewer/engine/ocr-text-content-cache/ocrTextContentCacheTypes';
+import {
+    loadCachedOcrManifest,
+    loadCachedOcrPageData,
+} from '@app/modules/pdf-viewer/engine/ocr/ocrIndexArtifactLoader';
 import { sharedOcrTextContentCache } from '@app/modules/pdf-viewer/engine/ocr-text-content-cache/sharedOcrTextContentCache';
-import { readOptionalOcrArtifactJson } from '@app/utils/platformOcrArtifacts';
 
-const RTL_OCR_LANGUAGES: ReadonlySet<string> = new Set([
-    'ara',
-    'heb',
-    'syr',
-] as const);
 type TOcrTextDirection = 'ltr' | 'rtl';
 const SERVER_ASCENT_RATIO_FALLBACK = 0.8;
 
@@ -111,24 +109,7 @@ export const useOcrTextContent = () => {
      * Loads and caches the OCR manifest for a working copy path.
      */
     async function loadManifest(workingCopyPath: TDocumentRef): Promise<IOcrManifest | null> {
-        const cachedManifest = sharedOcrTextContentCache.getManifest(workingCopyPath);
-        if (cachedManifest !== undefined) {
-            return cachedManifest;
-        }
-
-        try {
-            const manifest = await readOptionalOcrArtifactJson<IOcrManifest>(workingCopyPath, 'manifest.json');
-            if (!manifest) {
-                sharedOcrTextContentCache.setManifest(workingCopyPath, null);
-                return null;
-            }
-            sharedOcrTextContentCache.setManifest(workingCopyPath, manifest);
-            return manifest;
-        } catch (err) {
-            BrowserLogger.warn('ocr', 'Failed to load manifest', err);
-            sharedOcrTextContentCache.setManifest(workingCopyPath, null);
-            return null;
-        }
+        return loadCachedOcrManifest(workingCopyPath, 'ocr');
     }
 
     /**
@@ -139,27 +120,7 @@ export const useOcrTextContent = () => {
         pageNumber: number,
         manifest: IOcrManifest,
     ): Promise<IOcrPageData | null> {
-        const cachedPageData = sharedOcrTextContentCache.getPageData(workingCopyPath, pageNumber);
-        if (cachedPageData !== undefined) {
-            return cachedPageData;
-        }
-
-        const pageMapping = manifest.pages[pageNumber];
-        if (!pageMapping) {
-            return null;
-        }
-
-        try {
-            const pageData = await readOptionalOcrArtifactJson<IOcrPageData>(workingCopyPath, pageMapping.path);
-            if (!pageData) {
-                throw new Error(`Invalid OCR page payload for page ${pageNumber}`);
-            }
-            sharedOcrTextContentCache.setPageData(workingCopyPath, pageNumber, pageData);
-            return pageData;
-        } catch (err) {
-            BrowserLogger.warn('ocr', `Failed to load page ${pageNumber}`, err);
-            return null;
-        }
+        return loadCachedOcrPageData(workingCopyPath, pageNumber, manifest, 'ocr');
     }
 
     /**
@@ -254,7 +215,7 @@ export const useOcrTextContent = () => {
             return null;
         }
 
-        const isRtl = manifest.ocr.languages.some(lang => RTL_OCR_LANGUAGES.has(lang));
+        const isRtl = manifest.ocr.languages.some(isRtlOcrLanguage);
         const textDir: TOcrTextDirection = isRtl ? 'rtl' : 'ltr';
 
         const pageData = await loadPageData(workingCopyPath, pageNumber, manifest);

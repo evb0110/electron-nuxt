@@ -7,6 +7,9 @@ import {
 import {
     createWriteStream,
     existsSync,
+    openSync,
+    readSync,
+    closeSync,
     statSync,
 } from 'fs';
 import {
@@ -25,6 +28,8 @@ import { Readable } from 'stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { pipeline } from 'stream/promises';
 import { fileURLToPath } from 'url';
+import type { App } from 'electron';
+import * as electron from 'electron';
 import {
     abortErrorFromSignal,
     createAbortError,
@@ -39,11 +44,13 @@ import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { resolveOcrResourcesBase } from '@electron/ocr/resolveOcrResourcesBase';
 
 const log = createLogger('ocr-languageModels');
-const DOWNLOAD_BASE_URL = 'https://github.com/tesseract-ocr/tessdata_best/raw/main';
+export const TESSDATA_BEST_REF = 'e12c65a915945e4c28e237a9b52bc4a8f39a0cec';
+const DOWNLOAD_BASE_URL = `https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/${TESSDATA_BEST_REF}`;
 const DOWNLOAD_TIMEOUT_MS = 90_000;
 const DOWNLOAD_RETRIES = 3;
 const RETRY_DELAY_MS = 1_500;
 const PRECHECK_TIMEOUT_MS = 4_000;
+const MIN_TRAINEDDATA_BYTES = 1024;
 const NON_RETRYABLE_HTTP_STATUSES = new Set([
     400,
     401,
@@ -73,8 +80,13 @@ interface ISharedDownloadTask {
 }
 
 const inFlightDownloads = new Map<string, ISharedDownloadTask>();
+const globalDownloadWaiters: Array<{
+    resolve: (release: () => void) => void;
+    reject: (error: unknown) => void;
+    signal?: AbortSignal;
+    abortHandler?: () => void;
+}> = [];
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const isPackaged = __dirname.includes('app.asar');
 const OCR_MODEL_DOWNLOAD_CONCURRENCY = parseIntegerEnv('EVB_OCR_MODEL_DOWNLOAD_CONCURRENCY', 3, 1, 8);
 const OCR_MAX_UNIQUE_MODEL_CODES = parseIntegerEnv(
     'EVB_OCR_MAX_UNIQUE_LANGUAGES_PER_JOB',
@@ -84,8 +96,27 @@ const OCR_MAX_UNIQUE_MODEL_CODES = parseIntegerEnv(
 );
 
 let runtimeTessdataSeedPromise: Promise<void> | null = null;
+let activeModelDownloads = 0;
+
+function getElectronApp(): Pick<App, 'isPackaged' | 'getPath'> | undefined {
+    return (electron as {app?: Pick<App, 'isPackaged' | 'getPath'>}).app;
+}
+
+function isElectronAppPackaged() {
+    return getElectronApp()?.isPackaged === true;
+}
 
 function getElectronUserDataPath() {
+    try {
+        const userDataPath = getElectronApp()?.getPath('userData')?.trim();
+        if (userDataPath) {
+            return userDataPath;
+        }
+    } catch {
+        // Fall back to Electron's conventional userData location if app paths
+        // are unavailable during early tests or startup recovery.
+    }
+
     const appName = 'EVB Viewer';
     if (process.platform === 'win32') {
         return join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), appName);
@@ -307,7 +338,7 @@ function classifyDownloadError(languageCode: string, error: unknown, timeoutMs =
         return new LanguageModelDownloadError(
             `Network is offline or unreachable (${errorCode}) while downloading OCR model "${languageCode}". Check connection and retry OCR.`,
             {
-                retryable: false,
+                retryable: true,
                 code: 'NETWORK_UNREACHABLE',
             },
         );
@@ -324,7 +355,7 @@ function classifyDownloadError(languageCode: string, error: unknown, timeoutMs =
         return new LanguageModelDownloadError(
             `Network is offline or DNS is unreachable while downloading OCR model "${languageCode}".`,
             {
-                retryable: false,
+                retryable: true,
                 code: 'NETWORK_UNREACHABLE',
             },
         );
@@ -340,11 +371,11 @@ function classifyDownloadError(languageCode: string, error: unknown, timeoutMs =
 }
 
 function getBundledTessdataDir() {
-    return join(resolveOcrResourcesBase(__dirname, isPackaged), 'tesseract', 'tessdata');
+    return join(resolveOcrResourcesBase(__dirname, isElectronAppPackaged()), 'tesseract', 'tessdata');
 }
 
 export function getRuntimeTessdataDir() {
-    if (isPackaged) {
+    if (isElectronAppPackaged()) {
         return join(getElectronUserDataPath(), 'tessdata');
     }
 
@@ -355,10 +386,113 @@ function getModelPath(baseDir: string, languageCode: string) {
     return join(baseDir, `${languageCode}.traineddata`);
 }
 
+export function validateTraineddataFile(path: string): {
+    valid: boolean;
+    error?: string;
+} {
+    if (!existsSync(path)) {
+        return {
+            valid: false,
+            error: `Missing traineddata file: ${path}`,
+        };
+    }
+
+    const stats = statSync(path);
+    if (!stats.isFile()) {
+        return {
+            valid: false,
+            error: `Traineddata path is not a file: ${path}`,
+        };
+    }
+    if (stats.size < MIN_TRAINEDDATA_BYTES) {
+        return {
+            valid: false,
+            error: `Traineddata file is unexpectedly small: ${path}`,
+        };
+    }
+
+    const header = Buffer.alloc(4 + (128 * 8));
+    let fd: number | null = null;
+    try {
+        fd = openSync(path, 'r');
+        const bytesRead = readSync(fd, header, 0, header.length, 0);
+        if (bytesRead < 12) {
+            return {
+                valid: false,
+                error: `Traineddata header is truncated: ${path}`,
+            };
+        }
+
+        const entryCount = header.readUInt32LE(0);
+        if (entryCount === 0 || entryCount > 128) {
+            return {
+                valid: false,
+                error: `Traineddata header has invalid entry count ${entryCount}: ${path}`,
+            };
+        }
+
+        const expectedHeaderBytes = 4 + (entryCount * 8);
+        if (stats.size <= expectedHeaderBytes || bytesRead < expectedHeaderBytes) {
+            return {
+                valid: false,
+                error: `Traineddata offset table is truncated: ${path}`,
+            };
+        }
+
+        let readableOffsetCount = 0;
+        for (let index = 0; index < entryCount; index++) {
+            const offset = header.readBigInt64LE(4 + (index * 8));
+            if (offset === -1n) {
+                continue;
+            }
+            if (offset < BigInt(expectedHeaderBytes) || offset >= BigInt(stats.size)) {
+                return {
+                    valid: false,
+                    error: `Traineddata header has out-of-range component offset ${offset.toString()}: ${path}`,
+                };
+            }
+            readableOffsetCount++;
+        }
+
+        if (readableOffsetCount === 0) {
+            return {
+                valid: false,
+                error: `Traineddata header has no readable components: ${path}`,
+            };
+        }
+
+        return { valid: true };
+    } catch (error) {
+        return {
+            valid: false,
+            error: `Unable to read traineddata file ${path}: ${getErrorMessage(error)}`,
+        };
+    } finally {
+        if (fd !== null) {
+            closeSync(fd);
+        }
+    }
+}
+
+async function removeInvalidModelIfPresent(languageCode: string, modelPath: string) {
+    if (!existsSync(modelPath)) {
+        return false;
+    }
+
+    const validation = validateTraineddataFile(modelPath);
+    if (validation.valid) {
+        return true;
+    }
+
+    log.warn(`Invalid OCR language model ${languageCode} will be replaced: ${validation.error ?? 'unknown validation error'}`);
+    await rm(modelPath, { force: true });
+    return false;
+}
+
 async function seedBundledModels(
     runtimeDir: string,
 ) {
-    if (!isPackaged) {
+    if (!isElectronAppPackaged()) {
         return;
     }
 
@@ -375,7 +509,12 @@ async function seedBundledModels(
     for (const fileName of bundledFiles) {
         const sourcePath = join(bundledDir, fileName);
         const destinationPath = join(runtimeDir, fileName);
-        if (existsSync(destinationPath)) {
+        if (await removeInvalidModelIfPresent(fileName.slice(0, -'.traineddata'.length), destinationPath)) {
+            continue;
+        }
+        const sourceValidation = validateTraineddataFile(sourcePath);
+        if (!sourceValidation.valid) {
+            log.warn(`Skipping invalid bundled OCR language model ${fileName}: ${sourceValidation.error ?? 'unknown validation error'}`);
             continue;
         }
         await copyFile(sourcePath, destinationPath);
@@ -385,7 +524,7 @@ async function seedBundledModels(
 export async function ensureRuntimeTessdataSeeded(
     options: IEnsureTessdataLanguagesOptions = {},
 ) {
-    if (!isPackaged) {
+    if (!isElectronAppPackaged()) {
         return;
     }
 
@@ -442,7 +581,7 @@ async function precheckLanguageDownload(
             timedSignal.signal.aborted ? timedSignal.signal.reason : error,
             PRECHECK_TIMEOUT_MS,
         );
-        if (!classified.retryable || classified.code === 'NETWORK_UNREACHABLE') {
+        if (!classified.retryable) {
             throw classified;
         }
 
@@ -504,10 +643,11 @@ async function downloadLanguageModelAttempt(
         await writeDownloadResponseBody(response, tempPath, timedSignal.signal);
         throwIfAborted(signal);
 
-        const downloadedSize = statSync(tempPath).size;
-        if (downloadedSize < 1024) {
-            throw new Error('Downloaded model is unexpectedly small');
+        const validation = validateTraineddataFile(tempPath);
+        if (!validation.valid) {
+            throw new Error(validation.error ?? 'Downloaded model is not a readable traineddata file');
         }
+        const downloadedSize = statSync(tempPath).size;
         await rename(tempPath, modelPath);
         return downloadedSize;
     } catch (err) {
@@ -531,12 +671,16 @@ async function waitBeforeDownloadRetry(
     signal?: AbortSignal,
 ) {
     if (!error.retryable) {
-        throw new Error(error.message);
+        throw error;
     }
 
     if (attempt >= DOWNLOAD_RETRIES) {
-        throw new Error(
+        throw new LanguageModelDownloadError(
             `Failed to download OCR language model "${languageCode}" after ${DOWNLOAD_RETRIES} attempts: ${error.message}`,
+            {
+                retryable: true,
+                code: error.code,
+            },
         );
     }
 
@@ -550,7 +694,7 @@ async function downloadLanguageModel(
     options: IEnsureTessdataLanguagesOptions = {},
 ) {
     const modelPath = getModelPath(runtimeDir, languageCode);
-    if (existsSync(modelPath)) {
+    if (await removeInvalidModelIfPresent(languageCode, modelPath)) {
         return;
     }
 
@@ -605,7 +749,7 @@ async function ensureLanguageModel(
     runtimeDir: string,
     options: IEnsureTessdataLanguagesOptions = {},
 ) {
-    if (existsSync(getModelPath(runtimeDir, languageCode))) {
+    if (await removeInvalidModelIfPresent(languageCode, getModelPath(runtimeDir, languageCode))) {
         return;
     }
 
@@ -628,9 +772,12 @@ async function ensureLanguageModel(
         promise: Promise.resolve(),
     };
     task.promise = (async () => {
+        let releaseSlot: (() => void) | null = null;
         try {
+            releaseSlot = await acquireGlobalModelDownloadSlot(task.controller.signal);
             await downloadLanguageModel(languageCode, runtimeDir, { signal: task.controller.signal });
         } finally {
+            releaseSlot?.();
             if (inFlightDownloads.get(languageCode) === task) {
                 inFlightDownloads.delete(languageCode);
             }
@@ -643,6 +790,64 @@ async function ensureLanguageModel(
     } finally {
         releaseDownloadWaiter(languageCode, waiterId, task);
     }
+}
+
+function activateNextGlobalDownloadWaiter() {
+    while (globalDownloadWaiters.length > 0 && activeModelDownloads < OCR_MODEL_DOWNLOAD_CONCURRENCY) {
+        const next = globalDownloadWaiters.shift();
+        if (!next) {
+            continue;
+        }
+        if (next.signal?.aborted) {
+            next.reject(abortErrorFromSignal(next.signal));
+            continue;
+        }
+        if (next.signal && next.abortHandler) {
+            next.signal.removeEventListener('abort', next.abortHandler);
+        }
+        activeModelDownloads++;
+        next.resolve(releaseGlobalModelDownloadSlot);
+        return;
+    }
+}
+
+function releaseGlobalModelDownloadSlot() {
+    activeModelDownloads = Math.max(0, activeModelDownloads - 1);
+    activateNextGlobalDownloadWaiter();
+}
+
+function acquireGlobalModelDownloadSlot(signal?: AbortSignal): Promise<() => void> {
+    throwIfAborted(signal);
+    if (activeModelDownloads < OCR_MODEL_DOWNLOAD_CONCURRENCY) {
+        activeModelDownloads++;
+        return Promise.resolve(releaseGlobalModelDownloadSlot);
+    }
+
+    return new Promise((resolve, reject) => {
+        const waiter: {
+            resolve: (release: () => void) => void;
+            reject: (error: unknown) => void;
+            signal?: AbortSignal;
+            abortHandler?: () => void;
+        } = {
+            resolve,
+            reject,
+        };
+
+        if (signal) {
+            waiter.signal = signal;
+            waiter.abortHandler = () => {
+                const index = globalDownloadWaiters.indexOf(waiter);
+                if (index >= 0) {
+                    globalDownloadWaiters.splice(index, 1);
+                }
+                reject(abortErrorFromSignal(signal));
+            };
+            signal.addEventListener('abort', waiter.abortHandler, { once: true });
+        }
+
+        globalDownloadWaiters.push(waiter);
+    });
 }
 
 export async function ensureTessdataLanguages(

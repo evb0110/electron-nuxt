@@ -14,6 +14,11 @@ describe('parsePageRange', () => {
         it('returns page 1 when current is 1', () => {
             expect(parsePageRange('current', '', 1, 100)).toEqual([1]);
         });
+
+        it('returns no pages when current is outside the document bounds', () => {
+            expect(parsePageRange('current', '', 0, 10)).toEqual([]);
+            expect(parsePageRange('current', '', 11, 10)).toEqual([]);
+        });
     });
 
     describe('rangeType "all"', () => {
@@ -115,6 +120,14 @@ describe('parsePageRange', () => {
                 3,
                 4,
             ]);
+        });
+
+        it('rejects tokens that only start with a valid page number', () => {
+            expect(parsePageRange('custom', '1abc, 2-4x, 3..5, 6', 1, 10)).toEqual([6]);
+        });
+
+        it('rejects malformed and reversed ranges instead of partially parsing them', () => {
+            expect(parsePageRange('custom', '1-3-5, 7 - 4, 8', 1, 10)).toEqual([8]);
         });
     });
 });

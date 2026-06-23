@@ -493,6 +493,7 @@ function appendPageMatches(
             ...(words !== undefined ? { words } : {}),
             ...(words !== undefined && page.pageWidth !== undefined ? { pageWidth: page.pageWidth } : {}),
             ...(words !== undefined && page.pageHeight !== undefined ? { pageHeight: page.pageHeight } : {}),
+            ...(words !== undefined && page.rotation !== undefined ? { rotation: page.rotation } : {}),
         });
 
         pageMatchIndex += 1;

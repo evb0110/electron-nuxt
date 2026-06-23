@@ -7,10 +7,13 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
+import type { App } from 'electron';
+import * as electron from 'electron';
 import {
     ensureRuntimeTessdataSeeded,
     getRuntimeTessdataDir,
 } from '@electron/ocr/languageModels';
+import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/availableLanguages';
 import { resolveNativeToolsBase } from '@electron/native-tools/resolveNativeToolsBase';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import type { IOcrToolValidationResult } from '@contracts/electronApiOcr';
@@ -35,10 +38,13 @@ export interface IOcrToolPaths {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const isPackaged = __dirname.includes('app.asar');
+
+function isElectronAppPackaged() {
+    return (electron as {app?: Pick<App, 'isPackaged'>}).app?.isPackaged === true;
+}
 
 function getNativeToolsBase() {
-    return resolveNativeToolsBase(__dirname, isPackaged);
+    return resolveNativeToolsBase(__dirname, isElectronAppPackaged());
 }
 
 function findOnSystemPath(name: string) {
@@ -76,7 +82,7 @@ function getBinaryPath(dir: string, name: string, optional = false) {
     }
 
     // Packaged app must rely on bundled binaries only.
-    if (isPackaged) {
+    if (isElectronAppPackaged()) {
         return binPath;
     }
 
@@ -140,9 +146,7 @@ export function getOcrPaths(): IOcrPaths & PromiseLike<IOcrPaths> {
     const tesseractDir = join(nativeToolsBase, 'tesseract');
     const platformDir = join(tesseractDir, platformArch);
 
-    const binary = process.platform === 'win32'
-        ? join(platformDir, 'bin', 'tesseract.exe')
-        : join(platformDir, 'bin', 'tesseract');
+    const binary = getBinaryPath(platformDir, 'tesseract');
 
     const tessdata = getRuntimeTessdataDir();
 
@@ -227,6 +231,13 @@ function getAvailableLanguages(tessdataPath: string): string[] {
     }
 }
 
+function getMissingRegistryLanguages(languages: string[] | undefined): string[] {
+    const languageSet = new Set(languages ?? []);
+    return Array.from(AVAILABLE_OCR_LANGUAGE_CODES)
+        .filter(languageCode => !languageSet.has(languageCode))
+        .sort();
+}
+
 async function validateRequiredTool(
     name: string,
     path: string,
@@ -261,15 +272,22 @@ async function validateTesseractTool(path: string, errors: string[]) {
 function validateTessdata(path: string, errors: string[]) {
     const found = existsSync(path);
     const languages = found ? getAvailableLanguages(path) : undefined;
+    const missingRegistryLanguages = found ? getMissingRegistryLanguages(languages) : [];
     if (!found) {
         errors.push(`Tessdata directory not found: ${path}`);
     } else if (languages && languages.length === 0) {
         errors.push(`No language models found in tessdata: ${path}`);
+    } else if (missingRegistryLanguages.length > 0) {
+        errors.push(`Missing registry language models in tessdata: ${missingRegistryLanguages.join(', ')}`);
     }
     const result: {
         found: boolean;
         languages?: string[];
-    } = {found};
+        complete: boolean;
+    } = {
+        found,
+        complete: found && missingRegistryLanguages.length === 0 && Boolean(languages?.length),
+    };
     if (languages !== undefined) {
         result.languages = languages;
     }
@@ -279,6 +297,7 @@ function validateTessdata(path: string, errors: string[]) {
 function validatePopplerRuntime(paths: IOcrToolPaths, errors: string[]) {
     const dataDirFound = !!paths.popplerDataDir && existsSync(paths.popplerDataDir);
     const fontConfigDirFound = !!paths.popplerFontConfigDir && existsSync(paths.popplerFontConfigDir);
+    const isPackaged = isElectronAppPackaged();
     const requiresBundledDataDir = process.platform === 'win32' || (isPackaged && process.platform === 'linux');
     const requiresBundledFontConfig = isPackaged && process.platform === 'linux';
     if (requiresBundledDataDir && !dataDirFound) {
@@ -334,7 +353,7 @@ export async function validateOcrTools(): Promise<IOcrToolValidationResult> {
     );
     const valid = tesseract.found
         && tessdata.found
-        && Boolean(tessdata.languages?.length)
+        && tessdata.complete
         && pdftoppmFound
         && pdftotextFound
         && qpdfFound

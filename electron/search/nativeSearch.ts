@@ -338,6 +338,7 @@ function attachGeometryToNativeResponse(
                     words,
                     ...(page.pageWidth !== undefined ? { pageWidth: page.pageWidth } : {}),
                     ...(page.pageHeight !== undefined ? { pageHeight: page.pageHeight } : {}),
+                    ...(page.rotation !== undefined ? { rotation: page.rotation } : {}),
                 };
             }),
         },

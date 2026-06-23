@@ -302,6 +302,22 @@ export default {
                 'poor-scan': 'Плохой скан',
             },
         },
+        'preprocessing': {
+            'label': 'Предобработка',
+            'options': {
+                'off': 'Выкл.',
+                'clean': 'Очистка скана',
+            },
+        },
+        'pageSegmentation': {
+            'label': 'Разметка текста',
+            'options': {
+                'auto': 'Авто',
+                'autoPage': 'Автостраница',
+                'singleBlock': 'Один блок',
+                'sparseText': 'Разреженный текст',
+            },
+        },
         'languages': 'Языки',
         'preparing': 'Подготовка OCR...',
         'progressStage': {
@@ -1077,6 +1093,18 @@ export default {
             'createSearchablePdf': 'Не удалось создать PDF с поиском',
             'noText': 'Текст OCR не найден. Сначала запустите OCR.',
             'exportDocx': 'Не удалось экспортировать DOCX',
+            'cancel': 'Не удалось отменить OCR',
+            'alreadyRunning': 'OCR уже выполняется',
+            'disabled': 'OCR сейчас недоступен',
+            'noDocument': 'Нет PDF-документа, готового для OCR',
+            'incomplete': 'OCR не завершился',
+            'errorCode': {
+                'invalidPayload': 'Недопустимый запрос OCR',
+                'internal': 'Неожиданная ошибка OCR',
+                'queueBackpressure': 'Очередь OCR переполнена',
+                'workerUnavailable': 'Рабочий процесс OCR недоступен',
+                'toolsValidationFailed': 'Инструменты OCR не готовы',
+            },
         },
         'pageOps': {
             'deleteAll': 'Нельзя удалить все страницы документа',
