@@ -368,14 +368,14 @@ function buildViewItems() {
 
     if (shouldShowMenuCommand('drag-mode', 4)) {
         items.push(createReaderCommandItem('drag-mode', 'enable-drag', t('zoom.handTool'), {
-            checked: dragMode,
+            checked: dragMode && !isPlacingPageNote,
             disabled: !hasInteractiveDocument.value,
         }));
     }
 
     if (shouldShowMenuCommand('text-select', 4)) {
         items.push(createReaderCommandItem('text-select', 'disable-drag', t('zoom.textSelect'), {
-            checked: !dragMode,
+            checked: !dragMode && !isPlacingPageNote,
             disabled: !hasInteractiveDocument.value,
         }));
     }

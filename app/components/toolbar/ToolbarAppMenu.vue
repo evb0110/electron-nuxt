@@ -140,6 +140,16 @@ const emitMenuCommand = {
 
 const shortcutLabels = useShortcutLabels();
 const hasInteractiveDocument = computed(() => hasPdf && documentBusy !== true);
+const isPrintCommandDisabled = computed(() => !hasInteractiveDocument.value
+    || isPreparingPrint
+    || isAnySaving
+    || isHistoryBusy
+    || isDjvuMode);
+const isExportDocxCommandDisabled = computed(() => !hasInteractiveDocument.value
+    || !canExportDocx
+    || isAnySaving
+    || isHistoryBusy
+    || isExportingDocx);
 const menuContentOptions = {
     side: 'bottom' as const,
     align: 'start' as const,
@@ -184,20 +194,20 @@ const appMenuItems = computed(() => {
             t('menu.print'),
             isPreparingPrint && !isPreparingCurrentPagePrint ? 'i-ph-circle-notch' : getReaderCommandMenuIcon('print'),
             {
-                disabled: !hasInteractiveDocument.value || isPreparingPrint,
+                disabled: isPrintCommandDisabled.value,
                 loading: isPreparingPrint && !isPreparingCurrentPagePrint,
                 shortcut: shortcutLabels.value.print,
             },
         ),
         createCommandItem('print-current-page', t('menu.printCurrentPage'), undefined, {
-            disabled: !hasInteractiveDocument.value || isPreparingPrint || isDjvuMode,
+            disabled: isPrintCommandDisabled.value,
             slot: 'print-current-page',
         }),
         { type: 'separator' },
         createCommandItem('combine-images', t('menu.combineFiles'), 'i-ph-stack-plus'),
         { type: 'separator' },
         createCommandItem('export-docx', t('menu.exportDocx'), getReaderCommandMenuIcon('export-docx'), {
-            disabled: !hasInteractiveDocument.value || !canExportDocx || isExportingDocx,
+            disabled: isExportDocxCommandDisabled.value,
             shortcut: shortcutLabels.value.exportDocx,
         }),
         createCommandItem('export-images', t('menu.exportImages'), 'i-ph-image', {disabled: !hasInteractiveDocument.value}),

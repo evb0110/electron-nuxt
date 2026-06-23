@@ -190,7 +190,7 @@ function isMoveToNewWindowEnabled(template: IMenuItemLike[]) {
 }
 
 function getEditMenuSubmenu(template: IMenuItemLike[]) {
-    const editMenu = template.find(item => item.label === 'menu.actions');
+    const editMenu = template.find(item => item.label === 'menu.edit');
     return Array.isArray(editMenu?.submenu) ? editMenu.submenu : [];
 }
 

@@ -5,7 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    ref,
+    type Ref,
+} from 'vue';
 import type { ICropMargins } from '@app/types/crop';
 
 const operationMocks = vi.hoisted(() => ({
@@ -33,9 +36,11 @@ vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations', () 
 
 const { usePageOpsHandlers } = await import('@app/modules/workspace-shell/composables/usePageOpsHandlers');
 
-function createHarness() {
+function createHarness(options: { isDjvuMode?: Ref<boolean> } = {}) {
+    const { isDjvuMode = ref(false) } = options;
     const invalidateThumbnailPages = vi.fn();
     const invalidatePages = vi.fn();
+    const onExportPages = vi.fn();
     const setSelectedThumbnailPages = vi.fn();
     const reloadWaiterCancel = vi.fn();
     const pageContextMenu = ref({
@@ -57,7 +62,8 @@ function createHarness() {
         pdfViewerRef: ref({ invalidatePages }),
         pageContextMenu,
         closePageContextMenu: vi.fn(),
-        onExportPages: vi.fn(),
+        onExportPages,
+        isDjvuMode,
         ensureHistoryBaselineForExternalMutation: vi.fn(async () => true),
         reloadWorkingCopyIntoHistory: vi.fn(async () => true),
         preparePdfReloadWaiter,
@@ -69,6 +75,7 @@ function createHarness() {
         handlers,
         invalidateThumbnailPages,
         invalidatePages,
+        onExportPages,
         setSelectedThumbnailPages,
         pageContextMenu,
         preparePdfReloadWaiter,
@@ -203,6 +210,55 @@ describe('usePageOpsHandlers crop reload strategy', () => {
 
         await handlers.pageOpsDelete([2], 10);
 
+        expect(setSelectedThumbnailPages).not.toHaveBeenCalled();
+    });
+
+    it('blocks PDF page operations while DjVu mode is active', async () => {
+        const {
+            handlers,
+            onExportPages,
+            pageContextMenu,
+            preparePdfReloadWaiter,
+            setSelectedThumbnailPages,
+        } = createHarness({ isDjvuMode: ref(true) });
+
+        await expect(handlers.pageOpsDelete([2], 10)).resolves.toBe(false);
+        await expect(handlers.pageOpsExtract([2])).resolves.toBe(false);
+        await expect(handlers.pageOpsInsert(10, 2)).resolves.toBe(false);
+        await expect(handlers.pageOpsReorder([
+            2,
+            1,
+        ])).resolves.toBe(false);
+        await expect(handlers.handlePageRotate([2], 90)).resolves.toBe(false);
+        await expect(handlers.handleCropPages([2], {
+            top: 1,
+            bottom: 1,
+            left: 1,
+            right: 1,
+        })).resolves.toBe(false);
+        await expect(handlers.handleRemoveCrop([2])).resolves.toBe(false);
+
+        handlers.handlePageFileDrop({
+            afterPage: 2,
+            filePaths: ['/tmp/extra.pdf'],
+        });
+        pageContextMenu.value.pages = [2];
+        handlers.handlePageContextMenuDelete();
+        handlers.handlePageContextMenuExtract();
+        handlers.handlePageContextMenuExport();
+        handlers.handlePageContextMenuInsertAfter();
+        await Promise.resolve();
+
+        expect(operationMocks.deletePages).not.toHaveBeenCalled();
+        expect(operationMocks.extractPages).not.toHaveBeenCalled();
+        expect(operationMocks.rotatePages).not.toHaveBeenCalled();
+        expect(operationMocks.insertPages).not.toHaveBeenCalled();
+        expect(operationMocks.insertFile).not.toHaveBeenCalled();
+        expect(operationMocks.reorderPages).not.toHaveBeenCalled();
+        expect(operationMocks.cropPages).not.toHaveBeenCalled();
+        expect(operationMocks.removeCrop).not.toHaveBeenCalled();
+        expect(onExportPages).not.toHaveBeenCalled();
+        expect(preparePdfReloadWaiter).not.toHaveBeenCalled();
         expect(setSelectedThumbnailPages).not.toHaveBeenCalled();
     });
 });

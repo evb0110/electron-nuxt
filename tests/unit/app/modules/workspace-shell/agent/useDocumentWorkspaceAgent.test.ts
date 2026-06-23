@@ -201,6 +201,79 @@ describe('useDocumentWorkspaceAgent', () => {
         expect(sidebarTab.value).toBe('bookmarks');
     });
 
+    it('blocks PDF page-operation actions in DjVu mode while keeping convert-to-PDF available', async () => {
+        const selectedThumbnailPages = ref([
+            1,
+            2,
+        ]);
+        const showConvertDialog = ref(false);
+        const pageOpsDelete = vi.fn(async () => undefined);
+        const pageOpsExtract = vi.fn(async () => undefined);
+        const pageOpsInsert = vi.fn(async () => undefined);
+        const handlePageRotate = vi.fn(async () => undefined);
+        const openConvertDialog = vi.fn(() => {
+            showConvertDialog.value = true;
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            handlePageRotate,
+            isDjvuMode: ref(true),
+            openConvertDialog,
+            pageOpsDelete,
+            pageOpsExtract,
+            pageOpsInsert,
+            selectedThumbnailPages,
+            showConvertDialog,
+        }));
+
+        const blockedActions: Array<[string, Record<string, unknown>]> = [
+            [
+                'page_ops.delete_selected',
+                {},
+            ],
+            [
+                'page_ops.extract_selected',
+                {},
+            ],
+            [
+                'page_ops.rotate_cw_selected',
+                {},
+            ],
+            [
+                'page_ops.rotate_ccw_selected',
+                {},
+            ],
+            [
+                'page_ops.insert_pages',
+                { afterPage: 2 },
+            ],
+        ];
+
+        for (const [
+            actionId,
+            input,
+        ] of blockedActions) {
+            await expect(agent.runAgentAction(actionId, input)).resolves.toMatchObject({
+                ok: false,
+                actionId,
+                blocked: true,
+                reason: 'djvu-page-operations-disabled',
+                requiredAction: 'page_ops.convert_to_pdf',
+            });
+        }
+
+        expect(pageOpsDelete).not.toHaveBeenCalled();
+        expect(pageOpsExtract).not.toHaveBeenCalled();
+        expect(pageOpsInsert).not.toHaveBeenCalled();
+        expect(handlePageRotate).not.toHaveBeenCalled();
+
+        await expect(agent.runAgentAction('page_ops.convert_to_pdf', {})).resolves.toMatchObject({
+            ok: true,
+            actionId: 'page_ops.convert_to_pdf',
+            showConvertDialog: true,
+        });
+        expect(openConvertDialog).toHaveBeenCalledOnce();
+    });
+
     it('passes OCR quality profile through the OCR start action', async () => {
         const runOcrForAgent = vi.fn(async () => ({ok: true}));
         const handleDropdownOpen = vi.fn();

@@ -22,6 +22,7 @@ export interface IPageOpsHandlersDeps {
     }>;
     closePageContextMenu: () => void;
     onExportPages: (pages: number[]) => void;
+    isDjvuMode?: Ref<boolean>;
     onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
     ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
@@ -51,6 +52,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         pageContextMenu,
         closePageContextMenu,
         onExportPages,
+        isDjvuMode,
         onExtractedDocument,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
@@ -84,7 +86,14 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         ...(runWithDocumentOperationLease !== undefined ? { runWithDocumentOperationLease } : {}),
     });
 
+    function isPdfPageOperationBlocked() {
+        return isDjvuMode?.value === true;
+    }
+
     async function runStructuralPageMutation(run: () => Promise<boolean>) {
+        if (isPdfPageOperationBlocked()) {
+            return false;
+        }
         const didSucceed = await run();
         if (didSucceed) {
             setSelectedThumbnailPages([]);
@@ -112,6 +121,13 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         return runStructuralPageMutation(() => pageOpsReorder(newOrder));
     }
 
+    async function pageOpsExtractWithDjvuGuard(pages: number[]) {
+        if (isPdfPageOperationBlocked()) {
+            return false;
+        }
+        return pageOpsExtract(pages);
+    }
+
     function handlePageContextMenuDelete() {
         const pages = pageContextMenu.value.pages;
         closePageContextMenu();
@@ -121,16 +137,22 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     function handlePageContextMenuExtract() {
         const pages = pageContextMenu.value.pages;
         closePageContextMenu();
-        void pageOpsExtract(pages);
+        void pageOpsExtractWithDjvuGuard(pages);
     }
 
     function handlePageContextMenuExport() {
         const pages = pageContextMenu.value.pages;
         closePageContextMenu();
+        if (isPdfPageOperationBlocked()) {
+            return;
+        }
         onExportPages([...pages]);
     }
 
     async function handlePageRotate(pages: number[], angle: 90 | 180 | 270) {
+        if (isPdfPageOperationBlocked()) {
+            return false;
+        }
         const reloadWaiter = preparePdfReloadWaiter(currentPage.value, { captureScrollSnapshot: false });
         const didRotate = await pageOpsRotate(pages, totalPages.value, angle);
         if (!didRotate) {
@@ -175,6 +197,9 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         afterPage: number;
         filePaths: TDocumentRef[];
     }) {
+        if (isPdfPageOperationBlocked()) {
+            return;
+        }
         void pageOpsInsertFileAndClearSelection(totalPages.value, payload.afterPage, payload.filePaths);
     }
 
@@ -199,6 +224,9 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     }
 
     async function handleCropPages(pages: number[], margins: ICropMargins) {
+        if (isPdfPageOperationBlocked()) {
+            return false;
+        }
         // Cropping changes page geometry, so forcing selective rerendering
         // reuses stale layout metrics and can visibly stretch pages.
         const reloadWaiter = preparePdfReloadWaiter(currentPage.value, { captureScrollSnapshot: false });
@@ -212,6 +240,9 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     }
 
     async function handleRemoveCrop(pages: number[]) {
+        if (isPdfPageOperationBlocked()) {
+            return false;
+        }
         // Removing crop also changes the effective viewport size.
         const reloadWaiter = preparePdfReloadWaiter(currentPage.value, { captureScrollSnapshot: false });
         const didRemoveCrop = await pageOpsRemoveCrop(pages, totalPages.value);
@@ -228,7 +259,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         pageOpBatchProgress,
         lastPageOperationOutcome,
         pageOpsDelete: pageOpsDeleteAndClearSelection,
-        pageOpsExtract,
+        pageOpsExtract: pageOpsExtractWithDjvuGuard,
         pageOpsInsert: pageOpsInsertAndClearSelection,
         pageOpsReorder: pageOpsReorderAndClearSelection,
         handlePageContextMenuDelete,

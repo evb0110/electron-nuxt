@@ -344,6 +344,22 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         };
     }
 
+    function createDjvuPageOperationBlockedResult() {
+        return {
+            ok: false,
+            blocked: true,
+            reason: 'djvu-page-operations-disabled',
+            requiredAction: 'page_ops.convert_to_pdf',
+        };
+    }
+
+    async function runPdfPageOperationAgentAction(run: () => Promise<object>) {
+        if (isDjvuMode.value) {
+            return createDjvuPageOperationBlockedResult();
+        }
+        return run();
+    }
+
     const parseEmptyAgentActionInput = () => undefined;
     const parseAgentActionInput = (input: Record<string, unknown>) => input;
 
@@ -1123,40 +1139,50 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             ids: ['page_ops.delete_selected'],
             parse: parseEmptyAgentActionInput,
             async run() {
-                await pageOpsDelete(selectedThumbnailPages.value, totalPages.value);
-                return {selectedPages: selectedThumbnailPages.value};
+                return runPdfPageOperationAgentAction(async () => {
+                    await pageOpsDelete(selectedThumbnailPages.value, totalPages.value);
+                    return {selectedPages: selectedThumbnailPages.value};
+                });
             },
         },
         {
             ids: ['page_ops.extract_selected'],
             parse: parseEmptyAgentActionInput,
             async run() {
-                await pageOpsExtract(selectedThumbnailPages.value);
-                return {selectedPages: selectedThumbnailPages.value};
+                return runPdfPageOperationAgentAction(async () => {
+                    await pageOpsExtract(selectedThumbnailPages.value);
+                    return {selectedPages: selectedThumbnailPages.value};
+                });
             },
         },
         {
             ids: ['page_ops.rotate_cw_selected'],
             parse: parseEmptyAgentActionInput,
             async run() {
-                await handlePageRotate(selectedThumbnailPages.value, 90);
-                return {selectedPages: selectedThumbnailPages.value};
+                return runPdfPageOperationAgentAction(async () => {
+                    await handlePageRotate(selectedThumbnailPages.value, 90);
+                    return {selectedPages: selectedThumbnailPages.value};
+                });
             },
         },
         {
             ids: ['page_ops.rotate_ccw_selected'],
             parse: parseEmptyAgentActionInput,
             async run() {
-                await handlePageRotate(selectedThumbnailPages.value, 270);
-                return {selectedPages: selectedThumbnailPages.value};
+                return runPdfPageOperationAgentAction(async () => {
+                    await handlePageRotate(selectedThumbnailPages.value, 270);
+                    return {selectedPages: selectedThumbnailPages.value};
+                });
             },
         },
         {
             ids: ['page_ops.insert_pages'],
             parse: parseAgentInsertPagesInput,
             async run(afterPage: number) {
-                await pageOpsInsert(totalPages.value, afterPage);
-                return {};
+                return runPdfPageOperationAgentAction(async () => {
+                    await pageOpsInsert(totalPages.value, afterPage);
+                    return {};
+                });
             },
         },
         {

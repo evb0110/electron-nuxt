@@ -66,6 +66,7 @@
                 <PdfPageSelectionBar
                     :selected-count="selectedThumbnailPages.length"
                     :is-operation-in-progress="isPageOperationInProgress ?? false"
+                    :is-djvu-mode="isDjvuMode"
                     @rotate-cw="rotateSelectedPagesClockwise"
                     @rotate-ccw="rotateSelectedPagesCounterClockwise"
                     @extract-pages="extractSelectedPages"

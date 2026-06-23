@@ -58,6 +58,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         pageContextMenu,
         closePageContextMenu,
         handleExportImages,
+        isDjvuMode,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         ensureWorkingCopyFreshForRead,
@@ -111,6 +112,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         onExportPages: (pages) => {
             void handleExportImages(pages);
         },
+        ...(isDjvuMode !== undefined ? { isDjvuMode } : {}),
         onExtractedDocument: (path) => {
             emitOpenInNewTab(path);
         },

@@ -711,6 +711,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pageContextMenu,
         closePageContextMenu,
         handleExportImages,
+        isDjvuMode,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         preparePdfReloadWaiter,

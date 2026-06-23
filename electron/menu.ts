@@ -434,7 +434,7 @@ function getFileMenu(
 
 function getEditMenu(documentActionsEnabled: boolean): MenuItemConstructorOptions {
     return {
-        label: te('menu.actions'),
+        label: te('menu.edit'),
         submenu: [
             createWindowMenuAction({
                 label: te('menu.insertImageFromFile'),

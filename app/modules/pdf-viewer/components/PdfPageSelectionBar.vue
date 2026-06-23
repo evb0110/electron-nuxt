@@ -13,7 +13,7 @@
                     type="button"
                     class="page-selection-bar-button"
                     :aria-label="t('pageOps.rotateCcw')"
-                    :disabled="isOperationInProgress"
+                    :disabled="isOperationInProgress || isDjvuMode"
                     @click="onRotateCcw"
                 >
                     <UIcon name="i-ph-arrow-counter-clockwise" class="page-selection-bar-icon" />
@@ -25,7 +25,7 @@
                     type="button"
                     class="page-selection-bar-button"
                     :aria-label="t('pageOps.rotateCw')"
-                    :disabled="isOperationInProgress"
+                    :disabled="isOperationInProgress || isDjvuMode"
                     @click="onRotateCw"
                 >
                     <UIcon name="i-ph-arrow-clockwise" class="page-selection-bar-icon" />
@@ -37,7 +37,7 @@
                     type="button"
                     class="page-selection-bar-button"
                     :aria-label="t('pageOps.extractPages')"
-                    :disabled="isOperationInProgress"
+                    :disabled="isOperationInProgress || isDjvuMode"
                     @click="onExtractPages"
                 >
                     <UIcon name="i-ph-file-arrow-down" class="page-selection-bar-icon" />
@@ -49,7 +49,7 @@
                     type="button"
                     class="page-selection-bar-button"
                     :aria-label="t('pageOps.exportPages')"
-                    :disabled="isOperationInProgress"
+                    :disabled="isOperationInProgress || isDjvuMode"
                     @click="onExportPages"
                 >
                     <UIcon name="i-ph-images" class="page-selection-bar-icon" />
@@ -61,7 +61,7 @@
                     type="button"
                     class="page-selection-bar-button page-selection-bar-button-danger"
                     :aria-label="t('pageOps.deletePages')"
-                    :disabled="isOperationInProgress"
+                    :disabled="isOperationInProgress || isDjvuMode"
                     @click="onDeletePages"
                 >
                     <UIcon name="i-ph-trash" class="page-selection-bar-icon" />
@@ -83,6 +83,7 @@
 defineProps<{
     selectedCount: number;
     isOperationInProgress: boolean;
+    isDjvuMode?: boolean;
 }>();
 
 const emit = defineEmits<{

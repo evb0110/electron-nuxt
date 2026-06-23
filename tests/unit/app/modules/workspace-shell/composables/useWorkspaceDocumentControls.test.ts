@@ -15,6 +15,7 @@ import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 const mocks = vi.hoisted(() => ({ pageOpsDeps: null as null | {
     onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
+    isDjvuMode?: unknown;
 } }));
 
 vi.mock('@app/modules/workspace-shell/composables/usePageStatusBar', () => ({ usePageStatusBar: () => ({}) }));
@@ -23,6 +24,7 @@ vi.mock('@app/modules/workspace-shell/composables/usePageOpsHandlers', () => ({ 
     mocks.pageOpsDeps = deps as {
         onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
         ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
+        isDjvuMode?: unknown;
     };
     return {};
 } }));
@@ -52,6 +54,7 @@ function createOptions() {
         canSave: ref(false),
         isAnySaving: ref(false),
         isHistoryBusy: ref(false),
+        isDjvuMode: ref(false),
         handleSave: vi.fn(async () => {}),
         totalPages: ref(1),
         selectedThumbnailPages: ref<number[]>([]),
@@ -119,5 +122,13 @@ describe('useWorkspaceDocumentControls', () => {
         useWorkspaceDocumentControls(options);
 
         expect(mocks.pageOpsDeps?.ensureWorkingCopyFreshForRead).toBe(options.ensureWorkingCopyFreshForRead);
+    });
+
+    it('forwards DjVu state to page operations', () => {
+        const options = createOptions();
+
+        useWorkspaceDocumentControls(options);
+
+        expect(mocks.pageOpsDeps?.isDjvuMode).toBe(options.isDjvuMode);
     });
 });
