@@ -125,6 +125,7 @@ import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import { resolveThumbnailRenderCoordination } from '@app/modules/pdf-viewer/thumbnails/resolveThumbnailRenderCoordination';
 import type { IPdfPagePreviewEntry } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
+import { isThumbnailRenderGenerationCurrent as isThumbnailRenderGenerationSnapshotCurrent } from '@app/modules/pdf-viewer/thumbnails/isThumbnailRenderGenerationCurrent';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -186,6 +187,7 @@ const emit = defineEmits<{
 const containerRef = ref<HTMLElement | null>(null);
 const renderingPages = new Set<number>();
 const renderTasks = new Map<number, RenderTask>();
+const renderAbortControllers = new Map<number, AbortController>();
 const renderedCanvases = new Map<number, HTMLCanvasElement>();
 const renderingCanvases = new Map<number, HTMLCanvasElement>();
 const renderingCanvasKeys = new Map<number, string>();
@@ -630,6 +632,15 @@ function isThumbnailPaneActive() {
     return isActive !== false;
 }
 
+function isThumbnailRenderGenerationCurrent(pdfDocument: PDFDocumentProxy, runId: number) {
+    return isThumbnailRenderGenerationSnapshotCurrent({
+        runId,
+        renderRunId,
+        isDocumentUsable: isPdfDocumentUsable(pdfDocument),
+        isPaneActive: isThumbnailPaneActive(),
+    });
+}
+
 function isThumbnailLayoutStabilizing() {
     return (
         thumbnailAspectRatios.value.every(aspectRatio => !isValidThumbnailAspectRatio(aspectRatio))
@@ -1013,6 +1024,10 @@ function handleContainerPointerDown() {
 }
 
 function cancelAllRenders() {
+    for (const abortController of renderAbortControllers.values()) {
+        abortController.abort();
+    }
+    renderAbortControllers.clear();
     for (const task of renderTasks.values()) {
         try {
             task.cancel();
@@ -1027,6 +1042,8 @@ function cancelAllRenders() {
 }
 
 function cancelRenderForPage(page: number) {
+    renderAbortControllers.get(page)?.abort();
+    renderAbortControllers.delete(page);
     const task = renderTasks.get(page);
     if (task) {
         try {
@@ -1319,8 +1336,7 @@ function shouldIgnoreThumbnailRenderError(
 ) {
     return (
         (error instanceof Error && error.name === 'RenderingCancelledException') ||
-        runId !== renderRunId ||
-        !isPdfDocumentUsable(pdfDocument)
+        !isThumbnailRenderGenerationCurrent(pdfDocument, runId)
     );
 }
 
@@ -1338,6 +1354,7 @@ async function renderPreparedThumbnail(
         renderRunId,
     });
     const page = await pdfDocument.getPage(pageNum);
+    const renderAbortController = new AbortController();
     logPdfRenderTrace('thumbnail-page-load-end', {
         pageNumber: pageNum,
         runId,
@@ -1345,11 +1362,13 @@ async function renderPreparedThumbnail(
         renderRunId,
     });
     try {
+        const isCurrentThumbnailRender = () => (
+            isThumbnailRenderGenerationCurrent(pdfDocument, runId)
+            && getThumbnailRenderKey(pageNum) === renderKey
+            && isCanvasForRenderKey(canvas, renderKey)
+        );
         if (
-            runId !== renderRunId
-            || !isPdfDocumentUsable(pdfDocument)
-            || getThumbnailRenderKey(pageNum) !== renderKey
-            || !isCanvasForRenderKey(canvas, renderKey)
+            !isCurrentThumbnailRender()
         ) {
             logPdfRenderTrace('thumbnail-render-skip-stale', {
                 pageNumber: pageNum,
@@ -1358,6 +1377,7 @@ async function renderPreparedThumbnail(
                 renderKey,
                 currentRenderKey: getThumbnailRenderKey(pageNum),
                 usableDocument: isPdfDocumentUsable(pdfDocument),
+                thumbnailPaneActive: isThumbnailPaneActive(),
             });
             return;
         }
@@ -1368,6 +1388,7 @@ async function renderPreparedThumbnail(
             ?? 1;
         const metrics = resolveThumbnailRenderMetrics(page, pageNum);
         const renderCoordination = resolveThumbnailRenderCoordination(pageNum, currentPage);
+        renderAbortControllers.set(pageNum, renderAbortController);
         const operationsFilter = await createHiddenAnnotationOperationsFilter(
             page,
             annotationMode,
@@ -1375,8 +1396,14 @@ async function renderPreparedThumbnail(
             {
                 owner: renderCoordination.owner,
                 priority: renderCoordination.priority,
+                signal: renderAbortController.signal,
+                shouldStart: isCurrentThumbnailRender,
+                shouldContinue: isCurrentThumbnailRender,
             },
         );
+        if (!isCurrentThumbnailRender()) {
+            return;
+        }
         const renderCanvas = canvas.dataset.thumbnailSeededPreview === 'true'
             ? document.createElement('canvas')
             : canvas;
@@ -1413,12 +1440,7 @@ async function renderPreparedThumbnail(
                 pageNumber: pageNum,
                 pdfPage: page,
                 priority: renderCoordination.priority,
-                shouldStart: () => (
-                    runId === renderRunId
-                    && isPdfDocumentUsable(pdfDocument)
-                    && getThumbnailRenderKey(pageNum) === renderKey
-                    && isCanvasForRenderKey(canvas, renderKey)
-                ),
+                shouldStart: isCurrentThumbnailRender,
                 startRender: () => page.render({
                     canvasContext: context,
                     viewport: metrics.scaledViewport,
@@ -1457,6 +1479,8 @@ async function renderPreparedThumbnail(
             }
         }
         const isStillCurrentCanvas = (
+            isThumbnailRenderGenerationCurrent(pdfDocument, runId)
+            &&
             getCanvas(pageNum) === canvas
             && getThumbnailRenderKey(pageNum) === renderKey
             && isCanvasForRenderKey(canvas, renderKey)
@@ -1490,6 +1514,9 @@ async function renderPreparedThumbnail(
         }
         finalizeRenderedThumbnail(pageNum, canvas, renderKey);
     } finally {
+        if (renderAbortControllers.get(pageNum) === renderAbortController) {
+            renderAbortControllers.delete(pageNum);
+        }
         cleanupPdfPage(page, pageNum, 'render-thumbnail');
     }
 }
@@ -1528,7 +1555,7 @@ async function renderThumbnail(
     pageNum: number,
     runId: number,
 ) {
-    const canvas = runId === renderRunId && isPdfDocumentUsable(pdfDocument)
+    const canvas = isThumbnailRenderGenerationCurrent(pdfDocument, runId)
         ? prepareThumbnailCanvas(pageNum)
         : null;
     if (!canvas) {
@@ -1638,6 +1665,9 @@ const scheduleVisibleThumbnailRender = useDebounceFn(() => {
     if (!doc || totalPages <= 0) {
         return;
     }
+    if (!isThumbnailPaneActive()) {
+        return;
+    }
     if (!resolveVisibleContainer('schedule-visible-render')) {
         return;
     }
@@ -1707,7 +1737,7 @@ async function preloadThumbnailAspectRatio(pdfDocument: PDFDocumentProxy, runId:
     try {
         const page = await pdfDocument.getPage(pageNum);
         try {
-            if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {
+            if (!isThumbnailRenderGenerationCurrent(pdfDocument, runId)) {
                 return;
             }
 
@@ -1869,6 +1899,8 @@ watch(
     (isActive) => {
         if (!isActive) {
             cancelActivePaneRefresh();
+            cancelAllRenders();
+            renderRunId += 1;
             return;
         }
 

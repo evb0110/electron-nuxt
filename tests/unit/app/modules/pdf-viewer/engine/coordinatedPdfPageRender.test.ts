@@ -46,6 +46,21 @@ function createRenderTask() {
     };
 }
 
+function createDeferred<T = void>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+    });
+
+    return {
+        promise,
+        reject,
+        resolve,
+    };
+}
+
 describe('runCoordinatedPdfPageRender', () => {
     it('preempts a lower-priority thumbnail render when the viewer needs the same page', async () => {
         const page = cast<PDFPageProxy>({ pageNumber: 1 });
@@ -174,5 +189,56 @@ describe('runCoordinatedPdfPageRender', () => {
         const thumbnailError = await thumbnailRun;
         expect(thumbnailError).toBeInstanceOf(Error);
         expect((thumbnailError as Error).name).toBe('RenderingCancelledException');
+    });
+
+    it('releases coordinated operation ownership when the operation signal aborts', async () => {
+        const page = cast<PDFPageProxy>({ pageNumber: 1 });
+        const events: string[] = [];
+        const operation = createDeferred<string>();
+        const operationAbortController = new AbortController();
+        const viewerTask = createRenderTask();
+
+        const operationRun = runCoordinatedPdfPageOperation({
+            owner: 'viewer-filter',
+            pageNumber: 1,
+            pdfPage: page,
+            priority: 100,
+            signal: operationAbortController.signal,
+            operation: async () => {
+                events.push('start filter');
+                return operation.promise;
+            },
+        }).catch(error => error as Error);
+        await flushAsync();
+        expect(events).toEqual(['start filter']);
+
+        operationAbortController.abort();
+        const operationError = await operationRun;
+        if (!(operationError instanceof Error)) {
+            throw new Error('Expected operation abort to reject');
+        }
+        expect(operationError.name).toBe('RenderingCancelledException');
+
+        const renderRun = runCoordinatedPdfPageRender({
+            owner: 'viewer',
+            pageNumber: 1,
+            pdfPage: page,
+            priority: 100,
+            startRender: () => {
+                events.push('start viewer');
+                return viewerTask;
+            },
+        });
+        await flushAsync();
+
+        expect(events).toEqual([
+            'start filter',
+            'start viewer',
+        ]);
+
+        viewerTask.resolve();
+        await renderRun;
+        operation.resolve('late');
+        await flushAsync();
     });
 });

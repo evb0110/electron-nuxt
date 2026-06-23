@@ -439,6 +439,161 @@ describe('buildSearchIndex assembly', () => {
         }, undefined);
     });
 
+    it('preserves partial OCR v2 pages and fills missing pages from PDF text extraction', async () => {
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        mocks.existsSync.mockImplementation((path: string) => (
+            path.endsWith('manifest.json') || path.endsWith('page-1.json')
+        ));
+        mocks.readFile.mockImplementation(async (path: string) => {
+            if (path.endsWith('manifest.json')) {
+                return JSON.stringify({
+                    version: 2,
+                    createdAt: 1,
+                    source: { pdfPath: '/tmp/file.pdf' },
+                    pageCount: 2,
+                    pageBox: 'crop',
+                    ocr: {
+                        engine: 'tesseract',
+                        languages: ['eng'],
+                        renderDpi: 300,
+                    },
+                    pages: { 1: { path: 'page-1.json' } },
+                });
+            }
+            if (path.endsWith('page-1.json')) {
+                return JSON.stringify({
+                    pageNumber: 1,
+                    text: 'ocr page one',
+                    words: [{
+                        text: 'ocr',
+                        x: 1,
+                        y: 2,
+                        width: 3,
+                        height: 4,
+                    }],
+                });
+            }
+            throw new Error(`Unexpected read: ${path}`);
+        });
+        mocks.extractTextWithPdfjs.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
+            options.onPageText?.({
+                pageNumber: 1,
+                text: 'weaker pdf page one',
+            });
+            options.onPageText?.({
+                pageNumber: 2,
+                text: 'pdf page two',
+            });
+            return [];
+        });
+        mocks.extractTextFromPdf.mockResolvedValue([]);
+
+        const result = await buildSearchIndex('/tmp/file.pdf', [], { pageCount: 2 });
+
+        expect(mocks.extractTextWithPdfjs).toHaveBeenCalledOnce();
+        expect(result.pages).toEqual([
+            expect.objectContaining({
+                pageNumber: 1,
+                text: 'ocr \n',
+                words: [expect.objectContaining({ text: 'ocr' })],
+            }),
+            expect.objectContaining({
+                pageNumber: 2,
+                text: 'pdf page two',
+            }),
+        ]);
+        expect(result.pageCount).toBe(2);
+        expect(result.textSource).toBeUndefined();
+    });
+
+    it('uses OCR v2 manifest pageCount as the effective count for partial sidecars', async () => {
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        mocks.existsSync.mockImplementation((path: string) => (
+            path.endsWith('manifest.json') || path.endsWith('page-1.json')
+        ));
+        mocks.readFile.mockImplementation(async (path: string) => {
+            if (path.endsWith('manifest.json')) {
+                return JSON.stringify({
+                    version: 2,
+                    createdAt: 1,
+                    source: { pdfPath: '/tmp/file.pdf' },
+                    pageCount: 2,
+                    pageBox: 'crop',
+                    ocr: {
+                        engine: 'tesseract',
+                        languages: ['eng'],
+                        renderDpi: 300,
+                    },
+                    pages: { 1: { path: 'page-1.json' } },
+                });
+            }
+            if (path.endsWith('page-1.json')) {
+                return JSON.stringify({
+                    pageNumber: 1,
+                    render: {
+                        dpi: 300,
+                        imagePx: {
+                            w: 100,
+                            h: 200,
+                        },
+                    },
+                    words: [{
+                        text: 'ocr',
+                        x: 1,
+                        y: 2,
+                        width: 3,
+                        height: 4,
+                    }],
+                });
+            }
+            if (path.endsWith('file.pdf.index.json')) {
+                return JSON.stringify({
+                    schemaVersion: 6,
+                    pdfPath: '/tmp/file.pdf',
+                    createdAt: 1,
+                    pageCount: 1,
+                    pages: [{
+                        pageNumber: 1,
+                        text: 'old cached page',
+                        pageWidth: 100,
+                        pageHeight: 200,
+                        words: [{
+                            text: 'old',
+                            x: 0,
+                            y: 0,
+                            width: 1,
+                            height: 1,
+                        }],
+                    }],
+                });
+            }
+            throw new Error(`Unexpected read: ${path}`);
+        });
+        mocks.extractTextWithPdfjs.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
+            options.onPageText?.({
+                pageNumber: 2,
+                text: 'manifest missing page',
+            });
+            return [];
+        });
+        mocks.extractTextFromPdf.mockResolvedValue([]);
+
+        const result = await buildSearchIndex('/tmp/file.pdf', []);
+
+        expect(mocks.extractTextWithPdfjs).toHaveBeenCalledOnce();
+        expect(result.pages).toEqual([
+            expect.objectContaining({
+                pageNumber: 1,
+                text: 'ocr \n',
+            }),
+            expect.objectContaining({
+                pageNumber: 2,
+                text: 'manifest missing page',
+            }),
+        ]);
+        expect(result.pageCount).toBe(2);
+    });
+
     it('reads OCR page JSON instead of compact text-only sidecar so geometry is preserved', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         mocks.existsSync.mockReturnValue(true);

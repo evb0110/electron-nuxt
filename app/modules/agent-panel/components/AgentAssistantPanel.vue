@@ -525,6 +525,7 @@
                                         :selected-provider="selectedProvider"
                                         :selected-model="selectedModel"
                                         :is-switching="isSwitchingAssistant"
+                                        :disabled="assistantSelectionLocked"
                                         side="top"
                                         @select-provider="updateProvider"
                                         @select-model="updateModel"
@@ -533,7 +534,7 @@
                                         v-if="hasLoadedState && status.availableEfforts.length > 0"
                                         :efforts="status.availableEfforts"
                                         :selected-effort="selectedEffort"
-                                        :disabled="isSending"
+                                        :disabled="assistantSelectionLocked"
                                         side="top"
                                         @select-effort="updateEffort"
                                     />
@@ -587,6 +588,7 @@
                     :selected-provider="selectedProvider"
                     :selected-model="selectedModel"
                     :is-switching="isSwitchingAssistant"
+                    :disabled="assistantSelectionLocked"
                     side="top"
                     @select-provider="updateProvider"
                     @select-model="updateModel"
@@ -595,6 +597,7 @@
                     v-if="status.availableEfforts.length > 0"
                     :efforts="status.availableEfforts"
                     :selected-effort="selectedEffort"
+                    :disabled="assistantSelectionLocked"
                     side="top"
                     @select-effort="updateEffort"
                 />
@@ -694,12 +697,15 @@ import type {
 import {
     ASSISTANT_DEFAULT_EFFORT,
     CLAUDE_ASSISTANT_EFFORTS,
+    CLAUDE_ASSISTANT_DEFAULT_MODEL,
     CLAUDE_ASSISTANT_MODELS,
     CODEX_ASSISTANT_EFFORTS,
+    CODEX_ASSISTANT_DEFAULT_MODEL,
     CODEX_ASSISTANT_FALLBACK_MODELS,
 } from '@contracts/agentModels';
 import AssistantEffortSwitcher from '@app/modules/agent-panel/components/AssistantEffortSwitcher.vue';
 import AssistantModelSwitcher from '@app/modules/agent-panel/components/AssistantModelSwitcher.vue';
+import { isAssistantSelectionLocked } from '@app/modules/agent-panel/utils/isAssistantSelectionLocked';
 import { formatAssistantMessage } from '@app/modules/agent-panel/utils/formatAssistantMessage';
 import { getAgentAssistantPanelView } from '@app/modules/workspace-shell/public';
 import { guardAsync } from '@app/utils/asyncGuard';
@@ -762,7 +768,7 @@ const panelRef = ref<HTMLElement | null>(null);
 const messagesRef = ref<HTMLElement | null>(null);
 const state = ref<IAgentAssistantState | null>(null);
 const selectedProvider = ref<TAgentAssistantProviderId>('codex');
-const selectedModel = ref('default');
+const selectedModel = ref(CODEX_ASSISTANT_DEFAULT_MODEL);
 const hasLocalModelSelection = ref(false);
 const selectedEffort = ref<TAgentAssistantEffort>('high');
 const hasLocalEffortSelection = ref(false);
@@ -819,8 +825,8 @@ const emptyState = computed<IAgentAssistantState>(() => ({
                 authState: 'unknown',
                 runtimeState: 'stopped',
                 models: [...CODEX_ASSISTANT_FALLBACK_MODELS],
-                defaultModel: 'default',
-                activeModel: 'default',
+                defaultModel: CODEX_ASSISTANT_DEFAULT_MODEL,
+                activeModel: CODEX_ASSISTANT_DEFAULT_MODEL,
                 modelSwitchMode: 'in-session',
                 availableEfforts: [...CODEX_ASSISTANT_EFFORTS],
                 defaultEffort: ASSISTANT_DEFAULT_EFFORT,
@@ -839,8 +845,8 @@ const emptyState = computed<IAgentAssistantState>(() => ({
                 authState: 'unknown',
                 runtimeState: 'stopped',
                 models: [...CLAUDE_ASSISTANT_MODELS],
-                defaultModel: 'default',
-                activeModel: 'default',
+                defaultModel: CLAUDE_ASSISTANT_DEFAULT_MODEL,
+                activeModel: CLAUDE_ASSISTANT_DEFAULT_MODEL,
                 modelSwitchMode: 'in-session',
                 availableEfforts: [...CLAUDE_ASSISTANT_EFFORTS],
                 defaultEffort: ASSISTANT_DEFAULT_EFFORT,
@@ -963,6 +969,12 @@ const isTurnActive = computed(() => (
     || status.value.turn.phase === 'running'
     || status.value.turn.phase === 'interrupting'
 ));
+const assistantSelectionLocked = computed(() => isAssistantSelectionLocked({
+    activeTurnId: status.value.activeTurnId,
+    isSending: isSending.value,
+    runtimeState: status.value.runtimeState,
+    turnPhase: status.value.turn.phase,
+}));
 const turnStatusText = computed(() => {
     if (status.value.turn.phase === 'interrupting') {
         return t('assistant.interrupting');
@@ -1445,6 +1457,9 @@ function normalizeModelValue(value: unknown) {
 }
 
 function updateProvider(value: unknown) {
+    if (assistantSelectionLocked.value) {
+        return;
+    }
     const nextProvider = normalizeProviderValue(value);
     if (nextProvider === selectedProvider.value) {
         return;
@@ -1477,6 +1492,9 @@ function updateProvider(value: unknown) {
 }
 
 function updateModel(value: unknown) {
+    if (assistantSelectionLocked.value) {
+        return;
+    }
     const nextModel = normalizeModelValue(value);
     if (!nextModel || nextModel === selectedModel.value) {
         return;
@@ -1487,6 +1505,9 @@ function updateModel(value: unknown) {
 }
 
 function updateEffort(value: unknown) {
+    if (assistantSelectionLocked.value) {
+        return;
+    }
     const nextEffort = normalizeEffortValue(value);
     if (!nextEffort || nextEffort === selectedEffort.value) {
         return;

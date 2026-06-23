@@ -43,6 +43,7 @@ export async function renderPdfPageToPng(
 
     await runOcrCommand(paths.pdftoppmBinary, [
         '-png',
+        '-cropbox',
         '-r',
         String(dpi),
         '-f',

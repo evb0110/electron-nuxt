@@ -27,10 +27,18 @@ interface ICreateDeferredWorkspaceExposeProxyDeps {
         action: string,
         run: (workspace: IWorkspaceExpose) => Promise<T> | T,
     ) => Promise<T | null | undefined>;
+    withLoadedWorkspaceRequired: <T>(
+        action: string,
+        run: (workspace: IWorkspaceExpose) => Promise<T> | T,
+    ) => Promise<T>;
     withWorkspace: (
         action: string,
         run: (workspace: IWorkspaceExpose) => Promise<boolean | undefined> | boolean | undefined,
     ) => Promise<boolean>;
+}
+
+function getErrorMessage(error: unknown) {
+    return error instanceof Error ? error.message : String(error);
 }
 
 export function createDeferredWorkspaceExposeProxy(
@@ -196,26 +204,34 @@ export function createDeferredWorkspaceExposeProxy(
             'waitForDocumentOpenSettled',
             workspace => workspace.waitForDocumentOpenSettled(),
         ),
-        runAgentAction: async (actionId, input, options) => (
-            await deps.withLoadedWorkspace(
-                'runAgentAction',
-                workspace => workspace.runAgentAction(actionId, input, options),
-            ) ?? {
-                ok: false,
-                actionId,
-                error: 'Workspace is not available.',
+        runAgentAction: async (actionId, input, options) => {
+            try {
+                return await deps.withLoadedWorkspaceRequired(
+                    'runAgentAction',
+                    workspace => workspace.runAgentAction(actionId, input, options),
+                );
+            } catch (error) {
+                return {
+                    ok: false,
+                    actionId,
+                    error: getErrorMessage(error),
+                };
             }
-        ),
-        readAgentResource: async uri => (
-            await deps.withLoadedWorkspace(
-                'readAgentResource',
-                workspace => workspace.readAgentResource(uri),
-            ) ?? {
-                ok: false,
-                uri,
-                error: 'Workspace is not available.',
+        },
+        readAgentResource: async (uri) => {
+            try {
+                return await deps.withLoadedWorkspaceRequired(
+                    'readAgentResource',
+                    workspace => workspace.readAgentResource(uri),
+                );
+            } catch (error) {
+                return {
+                    ok: false,
+                    uri,
+                    error: getErrorMessage(error),
+                };
             }
-        ),
+        },
         getAutomationStateSnapshot: () => deps.getMounted()?.getAutomationStateSnapshot() ?? {
             annotationComments: [],
             annotationCommentsStatus: 'loading',

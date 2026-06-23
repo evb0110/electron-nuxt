@@ -19,29 +19,27 @@ export const CODEX_ASSISTANT_EFFORTS = [
     'high',
 ] as const satisfies readonly TAgentAssistantEffort[];
 
-// Canonical Claude model options, smartest first. Ids are Agent SDK aliases that always
-// resolve to the latest version of each family. Fable stays selectable even though it is
-// access-gated — selecting it simply returns an "unavailable" error until the account is
-// granted access, at which point it works with no code change. The default is the smartest
-// model that is generally available today (Opus); switch to Fable here once it ships broadly.
-export const CLAUDE_ASSISTANT_DEFAULT_MODEL = 'opus';
+// Canonical Claude model options, smartest first. Ids are Claude Code aliases;
+// Anthropic documents that these aliases can lag or be pinned by environment,
+// so labels are version-aware fallback metadata rather than freshness guarantees.
+export const CLAUDE_ASSISTANT_DEFAULT_MODEL = 'fable';
 
 export const CLAUDE_ASSISTANT_MODELS = [
     {
         id: 'fable',
-        label: 'Fable',
+        label: 'Claude Fable 5',
     },
     {
         id: 'opus',
-        label: 'Opus',
+        label: 'Claude Opus 4.8',
     },
     {
         id: 'sonnet',
-        label: 'Sonnet',
+        label: 'Claude Sonnet 4.6',
     },
     {
         id: 'haiku',
-        label: 'Haiku',
+        label: 'Claude Haiku 4.5',
     },
 ] as const satisfies readonly IAgentAssistantModelOption[];
 

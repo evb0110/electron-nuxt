@@ -310,7 +310,7 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(DOCUMENTS_CHANNELS.fileReadRange, '/tmp/working.pdf', 4, 1);
     });
 
-    it('streams PDF persistence chunks with tight backing buffers', async () => {
+    it('streams PDF persistence chunks with tight backing buffers without transferring ArrayBuffers', async () => {
         const port1 = new FakeMessagePort();
         const port2 = new FakeMessagePort();
         vi.stubGlobal('MessageChannel', class {
@@ -371,14 +371,14 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(chunks[0]?.bytes.byteOffset).toBe(0);
         expect(chunks[0]?.bytes.byteLength).toBe(chunkBytes);
         expect(chunks[0]?.bytes[0]).toBe(1);
-        expect(port1.postedTransfers[0]).toEqual([chunks[0]?.bytes.buffer]);
+        expect(port1.postedTransfers[0]).toEqual([]);
         expect(port1.postedTransfers[0]).not.toContain(sourceBytes.buffer);
         expect(chunks[1]?.bytes.buffer).not.toBe(sourceBytes.buffer);
         expect(chunks[1]?.bytes.byteOffset).toBe(0);
         expect(chunks[1]?.bytes.byteLength).toBe(3);
         expect(chunks[1]?.bytes[0]).toBe(2);
         expect(chunks[1]?.bytes[2]).toBe(3);
-        expect(port1.postedTransfers[1]).toEqual([chunks[1]?.bytes.buffer]);
+        expect(port1.postedTransfers[1]).toEqual([]);
         expect(port1.postedTransfers[1]).not.toContain(sourceBytes.buffer);
     });
 

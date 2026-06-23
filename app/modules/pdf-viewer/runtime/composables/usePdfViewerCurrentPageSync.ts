@@ -132,8 +132,9 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
         source: string,
         samples: number[] | null,
         fallbackToCurrent: boolean,
+        previousPage = currentPage.value,
     ) {
-        const previous = currentPage.value;
+        const previous = previousPage;
         const changed = page !== previous;
         const hasSampleDrift = Boolean(samples && new Set(samples).size > 1);
         const shouldLog = changed || hasSampleDrift || fallbackToCurrent || source.includes('resize');
@@ -295,8 +296,9 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
             return;
         }
 
+        const previousPage = currentPage.value;
         const page = updateCurrentPage(viewerContainer.value, numPages.value);
-        emitCurrentPageIfChanged(page, source, null, false);
+        emitCurrentPageIfChanged(page, source, null, false, previousPage);
     }
 
     watch(

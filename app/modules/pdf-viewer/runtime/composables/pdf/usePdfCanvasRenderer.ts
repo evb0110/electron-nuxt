@@ -33,6 +33,9 @@ interface IRenderCanvasOptions {
     pageRenderCoordination?: {
         owner: string;
         priority: number;
+        signal?: AbortSignal | undefined;
+        shouldStart?: (() => boolean) | undefined;
+        shouldContinue?: (() => boolean) | undefined;
     };
 }
 

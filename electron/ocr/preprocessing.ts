@@ -5,12 +5,10 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
-import { app } from 'electron';
 import { buildTesseractEnv } from '@electron/ocr/buildTesseractEnv';
 import { createLogger } from '@electron/utils/createLogger';
-import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import { appendTextChunkWithByteCap } from '@electron/native-tools/appendTextChunkWithByteCap';
-import { resolveOcrResourcesBase } from '@electron/ocr/resolveOcrResourcesBase';
+import { getOcrToolPaths } from '@electron/ocr/paths';
 import {
     createDetachedChildProcessSpawnOptions,
     terminateDetachedChildProcess,
@@ -72,8 +70,7 @@ function prependPathEntry(entry: string, existing: string | undefined) {
 
 function buildPreprocessingEnv(binary: string): NodeJS.ProcessEnv {
     const binDir = dirname(binary);
-    const resourcesBase = resolveOcrResourcesBase(__dirname, app.isPackaged);
-    const env = buildTesseractEnv(join(resourcesBase, 'tesseract', 'tessdata'));
+    const env = buildTesseractEnv(getOcrToolPaths().tessdata);
     env.PATH = prependPathEntry(binDir, env.PATH);
     return env;
 }
@@ -98,18 +95,15 @@ function terminatePreprocessingProcess(proc: ReturnType<typeof spawn>) {
 }
 
 function getPreprocessingBinaries(): IPreprocessingBinaries {
-    const resourcesBase = resolveOcrResourcesBase(__dirname, app.isPackaged);
-    const tesseractDir = join(resourcesBase, 'tesseract');
-    const arch = resolvePlatformArchTag();
-
-    const binDir = join(tesseractDir, arch, 'bin');
+    const paths = getOcrToolPaths();
+    const binDir = dirname(paths.tesseract);
     const ext = process.platform === 'win32' ? '.exe' : '';
 
     const leptonica = join(binDir, `leptonica${ext}`);
-    const unpaper = join(binDir, `unpaper${ext}`);
+    const unpaper = paths.unpaper ?? join(binDir, `unpaper${ext}`);
 
     // Debug logging
-    log.debug(`getPreprocessingBinaries: __dirname=${__dirname}, resourcesBase=${resourcesBase}, arch=${arch}, binDir=${binDir}`);
+    log.debug(`getPreprocessingBinaries: __dirname=${__dirname}, binDir=${binDir}`);
     log.debug(`  leptonica path: ${leptonica}, exists: ${existsSync(leptonica)}`);
     log.debug(`  unpaper path: ${unpaper}, exists: ${existsSync(unpaper)}`);
 

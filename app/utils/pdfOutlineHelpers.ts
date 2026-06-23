@@ -7,6 +7,7 @@ import type {
     IBookmarkItem,
     IBookmarkLocation,
 } from '@app/types/pdfOutline';
+import type { IPdfBookmarkEntry } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     getOptionalArray,
@@ -498,6 +499,85 @@ export async function buildResolvedOutline(
 
     if (skippedOverLimit) {
         BrowserLogger.warn(OUTLINE_LOG_SECTION, 'Skipped over-limit resolved PDF outline items', {
+            maxDepth: MAX_OUTLINE_DEPTH,
+            maxItems: MAX_OUTLINE_ITEMS,
+        });
+    }
+
+    return root;
+}
+
+export function buildOutlineFromBookmarkEntries(
+    entries: readonly IPdfBookmarkEntry[],
+    createId: () => string,
+) {
+    const root: IBookmarkItem[] = [];
+    const stack: Array<{
+        entry: IPdfBookmarkEntry;
+        target: IBookmarkItem[];
+        depth: number;
+    }> = [];
+    let acceptedCount = 0;
+    let skippedOverLimit = false;
+
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+        const entry = entries[index];
+        if (entry) {
+            stack.push({
+                entry,
+                target: root,
+                depth: 1,
+            });
+        }
+    }
+
+    while (stack.length > 0) {
+        const frame = stack.pop();
+        if (!frame) {
+            break;
+        }
+        if (acceptedCount >= MAX_OUTLINE_ITEMS) {
+            skippedOverLimit = true;
+            continue;
+        }
+
+        acceptedCount += 1;
+        const children: IBookmarkItem[] = [];
+        frame.target.push({
+            title: frame.entry.title,
+            dest: frame.entry.namedDest,
+            id: createId(),
+            pageIndex: typeof frame.entry.pageIndex === 'number' && Number.isFinite(frame.entry.pageIndex)
+                ? Math.max(0, Math.trunc(frame.entry.pageIndex))
+                : null,
+            bold: frame.entry.bold === true,
+            italic: frame.entry.italic === true,
+            color: normalizeBookmarkColor(frame.entry.color),
+            items: children,
+        });
+
+        if (!frame.entry.items.length) {
+            continue;
+        }
+        if (frame.depth >= MAX_OUTLINE_DEPTH) {
+            skippedOverLimit = true;
+            continue;
+        }
+
+        for (let index = frame.entry.items.length - 1; index >= 0; index -= 1) {
+            const entry = frame.entry.items[index];
+            if (entry) {
+                stack.push({
+                    entry,
+                    target: children,
+                    depth: frame.depth + 1,
+                });
+            }
+        }
+    }
+
+    if (skippedOverLimit) {
+        BrowserLogger.warn(OUTLINE_LOG_SECTION, 'Skipped over-limit pending PDF bookmark items', {
             maxDepth: MAX_OUTLINE_DEPTH,
             maxItems: MAX_OUTLINE_ITEMS,
         });

@@ -167,6 +167,18 @@ export interface IWorkspaceAutomationStateSnapshot {
     annotationComments: IAnnotationCommentSummary[];
     annotationCommentsStatus: TAnnotationCommentsStatus;
     annotationDirty: boolean;
+    dirtyState?: {
+        annotationDirty: boolean;
+        bookmarksDirty: boolean;
+        fileDirty: boolean;
+        hasAnnotationChanges: boolean;
+        hasLivePdfJsAnnotationChanges: boolean;
+        hasPendingUnsavedChanges: boolean;
+        hasPreservedAnnotationSourceChanges: boolean;
+        hasSavedPdfJsAnnotationBaselineChanges: boolean;
+        pageLabelsDirty: boolean;
+        pendingEmbeddedAnnotationDeleteCount: number;
+    };
     originalPath: TDocumentRef | null;
     sortedAnnotationNoteWindows: IAnnotationNoteWindowState[];
     workingCopyPath: TDocumentRef | null;

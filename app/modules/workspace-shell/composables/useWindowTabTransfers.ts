@@ -123,7 +123,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
     function createIncomingTransferTargetTab(targetPane: IPaneLike): IIncomingTransferTargetTab {
         const createdTab = options.createTab({
             paneId: targetPane.paneId,
-            activate: false,
+            activate: true,
         });
 
         return {

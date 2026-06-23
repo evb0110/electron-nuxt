@@ -59,7 +59,13 @@ describe('usePdfRendererCanvasController', () => {
         const prepareCanvasRender = vi.fn(async (
             _pdfPage: unknown,
             _scale: number,
-            _options?: { hiddenAnnotationIds?: Set<string>; },
+            _options?: {
+                hiddenAnnotationIds?: Set<string>;
+                pageRenderCoordination?: {
+                    signal?: AbortSignal | undefined;
+                    shouldStart?: (() => boolean) | undefined;
+                };
+            },
         ) => preparedCanvasRender);
         const controller = usePdfRendererCanvasController({
             canvasRenderer: {
@@ -93,6 +99,60 @@ describe('usePdfRendererCanvasController', () => {
         expect(prepareCanvasRender).toHaveBeenCalledOnce();
         const canvasOptions = prepareCanvasRender.mock.calls[0]?.[2];
         expect(canvasOptions?.hiddenAnnotationIds).toEqual(new Set(['hidden-42']));
+        expect(canvasOptions?.pageRenderCoordination?.signal).toBeInstanceOf(AbortSignal);
+        expect(canvasOptions?.pageRenderCoordination?.shouldStart?.()).toBe(true);
+    });
+
+    it('aborts canvas prepare coordination when the prepare stage times out', async () => {
+        vi.useFakeTimers();
+        let coordination: { signal?: AbortSignal | undefined } | undefined;
+        const onRenderStall = vi.fn();
+        const controller = usePdfRendererCanvasController({
+            canvasRenderer: {
+                prepareCanvasRender: vi.fn((
+                    _pdfPage: unknown,
+                    _scale: number,
+                    options?: { pageRenderCoordination?: { signal?: AbortSignal | undefined }; },
+                ) => {
+                    coordination = options?.pageRenderCoordination;
+                    return new Promise<never>(() => undefined);
+                }),
+                renderCanvas: vi.fn(),
+                cleanupCanvas: vi.fn(),
+                cleanupCanvasRenderResult: vi.fn(),
+                estimateRequestedPixels: vi.fn(),
+                applyContainerDimensions: vi.fn(),
+                mountCanvas: vi.fn(),
+            },
+            activeRenderTasks: new Map(),
+            pageCanvases: new Map(),
+            hiddenAnnotationIds: (_pageNumber: number) => new Set(['hidden-7']),
+            getRenderVersion: () => 5,
+            getPage: vi.fn(),
+            cancelActiveRenderTask: vi.fn(),
+            cancelActiveRenderTaskIfCurrent: vi.fn(),
+            onRenderStall,
+        });
+
+        const preparePromise = controller.prepareCanvasForRender(
+            {} as never,
+            7,
+            5,
+            1,
+            1,
+            () => true,
+        );
+        const prepareExpectation = expect(preparePromise).rejects.toMatchObject({
+            pageNumber: 7,
+            stage: 'canvas-prepare',
+        });
+
+        expect(coordination?.signal?.aborted).toBe(false);
+        vi.advanceTimersByTime(PDF_PAGE_RENDER_TIMEOUT_MS);
+        await prepareExpectation;
+
+        expect(coordination?.signal?.aborted).toBe(true);
+        expect(onRenderStall).toHaveBeenCalledOnce();
     });
 
     it('cancels an existing same-page PDF.js task before starting its replacement', async () => {

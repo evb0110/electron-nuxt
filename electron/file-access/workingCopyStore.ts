@@ -6,10 +6,12 @@ import {
     realpathSync,
     statSync,
 } from 'fs';
+import { createOriginalFileContentFingerprintSync } from '@electron/file-access/workingCopyOriginalFileExpectation';
 
 export type TWorkingCopyRole = 'current' | 'snapshot';
 
 export interface IWorkingCopyOriginalFileExpectation {
+    contentFingerprint?: string;
     mtimeMs: number;
     size: number;
 }
@@ -92,7 +94,14 @@ function createOriginalFileExpectation(originalPath: string): IWorkingCopyOrigin
         if (!originalStat.isFile()) {
             return undefined;
         }
+        let contentFingerprint: string | undefined;
+        try {
+            contentFingerprint = createOriginalFileContentFingerprintSync(originalPath, originalStat.size);
+        } catch {
+            contentFingerprint = undefined;
+        }
         return {
+            ...(contentFingerprint ? {contentFingerprint} : {}),
             mtimeMs: originalStat.mtimeMs,
             size: originalStat.size,
         };
@@ -108,6 +117,7 @@ function copyOriginalFileExpectation(
         return undefined;
     }
     return {
+        ...(expectation.contentFingerprint ? {contentFingerprint: expectation.contentFingerprint} : {}),
         mtimeMs: expectation.mtimeMs,
         size: expectation.size,
     };

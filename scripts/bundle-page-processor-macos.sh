@@ -1,6 +1,6 @@
 #!/bin/bash
-# Bundle Python page-processor for macOS using PyInstaller
-# Creates a standalone executable that can be bundled with the Electron app
+# Optional devkit bundler for the dormant Python page-processor.
+# Not part of default release packaging or release verification.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -369,4 +369,4 @@ echo "Size:   $(du -h "$BINARY_PATH" | awk '{print $1}')"
 echo ""
 echo "Next steps:"
 echo "1. Test the binary: $BINARY_PATH --help"
-echo "2. Integrate with Electron app"
+echo "2. Use manually for devkit maintenance, or opt in explicitly with EVB_INCLUDE_PAGE_PROCESSOR=1"

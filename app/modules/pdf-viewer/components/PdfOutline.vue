@@ -46,7 +46,7 @@
                 v-for="(item, index) in bookmarks"
                 :key="item.id || index"
                 :item="item"
-                :pdf-document="pdfDocument"
+                :pdf-document="props.pdfDocument"
                 @go-to-page="goToPage"
                 @activate="handleActivate"
                 @toggle-expand="toggleExpanded"
@@ -102,6 +102,7 @@ import type { IPdfBookmarkEntry } from '@app/types/pdf';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {
+    buildOutlineFromBookmarkEntries,
     buildResolvedOutline,
     flattenBookmarks,
     parseOutlineItems,
@@ -122,13 +123,11 @@ interface IProps {
     pdfDocument: PDFDocumentProxy | null;
     currentPage: number;
     isEditMode: boolean;
+    bookmarkItems?: IPdfBookmarkEntry[] | undefined;
+    bookmarksDirty?: boolean | undefined;
 }
 
-const {
-    currentPage,
-    isEditMode: isEditModeProp,
-    pdfDocument: pdfDocumentProp,
-} = defineProps<IProps>();
+const props = defineProps<IProps>();
 
 const emit = defineEmits<{
     goToPage: [page: number, options?: IScrollToPageOptions];
@@ -157,11 +156,11 @@ const expandedBookmarkIds = ref<Set<string>>(new Set());
 const styleRangeStartId = ref<string | null>(null);
 
 const isEditMode = computed({
-    get: () => isEditModeProp,
+    get: () => props.isEditMode,
     set: (value: boolean) => emit('update:isEditMode', value),
 });
 
-const currentPageRef = computed(() => currentPage);
+const currentPageRef = computed(() => props.currentPage);
 
 const parentBookmarkIdMap = computed(() => {
     const map = new Map<string, string | null>();
@@ -378,6 +377,10 @@ provide(pdfOutlineTreeKey, {
 let outlineRunId = 0;
 const initialBookmarkSnapshot = ref('[]');
 
+function getPersistedBookmarkSnapshot(items = bookmarks.value) {
+    return JSON.stringify(editing.mapBookmarksForPersistence(items));
+}
+
 function emitBookmarksChange() {
     const persisted = editing.mapBookmarksForPersistence(bookmarks.value);
     const snapshot = JSON.stringify(persisted);
@@ -399,7 +402,7 @@ function setBookmarkBaseline() {
 function updateActiveItemFromCurrentPage() {
     const active = resolveActiveBookmarkForPage(
         flatBookmarks.value,
-        currentPage,
+        props.currentPage,
         activeItemId.value,
     );
     activeItemId.value = active?.id ?? null;
@@ -412,6 +415,41 @@ function updateActiveItemFromCurrentPage() {
     }
 }
 
+function getPendingBookmarkEntries() {
+    return props.bookmarksDirty ? props.bookmarkItems ?? [] : null;
+}
+
+function applyPendingBookmarkItems(entries: IPdfBookmarkEntry[]) {
+    if (JSON.stringify(entries) === getPersistedBookmarkSnapshot()) {
+        return;
+    }
+
+    invalidateBookmarkNavigationRequests();
+    resetBookmarkIdCounter();
+    bookmarks.value = buildOutlineFromBookmarkEntries(entries, createBookmarkId);
+    closeBookmarkContextMenu();
+    editing.cancelEditingBookmark();
+    dragDrop.resetDragState();
+    styleRangeStartId.value = null;
+    selection.clearSelection();
+    expandedBookmarkIds.value = new Set();
+    updateActiveItemFromCurrentPage();
+    if (activeItemId.value) {
+        selection.applySingleSelection(activeItemId.value);
+    }
+}
+
+function applyPendingBookmarkItemsIfDirty() {
+    const pendingBookmarkEntries = getPendingBookmarkEntries();
+    if (!pendingBookmarkEntries) {
+        return false;
+    }
+
+    isLoading.value = false;
+    applyPendingBookmarkItems(pendingBookmarkEntries);
+    return true;
+}
+
 function resetOutlineInteractionState() {
     closeBookmarkContextMenu();
     editing.cancelEditingBookmark();
@@ -422,6 +460,10 @@ function resetOutlineInteractionState() {
 }
 
 function clearLoadedOutline() {
+    if (applyPendingBookmarkItemsIfDirty()) {
+        return;
+    }
+
     isLoading.value = false;
     bookmarks.value = [];
     activeItemId.value = null;
@@ -432,7 +474,7 @@ function clearLoadedOutline() {
 function isStaleOutlineRun(runId: number, pdfDocument: PDFDocumentProxy) {
     return (
         runId !== outlineRunId ||
-        pdfDocumentProp !== pdfDocument ||
+        props.pdfDocument !== pdfDocument ||
         !isPdfDocumentUsable(pdfDocument)
     );
 }
@@ -454,6 +496,10 @@ async function resolveBookmarksFromPdf(pdfDocument: PDFDocumentProxy) {
 }
 
 function applyLoadedBookmarks(resolved: IBookmarkItem[]) {
+    if (applyPendingBookmarkItemsIfDirty()) {
+        return;
+    }
+
     bookmarks.value = resolved;
     updateActiveItemFromCurrentPage();
     if (activeItemId.value) {
@@ -468,6 +514,10 @@ function handleOutlineLoadError(
     pdfDocument: PDFDocumentProxy,
 ) {
     if (isStaleOutlineRun(runId, pdfDocument)) {
+        return;
+    }
+
+    if (applyPendingBookmarkItemsIfDirty()) {
         return;
     }
 
@@ -499,11 +549,15 @@ async function loadUsableOutline(pdfDocument: PDFDocumentProxy, runId: number) {
 }
 
 async function loadOutline() {
-    const pdfDocument = pdfDocumentProp;
+    const pdfDocument = props.pdfDocument;
     outlineRunId += 1;
     invalidateBookmarkNavigationRequests();
     const runId = outlineRunId;
     resetOutlineInteractionState();
+
+    if (applyPendingBookmarkItemsIfDirty()) {
+        return;
+    }
 
     if (!pdfDocument || !isPdfDocumentUsable(pdfDocument)) {
         clearLoadedOutline();
@@ -568,13 +622,26 @@ function handleTreeEndDrop() {
 }
 
 watch(
-    () => pdfDocumentProp,
+    () => props.pdfDocument,
     () => loadOutline(),
     { immediate: true },
 );
 
 watch(
-    () => currentPage,
+    () => props.bookmarksDirty ? props.bookmarkItems ?? [] : null,
+    (items) => {
+        if (items) {
+            applyPendingBookmarkItems(items);
+        }
+    },
+    {
+        deep: true,
+        immediate: true,
+    },
+);
+
+watch(
+    () => props.currentPage,
     () => updateActiveItemFromCurrentPage(),
 );
 

@@ -6,6 +6,148 @@ import {
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
+type TReleaseArch = 'arm64' | 'x64';
+type TReleasePlatform = 'linux' | 'mac' | 'win';
+type TReleaseEnv = Record<string, string>;
+type TRunCommand = (
+    command: string,
+    args: string[],
+    options: IRunCommandOptions,
+) => unknown;
+type TGeneratedResourceRunCommand = (
+    command: string,
+    args: string[],
+    options: { env: TReleaseEnv },
+) => unknown;
+type TSleepFn = (duration: number) => Promise<void>;
+
+interface IReleaseTarget {
+    arch: string;
+    expectsUpdaterMetadata?: boolean;
+    isPrimaryHostTarget?: boolean;
+    platform: string;
+}
+
+interface IReleaseCommand {
+    args: string[];
+    command: string;
+}
+
+interface IRunCommandOptions {
+    env?: TReleaseEnv;
+    stdio?: 'inherit';
+}
+
+interface IReleasePolicyModule {
+    assertPublishUpdaterMetadataReferences: (
+        artifactNames: string[],
+        readMetadataText: (fileName: string) => string,
+    ) => boolean;
+    assertPublishUpdaterMetadataPolicy: (
+        artifactNames: string[],
+        env?: TReleaseEnv,
+    ) => void;
+    detectHostReleasePlatform: (nodePlatform?: string) => TReleasePlatform;
+    expectsUpdaterMetadata: (
+        target: IReleaseTarget,
+        env?: TReleaseEnv,
+    ) => boolean;
+    getLocalReleaseTargets: (options?: {
+        arch?: TReleaseArch;
+        platform?: NodeJS.Platform;
+    }) => IReleaseTarget[];
+    getReleaseAutomationEnv: (
+        baseEnv?: TReleaseEnv,
+    ) => TReleaseEnv;
+    getRequiredArtifactPatterns: (
+        target: IReleaseTarget,
+        env?: TReleaseEnv,
+    ) => RegExp[];
+    parseUpdaterMetadataFileUrls: (
+        metadataFileName: string,
+        metadataText: string,
+    ) => string[];
+    shouldVerifyPackagedStartup: (
+        target: IReleaseTarget,
+        env?: TReleaseEnv,
+    ) => boolean;
+}
+
+interface IReleaseChecksModule {
+    getLocalReleaseCheckCommands: () => IReleaseCommand[];
+    runLocalReleaseChecks: (options?: {
+        env?: TReleaseEnv;
+        runCommand?: TRunCommand;
+    }) => void;
+}
+
+interface IReleaseVerifySnapshot {
+    stagedDiff: string;
+    trackedDiff: string;
+    untrackedFiles: string[];
+}
+
+interface IReleaseVerifyModule {
+    assertReleaseVerifyDidNotMutateWorktree: (
+        before: IReleaseVerifySnapshot,
+        after: IReleaseVerifySnapshot,
+    ) => void;
+    getLocalReleaseVerifyCommands: () => IReleaseCommand[];
+    runLocalReleaseVerify: (options?: {
+        runCommand?: TRunCommand;
+        snapshotGetter?: () => IReleaseVerifySnapshot;
+    }) => void;
+}
+
+interface IReleasePackageModule {
+    getGeneratedNativeResourceCommands: (target: IReleaseTarget) => IReleaseCommand[];
+    getLocalReleaseBuildCommand: () => IReleaseCommand;
+    getPackagingArgs: (
+        target: IReleaseTarget,
+        env?: TReleaseEnv,
+    ) => string[];
+    prepareGeneratedNativeResources: (
+        target: IReleaseTarget,
+        env: TReleaseEnv,
+        runCommand?: TGeneratedResourceRunCommand,
+    ) => void;
+}
+
+interface IAssertBuildArtifactsOptions {
+    arch: TReleaseArch;
+    artifactNames: string[];
+    env?: TReleaseEnv;
+    platform: TReleasePlatform;
+    readMetadataText: (fileName: string) => string;
+}
+
+interface IAssertBuildArtifactsModule { assertBuildArtifacts: (options: IAssertBuildArtifactsOptions) => boolean; }
+
+interface IReleaseSharedModule {
+    assertGitHubCliReady: (
+        workflowName: string,
+        options: {
+            delayMs: number;
+            runCommand: TRunCommand;
+            sleepFn: TSleepFn;
+            stderr: { write: (message: string) => void };
+        },
+    ) => Promise<void>;
+    assertTagAbsent: (
+        tag: string,
+        remote: string,
+        options: {
+            delayMs: number;
+            runCommand: TRunCommand;
+            sleepFn: TSleepFn;
+            stderr: { write: (message: string) => void };
+        },
+    ) => Promise<void>;
+    filterIgnoredFiles: (files: string[], ignoredRoots: string[]) => string[];
+    isTransientGitHubAuthError: (error: unknown) => boolean;
+    isTransientRemoteGitError: (error: unknown) => boolean;
+}
+
 const {
     detectHostReleasePlatform,
     assertPublishUpdaterMetadataReferences,
@@ -16,30 +158,30 @@ const {
     getRequiredArtifactPatterns,
     parseUpdaterMetadataFileUrls,
     shouldVerifyPackagedStartup,
-} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/policy.mjs')).href);
+} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/policy.mjs')).href) as IReleasePolicyModule;
 const {
     getLocalReleaseCheckCommands,
     runLocalReleaseChecks,
-} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-checks.mjs')).href);
+} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-checks.mjs')).href) as IReleaseChecksModule;
 const {
     assertReleaseVerifyDidNotMutateWorktree,
     getLocalReleaseVerifyCommands,
     runLocalReleaseVerify,
-} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local.mjs')).href);
+} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local.mjs')).href) as IReleaseVerifyModule;
 const {
     getGeneratedNativeResourceCommands,
     getLocalReleaseBuildCommand,
     getPackagingArgs,
     prepareGeneratedNativeResources,
-} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-package.mjs')).href);
-const { assertBuildArtifacts } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/assert-build-artifacts.mjs')).href);
+} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-package.mjs')).href) as IReleasePackageModule;
+const { assertBuildArtifacts } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/assert-build-artifacts.mjs')).href) as IAssertBuildArtifactsModule;
 const {
     assertGitHubCliReady,
     assertTagAbsent,
     filterIgnoredFiles,
     isTransientGitHubAuthError,
     isTransientRemoteGitError,
-} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/shared.mjs')).href);
+} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/shared.mjs')).href) as IReleaseSharedModule;
 
 describe('release policy', () => {
     it('derives local release targets from host platform and arch', () => {
@@ -287,10 +429,6 @@ describe('release policy', () => {
             ],
             [
                 'run',
-                'test:python-page-processor',
-            ],
-            [
-                'run',
                 'check:architecture:all',
             ],
             [
@@ -308,6 +446,7 @@ describe('release policy', () => {
         ]);
         expect(scriptNames).not.toContain('validate');
         expect(scriptNames).not.toContain('build:strict');
+        expect(scriptNames).not.toContain('test:python-page-processor');
     });
 
     it('keeps standalone release verification composed from focused local gates', () => {
@@ -419,6 +558,29 @@ describe('release policy', () => {
         expect(calls.every(call => call.env?.FOO === 'bar')).toBe(true);
     });
 
+    it('defaults release checks to the shared CI-mode environment', () => {
+        const calls: Array<{
+            args: string[];
+            command: string;
+            env?: Record<string, string>;
+        }> = [];
+        const runCommand = (command: string, args: string[], options: { env?: Record<string, string> }) => {
+            calls.push({
+                args,
+                command,
+                ...(options.env === undefined ? {} : { env: options.env }),
+            });
+        };
+
+        runLocalReleaseChecks({ runCommand });
+
+        expect(calls).toHaveLength(getLocalReleaseCheckCommands().length);
+        expect(calls.every(call => call.command === 'pnpm')).toBe(true);
+        expect(calls.every(call => call.env?.CI === 'true')).toBe(true);
+        expect(calls.every(call => call.env?.EVB_AUTOMATION_HIDE_WINDOW === undefined)).toBe(true);
+        expect(calls.every(call => call.env?.EVB_AUTOMATION_NO_FOCUS === undefined)).toBe(true);
+    });
+
     it('fails standalone release verification when the worktree snapshot changes', () => {
         expect(() => assertReleaseVerifyDidNotMutateWorktree({
             stagedDiff: '',
@@ -479,42 +641,61 @@ describe('release policy', () => {
     });
 
     it('does not generate optional page-processor resources during local release packaging', () => {
-        expect(getGeneratedNativeResourceCommands({
-            arch: 'arm64',
-            platform: 'mac',
-        })).toEqual([]);
-
-        expect(getGeneratedNativeResourceCommands({
-            arch: 'x64',
-            platform: 'linux',
-        })).toEqual([]);
+        for (const target of [
+            {
+                arch: 'arm64',
+                platform: 'mac',
+            },
+            {
+                arch: 'x64',
+                platform: 'linux',
+            },
+            {
+                arch: 'x64',
+                platform: 'win',
+            },
+        ]) {
+            expect(getGeneratedNativeResourceCommands(target)).toEqual([]);
+        }
     });
 
-    it('leaves page-processor copying disabled during local macOS packaging by default', () => {
-        const env: Record<string, string> = {};
-        const calls: Array<{
-            args: string[];
-            command: string;
-            env: Record<string, string>;
-        }> = [];
+    it('leaves page-processor copying disabled during local packaging by default', () => {
+        for (const target of [
+            {
+                arch: 'arm64',
+                platform: 'mac',
+            },
+            {
+                arch: 'x64',
+                platform: 'linux',
+            },
+            {
+                arch: 'x64',
+                platform: 'win',
+            },
+        ]) {
+            const env: Record<string, string> = {};
+            const calls: Array<{
+                args: string[];
+                command: string;
+                env: Record<string, string>;
+            }> = [];
 
-        prepareGeneratedNativeResources({
-            arch: 'arm64',
-            platform: 'mac',
-        }, env, (
-            command: string,
-            args: string[],
-            options: { env: Record<string, string> },
-        ) => {
-            calls.push({
-                args,
-                command,
-                env: options.env,
+            prepareGeneratedNativeResources(target, env, (
+                command: string,
+                args: string[],
+                options: { env: Record<string, string> },
+            ) => {
+                calls.push({
+                    args,
+                    command,
+                    env: options.env,
+                });
             });
-        });
 
-        expect(env.EVB_INCLUDE_PAGE_PROCESSOR).toBeUndefined();
-        expect(calls).toEqual([]);
+            expect(env.EVB_INCLUDE_PAGE_PROCESSOR).toBeUndefined();
+            expect(calls).toEqual([]);
+        }
     });
 
     it('uses a ZIP-only local package check for supplemental macOS Intel builds', () => {

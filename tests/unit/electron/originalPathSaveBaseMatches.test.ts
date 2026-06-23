@@ -1,6 +1,7 @@
 import {
     mkdtemp,
     rm,
+    stat,
     writeFile,
 } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -13,6 +14,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { createOriginalFileContentFingerprint } from '@electron/file-access/workingCopyOriginalFileExpectation';
 
 const mocks = vi.hoisted(() => ({getWorkingCopyOriginalFileExpectation: vi.fn()}));
 
@@ -62,6 +64,54 @@ describe('originalPathSaveBaseMatches', () => {
         await Promise.all([
             writeFile(originalPath, originalBytes),
             writeFile(workingPath, workingBytes),
+        ]);
+
+        await expect(originalPathSaveBaseMatches(workingPath, originalPath, 12)).resolves.toBe(false);
+    });
+
+    it('returns false when same-size same-mtime original content differs from the working base', async () => {
+        const originalPath = join(tempDir, 'original.pdf');
+        const workingPath = join(tempDir, 'working.pdf');
+        await Promise.all([
+            writeFile(originalPath, Buffer.from('edit')),
+            writeFile(workingPath, Buffer.from('base')),
+        ]);
+        const originalStat = await stat(originalPath);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            size: originalStat.size,
+            mtimeMs: originalStat.mtimeMs,
+        });
+
+        await expect(originalPathSaveBaseMatches(workingPath, originalPath, 12)).resolves.toBe(false);
+    });
+
+    it('detects same-size same-mtime original edits in the middle of large files', async () => {
+        const originalPath = join(tempDir, 'original.pdf');
+        const workingPath = join(tempDir, 'working.pdf');
+        const baseBytes = Buffer.alloc(3 * 1024 * 1024, 7);
+        const editedBytes = Buffer.from(baseBytes);
+        editedBytes[Math.floor(editedBytes.byteLength / 2)] = 8;
+        await Promise.all([
+            writeFile(originalPath, editedBytes),
+            writeFile(workingPath, baseBytes),
+        ]);
+        const originalStat = await stat(originalPath);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            contentFingerprint: await createOriginalFileContentFingerprint(workingPath, baseBytes.byteLength),
+            size: originalStat.size,
+            mtimeMs: originalStat.mtimeMs,
+        });
+
+        await expect(originalPathSaveBaseMatches(workingPath, originalPath, 12)).resolves.toBe(false);
+    });
+
+    it('returns false for a missing original expectation when the original no longer matches the working base', async () => {
+        const originalPath = join(tempDir, 'original.pdf');
+        const workingPath = join(tempDir, 'working.pdf');
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(null);
+        await Promise.all([
+            writeFile(originalPath, Buffer.from('external-change')),
+            writeFile(workingPath, Buffer.from('opened-baseline')),
         ]);
 
         await expect(originalPathSaveBaseMatches(workingPath, originalPath, 12)).resolves.toBe(false);

@@ -27,6 +27,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import type {
     IAgentAssistantImageAttachment,
+    IAgentAssistantModelOption,
     TAgentAssistantEffort,
 } from '@contracts/agent';
 import { isRecord } from '@contracts/runtimeGuards';
@@ -87,6 +88,45 @@ const CLAUDE_AGENT_MODEL_ALIASES = new Map<string, string>([
     ],
 ] as const);
 const CLAUDE_AGENT_MODEL_IDS = new Set<string>(CLAUDE_AGENT_MODELS.map(model => model.id));
+const CLAUDE_AGENT_MODEL_LABELS = new Map<string, string>([
+    ...CLAUDE_AGENT_MODELS.map(model => [
+        model.id,
+        model.label,
+    ] as const),
+    [
+        'claude-fable-5',
+        'Claude Fable 5',
+    ],
+    [
+        'claude-opus-4-8',
+        'Claude Opus 4.8',
+    ],
+    [
+        'claude-opus-4-7',
+        'Claude Opus 4.7',
+    ],
+    [
+        'claude-opus-4-6',
+        'Claude Opus 4.6',
+    ],
+    [
+        'claude-sonnet-4-6',
+        'Claude Sonnet 4.6',
+    ],
+    [
+        'claude-sonnet-4-5',
+        'Claude Sonnet 4.5',
+    ],
+    [
+        'claude-haiku-4-5',
+        'Claude Haiku 4.5',
+    ],
+    [
+        'claude-haiku-4-5-20251001',
+        'Claude Haiku 4.5',
+    ],
+] as const);
+const CLAUDE_MODEL_ID_PATTERN = /^(?:claude-[a-z0-9][a-z0-9-]*|[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._/-]*|(?:global|us|eu)\.anthropic\.claude-[a-z0-9][a-z0-9-]*)(?:\[\d+m\])?$/iu;
 
 interface IClaudeAgentSdkPackageInfo {
     installed: boolean;
@@ -95,11 +135,21 @@ interface IClaudeAgentSdkPackageInfo {
     error?: string;
 }
 
+interface IClaudeAgentSdkInfoOptions {
+    env?: NodeJS.ProcessEnv;
+    resolveSdkPackageDir?: () => string | null;
+    readSdkVersion?: (sdkDir: string) => Promise<string | null>;
+    findBundledClaudeExecutable?: (sdkDir: string) => Promise<string | null>;
+    findClaudeOnPath?: () => Promise<string | null>;
+    pathIsExecutable?: (path: string | null | undefined) => Promise<boolean>;
+}
+
 export interface IClaudeAgentAssistantInit {
     sessionId: string | null;
     model: string | null;
     toolCount: number;
     account: AccountInfo | null;
+    models?: readonly IAgentAssistantModelOption[];
 }
 
 export interface IClaudeAgentAssistantCallbacks {
@@ -255,23 +305,38 @@ async function findBundledClaudeExecutable(sdkDir: string) {
     return null;
 }
 
-export async function getClaudeAgentSdkInfo(): Promise<IClaudeAgentSdkPackageInfo> {
+function resolveOptionalSdkPackageDir(resolvePackageDir: () => string | null) {
     try {
-        const sdkDir = resolveSdkPackageDir();
+        return resolvePackageDir();
+    } catch (error) {
+        logger.warn(`Claude Agent SDK package metadata is unavailable: ${getErrorMessage(error)}`);
+        return null;
+    }
+}
+
+export async function getClaudeAgentSdkInfo(options: IClaudeAgentSdkInfoOptions = {}): Promise<IClaudeAgentSdkPackageInfo> {
+    const env = options.env ?? process.env;
+    const resolvePackageDir = options.resolveSdkPackageDir ?? resolveSdkPackageDir;
+    const readVersion = options.readSdkVersion ?? readSdkVersion;
+    const findBundledExecutable = options.findBundledClaudeExecutable ?? findBundledClaudeExecutable;
+    const findPathExecutable = options.findClaudeOnPath ?? findClaudeOnPath;
+    const isExecutable = options.pathIsExecutable ?? pathIsExecutable;
+    const envPath = env.CLAUDE_CODE_PATH ?? env.CLAUDE_CLI_PATH ?? null;
+    const sdkDir = resolveOptionalSdkPackageDir(resolvePackageDir);
+
+    try {
         const [
             version,
-            envPath,
             pathExecutable,
             bundledExecutable,
         ] = await Promise.all([
-            readSdkVersion(sdkDir),
-            Promise.resolve(process.env.CLAUDE_CODE_PATH ?? process.env.CLAUDE_CLI_PATH ?? null),
-            findClaudeOnPath(),
-            findBundledClaudeExecutable(sdkDir),
+            sdkDir ? readVersion(sdkDir) : Promise.resolve(null),
+            findPathExecutable(),
+            sdkDir ? findBundledExecutable(sdkDir) : Promise.resolve(null),
         ]);
-        const executablePath = await pathIsExecutable(envPath)
+        const executablePath = await isExecutable(envPath)
             ? envPath
-            : await pathIsExecutable(pathExecutable)
+            : await isExecutable(pathExecutable)
                 ? pathExecutable
                 : bundledExecutable;
         return {
@@ -280,7 +345,9 @@ export async function getClaudeAgentSdkInfo(): Promise<IClaudeAgentSdkPackageInf
             executablePath,
             ...(executablePath
                 ? {}
-                : { error: 'Claude Agent SDK native binary was not found. Install optional dependencies or set CLAUDE_CODE_PATH.' }),
+                : { error: sdkDir
+                    ? 'Claude Agent SDK native binary was not found. Install Claude Code, reinstall optional dependencies, or set CLAUDE_CODE_PATH to a local claude executable.'
+                    : 'Claude Code executable was not found. Install Claude Code or set CLAUDE_CODE_PATH to a local claude executable.' }),
         };
     } catch (error) {
         return {
@@ -365,13 +432,17 @@ export function isClaudeAuthErrorMessage(message: string) {
 }
 
 export function getClaudeAssistantModelLabel(model: string) {
-    return CLAUDE_AGENT_MODELS.find(option => option.id === model)?.label ?? model;
+    return CLAUDE_AGENT_MODEL_LABELS.get(model) ?? model;
 }
 
 export function normalizeClaudeAssistantModel(model: string | null | undefined) {
     const trimmed = model?.trim();
     if (!trimmed) {
         return CLAUDE_AGENT_DEFAULT_MODEL;
+    }
+
+    if (CLAUDE_AGENT_MODEL_IDS.has(trimmed) || CLAUDE_MODEL_ID_PATTERN.test(trimmed)) {
+        return trimmed;
     }
 
     const normalized = CLAUDE_AGENT_MODEL_ALIASES.get(trimmed) ?? trimmed;
@@ -382,6 +453,43 @@ export function normalizeClaudeAssistantModel(model: string | null | undefined) 
 
 function getClaudeSdkModel(model: string) {
     return normalizeClaudeAssistantModel(model);
+}
+
+function normalizeClaudeSdkModelInfo(rawModel: unknown): IAgentAssistantModelOption | null {
+    if (!isRecord(rawModel)) {
+        return null;
+    }
+
+    const id = typeof rawModel.value === 'string' ? rawModel.value.trim() : '';
+    if (!id) {
+        return null;
+    }
+
+    const label = typeof rawModel.displayName === 'string' && rawModel.displayName.trim()
+        ? rawModel.displayName.trim()
+        : getClaudeAssistantModelLabel(id);
+    return {
+        id,
+        label,
+    };
+}
+
+export function normalizeClaudeSdkModelList(rawModels: unknown): IAgentAssistantModelOption[] {
+    if (!Array.isArray(rawModels)) {
+        return [];
+    }
+
+    const seen = new Set<string>();
+    const models: IAgentAssistantModelOption[] = [];
+    for (const rawModel of rawModels) {
+        const model = normalizeClaudeSdkModelInfo(rawModel);
+        if (!model || seen.has(model.id)) {
+            continue;
+        }
+        seen.add(model.id);
+        models.push(model);
+    }
+    return models;
 }
 
 function extractDataUrlBase64(dataUrl: string) {
@@ -539,6 +647,8 @@ export class ClaudeAgentAssistantSession {
     private readonly currentEffort: TAgentAssistantEffort;
     private sessionId: string | null = null;
     private account: AccountInfo | null = null;
+    private modelOptions: readonly IAgentAssistantModelOption[] | null = null;
+    private toolCount = 0;
 
     constructor(private readonly options: IClaudeAgentAssistantSessionOptions) {
         this.currentModel = normalizeClaudeAssistantModel(options.model);
@@ -657,6 +767,7 @@ export class ClaudeAgentAssistantSession {
         });
         void this.consumeStream();
         void this.refreshAccountInfo();
+        void this.refreshModelInfo();
     }
 
     private async setModel(model: string) {
@@ -678,9 +789,25 @@ export class ClaudeAgentAssistantSession {
 
         try {
             this.account = normalizeClaudeAccount(await this.query.accountInfo());
-            this.publishInitialized(0);
+            this.publishInitialized();
         } catch (error) {
             logger.warn(`Failed to read Claude account info: ${getErrorMessage(error)}`);
+        }
+    }
+
+    private async refreshModelInfo() {
+        if (!this.query) {
+            return;
+        }
+
+        try {
+            const models = normalizeClaudeSdkModelList(await this.query.supportedModels());
+            if (models.length > 0) {
+                this.modelOptions = models;
+                this.publishInitialized();
+            }
+        } catch (error) {
+            logger.warn(`Failed to read Claude model list: ${getErrorMessage(error)}`);
         }
     }
 
@@ -743,16 +870,17 @@ export class ClaudeAgentAssistantSession {
         if (message.model) {
             this.currentModel = normalizeClaudeAssistantModel(message.model);
         }
-        const toolCount = message.tools.filter(tool => tool.startsWith(`mcp__${this.options.mcpServerName}__`)).length;
-        this.publishInitialized(toolCount);
+        this.toolCount = message.tools.filter(tool => tool.startsWith(`mcp__${this.options.mcpServerName}__`)).length;
+        this.publishInitialized();
     }
 
-    private publishInitialized(toolCount: number) {
+    private publishInitialized() {
         this.options.callbacks.onInitialized({
             sessionId: this.sessionId,
             model: this.currentModel,
-            toolCount,
+            toolCount: this.toolCount,
             account: this.account,
+            ...(this.modelOptions ? {models: this.modelOptions} : {}),
         });
     }
 

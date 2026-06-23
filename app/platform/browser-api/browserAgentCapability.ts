@@ -8,8 +8,10 @@ import type { IAgentCapability } from '@contracts/agentCapability';
 import {
     ASSISTANT_DEFAULT_EFFORT,
     CLAUDE_ASSISTANT_EFFORTS,
+    CLAUDE_ASSISTANT_DEFAULT_MODEL,
     CLAUDE_ASSISTANT_MODELS,
     CODEX_ASSISTANT_EFFORTS,
+    CODEX_ASSISTANT_DEFAULT_MODEL,
     CODEX_ASSISTANT_FALLBACK_MODELS,
 } from '@contracts/agentModels';
 
@@ -44,8 +46,8 @@ export function createBrowserAssistantState(): IAgentAssistantState {
                     authState: 'unknown',
                     runtimeState: 'stopped',
                     models: [...CODEX_ASSISTANT_FALLBACK_MODELS],
-                    defaultModel: 'default',
-                    activeModel: 'default',
+                    defaultModel: CODEX_ASSISTANT_DEFAULT_MODEL,
+                    activeModel: CODEX_ASSISTANT_DEFAULT_MODEL,
                     modelSwitchMode: 'in-session',
                     availableEfforts: [...CODEX_ASSISTANT_EFFORTS],
                     defaultEffort: ASSISTANT_DEFAULT_EFFORT,
@@ -64,8 +66,8 @@ export function createBrowserAssistantState(): IAgentAssistantState {
                     authState: 'unknown',
                     runtimeState: 'stopped',
                     models: [...CLAUDE_ASSISTANT_MODELS],
-                    defaultModel: 'default',
-                    activeModel: 'default',
+                    defaultModel: CLAUDE_ASSISTANT_DEFAULT_MODEL,
+                    activeModel: CLAUDE_ASSISTANT_DEFAULT_MODEL,
                     modelSwitchMode: 'in-session',
                     availableEfforts: [...CLAUDE_ASSISTANT_EFFORTS],
                     defaultEffort: ASSISTANT_DEFAULT_EFFORT,

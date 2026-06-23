@@ -161,8 +161,10 @@ export function collectTextMarkupElementCandidates(
     const annotationElements = comment.annotationId
         ? collectMatchingAnnotationElements(container, comment.annotationId)
         : [];
-    collectGeometryMatchedTextMarkupElements(container, comment)
-        .forEach(element => appendUniqueElement(annotationElements, element));
+    if (annotationElements.length === 0) {
+        collectGeometryMatchedTextMarkupElements(container, comment)
+            .forEach(element => appendUniqueElement(annotationElements, element));
+    }
 
     return {
         annotationElements,

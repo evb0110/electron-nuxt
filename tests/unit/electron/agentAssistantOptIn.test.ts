@@ -25,6 +25,8 @@ const mocks = vi.hoisted(() => ({
     startEmbeddedMcpServer: vi.fn(),
     shutdownEmbeddedMcpServer: vi.fn(async () => undefined),
     openExternal: vi.fn(),
+    codexAccountReadMode: 'success',
+    codexAuthStatusMode: 'signed-in',
     logger: {
         info: vi.fn(),
         warn: vi.fn(),
@@ -70,10 +72,33 @@ class FakeCodexAppServerProcess extends EventEmitter {
                 this.respond(request.id, {});
                 return;
             case 'account/read':
+                if (mocks.codexAccountReadMode === 'error') {
+                    this.respondError(request.id, 'account/read timed out after 8000ms.');
+                    return;
+                }
+                if (mocks.codexAccountReadMode === 'signed-out') {
+                    this.respond(request.id, {requiresOpenaiAuth: true});
+                    return;
+                }
                 this.respond(request.id, {account: {
                     type: 'chatgpt',
                     email: 'reader@example.com',
                 }});
+                return;
+            case 'getAuthStatus':
+                if (mocks.codexAuthStatusMode === 'error') {
+                    this.respondError(request.id, 'getAuthStatus timed out after 8000ms.');
+                    return;
+                }
+                this.respond(request.id, mocks.codexAuthStatusMode === 'signed-out'
+                    ? {
+                        requiresOpenaiAuth: true,
+                        authMethod: null,
+                    }
+                    : {
+                        requiresOpenaiAuth: false,
+                        authMethod: 'chatgpt',
+                    });
                 return;
             case 'account/login/start':
                 this.respond(request.id, {
@@ -133,6 +158,14 @@ class FakeCodexAppServerProcess extends EventEmitter {
         })}\n`);
     }
 
+    private respondError(id: number, message: string) {
+        this.stdout.write(`${JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            error: { message },
+        })}\n`);
+    }
+
     private notify(method: string, params: unknown) {
         this.stdout.write(`${JSON.stringify({
             jsonrpc: '2.0',
@@ -187,6 +220,8 @@ describe('agent assistant opt-in gating', () => {
         vi.resetModules();
         vi.clearAllMocks();
         mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
+        mocks.codexAccountReadMode = 'success';
+        mocks.codexAuthStatusMode = 'signed-in';
     });
 
     afterEach(() => {
@@ -220,6 +255,70 @@ describe('agent assistant opt-in gating', () => {
         expect(mocks.getCodexCliInfo).not.toHaveBeenCalled();
         expect(mocks.startEmbeddedMcpServer).not.toHaveBeenCalled();
         expect(mocks.spawn).not.toHaveBeenCalled();
+    });
+
+    it('falls back to Codex auth status when account profile read fails', async () => {
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+        mocks.getCodexCliInfo.mockResolvedValue({
+            installed: true,
+            path: '/Applications/Codex.app/Contents/Resources/codex',
+            version: '0.133.0',
+            minimumVersion: '0.133.0',
+            isVersionSupported: true,
+            managedInstallDir: '/tmp/codex',
+        });
+        mocks.startEmbeddedMcpServer.mockResolvedValue({
+            descriptor: {
+                name: 'evb_viewer_embedded',
+                url: 'http://127.0.0.1:9876',
+            },
+            token: 'test-mcp-token',
+        });
+        mocks.codexAccountReadMode = 'error';
+        mocks.codexAuthStatusMode = 'signed-in';
+        mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
+
+        const { getAgentAssistantState }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const state = await getAgentAssistantState();
+
+        expect(state.status.authState).toBe('signed-in');
+        expect(state.status.runtimeState).toBe('ready');
+        expect(state.status.account).toBeNull();
+        expect(state.status.error).toBeUndefined();
+        expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('falling back to auth status'));
+    });
+
+    it('publishes an actionable auth error when Codex auth probes fail', async () => {
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+        mocks.getCodexCliInfo.mockResolvedValue({
+            installed: true,
+            path: '/Applications/Codex.app/Contents/Resources/codex',
+            version: '0.133.0',
+            minimumVersion: '0.133.0',
+            isVersionSupported: true,
+            managedInstallDir: '/tmp/codex',
+        });
+        mocks.startEmbeddedMcpServer.mockResolvedValue({
+            descriptor: {
+                name: 'evb_viewer_embedded',
+                url: 'http://127.0.0.1:9876',
+            },
+            token: 'test-mcp-token',
+        });
+        mocks.codexAccountReadMode = 'error';
+        mocks.codexAuthStatusMode = 'error';
+        mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
+
+        const { getAgentAssistantState }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const state = await getAgentAssistantState();
+
+        expect(state.status.authState).toBe('signed-out');
+        expect(state.status.runtimeState).toBe('stopped');
+        expect(state.status.error).toContain('Could not verify Codex authentication');
+        expect(state.status.error).toContain('account/read timed out');
+        expect(state.status.error).toContain('getAuthStatus timed out');
     });
 
     it('keeps assistant chat messages scoped to the selected document', async () => {

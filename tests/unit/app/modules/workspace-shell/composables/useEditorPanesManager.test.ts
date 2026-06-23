@@ -175,4 +175,134 @@ describe('useEditorPanesManager', () => {
         expect(manager.moveTabToPane(thirdTab.id, targetPaneId!, false)).toBe(true);
         expect(manager.getPaneById(sourcePane.paneId)?.activeTabId).toBe(firstTabId);
     });
+
+    it('reorders tabs within a pane without changing the active tab', async () => {
+        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
+        const manager = useEditorPanesManager();
+        manager.ensureAtLeastOneTab();
+
+        const pane = manager.activePane.value!;
+        const firstTabId = pane.activeTabId!;
+        const secondTab = manager.createTab({
+            paneId: pane.paneId,
+            activate: true,
+        });
+        const thirdTab = manager.createTab({
+            paneId: pane.paneId,
+            activate: true,
+        });
+        manager.activateTab(pane.paneId, secondTab.id);
+
+        manager.moveTabWithinPane(pane.paneId, 2, 0);
+
+        expect(manager.getPaneById(pane.paneId)?.tabIds).toEqual([
+            thirdTab.id,
+            firstTabId,
+            secondTab.id,
+        ]);
+        expect(manager.getPaneById(pane.paneId)?.activeTabId).toBe(secondTab.id);
+    });
+
+    it('closes active tabs by selecting the next neighbor and removes empty panes', async () => {
+        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
+        const manager = useEditorPanesManager();
+        manager.ensureAtLeastOneTab();
+
+        const sourcePane = manager.activePane.value!;
+        const firstTabId = sourcePane.activeTabId!;
+        const secondTab = manager.createTab({
+            paneId: sourcePane.paneId,
+            activate: true,
+        });
+        const thirdTab = manager.createTab({
+            paneId: sourcePane.paneId,
+            activate: true,
+        });
+        manager.activateTab(sourcePane.paneId, secondTab.id);
+
+        const closedActive = manager.closeTab(sourcePane.paneId, secondTab.id);
+
+        expect(closedActive.tab?.id).toBe(secondTab.id);
+        expect(closedActive.removedPaneId).toBeNull();
+        expect(manager.getPaneById(sourcePane.paneId)?.tabIds).toEqual([
+            firstTabId,
+            thirdTab.id,
+        ]);
+        expect(manager.getPaneById(sourcePane.paneId)?.activeTabId).toBe(thirdTab.id);
+
+        const targetPaneId = manager.splitPane(sourcePane.paneId, 'right');
+        expect(targetPaneId).toBeTruthy();
+        const targetTab = manager.createTab({
+            paneId: targetPaneId,
+            activate: true,
+        });
+
+        const closedOnlyTarget = manager.closeTab(targetPaneId!, targetTab.id);
+
+        expect(closedOnlyTarget.tab?.id).toBe(targetTab.id);
+        expect(closedOnlyTarget.removedPaneId).toBe(targetPaneId);
+        expect(manager.getPaneById(targetPaneId)).toBeNull();
+        expect(manager.panes.value.map(pane => pane.paneId)).toContain(sourcePane.paneId);
+    });
+
+    it('moves and copies active tabs by direction while updating pane focus', async () => {
+        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
+        const manager = useEditorPanesManager();
+        manager.ensureAtLeastOneTab();
+
+        const sourcePane = manager.activePane.value!;
+        const firstTabId = sourcePane.activeTabId!;
+        const secondTab = manager.createTab({
+            paneId: sourcePane.paneId,
+            activate: true,
+        });
+        manager.activateTab(sourcePane.paneId, firstTabId);
+        const targetPaneId = manager.splitPane(sourcePane.paneId, 'right');
+        expect(targetPaneId).toBeTruthy();
+
+        const moved = manager.moveActiveTabToDirection('right');
+
+        expect(moved).toEqual({
+            tabId: firstTabId,
+            targetPaneId,
+            createdPane: false,
+        });
+        expect(manager.getPaneById(sourcePane.paneId)?.activeTabId).toBe(secondTab.id);
+        expect(manager.getPaneById(targetPaneId)?.activeTabId).toBe(firstTabId);
+        expect(manager.activePaneId.value).toBe(targetPaneId);
+
+        manager.activatePane(sourcePane.paneId);
+        manager.activateTab(sourcePane.paneId, secondTab.id);
+        const copied = manager.copyActiveTabToDirection('down');
+
+        expect(copied?.sourceTabId).toBe(secondTab.id);
+        expect(copied?.createdPane).toBe(true);
+        expect(copied?.targetPaneId).not.toBe(sourcePane.paneId);
+        expect(manager.getPaneById(copied!.targetPaneId)?.activeTabId).toBe(copied?.targetTabId);
+        expect(manager.getTabById(copied!.targetTabId)?.fileName).toBe(secondTab.fileName);
+        expect(manager.activePaneId.value).toBe(copied?.targetPaneId);
+    });
+
+    it('clamps split ratios and focuses directional panes', async () => {
+        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
+        const manager = useEditorPanesManager();
+        manager.ensureAtLeastOneTab();
+
+        const sourcePane = manager.activePane.value!;
+        const targetPaneId = manager.splitPane(sourcePane.paneId, 'right');
+        expect(targetPaneId).toBeTruthy();
+        const splitNode = manager.layout.value?.type === 'split' ? manager.layout.value : null;
+        expect(splitNode).not.toBeNull();
+
+        manager.setSplitRatio(splitNode!.id, 0.95);
+        expect((manager.layout.value as Extract<TEditorLayoutNode, { type: 'split' }>).ratio).toBe(0.85);
+
+        manager.setSplitRatio(splitNode!.id, 0.01);
+        expect((manager.layout.value as Extract<TEditorLayoutNode, { type: 'split' }>).ratio).toBe(0.15);
+
+        const focusedPaneId = manager.focusPane('right');
+
+        expect(focusedPaneId).toBe(targetPaneId);
+        expect(manager.activePaneId.value).toBe(targetPaneId);
+    });
 });

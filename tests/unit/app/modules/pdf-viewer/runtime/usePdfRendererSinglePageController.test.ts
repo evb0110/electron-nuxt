@@ -186,4 +186,57 @@ describe('usePdfRendererSinglePageController', () => {
         expect(renderAnnotationEditorLayer).toHaveBeenCalledOnce();
         expect(releasePageResources).toHaveBeenCalledWith(1, pdfPage);
     });
+
+    it('reports standalone annotation-editor layer failure instead of treating current DOM as ready', async () => {
+        const { root } = createPageRoot();
+        const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
+        const releasePageResources = vi.fn();
+        const renderAnnotationEditorLayer = vi.fn(async () => false);
+
+        const controller = usePdfRendererSinglePageController({
+            isActive: true,
+            effectiveScale: 1,
+            annotationUiManager: {},
+            getContainerRoot: () => root,
+            renderedPages: new Set<number>(),
+            staleRenderedPages: new Set<number>(),
+            renderingPages: new Map(),
+            renderingPageRequestIds: new Map(),
+            activeRenderTasks: new Map(),
+            getRenderVersion: () => 1,
+            getVisibleRenderRequestId: () => 1,
+            summarizePageDom: () => ({}),
+            clearSelectionBeforePageLayerTeardown: vi.fn(),
+            cleanupPageIfCurrentRender: vi.fn(),
+            cleanupCanvasRenderResult: vi.fn(),
+            releasePageResources,
+            loadPageForRender: vi.fn(async () => pdfPage),
+            prepareCanvasRenderForPage: vi.fn(async () => ({
+                canvas: document.createElement('canvas'),
+                startRender: vi.fn(),
+            })),
+            renderPreparedCanvasForPage: vi.fn(async prepared => ({ canvas: prepared.canvas })),
+            prepareCanvasForRender: vi.fn(async () => ({ canvas: document.createElement('canvas') })),
+            applyContainerDimensions: vi.fn(),
+            mountRenderedCanvas: vi.fn(),
+            scheduleRenderForSinglePage: vi.fn(),
+            scheduleMissingRenderTargetRetry: vi.fn(),
+            clearMissingRenderTargetRetry: vi.fn(),
+            renderTextLayerForPage: vi.fn(async () => true),
+            renderAnnotationLayersForPage: vi.fn(async () => ({
+                shouldContinue: true,
+                annotationLayerInstance: null,
+            })),
+            renderAnnotationEditorLayer,
+            getViewportForAnnotationEditorLayer: vi.fn(() => ({}) as never),
+            scheduleOcrDebugForPage: vi.fn(),
+            logNonCriticalStageError: vi.fn(),
+        });
+
+        const rendered = await controller.renderAnnotationEditorLayerForPage(1);
+
+        expect(rendered).toBe(false);
+        expect(renderAnnotationEditorLayer).toHaveBeenCalledOnce();
+        expect(releasePageResources).toHaveBeenCalledWith(1, pdfPage);
+    });
 });

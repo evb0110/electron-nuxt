@@ -379,13 +379,13 @@ export function parseTsvOcrData(tsvContent: string): {
         }
         if (level !== 5) continue;
 
-        const left = parseInt(row.parts[6]!, 10);
-        const top = parseInt(row.parts[7]!, 10);
-        const width = parseInt(row.parts[8]!, 10);
-        const height = parseInt(row.parts[9]!, 10);
-        const confidence = parseInt(row.parts[10]!, 10);
+        const left = parseNonNegativeTsvInt(row.parts[6]);
+        const top = parseNonNegativeTsvInt(row.parts[7]);
+        const width = parsePositiveTsvInt(row.parts[8]);
+        const height = parsePositiveTsvInt(row.parts[9]);
+        const confidence = parseNonNegativeTsvInt(row.parts[10]);
+        if (left === null || top === null || width === null || height === null || confidence === null) continue;
         if (confidence < 20) continue;
-        if (width <= 0 || height <= 0) continue;
 
         appendTsvTextRow(textState, row);
         acceptedWordRows.push({

@@ -3,6 +3,7 @@ import {
     stat,
 } from 'fs/promises';
 import { getWorkingCopyOriginalFileExpectation } from '@electron/file-access/workingCopyStore';
+import { createOriginalFileContentFingerprint } from '@electron/file-access/workingCopyOriginalFileExpectation';
 
 const SAVE_BASE_COMPARE_CHUNK_BYTES = 1024 * 1024;
 
@@ -10,11 +11,15 @@ async function originalPathMatchesStoredExpectation(
     originalPath: string,
     expectedOriginal: NonNullable<ReturnType<typeof getWorkingCopyOriginalFileExpectation>>,
 ) {
+    if (!expectedOriginal.contentFingerprint) {
+        return null;
+    }
     const originalStat = await stat(originalPath);
-    return (
-        originalStat.size === expectedOriginal.size
-        && originalStat.mtimeMs === expectedOriginal.mtimeMs
-    );
+    if (originalStat.size !== expectedOriginal.size) {
+        return false;
+    }
+    return await createOriginalFileContentFingerprint(originalPath, originalStat.size)
+        === expectedOriginal.contentFingerprint;
 }
 
 function yieldBetweenCompareChunks() {
@@ -94,10 +99,11 @@ export async function originalPathSaveBaseMatches(
 ) {
     const expectedOriginal = getWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId);
     if (!expectedOriginal) {
-        return true;
+        return originalPathMatchesWorkingCopyBytes(originalPath, workingPath);
     }
-    if (await originalPathMatchesStoredExpectation(originalPath, expectedOriginal)) {
-        return true;
+    const storedExpectationMatches = await originalPathMatchesStoredExpectation(originalPath, expectedOriginal);
+    if (storedExpectationMatches !== null) {
+        return storedExpectationMatches;
     }
 
     return originalPathMatchesWorkingCopyBytes(originalPath, workingPath);

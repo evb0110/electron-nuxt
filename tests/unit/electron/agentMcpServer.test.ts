@@ -270,6 +270,7 @@ describe('processMcpRequest', () => {
             }},
         });
         expect(JSON.stringify(initialized?.result)).toContain('evb_run_action');
+        expect(JSON.stringify(initialized?.result)).toContain('evb_read_action');
         expect(JSON.stringify(initialized?.result)).toContain('document.search');
         expect(JSON.stringify(tools?.result)).toContain('evb_workspace_snapshot');
         expect(JSON.stringify(tools?.result)).toContain('evb_viewer_open_documents');
@@ -279,6 +280,45 @@ describe('processMcpRequest', () => {
         expect(JSON.stringify(tools?.result)).toContain('evb_go_to_page');
         expect(JSON.stringify(initialized?.result)).toContain('document.capture_page_image');
 
+        const initializedJson = JSON.stringify(initialized?.result);
+        expect(initializedJson).toContain('Internal write capabilities with policy.internal = allow');
+        expect(initializedJson).not.toContain('document.capture_page_image, page_labels.preview');
+
+        const runActionTool = (tools?.result as IListToolsResult).tools?.find(tool => tool.name === 'evb_run_action');
+        expect(runActionTool?.annotations).toMatchObject({
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: false,
+        });
+        const readActionTool = (tools?.result as IListToolsResult).tools?.find(tool => tool.name === 'evb_read_action');
+        expect(readActionTool?.annotations).toMatchObject({
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        });
+    });
+
+    it('keeps external action metadata destructive and explicit about confirmation blocks', async () => {
+        const options = {
+            ...createOptions(),
+            callerKind: 'external' as const,
+        };
+
+        const initialized = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: {protocolVersion: '2025-11-25'},
+        }, options);
+        const tools = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'tools/list',
+        }, options);
+
+        expect(JSON.stringify(initialized?.result)).toContain('policy.external is confirm are blocked');
         const runActionTool = (tools?.result as IListToolsResult).tools?.find(tool => tool.name === 'evb_run_action');
         expect(runActionTool?.annotations).toMatchObject({
             readOnlyHint: false,
@@ -503,6 +543,145 @@ describe('processMcpRequest', () => {
             hasOpenDocument: true,
             documentCount: 1,
         }});
+    });
+
+    it('dispatches bookmark previews through the read-only action tool', async () => {
+        const options = {
+            ...createOptions(),
+            callerKind: 'external' as const,
+        };
+        const bookmarkPlanInput = {entries: [{
+            level: 1,
+            title: 'Chapter 1',
+            page: 5,
+        }]};
+
+        const response = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'preview-bookmarks',
+            method: 'tools/call',
+            params: {
+                name: 'evb_read_action',
+                arguments: {
+                    windowId: 42,
+                    tabId: 'tab-1',
+                    id: 'bookmarks.preview_tree',
+                    input: bookmarkPlanInput,
+                },
+            },
+        }, options);
+
+        expect(response?.error).toBeUndefined();
+        expect(options.runCommand).toHaveBeenCalledWith({
+            name: 'run_action',
+            arguments: {
+                tabId: 'tab-1',
+                id: 'bookmarks.preview_tree',
+                input: bookmarkPlanInput,
+            },
+        }, 42);
+    });
+
+    it('rejects non-read capabilities on the read-only action tool', async () => {
+        const options = createOptions();
+
+        const writeResponse = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'apply-bookmarks-through-read-tool',
+            method: 'tools/call',
+            params: {
+                name: 'evb_read_action',
+                arguments: {
+                    tabId: 'tab-1',
+                    id: 'bookmarks.apply_plan',
+                    input: {entries: []},
+                },
+            },
+        }, options);
+        const destructiveResponse = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'delete-bookmarks-through-read-tool',
+            method: 'tools/call',
+            params: {
+                name: 'evb_read_action',
+                arguments: {
+                    tabId: 'tab-1',
+                    id: 'bookmarks.delete',
+                    input: {path: [0]},
+                },
+            },
+        }, options);
+
+        expect(writeResponse?.error).toMatchObject({
+            code: -32603,
+            message: 'Capability bookmarks.apply_plan is write; use evb_run_action for non-read capabilities.',
+        });
+        expect(destructiveResponse?.error).toMatchObject({
+            code: -32603,
+            message: 'Capability bookmarks.delete is destructive; use evb_run_action for non-read capabilities.',
+        });
+        expect(options.runCommand).not.toHaveBeenCalled();
+    });
+
+    it('keeps external bookmark writes blocked without confirmation', async () => {
+        const options = {
+            ...createOptions(),
+            callerKind: 'external' as const,
+        };
+
+        const response = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'external-apply-bookmarks',
+            method: 'tools/call',
+            params: {
+                name: 'evb_run_action',
+                arguments: {
+                    tabId: 'tab-1',
+                    id: 'bookmarks.apply_plan',
+                    input: {entries: []},
+                },
+            },
+        }, options);
+
+        expect(response?.error).toMatchObject({
+            code: -32603,
+            message: 'Capability bookmarks.apply_plan requires explicit user confirmation for external MCP callers.',
+        });
+        expect(options.runCommand).not.toHaveBeenCalled();
+    });
+
+    it('allows internal bookmark writes to reach renderer dispatch', async () => {
+        const options = createOptions();
+        const bookmarkPlanInput = {entries: [{
+            level: 1,
+            title: 'Chapter 1',
+            page: 5,
+        }]};
+
+        const response = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'internal-apply-bookmarks',
+            method: 'tools/call',
+            params: {
+                name: 'evb_run_action',
+                arguments: {
+                    windowId: 42,
+                    tabId: 'tab-1',
+                    id: 'bookmarks.apply_plan',
+                    input: bookmarkPlanInput,
+                },
+            },
+        }, options);
+
+        expect(response?.error).toBeUndefined();
+        expect(options.runCommand).toHaveBeenCalledWith({
+            name: 'run_action',
+            arguments: {
+                tabId: 'tab-1',
+                id: 'bookmarks.apply_plan',
+                input: bookmarkPlanInput,
+            },
+        }, 42);
     });
 
     it('exposes page-label and bookmark editing capabilities', async () => {

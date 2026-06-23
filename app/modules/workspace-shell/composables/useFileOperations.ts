@@ -507,6 +507,9 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     }
 
     interface ISuccessfulSaveStateCompletionOptions {
+        allowAnnotationSaveStateRefresh?: boolean | undefined;
+        allowBookmarksSaveStateRefresh?: boolean | undefined;
+        allowPageLabelsSaveStateRefresh?: boolean | undefined;
         markShapeStateSaved?: boolean | undefined;
         preserveLivePdfjsSession?: boolean | undefined;
         resetAnnotationStorage?: boolean | undefined;
@@ -530,18 +533,37 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
 
     function completeSuccessfulSaveState(opts?: ISuccessfulSaveStateCompletionOptions) {
         const snapshot = opts?.saveStateSnapshot;
-        const shouldMarkAnnotationSaved = !snapshot
+        const isAnnotationSaveStateUnchanged = !snapshot
             || isSaveStateTokenUnchanged(snapshot.annotation, getAnnotationSaveStateToken);
+        const shouldMarkAnnotationSaved = isAnnotationSaveStateUnchanged
+            || opts?.allowAnnotationSaveStateRefresh === true;
         if (shouldMarkAnnotationSaved) {
+            if (!isAnnotationSaveStateUnchanged) {
+                BrowserLogger.debug('workspace', 'Refreshing changed annotation save baseline after native save');
+            }
             if (opts?.resetAnnotationStorage !== false) {
                 pdfDocument.value?.annotationStorage?.resetModified();
             }
             markAnnotationSaved({ preserveLivePdfjsSession: opts?.preserveLivePdfjsSession === true });
         }
-        if (!snapshot || isSaveStateTokenUnchanged(snapshot.pageLabels, getPageLabelsSaveStateToken)) {
+        const isPageLabelsSaveStateUnchanged = !snapshot
+            || isSaveStateTokenUnchanged(snapshot.pageLabels, getPageLabelsSaveStateToken);
+        const shouldMarkPageLabelsSaved = isPageLabelsSaveStateUnchanged
+            || opts?.allowPageLabelsSaveStateRefresh === true;
+        if (shouldMarkPageLabelsSaved) {
+            if (!isPageLabelsSaveStateUnchanged) {
+                BrowserLogger.debug('workspace', 'Refreshing changed page-label save baseline after native save');
+            }
             markPageLabelsSaved();
         }
-        if (!snapshot || isSaveStateTokenUnchanged(snapshot.bookmarks, getBookmarksSaveStateToken)) {
+        const isBookmarksSaveStateUnchanged = !snapshot
+            || isSaveStateTokenUnchanged(snapshot.bookmarks, getBookmarksSaveStateToken);
+        const shouldMarkBookmarksSaved = isBookmarksSaveStateUnchanged
+            || opts?.allowBookmarksSaveStateRefresh === true;
+        if (shouldMarkBookmarksSaved) {
+            if (!isBookmarksSaveStateUnchanged) {
+                BrowserLogger.debug('workspace', 'Refreshing changed bookmark save baseline after native save');
+            }
             markBookmarksSaved();
         }
         if (opts?.markShapeStateSaved !== false) {
@@ -554,6 +576,9 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
 
     function finalizeSuccessfulSave(result: IPdfPersistResult, opts?: {
         completeSaveState?: boolean | undefined;
+        allowAnnotationSaveStateRefresh?: boolean | undefined;
+        allowBookmarksSaveStateRefresh?: boolean | undefined;
+        allowPageLabelsSaveStateRefresh?: boolean | undefined;
         markShapeStateSaved?: boolean | undefined;
         preserveLivePdfjsSession?: boolean | undefined;
         resetAnnotationStorage?: boolean | undefined;
@@ -578,6 +603,9 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         if (opts?.completeSaveState !== false) {
             completeSuccessfulSaveState({
                 markShapeStateSaved: opts?.markShapeStateSaved,
+                allowAnnotationSaveStateRefresh: opts?.allowAnnotationSaveStateRefresh,
+                allowBookmarksSaveStateRefresh: opts?.allowBookmarksSaveStateRefresh,
+                allowPageLabelsSaveStateRefresh: opts?.allowPageLabelsSaveStateRefresh,
                 preserveLivePdfjsSession: opts?.preserveLivePdfjsSession,
                 resetAnnotationStorage: opts?.resetAnnotationStorage,
                 saveStateSnapshot: opts?.saveStateSnapshot,
@@ -1395,11 +1423,21 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         persisted: IPdfPersistResult,
         canMarkShapeStateSaved: boolean,
     ) {
+        const hasNativeAnnotationMutations = nativeMutationPlan.noteTextUpdates.length > 0
+            || nativeMutationPlan.freeTextNotes.length > 0
+            || nativeMutationPlan.annotationDeletes.length > 0
+            || nativeMutationPlan.hasMarkupMutations
+            || nativeMutationPlan.hasShapeMutations;
+        const hasNativeBookmarkMutations = nativeMutationPlan.mutations.bookmarks !== undefined;
+        const hasNativePageLabelMutations = nativeMutationPlan.mutations.pageLabels !== undefined;
         armPersistedShapeStateAdoption(nativeMutationPlan.hasShapeMutations && canMarkShapeStateSaved);
         context.reloadWaiter.cancel();
         clearSaveIndicator(config.mode);
         const saveSucceeded = finalizeSuccessfulSave(persisted, {
             completeSaveState: true,
+            allowAnnotationSaveStateRefresh: hasNativeAnnotationMutations,
+            allowBookmarksSaveStateRefresh: hasNativeBookmarkMutations,
+            allowPageLabelsSaveStateRefresh: hasNativePageLabelMutations,
             markShapeStateSaved: canMarkShapeStateSaved,
             preserveLivePdfjsSession: true,
             saveStateSnapshot: context.saveStateSnapshot,

@@ -1,6 +1,8 @@
-import type { Ref } from 'vue';
+import type {
+    ComputedRef,
+    Ref,
+} from 'vue';
 import { ZOOM } from '@app/constants/pdfLayout';
-import { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
 import type {
     IAnnotationCommentSummary,
     TAnnotationCommentsStatus,
@@ -19,9 +21,10 @@ import type {
     IWorkspaceAutomationStateSnapshot,
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
-import type {
-    IDocumentViewerExpose,
-    IPdfViewerExpose,
+import {
+    clampPdfManualZoom,
+    type IDocumentViewerExpose,
+    type IPdfViewerExpose,
 } from '@app/modules/pdf-viewer/public';
 import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
 
@@ -88,6 +91,15 @@ interface ICreateWorkspaceExposeDeps extends
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     annotationCommentsStatus: Ref<TAnnotationCommentsStatus>;
     annotationDirty: Ref<boolean>;
+    isDirty?: Ref<boolean>;
+    hasAnnotationChanges?: () => boolean;
+    hasLivePdfJsAnnotationChanges?: () => boolean;
+    hasSavedPdfJsAnnotationBaselineChanges?: () => boolean;
+    hasPreservedAnnotationSourceChanges?: () => boolean;
+    hasPendingUnsavedChanges?: ComputedRef<boolean>;
+    pendingEmbeddedAnnotationDeleteCount?: ComputedRef<number>;
+    pageLabelsDirty?: Ref<boolean>;
+    bookmarksDirty?: Ref<boolean>;
     sortedAnnotationNoteWindows: Ref<IAnnotationNoteWindowState[]>;
     handleOcrComplete: (payload: unknown) => Promise<void>;
 }
@@ -236,6 +248,18 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             annotationComments: [...deps.annotationComments.value],
             annotationCommentsStatus: deps.annotationCommentsStatus.value,
             annotationDirty: deps.annotationDirty.value,
+            dirtyState: {
+                annotationDirty: deps.annotationDirty.value,
+                bookmarksDirty: deps.bookmarksDirty?.value ?? false,
+                fileDirty: deps.isDirty?.value ?? false,
+                hasAnnotationChanges: deps.hasAnnotationChanges?.() ?? false,
+                hasLivePdfJsAnnotationChanges: deps.hasLivePdfJsAnnotationChanges?.() ?? false,
+                hasPendingUnsavedChanges: deps.hasPendingUnsavedChanges?.value ?? false,
+                hasPreservedAnnotationSourceChanges: deps.hasPreservedAnnotationSourceChanges?.() ?? false,
+                hasSavedPdfJsAnnotationBaselineChanges: deps.hasSavedPdfJsAnnotationBaselineChanges?.() ?? false,
+                pageLabelsDirty: deps.pageLabelsDirty?.value ?? false,
+                pendingEmbeddedAnnotationDeleteCount: deps.pendingEmbeddedAnnotationDeleteCount?.value ?? 0,
+            },
             originalPath: deps.originalPath.value,
             sortedAnnotationNoteWindows: deps.sortedAnnotationNoteWindows.value.map(note => ({
                 ...note,

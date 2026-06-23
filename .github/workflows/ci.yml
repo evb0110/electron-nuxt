@@ -73,7 +73,7 @@ jobs:
             echo "native=false" >> "$GITHUB_OUTPUT"
           fi
 
-          if printf '%s\n' "$changed_files" | grep -Eq '^(python/page-processor/|scripts/(check-page-processor-smoke[.]py|bundle-page-processor-macos[.]sh|devkit/(page-processing-harness|process-pdf-split-pad)[.]py|release/verify-local-checks[.]mjs|verify-packaged-native-tools[.]sh|check-native-tools-source-matrix[.]sh|afterPack[.]cjs|afterSign[.]cjs)|electron-builder[.]yml|package[.]json|[.]github/workflows/ci[.]yml)'; then
+          if printf '%s\n' "$changed_files" | grep -Eq '^(python/page-processor/|scripts/(check-page-processor-smoke[.]py|bundle-page-processor-macos[.]sh|devkit/(page-processing-harness|process-pdf-split-pad)[.]py|verify-packaged-native-tools[.]sh|check-native-tools-source-matrix[.]sh|afterPack[.]cjs|afterSign[.]cjs)|electron-builder[.]yml|[.]github/workflows/ci[.]yml)'; then
             echo "python_page_processor=true" >> "$GITHUB_OUTPUT"
           else
             echo "python_page_processor=false" >> "$GITHUB_OUTPUT"
@@ -175,7 +175,7 @@ jobs:
   python_page_processor_push:
     name: Python Page Processor Smoke
     needs: changes
-    if: ${{ needs.changes.outputs.python_page_processor == 'true' }}
+    if: ${{ github.event_name == 'push' && needs.changes.outputs.python_page_processor == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
 

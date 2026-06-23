@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     unlink: vi.fn(),
     validatePreprocessingSetup: vi.fn(),
     writeFile: vi.fn(),
+    getOcrToolPaths: vi.fn(),
     logger: {
         debug: vi.fn(),
         info: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock('electron', () => ({app: {isPackaged: false}}));
 vi.mock('child_process', () => ({spawn: (...args: unknown[]) => mocks.spawn(...args)}));
 vi.mock('fs', () => ({existsSync: (path: string) => mocks.existsSync(path)}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: () => mocks.getOcrToolPaths()}));
 
 function createPngBytes(width: number, height: number) {
     const bytes = new Uint8Array(33);
@@ -63,6 +65,14 @@ describe('validatePreprocessingSetup', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        mocks.getOcrToolPaths.mockReturnValue({
+            tesseract: '/repo/resources/tesseract/darwin-arm64/bin/tesseract',
+            tessdata: '/repo/resources/tesseract/tessdata',
+            pdftoppm: '/repo/resources/poppler/darwin-arm64/bin/pdftoppm',
+            pdftotext: '/repo/resources/poppler/darwin-arm64/bin/pdftotext',
+            qpdf: '/repo/resources/qpdf/darwin-arm64/bin/qpdf',
+            unpaper: '/repo/resources/tesseract/darwin-arm64/bin/unpaper',
+        });
         mocks.existsSync.mockImplementation((path: string) => path.includes('unpaper') || path.includes('leptonica'));
         mocks.spawn.mockImplementation(() => {
             const proc = new EventEmitter() as EventEmitter & {kill: (...args: string[]) => boolean;};
@@ -107,6 +117,38 @@ describe('validatePreprocessingSetup', () => {
                 windowsHide: true,
                 stdio: 'ignore',
             }),
+        );
+    });
+
+    it('validates packaged macOS unpaper through shared OCR native-tool paths', async () => {
+        mocks.getOcrToolPaths.mockReturnValue({
+            tesseract: '/App/Electron.app/Contents/MacOS/native-tools/tesseract/darwin-arm64/bin/tesseract',
+            tessdata: '/Users/example/Library/Application Support/evb-viewer/tessdata',
+            pdftoppm: '/App/Electron.app/Contents/MacOS/native-tools/poppler/darwin-arm64/bin/pdftoppm',
+            pdftotext: '/App/Electron.app/Contents/MacOS/native-tools/poppler/darwin-arm64/bin/pdftotext',
+            qpdf: '/App/Electron.app/Contents/MacOS/native-tools/qpdf/darwin-arm64/bin/qpdf',
+            unpaper: '/App/Electron.app/Contents/MacOS/native-tools/tesseract/darwin-arm64/bin/unpaper',
+        });
+        mocks.existsSync.mockImplementation((path: string) => path.startsWith('/App/Electron.app/Contents/MacOS/native-tools'));
+        const { validatePreprocessingSetup } = await import('@electron/ocr/preprocessing');
+
+        await expect(validatePreprocessingSetup()).resolves.toMatchObject({
+            valid: true,
+            available: [
+                'unpaper',
+                'leptonica',
+            ],
+            missing: [],
+        });
+
+        const expectedEnv = expect.objectContaining({
+            TESSDATA_PREFIX: '/Users/example/Library/Application Support/evb-viewer/tessdata',
+            PATH: expect.stringContaining('/App/Electron.app/Contents/MacOS/native-tools/tesseract/darwin-arm64/bin'),
+        });
+        expect(mocks.spawn).toHaveBeenCalledWith(
+            '/App/Electron.app/Contents/MacOS/native-tools/tesseract/darwin-arm64/bin/unpaper',
+            ['--version'],
+            expect.objectContaining({env: expectedEnv}),
         );
     });
 });

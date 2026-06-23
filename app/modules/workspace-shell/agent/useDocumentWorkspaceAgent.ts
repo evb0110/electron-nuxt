@@ -227,6 +227,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         totalPages,
         updateAnnotationNoteText,
         viewMode,
+        waitForDocumentOpenSettled,
         workingCopyPath,
         zoom,
     } = options;
@@ -303,6 +304,11 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         totalPages,
         workingCopyPath,
     });
+
+    async function waitForAgentMutationStateSettled() {
+        await nextTick();
+        await nextTick();
+    }
 
     function getAgentOcrRunOptions(input: Record<string, unknown>): IAgentOcrRunOptions {
         const pageRange = getAgentStringInput(input, 'pageRange');
@@ -732,21 +738,22 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
                 'bookmarks.preview_tree',
                 'toc.preview_tree',
             ],
-            parse: (input, actionId) => previewAgentBookmarkPlan(input, actionId),
-            run: (plan: object) => plan,
+            parse: parseAgentActionInput,
+            async run(input: Record<string, unknown>, actionId) {
+                await waitForDocumentOpenSettled();
+                return previewAgentBookmarkPlan(input, actionId);
+            },
         },
         {
             ids: [
                 'bookmarks.apply_plan',
                 'toc.apply_plan',
             ],
-            parse: (input, actionId) => {
-                previewAgentBookmarkPlan(input, actionId);
-                return input;
-            },
+            parse: parseAgentActionInput,
             async run(planInput: Record<string, unknown>, actionId) {
+                await waitForDocumentOpenSettled();
                 const snapshot = applyAgentBookmarkPlan(planInput, actionId);
-                await nextTick();
+                await waitForAgentMutationStateSettled();
                 return snapshot;
             },
         },
@@ -755,13 +762,11 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
                 'bookmarks.set_tree',
                 'toc.set_tree',
             ],
-            parse: (input, actionId) => {
-                previewAgentBookmarkPlan(input, actionId);
-                return input;
-            },
+            parse: parseAgentActionInput,
             async run(treeInput: Record<string, unknown>, actionId) {
+                await waitForDocumentOpenSettled();
                 const snapshot = setAgentBookmarkTree(treeInput, actionId);
-                await nextTick();
+                await waitForAgentMutationStateSettled();
                 return snapshot;
             },
         },
@@ -773,7 +778,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             parse: parseAgentActionInput,
             async run(bookmarkInput: Record<string, unknown>, actionId) {
                 const snapshot = addAgentBookmark(bookmarkInput, actionId);
-                await nextTick();
+                await waitForAgentMutationStateSettled();
                 return snapshot;
             },
         },
@@ -785,7 +790,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             parse: parseAgentBookmarkBatchInput,
             async run(bookmarksInput: Record<string, unknown>, actionId) {
                 const snapshot = addAgentBookmarks(bookmarksInput, actionId);
-                await nextTick();
+                await waitForAgentMutationStateSettled();
                 return snapshot;
             },
         },
@@ -797,7 +802,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             parse: parseAgentBookmarkPathInput,
             async run(bookmarkInput: Record<string, unknown>, actionId) {
                 const snapshot = updateAgentBookmark(bookmarkInput, actionId);
-                await nextTick();
+                await waitForAgentMutationStateSettled();
                 return snapshot;
             },
         },
@@ -809,7 +814,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             parse: parseAgentBookmarkPathInput,
             async run(bookmarkInput: Record<string, unknown>, actionId) {
                 const snapshot = deleteAgentBookmark(bookmarkInput, actionId);
-                await nextTick();
+                await waitForAgentMutationStateSettled();
                 return snapshot;
             },
         },
@@ -1001,11 +1006,18 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             ids: ['file.save'],
             parse: parseEmptyAgentActionInput,
             async run() {
+                await waitForAgentMutationStateSettled();
                 const hadPendingSave = canSave.value;
                 const saveSucceeded = await handleSave();
-                await nextTick();
+                await waitForAgentMutationStateSettled();
                 if (!saveSucceeded || canSave.value) {
-                    throw new Error('Save did not complete; EVB Viewer still reports pending changes.');
+                    throw new Error(`Save did not complete; EVB Viewer still reports pending changes. ${JSON.stringify({
+                        annotationDirty: annotationDirty.value,
+                        bookmarksDirty: bookmarksDirty.value,
+                        canSave: canSave.value,
+                        pageLabelsDirty: pageLabelsDirty.value,
+                        saveSucceeded,
+                    })}`);
                 }
                 return {
                     saved: hadPendingSave,

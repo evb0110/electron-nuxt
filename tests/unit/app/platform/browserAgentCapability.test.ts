@@ -56,5 +56,10 @@ describe('browserAgentCapability', () => {
             serverRunning: false,
             toolCount: 0,
         });
+        for (const provider of createBrowserAssistantState().status.providers) {
+            const ids = provider.models.map(model => model.id);
+            expect(ids).toContain(provider.defaultModel);
+            expect(ids).toContain(provider.activeModel);
+        }
     });
 });

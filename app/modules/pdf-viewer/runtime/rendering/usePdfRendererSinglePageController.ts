@@ -133,7 +133,7 @@ interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
         pageNumber: number,
         annotationLayerInstance: null,
         options?: { shouldContinue?: () => boolean },
-    ) => Promise<unknown>;
+    ) => Promise<boolean>;
     getViewportForAnnotationEditorLayer: (pdfPage: PDFPageProxy, scale: number) => ReturnType<PDFPageProxy['getViewport']>;
     scheduleOcrDebugForPage: (pageNumber: number, context: IRenderPageContext<TRenderResult>) => void;
     onPageCanvasMounted?: ((pageNumber: number) => void) | undefined;
@@ -842,7 +842,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                     return false;
                 }
                 const viewport = getViewportForAnnotationEditorLayer(pdfPage, scale);
-                await renderAnnotationEditorLayer(
+                const didRenderEditorLayer = await renderAnnotationEditorLayer(
                     target.container,
                     annotationEditorLayerDiv,
                     textLayerDiv,
@@ -851,7 +851,7 @@ export const usePdfRendererSinglePageController = <TRenderResult>(
                     null,
                     { shouldContinue: shouldContinueEditorLayerRender },
                 );
-                return shouldContinueEditorLayerRender();
+                return didRenderEditorLayer && shouldContinueEditorLayerRender();
             } catch (error) {
                 logNonCriticalStageError(
                     pageNumber,

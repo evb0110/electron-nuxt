@@ -255,9 +255,12 @@ describe('macOS native tool workflow', () => {
         expect(afterSign).toContain('runtime: true');
         expect(sourceMatrix).not.toContain('page_processor_required_for_tag()');
         expect(sourceMatrix).not.toContain('&& [ -f "scripts/bundle-page-processor-macos.sh" ]');
+        expect(sourceMatrix).toContain('EVB_CHECK_OPTIONAL_PAGE_PROCESSOR=1');
+        expect(sourceMatrix).toContain('check_optional_page_processor="${EVB_CHECK_OPTIONAL_PAGE_PROCESSOR:-0}"');
         expect(sourceMatrix).toContain('check_file_for_tag "$root/bin/page-processor/page-processor$exe_suffix" "page-processor" "$tag"');
         expect(sourceMatrix).toContain('check_dir_for_tag "$root/bin/page-processor/_internal" "page-processor PyInstaller _internal" "$tag"');
         expect(sourceMatrix).toContain('echo "  CI-GEN  $label: $path"');
+        expect(sourceMatrix).toContain('SKIP    page-processor: optional dormant tool not release-critical for $tag');
         expect(sourceMatrix).toContain('SKIP    page-processor: optional dormant tool not bundled for $tag');
         expect(verifier).not.toContain('page_processor_required_for_platform()');
         expect(verifier).toContain('page_processor_root="$native_tool_root/page-processing/$platform_arch"');

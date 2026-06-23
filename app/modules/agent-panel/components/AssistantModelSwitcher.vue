@@ -9,6 +9,8 @@
             type="button"
             class="assistant-model-switcher-button"
             :aria-label="ariaLabel"
+            :aria-disabled="disabled"
+            :disabled="disabled"
         >
             <AssistantProviderIcon
                 :provider="selectedProvider"
@@ -41,6 +43,8 @@
                         ]"
                         role="tab"
                         :aria-selected="isSelectedProvider(provider.value)"
+                        :aria-disabled="disabled"
+                        :disabled="disabled"
                         @click="onSelectProvider(provider.value)"
                     >
                         <AssistantProviderIcon
@@ -68,6 +72,8 @@
                             ]"
                             role="radio"
                             :aria-checked="isSelectedModel(model.value)"
+                            :aria-disabled="disabled"
+                            :disabled="disabled"
                             @click="onSelectModel(model.value)"
                         >
                             <span>{{ model.label }}</span>
@@ -97,12 +103,14 @@ const {
     selectedModel,
     isSwitching = false,
     side = 'top',
+    disabled = false,
 } = defineProps<{
     providers: readonly IAgentAssistantProviderStatus[];
     selectedProvider: TAgentAssistantProviderId;
     selectedModel: string;
     isSwitching?: boolean;
     side?: 'top' | 'bottom';
+    disabled?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -135,7 +143,6 @@ const modelItems = computed(() => (activeProvider.value?.models ?? []).map(model
 const activeProviderLabel = computed(() => activeProvider.value?.label ?? selectedProvider);
 const activeModelOption = computed(() => (
     modelItems.value.find(model => model.value === selectedModel)
-    ?? modelItems.value[0]
     ?? null
 ));
 const activeModelLabel = computed(() => activeModelOption.value?.label ?? selectedModel);
@@ -143,6 +150,12 @@ const ariaLabel = computed(() => (
     `${t('assistant.provider')}: ${activeProviderLabel.value}. `
     + `${t('assistant.model')}: ${activeModelLabel.value}`
 ));
+
+watch(() => disabled, (nextDisabled) => {
+    if (nextDisabled) {
+        open.value = false;
+    }
+});
 
 function isSelectedProvider(provider: TAgentAssistantProviderId) {
     return provider === selectedProvider;
@@ -153,10 +166,16 @@ function isSelectedModel(model: string) {
 }
 
 function onSelectProvider(provider: TAgentAssistantProviderId) {
+    if (disabled) {
+        return;
+    }
     emit('select-provider', provider);
 }
 
 function onSelectModel(model: string) {
+    if (disabled) {
+        return;
+    }
     emit('select-model', model);
     open.value = false;
 }
@@ -185,7 +204,7 @@ function onSelectModel(model: string) {
         box-shadow var(--app-transition-fast);
 }
 
-.assistant-model-switcher-button:hover {
+.assistant-model-switcher-button:hover:not(:disabled) {
     background: var(--app-toolbar-control-hover-bg);
     border-color: var(--app-toolbar-control-hover-border);
 }
@@ -196,6 +215,11 @@ function onSelectModel(model: string) {
 
 .assistant-model-switcher-button:focus-visible {
     box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
+}
+
+.assistant-model-switcher-button:disabled {
+    opacity: var(--app-toolbar-control-disabled-opacity);
+    cursor: default;
 }
 
 .assistant-model-switcher-provider-icon {
@@ -259,7 +283,7 @@ function onSelectModel(model: string) {
         color var(--app-transition-fast);
 }
 
-.assistant-model-switcher-tab:hover {
+.assistant-model-switcher-tab:hover:not(:disabled) {
     background: var(--app-toolbar-control-hover-bg);
     color: var(--ui-text);
 }
@@ -277,6 +301,10 @@ function onSelectModel(model: string) {
     background: var(--app-toolbar-control-hover-bg);
     color: var(--ui-text);
     font-weight: var(--app-font-weight-semibold);
+}
+
+.assistant-model-switcher-tab:disabled {
+    cursor: default;
 }
 
 .assistant-model-switcher-tab-icon {
@@ -323,7 +351,7 @@ function onSelectModel(model: string) {
     transition: background-color var(--app-transition-fast);
 }
 
-.assistant-model-switcher-option:hover {
+.assistant-model-switcher-option:hover:not(:disabled) {
     background: var(--app-toolbar-control-hover-bg);
 }
 
@@ -338,6 +366,10 @@ function onSelectModel(model: string) {
 .assistant-model-switcher-option.is-active {
     background: var(--app-toolbar-control-hover-bg);
     font-weight: var(--app-font-weight-semibold);
+}
+
+.assistant-model-switcher-option:disabled {
+    cursor: default;
 }
 
 .assistant-model-switcher-option span {

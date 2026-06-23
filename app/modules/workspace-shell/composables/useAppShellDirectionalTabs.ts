@@ -162,6 +162,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             canClose: hasActiveTab && !transitionsBusy && !closeBlocked,
             canCreate: !transitionsBusy,
             canMoveToNewWindow: canTransferTabsAcrossWindows.value && tabs.value.length > 1 && !transitionsBusy,
+            canMoveToWindow: canTransferTabsAcrossWindows.value && !transitionsBusy,
         };
     }
 
@@ -395,7 +396,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
 
             const targetTab = createTab({
                 paneId: route.targetPaneId,
-                activate: false,
+                activate: true,
                 initial: {
                     fileName: sourceTab.fileName,
                     originalPath: sourceTab.originalPath,
@@ -426,7 +427,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         command: TStaticTabContextCommand,
     ) {
         if (command.kind === 'move-to-window') {
-            return () => moveTabToWindow(command.targetWindowId, tabId);
+            return () => enqueueTabTransition(() => moveTabToWindow(command.targetWindowId, tabId));
         }
 
         const handlers = {
@@ -438,7 +439,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                 return Promise.resolve();
             },
             'close-tab': () => handleCloseTab(paneId, tabId),
-            'move-to-new-window': () => moveTabToNewWindow(tabId),
+            'move-to-new-window': () => enqueueTabTransition(() => moveTabToNewWindow(tabId)),
         } satisfies Record<TStaticTabContextCommandWithoutTargetWindow['kind'], () => Promise<void>>;
 
         return handlers[command.kind];

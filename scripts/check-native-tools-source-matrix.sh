@@ -10,12 +10,14 @@ Usage: scripts/check-native-tools-source-matrix.sh [--all]
 
 Default mode:
 - Validate native tool resources for the current host platform/arch
+- Skip optional page-processor folders unless EVB_CHECK_OPTIONAL_PAGE_PROCESSOR=1
+  is set; they are dormant and not part of the standard release gate
 
 --all mode:
 - Validate source readiness for the full release matrix. Generated non-host
   native tool folders may be absent locally when a CI bundling script owns that
-  target. Optional page-processor folders are checked when present, but are not
-  release-critical until every release platform has a functional bundle path.
+  target. Optional page-processor folders are still skipped unless explicitly
+  opted in.
   Other host resources are still required unless
   EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN=1 is set for a pre-bundle CI quality gate.
 EOF
@@ -79,6 +81,7 @@ resolve_host_tag() {
 
 host_tag="$(resolve_host_tag)"
 allow_host_ci_gen="${EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN:-0}"
+check_optional_page_processor="${EVB_CHECK_OPTIONAL_PAGE_PROCESSOR:-0}"
 
 has_ci_bundler_for_tag() {
   local tag="$1"
@@ -148,6 +151,11 @@ check_page_processor_for_tag() {
   fi
 
   local root="resources/page-processing/$tag"
+  if [ "$check_optional_page_processor" != "1" ]; then
+    echo "  SKIP    page-processor: optional dormant tool not release-critical for $tag"
+    return
+  fi
+
   if [ -d "$root" ]; then
     check_file_for_tag "$root/bin/page-processor/page-processor$exe_suffix" "page-processor" "$tag"
     if [ "$platform" = "darwin" ]; then

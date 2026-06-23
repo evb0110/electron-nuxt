@@ -11,6 +11,7 @@ export interface ITabContextAvailability {
     canClose: boolean;
     canCreate: boolean;
     canMoveToNewWindow: boolean;
+    canMoveToWindow: boolean;
 }
 
 export type TTabContextCommand =

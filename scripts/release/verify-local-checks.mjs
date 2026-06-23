@@ -52,13 +52,6 @@ export function getLocalReleaseCheckCommands() {
         {
             args: [
                 'run',
-                'test:python-page-processor',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
                 'check:architecture:all',
             ],
             command: 'pnpm',

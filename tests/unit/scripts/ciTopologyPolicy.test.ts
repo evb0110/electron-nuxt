@@ -26,6 +26,35 @@ function workflowJob(workflow: string, jobName: string) {
         : workflow.slice(start, start + 1 + nextJob);
 }
 
+function ciChangedFileFilter(workflow: string, outputName: string) {
+    const marker = `echo "${outputName}=true"`;
+    let searchStart = 0;
+
+    while (searchStart < workflow.length) {
+        const markerIndex = workflow.indexOf(marker, searchStart);
+        if (markerIndex === -1) {
+            break;
+        }
+
+        const beforeMarker = workflow.slice(0, markerIndex);
+        const grepIndex = beforeMarker.lastIndexOf('grep -Eq ');
+        const changedFileGuardIndex = beforeMarker.lastIndexOf('if printf');
+        searchStart = markerIndex + marker.length;
+
+        if (grepIndex === -1 || changedFileGuardIndex === -1 || grepIndex < changedFileGuardIndex) {
+            continue;
+        }
+
+        const filterStart = beforeMarker.indexOf('\'', grepIndex);
+        const filterEnd = beforeMarker.indexOf('\'', filterStart + 1);
+        if (filterStart !== -1 && filterEnd !== -1) {
+            return new RegExp(beforeMarker.slice(filterStart + 1, filterEnd));
+        }
+    }
+
+    throw new Error(`Missing grep filter for changed-file output: ${outputName}`);
+}
+
 async function collectTestFiles(directory: string): Promise<string[]> {
     const entries = await readdir(directory, { withFileTypes: true });
     const nestedFiles: string[][] = await Promise.all(entries.map(async (entry) => {
@@ -73,13 +102,19 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('scripts/(build-pdf-image-combine|build-pdf-page-ops|build-pdf-search|check-wasm-freshness|native-rust-targets)[.]mjs');
         expect(workflow).toContain('Cargo[.]lock');
         expect(workflow).toContain('rust-toolchain[.]toml');
-        expect(workflow).toContain('python/page-processor/');
-        expect(workflow).toContain('bundle-page-processor-macos[.]sh');
-        expect(workflow).toContain('devkit/(page-processing-harness|process-pdf-split-pad)[.]py');
-        expect(workflow).toContain('afterPack[.]cjs');
-        expect(workflow).toContain('electron-builder[.]yml');
+        const pageProcessorFilter = ciChangedFileFilter(workflow, 'python_page_processor');
+
+        expect(pageProcessorFilter.test('python/page-processor/main.py')).toBe(true);
+        expect(pageProcessorFilter.test('scripts/check-page-processor-smoke.py')).toBe(true);
+        expect(pageProcessorFilter.test('scripts/bundle-page-processor-macos.sh')).toBe(true);
+        expect(pageProcessorFilter.test('scripts/devkit/page-processing-harness.py')).toBe(true);
+        expect(pageProcessorFilter.test('scripts/devkit/process-pdf-split-pad.py')).toBe(true);
+        expect(pageProcessorFilter.test('scripts/afterPack.cjs')).toBe(true);
+        expect(pageProcessorFilter.test('electron-builder.yml')).toBe(true);
+        expect(pageProcessorFilter.test('package.json')).toBe(false);
+        expect(pageProcessorFilter.test('scripts/release/verify-local-checks.mjs')).toBe(false);
         expect(workflow).toContain('name: Native Rust Tests');
-        expect(workflow).toContain('run: pnpm run test:rust');
+        expect(workflowJob(workflow, 'native_push')).toContain('run: pnpm run test:rust');
         expect(workflow).toContain('name: Landing Quality Gates');
         expect(workflow).toContain('run: pnpm --dir landing run check:vendor');
         expect(workflow).toContain('run: pnpm --dir landing run typecheck');
@@ -88,11 +123,12 @@ describe('CI topology policy', () => {
         expect(sharedVitestConfig).toContain('tests/unit/landing/**/*.test.ts');
         expect(testsTsconfig).toContain('./unit/landing/**/*.ts');
         expect(workflow).toContain('name: Python Page Processor Smoke');
+        expect(workflowJob(workflow, 'python_page_processor_push')).toContain('if: ${{ github.event_name == \'push\' && needs.changes.outputs.python_page_processor == \'true\' }}');
         expect(workflowJob(workflow, 'python_page_processor_push')).toContain('python -m pip install');
         expect(workflowJob(workflow, 'python_page_processor_push')).toContain('opencv-python-headless');
         expect(workflowJob(workflow, 'python_page_processor_push')).toContain('img2pdf');
         expect(workflowJob(workflow, 'python_page_processor_push')).toContain('Pillow');
-        expect(workflow).toContain('run: pnpm run test:python-page-processor');
+        expect(workflowJob(workflow, 'python_page_processor_push')).toContain('run: pnpm run test:python-page-processor');
     });
 
     it('verifies release build artifacts before upload', async () => {
@@ -153,7 +189,7 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('opencv-python-headless');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('img2pdf');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('Pillow');
-        expect(workflow).toContain('run: pnpm run test:python-page-processor');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run test:python-page-processor');
         expect(nvmrc.trim()).toBe('24.11.1');
         expect(workflow).toContain('NODE_VERSION: \'24.11.1\'');
         expect(buildWorkflow).toContain('NODE_VERSION: \'24.11.1\'');

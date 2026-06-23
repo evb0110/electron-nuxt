@@ -8,6 +8,7 @@ import {
 import {
     buildPopplerEnv,
     preparePdfForPoppler,
+    renderPdfPageToPng,
 } from '@electron/ocr/worker/popplerStage';
 import type { IWorkerPaths } from '@electron/ocr/worker/types';
 
@@ -75,5 +76,42 @@ describe('preparePdfForPoppler', () => {
             warnings: ['qpdf preflight failed; falling back to original PDF for Poppler commands: qpdf failed'],
         });
         expect(log).toHaveBeenCalledWith('warn', result.warnings[0]);
+    });
+});
+
+describe('renderPdfPageToPng', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('renders OCR rasters against the PDF CropBox contract', async () => {
+        const log = vi.fn();
+
+        await renderPdfPageToPng(
+            workerPaths,
+            log,
+            3,
+            '/tmp/source.pdf',
+            '/tmp/page-3.png',
+            300,
+        );
+
+        expect(mocks.runOcrCommand).toHaveBeenCalledWith(
+            '/bin/pdftoppm',
+            [
+                '-png',
+                '-cropbox',
+                '-r',
+                '300',
+                '-f',
+                '3',
+                '-l',
+                '3',
+                '-singlefile',
+                '/tmp/source.pdf',
+                '/tmp/page-3',
+            ],
+            expect.objectContaining({commandLabel: 'pdftoppm(page=3,dpi=300)'}),
+        );
     });
 });

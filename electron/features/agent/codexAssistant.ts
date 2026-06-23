@@ -66,6 +66,7 @@ import {
     ASSISTANT_IMAGE_ONLY_PROMPT,
     ASSISTANT_MAX_IMAGE_ATTACHMENTS,
     ASSISTANT_MAX_IMAGE_BYTES,
+    ASSISTANT_MCP_CONTRACT_VERSION,
     ASSISTANT_MCP_SERVER_NAME,
     ASSISTANT_MCP_TOKEN_ENV,
     ASSISTANT_MODEL_CONFIG_DIR,
@@ -76,6 +77,12 @@ import {
     CodexAppServerClient,
     type ICodexAppServerNotification,
 } from '@electron/features/agent/codexAppServerClient';
+import {
+    normalizeCodexAssistantModelFromCatalog,
+    normalizeCodexModelListResponse,
+    resolveCodexDefaultModelId,
+    type TCodexAssistantModelOption,
+} from '@electron/features/agent/assistantModelCatalog';
 import {
     getEmbeddedMcpServerDescriptor,
     isEmbeddedMcpServerRunning,
@@ -96,6 +103,8 @@ interface IAssistantRuntime {
     codeHome: string;
     cwd: string;
     mcpToken: string;
+    mcpServerName: string;
+    mcpContractVersion: number;
     effort: TAgentAssistantEffort;
 }
 
@@ -198,7 +207,8 @@ interface IClaudeInfoCache {
     error?: string;
 }
 
-let codexAssistantModels: readonly IAgentAssistantModelOption[] = CODEX_ASSISTANT_FALLBACK_MODELS;
+let codexAssistantModels: readonly TCodexAssistantModelOption[] = CODEX_ASSISTANT_FALLBACK_MODELS;
+let claudeAssistantModels: readonly IAgentAssistantModelOption[] = CLAUDE_AGENT_MODELS;
 
 const ASSISTANT_CHAT_SESSION_MAX_ENTRIES = (() => {
     const parsed = Number.parseInt(process.env.EVB_ASSISTANT_CHAT_SESSION_MAX_ENTRIES ?? '32', 10);
@@ -214,6 +224,8 @@ const ASSISTANT_CHAT_SESSION_TTL_MS = (() => {
     }
     return parsed;
 })();
+const CODEX_AUTH_ACCOUNT_READ_TIMEOUT_MS = 8_000;
+const CODEX_AUTH_STATUS_TIMEOUT_MS = 8_000;
 
 let codexInfoCache: ICodexCliInfo | null = null;
 let runtime: IAssistantRuntime | null = null;
@@ -624,24 +636,24 @@ function decodeRecordResponse(value: unknown): Record<PropertyKey, unknown> | nu
     return isRecord(value) ? value : null;
 }
 
-function decodeOptionalRecordResponse(value: unknown): Record<PropertyKey, unknown> | null {
-    return isRecord(value) ? value : null;
+function applyCodexAuthStatusResponse(authStatus: Record<PropertyKey, unknown>) {
+    const statusRequiresOpenaiAuth = authStatus.requiresOpenaiAuth === true;
+    const hasAuthMethod = authStatus.authMethod != null;
+    authState = statusRequiresOpenaiAuth || !hasAuthMethod
+        ? 'signed-out'
+        : 'signed-in';
+    account = null;
+    if (authState === 'signed-in' || authState === 'signed-out') {
+        lastError = undefined;
+    }
 }
 
 function codexDefaultModelId() {
-    return codexAssistantModels[0]?.id ?? CODEX_ASSISTANT_DEFAULT_MODEL;
+    return resolveCodexDefaultModelId(codexAssistantModels);
 }
 
 function normalizeCodexAssistantModel(model: string | null | undefined) {
-    const trimmed = model?.trim();
-    const fallback = codexDefaultModelId();
-    if (!trimmed) {
-        return fallback;
-    }
-
-    return codexAssistantModels.some(option => option.id === trimmed)
-        ? trimmed
-        : fallback;
+    return normalizeCodexAssistantModelFromCatalog(codexAssistantModels, model);
 }
 
 function getCodexAppServerModel(model: string | null | undefined) {
@@ -652,52 +664,10 @@ function getCodexAssistantModelLabel(model: string) {
     return codexAssistantModels.find(option => option.id === model)?.label ?? model;
 }
 
-function normalizeCodexModelOption(rawModel: unknown) {
-    if (!isRecord(rawModel)) {
-        return null;
-    }
-
-    const id = typeof rawModel.model === 'string' && rawModel.model.trim()
-        ? rawModel.model.trim()
-        : typeof rawModel.id === 'string' && rawModel.id.trim()
-            ? rawModel.id.trim()
-            : '';
-    if (!id) {
-        return null;
-    }
-
-    const label = typeof rawModel.displayName === 'string' && rawModel.displayName.trim()
-        ? rawModel.displayName.trim()
-        : id;
-    return {
-        id,
-        label,
-    };
-}
-
-function normalizeCodexModelListResponse(value: unknown) {
-    const response = decodeOptionalRecordResponse(value);
-    if (!response || !Array.isArray(response.data)) {
-        return null;
-    }
-
-    const seen = new Set<string>();
-    const listedModels = response.data
-        .map(normalizeCodexModelOption)
-        .filter((model): model is NonNullable<ReturnType<typeof normalizeCodexModelOption>> => {
-            if (!model || seen.has(model.id)) {
-                return false;
-            }
-            seen.add(model.id);
-            return true;
-        });
-    return listedModels.filter(model => model.id !== CODEX_ASSISTANT_DEFAULT_MODEL);
-}
-
 function currentCodexSelection(): IAssistantSelection {
     return {
         provider: 'codex',
-        model: lastStateProvider === 'codex' ? lastStateModel : CODEX_ASSISTANT_DEFAULT_MODEL,
+        model: lastStateProvider === 'codex' ? lastStateModel : codexDefaultModelId(),
         effort: normalizeAssistantEffort('codex', lastStateProvider === 'codex' ? lastStateEffort : ASSISTANT_DEFAULT_EFFORT),
     };
 }
@@ -720,14 +690,12 @@ function normalizeClaudeAccount(rawAccount: IClaudeAgentAssistantInit['account']
     };
 }
 
-function getProviderModelOptions(provider: TAgentAssistantProviderId) {
-    return provider === 'claude' ? CLAUDE_AGENT_MODELS : codexAssistantModels;
-}
-
 function getProviderModelLabel(provider: TAgentAssistantProviderId, model: string) {
-    return provider === 'claude'
-        ? getClaudeAssistantModelLabel(model)
-        : getCodexAssistantModelLabel(model);
+    if (provider === 'claude') {
+        return claudeAssistantModels.find(option => option.id === model)?.label ?? getClaudeAssistantModelLabel(model);
+    }
+
+    return getCodexAssistantModelLabel(model);
 }
 
 function getSessionForStatus(scope: IAgentAssistantChatScope | null, selection: IAssistantSelection) {
@@ -751,7 +719,7 @@ function buildCodexProviderStatus(model: string, effort: TAgentAssistantEffort) 
         authState,
         runtimeState,
         models: codexAssistantModels,
-        defaultModel: CODEX_ASSISTANT_DEFAULT_MODEL,
+        defaultModel: codexDefaultModelId(),
         activeModel,
         modelSwitchMode: 'in-session',
         availableEfforts: CODEX_ASSISTANT_EFFORTS,
@@ -775,6 +743,19 @@ function buildCodexProviderStatus(model: string, effort: TAgentAssistantEffort) 
 function buildClaudeProviderStatus(model: string, effort: TAgentAssistantEffort) {
     const supported = process.platform === 'darwin' || process.platform === 'win32' || process.platform === 'linux';
     const installed = claudeInfoCache?.installed === true;
+    const activeModel = normalizeClaudeAssistantModel(model);
+    const models = claudeAssistantModels.some(option => option.id === activeModel)
+        ? claudeAssistantModels
+        : [
+            {
+                id: activeModel,
+                label: getClaudeAssistantModelLabel(activeModel),
+            },
+            ...claudeAssistantModels,
+        ];
+    const defaultModel = models.find(option => option.id === CLAUDE_AGENT_DEFAULT_MODEL)?.id
+        ?? models[0]?.id
+        ?? CLAUDE_AGENT_DEFAULT_MODEL;
     const resolvedRuntimeState = installed && claudeRuntimeState === 'stopped'
         ? 'ready'
         : claudeRuntimeState;
@@ -792,9 +773,9 @@ function buildClaudeProviderStatus(model: string, effort: TAgentAssistantEffort)
             : 'unsupported',
         authState: resolvedAuthState,
         runtimeState: resolvedRuntimeState,
-        models: CLAUDE_AGENT_MODELS,
-        defaultModel: CLAUDE_AGENT_DEFAULT_MODEL,
-        activeModel: normalizeClaudeAssistantModel(model),
+        models,
+        defaultModel,
+        activeModel,
         modelSwitchMode: 'in-session',
         availableEfforts: CLAUDE_ASSISTANT_EFFORTS,
         defaultEffort: ASSISTANT_DEFAULT_EFFORT,
@@ -844,8 +825,8 @@ function currentStatus(
         buildClaudeProviderStatus(session?.model ?? normalizedSelection.model, effortInput),
     ];
     const activeProvider = providerStatuses.find(provider => provider.id === normalizedSelection.provider) ?? providerStatuses[0]!;
-    const models = getProviderModelOptions(normalizedSelection.provider);
     const model = normalizeAssistantModel(normalizedSelection.provider, session?.model ?? normalizedSelection.model);
+    const models = activeProvider.models;
     const effort = normalizeAssistantEffort(normalizedSelection.provider, effortInput);
     const error = session?.lastError ?? activeProvider.error;
     return {
@@ -1269,12 +1250,19 @@ async function refreshAuthState() {
         return;
     }
 
+    let accountReadError: unknown;
     try {
-        const accountResponse = await runtime.client.requestDecoded('account/read', { refreshToken: true }, decodeRecordResponse);
+        const accountResponse = await runtime.client.requestDecoded(
+            'account/read',
+            { refreshToken: true },
+            decodeRecordResponse,
+            CODEX_AUTH_ACCOUNT_READ_TIMEOUT_MS,
+        );
         const normalizedAccount = normalizeAccount(accountResponse.account);
         if (normalizedAccount) {
             authState = 'signed-in';
             account = normalizedAccount;
+            lastError = undefined;
             return;
         }
 
@@ -1282,23 +1270,35 @@ async function refreshAuthState() {
         if (accountRequiresOpenaiAuth) {
             authState = 'signed-out';
             account = null;
+            lastError = undefined;
             return;
         }
-
-        const authStatus = await runtime.client.requestDecoded('getAuthStatus', {
-            includeToken: false,
-            refreshToken: true,
-        }, decodeRecordResponse);
-        const statusRequiresOpenaiAuth = authStatus.requiresOpenaiAuth === true;
-        const hasAuthMethod = authStatus.authMethod != null;
-        authState = statusRequiresOpenaiAuth || !hasAuthMethod
-            ? 'signed-out'
-            : 'signed-in';
-        account = null;
     } catch (error) {
-        logger.warn(`Failed to read Codex auth state: ${getErrorMessage(error)}`);
-        authState = 'unknown';
+        accountReadError = error;
+        logger.warn(`Failed to read Codex account state; falling back to auth status: ${getErrorMessage(error)}`);
+    }
+
+    try {
+        const authStatus = await runtime.client.requestDecoded(
+            'getAuthStatus',
+            {
+                includeToken: false,
+                refreshToken: accountReadError === undefined,
+            },
+            decodeRecordResponse,
+            CODEX_AUTH_STATUS_TIMEOUT_MS,
+        );
+        applyCodexAuthStatusResponse(authStatus);
+    } catch (error) {
+        const message = accountReadError === undefined
+            ? getErrorMessage(error)
+            : `${getErrorMessage(accountReadError)}; ${getErrorMessage(error)}`;
+        logger.warn(`Failed to read Codex auth state: ${message}`);
+        authState = authState === 'signed-in' ? 'signed-in' : 'signed-out';
         account = null;
+        if (authState !== 'signed-in') {
+            lastError = `Could not verify Codex authentication: ${message}`;
+        }
     }
 }
 
@@ -1323,6 +1323,17 @@ async function ensureAssistantRuntime() {
     if (!(await isAssistantFeatureEnabled())) {
         await shutdownAgentAssistant();
         throw new Error(createAssistantDisabledError());
+    }
+
+    if (runtime) {
+        if (
+            runtime.mcpServerName === ASSISTANT_MCP_SERVER_NAME
+            && runtime.mcpContractVersion === ASSISTANT_MCP_CONTRACT_VERSION
+        ) {
+            return runtime;
+        }
+        logger.info('Restarting Codex assistant runtime for updated embedded MCP contract.');
+        await shutdownCodexAssistantRuntime();
     }
 
     if (runtime) {
@@ -1378,6 +1389,8 @@ async function ensureAssistantRuntime() {
         codeHome,
         cwd,
         mcpToken,
+        mcpServerName: ASSISTANT_MCP_SERVER_NAME,
+        mcpContractVersion: ASSISTANT_MCP_CONTRACT_VERSION,
         effort: codexEffort,
     } satisfies IAssistantRuntime;
     runtime = nextRuntime;
@@ -1560,6 +1573,10 @@ function createClaudeCallbacks(session: IAssistantChatSession) {
         onInitialized: (info: IClaudeAgentAssistantInit) => {
             session.threadId = info.sessionId;
             session.model = normalizeClaudeAssistantModel(info.model ?? session.model);
+            if (info.models && info.models.length > 0) {
+                claudeAssistantModels = info.models;
+                session.model = normalizeClaudeAssistantModel(session.model);
+            }
             claudeMcpToolCount = Math.max(claudeMcpToolCount, info.toolCount);
             claudeAccount = normalizeClaudeAccount(info.account);
             claudeAuthState = 'signed-in';

@@ -184,6 +184,32 @@ describe('native note text and delete builders', () => {
         expect(updates.skipEvents).toEqual([]);
     });
 
+    it('skips PDF-backed FreeText text updates so full serialization preserves rect and AP invariants', () => {
+        const pendingTexts = new Map([[
+            'ann:0:12R0',
+            'Updated note',
+        ]]);
+
+        const updates = buildNativeNoteTextUpdatesForSave(createMutationPlanInput({
+            pendingTexts,
+            annotationCommentsSnapshot: [createComment({subtype: 'FreeText'})],
+        }));
+
+        expect(updates.value).toBeNull();
+        expect(updates.skipEvents).toEqual([{
+            event: 'Skipped native note-text save fast path',
+            reason: 'pending-text-not-native-eligible',
+            details: expect.objectContaining({
+                stableKey: 'ann:0:12R0',
+                subtype: 'FreeText',
+                targetRef: {
+                    objectNumber: 12,
+                    generationNumber: 0,
+                },
+            }),
+        }]);
+    });
+
     it('builds native deletes for PDF refs and editor-only FreeText stable keys', () => {
         const deletes = buildNativeAnnotationDeletesForSave(createMutationPlanInput({pendingDeletes: [
             createComment(),
@@ -287,14 +313,22 @@ describe('native markup builders', () => {
         });
 
         const mutation = buildNativeMarkupMutationForSave({
-            annotationCommentsSnapshot: [createComment({
-                stableKey: 'ann:0:44R0',
-                subtype: 'Highlight',
-                color: '#ffee00',
-                colorEdited: true,
-                annotationId: '44R0',
-                markerRect,
-            })],
+            annotationCommentsSnapshot: [
+                createComment({
+                    stableKey: 'ann:0:44R0',
+                    subtype: 'Highlight',
+                    color: '#ffee00',
+                    colorEdited: true,
+                    annotationId: '44R0',
+                    markerRect,
+                }),
+                createComment({
+                    stableKey: 'ann:0:45R0',
+                    subtype: 'Squiggly',
+                    annotationId: '45R0',
+                    markerRect,
+                }),
+            ],
             annotationWorkDirty: true,
             markupSubtypeOverrides: new Map<string, TMarkupSubtype>([[
                 ' 44R0 ',
@@ -327,6 +361,37 @@ describe('native markup builders', () => {
                 annotationId: '44R0',
             }),
         ]);
+    });
+
+    it('drops stale markup hints and overrides that no longer match current markup comments', () => {
+        const markerRect = {
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.4,
+        };
+
+        const mutation = buildNativeMarkupMutationForSave({
+            annotationCommentsSnapshot: [createComment()],
+            annotationWorkDirty: true,
+            markupSubtypeOverrides: new Map<string, TMarkupSubtype>([[
+                '44R0',
+                'Underline',
+            ]]),
+            markupSubtypeHints: [{
+                subtype: 'Squiggly',
+                pageIndex: 0,
+                markerRect,
+                annotationId: '45R0',
+                color: null,
+                id: null,
+                pageMarkupIndex: null,
+                source: null,
+                consumed: false,
+            }],
+        });
+
+        expect(mutation).toBeNull();
     });
 });
 
@@ -417,6 +482,45 @@ describe('buildNativePdfMutationPlanForSave', () => {
         expect(result.skipEvents).toContainEqual({
             event: 'Skipped native PDF mutation save fast path',
             reason: 'pending-texts-not-covered-by-native-mutations',
+            details: {},
+        });
+    });
+
+    it('requires full serialization for PDF-backed FreeText text edits', () => {
+        const result = buildNativePdfMutationPlanForSave(createMutationPlanInput({
+            pendingTexts: new Map([[
+                'ann:0:12R0',
+                'Updated note',
+            ]]),
+            annotationCommentsSnapshot: [createComment({subtype: 'FreeText'})],
+            annotationDirty: true,
+            hasAnnotationChanges: true,
+        }));
+
+        expect(result.plan).toBeNull();
+        expect(result.skipEvents).toContainEqual({
+            event: 'Skipped native PDF mutation save fast path',
+            reason: 'pending-texts-not-covered-by-native-mutations',
+            details: {},
+        });
+    });
+
+    it('requires materialization for a dirty saved PDF.js baseline even when native note work exists', () => {
+        const result = buildNativePdfMutationPlanForSave(createMutationPlanInput({
+            savedPdfjsAnnotationBaselineDirty: true,
+            pendingTexts: new Map([[
+                'ann:0:12R0',
+                'Updated note',
+            ]]),
+            annotationCommentsSnapshot: [createComment()],
+            annotationDirty: true,
+            hasAnnotationChanges: true,
+        }));
+
+        expect(result.plan).toBeNull();
+        expect(result.skipEvents).toContainEqual({
+            event: 'Skipped native PDF mutation save fast path',
+            reason: 'saved-pdfjs-baseline-dirty-requires-materialization',
             details: {},
         });
     });

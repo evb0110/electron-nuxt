@@ -20,7 +20,15 @@ export function getAgentAssistantPanelView(
         return 'update';
     }
 
-    if (status.runtimeState === 'starting' || status.authState === 'unknown') {
+    if (status.runtimeState === 'starting') {
+        return 'checking';
+    }
+
+    if (status.runtimeState === 'error' && status.authState === 'unknown') {
+        return 'sign-in';
+    }
+
+    if (status.authState === 'unknown') {
         return 'checking';
     }
 

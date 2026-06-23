@@ -95,6 +95,7 @@ export interface IUseDocumentWorkspaceAgentOptions {
     totalPages: Ref<number>;
     updateAnnotationNoteText: (stableKey: string, text: string) => void;
     viewMode: Ref<TPdfViewMode>;
+    waitForDocumentOpenSettled: () => Promise<void>;
     workingCopyPath: Ref<TDocumentRef | null>;
     zoom: Ref<number>;
 }

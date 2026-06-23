@@ -111,6 +111,8 @@
                 :pdf-document="pdfDocument"
                 :current-page="currentPage"
                 :is-edit-mode="bookmarkEditMode"
+                :bookmark-items="bookmarkItems"
+                :bookmarks-dirty="bookmarksDirty"
                 @go-to-page="goToPage"
                 @bookmarks-change="updateBookmarks"
                 @update:is-edit-mode="updateBookmarkEditMode"
@@ -210,6 +212,8 @@ interface IProps {
     annotationCommentsStatus: TAnnotationCommentsStatus;
     annotationActiveCommentStableKey?: string | null | undefined;
     bookmarkEditMode: boolean;
+    bookmarkItems: IPdfBookmarkEntry[];
+    bookmarksDirty: boolean;
     isPageOperationInProgress?: boolean | undefined;
     isDjvuMode?: boolean | undefined;
     selectedThumbnailPages: number[];
@@ -231,6 +235,8 @@ const {
     annotationSettings,
     annotationComments,
     annotationCommentsStatus,
+    bookmarkItems,
+    bookmarksDirty,
     bookmarkEditMode,
     currentPage,
     currentResultNavigationId,

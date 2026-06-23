@@ -30,7 +30,9 @@ interface IRunCoordinatedPdfPageOperationOptions<TResult> {
     pageNumber: number;
     pdfPage: PDFPageProxy;
     priority: number;
+    signal?: AbortSignal | undefined;
     shouldStart?: (() => boolean) | undefined;
+    shouldContinue?: (() => boolean) | undefined;
     operation: () => Promise<TResult>;
 }
 
@@ -41,6 +43,46 @@ function createCoordinatedRenderCancelledError(pageNumber: number, owner: string
     const error = new Error(`Rendering cancelled before coordinated PDF page render for page ${pageNumber} (${owner})`);
     error.name = 'RenderingCancelledException';
     return error;
+}
+
+function throwIfCoordinatedOperationCancelled(
+    signal: AbortSignal | undefined,
+    pageNumber: number,
+    owner: string,
+) {
+    if (signal?.aborted) {
+        throw createCoordinatedRenderCancelledError(pageNumber, owner);
+    }
+}
+
+function createAbortWaiter(
+    signal: AbortSignal | undefined,
+    pageNumber: number,
+    owner: string,
+    onAbort?: (() => void) | undefined,
+) {
+    if (!signal) {
+        return null;
+    }
+
+    let remove = () => {};
+    const promise = new Promise<never>((_resolve, reject) => {
+        const abort = () => {
+            onAbort?.();
+            reject(createCoordinatedRenderCancelledError(pageNumber, owner));
+        };
+        if (signal.aborted) {
+            abort();
+            return;
+        }
+        signal.addEventListener('abort', abort, {once: true});
+        remove = () => signal.removeEventListener('abort', abort);
+    });
+
+    return {
+        promise,
+        remove,
+    };
 }
 
 function cancelActiveOperation(activeOperation: IActivePdfPageOperation) {
@@ -60,6 +102,7 @@ async function waitForActiveOperation(
     activeOperation: IActivePdfPageOperation,
     owner: string,
     priority: number,
+    signal?: AbortSignal | undefined,
 ) {
     if (priority > activeOperation.priority && activeOperation.cancel) {
         logPdfRenderTrace('pdf-page-render-coordinator-preempt', {
@@ -82,7 +125,21 @@ async function waitForActiveOperation(
         });
     }
 
-    await activeOperation.settled;
+    const abortWaiter = createAbortWaiter(
+        signal,
+        activeOperation.pageNumber,
+        owner,
+    );
+    try {
+        await (abortWaiter
+            ? Promise.race([
+                activeOperation.settled,
+                abortWaiter.promise,
+            ])
+            : activeOperation.settled);
+    } finally {
+        abortWaiter?.remove();
+    }
 
     if (activePageOperations.get(pdfPage)?.id === activeOperation.id) {
         activePageOperations.delete(pdfPage);
@@ -93,14 +150,16 @@ async function waitForCoordinatedTurn(
     pdfPage: PDFPageProxy,
     owner: string,
     priority: number,
+    signal?: AbortSignal | undefined,
 ) {
     while (true) {
+        throwIfCoordinatedOperationCancelled(signal, pdfPage.pageNumber, owner);
         const activeOperation = activePageOperations.get(pdfPage);
         if (!activeOperation) {
             return;
         }
 
-        await waitForActiveOperation(pdfPage, activeOperation, owner, priority);
+        await waitForActiveOperation(pdfPage, activeOperation, owner, priority, signal);
     }
 }
 
@@ -113,10 +172,13 @@ export async function runCoordinatedPdfPageOperation<TResult>(
         pageNumber,
         pdfPage,
         priority,
+        signal,
+        shouldContinue,
         shouldStart,
     } = options;
 
-    await waitForCoordinatedTurn(pdfPage, owner, priority);
+    await waitForCoordinatedTurn(pdfPage, owner, priority, signal);
+    throwIfCoordinatedOperationCancelled(signal, pageNumber, owner);
 
     if (shouldStart?.() === false) {
         throw createCoordinatedRenderCancelledError(pageNumber, owner);
@@ -127,6 +189,17 @@ export async function runCoordinatedPdfPageOperation<TResult>(
     const settled = new Promise<void>((resolve) => {
         markSettled = resolve;
     });
+    let released = false;
+    const releaseOperation = () => {
+        if (released) {
+            return;
+        }
+        released = true;
+        markSettled();
+        if (activePageOperations.get(pdfPage)?.id === id) {
+            activePageOperations.delete(pdfPage);
+        }
+    };
     activePageOperations.set(pdfPage, {
         id,
         owner,
@@ -135,13 +208,30 @@ export async function runCoordinatedPdfPageOperation<TResult>(
         settled,
     });
 
+    const abortWaiter = createAbortWaiter(signal, pageNumber, owner, releaseOperation);
+    let operationPromise: Promise<TResult>;
     try {
-        return await operation();
-    } finally {
-        markSettled();
-        if (activePageOperations.get(pdfPage)?.id === id) {
-            activePageOperations.delete(pdfPage);
+        operationPromise = operation();
+    } catch (error) {
+        abortWaiter?.remove();
+        releaseOperation();
+        throw error;
+    }
+    void operationPromise.catch(() => {});
+    try {
+        const result = await (abortWaiter
+            ? Promise.race([
+                operationPromise,
+                abortWaiter.promise,
+            ])
+            : operationPromise);
+        if (shouldContinue?.() === false) {
+            throw createCoordinatedRenderCancelledError(pageNumber, owner);
         }
+        return result;
+    } finally {
+        abortWaiter?.remove();
+        releaseOperation();
     }
 }
 

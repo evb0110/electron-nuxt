@@ -155,6 +155,17 @@ describe('getAgentAssistantPanelView', () => {
         expect(getAgentAssistantPanelView(status, true)).toBe('checking');
     });
 
+    it('does not keep a failed auth probe in the checking view', () => {
+        const status = createStatus({
+            authState: 'unknown',
+            account: null,
+            runtimeState: 'error',
+            error: 'Could not verify Codex authentication.',
+        });
+
+        expect(getAgentAssistantPanelView(status, true)).toBe('sign-in');
+    });
+
     it('shows sign-in only for confirmed signed-out or pending login states', () => {
         expect(getAgentAssistantPanelView(createStatus({
             authState: 'signed-out',

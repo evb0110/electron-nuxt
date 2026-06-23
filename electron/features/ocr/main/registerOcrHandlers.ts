@@ -169,6 +169,11 @@ class PlainOcrLimiter {
 }
 
 const plainOcrLimiter = new PlainOcrLimiter();
+const plainOcrBatchControllers = new Map<string, AbortController>();
+
+function toScopedPlainOcrBatchId(senderId: number, requestId: string) {
+    return `${senderId}:${requestId}`;
+}
 
 function toPlainOcrErrorEnvelope(error: unknown): IOcrErrorEnvelope {
     if (error instanceof PlainOcrBackpressureError) {
@@ -185,7 +190,9 @@ function createSenderAbortSignal(sender: WebContents) {
     const controller = new AbortController();
 
     const abort = () => {
-        controller.abort();
+        if (!controller.signal.aborted) {
+            controller.abort();
+        }
     };
     const handleNavigation = (
         _event: Electron.Event,
@@ -212,6 +219,7 @@ function createSenderAbortSignal(sender: WebContents) {
     };
 
     return {
+        controller,
         signal: controller.signal,
         cleanup,
     };
@@ -267,12 +275,20 @@ async function handleOcrRecognizeBatch(
     requestIdPayload: unknown,
 ) {
     const senderAbort = createSenderAbortSignal(event.sender);
+    let scopedBatchId: string | null = null;
+    let registeredBatchController = false;
 
     try {
         const {
             pages,
             requestId,
         } = validateRecognizeBatchPayload(pagesPayload, requestIdPayload);
+        scopedBatchId = toScopedPlainOcrBatchId(event.sender.id, requestId);
+        if (plainOcrBatchControllers.has(scopedBatchId)) {
+            throw new PlainOcrBackpressureError(`OCR batch with id "${requestId}" already exists`);
+        }
+        plainOcrBatchControllers.set(scopedBatchId, senderAbort.controller);
+        registeredBatchController = true;
         const targetPages = pages;
         const window = BrowserWindow.fromWebContents(event.sender);
         const results: Record<number, string> = {};
@@ -372,6 +388,9 @@ async function handleOcrRecognizeBatch(
             errorEnvelope: envelope,
         };
     } finally {
+        if (scopedBatchId !== null && registeredBatchController) {
+            plainOcrBatchControllers.delete(scopedBatchId);
+        }
         senderAbort.cleanup();
     }
 }
@@ -515,6 +534,13 @@ function handleOcrCancelValidated(
 ): IOcrCancelResult {
     try {
         const requestId = validateCancelRequestId(requestIdPayload);
+        const scopedBatchId = toScopedPlainOcrBatchId(event.sender.id, requestId);
+        const plainBatchController = plainOcrBatchControllers.get(scopedBatchId);
+        if (plainBatchController) {
+            plainBatchController.abort();
+            plainOcrBatchControllers.delete(scopedBatchId);
+            return { canceled: true };
+        }
         return handleOcrCancel(event, requestId);
     } catch (error) {
         const envelope = toOcrErrorEnvelope(error);

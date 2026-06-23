@@ -1194,11 +1194,13 @@ async function streamPdfBytesToPersistencePort(
             if (bytes.byteLength > limits.maxChunkBytes || bytesWritten > expectedTotalBytes) {
                 throw new Error('savePdfDataChunks chunks exceed the negotiated PDF persistence size');
             }
+            // Electron's main-process MessagePort only transfers ports here; transferring the
+            // ArrayBuffer drops the structured-clone payload before MessagePortMain receives it.
             channel.port1.postMessage({
                 type: 'chunk',
                 seq,
                 bytes,
-            }, [bytes.buffer]);
+            });
             inFlightAcks.push(waitForPortAck(channel.port1, seq));
             if (inFlightAcks.length >= limits.maxInFlightChunks) {
                 await inFlightAcks.shift();

@@ -48,6 +48,7 @@ const SERIALIZED_PDF_MAX_CHUNK_BYTES = 8 * 1024 * 1024;
 const SERIALIZED_PDF_MAX_IN_FLIGHT_CHUNKS = 2;
 const SERIALIZED_PDF_ACK_TIMEOUT_MS = 60_000;
 const SERIALIZED_PDF_RESULT_TIMEOUT_MS = 10 * 60_000;
+const SERIALIZED_PDF_MESSAGE_UNWRAP_DEPTH = 64;
 const DEFAULT_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES = 16 * 1024 * 1024 * 1024;
 const MIN_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES = 1024 * 1024;
 const MAX_SERIALIZED_PDF_PERSISTENCE_BYTES = (() => {
@@ -109,19 +110,6 @@ const senderReservations = new Map<number, {
     sessionCount: number;
     reservedBytes: number;
 }>();
-
-function getPdfPersistencePortMessageData(messageEvent: unknown) {
-    if (!messageEvent || typeof messageEvent !== 'object' || !('data' in messageEvent)) {
-        return messageEvent;
-    }
-
-    const data = messageEvent.data;
-    if (data == null) {
-        return messageEvent;
-    }
-
-    return getPdfPersistencePortMessageData(data);
-}
 
 function createEmptyPdfValidationResult(message: string): IPdfValidationResult {
     return {
@@ -519,13 +507,18 @@ function isPdfPersistencePortPayload(message: unknown): message is {
 
 function normalizePdfPersistencePortPayload(message: unknown) {
     let currentMessage = message;
-    for (let depth = 0; depth < 4; depth += 1) {
+    const seenMessages = new WeakSet<object>();
+    for (let depth = 0; depth < SERIALIZED_PDF_MESSAGE_UNWRAP_DEPTH; depth += 1) {
         if (isPdfPersistencePortPayload(currentMessage)) {
             return currentMessage;
         }
         if (!currentMessage || typeof currentMessage !== 'object' || !('data' in currentMessage)) {
             return currentMessage;
         }
+        if (seenMessages.has(currentMessage)) {
+            return currentMessage;
+        }
+        seenMessages.add(currentMessage);
 
         const nextMessage = currentMessage.data;
         if (nextMessage == null || nextMessage === currentMessage) {
@@ -562,10 +555,9 @@ export function attachSerializedPdfPersistencePort(event: IpcMainEvent, rawSessi
     session.portAttached = true;
 
     port.on('message', (messageEvent) => {
-        const messageData = getPdfPersistencePortMessageData(messageEvent);
         session.queue = session.queue.then(
-            () => handlePortMessage(session, port, messageData),
-            () => handlePortMessage(session, port, messageData),
+            () => handlePortMessage(session, port, messageEvent),
+            () => handlePortMessage(session, port, messageEvent),
         );
     });
     port.once('close', () => {

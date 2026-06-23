@@ -3,6 +3,7 @@ import type { PDFOperatorList } from 'pdfjs-dist/types/src/display/api';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runCoordinatedPdfPageOperation } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
+import { isRenderingCancelledError } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/isRenderingCancelledError';
 
 interface IHiddenAnnotationScanState {
     skippedIndices: Set<number>;
@@ -17,6 +18,9 @@ const END_ANNOTATION_OP = 81;
 interface IHiddenAnnotationOperationsFilterOptions {
     owner: string;
     priority: number;
+    signal?: AbortSignal | undefined;
+    shouldStart?: (() => boolean) | undefined;
+    shouldContinue?: (() => boolean) | undefined;
 }
 
 function normalizeAnnotationIdSet(annotationIds: Set<string>) {
@@ -124,9 +128,15 @@ export async function createHiddenAnnotationOperationsFilter(
                 pageNumber: pdfPage.pageNumber,
                 pdfPage,
                 priority: coordination.priority,
+                signal: coordination.signal,
+                shouldStart: coordination.shouldStart,
+                shouldContinue: coordination.shouldContinue,
                 operation: () => pdfPage.getOperatorList({ annotationMode }),
             })
             : await pdfPage.getOperatorList({ annotationMode });
+        if (coordination?.shouldContinue?.() === false) {
+            return undefined;
+        }
         const skippedIndices = collectHiddenAnnotationOperatorIndices(
             operatorList,
             normalizedHiddenAnnotationIds,
@@ -138,6 +148,9 @@ export async function createHiddenAnnotationOperationsFilter(
 
         return (index: number) => !skippedIndices.has(index);
     } catch (error) {
+        if (isRenderingCancelledError(error)) {
+            return undefined;
+        }
         BrowserLogger.warn(
             'pdf-renderer',
             `Failed to build hidden annotation filter for page ${pdfPage.pageNumber}`,

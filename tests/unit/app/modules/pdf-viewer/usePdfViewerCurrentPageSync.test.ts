@@ -21,6 +21,44 @@ const { usePdfViewerCurrentPageSync } = await import(
 );
 
 describe('usePdfViewerCurrentPageSync', () => {
+    it('emits direct current-page sync when the updater mutates before returning', async () => {
+        const currentPage = ref(1);
+        const emitCurrentPage = vi.fn();
+        const updateCurrentPage = vi.fn(() => {
+            currentPage.value = 2;
+            return 2;
+        });
+        const scope = effectScope();
+
+        try {
+            const sync = scope.run(() => usePdfViewerCurrentPageSync({
+                viewerContainer: ref(cast<HTMLElement>({ querySelectorAll: () => [] })),
+                numPages: ref(10),
+                visibleRange: ref({
+                    start: 2,
+                    end: 2,
+                }),
+                currentPage,
+                pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+                isLoading: ref(false),
+                getMostVisiblePage: vi.fn(() => 2),
+                updateCurrentPage,
+                emitCurrentPage,
+            }));
+            if (!sync) {
+                throw new Error('Failed to create current-page sync');
+            }
+
+            await sync.syncCurrentPageFromViewport({ source: 'load-from-source' });
+
+            expect(updateCurrentPage).toHaveBeenCalledOnce();
+            expect(currentPage.value).toBe(2);
+            expect(emitCurrentPage).toHaveBeenCalledExactlyOnceWith(2);
+        } finally {
+            scope.stop();
+        }
+    });
+
     it('invalidates stabilized current-page sync when the document changes mid-sample', async () => {
         const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({}));
         const emitCurrentPage = vi.fn();

@@ -209,7 +209,7 @@ function isStaticCommandEnabled(command: Exclude<TTabContextCommand, TDirectiona
         'new-tab': contextAvailability?.canCreate ?? true,
         'close-tab': contextAvailability?.canClose ?? true,
         'move-to-new-window': canUseNativeWindowTransfers.value && (contextAvailability?.canMoveToNewWindow ?? tabs.length > 1),
-        'move-to-window': canUseNativeWindowTransfers.value,
+        'move-to-window': canUseNativeWindowTransfers.value && (contextAvailability?.canMoveToWindow ?? true),
     } satisfies Record<TStaticCommandKind, boolean>;
 
     return staticAvailabilityByKind[command.kind];
@@ -271,14 +271,21 @@ const windowActions = computed(() => {
         });
     }
 
-    actions.push(...windowTransferTargets.value.map(targetWindow => ({
-        key: `move-to-window-${targetWindow.windowId}`,
-        label: `${t('menu.moveTabToWindow')}: ${targetWindow.label}`,
-        command: {
+    actions.push(...windowTransferTargets.value.flatMap((targetWindow) => {
+        const command = {
             kind: 'move-to-window',
             targetWindowId: targetWindow.windowId,
-        } as const,
-    })));
+        } as const;
+        if (!isCommandEnabled(command)) {
+            return [];
+        }
+
+        return [{
+            key: `move-to-window-${targetWindow.windowId}`,
+            label: `${t('menu.moveTabToWindow')}: ${targetWindow.label}`,
+            command,
+        }];
+    }));
 
     return actions;
 });

@@ -30,6 +30,12 @@ const RUN_ACTION_ANNOTATIONS = {
     idempotentHint: false,
     openWorldHint: false,
 };
+const INTERNAL_RUN_ACTION_ANNOTATIONS = {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: false,
+};
 const OBJECT_OUTPUT_SCHEMA = {
     type: 'object',
     additionalProperties: true,
@@ -59,6 +65,25 @@ const CAPABILITY_ID_SCHEMA = {
 const RESOURCE_URI_SCHEMA = {
     type: 'string',
     description: 'EVB resource URI such as evb://document/{tabId}/annotations, /bookmarks, /page-labels, or /toc.',
+};
+const ACTION_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        windowId: WINDOW_ID_SCHEMA,
+        tabId: TAB_ID_SCHEMA,
+        id: CAPABILITY_ID_SCHEMA,
+        input: {
+            type: 'object',
+            description: 'Capability-specific input object.',
+            additionalProperties: true,
+        },
+        dryRun: {
+            type: 'boolean',
+            description: 'Validate and preview without mutating visible app state when supported.',
+        },
+    },
+    required: ['id'],
+    additionalProperties: false,
 };
 
 export const MCP_TOOLS = [
@@ -114,28 +139,18 @@ export const MCP_TOOLS = [
     {
         name: 'evb_run_action',
         title: 'EVB Viewer run action',
-        description: 'Run a semantic EVB Viewer action by capability id. Use evb_describe_capability to inspect the expected input. For write, destructive, or long-running actions, prefer dryRun first when available.',
-        inputSchema: {
-            type: 'object',
-            properties: {
-                windowId: WINDOW_ID_SCHEMA,
-                tabId: TAB_ID_SCHEMA,
-                id: CAPABILITY_ID_SCHEMA,
-                input: {
-                    type: 'object',
-                    description: 'Capability-specific input object.',
-                    additionalProperties: true,
-                },
-                dryRun: {
-                    type: 'boolean',
-                    description: 'Validate and preview without mutating visible app state when supported.',
-                },
-            },
-            required: ['id'],
-            additionalProperties: false,
-        },
+        description: 'Run a semantic EVB Viewer write, destructive, navigation, or long-running action by capability id. Use evb_describe_capability to inspect the expected input. For non-mutating preview/read capabilities, use evb_read_action.',
+        inputSchema: ACTION_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
         annotations: RUN_ACTION_ANNOTATIONS,
+    },
+    {
+        name: 'evb_read_action',
+        title: 'EVB Viewer read action',
+        description: 'Run a semantic EVB Viewer read-only or preview action by capability id. Use this for non-mutating capabilities such as bookmarks.preview_tree, page_labels.preview, document.search, and document.read_pages.',
+        inputSchema: ACTION_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        annotations: READ_ONLY_CLOSED_ANNOTATIONS,
     },
     {
         name: 'evb_job_status',
@@ -353,6 +368,29 @@ export const MCP_TOOLS = [
         annotations: UI_NAVIGATION_ANNOTATIONS,
     },
 ] as const satisfies readonly IMcpToolDefinition[];
+
+export type TMcpToolCallerKind = 'internal' | 'external';
+
+export function createMcpToolsForCaller(callerKind: TMcpToolCallerKind): readonly IMcpToolDefinition[] {
+    return MCP_TOOLS.map((tool): IMcpToolDefinition => {
+        if (tool.name !== 'evb_run_action') {
+            return tool;
+        }
+
+        if (callerKind === 'internal') {
+            return {
+                ...tool,
+                description: 'Run a semantic EVB Viewer write, navigation, or long-running action by capability id. EVB policy still blocks confirmation-only/destructive capabilities until an app grant flow exists. Use evb_describe_capability to inspect the expected input. For non-mutating preview/read capabilities, use evb_read_action.',
+                annotations: INTERNAL_RUN_ACTION_ANNOTATIONS,
+            };
+        }
+
+        return {
+            ...tool,
+            annotations: RUN_ACTION_ANNOTATIONS,
+        };
+    });
+}
 
 export const MCP_RESOURCE_TEMPLATES = [
     {

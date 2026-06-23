@@ -225,11 +225,7 @@ export const useOcr = () => {
         if (requestIdToCancel) {
             activeRunToken = null;
             beginCancelingRequest(requestIdToCancel);
-            void cancelBackendRequest(requestIdToCancel, 'timeout').then((cancelResult) => {
-                if (cancelResult.canceled) {
-                    finishCancelCompletionWatch(requestIdToCancel);
-                }
-            });
+            void cancelBackendRequest(requestIdToCancel, 'timeout');
         }
         rejectPending?.(new Error(t('errors.ocr.timeout')));
     }, OCR_TIMEOUT_MS, { immediate: false });
@@ -676,11 +672,7 @@ export const useOcr = () => {
         }
 
         beginCancelingRequest(requestIdToCancel);
-        const cancelResult = await cancelBackendRequest(requestIdToCancel, 'manual');
-        if (cancelResult.canceled) {
-            finishCancelCompletionWatch(requestIdToCancel);
-        }
-        return cancelResult;
+        return cancelBackendRequest(requestIdToCancel, 'manual');
     }
 
     onScopeDispose(() => {

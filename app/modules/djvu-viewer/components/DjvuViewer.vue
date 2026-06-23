@@ -136,6 +136,10 @@ import { createWheelPageAccumulatorState } from '@app/utils/document-viewer/sing
 import type { IWheelPageAccumulatorState } from '@app/utils/document-viewer/single-page-wheel/singlePageWheelTypes';
 import { normalizePageWheelDelta } from '@app/utils/document-viewer/single-page-wheel/normalizePageWheelDelta';
 import { resolveWheelPageFlipStepDelta } from '@app/utils/document-viewer/single-page-wheel/resolveWheelPageFlipStepDelta';
+import {
+    capturePageAnchorScrollSnapshot,
+    restorePageAnchorScrollSnapshot,
+} from '@app/utils/document-viewer/page-anchor-scroll-snapshot/pageAnchorScrollSnapshot';
 import { resolveDjvuPreviewResolutionPlan } from '@app/utils/djvuPreviewResolution';
 import {
     createDjvuPageRenderList,
@@ -194,6 +198,7 @@ const DJVU_SCROLLING_PREVIEW_HEADROOM = 0.9;
 const DJVU_SCROLL_SETTLE_PREVIEW_RERENDER_MS = 180;
 const DJVU_RENDER_QUEUE_TARGET_CONCURRENCY = 2;
 const DJVU_RENDER_QUEUE_MAX_CONCURRENCY = 4;
+const DJVU_PAGE_SNAPSHOT_SELECTOR = '[data-page-number]';
 
 const viewerContainer = ref<HTMLElement | null>(null);
 const pageElements = new Map<number, HTMLElement>();
@@ -1673,11 +1678,59 @@ function scrollToPage(pageNumber: number) {
     });
 }
 
-function captureScrollSnapshot(): IScrollSnapshot | null {
-    return null;
+function getSnapshotPage(value: number | null | undefined) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return null;
+    }
+    return clamp(Math.floor(value), 1, totalPages.value || 1);
 }
 
-function restoreScrollSnapshot() {}
+function captureScrollSnapshot(): IScrollSnapshot | null {
+    return capturePageAnchorScrollSnapshot(
+        viewerContainer.value,
+        {
+            pageSelector: DJVU_PAGE_SNAPSHOT_SELECTOR,
+            preferredAnchorPage: currentPage.value,
+        },
+    );
+}
+
+function restoreScrollSnapshot(
+    snapshot: IScrollSnapshot | null,
+    options?: { fallbackPage?: number | null },
+) {
+    const fallbackPage = getSnapshotPage(options?.fallbackPage);
+    const anchorPage = getSnapshotPage(snapshot?.anchorPage) ?? fallbackPage;
+    if (!snapshot) {
+        if (fallbackPage !== null) {
+            scrollToPage(fallbackPage);
+        }
+        return;
+    }
+
+    if (anchorPage !== null && anchorPage !== currentPage.value) {
+        currentPage.value = anchorPage;
+        emit('update:currentPage', anchorPage);
+        invalidateContinuousScrollWindowCache();
+    }
+
+    void nextTick(() => {
+        restorePageAnchorScrollSnapshot(
+            viewerContainer.value,
+            snapshot,
+            { pageSelector: DJVU_PAGE_SNAPSHOT_SELECTOR },
+        );
+        const nextScrollTop = viewerContainer.value?.scrollTop ?? 0;
+        scrollDirection.value = nextScrollTop > scrollTop.value
+            ? 1
+            : nextScrollTop < scrollTop.value
+                ? -1
+                : 0;
+        scrollTop.value = nextScrollTop;
+        detectCurrentPageFromViewport();
+        syncLoadedPages();
+    });
+}
 
 defineExpose<IDocumentViewerExpose>({
     getViewerContainer: () => viewerContainer.value,

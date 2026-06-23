@@ -641,4 +641,96 @@ describe('registerOcrHandlers', () => {
         expect(sender.removeListener).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
         expect(sender.removeListener).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
     });
+
+    it('cancels an active legacy recognizeBatch request by request id', async () => {
+        const batchHandler = getHandler('ocr:recognizeBatch');
+        const cancelHandler = getHandler('ocr:cancel');
+        const sender = createMockSender(30);
+        mocks.runOcr.mockImplementation((_image, _languages, options?: { signal?: AbortSignal }) => new Promise((resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => {
+                reject(new Error('Tesseract aborted'));
+            }, { once: true });
+            setTimeout(() => resolve({
+                success: true,
+                text: 'too late',
+            }), 50);
+        }));
+
+        const batchPromise = batchHandler(
+            {sender},
+            [{
+                pageNumber: 1,
+                imageData: new Uint8Array([1]),
+                languages: ['eng'],
+            }],
+            'legacy-batch-cancel',
+        ) as Promise<{
+            results: Record<number, string>;
+            errors: string[];
+        }>;
+
+        await vi.waitFor(() => {
+            expect(mocks.runOcr).toHaveBeenCalledTimes(1);
+        });
+
+        expect(cancelHandler({sender}, 'legacy-batch-cancel')).toEqual({ canceled: true });
+        await expect(batchPromise).resolves.toMatchObject({
+            results: {},
+            errors: [expect.stringContaining('Tesseract aborted')],
+        });
+        expect(mocks.handleOcrCancel).not.toHaveBeenCalled();
+    });
+
+    it('keeps the original legacy recognizeBatch cancellable after duplicate-id backpressure', async () => {
+        const batchHandler = getHandler('ocr:recognizeBatch');
+        const cancelHandler = getHandler('ocr:cancel');
+        const sender = createMockSender(31);
+        mocks.runOcr.mockImplementation((_image, _languages, options?: { signal?: AbortSignal }) => new Promise((resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => {
+                reject(new Error('Tesseract aborted'));
+            }, { once: true });
+            setTimeout(() => resolve({
+                success: true,
+                text: 'too late',
+            }), 100);
+        }));
+
+        const firstBatchPromise = batchHandler(
+            {sender},
+            [{
+                pageNumber: 1,
+                imageData: new Uint8Array([1]),
+                languages: ['eng'],
+            }],
+            'duplicate-legacy-batch',
+        ) as Promise<{
+            results: Record<number, string>;
+            errors: string[];
+        }>;
+
+        await vi.waitFor(() => {
+            expect(mocks.runOcr).toHaveBeenCalledTimes(1);
+        });
+
+        await expect(batchHandler(
+            {sender},
+            [{
+                pageNumber: 2,
+                imageData: new Uint8Array([2]),
+                languages: ['eng'],
+            }],
+            'duplicate-legacy-batch',
+        )).resolves.toMatchObject({
+            results: {},
+            errors: [expect.stringContaining('already exists')],
+            errorEnvelope: {code: 'OCR_QUEUE_BACKPRESSURE'},
+        });
+
+        expect(cancelHandler({sender}, 'duplicate-legacy-batch')).toEqual({ canceled: true });
+        await expect(firstBatchPromise).resolves.toMatchObject({
+            results: {},
+            errors: [expect.stringContaining('Tesseract aborted')],
+        });
+        expect(mocks.handleOcrCancel).not.toHaveBeenCalled();
+    });
 });

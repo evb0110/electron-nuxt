@@ -11,6 +11,7 @@ import {
     mkdtempSync,
     readFileSync,
     rmSync,
+    statSync,
     writeFileSync,
 } from 'fs';
 import {
@@ -20,6 +21,7 @@ import {
 } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { createOriginalFileContentFingerprintSync } from '@electron/file-access/workingCopyOriginalFileExpectation';
 
 const mocks = vi.hoisted(() => ({
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
@@ -61,6 +63,16 @@ vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrit
 vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths: (...args: unknown[]) => mocks.getNativeToolPaths(...args)}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 
+function createOriginalFileExpectationForTest(originalPath: string) {
+    const originalStat = statSync(originalPath);
+    const contentFingerprint = createOriginalFileContentFingerprintSync(originalPath, originalStat.size);
+    return {
+        contentFingerprint,
+        mtimeMs: originalStat.mtimeMs,
+        size: originalStat.size,
+    };
+}
+
 describe('workingCopySave', () => {
     let tempRoot = '';
     const event = {sender: {id: 42}} as Electron.IpcMainInvokeEvent;
@@ -75,7 +87,12 @@ describe('workingCopySave', () => {
             warnings: [],
         });
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
-        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(null);
+        mocks.getWorkingCopyOriginalFileExpectation.mockImplementation((workingPath: string, senderWebContentsId?: number) => {
+            const original = mocks.getWorkingCopyOriginalPath(workingPath, senderWebContentsId);
+            return original?.originalPath
+                ? createOriginalFileExpectationForTest(original.originalPath)
+                : null;
+        });
         mocks.isAllowedOriginalSavePath.mockReturnValue(true);
         mocks.getNativeToolPaths.mockReturnValue({qpdf: '/mock/qpdf'});
         mocks.runNativeToolCommand.mockResolvedValue({

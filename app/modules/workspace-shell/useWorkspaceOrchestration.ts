@@ -30,6 +30,7 @@ import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
 import { useDocumentOperationLease } from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
+import { serializePrintableSourceData } from '@app/modules/workspace-shell/serialization/serializePrintableSourceData';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
@@ -360,7 +361,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         preservedAnnotationSourceDirty.value = dirty;
     }
 
-    function hasPreservedAnnotationSourceChanges() {
+    function hasPreservedAnnotationSourceChanges(): boolean {
         return preservedAnnotationSourceDirty.value;
     }
 
@@ -754,9 +755,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             return null;
         }
 
-        return serializePdfForSave(rawData, {
-            includeShapes: true,
-            rewriteShapeState: true,
+        return serializePrintableSourceData(rawData, {
+            serializePdfForSave,
+            consumePendingEmbeddedTextUpdates,
+            restorePendingEmbeddedTextUpdates,
+            consumePendingEmbeddedAnnotationDeletes,
+            restorePendingEmbeddedAnnotationDeletes,
         });
     }
 
@@ -970,5 +974,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleUndo,
         handleAnnotationModified: handleAnnotationModifiedWithThumbnailInvalidation,
         handlePrint: workspacePrint.handlePrint,
+        hasPendingUnsavedChanges,
+        hasPreservedAnnotationSourceChanges,
+        pendingEmbeddedAnnotationDeleteCount,
     };
 };

@@ -40,6 +40,8 @@
                         ]"
                         role="radio"
                         :aria-checked="effort === selectedEffort"
+                        :aria-disabled="disabled"
+                        :disabled="disabled"
                         @click="onSelect(effort)"
                     >
                         <span>{{ effortLabel(effort) }}</span>
@@ -91,11 +93,20 @@ const EFFORT_LABEL_KEYS = {
 
 const ariaLabel = computed(() => t('assistant.reasoningEffortAria', { label: effortLabel(selectedEffort) }));
 
+watch(() => disabled, (nextDisabled) => {
+    if (nextDisabled) {
+        open.value = false;
+    }
+});
+
 function effortLabel(effort: TAgentAssistantEffort) {
     return t(EFFORT_LABEL_KEYS[effort]);
 }
 
 function onSelect(effort: TAgentAssistantEffort) {
+    if (disabled) {
+        return;
+    }
     emit('select-effort', effort);
     open.value = false;
 }
@@ -207,7 +218,7 @@ function onSelect(effort: TAgentAssistantEffort) {
     transition: background-color var(--app-transition-fast);
 }
 
-.assistant-effort-switcher-option:hover {
+.assistant-effort-switcher-option:hover:not(:disabled) {
     background: var(--app-toolbar-control-hover-bg);
 }
 
@@ -222,6 +233,10 @@ function onSelect(effort: TAgentAssistantEffort) {
 .assistant-effort-switcher-option.is-active {
     background: var(--app-toolbar-control-hover-bg);
     font-weight: var(--app-font-weight-semibold);
+}
+
+.assistant-effort-switcher-option:disabled {
+    cursor: default;
 }
 
 .assistant-effort-switcher-check {

@@ -201,9 +201,18 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         renderOptions?: IRenderVisiblePagesOptions,
     ) {
         const canvasRenderOptions: Parameters<typeof canvasRenderer.prepareCanvasRender>[2] = {};
+        const prepareAbortController = new AbortController();
+        const shouldContinuePrepare = () => (
+            getRenderVersion() === version
+            && shouldContinue()
+            && !prepareAbortController.signal.aborted
+        );
         canvasRenderOptions.pageRenderCoordination = {
             owner: 'viewer',
             priority: 100,
+            signal: prepareAbortController.signal,
+            shouldStart: shouldContinuePrepare,
+            shouldContinue: shouldContinuePrepare,
         };
         const ids = hiddenAnnotationIds(pageNumber);
         if (ids !== undefined) {
@@ -240,6 +249,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
             () => getRenderVersion() === version && shouldContinue(),
             () => {
                 prepareStageTimedOut = true;
+                prepareAbortController.abort();
             },
             onRenderStall,
         );

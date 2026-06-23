@@ -140,9 +140,23 @@ describe('evb-mcp-proxy', () => {
             });
             expect(JSON.stringify(tools.result)).toContain('evb_viewer_open_documents');
             expect(JSON.stringify(tools.result)).toContain('evb_search_document');
+            expect(JSON.stringify(tools.result)).toContain('evb_read_action');
             expect(JSON.stringify(initialized.result)).toContain('document.capture_page_image');
             expect(JSON.stringify(prompts.result)).toContain('evb_number_pages_from_printed_pages');
             expect(JSON.stringify(prompts.result)).toContain('evb_rebuild_verified_bookmarks');
+            const toolResult = asRecord(tools.result);
+            const listedTools = toolResult.tools as Array<{
+                name: string;
+                annotations?: Record<string, unknown>;
+            }>;
+            expect(listedTools.find(tool => tool.name === 'evb_read_action')?.annotations).toMatchObject({
+                readOnlyHint: true,
+                destructiveHint: false,
+            });
+            expect(listedTools.find(tool => tool.name === 'evb_run_action')?.annotations).toMatchObject({
+                readOnlyHint: false,
+                destructiveHint: true,
+            });
         } finally {
             await client.stop();
         }

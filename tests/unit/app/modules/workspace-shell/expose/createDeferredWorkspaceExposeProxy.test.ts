@@ -30,6 +30,12 @@ function createDeps(workspace: IWorkspaceExpose | null) {
         withLoadedWorkspace: vi.fn(async (_action, run) => (
             workspace ? run(workspace) : null
         )),
+        withLoadedWorkspaceRequired: vi.fn(async (_action, run) => {
+            if (!workspace) {
+                throw new Error('Workspace is not available.');
+            }
+            return run(workspace);
+        }),
         withWorkspace: vi.fn(async (_action, run) => (
             workspace ? await run(workspace) !== false : false
         )),
@@ -53,6 +59,49 @@ describe('createDeferredWorkspaceExposeProxy', () => {
         const proxy = createDeferredWorkspaceExposeProxy(deps);
 
         await expect(proxy.handleSave()).resolves.toBe(false);
+    });
+
+    it('routes assistant actions through the mount-wait workspace path', async () => {
+        const runAgentAction = vi.fn(async () => ({
+            ok: true,
+            actionId: 'file.save',
+        }));
+        const workspace = createWorkspace({runAgentAction});
+        const deps = createDeps(workspace);
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        await expect(proxy.runAgentAction('file.save', {tabId: 'tab-1'})).resolves.toEqual({
+            ok: true,
+            actionId: 'file.save',
+        });
+
+        expect(deps.withLoadedWorkspaceRequired).toHaveBeenCalledWith('runAgentAction', expect.any(Function));
+        expect(runAgentAction).toHaveBeenCalledWith('file.save', {tabId: 'tab-1'}, undefined);
+    });
+
+    it('returns an MCP-safe assistant action error when no workspace can mount', async () => {
+        const deps = createDeps(null);
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        await expect(proxy.runAgentAction('file.save', {tabId: 'tab-1'})).resolves.toEqual({
+            ok: false,
+            actionId: 'file.save',
+            error: 'Workspace is not available.',
+        });
+    });
+
+    it('returns the real assistant action error when the inner workspace rejects', async () => {
+        const workspace = createWorkspace({runAgentAction: vi.fn(async () => {
+            throw new Error('Bookmark plan is invalid.');
+        })});
+        const deps = createDeps(workspace);
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        await expect(proxy.runAgentAction('bookmarks.apply_plan', {})).resolves.toEqual({
+            ok: false,
+            actionId: 'bookmarks.apply_plan',
+            error: 'Bookmark plan is invalid.',
+        });
     });
 
     it('queues document-open methods and invokes the inner workspace call', async () => {

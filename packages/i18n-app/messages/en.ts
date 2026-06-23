@@ -33,7 +33,7 @@ export default {
         'installTitle': 'Set up EVB Assistant',
         'installDescription': 'Install Codex to use your ChatGPT plan with EVB Viewer.',
         'installClaudeTitle': 'Set up Claude',
-        'installClaudeDescription': 'Install Claude Code or reinstall dependencies with the Claude Agent SDK native binary, then refresh.',
+        'installClaudeDescription': 'Install Claude Code, or set CLAUDE_CODE_PATH to a local claude executable, then refresh.',
         'installCodex': 'Install Codex',
         'installingCodex': 'Installing Codex',
         'updateTitle': 'Update Codex',

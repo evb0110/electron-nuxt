@@ -284,6 +284,43 @@ describe('removeAnnotationCommentDom', () => {
         expect(popup.parentElement).toBeNull();
     });
 
+    it('does not remove overlapping geometry neighbors when an exact annotation id matches', () => {
+        const container = createTestElement('viewer', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const page = createTestElement('page_container', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const targetHighlight = createTestElement('highlightAnnotation', {
+            left: 100,
+            top: 200,
+            width: 200,
+            height: 50,
+        });
+        const neighboringHighlight = createTestElement('highlightAnnotation', {
+            left: 105,
+            top: 202,
+            width: 200,
+            height: 50,
+        });
+        targetHighlight.dataset.annotationId = '12R';
+        neighboringHighlight.dataset.annotationId = '13R';
+        connectPage(container, page);
+        connectToPage(page, targetHighlight);
+        connectToPage(page, neighboringHighlight);
+
+        removeAnnotationCommentDom(toHTMLElement(container), createComment());
+
+        expect(targetHighlight.parentElement).toBeNull();
+        expect(neighboringHighlight.parentElement).toBe(page);
+    });
+
     it('removes the matching draw-layer highlight visual and refreshes the composite overlay', () => {
         const refresh = vi.mocked(refreshHighlightCompositeOverlay);
         const container = createTestElement('viewer', {

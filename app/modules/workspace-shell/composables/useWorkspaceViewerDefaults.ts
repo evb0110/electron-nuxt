@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
+import { clampPdfManualZoom } from '@app/modules/pdf-viewer/public';
 import type { TPdfSource } from '@app/types/pdf';
 import type {
     ISettingsData,

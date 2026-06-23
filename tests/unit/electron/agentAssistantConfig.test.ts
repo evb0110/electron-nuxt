@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import {
+    ASSISTANT_MCP_CONTRACT_VERSION,
     ASSISTANT_MCP_SERVER_NAME,
     ASSISTANT_MCP_TOKEN_ENV,
     createAssistantCodexConfig,
@@ -61,6 +62,11 @@ function parseGeneratedToml(config: string) {
 }
 
 describe('agent assistant Codex config', () => {
+    it('versions the embedded MCP server name to refresh cached tool contracts', () => {
+        expect(ASSISTANT_MCP_CONTRACT_VERSION).toBeGreaterThanOrEqual(2);
+        expect(ASSISTANT_MCP_SERVER_NAME).toBe(`evb_viewer_embedded_v${ASSISTANT_MCP_CONTRACT_VERSION}`);
+    });
+
     it('locks assistant sessions to the embedded EVB MCP server', () => {
         const config = createAssistantCodexConfig('http://127.0.0.1:12345/mcp');
         const parsed = parseGeneratedToml(config) as {
@@ -111,6 +117,7 @@ describe('agent assistant Codex config', () => {
                 'evb_list_capabilities',
                 'evb_describe_capability',
                 'evb_read_resource',
+                'evb_read_action',
                 'evb_run_action',
                 'evb_job_status',
             ],

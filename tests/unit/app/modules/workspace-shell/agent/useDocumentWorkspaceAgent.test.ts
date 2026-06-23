@@ -123,6 +123,7 @@ function createAgentOptions(
         totalPages: ref(3),
         updateAnnotationNoteText: vi.fn(),
         viewMode: ref<TPdfViewMode>('single'),
+        waitForDocumentOpenSettled: vi.fn(async () => undefined),
         workingCopyPath: ref<TDocumentRef | null>(null),
         zoom: ref(1),
         ...overrides,
@@ -199,6 +200,75 @@ describe('useDocumentWorkspaceAgent', () => {
             });
         expect(showSidebar.value).toBe(true);
         expect(sidebarTab.value).toBe('bookmarks');
+    });
+
+    it('waits for document open to settle before validating bookmark plan page numbers', async () => {
+        const totalPages = ref(0);
+        const waitForDocumentOpenSettled = vi.fn(async () => {
+            totalPages.value = 3;
+        });
+        const handleBookmarksChange = vi.fn(({bookmarks}) => {
+            bookmarkItems.value = bookmarks;
+        });
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            bookmarkItems,
+            handleBookmarksChange,
+            totalPages,
+            waitForDocumentOpenSettled,
+        }));
+
+        await expect(agent.runAgentAction('bookmarks.apply_plan', {entries: [{
+            level: 1,
+            title: 'Chapter',
+            page: 3,
+        }]})).resolves.toMatchObject({
+            ok: true,
+            actionId: 'bookmarks.apply_plan',
+            bookmarks: [expect.objectContaining({title: 'Chapter'})],
+        });
+        expect(waitForDocumentOpenSettled).toHaveBeenCalledOnce();
+        expect(handleBookmarksChange).toHaveBeenCalledOnce();
+    });
+
+    it('lets file.save observe save readiness after an immediate bookmark action', async () => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
+        const bookmarksDirty = ref(false);
+        const canSave = ref(false);
+        const handleBookmarksChange = vi.fn(({
+            bookmarks,
+            dirty,
+        }) => {
+            bookmarkItems.value = bookmarks;
+            bookmarksDirty.value = dirty;
+            canSave.value = dirty;
+        });
+        const handleSave = vi.fn(async () => {
+            expect(canSave.value).toBe(true);
+            canSave.value = false;
+            return true;
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            bookmarkItems,
+            bookmarksDirty,
+            canSave,
+            handleBookmarksChange,
+            handleSave,
+        }));
+
+        await agent.runAgentAction('bookmarks.apply_plan', {entries: [{
+            level: 1,
+            title: 'Chapter',
+            page: 1,
+        }]});
+
+        await expect(agent.runAgentAction('file.save')).resolves.toMatchObject({
+            ok: true,
+            actionId: 'file.save',
+            saved: true,
+            canSave: false,
+        });
+        expect(handleSave).toHaveBeenCalledOnce();
     });
 
     it('blocks PDF page-operation actions in DjVu mode while keeping convert-to-PDF available', async () => {

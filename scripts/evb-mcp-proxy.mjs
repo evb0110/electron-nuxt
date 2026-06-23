@@ -33,6 +33,12 @@ const UI_NAVIGATION_ANNOTATIONS = {
     idempotentHint: true,
     openWorldHint: false,
 };
+const RUN_ACTION_ANNOTATIONS = {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: false,
+};
 const OBJECT_OUTPUT_SCHEMA = {
     type: 'object',
     additionalProperties: true,
@@ -51,7 +57,7 @@ const CAPABILITY_DOMAIN_SCHEMA = {
         'view',
         'file',
         'export',
-        'pageOps',
+        'page_ops',
     ],
     description: 'Optional capability domain filter.',
 };
@@ -62,6 +68,25 @@ const CAPABILITY_ID_SCHEMA = {
 const RESOURCE_URI_SCHEMA = {
     type: 'string',
     description: 'EVB resource URI such as evb://document/{tabId}/annotations, /bookmarks, /page-labels, or /toc.',
+};
+const ACTION_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        windowId: WINDOW_ID_SCHEMA,
+        tabId: TAB_ID_SCHEMA,
+        id: CAPABILITY_ID_SCHEMA,
+        input: {
+            type: 'object',
+            description: 'Capability-specific input object.',
+            additionalProperties: true,
+        },
+        dryRun: {
+            type: 'boolean',
+            description: 'Validate and preview without mutating visible app state when supported.',
+        },
+    },
+    required: ['id'],
+    additionalProperties: false,
 };
 
 const EVB_MCP_TOOLS = [
@@ -117,28 +142,18 @@ const EVB_MCP_TOOLS = [
     {
         name: 'evb_run_action',
         title: 'EVB Viewer run action',
-        description: 'Run a semantic EVB Viewer action by capability id. Use evb_describe_capability to inspect the expected input. For write, destructive, or long-running actions, prefer dryRun first when available.',
-        inputSchema: {
-            type: 'object',
-            properties: {
-                windowId: WINDOW_ID_SCHEMA,
-                tabId: TAB_ID_SCHEMA,
-                id: CAPABILITY_ID_SCHEMA,
-                input: {
-                    type: 'object',
-                    description: 'Capability-specific input object.',
-                    additionalProperties: true,
-                },
-                dryRun: {
-                    type: 'boolean',
-                    description: 'Validate and preview without mutating visible app state when supported.',
-                },
-            },
-            required: ['id'],
-            additionalProperties: false,
-        },
+        description: 'Run a semantic EVB Viewer write, destructive, navigation, or long-running action by capability id. Use evb_describe_capability to inspect the expected input. For non-mutating preview/read capabilities, use evb_read_action.',
+        inputSchema: ACTION_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
-        annotations: UI_NAVIGATION_ANNOTATIONS,
+        annotations: RUN_ACTION_ANNOTATIONS,
+    },
+    {
+        name: 'evb_read_action',
+        title: 'EVB Viewer read action',
+        description: 'Run a semantic EVB Viewer read-only or preview action by capability id. Use this for non-mutating capabilities such as bookmarks.preview_tree, page_labels.preview, document.search, and document.read_pages.',
+        inputSchema: ACTION_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        annotations: READ_ONLY_CLOSED_ANNOTATIONS,
     },
     {
         name: 'evb_job_status',
@@ -544,16 +559,16 @@ function getClientProtocolVersion(params) {
 function createInitializeInstructions() {
     return [
         'EVB Viewer exposes the live PDF workspace. If the user mentions EVB Viewer, evb-viewer, the viewer app, the open document, or the current PDF, use these MCP tools before inspecting processes, files, windows, or debug ports.',
-        'Prefer the compact capability workflow for broad app control: call evb_workspace_snapshot, then evb_list_capabilities, evb_describe_capability when needed, evb_read_resource for notes/annotations/bookmarks/page-labels/page text, and evb_run_action for visible app actions.',
+        'Prefer the compact capability workflow for broad app control: call evb_workspace_snapshot, then evb_list_capabilities, evb_describe_capability when needed, evb_read_resource for notes/annotations/bookmarks/page-labels/page text, evb_read_action for non-mutating preview/read capabilities, and evb_run_action for write/destructive/navigation actions.',
         'For questions like "what document is open in evb-viewer?", call evb_viewer_open_documents. Use evb_workspace_snapshot when you need the full pane/tab/layout tree.',
         'For questions like "find X in this PDF" or "navigate to X", use capability document.search or the compatibility tools evb_viewer_search_open_document / evb_search_document. They use EVB Viewer search indexes and return page numbers plus excerpts.',
         'After search, read candidate pages with capability document.read_pages, evb_read_resource, or evb_read_document_pages, then navigate with capability view.go_to_page or evb_go_to_page only after choosing the best page.',
-        'When reconstructing page labels, start from OCR/searchable text and current page labels, then verify visible printed page numbers across front matter, transition pages, appendices, and body pages. Use document.capture_page_image for uncertain pages or crops and inspect the returned image before writing page_labels.set_ranges/apply_range/set_labels.',
-        'When reconstructing bookmarks, start from the PDF TOC/bookmarks when present, then verify each title/page target against OCR/searchable text and visual screenshots for doubtful entries. Use bookmarks.set_tree/add/add_batch/update/delete only after checking that targets land on the visible section starts.',
-        'For page-label and bookmark workflows, mutate only through EVB Viewer capabilities so edits enter the metadata undo stack. After all writes are verified, save the file with file.save and report any save failure.',
-        'For annotations, notes, bookmarks, and page labels, read evb://document/{tabId}/annotations, /notes, /bookmarks, /toc, and /page-labels through evb_read_resource or MCP resources/read. To create annotation content directly, use annotation.create_text_markup, annotation.create_note_at_point, and annotation.create_shape; use annotation.update_note and annotation.update_text_markup_color for existing annotations. For document metadata, use page_labels.set_ranges/apply_range/set_labels and bookmarks.set_tree/add/add_batch/update/delete for individual or batch edits. Use document.capture_page_image when OCR, page labels, TOC, or search evidence is ambiguous.',
+        'When reconstructing page labels, start from OCR/searchable text and current page labels, then verify visible printed page numbers across front matter, transition pages, appendices, and body pages. Use document.capture_page_image through evb_run_action for uncertain pages or crops and inspect the returned image before deciding.',
+        'When reconstructing bookmarks, start from the PDF TOC/bookmarks when present, then verify each title/page target against OCR/searchable text and visual screenshots for doubtful entries. Preview with bookmarks.preview_tree; external bookmark/page-label writes that require policy confirmation are blocked until EVB Viewer has an app-issued grant flow.',
+        'For page-label and bookmark workflows from this external proxy, preview and report the plan. If evb_run_action reports that confirmation is required, say no change was applied instead of claiming success.',
+        'For annotations, notes, bookmarks, and page labels, read evb://document/{tabId}/annotations, /notes, /bookmarks, /toc, and /page-labels through evb_read_resource or MCP resources/read. Inspect policy before annotation or metadata writes; external writes that require confirmation are blocked until EVB Viewer has an app-issued grant flow. Use document.capture_page_image through evb_run_action when OCR, page labels, TOC, or search evidence is ambiguous.',
         'For OCR, use capability ocr.status to inspect visible OCR state, ocr.open_popup to show controls, and ocr.start only when the user has explicitly asked to run OCR or has approved the capability policy.',
-        'For write, destructive, or long-running actions, inspect the capability policy and prefer dryRun before mutating visible app state.',
+        'For write, destructive, or long-running actions, inspect the capability policy and prefer dryRun before mutating visible app state. External writes with policy.external = confirm currently fail closed without an app-issued grant.',
         'If a PDF page has no text or search misses likely visual/OCR content, call evb_inspect_document_text and recommend OCR all pages when coverage is partial or none.',
         'For DjVu or image documents, tell the user to convert to PDF before deep text analysis.',
     ].join('\n');
@@ -623,10 +638,10 @@ function createPromptText(name, params) {
     if (name === 'evb_number_pages_from_printed_pages') {
         return [
             'Reconstruct the PDF page labels from the printed page numbers.',
-            'Start by reading evb://document/{tabId}/page-labels and inspecting text coverage with document.inspect_text. Use OCR/searchable page text as evidence, but do not trust it blindly.',
+            'Start by reading evb://document/{tabId}/page-labels and inspecting text coverage with document.inspect_text through evb_read_action. Use OCR/searchable page text as evidence, but do not trust it blindly.',
             'Sample the beginning, front-matter/body transition, appendix or plate sections, and the end. Look for printed numerals such as iv, A, A-1, 1, or restarted numbering; search/read nearby pages to infer ranges.',
-            'For every uncertain boundary or suspicious OCR result, call document.capture_page_image with full/top/bottom or normalized crops and visually inspect the returned image before deciding.',
-            'Apply the final numbering with page_labels.set_ranges when ranges are regular, or page_labels.set_labels for irregular explicit labels so the app records an undoable metadata step. Re-read page labels after the write, spot-check representative pages, then save with file.save.',
+            'For every uncertain boundary or suspicious OCR result, call document.capture_page_image through evb_run_action with full/top/bottom or normalized crops and visually inspect the returned image before deciding.',
+            'Preview with page_labels.preview through evb_read_action. External writes require an app-issued grant flow that is not currently available; if evb_run_action reports confirmation required, say no numbering was changed and provide the verified plan for the user to apply through the app.',
         ].join('\n');
     }
 
@@ -634,9 +649,9 @@ function createPromptText(name, params) {
         return [
             'Rebuild or correct PDF bookmarks from verified section starts.',
             'Start by reading evb://document/{tabId}/toc and /bookmarks. Treat the existing PDF TOC/bookmarks as hints, not proof.',
-            'Use document.search and document.read_pages to locate each section title from the TOC, printed contents pages, or the user-specified outline.',
-            'For doubtful title/page matches, wrong-looking offsets, duplicated headings, or OCR gaps, call document.capture_page_image on candidate pages or crops and inspect the visible page before writing.',
-            'Apply the final tree with bookmarks.set_tree or use add/update/delete for smaller edits so the app records undoable metadata steps. Re-read bookmarks, verify a sample of root and nested targets after the write, then save with file.save.',
+            'Use document.search and document.read_pages through evb_read_action to locate each section title from the TOC, printed contents pages, or the user-specified outline.',
+            'For doubtful title/page matches, wrong-looking offsets, duplicated headings, or OCR gaps, call document.capture_page_image through evb_run_action on candidate pages or crops and inspect the visible page before writing.',
+            'Preview with bookmarks.preview_tree through evb_read_action. External writes require an app-issued grant flow that is not currently available; if evb_run_action reports confirmation required, say no bookmarks were changed and provide the verified tree for the user to apply through the app.',
         ].join('\n');
     }
 

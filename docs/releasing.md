@@ -1,22 +1,22 @@
 # Releasing
 
-Releases are cut locally and published from GitHub by pushing a version tag.
+Releases are cut locally and published by dispatching the GitHub Release workflow, which creates the version tag for the target commit.
 
 ## Normal flow
 
 1. Run `pnpm run release:patch`, `pnpm run release:minor`, or `pnpm run release:major`.
    The release script now fails before the version bump unless it is running under the Node major pinned in `package.json` `engines.node`, which is the project's current latest-LTS baseline (currently `24.x`).
 2. The script bumps `package.json`, then runs the local release gate against that exact would-be tagged tree: linting, typechecking, Electron install verification, fast release-critical tests, strict current-platform build and packaging, updater metadata checks when applicable, packaged native-tool verification, packaged startup verification on macOS, and host native-resource verification.
-3. If that local release gate passes, the script verifies that only `package.json` changed, commits the release version, creates the matching `v*` tag, and pushes the branch update and tag atomically.
-4. The tag push triggers the GitHub [`Release`](../.github/workflows/release.yml) workflow, which reruns the focused release checks, packages the main artifacts, and publishes the release in one run.
+3. If that local release gate passes, the script verifies that only `package.json` changed, commits the release version, pushes the branch update, and dispatches the GitHub [`Release`](../.github/workflows/release.yml) workflow with the intended tag and target ref.
+4. The release workflow reruns the focused release checks, packages the main artifacts, creates the matching `v*` tag, and publishes the release in one run.
 
 ## Local guardrails
 
 - `pnpm run release:verify` mirrors the local parts of the release workflow, includes current-platform build and packaging verification, and fails if the successful verify run changes the working tree snapshot.
-- `release:verify:checks` forces `CI=1` during linting, typechecking, Electron install verification, and the fast release-critical test lane so the local gate stays closer to the GitHub release runner.
+- `release:verify:checks` forces `CI=1` during linting, typechecking, Electron install verification, native-resource matrix checks, WASM portability checks, architecture checks, Rust tests, unit tests, and bundle-integrity checks so the local gate stays closer to the GitHub release runner.
 - Direct pushes to `main` run `pnpm lint`, `pnpm typecheck`, and `pnpm run test:release` before the next release cut, with Rust, landing, and Python page-processor checks added when those paths change.
 - Main app release checks are app-scoped and do not read or build `landing/`. Landing-only working tree changes are ignored by the release cutter so the desktop/web app release path stays independent of the separate landing deploy.
-- Broad maintenance checks (`typecheck:coverage`, `fallow`, architecture graph checks, Rust tests, the coverage ratchet, OCR model registry, and Python page-processor smoke) remain part of scheduled nightly CI, but they do not block every local release cut.
+- Broad maintenance checks (`typecheck:coverage`, `fallow`, the coverage ratchet, OCR model registry, and Python page-processor smoke) remain part of scheduled nightly CI, but they do not block every local release cut. The page-processor smoke is retained as dormant devkit-tool maintenance coverage, not as a local release gate.
 - Release-critical tests should stay deterministic and fast. Long serial Electron E2E and PDF tab diagnostics are available in nightly/manual diagnostics, but they do not block release cutting.
 - Fresh installs now follow the checked-in build-script policy in [`pnpm-workspace.yaml`](../pnpm-workspace.yaml). If a new dependency needs an install script for release-critical behavior, update that allow/ignore list deliberately instead of tolerating pnpm's warning output.
 - `pnpm run release:verify` is intentionally host-only for packaging. If you change cross-platform launcher or packaging decisions, add unit coverage for that branching logic instead of assuming a macOS-local release cut exercises Linux and Windows paths.
@@ -45,12 +45,12 @@ Releases are cut locally and published from GitHub by pushing a version tag.
 
 ## Release command behavior
 
-- The release command now waits for the tag-triggered GitHub `Release` workflow by default and exits non-zero if that workflow fails, so you do not need to check Actions manually after every cut.
+- The release command now waits for the dispatched GitHub `Release` workflow by default and exits non-zero if that workflow fails, so you do not need to check Actions manually after every cut.
 - This wait uses `gh auth status` / `gh run ...` under the hood. If you intentionally want fire-and-forget behavior, set `EVB_RELEASE_SKIP_GITHUB_WAIT=1`.
 
 ## Why this is less brittle
 
 - Validation, packaging, and publication now happen inside one workflow run.
 - Release artifacts are downloaded from the same run that built them, so there is no cross-workflow run-id lookup or artifact certification handoff.
-- Local release cutting no longer depends on `gh workflow run` orchestration to publish a tag.
+- Local release cutting dispatches one focused `gh workflow run` for the release workflow instead of relying on a tag-push trigger or cross-workflow artifact lookup.
 - Slow or flaky `macos-15-intel` runners no longer hold the GitHub release hostage; they only affect the later Intel ZIP attachment.

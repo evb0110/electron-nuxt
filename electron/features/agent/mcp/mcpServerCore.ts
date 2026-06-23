@@ -23,6 +23,7 @@ import {
     MCP_PROMPTS,
     MCP_RESOURCE_TEMPLATES,
     MCP_TOOLS,
+    createMcpToolsForCaller,
     type IAgentCapabilityTemplate,
     type IMcpResourceDefinition,
 } from '@electron/features/agent/mcp/mcpDefinitions';
@@ -170,17 +171,21 @@ export function createHealthResponse(identity: ILocalMcpServerIdentity) {
     };
 }
 
-function createInitializeInstructions() {
+function createInitializeInstructions(callerKind: TMcpCallerKind) {
+    const writePolicyInstruction = callerKind === 'internal'
+        ? 'For writes, destructive actions, or long-running actions, inspect policy/availability and prefer dryRun or preview when supported. Internal write capabilities with policy.internal = allow can be applied through evb_run_action. Capabilities whose internal policy is confirm require an app grant flow that is not currently available, so do not claim they were applied.'
+        : 'For external MCP callers, write, destructive, or long-running capabilities whose policy.external is confirm are blocked until EVB Viewer has an app-issued grant flow. Preview first, and if evb_run_action returns a confirmation-required error, report that no change was applied instead of claiming success.';
+
     return [
         'EVB Viewer exposes the live workspace. A document may or may not be open; inspect the workspace before answering questions about open tabs, current pages, or document contents.',
-        'Use the compact capability workflow: evb_workspace_snapshot for state; evb_list_capabilities to discover actions; evb_describe_capability for schemas, policy, and availability; evb_read_resource for notes, annotations, bookmarks, page labels, page text, and OCR status; evb_run_action for app actions.',
-        'Use semantic capability ids through evb_run_action: document.open_documents, document.readiness, document.inspect_text, document.search, document.read_pages, document.capture_page_image, view.go_to_page, annotation.*, page_labels.*, bookmarks.*, ocr.*, and file.save.',
+        'Use the compact capability workflow: evb_workspace_snapshot for state; evb_list_capabilities to discover actions; evb_describe_capability for schemas, policy, and availability; evb_read_resource for notes, annotations, bookmarks, page labels, page text, and OCR status; evb_read_action for non-mutating preview/read capabilities; evb_run_action for write, destructive, navigation, and long-running actions.',
+        'Use semantic capability ids through evb_read_action for read/preview capabilities such as document.open_documents, document.readiness, document.inspect_text, document.search, document.read_pages, page_labels.preview, and bookmarks.preview_tree; use evb_run_action for document.capture_page_image, view.go_to_page, annotation.*, page_labels writes, bookmarks writes, ocr.*, file.save, and other non-read actions.',
         'Recent files in workspace snapshots are metadata only; do not summarize contents until opened and read through EVB tools.',
         'For search/navigation, search first, read candidate pages, then navigate only after selecting the best page. If text is missing or visual evidence matters, inspect text coverage or capture a page image.',
         'For annotations, use direct create/update capabilities instead of only selecting toolbar tools. Read annotation/note resources first when updating existing content.',
         'For page labels and bookmarks, read existing state, verify against text and screenshots when uncertain, preview first, apply only verified plans, re-read after writes, then save with file.save.',
         'For OCR, use ocr.status before acting, ocr.open_popup for visible controls, and ocr.start only after explicit user request or policy approval.',
-        'For writes, destructive actions, or long-running actions, inspect policy/availability and prefer dryRun or preview when supported. For DjVu or image documents, recommend converting to PDF before deep text analysis.',
+        `${writePolicyInstruction} For DjVu or image documents, recommend converting to PDF before deep text analysis.`,
     ].join('\n');
 }
 
@@ -595,11 +600,26 @@ function enforceCapabilityPolicy(template: IAgentCapabilityTemplate, options: IP
     throw new Error(`Capability ${template.id} is not allowed for ${callerKind} MCP callers.`);
 }
 
-async function runAgentActionTool(params: unknown, options: IProcessMcpRequestOptions) {
+function enforceReadActionToolPolicy(template: IAgentCapabilityTemplate) {
+    if (template.risk === 'read') {
+        return;
+    }
+
+    throw new Error(`Capability ${template.id} is ${template.risk}; use evb_run_action for non-read capabilities.`);
+}
+
+async function runAgentActionTool(
+    params: unknown,
+    options: IProcessMcpRequestOptions,
+    dispatchOptions: { readOnlyOnly?: boolean } = {},
+) {
     const id = getRequiredCapabilityId(params);
     const template = getCapabilityTemplate(id);
     if (!template) {
         throw new Error(`Unknown EVB capability: ${id}`);
+    }
+    if (dispatchOptions.readOnlyOnly) {
+        enforceReadActionToolPolicy(template);
     }
     enforceCapabilityPolicy(template, options);
 
@@ -740,6 +760,10 @@ async function callTool(name: string, params: unknown, options: IProcessMcpReque
 
     if (name === 'evb_run_action') {
         return createToolResult(await runAgentActionTool(params, options));
+    }
+
+    if (name === 'evb_read_action') {
+        return createToolResult(await runAgentActionTool(params, options, {readOnlyOnly: true}));
     }
 
     if (name === 'evb_job_status') {
@@ -1048,7 +1072,7 @@ function createPromptText(name: string, params: unknown) {
         return [
             `Find "${topic}" in the active EVB Viewer PDF.`,
             'Use evb_workspace_snapshot to identify the active tab.',
-            'Call evb_run_action with document.search and a small set of likely query variants; inspect candidate pages with document.read_pages.',
+            'Call evb_read_action with document.search and a small set of likely query variants; inspect candidate pages with document.read_pages through evb_read_action.',
             'Navigate with view.go_to_page only after choosing the best page. If text coverage is missing, call document.inspect_text and recommend OCR all pages.',
         ].join('\n');
     }
@@ -1058,8 +1082,8 @@ function createPromptText(name: string, params: unknown) {
             'Reconstruct the PDF page labels from the printed page numbers.',
             'Start by reading evb://document/{tabId}/page-labels and inspecting text coverage with document.inspect_text. Use OCR/searchable page text as evidence, but do not trust it blindly.',
             'Sample the beginning, front-matter/body transition, appendix or plate sections, and the end. Look for printed numerals such as iv, A, A-1, 1, or restarted numbering; search/read nearby pages to infer ranges.',
-            'For every uncertain boundary or suspicious OCR result, call document.capture_page_image with full/top/bottom or normalized crops and visually inspect the returned image before deciding.',
-            'Call page_labels.preview with ranges, inclusive segments, or explicit labels. Inspect the normalized segments, samples, issues, and changed-page diff. Only then commit with page_labels.apply_plan so the app records an undoable metadata step. Re-read page labels after the write, spot-check representative pages, then save with file.save.',
+            'For every uncertain boundary or suspicious OCR result, call document.capture_page_image through evb_run_action with full/top/bottom or normalized crops and visually inspect the returned image before deciding.',
+            'Call page_labels.preview through evb_read_action with ranges, inclusive segments, or explicit labels. Inspect the normalized segments, samples, issues, and changed-page diff. If caller policy permits the write, commit with page_labels.apply_plan through evb_run_action so the app records an undoable metadata step. If evb_run_action reports confirmation required, denied, or unavailable, no labels were changed; report the preview plan and ask for an app/user grant or manual apply. Re-read page labels and save with file.save only after a successful write.',
         ].join('\n');
     }
 
@@ -1067,17 +1091,17 @@ function createPromptText(name: string, params: unknown) {
         return [
             'Rebuild or correct PDF bookmarks from verified section starts.',
             'Start by reading evb://document/{tabId}/toc and /bookmarks. Treat the existing PDF TOC/bookmarks as hints, not proof.',
-            'Use document.search and document.read_pages to locate each section title from the TOC, printed contents pages, or the user-specified outline.',
-            'For doubtful title/page matches, wrong-looking offsets, duplicated headings, or OCR gaps, call document.capture_page_image on candidate pages or crops and inspect the visible page before writing.',
-            'Call bookmarks.preview_tree with a nested tree or flat entries that carry level/depth values. Inspect the normalized tree, flat path list, issues, and diff. Only then commit with bookmarks.apply_plan so the app records an undoable metadata step. Re-read bookmarks, verify a sample of root and nested targets after the write, then save with file.save.',
+            'Use document.search and document.read_pages through evb_read_action to locate each section title from the TOC, printed contents pages, or the user-specified outline.',
+            'For doubtful title/page matches, wrong-looking offsets, duplicated headings, or OCR gaps, call document.capture_page_image through evb_run_action on candidate pages or crops and inspect the visible page before writing.',
+            'Call bookmarks.preview_tree through evb_read_action with a nested tree or flat entries that carry level/depth values. Inspect the normalized tree, flat path list, issues, and diff. If caller policy permits the write, commit with bookmarks.apply_plan through evb_run_action so the app records an undoable metadata step. If evb_run_action reports confirmation required, denied, or unavailable, no bookmarks were changed; report the preview tree and ask for an app/user grant or manual apply. Re-read bookmarks and save with file.save only after a successful write.',
         ].join('\n');
     }
 
     if (name === 'evb_check_document_prep') {
         return [
             'Check whether the active EVB Viewer document is agent-ready.',
-            'Use evb_workspace_snapshot and evb_run_action with document.open_documents or document.readiness first.',
-            'For PDFs, call document.inspect_text through evb_run_action to compute searchable text coverage.',
+            'Use evb_workspace_snapshot and evb_read_action with document.open_documents or document.readiness first.',
+            'For PDFs, call document.inspect_text through evb_read_action to compute searchable text coverage.',
             'If coverage is partial or none, explain that OCR all pages is recommended. If the document is DjVu or image, recommend converting to PDF first.',
         ].join('\n');
     }
@@ -1142,13 +1166,13 @@ export async function processMcpRequest(
                     title: options.identity.title,
                     version: options.identity.version,
                 },
-                instructions: createInitializeInstructions(),
+                instructions: createInitializeInstructions(getMcpCallerKind(options)),
                 _meta: createInitializeMetadata(options.identity),
             });
         }
 
         if (method === 'tools/list') {
-            return createResultResponse(id, { tools: MCP_TOOLS });
+            return createResultResponse(id, { tools: createMcpToolsForCaller(getMcpCallerKind(options)) });
         }
 
         if (method === 'tools/call') {

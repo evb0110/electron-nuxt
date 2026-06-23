@@ -20,14 +20,12 @@ interface IResolvePdfZoomScaleInput {
     limits?: Partial<IZoomLimits>;
 }
 
-interface IResolvePdfFitScaleInput {
-    availableSize: number;
-    baseDimension: number;
-    limits?: Partial<IZoomLimits>;
-}
-
 function normalizePositiveNumber(value: number, fallback: number) {
     return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function normalizeFiniteNumber(value: number, fallback: number) {
+    return Number.isFinite(value) ? value : fallback;
 }
 
 function resolveZoomLimits(limits?: Partial<IZoomLimits>): IZoomLimits {
@@ -52,7 +50,7 @@ function normalizeFitIntent(zoomMode: TZoomMode, fitMode: TFitMode) {
 export function clampPdfManualZoom(level: number, limits?: Partial<IZoomLimits>) {
     const resolvedLimits = resolveZoomLimits(limits);
     return clamp(
-        normalizePositiveNumber(level, 1),
+        normalizeFiniteNumber(level, 1),
         resolvedLimits.manualMin,
         resolvedLimits.manualMax,
     );
@@ -61,21 +59,10 @@ export function clampPdfManualZoom(level: number, limits?: Partial<IZoomLimits>)
 export function clampPdfFitScale(level: number, limits?: Partial<IZoomLimits>) {
     const resolvedLimits = resolveZoomLimits(limits);
     return clamp(
-        normalizePositiveNumber(level, 1),
+        normalizeFiniteNumber(level, 1),
         resolvedLimits.fitMin,
         resolvedLimits.fitMax,
     );
-}
-
-export function resolvePdfFitScale(input: IResolvePdfFitScaleInput) {
-    const naturalScale = input.availableSize / input.baseDimension;
-    const scale = clampPdfFitScale(naturalScale, input.limits);
-
-    return {
-        naturalScale,
-        scale,
-        clamped: Math.abs(scale - naturalScale) >= 0.001,
-    };
 }
 
 export function resolvePdfZoomScale(input: IResolvePdfZoomScaleInput) {

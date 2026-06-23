@@ -29,6 +29,7 @@ import {
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { createHttpHandler } from '@electron/features/agent/mcp/createHttpHandler';
+import { ASSISTANT_MCP_SERVER_NAME } from '@electron/features/agent/codexAssistantConfig';
 
 export { processMcpRequest } from '@electron/features/agent/mcp/mcpServerCore';
 
@@ -245,6 +246,9 @@ export interface IEmbeddedMcpServerHandle {
 
 export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
     if (embeddedMcpServer && embeddedMcpServerDescriptor && embeddedMcpToken) {
+        if (embeddedMcpServerDescriptor.name !== ASSISTANT_MCP_SERVER_NAME) {
+            return shutdownEmbeddedMcpServer().then(() => startEmbeddedMcpServer());
+        }
         return Promise.resolve({
             descriptor: embeddedMcpServerDescriptor,
             token: embeddedMcpToken,
@@ -259,7 +263,7 @@ export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
 
     const startPromise = new Promise<IEmbeddedMcpServerHandle>((resolve, reject) => {
         const identity = createLocalMcpServerIdentity(0);
-        identity.name = `${identity.name}_embedded`;
+        identity.name = ASSISTANT_MCP_SERVER_NAME;
         identity.title = `${identity.title} Assistant`;
         const options = {
             ...createDefaultMcpRequestOptions(identity),

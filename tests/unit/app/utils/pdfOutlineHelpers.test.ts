@@ -10,6 +10,7 @@ import type {
 } from 'pdfjs-dist';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
 import {
+    buildOutlineFromBookmarkEntries,
     buildResolvedOutline,
     convertOutlineColorToHex,
     normalizeBookmarkColor,
@@ -137,6 +138,52 @@ describe('pdfOutlineHelpers', () => {
 
         expect(resolved[0]?.title).toBe('root');
         expect(countOutlineDepth(resolved)).toBeLessThanOrEqual(256);
+    });
+
+    it('projects pending bookmark entries into visible outline items without PDF.js', () => {
+        let bookmarkId = 0;
+
+        const resolved = buildOutlineFromBookmarkEntries([{
+            title: 'Contents',
+            pageIndex: 4,
+            namedDest: 'page-5',
+            bold: true,
+            italic: false,
+            color: '#ABC',
+            items: [{
+                title: 'Chapter',
+                pageIndex: 10.8,
+                namedDest: null,
+                bold: false,
+                italic: true,
+                color: '#123456',
+                items: [],
+            }],
+        }], () => {
+            const id = `bookmark-${bookmarkId}`;
+            bookmarkId += 1;
+            return id;
+        });
+
+        expect(resolved).toEqual([{
+            id: 'bookmark-0',
+            title: 'Contents',
+            dest: 'page-5',
+            pageIndex: 4,
+            bold: true,
+            italic: false,
+            color: '#aabbcc',
+            items: [{
+                id: 'bookmark-1',
+                title: 'Chapter',
+                dest: null,
+                pageIndex: 10,
+                bold: false,
+                italic: true,
+                color: '#123456',
+                items: [],
+            }],
+        }]);
     });
 
     it('resolves named destination and caches destination + ref index', async () => {

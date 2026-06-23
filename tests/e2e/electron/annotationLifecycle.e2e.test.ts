@@ -53,7 +53,14 @@ async function waitForActiveTabDirtyState(page: Page, expectedDirty: boolean) {
             document.querySelector<HTMLElement>('.tab.is-active')?.classList.contains('is-dirty') ?? false
         ));
     }
-    throw new Error(`Expected active tab dirty=${expectedDirty}, got ${actualDirty}`);
+    const debugState = await page.evaluate(() => {
+        const api = (window as Window & { __evbTestApi?: { collectWorkspaceDebugState?: () => unknown; }; }).__evbTestApi;
+        return {
+            activeTabClassName: document.querySelector<HTMLElement>('.tab.is-active')?.className ?? null,
+            workspace: api?.collectWorkspaceDebugState?.() ?? null,
+        };
+    });
+    throw new Error(`Expected active tab dirty=${expectedDirty}, got ${actualDirty}; debug=${JSON.stringify(debugState)}`);
 }
 
 async function clickEnabledToolbarAction(page: Page, label: string) {

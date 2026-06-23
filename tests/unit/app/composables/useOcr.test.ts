@@ -88,10 +88,21 @@ describe('useOcr', () => {
     });
 
     it('settles runOcr when canceled before completion', async () => {
+        interface IOcrCompleteTestResult {
+            requestId: string;
+            success: boolean;
+            pdfPath?: string;
+            requiresCleanupAck?: boolean;
+            errors: string[];
+        }
+        let completeHandler: ((result: IOcrCompleteTestResult) => void) | null = null;
         const progressUnsubscribe = vi.fn();
         const completeUnsubscribe = vi.fn();
         mockOcr.onProgress.mockReturnValue(progressUnsubscribe);
-        mockOcr.onComplete.mockReturnValue(completeUnsubscribe);
+        mockOcr.onComplete.mockImplementation((handler) => {
+            completeHandler = handler;
+            return completeUnsubscribe;
+        });
 
         const scope = effectScope();
         const ocr = scope.run(() => useOcr());
@@ -118,9 +129,21 @@ describe('useOcr', () => {
             expect(settled).toBe('resolved');
             expect(mockOcr.cancel).toHaveBeenCalledTimes(1);
             expect(progressUnsubscribe).toHaveBeenCalledTimes(1);
-            expect(completeUnsubscribe).toHaveBeenCalledTimes(1);
+            expect(completeUnsubscribe).not.toHaveBeenCalled();
             expect(ocr.progress.value.isRunning).toBe(false);
             expect(ocr.error.value).toBeNull();
+
+            const requestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
+            const registeredCompleteHandler = mockOcr.onComplete.mock.calls[0]?.[0] ?? completeHandler;
+            if (!registeredCompleteHandler) {
+                throw new Error('OCR completion handler was not registered');
+            }
+            registeredCompleteHandler({
+                requestId,
+                success: false,
+                errors: ['OCR canceled'],
+            });
+            expect(completeUnsubscribe).toHaveBeenCalledTimes(1);
         } finally {
             scope.stop();
         }
@@ -181,6 +204,65 @@ describe('useOcr', () => {
             await runPromise;
 
             expect(mockOcr.acknowledgeResultFile).toHaveBeenCalledWith(requestId, '/tmp/late-ocr-result.pdf');
+            expect(completeUnsubscribe).toHaveBeenCalledTimes(1);
+            expect(ocr.results.value.searchablePdfResult).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('keeps the late completion watcher when backend cancel succeeds', async () => {
+        interface IOcrCompleteTestResult {
+            requestId: string;
+            success: boolean;
+            pdfPath?: string;
+            requiresCleanupAck?: boolean;
+            errors: string[];
+        }
+        let completeHandler: ((result: IOcrCompleteTestResult) => void) | null = null;
+        const completeUnsubscribe = vi.fn();
+        mockOcr.onComplete.mockImplementation((handler) => {
+            completeHandler = handler;
+            return completeUnsubscribe;
+        });
+        mockOcr.cancel.mockResolvedValueOnce({ canceled: true });
+        mockOcr.acknowledgeResultFile.mockResolvedValueOnce({ cleaned: true });
+
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            const runPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+
+            await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
+            const requestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
+            const cancelResult = await ocr.cancelOcr();
+
+            expect(cancelResult).toEqual({ canceled: true });
+            expect(completeUnsubscribe).not.toHaveBeenCalled();
+
+            const registeredCompleteHandler = mockOcr.onComplete.mock.calls[0]?.[0] ?? completeHandler;
+            if (!registeredCompleteHandler) {
+                throw new Error('OCR completion handler was not registered');
+            }
+            registeredCompleteHandler({
+                requestId,
+                success: true,
+                pdfPath: '/tmp/success-before-cancel-returned.pdf',
+                requiresCleanupAck: true,
+                errors: [],
+            });
+
+            await waitForCondition(() => mockOcr.acknowledgeResultFile.mock.calls.length > 0);
+            await runPromise;
+
+            expect(mockOcr.acknowledgeResultFile).toHaveBeenCalledWith(
+                requestId,
+                '/tmp/success-before-cancel-returned.pdf',
+            );
             expect(completeUnsubscribe).toHaveBeenCalledTimes(1);
             expect(ocr.results.value.searchablePdfResult).toBeNull();
         } finally {

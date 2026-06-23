@@ -1044,8 +1044,17 @@ async function ensureWorkspaceLoaded(reason: string) {
 }
 
 async function withLoadedWorkspace<T = void>(action: string, run: (workspace: IWorkspaceExpose) => Promise<T> | T) {
-    const workspace = mountedWorkspace.value;
+    let workspace = mountedWorkspace.value ?? await ensureWorkspaceLoaded(action);
+    if (!workspace && !hasWorkspaceChunkLoadError.value) {
+        workspace = await waitForWorkspaceMount(WORKSPACE_MOUNT_RETRY_TIMEOUT_MS);
+    }
     if (!workspace) {
+        BrowserLogger.error('workspace-host', 'Workspace unavailable for loaded action', {
+            tabId: tabId,
+            action,
+            hasWorkspaceChunkLoadError: hasWorkspaceChunkLoadError.value,
+            error: workspaceChunkLoadError.value,
+        });
         return undefined;
     }
 
@@ -1057,6 +1066,36 @@ async function withLoadedWorkspace<T = void>(action: string, run: (workspace: IW
             error,
         });
         return undefined;
+    }
+}
+
+async function withLoadedWorkspaceRequired<T = void>(
+    action: string,
+    run: (workspace: IWorkspaceExpose) => Promise<T> | T,
+) {
+    let workspace = mountedWorkspace.value ?? await ensureWorkspaceLoaded(action);
+    if (!workspace && !hasWorkspaceChunkLoadError.value) {
+        workspace = await waitForWorkspaceMount(WORKSPACE_MOUNT_RETRY_TIMEOUT_MS);
+    }
+    if (!workspace) {
+        const error = new Error('Workspace is not available.');
+        BrowserLogger.error('workspace-host', 'Workspace unavailable for loaded action', {
+            tabId: tabId,
+            action,
+            hasWorkspaceChunkLoadError: hasWorkspaceChunkLoadError.value,
+            error: workspaceChunkLoadError.value,
+        });
+        throw error;
+    }
+
+    try {
+        return await run(workspace);
+    } catch (error) {
+        BrowserLogger.error('workspace-host', `Action failed (${action})`, {
+            tabId: tabId,
+            error,
+        });
+        throw error;
     }
 }
 
@@ -1233,6 +1272,7 @@ const workspaceExpose: IWorkspaceExpose = createDeferredWorkspaceExposeProxy({
         hasPdf,
     },
     withLoadedWorkspace,
+    withLoadedWorkspaceRequired,
     withWorkspace,
 });
 

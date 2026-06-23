@@ -127,6 +127,8 @@
                     :annotation-comments-status="annotationCommentsStatus"
                     :annotation-active-comment-stable-key="annotationActiveCommentStableKey"
                     :bookmark-edit-mode="bookmarkEditMode"
+                    :bookmark-items="bookmarkItems"
+                    :bookmarks-dirty="bookmarksDirty"
                     :is-page-operation-in-progress="isPageOperationInProgress"
                     :is-djvu-mode="isDjvuMode"
                     :selected-thumbnail-pages="selectedThumbnailPages"
@@ -639,6 +641,13 @@ const {
     annotationCommentsStatus,
     annotationActiveCommentStableKey,
     thumbnailHiddenAnnotationIds,
+    hasAnnotationChanges,
+    hasLivePdfJsAnnotationChanges,
+    hasSavedPdfJsAnnotationBaselineChanges,
+    hasPreservedAnnotationSourceChanges,
+    pendingEmbeddedAnnotationDeleteCount,
+    hasPendingUnsavedChanges,
+    isDirty,
     applyAnnotationComments,
     markAnnotationCommentsLoading,
     markAnnotationDirty,
@@ -1042,7 +1051,7 @@ const {
 });
 const workspaceToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => ({
     hasPdf: toolbarHasPdf.value,
-    isOpeningDocument: pendingDocumentOpen.value,
+    isOpeningDocument: isOpeningDocumentForToolbar.value,
     hasOpenError: Boolean(pdfError.value) || Boolean(djvuError.value),
     isPreparingPrint: isPreparingPrint.value,
     isPreparingCurrentPagePrint: isPreparingCurrentPagePrint.value,
@@ -1412,9 +1421,12 @@ const {
     totalPages,
     updateAnnotationNoteText,
     viewMode,
+    waitForDocumentOpenSettled,
     workingCopyPath,
     zoom,
 });
+
+const readHasPreservedAnnotationSourceChanges = (): boolean => hasPreservedAnnotationSourceChanges();
 
 const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleSave,
@@ -1520,6 +1532,15 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     annotationComments,
     annotationCommentsStatus,
     annotationDirty,
+    isDirty,
+    hasAnnotationChanges,
+    hasLivePdfJsAnnotationChanges,
+    hasSavedPdfJsAnnotationBaselineChanges,
+    hasPreservedAnnotationSourceChanges: readHasPreservedAnnotationSourceChanges,
+    hasPendingUnsavedChanges,
+    pendingEmbeddedAnnotationDeleteCount,
+    pageLabelsDirty,
+    bookmarksDirty,
     sortedAnnotationNoteWindows,
     handleOcrComplete: payload => handleOcrComplete(payload as Parameters<typeof handleOcrComplete>[0]),
 });

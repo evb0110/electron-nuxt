@@ -13,6 +13,7 @@ import {
     mkdtempSync,
     readFileSync,
     rmSync,
+    statSync,
     writeFileSync,
 } from 'fs';
 import {
@@ -22,6 +23,14 @@ import {
 } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { createOriginalFileContentFingerprintSync } from '@electron/file-access/workingCopyOriginalFileExpectation';
+import type * as SerializedPdfPersistenceModule from '@electron/features/documents/main/serializedPdfPersistence';
+import type * as WorkingCopyMutationQueueModule from '@electron/file-access/workingCopyMutationQueue';
+
+type TSerializedPdfPersistenceModule = typeof SerializedPdfPersistenceModule;
+type TWorkingCopyMutationQueueModule = typeof WorkingCopyMutationQueueModule;
+
+interface IInvocationOrderMock { mock: { invocationCallOrder: number[] }; }
 
 const mocks = vi.hoisted(() => ({
     atomicReplace: vi.fn(),
@@ -29,7 +38,7 @@ const mocks = vi.hoisted(() => ({
     validatePdfFile: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn(),
     getWorkingCopyOriginalFileExpectation: vi.fn(),
-    getWorkingCopyOriginalPath: vi.fn(),
+    getWorkingCopyOriginalPath: vi.fn<(workingPath: string, senderWebContentsId?: number) => { originalPath: string } | null>(),
     refreshWorkingCopyOriginalFileExpectation: vi.fn(),
     setWorkingCopyOriginalPath: vi.fn<(workingPath: string, originalPath: string, senderId?: number) => void>(),
     allowOpenPath: vi.fn(),
@@ -52,7 +61,7 @@ vi.mock('@electron/features/documents/main/pdfSaveAsOptimization', () => ({
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({
     getWorkingCopyOriginalFileExpectation: (...args: unknown[]) => mocks.getWorkingCopyOriginalFileExpectation(...args),
-    getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args),
+    getWorkingCopyOriginalPath: (...args: [string, number?]) => mocks.getWorkingCopyOriginalPath(...args),
     normalizePathForLookup: (path: string) => path.trim(),
     refreshWorkingCopyOriginalFileExpectation: (...args: unknown[]) => mocks.refreshWorkingCopyOriginalFileExpectation(...args),
     setWorkingCopyOriginalPath: (...args: [string, string, number?]) => mocks.setWorkingCopyOriginalPath(...args),
@@ -62,6 +71,49 @@ vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrit
 vi.mock('@electron/file-access/openPathCapabilities', () => ({allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args)}));
 vi.mock('@electron/recentFiles', () => ({addRecentFile: (...args: unknown[]) => mocks.addRecentFile(...args)}));
 vi.mock('@electron/menu', () => ({updateRecentFilesMenu: (...args: unknown[]) => mocks.updateRecentFilesMenu(...args)}));
+
+function createOriginalFileExpectationForTest(originalPath: string) {
+    const originalStat = statSync(originalPath);
+    const contentFingerprint = createOriginalFileContentFingerprintSync(originalPath, originalStat.size);
+    return {
+        contentFingerprint,
+        mtimeMs: originalStat.mtimeMs,
+        size: originalStat.size,
+    };
+}
+
+async function importSerializedPdfPersistence(): Promise<TSerializedPdfPersistenceModule> {
+    return import('@electron/features/documents/main/serializedPdfPersistence');
+}
+
+async function importWorkingCopyMutationQueue(): Promise<TWorkingCopyMutationQueueModule> {
+    return import('@electron/file-access/workingCopyMutationQueue');
+}
+
+class FakeSender extends EventEmitter {
+    constructor(readonly id = 42) {
+        super();
+    }
+}
+
+function createInvokeEvent(sender: FakeSender) {
+    return {sender} as never;
+}
+
+function createPortEvent(sender: FakeSender, port: FakeMessagePort) {
+    return {
+        sender,
+        ports: [port],
+    } as never;
+}
+
+function firstInvocationOrder(mock: IInvocationOrderMock) {
+    const order = mock.mock.invocationCallOrder[0];
+    if (order === undefined) {
+        throw new Error('Expected mock to have been invoked');
+    }
+    return order;
+}
 
 describe('serializedPdfPersistence', () => {
     let tempRoot = '';
@@ -76,7 +128,12 @@ describe('serializedPdfPersistence', () => {
             warnings: [],
         });
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
-        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(null);
+        mocks.getWorkingCopyOriginalFileExpectation.mockImplementation((workingPath: string, senderWebContentsId?: number) => {
+            const original = mocks.getWorkingCopyOriginalPath(workingPath, senderWebContentsId);
+            return original?.originalPath
+                ? createOriginalFileExpectationForTest(original.originalPath)
+                : null;
+        });
         mocks.optimizePdfForSaveAs.mockResolvedValue(null);
         mocks.optimizeLargePdfForSave.mockResolvedValue(null);
         mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
@@ -119,11 +176,11 @@ describe('serializedPdfPersistence', () => {
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith(workingPath, 42);
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, targetPath);
         expect(
-            mocks.ensureWorkingCopyDirectory.mock.invocationCallOrder[0]!,
-        ).toBeLessThan(mocks.makeSiblingTempPath.mock.invocationCallOrder[0]!);
+            firstInvocationOrder(mocks.ensureWorkingCopyDirectory),
+        ).toBeLessThan(firstInvocationOrder(mocks.makeSiblingTempPath));
         expect(
-            mocks.ensureWorkingCopyDirectory.mock.invocationCallOrder[0]!,
-        ).toBeLessThan(mocks.atomicReplace.mock.invocationCallOrder[0]!);
+            firstInvocationOrder(mocks.ensureWorkingCopyDirectory),
+        ).toBeLessThan(firstInvocationOrder(mocks.atomicReplace));
         expect(mocks.setWorkingCopyOriginalPath).toHaveBeenCalledWith(workingPath, targetPath, 42);
         expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath, expect.objectContaining({ id: 42 }));
         expect(mocks.addRecentFile).toHaveBeenCalledWith(targetPath);
@@ -151,8 +208,8 @@ describe('serializedPdfPersistence', () => {
         });
         expect(mocks.optimizePdfForSaveAs).toHaveBeenCalledWith(tempPath, { optimizeLossless: true });
         expect(
-            mocks.optimizePdfForSaveAs.mock.invocationCallOrder[0]!,
-        ).toBeLessThan(mocks.atomicReplace.mock.invocationCallOrder[0]!);
+            firstInvocationOrder(mocks.optimizePdfForSaveAs),
+        ).toBeLessThan(firstInvocationOrder(mocks.atomicReplace));
     });
 
     it('preserves the Save As working copy when target replacement fails', async () => {
@@ -184,12 +241,11 @@ describe('serializedPdfPersistence', () => {
         const workingPath = join(tempRoot, 'large-working.pdf');
         const targetPath = join(tempRoot, 'large-saved.pdf');
         const tempPath = `${targetPath}.tmp`;
-        const sender = new EventEmitter() as EventEmitter & { id: number };
-        sender.id = 42;
-        const { beginSerializedPdfSaveAs } = await import('@electron/features/documents/main/serializedPdfPersistence');
+        const sender = new FakeSender();
+        const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
 
         const result = await beginSerializedPdfSaveAs(
-            {sender} as never,
+            createInvokeEvent(sender),
             workingPath,
             (512 * 1024 * 1024) + 1,
             targetPath,
@@ -210,12 +266,11 @@ describe('serializedPdfPersistence', () => {
     it('rejects impossible serialized PDF stream sizes before opening a temp file', async () => {
         const workingPath = join(tempRoot, 'oversized-working.pdf');
         const targetPath = join(tempRoot, 'oversized-saved.pdf');
-        const sender = new EventEmitter() as EventEmitter & { id: number };
-        sender.id = 42;
-        const { beginSerializedPdfSaveAs } = await import('@electron/features/documents/main/serializedPdfPersistence');
+        const sender = new FakeSender();
+        const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
 
         await expect(beginSerializedPdfSaveAs(
-            {sender} as never,
+            createInvokeEvent(sender),
             workingPath,
             Number.MAX_SAFE_INTEGER,
             targetPath,
@@ -304,11 +359,11 @@ describe('serializedPdfPersistence', () => {
         expect(readFileSyncUtf8(workingPath)).toBe('new-pdf');
         expect(mocks.optimizeLargePdfForSave).toHaveBeenCalledWith(`${originalPath}.tmp`);
         expect(
-            mocks.optimizeLargePdfForSave.mock.invocationCallOrder[0]!,
-        ).toBeLessThan(mocks.atomicReplace.mock.invocationCallOrder[0]!);
+            firstInvocationOrder(mocks.optimizeLargePdfForSave),
+        ).toBeLessThan(firstInvocationOrder(mocks.atomicReplace));
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledWith(workingPath, 42);
-        expect(mocks.copyFileCopyOnWrite.mock.invocationCallOrder[0]!)
-            .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[0]!);
+        expect(firstInvocationOrder(mocks.copyFileCopyOnWrite))
+            .toBeLessThan(firstInvocationOrder(mocks.refreshWorkingCopyOriginalFileExpectation));
     });
 
     it('rejects Save As before opening a temp stream when the sender does not own the working copy', async () => {
@@ -316,12 +371,11 @@ describe('serializedPdfPersistence', () => {
         const targetPath = join(tempRoot, 'saved.pdf');
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
 
-        const sender = new EventEmitter() as EventEmitter & { id: number };
-        sender.id = 42;
-        const { beginSerializedPdfSaveAs } = await import('@electron/features/documents/main/serializedPdfPersistence');
+        const sender = new FakeSender();
+        const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
 
         await expect(beginSerializedPdfSaveAs(
-            {sender} as never,
+            createInvokeEvent(sender),
             workingPath,
             128,
             targetPath,
@@ -337,7 +391,7 @@ describe('serializedPdfPersistence', () => {
         writeFileSync(workingPath, 'old-working');
         writeFileSync(targetPath, 'old-target');
         const queuedMutation = deferred<undefined>();
-        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+        const { enqueueWorkingCopyMutation } = await importWorkingCopyMutationQueue();
         const blockingMutation = enqueueWorkingCopyMutation(workingPath, () => queuedMutation.promise);
 
         const resultPromise = runSaveAsSession({
@@ -369,12 +423,11 @@ describe('serializedPdfPersistence', () => {
         writeFileSync(targetPath, 'old-target');
         mocks.ensureWorkingCopyDirectory.mockRejectedValue(new Error('working copy unavailable'));
 
-        const sender = new EventEmitter() as EventEmitter & { id: number };
-        sender.id = 42;
-        const { beginSerializedPdfSaveAs } = await import('@electron/features/documents/main/serializedPdfPersistence');
+        const sender = new FakeSender();
+        const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
 
         await expect(beginSerializedPdfSaveAs(
-            {sender} as never,
+            createInvokeEvent(sender),
             workingPath,
             128,
             targetPath,
@@ -393,16 +446,15 @@ describe('serializedPdfPersistence', () => {
         const workingPath = join(tempRoot, 'working.pdf');
         const targetPath = join(tempRoot, 'saved.pdf');
         const tempPath = `${targetPath}.tmp`;
-        const sender = new EventEmitter() as EventEmitter & { id: number };
-        sender.id = 42;
+        const sender = new FakeSender();
         const port = new FakeMessagePort();
         const {
             attachSerializedPdfPersistencePort,
             beginSerializedPdfSaveAs,
-        } = await import('@electron/features/documents/main/serializedPdfPersistence');
+        } = await importSerializedPdfPersistence();
 
         const beginResult = await beginSerializedPdfSaveAs(
-            {sender} as never,
+            createInvokeEvent(sender),
             workingPath,
             4,
             targetPath,
@@ -417,10 +469,7 @@ describe('serializedPdfPersistence', () => {
             resultTimeoutMs: expect.any(Number),
         });
 
-        attachSerializedPdfPersistencePort({
-            sender,
-            ports: [port],
-        } as never, beginResult.sessionId);
+        attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
 
         port.emit('message', {data: {
             type: 'chunk',
@@ -441,16 +490,140 @@ describe('serializedPdfPersistence', () => {
         });
     });
 
+    it('accepts Electron MessagePortMain message events with transferred-port metadata', async () => {
+        const workingPath = join(tempRoot, 'working.pdf');
+        const targetPath = join(tempRoot, 'electron-message-event.pdf');
+        const tempPath = `${targetPath}.tmp`;
+        const sender = new FakeSender();
+        const port = new FakeMessagePort();
+        const {
+            attachSerializedPdfPersistencePort,
+            beginSerializedPdfSaveAs,
+        } = await importSerializedPdfPersistence();
+
+        const beginResult = await beginSerializedPdfSaveAs(
+            createInvokeEvent(sender),
+            workingPath,
+            4,
+            targetPath,
+        );
+        attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
+        const resultPromise = port.nextResult();
+
+        port.emit('message', {
+            data: {
+                type: 'chunk',
+                seq: 0,
+                bytes: Buffer.from('%PDF'),
+            },
+            ports: [],
+        });
+
+        await expect(port.nextMessage(message => isPortMessage(message, 'ack'))).resolves.toMatchObject({
+            type: 'ack',
+            seq: 0,
+            receivedBytes: 4,
+        });
+        expect(readFileSyncUtf8(tempPath)).toBe('%PDF');
+
+        port.emit('message', {
+            data: {type: 'complete'},
+            ports: [],
+        });
+        await expect(resultPromise).resolves.toMatchObject({type: 'result'});
+        expect(readFileSyncUtf8(targetPath)).toBe('%PDF');
+        expect(existsSync(tempPath)).toBe(false);
+    });
+
+    it('accepts deeply nested MessagePortMain message events from Electron payload wrappers', async () => {
+        const workingPath = join(tempRoot, 'working.pdf');
+        const targetPath = join(tempRoot, 'nested-electron-message-event.pdf');
+        const tempPath = `${targetPath}.tmp`;
+        const sender = new FakeSender();
+        const port = new FakeMessagePort();
+        const {
+            attachSerializedPdfPersistencePort,
+            beginSerializedPdfSaveAs,
+        } = await importSerializedPdfPersistence();
+
+        const beginResult = await beginSerializedPdfSaveAs(
+            createInvokeEvent(sender),
+            workingPath,
+            4,
+            targetPath,
+        );
+        attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
+        const resultPromise = port.nextResult();
+
+        port.emit('message', wrapMessageEventPayload({
+            type: 'chunk',
+            seq: 0,
+            bytes: Buffer.from('%PDF'),
+        }, 8));
+
+        await expect(port.nextMessage(message => isPortMessage(message, 'ack'))).resolves.toMatchObject({
+            type: 'ack',
+            seq: 0,
+            receivedBytes: 4,
+        });
+        expect(readFileSyncUtf8(tempPath)).toBe('%PDF');
+
+        port.emit('message', wrapMessageEventPayload({type: 'complete'}, 8));
+        await expect(resultPromise).resolves.toMatchObject({type: 'result'});
+        expect(readFileSyncUtf8(targetPath)).toBe('%PDF');
+        expect(existsSync(tempPath)).toBe(false);
+    });
+
+    it('rejects cyclic MessagePortMain event wrappers without recursive listener failure', async () => {
+        const targetPath = join(tempRoot, 'cyclic-message-event.pdf');
+        const tempPath = `${targetPath}.tmp`;
+        const sender = new FakeSender();
+        const port = new FakeMessagePort();
+        const {
+            attachSerializedPdfPersistencePort,
+            beginSerializedPdfSaveAs,
+        } = await importSerializedPdfPersistence();
+
+        const beginResult = await beginSerializedPdfSaveAs(
+            createInvokeEvent(sender),
+            join(tempRoot, 'working.pdf'),
+            4,
+            targetPath,
+        );
+        attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
+        const messageEvent: {
+            data: unknown;
+            ports: unknown[];
+        } = {
+            data: null,
+            ports: [],
+        };
+        messageEvent.data = messageEvent;
+
+        port.emit('message', messageEvent);
+
+        await expect(port.nextMessage(message => isPortMessage(message, 'error'))).resolves.toMatchObject({
+            type: 'error',
+            code: 'PROTOCOL_ERROR',
+            phase: 'streaming',
+            retryable: false,
+            expected: false,
+            error: expect.stringContaining('Unknown PDF persistence message (keys=data,ports)'),
+        });
+        await waitForCondition(() => {
+            expect(existsSync(tempPath)).toBe(false);
+        });
+    });
+
     it('cleans an open Save As session when the sender is destroyed before streaming starts', async () => {
         const targetPath = join(tempRoot, 'destroyed-sender.pdf');
         const tempPath = `${targetPath}.tmp`;
-        const sender = new EventEmitter() as EventEmitter & { id: number };
-        sender.id = 73;
+        const sender = new FakeSender(73);
         const removeListenerSpy = vi.spyOn(sender, 'removeListener');
-        const { beginSerializedPdfSaveAs } = await import('@electron/features/documents/main/serializedPdfPersistence');
+        const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
 
         await beginSerializedPdfSaveAs(
-            {sender} as never,
+            createInvokeEvent(sender),
             join(tempRoot, 'working.pdf'),
             128,
             targetPath,
@@ -470,13 +643,12 @@ describe('serializedPdfPersistence', () => {
     it('cleans an open Save As session when the sender render process is gone before streaming starts', async () => {
         const targetPath = join(tempRoot, 'gone-renderer.pdf');
         const tempPath = `${targetPath}.tmp`;
-        const sender = new EventEmitter() as EventEmitter & { id: number };
-        sender.id = 74;
+        const sender = new FakeSender(74);
         const removeListenerSpy = vi.spyOn(sender, 'removeListener');
-        const { beginSerializedPdfSaveAs } = await import('@electron/features/documents/main/serializedPdfPersistence');
+        const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
 
         await beginSerializedPdfSaveAs(
-            {sender} as never,
+            createInvokeEvent(sender),
             join(tempRoot, 'working.pdf'),
             128,
             targetPath,
@@ -496,13 +668,12 @@ describe('serializedPdfPersistence', () => {
     it('cleans an open Save As session on non-in-place main-frame navigation before streaming starts', async () => {
         const targetPath = join(tempRoot, 'navigated-renderer.pdf');
         const tempPath = `${targetPath}.tmp`;
-        const sender = new EventEmitter() as EventEmitter & { id: number };
-        sender.id = 75;
+        const sender = new FakeSender(75);
         const removeListenerSpy = vi.spyOn(sender, 'removeListener');
-        const { beginSerializedPdfSaveAs } = await import('@electron/features/documents/main/serializedPdfPersistence');
+        const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
 
         await beginSerializedPdfSaveAs(
-            {sender} as never,
+            createInvokeEvent(sender),
             join(tempRoot, 'working.pdf'),
             128,
             targetPath,
@@ -521,14 +692,13 @@ describe('serializedPdfPersistence', () => {
     });
 
     it('rejects new streams above the per-sender active session limit', async () => {
-        const sender = new EventEmitter() as EventEmitter & { id: number };
-        sender.id = 80;
-        const { beginSerializedPdfSaveAs } = await import('@electron/features/documents/main/serializedPdfPersistence');
+        const sender = new FakeSender(80);
+        const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
         const targetPaths = Array.from({length: 4}, (_, index) => join(tempRoot, `limited-${index}.pdf`));
 
         for (const targetPath of targetPaths) {
             await expect(beginSerializedPdfSaveAs(
-                {sender} as never,
+                createInvokeEvent(sender),
                 join(tempRoot, 'working.pdf'),
                 128,
                 targetPath,
@@ -536,7 +706,7 @@ describe('serializedPdfPersistence', () => {
         }
 
         await expect(beginSerializedPdfSaveAs(
-            {sender} as never,
+            createInvokeEvent(sender),
             join(tempRoot, 'working.pdf'),
             128,
             join(tempRoot, 'limited-overflow.pdf'),
@@ -553,24 +723,20 @@ describe('serializedPdfPersistence', () => {
     it('rejects duplicate MessagePort attachment for a serialized PDF session', async () => {
         const targetPath = join(tempRoot, 'duplicate-port.pdf');
         const tempPath = `${targetPath}.tmp`;
-        const sender = new EventEmitter() as EventEmitter & { id: number };
-        sender.id = 81;
+        const sender = new FakeSender(81);
         const port = new FakeMessagePort();
         const {
             attachSerializedPdfPersistencePort,
             beginSerializedPdfSaveAs,
-        } = await import('@electron/features/documents/main/serializedPdfPersistence');
+        } = await importSerializedPdfPersistence();
 
         const beginResult = await beginSerializedPdfSaveAs(
-            {sender} as never,
+            createInvokeEvent(sender),
             join(tempRoot, 'working.pdf'),
             128,
             targetPath,
         );
-        attachSerializedPdfPersistencePort({
-            sender,
-            ports: [port],
-        } as never, beginResult.sessionId);
+        attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
 
         expect(() => attachSerializedPdfPersistencePort({
             sender,
@@ -586,24 +752,20 @@ describe('serializedPdfPersistence', () => {
     it('rejects serialized PDF chunks larger than the protocol chunk budget', async () => {
         const targetPath = join(tempRoot, 'oversized-chunk.pdf');
         const tempPath = `${targetPath}.tmp`;
-        const sender = new EventEmitter() as EventEmitter & { id: number };
-        sender.id = 82;
+        const sender = new FakeSender(82);
         const port = new FakeMessagePort();
         const {
             attachSerializedPdfPersistencePort,
             beginSerializedPdfSaveAs,
-        } = await import('@electron/features/documents/main/serializedPdfPersistence');
+        } = await importSerializedPdfPersistence();
 
         const beginResult = await beginSerializedPdfSaveAs(
-            {sender} as never,
+            createInvokeEvent(sender),
             join(tempRoot, 'working.pdf'),
             (8 * 1024 * 1024) + 1,
             targetPath,
         );
-        attachSerializedPdfPersistencePort({
-            sender,
-            ports: [port],
-        } as never, beginResult.sessionId);
+        attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
 
         port.emit('message', {data: {
             type: 'chunk',
@@ -635,11 +797,10 @@ async function runSaveAsSession(options: {
     const {
         attachSerializedPdfPersistencePort,
         beginSerializedPdfSaveAs,
-    } = await import('@electron/features/documents/main/serializedPdfPersistence');
-    const sender = new EventEmitter() as EventEmitter & { id: number };
-    sender.id = 42;
+    } = await importSerializedPdfPersistence();
+    const sender = new FakeSender();
     const beginResult = await beginSerializedPdfSaveAs(
-        {sender} as never,
+        createInvokeEvent(sender),
         options.workingPath,
         options.bytes.byteLength,
         options.targetPath,
@@ -648,10 +809,7 @@ async function runSaveAsSession(options: {
     const port = new FakeMessagePort();
     const resultPromise = port.nextResult();
 
-    attachSerializedPdfPersistencePort({
-        sender,
-        ports: [port],
-    } as never, beginResult.sessionId);
+    attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
 
     port.emit('message', {data: {
         type: 'chunk',
@@ -670,21 +828,17 @@ async function runSaveToOriginalSession(options: {
     const {
         attachSerializedPdfPersistencePort,
         beginSerializedPdfSaveToOriginal,
-    } = await import('@electron/features/documents/main/serializedPdfPersistence');
-    const sender = new EventEmitter() as EventEmitter & { id: number };
-    sender.id = 42;
+    } = await importSerializedPdfPersistence();
+    const sender = new FakeSender();
     const beginResult = await beginSerializedPdfSaveToOriginal(
-        {sender} as never,
+        createInvokeEvent(sender),
         options.workingPath,
         options.bytes.byteLength,
     );
     const port = new FakeMessagePort();
     const resultPromise = port.nextResult();
 
-    attachSerializedPdfPersistencePort({
-        sender,
-        ports: [port],
-    } as never, beginResult.sessionId);
+    attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
 
     port.emit('message', {data: {
         type: 'chunk',
@@ -749,6 +903,17 @@ function isTerminalPortMessage(message: unknown) {
         && 'type' in message
         && (message.type === 'result' || message.type === 'error'),
     );
+}
+
+function wrapMessageEventPayload(payload: unknown, depth: number) {
+    let current = payload;
+    for (let index = 0; index < depth; index += 1) {
+        current = {
+            data: current,
+            ports: [],
+        };
+    }
+    return current;
 }
 
 function readFileSyncUtf8(path: string) {

@@ -7,4 +7,5 @@ export {
     MCP_PROMPTS,
     MCP_RESOURCE_TEMPLATES,
     MCP_TOOLS,
+    createMcpToolsForCaller,
 } from '@electron/features/agent/mcp/mcpToolDefinitions';
