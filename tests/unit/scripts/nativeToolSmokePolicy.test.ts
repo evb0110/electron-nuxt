@@ -108,8 +108,8 @@ describe('native tool smoke policy', () => {
         expect(verifierSource).toContain('packages/contracts/ocrLanguages.ts');
         expect(verifierSource).not.toContain('DYLD_LIBRARY_PATH=');
         expect(verifierSource).not.toContain('LD_LIBRARY_PATH=');
-        expect(verifierSource).toContain('Unable to read Windows import table');
-        expect(verifierSource).toContain('No readable Windows import table entries found');
+        expect(verifierSource).toContain('windows-pe-dependencies.mjs');
+        expect(verifierSource).not.toContain('objdump -p');
         expect(verifierSource).toContain('run_host_packaged_tool_smoke "tesseract" "tesseract"');
         expect(verifierSource).toContain('run_host_packaged_tool_smoke "unpaper" "unpaper|usage"');
         expect(verifierSource).toContain('Windows unpaper preprocessing is explicitly unavailable');

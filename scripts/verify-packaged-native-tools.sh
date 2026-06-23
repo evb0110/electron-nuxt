@@ -410,6 +410,21 @@ host_can_execute_target() {
   esac
 }
 
+windows_pe_allowed_machines_for_release_arch() {
+  case "$1" in
+    arm64)
+      echo "arm64"
+      ;;
+    x64)
+      echo "ia32,x64"
+      ;;
+    *)
+      echo "Error: Unsupported Windows release architecture for PE verification: $1"
+      exit 1
+      ;;
+  esac
+}
+
 run_host_packaged_tool_smoke() {
   local tool_name="$1"
   shift
@@ -536,64 +551,21 @@ if [ "$platform" = "linux" ]; then
 fi
 
 if [ "$platform" = "win" ]; then
-  if ! command -v objdump >/dev/null 2>&1; then
-    echo "Error: objdump is required for windows dependency verification"
-    exit 1
-  fi
-
   script_dir="$(cd "$(dirname "$0")" && pwd)"
-  source "$script_dir/win-system-dll-pattern.sh"
+  windows_pe_files="$(mktemp)"
+  trap 'rm -f "$windows_pe_files"' EXIT
+  find_tool_files "$platform_arch" "bin" | grep -Ei '\.(exe|dll)$' > "$windows_pe_files" || true
 
-  bundled_dlls_file="$(mktemp)"
-  trap 'rm -f "$bundled_dlls_file"' EXIT
-
-  while IFS= read -r file; do
-    basename "$file" | tr '[:upper:]' '[:lower:]' >> "$bundled_dlls_file"
-  done < <(find_tool_files "$platform_arch" "bin" | grep -i '\.dll$' || true)
-  sort -u -o "$bundled_dlls_file" "$bundled_dlls_file"
-
-  unresolved=0
-  while IFS= read -r file; do
-    imports_file="$(mktemp)"
-    imports_error_file="$(mktemp)"
-    if ! objdump -p "$file" >"$imports_file" 2>"$imports_error_file"; then
-      echo "Error: Unable to read Windows import table for $file"
-      cat "$imports_error_file" | sed 's/^/  /'
-      rm -f "$imports_file" "$imports_error_file"
-      unresolved=1
-      continue
-    fi
-
-    if [ "$platform_arch" = "win32-arm64" ] && ! awk '/DLL Name:/{found=1} END{exit found ? 0 : 1}' "$imports_file"; then
-      echo "Error: No readable Windows import table entries found for $file"
-      rm -f "$imports_file" "$imports_error_file"
-      unresolved=1
-      continue
-    fi
-
-    while IFS= read -r dep; do
-      dep_lc="$(printf '%s' "$dep" | tr '[:upper:]' '[:lower:]')"
-      if [[ "$dep_lc" =~ $system_dll_pattern ]]; then
-        continue
-      fi
-      if ! grep -Fxq "$dep_lc" "$bundled_dlls_file"; then
-        # MinGW/MSYS2 DLLs may be named with lib prefix (e.g. libglib-2.0-0.dll)
-        # while the import table references the non-prefixed name (glib-2.0-0.dll)
-        if ! grep -Fxq "lib$dep_lc" "$bundled_dlls_file"; then
-          echo "Error: Missing bundled DLL dependency \"$dep\" for $file"
-          unresolved=1
-        fi
-      fi
-    done < <(awk '/DLL Name:/{print $3}' "$imports_file")
-    rm -f "$imports_file" "$imports_error_file"
-  done < <(find_tool_files "$platform_arch" "bin" | grep -Ei '\.(exe|dll)$' || true)
-
-  rm -f "$bundled_dlls_file"
-  trap - EXIT
-
-  if [ "$unresolved" -ne 0 ]; then
+  if ! node "$script_dir/release/windows-pe-dependencies.mjs" verify \
+    --allowed-machines "$(windows_pe_allowed_machines_for_release_arch "$arch")" \
+    --system-dll-pattern-file "$script_dir/win-system-dll-pattern.sh" \
+    --file-list "$windows_pe_files"
+  then
     exit 1
   fi
+
+  rm -f "$windows_pe_files"
+  trap - EXIT
 
   if host_can_execute_target "$platform" "$arch"; then
     run_host_packaged_tool_smoke "tesseract" "tesseract" "$native_tool_root/tesseract/$platform_arch/bin/tesseract$exe_suffix" --version
