@@ -31,6 +31,7 @@ interface IUsePdfViewerExposeControllersOptions {
     zoomMode: ComputedRef<TZoomMode>;
     zoom: ComputedRef<number>;
     effectiveScale: ComputedRef<number>;
+    fitWidthScale: Ref<number>;
     viewMode: ComputedRef<TPdfViewMode>;
     numPages: Ref<number>;
     pageMetricsVersion: Ref<number>;
@@ -75,6 +76,7 @@ export const usePdfViewerExposeControllers = (options: IUsePdfViewerExposeContro
         zoomMode: options.zoomMode,
         zoom: options.zoom,
         effectiveScale: options.effectiveScale,
+        fitWidthScale: options.fitWidthScale,
         viewMode: options.viewMode,
         currentPage: options.currentPage,
         numPages: options.numPages,

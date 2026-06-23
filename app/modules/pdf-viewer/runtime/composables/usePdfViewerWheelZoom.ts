@@ -7,6 +7,7 @@ import { captureScrollSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-r
 import { restoreScrollFromSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/restoreScrollFromSnapshot';
 import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
 import { ZOOM } from '@app/constants/pdfLayout';
+import { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
 import type {
     TPdfSource,
     TZoomMode,
@@ -201,7 +202,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
     }
 
     function clampZoomLevel(level: number) {
-        return clamp(level, ZOOM.MIN, ZOOM.MAX);
+        return clampPdfManualZoom(level);
     }
 
     function resolveCumulativeDeltaForEffectiveZoom(startZoom: number, targetZoom: number) {
@@ -215,17 +216,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         }
 
         return -Math.log(targetZoom / startZoom) / WHEEL_ZOOM_SENSITIVITY;
-    }
-
-    function resolveZoomBaselineScale() {
-        if (!Number.isFinite(zoom.value) || Math.abs(zoom.value) < 0.0001) {
-            return 1;
-        }
-        const baseline = effectiveScale.value / zoom.value;
-        if (!Number.isFinite(baseline) || baseline <= 0) {
-            return 1;
-        }
-        return baseline;
     }
 
     function summarizeWheelEventForDebug(event: WheelEvent) {
@@ -311,6 +301,15 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         }
 
         const rawNextEffectiveZoom = session.startZoom * zoomFactor;
+        if (session.startZoom < ZOOM.MIN && rawNextEffectiveZoom <= session.startZoom) {
+            session.cumulativeDelta = 0;
+            session.lastEmittedZoom = session.startZoom;
+            return {
+                valid: false as const,
+                zoomFactor: 1,
+                reason: 'below-manual-min-zoom-out' as const,
+            };
+        }
         const nextEffectiveZoom = clampZoomLevel(rawNextEffectiveZoom);
         if (Math.abs(rawNextEffectiveZoom - nextEffectiveZoom) >= 0.001) {
             const clampedCumulativeDelta = resolveCumulativeDeltaForEffectiveZoom(
@@ -322,13 +321,11 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
                 zoomFactor = nextEffectiveZoom / session.startZoom;
             }
         }
-        const baselineScale = resolveZoomBaselineScale();
 
         return {
             valid: true as const,
-            baselineScale,
             nextEffectiveZoom,
-            nextZoom: clampZoomLevel(nextEffectiveZoom / baselineScale),
+            nextZoom: nextEffectiveZoom,
             zoomFactor,
         };
     }
@@ -736,7 +733,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             zoomFactor: zoomTarget.zoomFactor,
             currentZoomMultiplier: zoom.value,
             currentEffectiveZoom: effectiveScale.value,
-            baselineScale: zoomTarget.baselineScale,
             previousEmittedZoom,
             nextEffectiveZoom: zoomTarget.nextEffectiveZoom,
             nextZoom: zoomTarget.nextZoom,

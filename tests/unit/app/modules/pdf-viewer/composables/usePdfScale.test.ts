@@ -9,6 +9,7 @@ import { ZOOM } from '@app/constants/pdfLayout';
 import type {
     IPdfPageMetric,
     TFitMode,
+    TZoomMode,
 } from '@app/types/pdf';
 import type { TPdfViewMode } from '@contracts/shared';
 
@@ -27,12 +28,16 @@ function createScaleComposable(options: {
     height: number;
     pageMetrics?: IPdfPageMetric[];
     mode?: TFitMode;
+    zoomMode?: TZoomMode;
     zoom?: number;
     viewMode?: TPdfViewMode;
     currentPage?: number;
 }) {
     const zoom = ref(options.zoom ?? 1);
     const fitMode = ref<TFitMode>(options.mode ?? 'width');
+    const zoomMode = ref<TZoomMode>(options.zoomMode ?? (
+        fitMode.value === 'height' ? 'fit-height' : 'fit-width'
+    ));
     const viewMode = ref<TPdfViewMode>(options.viewMode ?? 'single');
     const pageMetrics = ref(options.pageMetrics ?? [{
         width: options.width,
@@ -51,6 +56,7 @@ function createScaleComposable(options: {
         currentPage,
         scale: usePdfScale(
             zoom,
+            zoomMode,
             fitMode,
             viewMode,
             numPages,
@@ -250,7 +256,40 @@ describe('usePdfScale', () => {
         expect(scale.effectiveScale.value * pageMetrics[2]!.height).toBeCloseTo(860, 6);
     });
 
-    it('clamps fit-width scale to the maximum zoom level', () => {
+    it('keeps custom zoom absolute after fit scale recomputes', () => {
+        const { scale } = createScaleComposable({
+            width: 500,
+            height: 700,
+            mode: 'width',
+            zoomMode: 'custom',
+            zoom: 1,
+        });
+        const container = createContainer(1_000, 900);
+
+        scale.computeFitWidthScale(container);
+
+        expect(scale.fitWidthScale.value).toBeCloseTo(1.92, 6);
+        expect(scale.effectiveScale.value).toBe(1);
+    });
+
+    it('resolves BHS-like fit-height below the manual minimum zoom', () => {
+        const { scale } = createScaleComposable({
+            width: 4_766.9,
+            height: 6_355.86,
+            mode: 'height',
+        });
+        const container = createContainer(1_100, 820);
+
+        scale.computeFitWidthScale(container);
+
+        const expectedScale = (820 - 40) / 6_355.86;
+        expect(expectedScale).toBeGreaterThan(ZOOM.FIT_MIN);
+        expect(expectedScale).toBeLessThan(ZOOM.MIN);
+        expect(scale.fitWidthScale.value).toBeCloseTo(expectedScale, 6);
+        expect(scale.effectiveScale.value).toBeCloseTo(expectedScale, 6);
+    });
+
+    it('clamps fit-width scale to the fit maximum zoom level', () => {
         const { scale } = createScaleComposable({
             width: 10,
             height: 10,
@@ -264,7 +303,7 @@ describe('usePdfScale', () => {
         expect(scale.isFitWidthScaleCurrent(container)).toBe(true);
     });
 
-    it('clamps fit-height scale to the minimum zoom level', () => {
+    it('clamps fit-height scale to the fit minimum zoom level', () => {
         const { scale } = createScaleComposable({
             width: 10_000,
             height: 10_000,
@@ -274,7 +313,8 @@ describe('usePdfScale', () => {
 
         scale.computeFitWidthScale(container);
 
-        expect(scale.fitWidthScale.value).toBe(ZOOM.MIN);
+        expect(scale.fitWidthScale.value).toBe(ZOOM.FIT_MIN);
+        expect(scale.fitWidthScale.value).toBeLessThan(ZOOM.MIN);
         expect(scale.isFitWidthScaleCurrent(container)).toBe(true);
     });
 });

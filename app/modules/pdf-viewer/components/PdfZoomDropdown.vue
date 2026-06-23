@@ -132,6 +132,7 @@ import type {
     TPdfViewMode,
 } from '@contracts/shared';
 import { ZOOM } from '@app/constants/pdfLayout';
+import { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
 import { useShortcutLabels } from '@app/constants/shortcuts';
 import ToolbarButton from '@app/components/ToolbarButton.vue';
 
@@ -180,16 +181,20 @@ const showStepButtons = computed(() => true);
 const shortcutLabels = useShortcutLabels();
 
 function normalizeZoomLevel(value: number) {
-    if (!Number.isFinite(value)) {
+    return clampPdfManualZoom(value);
+}
+
+function normalizeDisplayZoomLevel(value: number) {
+    if (!Number.isFinite(value) || value <= 0) {
         return 1;
     }
-    return clamp(value, ZOOM.MIN, ZOOM.MAX);
+    return clamp(value, ZOOM.FIT_MIN, ZOOM.MAX);
 }
 
 const normalizedZoom = computed(() => normalizeZoomLevel(zoom));
 const normalizedEffectiveZoom = computed(() => {
     if (typeof effectiveZoom === 'number' && Number.isFinite(effectiveZoom)) {
-        return normalizeZoomLevel(effectiveZoom);
+        return normalizeDisplayZoomLevel(effectiveZoom);
     }
     return normalizedZoom.value;
 });
@@ -211,7 +216,7 @@ watch(isOpen, (open) => {
 watch(
     () => normalizedEffectiveZoom.value,
     (value) => {
-        customZoomValue.value = formatZoomValue(normalizeZoomLevel(value));
+        customZoomValue.value = formatZoomValue(value);
     },
     { immediate: true },
 );
@@ -234,6 +239,9 @@ function handleZoomIn() {
 }
 
 function handleZoomOut() {
+    if (normalizedEffectiveZoom.value <= ZOOM.MIN) {
+        return;
+    }
     setCustomZoomFromDisplay(Math.max(normalizedEffectiveZoom.value - ZOOM.STEP, ZOOM.MIN));
 }
 
@@ -248,22 +256,9 @@ function isFitModeActive(mode: TFitMode) {
     return zoomMode === expectedZoomMode;
 }
 
-function resolveBaselineScale() {
-    if (!Number.isFinite(zoom) || Math.abs(zoom) < 0.0001) {
-        return 1;
-    }
-    const baseline = normalizedEffectiveZoom.value / zoom;
-    if (!Number.isFinite(baseline) || baseline <= 0) {
-        return 1;
-    }
-    return baseline;
-}
-
 function setCustomZoomFromDisplay(displayZoom: number) {
     const nextDisplayZoom = normalizeZoomLevel(displayZoom);
-    const baselineScale = resolveBaselineScale();
-    const nextZoom = normalizeZoomLevel(nextDisplayZoom / baselineScale);
-    emit('update:zoom', nextZoom);
+    emit('update:zoom', nextDisplayZoom);
     emit('update:effectiveZoom', nextDisplayZoom);
     emit('update:zoomMode', 'custom');
 }

@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
-import { clamp } from 'es-toolkit/math';
 import { ZOOM } from '@app/constants/pdfLayout';
+import { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
 import type {
     IAnnotationCommentSummary,
     TAnnotationCommentsStatus,
@@ -111,10 +111,7 @@ function normalizeToolbarSnapshotTotalPages(totalPages: number | undefined, fall
 }
 
 function clampZoomLevel(level: number) {
-    if (!Number.isFinite(level)) {
-        return 1;
-    }
-    return clamp(level, ZOOM.MIN, ZOOM.MAX);
+    return clampPdfManualZoom(level);
 }
 
 /**
@@ -227,23 +224,9 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         return clampZoomLevel(deps.zoom.value);
     }
 
-    function resolveBaselineScale() {
-        const multiplier = deps.zoom.value;
-        const displayZoom = resolveDisplayZoom();
-        if (!Number.isFinite(multiplier) || Math.abs(multiplier) < 0.0001) {
-            return 1;
-        }
-        const baseline = displayZoom / multiplier;
-        if (!Number.isFinite(baseline) || baseline <= 0) {
-            return 1;
-        }
-        return baseline;
-    }
-
     function setCustomZoomFromDisplay(displayZoom: number) {
         const targetDisplayZoom = clampZoomLevel(displayZoom);
-        const baselineScale = resolveBaselineScale();
-        deps.zoom.value = clampZoomLevel(targetDisplayZoom / baselineScale);
+        deps.zoom.value = targetDisplayZoom;
         deps.effectiveZoom.value = targetDisplayZoom;
         deps.zoomMode.value = 'custom';
     }
@@ -286,7 +269,11 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             setCustomZoomFromDisplay(resolveDisplayZoom() + ZOOM.STEP);
         },
         handleZoomOut: () => {
-            setCustomZoomFromDisplay(resolveDisplayZoom() - ZOOM.STEP);
+            const displayZoom = resolveDisplayZoom();
+            if (displayZoom <= ZOOM.MIN) {
+                return;
+            }
+            setCustomZoomFromDisplay(displayZoom - ZOOM.STEP);
         },
         handleFitWidth: () => {
             deps.handleFitMode('width');

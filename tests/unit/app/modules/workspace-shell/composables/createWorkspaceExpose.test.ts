@@ -199,8 +199,25 @@ describe('createWorkspaceExpose', () => {
 
         exposed.handleZoomIn();
 
-        expect(deps.zoom.value).toBeCloseTo(1.1, 6);
+        expect(deps.zoom.value).toBeCloseTo(2.75, 6);
+        expect(deps.effectiveZoom.value).toBeCloseTo(2.75, 6);
         expect(deps.zoomMode.value).toBe('custom');
+    });
+
+    it('does not jump upward when zooming out from fit below the manual minimum', () => {
+        const deps = createDeps({
+            zoom: ref(1),
+            effectiveZoom: ref(0.12),
+            zoomMode: ref('fit-height'),
+            fitMode: ref('height'),
+        });
+        const exposed = createWorkspaceExpose(deps);
+
+        exposed.handleZoomOut();
+
+        expect(deps.zoom.value).toBe(1);
+        expect(deps.effectiveZoom.value).toBe(0.12);
+        expect(deps.zoomMode.value).toBe('fit-height');
     });
 
     it('routes fit commands through handleFitMode', () => {

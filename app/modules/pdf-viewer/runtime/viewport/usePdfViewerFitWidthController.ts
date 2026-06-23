@@ -22,6 +22,7 @@ interface IUsePdfViewerFitWidthControllerOptions {
     zoomMode: ComputedRef<TZoomMode>;
     zoom: ComputedRef<number>;
     effectiveScale: ComputedRef<number>;
+    fitWidthScale: Ref<number>;
     viewMode: ComputedRef<TPdfViewMode>;
     currentPage: Ref<number>;
     numPages: Ref<number>;
@@ -73,8 +74,8 @@ export const usePdfViewerFitWidthController = (options: IUsePdfViewerFitWidthCon
         return true;
     }
 
-    function isZoomAtFitWidthBaseline() {
-        return Math.abs(options.zoom.value - 1) < 0.001;
+    function isEffectiveScaleAtFitWidthScale() {
+        return Math.abs(options.effectiveScale.value - options.fitWidthScale.value) < 0.001;
     }
 
     function syncFitWidthZoomModeForCurrentPage() {
@@ -88,7 +89,7 @@ export const usePdfViewerFitWidthController = (options: IUsePdfViewerFitWidthCon
             return;
         }
 
-        const isCurrentPageFitWidth = isZoomAtFitWidthBaseline()
+        const isCurrentPageFitWidth = isEffectiveScaleAtFitWidthScale()
             && options.isFitWidthScaleCurrent(options.viewerContainer.value);
 
         if (isCurrentPageFitWidth && options.zoomMode.value === 'custom') {

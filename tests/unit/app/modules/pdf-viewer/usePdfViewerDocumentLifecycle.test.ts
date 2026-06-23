@@ -222,9 +222,9 @@ describe('usePdfViewerDocumentLifecycle', () => {
         ]);
     });
 
-    it('waits for the restored custom zoom before the first reload render and skips scale reset', async () => {
+    it('preserves custom zoom before the first reload render and skips scale reset', async () => {
         const callOrder: string[] = [];
-        const zoom = ref(1);
+        const zoom = ref(1.94);
         const fitWidthScale = ref(1.94);
         const currentPage = ref(200);
         const visibleRange = ref({
@@ -260,7 +260,7 @@ describe('usePdfViewerDocumentLifecycle', () => {
             ),
             zoom: computed(() => zoom.value),
             zoomMode: computed(() => 'custom' as const),
-            effectiveScale: computed(() => zoom.value * fitWidthScale.value),
+            effectiveScale: computed(() => zoom.value),
             currentPage,
             visibleRange,
             basePageWidth: ref(612),
@@ -318,9 +318,8 @@ describe('usePdfViewerDocumentLifecycle', () => {
         expect(invalidateScaleCache).toHaveBeenCalledTimes(1);
         expect(resetScale).not.toHaveBeenCalled();
         expect(computeFitWidthScale).toHaveBeenCalledTimes(1);
-        expect(suppressNextZoomRerender).toHaveBeenCalledWith(1.94);
-        expect(callOrder.slice(0, 3)).toEqual([
-            'emit-zoom:1.94',
+        expect(suppressNextZoomRerender).not.toHaveBeenCalled();
+        expect(callOrder.slice(0, 2)).toEqual([
             'placeholders:1.94',
             'render:1.94',
         ]);

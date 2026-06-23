@@ -1,6 +1,5 @@
 import type { Ref } from 'vue';
-import { clamp } from 'es-toolkit/math';
-import { ZOOM } from '@app/constants/pdfLayout';
+import { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
 import type { TPdfSource } from '@app/types/pdf';
 import type {
     ISettingsData,
@@ -24,10 +23,7 @@ interface IUseWorkspaceViewerDefaultsOptions {
 
 export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsOptions) => {
     function clampWorkspaceZoomLevel(level: number) {
-        if (!Number.isFinite(level)) {
-            return 1;
-        }
-        return clamp(level, ZOOM.MIN, ZOOM.MAX);
+        return clampPdfManualZoom(level);
     }
 
     function resolveDisplayZoom() {
@@ -37,23 +33,9 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
         return clampWorkspaceZoomLevel(options.zoom.value);
     }
 
-    function resolveZoomBaselineScale() {
-        if (!Number.isFinite(options.zoom.value) || Math.abs(options.zoom.value) < 0.0001) {
-            return 1;
-        }
-        const baseline = resolveDisplayZoom() / options.zoom.value;
-        if (!Number.isFinite(baseline) || baseline <= 0) {
-            return 1;
-        }
-        return baseline;
-    }
-
     function setCustomZoomFromDisplay(displayZoom: number) {
         const targetDisplayZoom = clampWorkspaceZoomLevel(displayZoom);
-        const baselineScale = resolveZoomBaselineScale();
-        options.zoom.value = clampWorkspaceZoomLevel(
-            targetDisplayZoom / baselineScale,
-        );
+        options.zoom.value = targetDisplayZoom;
         options.effectiveZoom.value = targetDisplayZoom;
         options.zoomMode.value = 'custom';
     }

@@ -791,6 +791,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         await nextTick();
 
         expect(computeFitWidthScale).toHaveBeenCalled();
+        expect(computeFitWidthScale).toHaveBeenCalledWith(null, { page: 4 });
         expect(setupPagePlaceholders.mock.invocationCallOrder[0]!).toBeLessThan(
             scrollToPage.mock.invocationCallOrder[0]!,
         );
@@ -800,7 +801,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
             expect.any(Function),
             expect.objectContaining({
-                rerenderSource: 'fit-mode',
+                rerenderSource: 'zoom-mode',
                 disableVerticalAnchorRestore: true,
                 disablePageAnchorRestore: true,
                 renderBufferOverride: 0,
@@ -810,6 +811,58 @@ describe('usePdfViewerRerenderCoordinator', () => {
             preferExactDom: true,
             suppressRenderAfterSnap: true,
         });
+    });
+
+    it('rerenders when zoom mode switches from custom 100% to fit-height without zoom or fit-mode changes', async () => {
+        const zoomMode = ref<'custom' | 'fit-height'>('custom');
+        const computeFitWidthScale = vi.fn(() => false);
+        const setupPagePlaceholders = vi.fn();
+        const scrollToPage = vi.fn(() => true);
+        const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+        const cancelInFlightPageRenders = vi.fn();
+
+        usePdfViewerRerenderCoordinator(createDeps({
+            currentPage: ref(4),
+            visibleRange: ref({
+                start: 4,
+                end: 4,
+            }),
+            zoomMode: computed(() => zoomMode.value),
+            fitMode: computed(() => 'height' as const),
+            getVisibleRange: () => ({
+                start: 4,
+                end: 4,
+            }),
+            reRenderAllVisiblePages,
+            cancelInFlightPageRenders,
+            computeFitWidthScale,
+            setupPagePlaceholders,
+            scrollToPage,
+            getMostVisiblePage: vi.fn(() => 4),
+        }));
+
+        zoomMode.value = 'fit-height';
+        await nextTick();
+        await Promise.resolve();
+        await nextTick();
+
+        expect(computeFitWidthScale).toHaveBeenCalledWith(null, { page: 4 });
+        expect(setupPagePlaceholders.mock.invocationCallOrder[0]!).toBeLessThan(
+            scrollToPage.mock.invocationCallOrder[0]!,
+        );
+        expect(scrollToPage.mock.invocationCallOrder[0]!).toBeLessThan(
+            reRenderAllVisiblePages.mock.invocationCallOrder[0]!,
+        );
+        expect(cancelInFlightPageRenders).toHaveBeenCalledOnce();
+        expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
+            expect.any(Function),
+            expect.objectContaining({
+                rerenderSource: 'zoom-mode',
+                disableVerticalAnchorRestore: true,
+                disablePageAnchorRestore: true,
+                renderBufferOverride: 0,
+            }),
+        );
     });
 
     it('coalesces rapid paged fit-height current-page rerenders so only the latest page can render', async () => {

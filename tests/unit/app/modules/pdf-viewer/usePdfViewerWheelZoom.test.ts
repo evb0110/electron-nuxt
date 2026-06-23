@@ -97,11 +97,15 @@ describe('usePdfViewerWheelZoom', () => {
         return event;
     }
 
-    function setupWheelZoom() {
+    function setupWheelZoom(options?: {
+        zoom?: number;
+        effectiveScale?: number;
+        zoomMode?: 'fit-width' | 'fit-height' | 'custom';
+    }) {
         const viewerContainer = ref<HTMLElement | null>(createViewerContainer());
-        const zoom = ref(1);
-        const zoomMode = ref<'fit-width' | 'custom'>('fit-width');
-        const effectiveScale = ref(1);
+        const zoom = ref(options?.zoom ?? 1);
+        const zoomMode = ref<'fit-width' | 'fit-height' | 'custom'>(options?.zoomMode ?? 'fit-width');
+        const effectiveScale = ref(options?.effectiveScale ?? 1);
         const zoomVirtualizationFreeze = ref(null);
         const isProgrammaticNavigationActive = ref(false);
         const singlePageScroll = {
@@ -192,6 +196,73 @@ describe('usePdfViewerWheelZoom', () => {
                 windowStart: 2,
                 windowEnd: 8,
             }));
+        } finally {
+            setup.scope.stop();
+        }
+    });
+
+    it('converts fit-height wheel zoom to an absolute manual zoom', () => {
+        const setup = setupWheelZoom({
+            zoom: 1,
+            zoomMode: 'fit-height',
+            effectiveScale: 0.12,
+        });
+
+        try {
+            const event = createWheelEvent({
+                deltaY: -120,
+                ctrlKey: true,
+                clientX: 120,
+                clientY: 160,
+            });
+
+            setup.wheelZoom.handleViewerWheel(event);
+
+            expect(setup.emit).toHaveBeenCalledWith('update:zoomMode', 'custom');
+            expect(setup.emit).toHaveBeenCalledWith('update:effectiveZoom', ZOOM.MIN);
+            expect(setup.emit).toHaveBeenCalledWith('update:zoom', ZOOM.MIN);
+        } finally {
+            setup.scope.stop();
+        }
+    });
+
+    it('does not let ignored below-min zoom-out packets delay the next zoom-in', () => {
+        const setup = setupWheelZoom({
+            zoom: 1,
+            zoomMode: 'fit-height',
+            effectiveScale: 0.12,
+        });
+
+        try {
+            const zoomOutEvent = createWheelEvent({
+                deltaY: 240,
+                ctrlKey: true,
+                clientX: 120,
+                clientY: 160,
+            });
+
+            setup.wheelZoom.handleViewerWheel(zoomOutEvent);
+
+            expect(zoomOutEvent.defaultPrevented).toBe(true);
+            expect(setup.emit).not.toHaveBeenCalledWith('update:zoomMode', 'custom');
+            expect(setup.emit).not.toHaveBeenCalledWith('update:effectiveZoom', expect.any(Number));
+            expect(setup.emit).not.toHaveBeenCalledWith('update:zoom', expect.any(Number));
+
+            setup.emit.mockClear();
+
+            const zoomInEvent = createWheelEvent({
+                deltaY: -120,
+                ctrlKey: true,
+                clientX: 120,
+                clientY: 160,
+            });
+
+            setup.wheelZoom.handleViewerWheel(zoomInEvent);
+
+            expect(zoomInEvent.defaultPrevented).toBe(true);
+            expect(setup.emit).toHaveBeenCalledWith('update:zoomMode', 'custom');
+            expect(setup.emit).toHaveBeenCalledWith('update:effectiveZoom', ZOOM.MIN);
+            expect(setup.emit).toHaveBeenCalledWith('update:zoom', ZOOM.MIN);
         } finally {
             setup.scope.stop();
         }

@@ -143,7 +143,11 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
     }
 
     function handleZoomOut() {
-        setCustomZoomFromDisplay(resolveDisplayZoom() - ZOOM.STEP);
+        const displayZoom = resolveDisplayZoom();
+        if (displayZoom <= ZOOM.MIN) {
+            return;
+        }
+        setCustomZoomFromDisplay(displayZoom - ZOOM.STEP);
     }
 
     usePageShortcuts({

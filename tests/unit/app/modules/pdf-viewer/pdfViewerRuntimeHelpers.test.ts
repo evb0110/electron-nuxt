@@ -73,15 +73,15 @@ describe('resolveResizeAnchorPage', () => {
 });
 
 describe('resolveCustomReloadZoomMultiplier', () => {
-    it('preserves the target display zoom after the fit baseline changes', () => {
+    it('preserves the target display zoom as the custom zoom value', () => {
         expect(resolveCustomReloadZoomMultiplier({
             currentZoom: 1,
             currentEffectiveScale: 0.47,
             targetDisplayZoom: 1.16,
-        })).toBeCloseTo(2.468085, 6);
+        })).toBe(1.16);
     });
 
-    it('falls back to the target display zoom when current zoom is unusable', () => {
+    it('ignores unusable previous zoom state', () => {
         expect(resolveCustomReloadZoomMultiplier({
             currentZoom: 0,
             currentEffectiveScale: 0.47,

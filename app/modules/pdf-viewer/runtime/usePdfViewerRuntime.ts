@@ -40,6 +40,7 @@ export const usePdfViewerRuntime = (options: IUsePdfViewerRuntimeOptions) => {
 
     const scale = usePdfScale(
         options.zoom,
+        options.zoomMode,
         options.fitMode,
         options.viewMode,
         numPages,

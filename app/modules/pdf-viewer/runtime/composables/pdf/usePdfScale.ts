@@ -2,15 +2,19 @@ import type { MaybeRefOrGetter } from 'vue';
 import type {
     IPdfPageMetric,
     TFitMode,
+    TZoomMode,
 } from '@app/types/pdf';
 import type { TPdfViewMode } from '@contracts/shared';
 import { getViewColumnCount } from '@app/utils/pdfViewMode';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { ZOOM } from '@app/constants/pdfLayout';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import { resolveCurrentSpreadBaseWidth } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveCurrentSpreadBaseWidth';
 import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
+import {
+    clampPdfFitScale,
+    resolvePdfZoomScale,
+} from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
 
 const BASE_MARGIN = 20;
 
@@ -18,6 +22,7 @@ export interface IFitScalePageOptions { page?: number | null | undefined; }
 
 export const usePdfScale = (
     zoom: MaybeRefOrGetter<number>,
+    zoomMode: MaybeRefOrGetter<TZoomMode>,
     fitMode: MaybeRefOrGetter<TFitMode>,
     viewMode: MaybeRefOrGetter<TPdfViewMode>,
     numPages: MaybeRefOrGetter<number>,
@@ -30,7 +35,12 @@ export const usePdfScale = (
     const fitWidthScale = ref(1);
     const lastFitScaleSignature = ref<string | null>(null);
 
-    const effectiveScale = computed(() => toValue(zoom) * fitWidthScale.value);
+    const effectiveScale = computed(() => resolvePdfZoomScale({
+        zoomMode: toValue(zoomMode),
+        fitMode: toValue(fitMode),
+        manualZoom: toValue(zoom),
+        fitScale: fitWidthScale.value,
+    }).effectiveScale);
 
     const containerStyle = computed(() => {
         return {
@@ -136,7 +146,7 @@ export const usePdfScale = (
     }
 
     function clampFitScale(scale: number) {
-        return Math.min(ZOOM.MAX, Math.max(ZOOM.MIN, scale));
+        return clampPdfFitScale(scale);
     }
 
     function logMissingFitDimensions(

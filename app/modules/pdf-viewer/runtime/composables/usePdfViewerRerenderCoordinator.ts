@@ -661,27 +661,30 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         }
     }
 
-    watch(fitMode, async (mode) => {
-        const runId = ++fitModeRunId;
-        const interactionEpoch = getCurrentUserViewportInteractionEpoch();
-        const document = pdfDocument.value;
+    async function handleFitScaleModeChange(
+        source: string,
+        mode: TFitMode,
+        runId: number,
+        document: PDFDocumentProxy | null,
+        interactionEpoch: number,
+        isRunActive: () => boolean,
+        options: {forceRerender?: boolean} = {},
+    ) {
         cancelDestinationNavigationTarget?.();
-        resetZoomRerenderQueueState('fit-mode-change');
+        resetZoomRerenderQueueState(`${source}-change`);
         const pageToSnapTo =
             mode === 'height'
                 ? getMostVisiblePage(viewerContainer.value, numPages.value)
                 : null;
-        const updated = computeFitWidthScale(viewerContainer.value);
-        if (updated && document) {
-            const isRunActive = () => (
-                isViewerAsyncRunActive(runId, fitModeRunId, document)
-                && fitMode.value === mode
-            );
+        const updated = pageToSnapTo === null
+            ? computeFitWidthScale(viewerContainer.value)
+            : computeFitWidthScale(viewerContainer.value, { page: pageToSnapTo });
+        if ((updated || options.forceRerender === true) && document) {
             let snappedBeforeRender = false;
             if (pageToSnapTo !== null) {
                 setupPagePlaceholders();
                 snappedBeforeRender = await snapFitHeightPageBeforeRender(
-                    'fit-mode',
+                    source,
                     runId,
                     pageToSnapTo,
                     interactionEpoch,
@@ -697,7 +700,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 disableHorizontalAnchorRestore: mode === 'width' || shouldDisableHorizontalAnchorRestore(),
                 disableVerticalAnchorRestore: mode === 'height',
                 disablePageAnchorRestore: mode === 'height',
-                rerenderSource: 'fit-mode',
+                rerenderSource: source,
                 renderBufferOverride: 0,
             });
             if (!isRunActive()) {
@@ -706,7 +709,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             syncHorizontalScrollAfterLayoutUpdate();
             if (pageToSnapTo === null) {
                 await syncCurrentPageFromViewport({
-                    source: 'fit-mode',
+                    source,
                     stabilize: true,
                 });
                 if (!isRunActive()) {
@@ -717,7 +720,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 await nextTick();
                 if (
                     !isRunActive()
-                    || !canApplyDelayedViewportScroll('fit-mode', runId, interactionEpoch)
+                    || !canApplyDelayedViewportScroll(source, runId, interactionEpoch)
                 ) {
                     return;
                 }
@@ -728,7 +731,78 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 syncHorizontalScrollAfterLayoutUpdate();
             }
         }
+    }
+
+    watch(fitMode, async (mode) => {
+        if (zoomMode && zoomMode.value !== (mode === 'height' ? 'fit-height' : 'fit-width')) {
+            return;
+        }
+        const runId = ++fitModeRunId;
+        const interactionEpoch = getCurrentUserViewportInteractionEpoch();
+        const document = pdfDocument.value;
+        await handleFitScaleModeChange(
+            'fit-mode',
+            mode,
+            runId,
+            document,
+            interactionEpoch,
+            () => (
+                isViewerAsyncRunActive(runId, fitModeRunId, document)
+                && fitMode.value === mode
+            ),
+        );
     });
+
+    if (zoomMode) {
+        watch(zoomMode, async (mode, previousMode) => {
+            if (mode === previousMode) {
+                return;
+            }
+            if (mode === 'custom') {
+                if (!pdfDocument.value) {
+                    return;
+                }
+                cancelDestinationNavigationTarget?.();
+                cancelInFlightPageRenders?.();
+                const zoomViewportAnchor = consumeZoomViewportAnchor?.() ?? null;
+                const trustCurrentPageAnchor = !zoomViewportAnchor && canTrustCurrentPageAsZoomAnchor();
+                const zoomAnchor = buildResizeAnchorContext({
+                    anchorViewportX: zoomViewportAnchor?.x ?? null,
+                    anchorViewportY: zoomViewportAnchor?.y ?? null,
+                    preferredAnchorPage: currentPage.value,
+                    trustPreferredAnchorPage: trustCurrentPageAnchor,
+                });
+                enqueueZoomSync({
+                    source: 'zoom-mode-change',
+                    stabilize: true,
+                    resizeAnchor: zoomAnchor,
+                });
+                return;
+            }
+
+            const modeFitMode: TFitMode = mode === 'fit-height' ? 'height' : 'width';
+            if (fitMode.value !== modeFitMode) {
+                return;
+            }
+
+            const runId = ++fitModeRunId;
+            const interactionEpoch = getCurrentUserViewportInteractionEpoch();
+            const document = pdfDocument.value;
+            await handleFitScaleModeChange(
+                'zoom-mode',
+                modeFitMode,
+                runId,
+                document,
+                interactionEpoch,
+                () => (
+                    isViewerAsyncRunActive(runId, fitModeRunId, document)
+                    && zoomMode.value === mode
+                    && fitMode.value === modeFitMode
+                ),
+                { forceRerender: true },
+            );
+        });
+    }
 
     watch(viewMode, async () => {
         const runId = ++viewModeRunId;
