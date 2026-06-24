@@ -324,6 +324,28 @@ describe('usePdfViewerWheelZoom', () => {
         }
     });
 
+    it('allows plain wheel scrolling while a non-wheel zoom rerender is busy', () => {
+        const setup = setupWheelZoom();
+
+        try {
+            setup.wheelZoom.setZoomRerenderBusy(true);
+
+            const plainWheelEvent = createWheelEvent({
+                deltaY: 80,
+                clientX: 130,
+                clientY: 180,
+            });
+            setup.wheelZoom.handleViewerWheel(plainWheelEvent);
+
+            expect(plainWheelEvent.defaultPrevented).toBe(false);
+            expect(setup.cancelPendingSearchScroll).toHaveBeenCalledOnce();
+            expect(setup.singlePageScroll.handleWheel).toHaveBeenCalledWith(plainWheelEvent);
+            expect(setup.markUserViewportInteraction).toHaveBeenCalledOnce();
+        } finally {
+            setup.scope.stop();
+        }
+    });
+
     it('marks unhandled plain wheel packets as interrupting viewport interactions', () => {
         const setup = setupWheelZoom();
 

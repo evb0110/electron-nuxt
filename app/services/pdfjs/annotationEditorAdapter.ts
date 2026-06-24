@@ -345,7 +345,7 @@ export function getStoredAnnotationEditor(
     );
 }
 
-export function setEditorCommentText(editor: IPdfjsEditor, text: string) {
+function setEditorCommentText(editor: IPdfjsEditor, text: string) {
     editor.comment = text;
 }
 
@@ -533,7 +533,7 @@ export function getAnnotationEditorLayerDiv(
     return null;
 }
 
-export function getAnnotationEditorLayerPointerPoint(
+function getAnnotationEditorLayerPointerPoint(
     layerDiv: HTMLElement,
     clientX: number,
     clientY: number,

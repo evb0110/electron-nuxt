@@ -89,16 +89,15 @@ export const usePdfViewerFitWidthController = (options: IUsePdfViewerFitWidthCon
             return;
         }
 
-        const isCurrentPageFitWidth = isEffectiveScaleAtFitWidthScale()
-            && options.isFitWidthScaleCurrent(options.viewerContainer.value);
-
-        if (isCurrentPageFitWidth && options.zoomMode.value === 'custom') {
-            options.emitZoomMode('fit-width');
+        if (options.zoomMode.value !== 'custom') {
             return;
         }
 
-        if (!isCurrentPageFitWidth && options.zoomMode.value === 'fit-width') {
-            options.emitZoomMode('custom');
+        if (
+            isEffectiveScaleAtFitWidthScale()
+            && options.isFitWidthScaleCurrent(options.viewerContainer.value)
+        ) {
+            options.emitZoomMode('fit-width');
         }
     }
 

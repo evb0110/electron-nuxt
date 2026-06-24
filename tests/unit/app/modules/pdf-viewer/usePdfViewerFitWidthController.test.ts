@@ -113,4 +113,53 @@ describe('usePdfViewerFitWidthController', () => {
             scope.stop();
         }
     });
+
+    it('keeps explicit continuous fit-width active when passive scrolling reaches a differently sized page', async () => {
+        const currentPage = ref(1);
+        const emitZoomMode = vi.fn();
+        const syncHorizontalScrollForZoomMode = vi.fn();
+        const isFitWidthScaleCurrent = vi.fn(() => false);
+        const viewerContainer = ref(cast<HTMLElement>({}));
+        const scope = effectScope();
+
+        try {
+            scope.run(() => {
+                usePdfViewerFitWidthController({
+                    viewerContainer,
+                    pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+                    isLoading: ref(false),
+                    continuousScroll: computed(() => true),
+                    fitMode: computed(() => 'width' as const),
+                    zoomMode: computed(() => 'fit-width' as const),
+                    zoom: computed(() => 1),
+                    effectiveScale: computed(() => 3.44),
+                    fitWidthScale: ref(3.44),
+                    viewMode: computed(() => 'single' as const),
+                    currentPage,
+                    numPages: ref(10),
+                    pageMetricsVersion: ref(0),
+                    visibleRange: ref({
+                        start: 1,
+                        end: 2,
+                    }),
+                    captureViewerScrollSnapshot: vi.fn(() => null),
+                    computeFitWidthScale: vi.fn(() => false),
+                    isFitWidthScaleCurrent,
+                    syncHorizontalScrollForZoomMode,
+                    cancelInFlightRenders: vi.fn(),
+                    reRenderAllVisiblePages: vi.fn(async () => {}),
+                    emitZoomMode,
+                });
+            });
+
+            currentPage.value = 2;
+            await nextTick();
+
+            expect(isFitWidthScaleCurrent).not.toHaveBeenCalled();
+            expect(emitZoomMode).not.toHaveBeenCalledWith('custom');
+            expect(syncHorizontalScrollForZoomMode).toHaveBeenCalledOnce();
+        } finally {
+            scope.stop();
+        }
+    });
 });

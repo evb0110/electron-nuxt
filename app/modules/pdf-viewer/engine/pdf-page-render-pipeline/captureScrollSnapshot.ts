@@ -3,6 +3,7 @@ import type {
     TAnchorPageOutsideEdge,
 } from '@app/types/pdf';
 import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
+import { MAX_PAGE_OUTSIDE_ANCHOR_OFFSET_PX } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/maxPageOutsideAnchorOffsetPx';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';
@@ -259,6 +260,19 @@ function findNearestOutsidePageAnchor(
     return nearest;
 }
 
+function canUsePreferredAnchorSnapshot(snapshot: IAnchorPageSnapshot) {
+    if (snapshot.insidePage) {
+        return true;
+    }
+
+    if (snapshot.pageYOutsideEdge === 'inside') {
+        return true;
+    }
+
+    return snapshot.pageYOutsideOffsetPx !== null
+        && snapshot.pageYOutsideOffsetPx <= MAX_PAGE_OUTSIDE_ANCHOR_OFFSET_PX;
+}
+
 function getAnchorPageSnapshot(
     container: HTMLElement,
     anchorContentX: number,
@@ -271,7 +285,7 @@ function getAnchorPageSnapshot(
         anchorContentY,
         preferredAnchorPage,
     );
-    if (preferredSnapshot) {
+    if (preferredSnapshot && canUsePreferredAnchorSnapshot(preferredSnapshot)) {
         return preferredSnapshot;
     }
 

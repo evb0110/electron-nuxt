@@ -506,7 +506,25 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         return true;
     }
 
+    function hasWheelZoomSuppressionContext(context: IWheelDispatchContext) {
+        const withinExpectedModifierWindow = context.modifierZoomAgeMs !== null
+            && context.modifierZoomAgeMs <= wheelZoomExpectedScrollWindowMs;
+        const hasRecentZoomAnchor = context.recentZoomAgeMs !== null
+            && context.recentZoomAgeMs <= wheelZoomExpectedScrollWindowMs;
+
+        return (
+            context.activeSession !== null
+            || context.isWithinModifierZoomGraceWindow
+            || withinExpectedModifierWindow
+            || hasRecentZoomAnchor
+        );
+    }
+
     function suppressWheelDuringActiveZoom(event: WheelEvent, context: IWheelDispatchContext) {
+        if (!hasWheelZoomSuppressionContext(context)) {
+            return false;
+        }
+
         if (!context.zoomInteractionLocked && !context.isWithinModifierZoomGraceWindow) {
             return false;
         }

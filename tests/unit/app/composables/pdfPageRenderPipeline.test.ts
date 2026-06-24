@@ -207,6 +207,34 @@ describe('pdfPageRenderPipeline scroll snapshots', () => {
         expect(restored.getScrollTop()).toBeCloseTo(500 + 280 + 60 - 90, 5);
     });
 
+    it('ignores a stale preferred anchor page when the viewport anchor is far inside another page', () => {
+        const {container} = createContainerStub({
+            pages: [
+                {
+                    page: 1,
+                    top: 0,
+                    height: 1000,
+                },
+                {
+                    page: 2,
+                    top: 1400,
+                    height: 1000,
+                },
+            ],
+            scrollTop: 1600,
+            clientHeight: 600,
+            scrollWidth: 1200,
+            scrollHeight: 3600,
+        });
+
+        const snapshot = captureScrollSnapshot(container, { preferredAnchorPage: 1 });
+
+        expect(snapshot).not.toBeNull();
+        expect(snapshot?.anchorPage).toBe(2);
+        expect(snapshot?.anchorInsidePage).toBe(true);
+        expect(snapshot?.anchorPageYRatio).toBeCloseTo((1600 + 300 - 1400) / 1000, 5);
+    });
+
     it('restores scrollTop from page anchor when anchor page is mounted', () => {
         const {
             container,

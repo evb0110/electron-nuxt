@@ -3,12 +3,11 @@ import type {
     TAnchorPageOutsideEdge,
 } from '@app/types/pdf';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
+import { MAX_PAGE_OUTSIDE_ANCHOR_OFFSET_PX } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/maxPageOutsideAnchorOffsetPx';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';
 
 const SNAPSHOT_LOG_THROTTLE_MS = 420;
-
-const MAX_PAGE_OUTSIDE_ANCHOR_OFFSET_PX = 320;
 
 function isFiniteNumber(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value);
