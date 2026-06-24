@@ -215,6 +215,8 @@ export {
     isRecord,
 } from '@contracts/runtimeGuards';
 
+export { safeJsonParse } from '@contracts/safeJsonParse';
+
 export { isTimeoutError } from '@contracts/isTimeoutError';
 
 export {

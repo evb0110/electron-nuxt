@@ -439,7 +439,6 @@ export default defineNuxtConfig({
                 'hookable',
                 'unctx',
                 'klona',
-                'destr',
                 'scule',
                 '@vue/devtools-api',
                 '@iconify/vue',

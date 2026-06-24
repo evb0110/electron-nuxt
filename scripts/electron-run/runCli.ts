@@ -4,8 +4,8 @@ import {
     unlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { safeDestr } from 'destr';
 import { delay } from 'es-toolkit/promise';
+import { safeJsonParse } from '@contracts/safeJsonParse';
 import { sendCommand } from '@scripts/electron-run/sendCommand';
 import { COMMAND_EXECUTION_TIMEOUT_MS } from '@scripts/electron-run/electronRunTimeouts';
 import {
@@ -75,7 +75,7 @@ function parsePositivePid(value: unknown) {
 
 function readLegacyPid(filePath: string) {
     try {
-        const parsed = safeDestr<Partial<{ pid: unknown }>>(readFileSync(filePath, 'utf8'));
+        const parsed = safeJsonParse<Partial<{ pid: unknown }>>(readFileSync(filePath, 'utf8'));
         return parsePositivePid(parsed?.pid);
     } catch {
         return null;

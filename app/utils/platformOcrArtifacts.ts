@@ -1,5 +1,5 @@
-import { safeDestr } from 'destr';
 import type { TDocumentRef } from '@contracts/documentRef';
+import { safeJsonParse } from '@contracts/safeJsonParse';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
 function isAbsoluteOrDrivePath(value: string) {
@@ -58,7 +58,7 @@ export async function readOptionalOcrArtifactJson<T>(
         return null;
     }
 
-    return safeDestr<T>(await documents.readTextFile(path));
+    return safeJsonParse<T>(await documents.readTextFile(path));
 }
 
 export async function readOptionalAdjacentJsonArtifact<T>(
@@ -77,5 +77,5 @@ export async function readOptionalAdjacentJsonArtifact<T>(
         return null;
     }
 
-    return safeDestr<T>(await documents.readTextFile(path));
+    return safeJsonParse<T>(await documents.readTextFile(path));
 }

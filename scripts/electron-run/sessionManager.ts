@@ -18,8 +18,8 @@ import puppeteer, {
     type HTTPResponse,
     type Page,
 } from 'puppeteer-core';
-import { safeDestr } from 'destr';
 import { delay } from 'es-toolkit/promise';
+import { safeJsonParse } from '@contracts/safeJsonParse';
 import { createCommandHandler } from '@scripts/electron-run/createCommandHandler';
 import {
     buildElectronAutomationArgs,
@@ -1382,7 +1382,7 @@ function createSessionCommandServer() {
         });
         req.on('end', async () => {
             try {
-                const requestPayload = parseElectronRunCommandRequest(safeDestr(body));
+                const requestPayload = parseElectronRunCommandRequest(safeJsonParse(body));
                 if (!requestPayload) {
                     throw new Error('Malformed command payload');
                 }

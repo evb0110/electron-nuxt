@@ -6,7 +6,7 @@ import {
     unlinkSync,
     writeFileSync,
 } from 'node:fs';
-import { safeDestr } from 'destr';
+import { safeJsonParse } from '@contracts/safeJsonParse';
 import { DEFAULT_NUXT_PORT } from '@scripts/electron-run/electronRunPortConfig';
 import {
     parseElectronRunCommandResponse,
@@ -42,7 +42,7 @@ function isNullablePositiveInt(value: unknown): value is number | null {
 
 function parseJsonFile(path: string) {
     try {
-        return safeDestr(readFileSync(path, 'utf8'));
+        return safeJsonParse(readFileSync(path, 'utf8'));
     } catch {
         return null;
     }

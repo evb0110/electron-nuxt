@@ -79,9 +79,6 @@ importers:
       defu:
         specifier: 6.1.7
         version: 6.1.7
-      destr:
-        specifier: 2.0.5
-        version: 2.0.5
       devalue:
         specifier: 5.8.1
         version: 5.8.1

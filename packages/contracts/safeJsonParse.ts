@@ -1,0 +1,17 @@
+function hasPrototypeKey(value: unknown) {
+    return typeof value === 'object' && value !== null && 'prototype' in value;
+}
+
+function safeJsonReviver(key: string, value: unknown) {
+    if (key === '__proto__') {
+        throw new SyntaxError('Unsafe JSON key: __proto__');
+    }
+    if (key === 'constructor' && hasPrototypeKey(value)) {
+        throw new SyntaxError('Unsafe JSON key: constructor.prototype');
+    }
+    return value;
+}
+
+export function safeJsonParse<T = unknown>(source: string) {
+    return JSON.parse(source, safeJsonReviver) as T;
+}

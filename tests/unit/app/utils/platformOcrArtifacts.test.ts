@@ -65,6 +65,15 @@ describe('platform OCR artifacts', () => {
         expect(documentsMock.fileExists).toHaveBeenCalledWith('/tmp/doc.pdf.ocr/pages/0001.json');
     });
 
+    it('rejects unsafe OCR artifact JSON keys', async () => {
+        documentsMock.fileExists.mockResolvedValue(true);
+        documentsMock.readTextFile.mockResolvedValue('{"__proto__":{"polluted":true}}');
+
+        const { readOptionalOcrArtifactJson } = await import('@app/utils/platformOcrArtifacts');
+        await expect(readOptionalOcrArtifactJson('/tmp/doc.pdf', 'manifest.json'))
+            .rejects.toThrow(SyntaxError);
+    });
+
     it('rejects adjacent artifact suffixes that are not plain suffixes', async () => {
         const { readOptionalAdjacentJsonArtifact } = await import('@app/utils/platformOcrArtifacts');
 
