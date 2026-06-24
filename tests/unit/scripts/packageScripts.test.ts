@@ -90,12 +90,38 @@ describe('package scripts', () => {
         const packageJson = await readPackageJson();
 
         expect(scriptRunTargets(packageJson, 'lint')).toEqual(expect.arrayContaining([
+            'check:style-assets',
             'check:css-custom-properties',
+            'check:css-important',
             'check:web-deploy-source',
             'check:dependency-lockstep',
             'check:naming',
         ]));
         expect(getPackageScripts(packageJson).lint).not.toContain('|| true');
+        expect(getPackageScripts(packageJson).lint).not.toContain('landing');
+        expect(getPackageScripts(packageJson).lint).not.toContain(':all');
+    });
+
+    it('keeps landing style checks opt-in outside main lint', async () => {
+        const packageJson = await readPackageJson();
+        const scripts = getPackageScripts(packageJson);
+
+        expect(scripts['check:style-assets']).toBe('pnpm exec tsx scripts/checkStyleAssetConventions.ts --target=app');
+        expect(scripts['check:style-assets:landing']).toBe('pnpm exec tsx scripts/checkStyleAssetConventions.ts --target=landing');
+        expect(scripts['check:style-assets:all']).toBe('pnpm exec tsx scripts/checkStyleAssetConventions.ts --target=all');
+        expect(scripts['check:css-important']).toBe('pnpm exec tsx scripts/checkCssImportantPolicy.ts --target=app');
+        expect(scripts['check:css-important:landing']).toBe('pnpm exec tsx scripts/checkCssImportantPolicy.ts --target=landing');
+        expect(scripts['check:css-important:all']).toBe('pnpm exec tsx scripts/checkCssImportantPolicy.ts --target=all');
+        expect(scriptRunTargets(packageJson, 'lint:all')).toEqual(expect.arrayContaining([
+            'check:style-assets:all',
+            'check:css-important:all',
+        ]));
+        expect(scriptRunTargets(packageJson, 'lint:all')).toEqual(expect.arrayContaining([
+            'check:locales:all',
+            'check:icons:bundle:all',
+            'check:naming:all',
+        ]));
+        expect(scripts['lint:all']).toContain('pnpm --dir landing run lint');
     });
 
     it('keeps focused release and diagnostic test scripts mapped to first-class commands', async () => {

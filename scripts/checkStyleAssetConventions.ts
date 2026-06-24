@@ -5,6 +5,7 @@ interface IStyleAssetRoot {
     root: string;
     allowedCssFiles: ReadonlySet<string>;
     allowedCssPrefixes: readonly string[];
+    target: TStyleAssetTarget;
 }
 
 interface IStyleAssetFile {
@@ -18,13 +19,23 @@ const STYLE_ASSET_ROOTS: IStyleAssetRoot[] = [
         root: 'app/assets/css',
         allowedCssFiles: new Set(['main.css']),
         allowedCssPrefixes: ['vendor/'],
+        target: 'app',
     },
     {
         root: 'landing/app/assets/css',
         allowedCssFiles: new Set(['main.css']),
         allowedCssPrefixes: [],
+        target: 'landing',
     },
 ];
+
+type TStyleAssetTarget = 'all' | 'app' | 'landing';
+
+const VALID_TARGETS = new Set<TStyleAssetTarget>([
+    'all',
+    'app',
+    'landing',
+]);
 
 const STYLE_EXTENSIONS = new Set([
     '.css',
@@ -39,6 +50,25 @@ function toRepoPath(filePath: string) {
 
 function isStyleFile(filePath: string) {
     return STYLE_EXTENSIONS.has(path.extname(filePath));
+}
+
+function isStyleAssetTarget(value: string): value is TStyleAssetTarget {
+    return VALID_TARGETS.has(value as TStyleAssetTarget);
+}
+
+function parseTarget(argv = process.argv.slice(2)) {
+    const targetArg = argv.find(arg => arg.startsWith('--target='));
+    const target = targetArg?.slice('--target='.length) ?? 'app';
+
+    if (isStyleAssetTarget(target)) {
+        return target;
+    }
+
+    throw new Error(`Expected --target to be one of: app, landing, all. Received "${target}".`);
+}
+
+function getTargetRoots(target: TStyleAssetTarget) {
+    return STYLE_ASSET_ROOTS.filter(root => target === 'all' || root.target === target);
 }
 
 function isAllowedCssFile(file: IStyleAssetFile, root: IStyleAssetRoot) {
@@ -82,8 +112,9 @@ async function collectStyleAssetFiles(root: IStyleAssetRoot, directoryPath = pat
 async function main() {
     const violations: string[] = [];
     const twinExtensionsByKey = new Map<string, Set<string>>();
+    const target = parseTarget();
 
-    for (const root of STYLE_ASSET_ROOTS) {
+    for (const root of getTargetRoots(target)) {
         const files = await collectStyleAssetFiles(root);
 
         for (const file of files) {

@@ -406,12 +406,6 @@ describe('release policy', () => {
                 'lint',
             ],
             [
-                '--dir',
-                'landing',
-                'run',
-                'check:vendor',
-            ],
-            [
                 'run',
                 'typecheck',
             ],
@@ -429,7 +423,7 @@ describe('release policy', () => {
             ],
             [
                 'run',
-                'check:architecture:all',
+                'check:architecture',
             ],
             [
                 'run',
@@ -447,6 +441,8 @@ describe('release policy', () => {
         expect(scriptNames).not.toContain('validate');
         expect(scriptNames).not.toContain('build:strict');
         expect(scriptNames).not.toContain('test:python-page-processor');
+        expect(scriptNames).not.toContain('check:architecture:all');
+        expect(commandArgs.flat()).not.toContain('landing');
     });
 
     it('keeps standalone release verification composed from focused local gates', () => {

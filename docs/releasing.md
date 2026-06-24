@@ -13,7 +13,7 @@ Releases are cut locally and published by dispatching the GitHub Release workflo
 ## Local guardrails
 
 - `pnpm run release:verify` mirrors the local parts of the release workflow, includes current-platform build and packaging verification, and fails if the successful verify run changes the working tree snapshot.
-- `release:verify:checks` forces `CI=1` during linting, typechecking, Electron install verification, native-resource matrix checks, WASM portability checks, architecture checks, Rust tests, unit tests, and bundle-integrity checks so the local gate stays closer to the GitHub release runner.
+- `release:verify:checks` forces `CI=1` during app-scoped linting, typechecking, Electron install verification, native-resource matrix checks, WASM portability checks, app-scoped architecture checks, Rust tests, unit tests, and bundle-integrity checks so the local gate stays closer to the GitHub release runner.
 - Direct pushes to `main` run `pnpm lint`, `pnpm typecheck`, and `pnpm run test:release` before the next release cut, with Rust, landing, and Python page-processor checks added when those paths change.
 - Main app release checks are app-scoped and do not read or build `landing/`. Landing-only working tree changes are ignored by the release cutter so the desktop/web app release path stays independent of the separate landing deploy.
 - Broad maintenance checks (`typecheck:coverage`, `fallow`, the coverage ratchet, OCR model registry, and Python page-processor smoke) remain part of scheduled nightly CI, but they do not block every local release cut. The page-processor smoke is retained as dormant devkit-tool maintenance coverage, not as a local release gate.

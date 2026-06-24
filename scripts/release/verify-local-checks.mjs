@@ -14,15 +14,6 @@ export function getLocalReleaseCheckCommands() {
         },
         {
             args: [
-                '--dir',
-                'landing',
-                'run',
-                'check:vendor',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
                 'run',
                 'typecheck',
             ],
@@ -52,7 +43,7 @@ export function getLocalReleaseCheckCommands() {
         {
             args: [
                 'run',
-                'check:architecture:all',
+                'check:architecture',
             ],
             command: 'pnpm',
         },

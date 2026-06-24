@@ -10,9 +10,23 @@ const STYLE_EXTENSIONS = new Set([
     '.vue',
 ]);
 const TARGET_ROOTS = [
-    'app',
-    'landing/app',
+    {
+        path: 'app',
+        target: 'app',
+    },
+    {
+        path: 'landing/app',
+        target: 'landing',
+    },
 ];
+type TCssImportantTarget = 'all' | 'app' | 'landing';
+
+const VALID_TARGETS = new Set<TCssImportantTarget>([
+    'all',
+    'app',
+    'landing',
+]);
+
 const IMPORTANT_ALLOWANCE_WINDOW_LINES = 8;
 
 const IGNORED_DIRECTORIES = new Set([
@@ -36,6 +50,25 @@ function toRepoPath(filePath: string) {
 
 function isStyleFile(filePath: string) {
     return STYLE_EXTENSIONS.has(path.extname(filePath));
+}
+
+function isCssImportantTarget(value: string): value is TCssImportantTarget {
+    return VALID_TARGETS.has(value as TCssImportantTarget);
+}
+
+function parseTarget(argv = process.argv.slice(2)) {
+    const targetArg = argv.find(arg => arg.startsWith('--target='));
+    const target = targetArg?.slice('--target='.length) ?? 'app';
+
+    if (isCssImportantTarget(target)) {
+        return target;
+    }
+
+    throw new Error(`Expected --target to be one of: app, landing, all. Received "${target}".`);
+}
+
+function getTargetRoots(target: TCssImportantTarget) {
+    return TARGET_ROOTS.filter(root => target === 'all' || root.target === target);
 }
 
 function isAllowedWholeFile(repoPath: string) {
@@ -77,9 +110,10 @@ async function collectStyleFiles(directoryPath: string, files: string[] = []) {
 
 async function main() {
     const violations: string[] = [];
+    const target = parseTarget();
 
-    for (const root of TARGET_ROOTS) {
-        const files = await collectStyleFiles(path.resolve(root));
+    for (const root of getTargetRoots(target)) {
+        const files = await collectStyleFiles(path.resolve(root.path));
 
         for (const filePath of files) {
             const repoPath = toRepoPath(filePath);
