@@ -73,6 +73,7 @@ class FakeCodexAppServerProcess extends EventEmitter {
         }
         if (request.method) {
             this.requestMethods.push(request.method);
+            this.emit('codex-request', request.method);
         }
 
         switch (request.method) {
@@ -239,13 +240,26 @@ function createInitializeGate() {
 }
 
 async function waitForCodexRequest(process: FakeCodexAppServerProcess, method: string) {
-    for (let index = 0; index < 200; index += 1) {
-        if (process.requestMethods.includes(method)) {
-            return;
-        }
-        await new Promise(resolve => setImmediate(resolve));
+    if (process.requestMethods.includes(method)) {
+        return;
     }
-    throw new Error(`Timed out waiting for Codex request ${method}`);
+
+    await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            process.off('codex-request', onRequest);
+            reject(new Error(`Timed out waiting for Codex request ${method}`));
+        }, 5_000);
+        function onRequest(candidate: string) {
+            if (candidate !== method) {
+                return;
+            }
+            clearTimeout(timeout);
+            process.off('codex-request', onRequest);
+            resolve();
+        }
+
+        process.on('codex-request', onRequest);
+    });
 }
 
 async function settleAsyncTicks(count = 3) {
