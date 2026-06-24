@@ -53,14 +53,27 @@ describe('checkIconBundle extractors', () => {
             };
             const ignoredUnknown = 'i-simple-icons-gitlab';
             panel.name = 'i-ph-file-text';
+            const typedMenu = { ['leadingIcon']: 'i-simple-icons-vue-dot-js' } as const satisfies Record<string, string>;
+            const jsxButton = <UButton icon="i-ph-download-simple" />;
         `;
 
         expect(extractIconsFromScriptContent(scriptContent, COLLECTION_HINTS)).toEqual([
             'ph:arrow-right',
+            'ph:download-simple',
             'ph:file-text',
             'ph:folder-open',
             'simple-icons:github',
+            'simple-icons:vue-dot-js',
         ]);
+    });
+
+    it('falls back to context-aware quoted token extraction when script parsing fails', () => {
+        const scriptContent = `
+            const menuItem = { icon: 'i-simple-icons-github',
+            const ignoredUnknown = 'i-simple-icons-gitlab';
+        `;
+
+        expect(extractIconsFromScriptContent(scriptContent, COLLECTION_HINTS)).toEqual(['simple-icons:github']);
     });
 
     it('extracts icons from script setup and template when parsing a full SFC', () => {

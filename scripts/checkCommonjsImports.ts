@@ -3,37 +3,10 @@ import {
     readFile,
 } from 'node:fs/promises';
 import path from 'node:path';
-import { parse as parseBabel } from '@babel/parser';
-
-interface ICommonJsPackageRule {
-    packageName: string;
-    suggestedImport: string;
-}
-
-interface IImportViolation {
-    filePath: string;
-    line: number;
-    packageName: string;
-    importedNames: string[];
-    suggestedImport: string;
-}
-
-interface IImportDeclarationLike {
-    type: 'ImportDeclaration';
-    source: {value: string;};
-    specifiers: unknown[];
-    loc?: {start: {line: number;};} | null;
-}
-
-interface IImportSpecifierLike {
-    type: 'ImportSpecifier';
-    importKind?: 'type' | 'value' | null;
-    imported: {
-        type: 'Identifier' | 'StringLiteral';
-        name?: string;
-        value?: string;
-    };
-}
+import {
+    findCommonJsNamedImportViolations,
+    type ICommonJsImportViolation,
+} from '@scripts/findCommonJsNamedImportViolations';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 const SOURCE_DIRECTORIES = [
@@ -63,37 +36,6 @@ const IGNORED_DIRECTORIES = new Set([
     'node_modules',
     'nuxt-output',
 ]);
-const COMMONJS_PACKAGE_RULES: ICommonJsPackageRule[] = [{
-    packageName: 'utif',
-    suggestedImport: 'import UTIF from \'utif\'; const { decode, decodeImage, toRGBA8 } = UTIF;',
-}];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
-
-function isImportDeclaration(value: unknown): value is IImportDeclarationLike {
-    return isRecord(value) && value.type === 'ImportDeclaration';
-}
-
-function isImportSpecifier(value: unknown): value is IImportSpecifierLike {
-    return isRecord(value) && value.type === 'ImportSpecifier';
-}
-
-function getVueScriptContent(source: string) {
-    const scriptBlocks = [...source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/giu)];
-
-    return scriptBlocks
-        .map((match) => match[1] ?? '')
-        .join('\n');
-}
-
-function getParseableSource(filePath: string, source: string) {
-    return filePath.endsWith('.vue')
-        ? getVueScriptContent(source)
-        : source;
-}
-
 async function collectSourceFiles(dirPath: string): Promise<string[]> {
     const entries = await readdir(dirPath, { withFileTypes: true });
     const files: string[] = [];
@@ -117,71 +59,11 @@ async function collectSourceFiles(dirPath: string): Promise<string[]> {
     return files;
 }
 
-function getImportedName(specifier: IImportSpecifierLike) {
-    const imported = specifier.imported;
-    if (imported.type === 'Identifier') {
-        return imported.name ?? '<unknown>';
-    }
-
-    return imported.value ?? '<unknown>';
-}
-
-function findCommonJsNamedImportViolations(
-    filePath: string,
-    source: string,
-): IImportViolation[] {
-    const parseableSource = getParseableSource(filePath, source);
-    if (!parseableSource.trim()) {
-        return [];
-    }
-
-    const ast = parseBabel(parseableSource, {
-        sourceType: 'module',
-        plugins: [
-            'decorators',
-            'importAttributes',
-            'jsx',
-            'typescript',
-        ],
-    });
-    const violations: IImportViolation[] = [];
-
-    for (const statement of ast.program.body as unknown[]) {
-        if (!isImportDeclaration(statement)) {
-            continue;
-        }
-
-        const rule = COMMONJS_PACKAGE_RULES.find((item) => item.packageName === statement.source.value);
-        if (!rule) {
-            continue;
-        }
-
-        const runtimeNamedImports = statement.specifiers
-            .filter(isImportSpecifier)
-            .filter((specifier) => specifier.importKind !== 'type')
-            .map(getImportedName);
-
-        if (runtimeNamedImports.length === 0) {
-            continue;
-        }
-
-        violations.push({
-            filePath,
-            line: statement.loc?.start.line ?? 1,
-            packageName: rule.packageName,
-            importedNames: runtimeNamedImports,
-            suggestedImport: rule.suggestedImport,
-        });
-    }
-
-    return violations;
-}
-
 async function main() {
     const sourceFiles = (await Promise.all(
         SOURCE_DIRECTORIES.map((directory) => collectSourceFiles(path.join(REPO_ROOT, directory))),
     )).flat();
-    const violations: IImportViolation[] = [];
+    const violations: ICommonJsImportViolation[] = [];
 
     for (const sourceFile of sourceFiles) {
         const source = await readFile(sourceFile, 'utf-8');

@@ -9,11 +9,6 @@ import {
     pathToFileURL,
 } from 'node:url';
 import {
-    parse as parseBabel,
-    parseExpression,
-    type ParserPlugin,
-} from '@babel/parser';
-import {
     sortBy,
     uniq,
 } from 'es-toolkit/array';
@@ -21,6 +16,7 @@ import {
     NodeTypes,
     parse as parseVueTemplate,
 } from '@vue/compiler-dom';
+import ts from 'typescript';
 import type { PackageJson } from 'type-fest';
 
 interface IProjectTarget {
@@ -47,20 +43,22 @@ interface ITokenCandidate {
     allowUnknownCollection: boolean;
 }
 
-interface IBabelNodeLike {
-    type: string;
-    [key: string]: unknown;
-}
-
 interface IVueNodeLike {
     type: number;
     [key: string]: unknown;
 }
 
+interface IVueScriptBlock {
+    content: string;
+    scriptKind: ts.ScriptKind;
+}
+
 interface IVueSfcBlocks {
-    scriptBlocks: string[];
+    scriptBlocks: IVueScriptBlock[];
     templateBlocks: string[];
 }
+
+type TSourceFileWithParseDiagnostics = ts.SourceFile & { readonly parseDiagnostics: readonly ts.DiagnosticWithLocation[]; };
 
 const SOURCE_FILE_EXTENSIONS = new Set([
     '.vue',
@@ -84,11 +82,6 @@ const ICON_CONTEXT_NAMES = new Set([
     'leadingicon',
     'trailingicon',
 ]);
-const BABEL_PARSER_PLUGINS: ParserPlugin[] = [
-    'typescript',
-    'jsx',
-];
-
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, '..');
 
@@ -148,9 +141,9 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     return value as Record<string, unknown>;
 }
 
-function isBabelNodeLike(value: unknown): value is IBabelNodeLike {
+function isTypescriptNodeLike(value: unknown): value is ts.Node {
     const record = asRecord(value);
-    return record !== null && typeof record.type === 'string';
+    return record !== null && typeof record.kind === 'number';
 }
 
 function isVueNodeLike(value: unknown): value is IVueNodeLike {
@@ -176,7 +169,7 @@ function extractQuotedTokenMatches(content: string): IQuotedTokenMatch[] {
         if (token) {
             matches.push({
                 token,
-                tokenStartIndex: match.index + 1,
+                tokenStartIndex: match.index,
             });
         }
         match = matcher.exec(content);
@@ -194,6 +187,26 @@ function extractVueBlocks(content: string, tagName: 'script' | 'template'): stri
         const blockContent = match[1];
         if (blockContent) {
             blocks.push(blockContent);
+        }
+        match = pattern.exec(content);
+    }
+
+    return blocks;
+}
+
+function extractVueScriptBlocks(content: string): IVueScriptBlock[] {
+    const blocks: IVueScriptBlock[] = [];
+    const pattern = /<script\b([^>]*)>([\s\S]*?)<\/script>/giu;
+    let match: RegExpExecArray | null = pattern.exec(content);
+
+    while (match !== null) {
+        const attributes = match[1] ?? '';
+        const blockContent = match[2];
+        if (blockContent) {
+            blocks.push({
+                content: blockContent,
+                scriptKind: getScriptKindForVueScriptAttributes(attributes),
+            });
         }
         match = pattern.exec(content);
     }
@@ -270,101 +283,191 @@ function addUsage(
     usageByIcon.set(normalized, locations);
 }
 
-function parseBabelScriptAst(content: string): IBabelNodeLike | null {
-    try {
-        const parsed = parseBabel(content, {
-            sourceType: 'unambiguous',
-            plugins: BABEL_PARSER_PLUGINS,
-        });
-        return isBabelNodeLike(parsed) ? parsed : null;
-    } catch {
-        return null;
+function getScriptKindForFilePath(filePath: string) {
+    const extension = path.extname(filePath).toLowerCase();
+
+    if (extension === '.tsx') {
+        return ts.ScriptKind.TSX;
     }
+
+    if (extension === '.jsx') {
+        return ts.ScriptKind.JSX;
+    }
+
+    if (extension === '.js' || extension === '.mjs' || extension === '.cjs') {
+        return ts.ScriptKind.JS;
+    }
+
+    return ts.ScriptKind.TS;
 }
 
-function parseBabelExpressionAst(expression: string): IBabelNodeLike | null {
-    try {
-        const parsed = parseExpression(expression, {plugins: BABEL_PARSER_PLUGINS});
-        return isBabelNodeLike(parsed) ? parsed : null;
-    } catch {
-        return null;
+function getScriptKindForVueScriptAttributes(attributes: string) {
+    const langMatch = attributes.match(/\blang\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/iu);
+    const lang = (langMatch?.[1] ?? langMatch?.[2] ?? langMatch?.[3] ?? '').toLowerCase();
+
+    if (lang === 'tsx') {
+        return ts.ScriptKind.TSX;
     }
+
+    if (lang === 'jsx') {
+        return ts.ScriptKind.JSX;
+    }
+
+    if (lang === 'js' || lang === 'mjs' || lang === 'cjs') {
+        return ts.ScriptKind.JS;
+    }
+
+    return ts.ScriptKind.TS;
 }
 
-function getStaticObjectPropertyName(node: IBabelNodeLike) {
-    const key = node.key;
-    const computed = node.computed === true;
-
-    if (!isBabelNodeLike(key)) {
-        return null;
+function getCandidateScriptKinds(scriptKind: ts.ScriptKind) {
+    if (scriptKind === ts.ScriptKind.TS) {
+        return [
+            ts.ScriptKind.TS,
+            ts.ScriptKind.TSX,
+        ];
     }
 
-    if (!computed && key.type === 'Identifier' && typeof key.name === 'string') {
-        return key.name;
+    if (scriptKind === ts.ScriptKind.JS) {
+        return [
+            ts.ScriptKind.JS,
+            ts.ScriptKind.JSX,
+        ];
     }
 
-    if (key.type === 'StringLiteral' && typeof key.value === 'string') {
-        return key.value;
+    return [scriptKind];
+}
+
+function getParseDiagnostics(sourceFile: ts.SourceFile) {
+    return (sourceFile as TSourceFileWithParseDiagnostics).parseDiagnostics;
+}
+
+function createSourceFileIfParseable(
+    fileName: string,
+    content: string,
+    scriptKind: ts.ScriptKind,
+) {
+    const sourceFile = ts.createSourceFile(fileName, content, ts.ScriptTarget.Latest, true, scriptKind);
+    return getParseDiagnostics(sourceFile).length === 0
+        ? sourceFile
+        : null;
+}
+
+function parseTypescriptScriptAst(
+    content: string,
+    scriptKind: ts.ScriptKind,
+): ts.SourceFile | null {
+    for (const candidateScriptKind of getCandidateScriptKinds(scriptKind)) {
+        const sourceFile = createSourceFileIfParseable('__inline-script__', content, candidateScriptKind);
+        if (sourceFile) {
+            return sourceFile;
+        }
     }
 
     return null;
 }
 
-function getVariableDeclaratorName(node: IBabelNodeLike) {
-    const idNode = node.id;
-    if (!isBabelNodeLike(idNode) || idNode.type !== 'Identifier' || typeof idNode.name !== 'string') {
+function getVariableInitializer(sourceFile: ts.SourceFile) {
+    const statement = sourceFile.statements[0];
+    if (!statement || !ts.isVariableStatement(statement)) {
         return null;
     }
-    return idNode.name;
+
+    return statement.declarationList.declarations[0]?.initializer ?? null;
 }
 
-function getStaticMemberExpressionPropertyName(node: IBabelNodeLike) {
-    if (node.type !== 'MemberExpression' && node.type !== 'OptionalMemberExpression') {
+function parseTypescriptExpressionAst(expression: string): ts.Expression | null {
+    const wrappedExpression = `const __iconExpression = (${expression});`;
+    const sourceFile = createSourceFileIfParseable('__inline-expression__', wrappedExpression, ts.ScriptKind.TS);
+    if (!sourceFile) {
         return null;
     }
 
-    const propertyNode = node.property;
-    const computed = node.computed === true;
+    return getVariableInitializer(sourceFile);
+}
 
-    if (!isBabelNodeLike(propertyNode)) {
+function getStaticStringValue(node: unknown) {
+    if (!isTypescriptNodeLike(node)) {
         return null;
     }
 
-    if (!computed && propertyNode.type === 'Identifier' && typeof propertyNode.name === 'string') {
-        return propertyNode.name;
-    }
-
-    if (computed && propertyNode.type === 'StringLiteral' && typeof propertyNode.value === 'string') {
-        return propertyNode.value;
+    if (ts.isStringLiteralLike(node)) {
+        return node.text;
     }
 
     return null;
 }
 
-function isIconContextAssignmentTarget(node: unknown) {
-    if (!isBabelNodeLike(node)) {
-        return false;
+function getStaticPropertyName(propertyName: ts.PropertyName) {
+    if (ts.isIdentifier(propertyName) || ts.isStringLiteral(propertyName) || ts.isNumericLiteral(propertyName)) {
+        return propertyName.text;
     }
 
-    if (node.type === 'Identifier' && typeof node.name === 'string') {
-        return isIconContextName(node.name);
+    if (ts.isComputedPropertyName(propertyName)) {
+        return getStaticStringValue(propertyName.expression);
+    }
+
+    return null;
+}
+
+function getStaticObjectPropertyName(node: ts.Node) {
+    if (!ts.isPropertyAssignment(node)) {
+        return null;
+    }
+
+    return getStaticPropertyName(node.name);
+}
+
+function getVariableDeclaratorName(node: ts.VariableDeclaration) {
+    return ts.isIdentifier(node.name)
+        ? node.name.text
+        : null;
+}
+
+function getStaticMemberExpressionPropertyName(node: ts.Node) {
+    if (ts.isPropertyAccessExpression(node)) {
+        return node.name.text;
+    }
+
+    if (ts.isElementAccessExpression(node)) {
+        return getStaticStringValue(node.argumentExpression);
+    }
+
+    return null;
+}
+
+function isIconContextAssignmentTarget(node: ts.Node) {
+    if (ts.isIdentifier(node)) {
+        return isIconContextName(node.text);
     }
 
     const staticPropertyName = getStaticMemberExpressionPropertyName(node);
     return staticPropertyName !== null && isIconContextName(staticPropertyName);
 }
 
-function getJsxAttributeName(node: IBabelNodeLike) {
-    if (node.type !== 'JSXAttribute') {
-        return null;
-    }
+function isAssignmentOperatorKind(kind: ts.SyntaxKind) {
+    return kind === ts.SyntaxKind.EqualsToken
+        || kind === ts.SyntaxKind.PlusEqualsToken
+        || kind === ts.SyntaxKind.MinusEqualsToken
+        || kind === ts.SyntaxKind.AsteriskEqualsToken
+        || kind === ts.SyntaxKind.AsteriskAsteriskEqualsToken
+        || kind === ts.SyntaxKind.SlashEqualsToken
+        || kind === ts.SyntaxKind.PercentEqualsToken
+        || kind === ts.SyntaxKind.LessThanLessThanEqualsToken
+        || kind === ts.SyntaxKind.GreaterThanGreaterThanEqualsToken
+        || kind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken
+        || kind === ts.SyntaxKind.AmpersandEqualsToken
+        || kind === ts.SyntaxKind.BarEqualsToken
+        || kind === ts.SyntaxKind.CaretEqualsToken
+        || kind === ts.SyntaxKind.AmpersandAmpersandEqualsToken
+        || kind === ts.SyntaxKind.BarBarEqualsToken
+        || kind === ts.SyntaxKind.QuestionQuestionEqualsToken;
+}
 
-    const nameNode = node.name;
-    if (isBabelNodeLike(nameNode) && nameNode.type === 'JSXIdentifier' && typeof nameNode.name === 'string') {
-        return nameNode.name;
-    }
-
-    return null;
+function getJsxAttributeName(node: ts.JsxAttribute) {
+    return ts.isIdentifier(node.name)
+        ? node.name.text
+        : null;
 }
 
 function appendTokenCandidate(
@@ -378,18 +481,17 @@ function appendTokenCandidate(
     });
 }
 
-function collectTokenCandidatesFromBabelNode(
-    node: unknown,
+function collectTokenCandidatesFromTypescriptNode(
+    node: ts.Node | null | undefined,
     allowUnknownCollection: boolean,
     candidates: ITokenCandidate[],
 ) {
-    if (!isBabelNodeLike(node)) {
+    if (!node) {
         return;
     }
 
     const handled = [
         collectLiteralTokenCandidate,
-        collectTemplateLiteralTokenCandidate,
         collectObjectPropertyTokenCandidates,
         collectVariableDeclaratorTokenCandidates,
         collectAssignmentTokenCandidates,
@@ -401,46 +503,11 @@ function collectTokenCandidatesFromBabelNode(
 }
 
 function collectLiteralTokenCandidate(
-    node: IBabelNodeLike,
+    node: ts.Node,
     allowUnknownCollection: boolean,
     candidates: ITokenCandidate[],
 ) {
-    if (node.type !== 'StringLiteral' || typeof node.value !== 'string') {
-        return false;
-    }
-
-    appendTokenCandidate(candidates, node.value, allowUnknownCollection);
-    return true;
-}
-
-function getStaticTemplateLiteralValue(node: IBabelNodeLike) {
-    if (node.type !== 'TemplateLiteral') {
-        return null;
-    }
-
-    const quasis = Array.isArray(node.quasis) ? node.quasis : [];
-    const expressions = Array.isArray(node.expressions) ? node.expressions : [];
-    if (expressions.length !== 0 || quasis.length !== 1) {
-        return null;
-    }
-
-    const templateElement = asRecord(quasis[0]);
-    const valueRecord = templateElement ? asRecord(templateElement.value) : null;
-    const cookedValue = valueRecord?.cooked;
-    const rawValue = valueRecord?.raw;
-    return typeof cookedValue === 'string'
-        ? cookedValue
-        : typeof rawValue === 'string'
-            ? rawValue
-            : null;
-}
-
-function collectTemplateLiteralTokenCandidate(
-    node: IBabelNodeLike,
-    allowUnknownCollection: boolean,
-    candidates: ITokenCandidate[],
-) {
-    const stringValue = getStaticTemplateLiteralValue(node);
+    const stringValue = getStaticStringValue(node);
     if (stringValue === null) {
         return false;
     }
@@ -450,84 +517,80 @@ function collectTemplateLiteralTokenCandidate(
 }
 
 function collectObjectPropertyTokenCandidates(
-    node: IBabelNodeLike,
+    node: ts.Node,
     allowUnknownCollection: boolean,
     candidates: ITokenCandidate[],
 ) {
-    if (node.type !== 'ObjectProperty') {
+    if (!ts.isPropertyAssignment(node)) {
         return false;
     }
 
     const propertyName = getStaticObjectPropertyName(node);
     const isIconProperty = propertyName !== null && isIconContextName(propertyName);
-    collectTokenCandidatesFromBabelNode(node.value, allowUnknownCollection || isIconProperty, candidates);
+    collectTokenCandidatesFromTypescriptNode(node.initializer, allowUnknownCollection || isIconProperty, candidates);
 
-    if (node.computed === true) {
-        collectTokenCandidatesFromBabelNode(node.key, allowUnknownCollection, candidates);
+    if (ts.isComputedPropertyName(node.name)) {
+        collectTokenCandidatesFromTypescriptNode(node.name.expression, allowUnknownCollection, candidates);
     }
     return true;
 }
 
 function collectVariableDeclaratorTokenCandidates(
-    node: IBabelNodeLike,
+    node: ts.Node,
     allowUnknownCollection: boolean,
     candidates: ITokenCandidate[],
 ) {
-    if (node.type !== 'VariableDeclarator') {
+    if (!ts.isVariableDeclaration(node)) {
         return false;
     }
 
     const variableName = getVariableDeclaratorName(node);
     const isIconVariable = variableName !== null && isIconContextName(variableName);
-    collectTokenCandidatesFromBabelNode(node.init, allowUnknownCollection || isIconVariable, candidates);
+    collectTokenCandidatesFromTypescriptNode(node.initializer, allowUnknownCollection || isIconVariable, candidates);
     return true;
 }
 
 function collectAssignmentTokenCandidates(
-    node: IBabelNodeLike,
+    node: ts.Node,
     allowUnknownCollection: boolean,
     candidates: ITokenCandidate[],
 ) {
-    if (node.type !== 'AssignmentExpression') {
+    if (!ts.isBinaryExpression(node) || !isAssignmentOperatorKind(node.operatorToken.kind)) {
         return false;
     }
 
     const isIconAssignment = isIconContextAssignmentTarget(node.left);
-    collectTokenCandidatesFromBabelNode(node.left, allowUnknownCollection, candidates);
-    collectTokenCandidatesFromBabelNode(node.right, allowUnknownCollection || isIconAssignment, candidates);
+    collectTokenCandidatesFromTypescriptNode(node.left, allowUnknownCollection, candidates);
+    collectTokenCandidatesFromTypescriptNode(node.right, allowUnknownCollection || isIconAssignment, candidates);
     return true;
 }
 
 function collectJsxAttributeTokenCandidates(
-    node: IBabelNodeLike,
+    node: ts.Node,
     allowUnknownCollection: boolean,
     candidates: ITokenCandidate[],
 ) {
-    if (node.type !== 'JSXAttribute') {
+    if (!ts.isJsxAttribute(node)) {
         return false;
     }
 
     const attributeName = getJsxAttributeName(node);
     const isIconAttribute = attributeName !== null && isIconContextName(attributeName);
-    collectTokenCandidatesFromBabelNode(node.value, allowUnknownCollection || isIconAttribute, candidates);
+    const initializer = node.initializer && ts.isJsxExpression(node.initializer)
+        ? node.initializer.expression
+        : node.initializer;
+    collectTokenCandidatesFromTypescriptNode(initializer, allowUnknownCollection || isIconAttribute, candidates);
     return true;
 }
 
 function collectChildTokenCandidates(
-    node: IBabelNodeLike,
+    node: ts.Node,
     allowUnknownCollection: boolean,
     candidates: ITokenCandidate[],
 ) {
-    for (const value of Object.values(node)) {
-        if (Array.isArray(value)) {
-            for (const item of value) {
-                collectTokenCandidatesFromBabelNode(item, allowUnknownCollection, candidates);
-            }
-            continue;
-        }
-
-        collectTokenCandidatesFromBabelNode(value, allowUnknownCollection, candidates);
-    }
+    ts.forEachChild(node, (child) => {
+        collectTokenCandidatesFromTypescriptNode(child, allowUnknownCollection, candidates);
+    });
 }
 
 function extractScriptTokenCandidatesWithRegex(content: string): ITokenCandidate[] {
@@ -537,14 +600,17 @@ function extractScriptTokenCandidatesWithRegex(content: string): ITokenCandidate
     }));
 }
 
-function extractScriptTokenCandidates(content: string): ITokenCandidate[] {
-    const parsedAst = parseBabelScriptAst(content);
+function extractScriptTokenCandidates(
+    content: string,
+    scriptKind = ts.ScriptKind.TS,
+): ITokenCandidate[] {
+    const parsedAst = parseTypescriptScriptAst(content, scriptKind);
     if (!parsedAst) {
         return extractScriptTokenCandidatesWithRegex(content);
     }
 
     const candidates: ITokenCandidate[] = [];
-    collectTokenCandidatesFromBabelNode(parsedAst, false, candidates);
+    collectTokenCandidatesFromTypescriptNode(parsedAst, false, candidates);
     return candidates;
 }
 
@@ -565,7 +631,7 @@ function extractExpressionTokenCandidates(
     expressionContent: string,
     allowUnknownCollection: boolean,
 ): ITokenCandidate[] {
-    const parsedExpression = parseBabelExpressionAst(expressionContent);
+    const parsedExpression = parseTypescriptExpressionAst(expressionContent);
     if (!parsedExpression) {
         return extractQuotedTokenMatches(expressionContent).map((match) => ({
             token: match.token,
@@ -574,7 +640,7 @@ function extractExpressionTokenCandidates(
     }
 
     const candidates: ITokenCandidate[] = [];
-    collectTokenCandidatesFromBabelNode(parsedExpression, allowUnknownCollection, candidates);
+    collectTokenCandidatesFromTypescriptNode(parsedExpression, allowUnknownCollection, candidates);
     return candidates;
 }
 
@@ -714,7 +780,7 @@ function extractTemplateTokenCandidates(content: string): ITokenCandidate[] {
 
 function parseVueSfcBlocks(content: string): IVueSfcBlocks {
     return {
-        scriptBlocks: extractVueBlocks(content, 'script'),
+        scriptBlocks: extractVueScriptBlocks(content),
         templateBlocks: extractVueBlocks(content, 'template'),
     };
 }
@@ -724,8 +790,9 @@ function collectScriptUsages(
     filePath: string,
     usageByIcon: Map<string, Set<string>>,
     collectionHints: ICollectionHints,
+    scriptKind = getScriptKindForFilePath(filePath),
 ) {
-    for (const tokenCandidate of extractScriptTokenCandidates(content)) {
+    for (const tokenCandidate of extractScriptTokenCandidates(content, scriptKind)) {
         addUsage(
             usageByIcon,
             tokenCandidate.token,
@@ -769,7 +836,7 @@ function collectVueSfcUsages(
 ) {
     const parsedBlocks = parseVueSfcBlocks(sourceContent);
     for (const scriptBlock of parsedBlocks.scriptBlocks) {
-        collectScriptUsages(scriptBlock, filePath, usageByIcon, collectionHints);
+        collectScriptUsages(scriptBlock.content, filePath, usageByIcon, collectionHints, scriptBlock.scriptKind);
     }
     for (const templateBlock of parsedBlocks.templateBlocks) {
         collectTemplateUsages(templateBlock, filePath, usageByIcon, collectionHints);
@@ -840,32 +907,20 @@ async function collectFilesRecursively(directoryPath: string): Promise<string[]>
 }
 
 function getObjectExpressionPropertyValue(node: unknown, propertyName: string) {
-    if (!isBabelNodeLike(node) || node.type !== 'ObjectExpression' || !Array.isArray(node.properties)) {
+    if (!isTypescriptNodeLike(node) || !ts.isObjectLiteralExpression(node)) {
         return null;
     }
 
     for (const property of node.properties) {
-        if (!isBabelNodeLike(property) || property.type !== 'ObjectProperty') {
+        if (!ts.isPropertyAssignment(property)) {
             continue;
         }
         if (getStaticObjectPropertyName(property) === propertyName) {
-            return property.value;
+            return property.initializer;
         }
     }
 
     return null;
-}
-
-function getStaticStringValue(node: unknown) {
-    if (!isBabelNodeLike(node)) {
-        return null;
-    }
-
-    if (node.type === 'StringLiteral' && typeof node.value === 'string') {
-        return node.value;
-    }
-
-    return getStaticTemplateLiteralValue(node);
 }
 
 function addBundledIcon(icons: Set<string>, rawIcon: string) {
@@ -876,7 +931,7 @@ function addBundledIcon(icons: Set<string>, rawIcon: string) {
 }
 
 function collectIconArrayValues(node: unknown, icons: Set<string>) {
-    if (!isBabelNodeLike(node) || node.type !== 'ArrayExpression' || !Array.isArray(node.elements)) {
+    if (!isTypescriptNodeLike(node) || !ts.isArrayLiteralExpression(node)) {
         return;
     }
 
@@ -889,31 +944,24 @@ function collectIconArrayValues(node: unknown, icons: Set<string>) {
 }
 
 function collectIconClientBundleIcons(node: unknown, icons: Set<string>) {
-    if (!isBabelNodeLike(node)) {
+    if (!isTypescriptNodeLike(node)) {
         return;
     }
 
-    if (node.type === 'ObjectProperty' && getStaticObjectPropertyName(node) === 'icon') {
-        const clientBundleNode = getObjectExpressionPropertyValue(node.value, 'clientBundle');
+    if (ts.isPropertyAssignment(node) && getStaticObjectPropertyName(node) === 'icon') {
+        const clientBundleNode = getObjectExpressionPropertyValue(node.initializer, 'clientBundle');
         const iconsNode = getObjectExpressionPropertyValue(clientBundleNode, 'icons');
         collectIconArrayValues(iconsNode, icons);
     }
 
-    for (const value of Object.values(node)) {
-        if (Array.isArray(value)) {
-            for (const item of value) {
-                collectIconClientBundleIcons(item, icons);
-            }
-            continue;
-        }
-
-        collectIconClientBundleIcons(value, icons);
-    }
+    ts.forEachChild(node, (child) => {
+        collectIconClientBundleIcons(child, icons);
+    });
 }
 
 export function extractBundledIconsFromConfig(configContent: string): Set<string> {
     const bundledIcons = new Set<string>();
-    const parsedAst = parseBabelScriptAst(configContent);
+    const parsedAst = parseTypescriptScriptAst(configContent, ts.ScriptKind.TS);
     if (!parsedAst) {
         return bundledIcons;
     }
