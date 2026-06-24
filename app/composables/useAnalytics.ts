@@ -3,6 +3,10 @@ import {
     useEventListener,
 } from '@vueuse/core';
 import { isPlainObject as isToolkitPlainObject } from 'es-toolkit/predicate';
+import type {
+    JsonObject,
+    JsonValue,
+} from 'type-fest';
 import { isBrowserPlatformActive } from '@app/utils/platform';
 import {
     createBrowserSafeId,
@@ -14,7 +18,6 @@ import type {
     IAnalyticsDocumentContext,
     IAnalyticsEventEnvelope,
     TAnalyticsEventName,
-    TAnalyticsPayloadValue,
     TAnalyticsScreenCategory,
 } from '@contracts/analytics';
 
@@ -38,7 +41,7 @@ interface IAnalyticsBrowserState {
     sessionId: string | null;
 }
 
-type TNormalizedAnalyticsEntry = readonly [string, TAnalyticsPayloadValue];
+type TNormalizedAnalyticsEntry = readonly [string, JsonValue];
 
 const analyticsBrowserState: IAnalyticsBrowserState = {
     documentContext: null,
@@ -65,7 +68,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function normalizePayloadValue(
     value: unknown,
     depth = 0,
-): TAnalyticsPayloadValue | undefined {
+): JsonValue | undefined {
     const scalar = normalizeAnalyticsScalar(value, {
         maxStringLength: MAX_STRING_LENGTH,
         nonFiniteFallback: undefined,
@@ -79,7 +82,7 @@ function normalizePayloadValue(
     }
 
     if (Array.isArray(value)) {
-        const normalizedItems: TAnalyticsPayloadValue[] = [];
+        const normalizedItems: JsonValue[] = [];
         for (const item of value.slice(0, MAX_ARRAY_ITEMS)) {
             const normalizedItem = normalizePayloadValue(item, depth + 1);
             if (normalizedItem !== undefined) {
@@ -113,7 +116,7 @@ function normalizePayloadValue(
 
 function normalizePayload(
     payload: Record<string, unknown> | undefined,
-): Record<string, TAnalyticsPayloadValue> {
+): JsonObject {
     if (!payload) {
         return {};
     }

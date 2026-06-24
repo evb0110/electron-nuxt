@@ -1,3 +1,8 @@
+import type {
+    JsonObject,
+    JsonValue,
+} from 'type-fest';
+
 export const ANALYTICS_EVENT_NAMES = [
     'viewer_session_started',
     'browser_install_hint_interacted',
@@ -20,13 +25,7 @@ export const ANALYTICS_GEO_LIMITS = {
     timezone: 64,
 } as const;
 
-export type TAnalyticsPayloadValue =
-    | boolean
-    | number
-    | string
-    | null
-    | TAnalyticsPayloadValue[]
-    | { [key: string]: TAnalyticsPayloadValue };
+export type TAnalyticsPayloadValue = JsonValue;
 
 export interface IAnalyticsDocumentContext {
     documentKind?: 'pdf' | 'djvu';
@@ -45,7 +44,7 @@ export interface IAnalyticsEventEnvelope {
     referrer: string | null;
     screenCategory: TAnalyticsScreenCategory;
     sessionId: string;
-    payload: Record<string, TAnalyticsPayloadValue>;
+    payload: JsonObject;
 }
 
 export interface IAnalyticsGeoData {

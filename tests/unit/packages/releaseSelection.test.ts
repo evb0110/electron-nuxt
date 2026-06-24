@@ -4,6 +4,10 @@ import {
     it,
 } from 'vitest';
 import type { IReleaseInstaller } from '@contracts';
+import type {
+    SetRequired,
+    Simplify,
+} from 'type-fest';
 import {
     compareInstallersForSelect,
     detectArchitecture,
@@ -22,7 +26,9 @@ import {
     selectPreferredInstallers,
 } from '@releaseSelection';
 
-function createInstaller(partial: Partial<IReleaseInstaller> & Pick<IReleaseInstaller, 'id' | 'name' | 'extension' | 'arch'>): IReleaseInstaller {
+type TInstallerFixture = Simplify<SetRequired<Partial<IReleaseInstaller>, 'id' | 'name' | 'extension' | 'arch'>>;
+
+function createInstaller(partial: TInstallerFixture): IReleaseInstaller {
     return {
         contentType: 'application/octet-stream',
         downloadUrl: `https://example.test/${partial.name}`,

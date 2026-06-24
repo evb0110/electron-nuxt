@@ -8,6 +8,7 @@ import {
     timestamp,
     varchar,
 } from 'drizzle-orm/pg-core';
+import type { JsonObject } from 'type-fest';
 import { ANALYTICS_GEO_LIMITS } from '@contracts/analytics';
 
 export const viewerAnalyticsEvent = pgTable(
@@ -26,7 +27,7 @@ export const viewerAnalyticsEvent = pgTable(
         visitorHash: varchar('visitor_hash', { length: 64 }),
         deploymentHost: varchar('deployment_host', { length: 255 }),
         userAgent: text('user_agent'),
-        payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+        payload: jsonb('payload').$type<JsonObject>().notNull().default(sql`'{}'::jsonb`),
         occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
         createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     },

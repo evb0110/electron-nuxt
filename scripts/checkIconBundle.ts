@@ -21,6 +21,7 @@ import {
     NodeTypes,
     parse as parseVueTemplate,
 } from '@vue/compiler-dom';
+import type { PackageJson } from 'type-fest';
 
 interface IProjectTarget {
     label: TProjectTargetLabel;
@@ -932,18 +933,19 @@ function extractCollections(icons: Iterable<string>): Set<string> {
 }
 
 function extractInstalledCollections(packageJsonContent: string): Set<string> {
-    const parsed = JSON.parse(packageJsonContent) as {
-        dependencies?: Record<string, string>;
-        devDependencies?: Record<string, string>;
-    };
+    const parsed = JSON.parse(packageJsonContent) as PackageJson;
 
     const installed = new Set<string>();
     const dependencyBuckets = [
-        parsed.dependencies ?? {},
-        parsed.devDependencies ?? {},
+        parsed.dependencies,
+        parsed.devDependencies,
     ];
 
     for (const dependencies of dependencyBuckets) {
+        if (!dependencies) {
+            continue;
+        }
+
         for (const packageName of Object.keys(dependencies)) {
             if (!packageName.startsWith('@iconify-json/')) {
                 continue;

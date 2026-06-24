@@ -115,6 +115,9 @@ importers:
       source-map-js:
         specifier: 1.2.1
         version: 1.2.1
+      type-fest:
+        specifier: ^5.7.0
+        version: 5.7.0
       ufo:
         specifier: 1.6.4
         version: 1.6.4
@@ -248,9 +251,6 @@ importers:
       type-coverage:
         specifier: ^2.29.7
         version: 2.29.7(typescript@5.9.3)
-      type-fest:
-        specifier: ^5.7.0
-        version: 5.7.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -278,12 +278,19 @@ importers:
       es-toolkit:
         specifier: ^1.47.0
         version: 1.47.0
+      type-fest:
+        specifier: ^5.7.0
+        version: 5.7.0
 
   packages/electron-worker-bundles: {}
 
   packages/i18n-app: {}
 
-  packages/i18n-core: {}
+  packages/i18n-core:
+    dependencies:
+      type-fest:
+        specifier: ^5.7.0
+        version: 5.7.0
 
   packages/pdf-core:
     dependencies:

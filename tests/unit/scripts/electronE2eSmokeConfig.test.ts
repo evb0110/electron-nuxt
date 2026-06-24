@@ -7,7 +7,11 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { PackageJson } from 'type-fest';
+import type {
+    PackageJson,
+    SetRequired,
+    Simplify,
+} from 'type-fest';
 
 interface IElectronE2EProjectTestConfig {
     fileParallelism?: boolean;
@@ -24,6 +28,8 @@ interface IElectronE2EProjectTestConfig {
 interface IElectronE2EProjectConfig { test?: IElectronE2EProjectTestConfig }
 
 interface IVitestSharedConfigModule { vitestProjects: IElectronE2EProjectConfig[] }
+
+type TPackageJsonWithScripts = Simplify<SetRequired<PackageJson, 'scripts'>>;
 
 const vitestProjectNames = {
     electronE2ESmoke: 'e2e-smoke',
@@ -98,12 +104,13 @@ function e2eProjectNames() {
     ];
 }
 
-function getPackageScripts(packageJson: PackageJson) {
-    const scripts = packageJson.scripts;
-    if (!scripts) {
+async function readPackageJsonWithScripts(): Promise<TPackageJsonWithScripts> {
+    const packageJson = JSON.parse(await readFile('package.json', 'utf8')) as PackageJson;
+    if (!packageJson.scripts) {
         throw new Error('Missing package scripts');
     }
-    return scripts;
+
+    return packageJson as TPackageJsonWithScripts;
 }
 
 describe('electron e2e Vitest project topology', () => {
@@ -150,8 +157,8 @@ describe('electron e2e Vitest project topology', () => {
     it('exposes opt-in e2e subsets as named projects instead of env-mutated includes', async () => {
         const config = await loadVitestSharedConfig(undefined);
         const sharedConfigSource = await readFile('vitest.shared.config.ts', 'utf8');
-        const packageJson = JSON.parse(await readFile('package.json', 'utf8')) as PackageJson;
-        const packageScripts = getPackageScripts(packageJson);
+        const packageJson = await readPackageJsonWithScripts();
+        const packageScripts = packageJson.scripts;
         const largePdfSource = await readFile('tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts', 'utf8');
 
         expect(projectByName(config, vitestProjectNames.electronE2EDrawShapes).test?.include)
@@ -182,8 +189,8 @@ describe('electron e2e Vitest project topology', () => {
 describe('electron e2e quarantine Vitest project', () => {
     it('runs only the quarantine include group and lets the script own empty-lane handling', async () => {
         const config = await loadVitestSharedConfig(undefined);
-        const packageJson = JSON.parse(await readFile('package.json', 'utf8')) as PackageJson;
-        const packageScripts = getPackageScripts(packageJson);
+        const packageJson = await readPackageJsonWithScripts();
+        const packageScripts = packageJson.scripts;
         const quarantineProject = projectByName(config, vitestProjectNames.electronE2EQuarantine);
 
         expect(quarantineProject.test?.include).toEqual(electronE2EQuarantineTestFiles);

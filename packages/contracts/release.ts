@@ -1,5 +1,11 @@
+import type { LiteralUnion } from 'type-fest';
+
 export type TReleasePlatform = 'macos' | 'windows' | 'linux' | 'unknown';
 export type TReleaseArch = 'arm64' | 'x64' | 'universal' | 'unknown';
+export type TReleaseInstallerExtension = LiteralUnion<
+    'appimage' | 'deb' | 'dmg' | 'exe' | 'msi' | 'pkg' | 'rpm' | 'tar.gz' | 'zip',
+    string
+>;
 
 export interface IReleaseInstaller {
     id: number;
@@ -8,7 +14,7 @@ export interface IReleaseInstaller {
     size: number;
     updatedAt: string;
     contentType: string;
-    extension: string;
+    extension: TReleaseInstallerExtension;
     platform: TReleasePlatform;
     arch: TReleaseArch;
     isLegacy: boolean;

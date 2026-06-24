@@ -5,9 +5,13 @@ import {
     expect,
     it,
 } from 'vitest';
-import type { PackageJson } from 'type-fest';
+import type {
+    PackageJson,
+    SetRequired,
+    Simplify,
+} from 'type-fest';
 
-type TPackageJsonWithScripts = PackageJson & { scripts: Record<string, string> };
+type TPackageJsonWithScripts = Simplify<SetRequired<PackageJson, 'scripts'>>;
 
 const removedScriptNames = [
     'test:smoke',

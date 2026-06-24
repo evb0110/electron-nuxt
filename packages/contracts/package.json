@@ -7,6 +7,7 @@
     "./*": "./*.ts"
   },
   "dependencies": {
-    "es-toolkit": "^1.47.0"
+    "es-toolkit": "^1.47.0",
+    "type-fest": "^5.7.0"
   }
 }

@@ -1,3 +1,4 @@
+import type { Simplify } from 'type-fest';
 import type {
     IPluralMessage,
     TTranslationLeaf,
@@ -75,7 +76,7 @@ type TMessageParamNames<TLeaf> = TLeaf extends IPluralMessage<infer TText>
 
 type TParamsFromMessage<TLeaf> = [TMessageParamNames<TLeaf>] extends [never]
     ? undefined
-    : { [TKey in TMessageParamNames<TLeaf>]: TPlaceholderValue<TKey> };
+    : Simplify<{ [TKey in TMessageParamNames<TLeaf>]: TPlaceholderValue<TKey> }>;
 
 export type TTranslationLeafFromSchema<
     TSchema extends object,

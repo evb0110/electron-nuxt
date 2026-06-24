@@ -10,6 +10,7 @@ import {
 } from 'node:path';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
 import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
+import type { PackageJson } from 'type-fest';
 
 const TRUTHY_ENV_VALUES = new Set([
     '1',
@@ -246,10 +247,11 @@ export function prepareMacOSAutomationAppEntry(options: {
         force: true,
     });
     mkdirSync(entryPaths.appPath, { recursive: true });
-    writeFileSync(entryPaths.packageJsonPath, JSON.stringify({
+    const packageJson = {
         name: 'evb-automation-app',
         main: 'main.js',
-    }, null, 2));
+    } satisfies PackageJson;
+    writeFileSync(entryPaths.packageJsonPath, JSON.stringify(packageJson, null, 2));
     writeFileSync(entryPaths.mainJsPath, [
         '(async () => {',
         `  await import(${JSON.stringify(options.mainJs)});`,

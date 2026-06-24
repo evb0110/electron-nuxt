@@ -4,6 +4,7 @@ import {
 } from 'node:fs/promises';
 import path, { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { JsonObject } from 'type-fest';
 
 const COVERAGE_METRICS = [
     'statements',
@@ -67,14 +68,14 @@ function assertNumber(value: unknown, label: string) {
     return value;
 }
 
-function parseJsonObject(source: string, label: string) {
+function parseJsonObject(source: string, label: string): JsonObject {
     const parsed = JSON.parse(source) as unknown;
 
     if (!isRecord(parsed)) {
         throw new Error(`${label} must be a JSON object.`);
     }
 
-    return parsed;
+    return parsed as JsonObject;
 }
 
 export function parseCoverageSummary(source: string): ICoverageSnapshot {

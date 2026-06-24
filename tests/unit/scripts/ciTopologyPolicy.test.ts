@@ -9,9 +9,44 @@ import {
     expect,
     it,
 } from 'vitest';
+import type {
+    SetRequired,
+    Simplify,
+    TsConfigJson,
+} from 'type-fest';
+
+type TTsConfigJsonWithGlobs = Simplify<SetRequired<TsConfigJson, 'exclude' | 'include'>>;
 
 async function readProjectFile(filePath: string) {
     return readFile(path.join(process.cwd(), filePath), 'utf8');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseTsConfigJsonWithGlobs(source: string, label: string): TTsConfigJsonWithGlobs {
+    const parsed = JSON.parse(source) as unknown;
+
+    if (!isRecord(parsed)) {
+        throw new Error(`${label} must be a JSON object.`);
+    }
+
+    const tsConfig = parsed as TsConfigJson;
+    for (const key of [
+        'exclude',
+        'include',
+    ] as const) {
+        if (!Array.isArray(tsConfig[key]) || !tsConfig[key].every(item => typeof item === 'string')) {
+            throw new Error(`${label} must contain a ${key} array.`);
+        }
+    }
+
+    return tsConfig as TTsConfigJsonWithGlobs;
+}
+
+async function readTsConfigJsonWithGlobs(filePath: string) {
+    return parseTsConfigJsonWithGlobs(await readProjectFile(filePath), filePath);
 }
 
 function workflowJob(workflow: string, jobName: string) {
@@ -94,7 +129,7 @@ describe('CI topology policy', () => {
 
     it('keeps native, landing, and Python smoke checks path-filtered on push', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
-        const testsTsconfig = await readProjectFile('tests/tsconfig.json');
+        const testsTsconfig = await readTsConfigJsonWithGlobs('tests/tsconfig.json');
         const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
 
         expect(workflow).toContain('packages/(contracts|i18n-core|release-selection)/');
@@ -121,7 +156,7 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('run: pnpm --dir landing run build');
         expect(workflowJob(workflow, 'landing_push')).toContain('continue-on-error: true');
         expect(sharedVitestConfig).toContain('tests/unit/landing/**/*.test.ts');
-        expect(testsTsconfig).toContain('./unit/landing/**/*.ts');
+        expect(testsTsconfig.exclude).toContain('./unit/landing/**/*.ts');
         expect(workflow).toContain('name: Python Page Processor Smoke');
         expect(workflowJob(workflow, 'python_page_processor_push')).toContain('if: ${{ github.event_name == \'push\' && needs.changes.outputs.python_page_processor == \'true\' }}');
         expect(workflowJob(workflow, 'python_page_processor_push')).toContain('python -m pip install');

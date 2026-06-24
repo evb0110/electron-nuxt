@@ -1,13 +1,29 @@
 import {
     describe,
     expect,
+    expectTypeOf,
     it,
 } from 'vitest';
+import type {
+    JsonObject,
+    JsonValue,
+} from 'type-fest';
 import {
     ANALYTICS_GEO_LIMITS,
     normalizeAnalyticsGeo,
     normalizeAnalyticsScalar,
 } from '@contracts/analytics';
+import type {
+    IAnalyticsEventEnvelope,
+    TAnalyticsPayloadValue,
+} from '@contracts/analytics';
+
+describe('analytics payload contract types', () => {
+    it('models payload roots and nested values as Type-Fest JSON types', () => {
+        expectTypeOf<IAnalyticsEventEnvelope['payload']>().toEqualTypeOf<JsonObject>();
+        expectTypeOf<TAnalyticsPayloadValue>().toEqualTypeOf<JsonValue>();
+    });
+});
 
 describe('normalizeAnalyticsScalar', () => {
     it('truncates strings to the configured length while preserving empty strings', () => {

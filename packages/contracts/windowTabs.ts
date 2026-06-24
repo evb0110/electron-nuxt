@@ -1,3 +1,4 @@
+import type { TaggedUnion } from 'type-fest';
 import type { TDocumentRef } from '@contracts/documentRef';
 
 export interface IEmptySplitPayload {kind: 'empty';}
@@ -68,21 +69,12 @@ export interface IWindowTabTargetWindow {
     label: string;
 }
 
-export type TWindowTabsAction =
-    | {
-        kind: 'close-tab';
-        tabId?: string;
-    }
-    | {
-        kind: 'move-tab-to-new-window';
-        tabId?: string;
-    }
-    | {
-        kind: 'move-tab-to-window';
+export type TWindowTabsAction = TaggedUnion<'kind', {
+    'close-tab': {tabId?: string;};
+    'move-tab-to-new-window': {tabId?: string;};
+    'move-tab-to-window': {
         targetWindowId: number;
         tabId?: string;
-    }
-    | {
-        kind: 'merge-window-into';
-        targetWindowId: number;
     };
+    'merge-window-into': {targetWindowId: number;};
+}>;

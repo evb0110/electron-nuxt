@@ -1,4 +1,9 @@
 import type {
+    Merge,
+    SetRequired,
+    Simplify,
+} from 'type-fest';
+import type {
     IPdfNativeAnnotationDelete,
     IPdfNativeBookmarksMutation,
     IPdfNativeFreeTextNote,
@@ -17,8 +22,6 @@ import type {
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
-import type { IPdfBox } from '@contracts/geometry';
-import type { TPageIndex } from '@contracts/pageNumbers';
 import {
     PDF_ANNOTATION_LINE_END_STYLES,
     PDF_ANNOTATION_MARKUP_SUBTYPES,
@@ -68,17 +71,18 @@ type TPdfNativePlacedImageBytesMode = 'uint8Array' | 'numberArray';
 type TPdfNativePlacedImageBytes<TMode extends TPdfNativePlacedImageBytesMode> = TMode extends 'numberArray'
     ? number[]
     : Uint8Array;
-type TPdfNativePlacedImageForMode<TMode extends TPdfNativePlacedImageBytesMode> =
-    Omit<IPdfNativePlacedImage, 'bytes'> & { bytes: TPdfNativePlacedImageBytes<TMode>; };
+type TPdfNativePlacedImageForMode<TMode extends TPdfNativePlacedImageBytesMode> = Simplify<
+    Merge<
+        SetRequired<IPdfNativePlacedImage, 'rotationDegrees'>,
+        {bytes: TPdfNativePlacedImageBytes<TMode>;}
+    >
+>;
 
-export interface IPdfNativePlacedImageNativeToolPayload extends IPdfBox {
-    pageIndex: TPageIndex;
-    rotationDegrees: number | null;
-    mimeType: 'image/jpeg';
-    bytes: number[];
-}
+export interface IPdfNativePlacedImageNativeToolPayload extends TPdfNativePlacedImageForMode<'numberArray'> {}
 
-export type TPdfNativeMutationSetNativeToolPayload = Omit<IPdfNativeMutationSet, 'placedImages'> & {placedImages?: IPdfNativePlacedImageNativeToolPayload[];};
+export type TPdfNativeMutationSetNativeToolPayload = Simplify<
+    Merge<IPdfNativeMutationSet, {placedImages?: IPdfNativePlacedImageNativeToolPayload[];}>
+>;
 
 export interface IPdfNativeValidationOptions {errorKind?: TPdfNativeValidationErrorKind;}
 
@@ -826,7 +830,7 @@ function normalizePlacedImage<TMode extends TPdfNativePlacedImageBytesMode>(
         rotationDegrees,
         mimeType: 'image/jpeg',
         bytes: imageBytes.bytes,
-    };
+    } as TPdfNativePlacedImageForMode<TMode>;
 }
 
 function normalizePlacedImages<TMode extends TPdfNativePlacedImageBytesMode>(

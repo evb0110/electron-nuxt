@@ -5,11 +5,15 @@ import {
     setHeader,
 } from 'h3';
 import { isNotNil } from 'es-toolkit/predicate';
+import type {
+    JsonArray,
+    JsonObject,
+    JsonValue,
+} from 'type-fest';
 import {
     ANALYTICS_EVENT_NAMES,
     type IAnalyticsEventEnvelope,
     type TAnalyticsEventName,
-    type TAnalyticsPayloadValue,
     type TAnalyticsScreenCategory,
     normalizeAnalyticsScalar,
 } from '@contracts/analytics';
@@ -45,14 +49,14 @@ function sanitizeString(value: unknown, maxLength: number) {
     return normalized ? normalized.slice(0, maxLength) : null;
 }
 
-function sanitizePayloadScalar(value: unknown) {
+function sanitizePayloadScalar(value: unknown): JsonValue | undefined {
     return normalizeAnalyticsScalar(value, {
         maxStringLength: MAX_STRING_LENGTH,
         nonFiniteFallback: null,
     });
 }
 
-function sanitizePayloadArray(value: unknown[], depth: number): TAnalyticsPayloadValue[] {
+function sanitizePayloadArray(value: unknown[], depth: number): JsonArray {
     return value
         .slice(0, MAX_ARRAY_ITEMS)
         .map(item => sanitizePayloadValue(item, depth + 1));
@@ -61,8 +65,8 @@ function sanitizePayloadArray(value: unknown[], depth: number): TAnalyticsPayloa
 function sanitizePayloadObject(
     value: Record<string, unknown>,
     depth: number,
-): Record<string, TAnalyticsPayloadValue> {
-    const normalizedPayload: Record<string, TAnalyticsPayloadValue> = {};
+): JsonObject {
+    const normalizedPayload: JsonObject = {};
     for (const [
         key,
         entryValue,
@@ -73,7 +77,7 @@ function sanitizePayloadObject(
     return normalizedPayload;
 }
 
-function sanitizePayloadContainer(value: unknown, depth: number) {
+function sanitizePayloadContainer(value: unknown, depth: number): JsonValue {
     if (depth >= MAX_NORMALIZE_DEPTH) {
         return null;
     }
@@ -89,14 +93,14 @@ function sanitizePayloadContainer(value: unknown, depth: number) {
     return sanitizePayloadObject(value, depth);
 }
 
-function sanitizePayloadValue(value: unknown, depth = 0): TAnalyticsPayloadValue {
+function sanitizePayloadValue(value: unknown, depth = 0): JsonValue {
     const scalar = sanitizePayloadScalar(value);
     return scalar === undefined
         ? sanitizePayloadContainer(value, depth)
         : scalar;
 }
 
-function sanitizePayload(value: unknown) {
+function sanitizePayload(value: unknown): JsonObject {
     return isRecord(value) ? sanitizePayloadObject(value, 0) : {};
 }
 

@@ -1,8 +1,13 @@
+import type {
+    Except,
+    LiteralUnion,
+} from 'type-fest';
+
 export type TPdfSaveMode = 'incremental' | 'rewrite' | 'save_as_rewrite';
 
 export type TPdfaPart = '1' | '2' | '3' | '4';
 export type TPdfaConformance = 'A' | 'B' | 'E' | 'F' | 'U';
-export type TPdfaLevel = `PDF/A-${TPdfaPart}${TPdfaConformance}` | (string & {});
+export type TPdfaLevel = LiteralUnion<`PDF/A-${TPdfaPart}${TPdfaConformance}`, string>;
 
 export interface IPdfConformanceProfile {
     isSigned: boolean;
@@ -15,7 +20,7 @@ export interface IPdfConformanceProfile {
     saveRestrictions: string[];
 }
 
-export type TPdfConformanceProfileBase = Omit<IPdfConformanceProfile, 'saveRestrictions'>;
+export type TPdfConformanceProfileBase = Except<IPdfConformanceProfile, 'saveRestrictions'>;
 
 export interface IPdfValidationResult {
     isValid: boolean;
