@@ -29,6 +29,7 @@ import type {
     IAgentAssistantImageAttachment,
     IAgentAssistantModelOption,
     TAgentAssistantEffort,
+    TAgentAssistantSpeedMode,
 } from '@contracts/agent';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
@@ -59,7 +60,15 @@ const CLAUDE_AGENT_MODEL_ALIASES = new Map<string, string>([
         'fable',
     ],
     [
+        'anthropic.claude-fable-5',
+        'fable',
+    ],
+    [
         'claude-opus-4-8',
+        'opus',
+    ],
+    [
+        'anthropic.claude-opus-4-8',
         'opus',
     ],
     [
@@ -67,7 +76,15 @@ const CLAUDE_AGENT_MODEL_ALIASES = new Map<string, string>([
         'opus',
     ],
     [
+        'anthropic.claude-opus-4-7',
+        'opus',
+    ],
+    [
         'claude-opus-4-6',
+        'opus',
+    ],
+    [
+        'anthropic.claude-opus-4-6',
         'opus',
     ],
     [
@@ -75,7 +92,15 @@ const CLAUDE_AGENT_MODEL_ALIASES = new Map<string, string>([
         'sonnet',
     ],
     [
+        'anthropic.claude-sonnet-4-6',
+        'sonnet',
+    ],
+    [
         'claude-sonnet-4-5',
+        'sonnet',
+    ],
+    [
+        'anthropic.claude-sonnet-4-5',
         'sonnet',
     ],
     [
@@ -83,7 +108,15 @@ const CLAUDE_AGENT_MODEL_ALIASES = new Map<string, string>([
         'haiku',
     ],
     [
+        'anthropic.claude-haiku-4-5',
+        'haiku',
+    ],
+    [
         'claude-haiku-4-5-20251001',
+        'haiku',
+    ],
+    [
+        'anthropic.claude-haiku-4-5-20251001',
         'haiku',
     ],
 ] as const);
@@ -165,6 +198,7 @@ export interface IClaudeAgentAssistantSessionOptions {
     cwd: string;
     model: string;
     effort: TAgentAssistantEffort;
+    speedMode: TAgentAssistantSpeedMode;
     mcpServerName: string;
     mcpServerUrl: string;
     mcpToken: string;
@@ -451,6 +485,22 @@ export function normalizeClaudeAssistantModel(model: string | null | undefined) 
         : CLAUDE_AGENT_DEFAULT_MODEL;
 }
 
+function isClaudeAssistantFastModeModel(model: string) {
+    const normalized = normalizeClaudeAssistantModel(model).toLowerCase();
+    return normalized === 'opus'
+        || normalized.startsWith('opus[')
+        || normalized.includes('claude-opus-')
+        || normalized.includes('/opus-')
+        || normalized.includes('.opus-');
+}
+
+export function shouldUseClaudeAssistantFastMode(
+    model: string,
+    speedMode: TAgentAssistantSpeedMode,
+) {
+    return speedMode === 'fast' && isClaudeAssistantFastModeModel(model);
+}
+
 function getClaudeSdkModel(model: string) {
     return normalizeClaudeAssistantModel(model);
 }
@@ -645,6 +695,8 @@ export class ClaudeAgentAssistantSession {
     private currentAssistantMessageId: string | null = null;
     private currentModel: string;
     private readonly currentEffort: TAgentAssistantEffort;
+    private readonly currentSpeedMode: TAgentAssistantSpeedMode;
+    private readonly queryFastMode: boolean;
     private sessionId: string | null = null;
     private account: AccountInfo | null = null;
     private modelOptions: readonly IAgentAssistantModelOption[] | null = null;
@@ -653,6 +705,8 @@ export class ClaudeAgentAssistantSession {
     constructor(private readonly options: IClaudeAgentAssistantSessionOptions) {
         this.currentModel = normalizeClaudeAssistantModel(options.model);
         this.currentEffort = options.effort;
+        this.currentSpeedMode = options.speedMode;
+        this.queryFastMode = shouldUseClaudeAssistantFastMode(this.currentModel, this.currentSpeedMode);
     }
 
     // fallow-ignore-next-line unused-class-member
@@ -663,6 +717,16 @@ export class ClaudeAgentAssistantSession {
     // fallow-ignore-next-line unused-class-member
     get effort() {
         return this.currentEffort;
+    }
+
+    // fallow-ignore-next-line unused-class-member
+    get speedMode() {
+        return this.currentSpeedMode;
+    }
+
+    // fallow-ignore-next-line unused-class-member
+    get fastMode() {
+        return this.queryFastMode;
     }
 
     // fallow-ignore-next-line unused-class-member
@@ -737,6 +801,7 @@ export class ClaudeAgentAssistantSession {
                 cwd: this.options.cwd,
                 ...(sdkModel ? { model: sdkModel } : {}),
                 effort: this.currentEffort,
+                ...(this.queryFastMode ? { settings: { fastMode: true } } : {}),
                 ...(this.options.executablePath ? { pathToClaudeCodeExecutable: this.options.executablePath } : {}),
                 env: {
                     ...process.env,

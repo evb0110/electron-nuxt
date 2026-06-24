@@ -16,10 +16,23 @@ describe('agent assistant model catalog', () => {
                 model: 'gpt-5.5',
                 displayName: 'GPT-5.5 Live',
                 isDefault: true,
+                defaultServiceTier: 'fast',
+                serviceTiers: [
+                    {
+                        id: 'priority',
+                        name: 'Fast',
+                        description: 'Lower latency',
+                    },
+                    {
+                        id: 'standard',
+                        name: 'Standard',
+                    },
+                ],
             },
             {
                 id: 'gpt-5.4-mini',
                 displayName: 'GPT-5.4 Mini',
+                additionalSpeedTiers: ['fast'],
             },
         ]});
 
@@ -27,11 +40,27 @@ describe('agent assistant model catalog', () => {
             {
                 id: 'gpt-5.5',
                 label: 'GPT-5.5 Live',
+                serviceTiers: [
+                    {
+                        id: 'priority',
+                        label: 'Fast',
+                        description: 'Lower latency',
+                    },
+                    {
+                        id: 'standard',
+                        label: 'Standard',
+                    },
+                ],
+                defaultServiceTier: 'fast',
                 isDefault: true,
             },
             {
                 id: 'gpt-5.4-mini',
                 label: 'GPT-5.4 Mini',
+                serviceTiers: [{
+                    id: 'fast',
+                    label: 'Fast',
+                }],
             },
         ]);
         expect(resolveCodexModelStatus(models ?? [], 'missing-model')).toMatchObject({

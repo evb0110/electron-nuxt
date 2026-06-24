@@ -9,6 +9,7 @@ import {
     getClaudeAssistantModelLabel,
     normalizeClaudeAssistantModel,
     normalizeClaudeSdkModelList,
+    shouldUseClaudeAssistantFastMode,
 } from '@electron/features/agent/claudeAgentSdkAssistant';
 
 vi.mock('electron', () => ({ app: { getVersion: () => 'test' } }));
@@ -26,6 +27,14 @@ describe('claudeAgentSdkAssistant', () => {
         expect(normalizeClaudeAssistantModel('global.anthropic.claude-fable-5')).toBe('global.anthropic.claude-fable-5');
         expect(normalizeClaudeAssistantModel('anthropic.claude-fable-5')).toBe('fable');
         expect(getClaudeAssistantModelLabel('claude-opus-4-8')).toBe('Claude Opus 4.8');
+    });
+
+    it('enables Claude fast mode only for Opus-family models', () => {
+        expect(shouldUseClaudeAssistantFastMode('opus', 'fast')).toBe(true);
+        expect(shouldUseClaudeAssistantFastMode('claude-opus-4-8', 'fast')).toBe(true);
+        expect(shouldUseClaudeAssistantFastMode('global.anthropic.claude-opus-4-8', 'fast')).toBe(true);
+        expect(shouldUseClaudeAssistantFastMode('claude-sonnet-4-6', 'fast')).toBe(false);
+        expect(shouldUseClaudeAssistantFastMode('claude-opus-4-8', 'standard')).toBe(false);
     });
 
     it('normalizes Claude SDK supportedModels metadata', () => {

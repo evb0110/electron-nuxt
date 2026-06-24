@@ -90,7 +90,7 @@ describe('agent assistant Codex config', () => {
 
         expect(parsed).toMatchObject({
             cli_auth_credentials_store: 'file',
-            model_reasoning_effort: 'high',
+            model_reasoning_effort: 'low',
             web_search: 'disabled',
             sandbox_mode: 'read-only',
             approval_policy: 'never',

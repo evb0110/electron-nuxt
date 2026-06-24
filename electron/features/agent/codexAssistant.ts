@@ -31,14 +31,14 @@ import type {
     TAgentAssistantEffort,
     TAgentAssistantProviderId,
     TAgentAssistantRuntimeState,
+    TAgentAssistantSpeedMode,
     TAgentAssistantTurnPhase,
 } from '@contracts/agent';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     ASSISTANT_DEFAULT_EFFORT,
-    CLAUDE_ASSISTANT_EFFORTS,
+    ASSISTANT_DEFAULT_SPEED_MODE,
     CODEX_ASSISTANT_DEFAULT_MODEL,
-    CODEX_ASSISTANT_EFFORTS,
     CODEX_ASSISTANT_FALLBACK_MODELS,
 } from '@contracts/agentModels';
 import {
@@ -49,14 +49,12 @@ import {
     type ICodexCliInfo,
 } from '@electron/features/agent/codexCli';
 import {
-    CLAUDE_AGENT_DEFAULT_MODEL,
-    CLAUDE_AGENT_INSTALL_URL,
     CLAUDE_AGENT_MODELS,
     ClaudeAgentAssistantSession,
     detectClaudeAuthState,
     getClaudeAgentSdkInfo,
-    getClaudeAssistantModelLabel,
     isClaudeAuthErrorMessage,
+    shouldUseClaudeAssistantFastMode,
     normalizeClaudeAssistantModel,
     type IClaudeAgentAssistantInit,
 } from '@electron/features/agent/claudeAgentSdkAssistant';
@@ -74,11 +72,25 @@ import {
     type ICodexAppServerNotification,
 } from '@electron/features/agent/codexAppServerClient';
 import {
-    normalizeCodexAssistantModelFromCatalog,
     normalizeCodexModelListResponse,
-    resolveCodexDefaultModelId,
     type TCodexAssistantModelOption,
 } from '@electron/features/agent/assistantModelCatalog';
+import {
+    buildClaudeProviderStatus,
+    buildCodexProviderStatus,
+    codexDefaultModelId,
+    getProviderEfforts,
+    getProviderModelLabel,
+    getProviderSpeedModes,
+    normalizeAssistantEffort,
+    normalizeAssistantModel,
+    normalizeAssistantSpeedMode,
+    normalizeCodexAssistantModel,
+    resolveAssistantSelection,
+    resolveCodexServiceTier,
+    type IAssistantSelection,
+    type IClaudeAssistantProviderInfo,
+} from '@electron/features/agent/assistantProviderStatus';
 import {
     createAssistantErrorEnvelope,
     withAssistantErrorEnvelope,
@@ -114,6 +126,7 @@ interface IAssistantChatSession {
     scope: IAgentAssistantChatScope;
     model: string;
     effort: TAgentAssistantEffort;
+    speedMode: TAgentAssistantSpeedMode;
     threadId: string | null;
     activeTurnId: string | null;
     turnPhase: TAgentAssistantTurnPhase;
@@ -121,19 +134,6 @@ interface IAssistantChatSession {
     lastAccessedAtMs: number;
     claudeSession: ClaudeAgentAssistantSession | undefined;
     lastError?: string;
-}
-
-interface IAssistantSelection {
-    provider: TAgentAssistantProviderId;
-    model: string;
-    effort: TAgentAssistantEffort;
-}
-
-interface IClaudeInfoCache {
-    installed: boolean;
-    version: string | null;
-    executablePath: string | null;
-    error?: string;
 }
 
 let codexAssistantModels: readonly TCodexAssistantModelOption[] = CODEX_ASSISTANT_FALLBACK_MODELS;
@@ -163,7 +163,7 @@ let runtimeState: TAgentAssistantRuntimeState = 'stopped';
 let turnPhase: TAgentAssistantTurnPhase = 'idle';
 let authState: TAgentAssistantAuthState = 'unknown';
 let account: IAgentAssistantAccount | null = null;
-let claudeInfoCache: IClaudeInfoCache | null = null;
+let claudeInfoCache: IClaudeAssistantProviderInfo | null = null;
 let claudeRuntimeState: TAgentAssistantRuntimeState = 'stopped';
 let claudeAuthState: TAgentAssistantAuthState = 'unknown';
 let claudeAccount: IAgentAssistantAccount | null = null;
@@ -175,6 +175,7 @@ let lastStateScope: IAgentAssistantChatScope | null = null;
 let lastStateProvider: TAgentAssistantProviderId = 'codex';
 let lastStateModel = CODEX_ASSISTANT_DEFAULT_MODEL;
 let lastStateEffort: TAgentAssistantEffort = ASSISTANT_DEFAULT_EFFORT;
+let lastStateSpeedMode: TAgentAssistantSpeedMode = ASSISTANT_DEFAULT_SPEED_MODE;
 let pendingLoginId: string | null = null;
 let authReturnWindow: BrowserWindow | null = null;
 let lastError: string | undefined;
@@ -328,42 +329,6 @@ function normalizeAssistantScope(scope: IAgentAssistantChatScope | null | undefi
     } satisfies IAgentAssistantChatScope;
 }
 
-function normalizeAssistantProvider(provider: unknown): TAgentAssistantProviderId {
-    return provider === 'claude' ? 'claude' : 'codex';
-}
-
-function normalizeAssistantModel(provider: TAgentAssistantProviderId, model: string | null | undefined) {
-    if (provider === 'claude') {
-        return normalizeClaudeAssistantModel(model);
-    }
-
-    return normalizeCodexAssistantModel(model);
-}
-
-function getProviderEfforts(provider: TAgentAssistantProviderId): readonly TAgentAssistantEffort[] {
-    return provider === 'claude' ? CLAUDE_ASSISTANT_EFFORTS : CODEX_ASSISTANT_EFFORTS;
-}
-
-function normalizeAssistantEffort(
-    provider: TAgentAssistantProviderId,
-    effort: TAgentAssistantEffort | null | undefined,
-): TAgentAssistantEffort {
-    return effort && getProviderEfforts(provider).includes(effort)
-        ? effort
-        : ASSISTANT_DEFAULT_EFFORT;
-}
-
-function resolveAssistantSelection(
-    request?: IAgentAssistantStateRequest | IAgentAssistantScopedRequest | IAgentAssistantSendMessageRequest | null,
-): IAssistantSelection {
-    const provider = normalizeAssistantProvider(request?.provider);
-    return {
-        provider,
-        model: normalizeAssistantModel(provider, request?.model),
-        effort: normalizeAssistantEffort(provider, request?.effort),
-    };
-}
-
 function createChatSessionKey(provider: TAgentAssistantProviderId, scopeKey: string) {
     return `${provider}:${scopeKey}`;
 }
@@ -378,12 +343,14 @@ function rememberStateScope(
         provider: lastStateProvider,
         model: lastStateModel,
         effort: lastStateEffort,
+        speedMode: lastStateSpeedMode,
     },
 ) {
     lastStateScope = scope ? cloneAssistantScope(scope) : null;
     lastStateProvider = selection.provider;
     lastStateModel = selection.model;
     lastStateEffort = selection.effort;
+    lastStateSpeedMode = selection.speedMode;
 }
 
 function touchChatSession(session: IAssistantChatSession, now = Date.now()) {
@@ -462,6 +429,7 @@ function getChatSession(
         provider: lastStateProvider,
         model: lastStateModel,
         effort: lastStateEffort,
+        speedMode: lastStateSpeedMode,
     },
     options: { create?: boolean } = {},
 ) {
@@ -482,6 +450,7 @@ function getChatSession(
         existing.scope = normalizedScope;
         existing.model = selection.model;
         existing.effort = selection.effort;
+        existing.speedMode = selection.speedMode;
         return touchChatSession(existing, now);
     }
 
@@ -494,6 +463,7 @@ function getChatSession(
         scope: normalizedScope,
         model: selection.model,
         effort: selection.effort,
+        speedMode: selection.speedMode,
         threadId: null,
         activeTurnId: null,
         turnPhase: 'idle',
@@ -526,7 +496,7 @@ function getChatSessionByThreadId(candidateThreadId: string | null) {
 
 function getRequestChatSession(request?: IAgentAssistantStateRequest | IAgentAssistantScopedRequest | null) {
     const scope = resolveRequestedScope(request);
-    const selection = resolveAssistantSelection(request);
+    const selection = resolveAssistantSelection(codexAssistantModels, request);
     rememberStateScope(scope, selection);
     return scope ? getChatSession(scope, selection, { create: true }) : null;
 }
@@ -579,27 +549,22 @@ function applyCodexAuthStatusResponse(authStatus: Record<PropertyKey, unknown>) 
     }
 }
 
-function codexDefaultModelId() {
-    return resolveCodexDefaultModelId(codexAssistantModels);
-}
-
-function normalizeCodexAssistantModel(model: string | null | undefined) {
-    return normalizeCodexAssistantModelFromCatalog(codexAssistantModels, model);
-}
-
 function getCodexAppServerModel(model: string | null | undefined) {
-    return normalizeCodexAssistantModel(model);
-}
-
-function getCodexAssistantModelLabel(model: string) {
-    return codexAssistantModels.find(option => option.id === model)?.label ?? model;
+    return normalizeCodexAssistantModel(codexAssistantModels, model);
 }
 
 function currentCodexSelection(): IAssistantSelection {
+    const model = lastStateProvider === 'codex' ? lastStateModel : codexDefaultModelId(codexAssistantModels);
     return {
         provider: 'codex',
-        model: lastStateProvider === 'codex' ? lastStateModel : codexDefaultModelId(),
+        model,
         effort: normalizeAssistantEffort('codex', lastStateProvider === 'codex' ? lastStateEffort : ASSISTANT_DEFAULT_EFFORT),
+        speedMode: normalizeAssistantSpeedMode(
+            codexAssistantModels,
+            'codex',
+            model,
+            lastStateProvider === 'codex' ? lastStateSpeedMode : ASSISTANT_DEFAULT_SPEED_MODE,
+        ),
     };
 }
 
@@ -621,109 +586,8 @@ function normalizeClaudeAccount(rawAccount: IClaudeAgentAssistantInit['account']
     };
 }
 
-function getProviderModelLabel(provider: TAgentAssistantProviderId, model: string) {
-    if (provider === 'claude') {
-        return claudeAssistantModels.find(option => option.id === model)?.label ?? getClaudeAssistantModelLabel(model);
-    }
-
-    return getCodexAssistantModelLabel(model);
-}
-
 function getSessionForStatus(scope: IAgentAssistantChatScope | null, selection: IAssistantSelection) {
     return getChatSession(scope, selection);
-}
-
-function buildCodexProviderStatus(model: string, effort: TAgentAssistantEffort) {
-    const codexInfo = codexInfoCache;
-    const installed = codexInfo?.installed === true;
-    const versionSupported = codexInfo?.isVersionSupported === true;
-    const supported = process.platform === 'darwin' || process.platform === 'win32' || process.platform === 'linux';
-    const activeModel = normalizeCodexAssistantModel(model);
-    return {
-        id: 'codex',
-        label: 'Codex',
-        installState: supported
-            ? installed
-                ? 'installed'
-                : 'missing'
-            : 'unsupported',
-        authState,
-        runtimeState,
-        models: codexAssistantModels,
-        defaultModel: codexDefaultModelId(),
-        activeModel,
-        modelSwitchMode: 'in-session',
-        availableEfforts: CODEX_ASSISTANT_EFFORTS,
-        defaultEffort: ASSISTANT_DEFAULT_EFFORT,
-        activeEffort: normalizeAssistantEffort('codex', effort),
-        path: codexInfo?.path ?? null,
-        version: codexInfo?.version ?? null,
-        minimumVersion: codexInfo?.minimumVersion ?? '0.133.0',
-        versionSupported,
-        installUrl: CODEX_APP_INSTALL_URL,
-        account,
-        ...(lastError
-            ? {
-                error: lastError,
-                errorEnvelope: createAssistantErrorEnvelope(lastError),
-            }
-            : {}),
-    } satisfies IAgentAssistantStatus['providers'][number];
-}
-
-function buildClaudeProviderStatus(model: string, effort: TAgentAssistantEffort) {
-    const supported = process.platform === 'darwin' || process.platform === 'win32' || process.platform === 'linux';
-    const installed = claudeInfoCache?.installed === true;
-    const activeModel = normalizeClaudeAssistantModel(model);
-    const models = claudeAssistantModels.some(option => option.id === activeModel)
-        ? claudeAssistantModels
-        : [
-            {
-                id: activeModel,
-                label: getClaudeAssistantModelLabel(activeModel),
-            },
-            ...claudeAssistantModels,
-        ];
-    const defaultModel = models.find(option => option.id === CLAUDE_AGENT_DEFAULT_MODEL)?.id
-        ?? models[0]?.id
-        ?? CLAUDE_AGENT_DEFAULT_MODEL;
-    const resolvedRuntimeState = installed && claudeRuntimeState === 'stopped'
-        ? 'ready'
-        : claudeRuntimeState;
-    const resolvedAuthState = installed && claudeAuthState === 'unknown'
-        ? 'signed-in'
-        : claudeAuthState;
-    const error = claudeLastError ?? claudeInfoCache?.error;
-    return {
-        id: 'claude',
-        label: 'Claude',
-        installState: supported
-            ? installed
-                ? 'installed'
-                : 'missing'
-            : 'unsupported',
-        authState: resolvedAuthState,
-        runtimeState: resolvedRuntimeState,
-        models,
-        defaultModel,
-        activeModel,
-        modelSwitchMode: 'in-session',
-        availableEfforts: CLAUDE_ASSISTANT_EFFORTS,
-        defaultEffort: ASSISTANT_DEFAULT_EFFORT,
-        activeEffort: normalizeAssistantEffort('claude', effort),
-        path: claudeInfoCache?.executablePath ?? null,
-        version: claudeInfoCache?.version ?? null,
-        minimumVersion: null,
-        versionSupported: installed,
-        installUrl: CLAUDE_AGENT_INSTALL_URL,
-        account: claudeAccount,
-        ...(error
-            ? {
-                error,
-                errorEnvelope: createAssistantErrorEnvelope(error),
-            }
-            : {}),
-    } satisfies IAgentAssistantStatus['providers'][number];
 }
 
 function currentStatus(
@@ -732,6 +596,7 @@ function currentStatus(
         provider: lastStateProvider,
         model: lastStateModel,
         effort: lastStateEffort,
+        speedMode: lastStateSpeedMode,
     },
 ): IAgentAssistantStatus {
     const codexInfo = codexInfoCache;
@@ -740,8 +605,9 @@ function currentStatus(
     const supported = process.platform === 'darwin' || process.platform === 'win32' || process.platform === 'linux';
     const normalizedSelection = {
         provider: selection.provider,
-        model: normalizeAssistantModel(selection.provider, selection.model),
+        model: normalizeAssistantModel(codexAssistantModels, selection.provider, selection.model),
         effort: normalizeAssistantEffort(selection.provider, selection.effort),
+        speedMode: normalizeAssistantSpeedMode(codexAssistantModels, selection.provider, selection.model, selection.speedMode),
     } as const satisfies IAssistantSelection;
     const session = getSessionForStatus(scope, normalizedSelection);
     const fallbackTurnPhase = normalizedSelection.provider === 'claude'
@@ -751,14 +617,42 @@ function currentStatus(
     const sessionActiveTurnId = session?.activeTurnId ?? (normalizedSelection.provider === 'claude' ? claudeActiveTurnId : activeTurnId);
     const sessionThreadId = session?.threadId ?? null;
     const effortInput = session?.effort ?? normalizedSelection.effort;
+    const speedModeInput = session?.speedMode ?? normalizedSelection.speedMode;
     const providerStatuses = [
-        buildCodexProviderStatus(session?.model ?? normalizedSelection.model, effortInput),
-        buildClaudeProviderStatus(session?.model ?? normalizedSelection.model, effortInput),
+        buildCodexProviderStatus({
+            platform: process.platform,
+            codexInfo,
+            models: codexAssistantModels,
+            model: session?.model ?? normalizedSelection.model,
+            effort: effortInput,
+            speedMode: speedModeInput,
+            authState,
+            runtimeState,
+            account,
+            ...(lastError ? { lastError } : {}),
+        }),
+        buildClaudeProviderStatus({
+            platform: process.platform,
+            claudeInfo: claudeInfoCache,
+            models: claudeAssistantModels,
+            model: session?.model ?? normalizedSelection.model,
+            effort: effortInput,
+            speedMode: speedModeInput,
+            authState: claudeAuthState,
+            runtimeState: claudeRuntimeState,
+            account: claudeAccount,
+            ...(claudeLastError ? { lastError: claudeLastError } : {}),
+        }),
     ];
     const activeProvider = providerStatuses.find(provider => provider.id === normalizedSelection.provider) ?? providerStatuses[0]!;
-    const model = normalizeAssistantModel(normalizedSelection.provider, session?.model ?? normalizedSelection.model);
+    const model = normalizeAssistantModel(
+        codexAssistantModels,
+        normalizedSelection.provider,
+        session?.model ?? normalizedSelection.model,
+    );
     const models = activeProvider.models;
     const effort = normalizeAssistantEffort(normalizedSelection.provider, effortInput);
+    const speedMode = normalizeAssistantSpeedMode(codexAssistantModels, normalizedSelection.provider, model, speedModeInput);
     const error = session?.lastError ?? activeProvider.error;
     return {
         supported,
@@ -767,11 +661,13 @@ function currentStatus(
         providerLabel: activeProvider.label,
         providers: providerStatuses,
         model,
-        modelLabel: getProviderModelLabel(normalizedSelection.provider, model),
+        modelLabel: getProviderModelLabel(codexAssistantModels, claudeAssistantModels, normalizedSelection.provider, model),
         models,
         modelSwitchMode: activeProvider.modelSwitchMode,
         effort,
         availableEfforts: getProviderEfforts(normalizedSelection.provider),
+        speedMode,
+        availableSpeedModes: getProviderSpeedModes(codexAssistantModels, normalizedSelection.provider, model),
         installState: activeProvider.installState,
         codexInstalled: installed,
         codexPath: codexInfo?.path ?? null,
@@ -820,6 +716,7 @@ function cloneMessages(
         provider: lastStateProvider,
         model: lastStateModel,
         effort: lastStateEffort,
+        speedMode: lastStateSpeedMode,
     },
 ) {
     return getChatSession(scope, selection)?.messages.map(cloneAssistantMessage) ?? [];
@@ -831,6 +728,7 @@ function currentState(
         provider: lastStateProvider,
         model: lastStateModel,
         effort: lastStateEffort,
+        speedMode: lastStateSpeedMode,
     },
 ): IAgentAssistantState {
     return {
@@ -856,6 +754,7 @@ function publishAssistantEvent(
         provider: lastStateProvider,
         model: lastStateModel,
         effort: lastStateEffort,
+        speedMode: lastStateSpeedMode,
     },
 ) {
     const normalizedEvent = withAssistantErrorEnvelope(event);
@@ -879,6 +778,7 @@ function publishState(
         provider: lastStateProvider,
         model: lastStateModel,
         effort: lastStateEffort,
+        speedMode: lastStateSpeedMode,
     },
 ) {
     publishAssistantEvent({
@@ -1408,7 +1308,7 @@ async function refreshCodexModelList() {
         );
         if (response.length > 0) {
             codexAssistantModels = response;
-            lastStateModel = normalizeAssistantModel(lastStateProvider, lastStateModel);
+            lastStateModel = normalizeAssistantModel(codexAssistantModels, lastStateProvider, lastStateModel);
         }
     } catch (error) {
         logger.warn(`Failed to read Codex model list: ${getErrorMessage(error)}`);
@@ -1572,6 +1472,7 @@ async function ensureClaudeAssistantSession(
     session: IAssistantChatSession,
     model: string,
     effort: TAgentAssistantEffort,
+    speedMode: TAgentAssistantSpeedMode,
 ) {
     if (!(await isAssistantFeatureEnabled())) {
         await shutdownAgentAssistant();
@@ -1589,18 +1490,24 @@ async function ensureClaudeAssistantSession(
 
     const normalizedModel = normalizeClaudeAssistantModel(model);
     const normalizedEffort = normalizeAssistantEffort('claude', effort);
+    const normalizedSpeedMode = normalizeAssistantSpeedMode(codexAssistantModels, 'claude', normalizedModel, speedMode);
+    const desiredFastMode = shouldUseClaudeAssistantFastMode(normalizedModel, normalizedSpeedMode);
 
     if (session.claudeSession) {
-        // The model can change in-session (setModel), but effort is fixed at query() start —
-        // there is no setEffort, so an effort change requires a fresh session. Local message
-        // history is preserved; only the SDK session is rebuilt.
-        if (session.claudeSession.effort === normalizedEffort) {
+        // The model can change in-session (setModel), but effort and flag settings
+        // are fixed at query() start. Keep local message history and rebuild only
+        // when the SDK session configuration would differ.
+        if (
+            session.claudeSession.effort === normalizedEffort
+            && session.claudeSession.fastMode === desiredFastMode
+        ) {
             session.model = normalizedModel;
             session.effort = normalizedEffort;
+            session.speedMode = normalizedSpeedMode;
             return session.claudeSession;
         }
         await session.claudeSession.close().catch((error: unknown) => {
-            logger.warn(`Failed to close Claude assistant session for effort change: ${getErrorMessage(error)}`);
+            logger.warn(`Failed to close Claude assistant session for settings change: ${getErrorMessage(error)}`);
         });
         session.claudeSession = undefined;
         session.threadId = null;
@@ -1619,10 +1526,12 @@ async function ensureClaudeAssistantSession(
     } = await ensureSharedEmbeddedMcp();
     session.model = normalizedModel;
     session.effort = normalizedEffort;
+    session.speedMode = normalizedSpeedMode;
     session.claudeSession = new ClaudeAgentAssistantSession({
         cwd,
         model: session.model,
         effort: session.effort,
+        speedMode: session.speedMode,
         mcpServerName: ASSISTANT_MCP_SERVER_NAME,
         mcpServerUrl: descriptor.url,
         mcpToken,
@@ -1639,7 +1548,7 @@ export async function getAgentAssistantState(
 ): Promise<IAgentAssistantState> {
     const session = getRequestChatSession(request);
     const scope = session?.scope ?? null;
-    const selection = resolveAssistantSelection(request);
+    const selection = resolveAssistantSelection(codexAssistantModels, request);
     if (!(await isAssistantFeatureEnabled())) {
         await shutdownAgentAssistant();
         return currentState(scope, selection);
@@ -1794,7 +1703,7 @@ export async function sendAgentAssistantMessage(
         });
     }
 
-    const selection = resolveAssistantSelection(request);
+    const selection = resolveAssistantSelection(codexAssistantModels, request);
     const scope = normalizeAssistantScope(request.scope);
     rememberStateScope(scope, selection);
     if (!scope) {
@@ -1844,7 +1753,12 @@ export async function sendAgentAssistantMessage(
 
     if (selection.provider === 'claude') {
         try {
-            const claudeSession = await ensureClaudeAssistantSession(session, selection.model, selection.effort);
+            const claudeSession = await ensureClaudeAssistantSession(
+                session,
+                selection.model,
+                selection.effort,
+                selection.speedMode,
+            );
             activeChatKey = createChatSessionKey(session.provider, session.scope.key);
             claudeRuntimeState = 'busy';
             session.turnPhase = 'starting';
@@ -1882,8 +1796,10 @@ export async function sendAgentAssistantMessage(
         }
         const currentRuntime = await ensureAssistantRuntime();
         const codexModel = getCodexAppServerModel(selection.model);
-        session.model = normalizeCodexAssistantModel(selection.model);
+        const codexServiceTier = resolveCodexServiceTier(codexAssistantModels, selection.model, selection.speedMode);
+        session.model = normalizeCodexAssistantModel(codexAssistantModels, selection.model);
         session.effort = selection.effort;
+        session.speedMode = selection.speedMode;
         currentThreadId = await ensureAssistantThread(session);
         activeChatKey = createChatSessionKey(session.provider, session.scope.key);
         runtimeState = 'busy';
@@ -1912,6 +1828,7 @@ export async function sendAgentAssistantMessage(
                 })),
             ],
             ...(codexModel ? { model: codexModel } : {}),
+            ...(codexServiceTier ? { serviceTier: codexServiceTier } : {}),
             cwd: currentRuntime.cwd,
             approvalPolicy: 'never',
             sandboxPolicy: {
@@ -1921,7 +1838,7 @@ export async function sendAgentAssistantMessage(
             personality: 'friendly',
         }, decodeRecordResponse);
         if (isRecord(response.turn) && typeof response.turn.id === 'string') {
-            session.model = normalizeCodexAssistantModel(selection.model);
+            session.model = normalizeCodexAssistantModel(codexAssistantModels, selection.model);
             if (session.threadId !== currentThreadId) {
                 return {
                     ok: true,
@@ -1969,7 +1886,7 @@ export async function interruptAgentAssistant(
     request?: IAgentAssistantScopedRequest,
 ): Promise<IAgentAssistantState> {
     const requestedSession = getRequestChatSession(request);
-    const selection = resolveAssistantSelection(request);
+    const selection = resolveAssistantSelection(codexAssistantModels, request);
     const session = requestedSession ?? getActiveChatSession(selection.provider);
     if (session?.provider === 'claude') {
         if (session.claudeSession && session.activeTurnId) {
@@ -2019,7 +1936,7 @@ export async function resetAgentAssistantChat(
     request?: IAgentAssistantScopedRequest,
 ): Promise<IAgentAssistantState> {
     const session = getRequestChatSession(request);
-    const selection = resolveAssistantSelection(request);
+    const selection = resolveAssistantSelection(codexAssistantModels, request);
     if (!session) {
         return currentState(null, selection);
     }

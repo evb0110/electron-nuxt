@@ -340,11 +340,16 @@ function isAgentAssistantProviderId(provider: unknown): provider is TAgentAssist
     return provider === 'codex' || provider === 'claude';
 }
 
+function isAgentAssistantSpeedMode(speedMode: unknown) {
+    return speedMode === 'fast' || speedMode === 'standard';
+}
+
 function isOptionalAssistantSelection(request: Record<PropertyKey, unknown>) {
     return (
         (request.provider === undefined || isAgentAssistantProviderId(request.provider))
         && (request.model === undefined || typeof request.model === 'string')
         && (request.effort === undefined || typeof request.effort === 'string')
+        && (request.speedMode === undefined || isAgentAssistantSpeedMode(request.speedMode))
     );
 }
 

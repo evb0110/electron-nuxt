@@ -20,6 +20,7 @@ export type TAgentAssistantChatScopeKind = 'document';
 export type TAgentAssistantProviderId = 'codex' | 'claude';
 export type TAgentAssistantModelSwitchMode = 'none' | 'in-session';
 export type TAgentAssistantEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type TAgentAssistantSpeedMode = 'fast' | 'standard';
 export type TAgentWorkspaceMode = 'empty-workspace' | 'open-document' | 'documents-open-no-active-document';
 
 export interface IAgentDocumentOcrState {
@@ -256,6 +257,15 @@ export interface IAgentAssistantMcpStatus {
 export interface IAgentAssistantModelOption {
     id: string;
     label: string;
+    serviceTiers?: readonly IAgentAssistantServiceTierOption[];
+    defaultServiceTier?: string | null;
+}
+
+export interface IAgentAssistantServiceTierOption {
+    id: string;
+    label: string;
+    description?: string;
+    isDefault?: boolean;
 }
 
 export interface IAgentAssistantProviderStatus {
@@ -271,6 +281,9 @@ export interface IAgentAssistantProviderStatus {
     availableEfforts: readonly TAgentAssistantEffort[];
     defaultEffort: TAgentAssistantEffort;
     activeEffort: TAgentAssistantEffort;
+    availableSpeedModes: readonly TAgentAssistantSpeedMode[];
+    defaultSpeedMode: TAgentAssistantSpeedMode;
+    activeSpeedMode: TAgentAssistantSpeedMode;
     path: string | null;
     version: string | null;
     minimumVersion: string | null;
@@ -301,6 +314,8 @@ export interface IAgentAssistantStatus {
     modelSwitchMode: TAgentAssistantModelSwitchMode;
     effort: TAgentAssistantEffort;
     availableEfforts: readonly TAgentAssistantEffort[];
+    speedMode: TAgentAssistantSpeedMode;
+    availableSpeedModes: readonly TAgentAssistantSpeedMode[];
     installState: TAgentAssistantInstallState;
     codexInstalled: boolean;
     codexPath: string | null;
@@ -358,6 +373,7 @@ export interface IAgentAssistantStateRequest {
     provider?: TAgentAssistantProviderId;
     model?: string;
     effort?: TAgentAssistantEffort;
+    speedMode?: TAgentAssistantSpeedMode;
 }
 
 export interface IAgentAssistantInstallResult {
@@ -386,6 +402,7 @@ export interface IAgentAssistantSendMessageRequest {
     provider?: TAgentAssistantProviderId;
     model?: string;
     effort?: TAgentAssistantEffort;
+    speedMode?: TAgentAssistantSpeedMode;
     attachments?: IAgentAssistantImageAttachment[];
 }
 
@@ -401,6 +418,7 @@ export interface IAgentAssistantScopedRequest {
     provider?: TAgentAssistantProviderId;
     model?: string;
     effort?: TAgentAssistantEffort;
+    speedMode?: TAgentAssistantSpeedMode;
 }
 
 export interface IAgentAssistantEvent {

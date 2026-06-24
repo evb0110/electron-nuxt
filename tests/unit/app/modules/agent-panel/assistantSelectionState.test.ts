@@ -15,8 +15,11 @@ import {
     normalizeEffortValue,
     normalizeModelValue,
     normalizeProviderValue,
+    normalizeSpeedModeValue,
     providerDefaultEffort,
     providerDefaultModel,
+    providerDefaultSpeedMode,
+    speedModesForProviderStatus,
 } from '@app/modules/agent-panel/utils/assistantSelectionState';
 
 function createProviderStatus(
@@ -49,8 +52,14 @@ function createProviderStatus(
             'medium',
             'high',
         ],
-        defaultEffort: 'high',
-        activeEffort: 'high',
+        defaultEffort: 'low',
+        activeEffort: 'low',
+        availableSpeedModes: [
+            'fast',
+            'standard',
+        ],
+        defaultSpeedMode: 'fast',
+        activeSpeedMode: 'fast',
         path: `/bin/${id}`,
         version: '1.0.0',
         minimumVersion: id === 'codex' ? '0.133.0' : null,
@@ -83,6 +92,8 @@ function createAssistantStatus(
         modelSwitchMode: activeProvider.modelSwitchMode,
         effort: activeProvider.activeEffort,
         availableEfforts: activeProvider.availableEfforts,
+        speedMode: activeProvider.activeSpeedMode,
+        availableSpeedModes: activeProvider.availableSpeedModes,
         installState: activeProvider.installState,
         codexInstalled: true,
         codexPath: '/bin/codex',
@@ -125,6 +136,10 @@ describe('assistantSelectionState', () => {
         expect(normalizeEffortValue('xhigh')).toBe('xhigh');
         expect(normalizeEffortValue({value: 'max'})).toBe('max');
         expect(normalizeEffortValue('extreme')).toBeNull();
+
+        expect(normalizeSpeedModeValue('fast')).toBe('fast');
+        expect(normalizeSpeedModeValue({value: 'standard'})).toBe('standard');
+        expect(normalizeSpeedModeValue('turbo')).toBeNull();
     });
 
     it('resolves selected models with requested, default, first, and empty fallbacks', () => {
@@ -152,11 +167,13 @@ describe('assistantSelectionState', () => {
             providerStatus,
             'codex-second',
             'medium',
+            'standard',
         );
 
         expect(selectedStatus.provider).toBe('codex');
         expect(selectedStatus.model).toBe('codex-second');
         expect(selectedStatus.effort).toBe('medium');
+        expect(selectedStatus.speedMode).toBe('standard');
         expect(selectedStatus.turn).toBe(baseStatus.turn);
         expect(selectedStatus.threadId).toBe('thread-1');
         expect(selectedStatus.activeTurnId).toBe('turn-1');
@@ -171,11 +188,13 @@ describe('assistantSelectionState', () => {
             providerStatus,
             'claude-second',
             'max',
+            'fast',
         );
 
         expect(selectedStatus.provider).toBe('claude');
         expect(selectedStatus.model).toBe('claude-second');
-        expect(selectedStatus.effort).toBe('high');
+        expect(selectedStatus.effort).toBe('low');
+        expect(selectedStatus.speedMode).toBe('fast');
         expect(selectedStatus.turn).toEqual({
             id: null,
             phase: 'idle',
@@ -217,7 +236,9 @@ describe('assistantSelectionState', () => {
             activeModel: 'codex-active',
             defaultModel: 'codex-default',
             activeEffort: 'medium',
-            defaultEffort: 'high',
+            defaultEffort: 'low',
+            activeSpeedMode: 'standard',
+            defaultSpeedMode: 'fast',
         })];
 
         expect(providerDefaultModel(providers, 'codex')).toBe('codex-active');
@@ -227,6 +248,36 @@ describe('assistantSelectionState', () => {
         }], 'codex')).toBe('');
         expect(providerDefaultModel([], 'codex')).toBe('default');
         expect(providerDefaultEffort(providers, 'codex')).toBe('medium');
-        expect(providerDefaultEffort([], 'codex')).toBe('high');
+        expect(providerDefaultEffort([], 'codex')).toBe('low');
+        expect(providerDefaultSpeedMode(providers, 'codex')).toBe('standard');
+        expect(providerDefaultSpeedMode([], 'codex')).toBe('fast');
+    });
+
+    it('keeps Codex speed modes available when stale runtime status only reports standard speed', () => {
+        const baseStatus = createAssistantStatus('codex');
+        const staleProviderStatus = createProviderStatus('codex', {
+            availableSpeedModes: ['standard'],
+            defaultSpeedMode: 'standard',
+            activeSpeedMode: 'standard',
+        });
+
+        const selectedStatus = createSelectedAssistantStatus(
+            baseStatus,
+            staleProviderStatus,
+            'codex-default',
+            'low',
+            'fast',
+        );
+
+        expect(speedModesForProviderStatus(staleProviderStatus)).toEqual([
+            'fast',
+            'standard',
+        ]);
+        expect(providerDefaultSpeedMode([staleProviderStatus], 'codex')).toBe('fast');
+        expect(selectedStatus.availableSpeedModes).toEqual([
+            'fast',
+            'standard',
+        ]);
+        expect(selectedStatus.speedMode).toBe('fast');
     });
 });

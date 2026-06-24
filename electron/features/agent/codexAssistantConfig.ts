@@ -33,7 +33,7 @@ function tomlString(value: string) {
     return JSON.stringify(value);
 }
 
-export function createAssistantCodexConfig(serverUrl: string, reasoningEffort = 'high') {
+export function createAssistantCodexConfig(serverUrl: string, reasoningEffort = 'low') {
     const enabledTools = ASSISTANT_MCP_TOOLS.map(tomlString).join(', ');
     return [
         'cli_auth_credentials_store = "file"',

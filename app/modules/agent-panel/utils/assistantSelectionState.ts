@@ -5,7 +5,13 @@ import type {
     IAgentAssistantStatus,
     TAgentAssistantEffort,
     TAgentAssistantProviderId,
+    TAgentAssistantSpeedMode,
 } from '@contracts/agent';
+import {
+    ASSISTANT_DEFAULT_EFFORT,
+    ASSISTANT_DEFAULT_SPEED_MODE,
+    ASSISTANT_SPEED_MODES,
+} from '@contracts/agentModels';
 
 export function cloneAssistantScope(scope: IAgentAssistantChatScope): IAgentAssistantChatScope {
     return {
@@ -27,23 +33,36 @@ export function modelForSelection(
         ?? null;
 }
 
+export function speedModesForProviderStatus(providerStatus: IAgentAssistantProviderStatus) {
+    return providerStatus.id === 'codex'
+        ? [...ASSISTANT_SPEED_MODES]
+        : providerStatus.availableSpeedModes ?? [ASSISTANT_DEFAULT_SPEED_MODE];
+}
+
 export function createSelectedAssistantStatus(
     baseStatus: IAgentAssistantStatus,
     providerStatus: IAgentAssistantProviderStatus,
     model: string,
     effort: TAgentAssistantEffort,
+    speedMode: TAgentAssistantSpeedMode,
 ) {
     const selectedModelOption = modelForSelection(providerStatus, model);
     const selectedModel = selectedModelOption?.id ?? model;
     const selectedModelLabel = selectedModelOption?.label ?? selectedModel;
-    const selectedEffortValue = providerStatus.availableEfforts.includes(effort)
+    const providerEfforts = providerStatus.availableEfforts ?? [];
+    const providerSpeedModes = speedModesForProviderStatus(providerStatus);
+    const selectedEffortValue = providerEfforts.includes(effort)
         ? effort
-        : providerStatus.defaultEffort;
+        : providerStatus.defaultEffort ?? ASSISTANT_DEFAULT_EFFORT;
+    const selectedSpeedModeValue = providerSpeedModes.includes(speedMode)
+        ? speedMode
+        : providerStatus.defaultSpeedMode ?? ASSISTANT_DEFAULT_SPEED_MODE;
     const providers = baseStatus.providers.map(candidate => (candidate.id === providerStatus.id
         ? {
             ...candidate,
             activeModel: selectedModel,
             activeEffort: selectedEffortValue,
+            activeSpeedMode: selectedSpeedModeValue,
         }
         : candidate));
     const codexProvider = providerStatus.id === 'codex'
@@ -65,7 +84,9 @@ export function createSelectedAssistantStatus(
         models: providerStatus.models,
         modelSwitchMode: providerStatus.modelSwitchMode,
         effort: selectedEffortValue,
-        availableEfforts: providerStatus.availableEfforts,
+        availableEfforts: providerEfforts,
+        speedMode: selectedSpeedModeValue,
+        availableSpeedModes: providerSpeedModes,
         installState: providerStatus.installState,
         codexInstalled: codexProvider?.installState === 'installed',
         codexPath: codexProvider?.path ?? null,
@@ -109,7 +130,20 @@ export function providerDefaultEffort(
     const providerStatus = providers.find(candidate => candidate.id === provider);
     return providerStatus?.activeEffort
         ?? providerStatus?.defaultEffort
-        ?? 'high';
+        ?? ASSISTANT_DEFAULT_EFFORT;
+}
+
+export function providerDefaultSpeedMode(
+    providers: readonly IAgentAssistantProviderStatus[],
+    provider: TAgentAssistantProviderId,
+): TAgentAssistantSpeedMode {
+    const providerStatus = providers.find(candidate => candidate.id === provider);
+    if (providerStatus?.id === 'codex' && providerStatus.availableSpeedModes && !providerStatus.availableSpeedModes.includes('fast')) {
+        return ASSISTANT_DEFAULT_SPEED_MODE;
+    }
+    return providerStatus?.activeSpeedMode
+        ?? providerStatus?.defaultSpeedMode
+        ?? ASSISTANT_DEFAULT_SPEED_MODE;
 }
 
 function unwrapSelectionValue(value: unknown) {
@@ -121,6 +155,13 @@ function unwrapSelectionValue(value: unknown) {
 export function normalizeEffortValue(value: unknown): TAgentAssistantEffort | null {
     const id = unwrapSelectionValue(value);
     return id === 'low' || id === 'medium' || id === 'high' || id === 'xhigh' || id === 'max'
+        ? id
+        : null;
+}
+
+export function normalizeSpeedModeValue(value: unknown): TAgentAssistantSpeedMode | null {
+    const id = unwrapSelectionValue(value);
+    return id === 'fast' || id === 'standard'
         ? id
         : null;
 }

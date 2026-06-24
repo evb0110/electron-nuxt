@@ -1,8 +1,70 @@
-import type { IAgentAssistantModelOption } from '@contracts/agent';
+import type {
+    IAgentAssistantModelOption,
+    IAgentAssistantServiceTierOption,
+} from '@contracts/agent';
 import { CODEX_ASSISTANT_DEFAULT_MODEL } from '@contracts/agentModels';
 import { isRecord } from '@contracts/runtimeGuards';
 
 export type TCodexAssistantModelOption = IAgentAssistantModelOption & { isDefault?: boolean };
+
+function normalizeCodexServiceTier(rawTier: unknown): IAgentAssistantServiceTierOption | null {
+    if (typeof rawTier === 'string') {
+        const id = rawTier.trim();
+        return id
+            ? {
+                id,
+                label: id === 'fast' || id === 'priority' ? 'Fast' : id,
+            }
+            : null;
+    }
+
+    if (!isRecord(rawTier)) {
+        return null;
+    }
+
+    const id = typeof rawTier.id === 'string' && rawTier.id.trim()
+        ? rawTier.id.trim()
+        : typeof rawTier.value === 'string' && rawTier.value.trim()
+            ? rawTier.value.trim()
+            : '';
+    if (!id) {
+        return null;
+    }
+
+    const label = typeof rawTier.name === 'string' && rawTier.name.trim()
+        ? rawTier.name.trim()
+        : typeof rawTier.label === 'string' && rawTier.label.trim()
+            ? rawTier.label.trim()
+            : id === 'fast' || id === 'priority'
+                ? 'Fast'
+                : id;
+    return {
+        id,
+        label,
+        ...(typeof rawTier.description === 'string' && rawTier.description.trim()
+            ? { description: rawTier.description.trim() }
+            : {}),
+        ...(rawTier.isDefault === true ? { isDefault: true } : {}),
+    };
+}
+
+function normalizeCodexServiceTiers(rawModel: Record<PropertyKey, unknown>) {
+    const rawTiers = Array.isArray(rawModel.serviceTiers)
+        ? rawModel.serviceTiers
+        : Array.isArray(rawModel.additionalSpeedTiers)
+            ? rawModel.additionalSpeedTiers
+            : [];
+    const seen = new Set<string>();
+    return rawTiers
+        .map(normalizeCodexServiceTier)
+        .filter((tier): tier is IAgentAssistantServiceTierOption => {
+            if (!tier || seen.has(tier.id)) {
+                return false;
+            }
+            seen.add(tier.id);
+            return true;
+        });
+}
 
 function normalizeCodexModelOption(rawModel: unknown): TCodexAssistantModelOption | null {
     if (!isRecord(rawModel)) {
@@ -21,9 +83,15 @@ function normalizeCodexModelOption(rawModel: unknown): TCodexAssistantModelOptio
     const label = typeof rawModel.displayName === 'string' && rawModel.displayName.trim()
         ? rawModel.displayName.trim()
         : id;
+    const serviceTiers = normalizeCodexServiceTiers(rawModel);
+    const defaultServiceTier = typeof rawModel.defaultServiceTier === 'string' && rawModel.defaultServiceTier.trim()
+        ? rawModel.defaultServiceTier.trim()
+        : serviceTiers.find(tier => tier.isDefault)?.id ?? null;
     return {
         id,
         label,
+        ...(serviceTiers.length > 0 ? { serviceTiers } : {}),
+        ...(defaultServiceTier ? { defaultServiceTier } : {}),
         ...(rawModel.isDefault === true ? {isDefault: true} : {}),
     };
 }

@@ -531,12 +531,20 @@
                                         @select-model="updateModel"
                                     />
                                     <AssistantEffortSwitcher
-                                        v-if="hasLoadedState && status.availableEfforts.length > 0"
-                                        :efforts="status.availableEfforts"
+                                        v-if="hasLoadedState && availableEfforts.length > 0"
+                                        :efforts="availableEfforts"
                                         :selected-effort="selectedEffort"
                                         :disabled="assistantSelectionLocked"
                                         side="top"
                                         @select-effort="updateEffort"
+                                    />
+                                    <AssistantSpeedSwitcher
+                                        v-if="hasLoadedState && availableSpeedModes.length > 1"
+                                        :modes="availableSpeedModes"
+                                        :selected-mode="selectedSpeedMode"
+                                        :disabled="assistantSelectionLocked"
+                                        side="top"
+                                        @select-mode="updateSpeedMode"
                                     />
                                 </div>
                                 <UButton
@@ -576,6 +584,14 @@
                         tabindex="-1"
                         disabled
                     />
+                    <div class="agent-assistant-composer-actions">
+                        <div class="agent-assistant-composer-switchers">
+                            <span class="agent-assistant-composer-control-reserve" />
+                            <span class="agent-assistant-composer-control-reserve is-short" />
+                            <span class="agent-assistant-composer-control-reserve is-short" />
+                        </div>
+                        <span class="agent-assistant-composer-send-reserve" />
+                    </div>
                 </div>
             </div>
 
@@ -594,12 +610,20 @@
                     @select-model="updateModel"
                 />
                 <AssistantEffortSwitcher
-                    v-if="status.availableEfforts.length > 0"
-                    :efforts="status.availableEfforts"
+                    v-if="availableEfforts.length > 0"
+                    :efforts="availableEfforts"
                     :selected-effort="selectedEffort"
                     :disabled="assistantSelectionLocked"
                     side="top"
                     @select-effort="updateEffort"
+                />
+                <AssistantSpeedSwitcher
+                    v-if="availableSpeedModes.length > 1"
+                    :modes="availableSpeedModes"
+                    :selected-mode="selectedSpeedMode"
+                    :disabled="assistantSelectionLocked"
+                    side="top"
+                    @select-mode="updateSpeedMode"
                 />
             </div>
 
@@ -691,9 +715,12 @@ import type {
     TAgentAssistantLoginMode,
     TAgentAssistantMessageRole,
     TAgentAssistantProviderId,
+    TAgentAssistantSpeedMode,
 } from '@contracts/agent';
 import {
     ASSISTANT_DEFAULT_EFFORT,
+    ASSISTANT_DEFAULT_SPEED_MODE,
+    ASSISTANT_SPEED_MODES,
     CLAUDE_ASSISTANT_EFFORTS,
     CLAUDE_ASSISTANT_DEFAULT_MODEL,
     CLAUDE_ASSISTANT_MODELS,
@@ -703,6 +730,7 @@ import {
 } from '@contracts/agentModels';
 import AssistantEffortSwitcher from '@app/modules/agent-panel/components/AssistantEffortSwitcher.vue';
 import AssistantModelSwitcher from '@app/modules/agent-panel/components/AssistantModelSwitcher.vue';
+import AssistantSpeedSwitcher from '@app/modules/agent-panel/components/AssistantSpeedSwitcher.vue';
 import {
     cloneAssistantScope,
     createSelectedAssistantStatus,
@@ -710,8 +738,11 @@ import {
     normalizeEffortValue,
     normalizeModelValue,
     normalizeProviderValue,
+    normalizeSpeedModeValue,
     providerDefaultEffort,
     providerDefaultModel,
+    providerDefaultSpeedMode,
+    speedModesForProviderStatus,
 } from '@app/modules/agent-panel/utils/assistantSelectionState';
 import {
     ASSISTANT_IMAGE_SIZE_LIMIT_LABEL,
@@ -784,8 +815,10 @@ const state = ref<IAgentAssistantState | null>(null);
 const selectedProvider = ref<TAgentAssistantProviderId>('codex');
 const selectedModel = ref(CODEX_ASSISTANT_DEFAULT_MODEL);
 const hasLocalModelSelection = ref(false);
-const selectedEffort = ref<TAgentAssistantEffort>('high');
+const selectedEffort = ref<TAgentAssistantEffort>(ASSISTANT_DEFAULT_EFFORT);
 const hasLocalEffortSelection = ref(false);
+const selectedSpeedMode = ref<TAgentAssistantSpeedMode>(ASSISTANT_DEFAULT_SPEED_MODE);
+const hasLocalSpeedModeSelection = ref(false);
 const isSwitchingAssistant = ref(false);
 let sendGeneration = 0;
 let stateGeneration = 0;
@@ -835,6 +868,9 @@ const emptyState = computed<IAgentAssistantState>(() => ({
                 availableEfforts: [...CODEX_ASSISTANT_EFFORTS],
                 defaultEffort: ASSISTANT_DEFAULT_EFFORT,
                 activeEffort: selectedProvider.value === 'codex' ? selectedEffort.value : ASSISTANT_DEFAULT_EFFORT,
+                availableSpeedModes: [...ASSISTANT_SPEED_MODES],
+                defaultSpeedMode: ASSISTANT_DEFAULT_SPEED_MODE,
+                activeSpeedMode: selectedProvider.value === 'codex' ? selectedSpeedMode.value : ASSISTANT_DEFAULT_SPEED_MODE,
                 path: null,
                 version: null,
                 minimumVersion: '0.133.0',
@@ -855,6 +891,9 @@ const emptyState = computed<IAgentAssistantState>(() => ({
                 availableEfforts: [...CLAUDE_ASSISTANT_EFFORTS],
                 defaultEffort: ASSISTANT_DEFAULT_EFFORT,
                 activeEffort: selectedProvider.value === 'claude' ? selectedEffort.value : ASSISTANT_DEFAULT_EFFORT,
+                availableSpeedModes: [...ASSISTANT_SPEED_MODES],
+                defaultSpeedMode: ASSISTANT_DEFAULT_SPEED_MODE,
+                activeSpeedMode: selectedProvider.value === 'claude' ? selectedSpeedMode.value : ASSISTANT_DEFAULT_SPEED_MODE,
                 path: null,
                 version: null,
                 minimumVersion: null,
@@ -873,6 +912,8 @@ const emptyState = computed<IAgentAssistantState>(() => ({
         availableEfforts: selectedProvider.value === 'claude'
             ? [...CLAUDE_ASSISTANT_EFFORTS]
             : [...CODEX_ASSISTANT_EFFORTS],
+        speedMode: selectedSpeedMode.value,
+        availableSpeedModes: [...ASSISTANT_SPEED_MODES],
         installState: 'missing',
         codexInstalled: false,
         codexPath: null,
@@ -902,6 +943,15 @@ const emptyState = computed<IAgentAssistantState>(() => ({
     messages: [],
 } satisfies IAgentAssistantState));
 const status = computed(() => (state.value ?? emptyState.value).status);
+const availableEfforts = computed(() => status.value.availableEfforts ?? []);
+const availableSpeedModes = computed(() => {
+    const providerStatus = status.value.providers.find(provider => provider.id === selectedProvider.value);
+    if (providerStatus) {
+        return speedModesForProviderStatus(providerStatus);
+    }
+    const speedModes = status.value.availableSpeedModes ?? [];
+    return speedModes.length > 0 ? [...speedModes] : [...ASSISTANT_SPEED_MODES];
+});
 const messages = computed(() => (state.value ?? emptyState.value).messages);
 const renderedMessages = computed(() => {
     const activeMessageIds = new Set<string>();
@@ -1200,6 +1250,7 @@ function createOptimisticAssistantState(
     provider: TAgentAssistantProviderId,
     model: string,
     effort: TAgentAssistantEffort,
+    speedMode: TAgentAssistantSpeedMode,
     keepMessages: boolean,
 ): IAgentAssistantState | null {
     const baseState = state.value ?? emptyState.value;
@@ -1213,7 +1264,7 @@ function createOptimisticAssistantState(
         && getStateScopeKey(baseState) === (chatScope?.key ?? null);
     return {
         scope: chatScope ? cloneAssistantScope(chatScope) : null,
-        status: createSelectedAssistantStatus(baseState.status, providerStatus, model, effort),
+        status: createSelectedAssistantStatus(baseState.status, providerStatus, model, effort, speedMode),
         messages: shouldKeepMessages ? baseState.messages : [],
     };
 }
@@ -1222,9 +1273,10 @@ function applyOptimisticSelection(
     provider: TAgentAssistantProviderId,
     model: string,
     effort: TAgentAssistantEffort,
+    speedMode: TAgentAssistantSpeedMode,
     keepMessages: boolean,
 ) {
-    const optimisticState = createOptimisticAssistantState(provider, model, effort, keepMessages);
+    const optimisticState = createOptimisticAssistantState(provider, model, effort, speedMode, keepMessages);
     if (!optimisticState) {
         return;
     }
@@ -1240,6 +1292,7 @@ function createAssistantStateRequest() {
         provider: selectedProvider.value,
         model: selectedModel.value,
         effort: selectedEffort.value,
+        speedMode: selectedSpeedMode.value,
     };
 }
 
@@ -1273,7 +1326,8 @@ function applyState(nextState: IAgentAssistantState) {
     const providerStatus = nextState.status.providers.find(provider => provider.id === nextState.status.provider);
     const needsModelOverride = hasLocalModelSelection.value && nextState.status.model !== selectedModel.value;
     const needsEffortOverride = hasLocalEffortSelection.value && nextState.status.effort !== selectedEffort.value;
-    const adjustedState = providerStatus && (needsModelOverride || needsEffortOverride)
+    const needsSpeedModeOverride = hasLocalSpeedModeSelection.value && nextState.status.speedMode !== selectedSpeedMode.value;
+    const adjustedState = providerStatus && (needsModelOverride || needsEffortOverride || needsSpeedModeOverride)
         ? {
             ...nextState,
             status: createSelectedAssistantStatus(
@@ -1281,18 +1335,35 @@ function applyState(nextState: IAgentAssistantState) {
                 providerStatus,
                 needsModelOverride ? selectedModel.value : nextState.status.model,
                 needsEffortOverride ? selectedEffort.value : nextState.status.effort,
+                needsSpeedModeOverride ? selectedSpeedMode.value : nextState.status.speedMode,
             ),
         }
         : nextState;
     selectedProvider.value = adjustedState.status.provider;
     selectedModel.value = adjustedState.status.model;
-    selectedEffort.value = adjustedState.status.effort;
+    selectedEffort.value = normalizeEffortValue(adjustedState.status.effort)
+        ?? providerDefaultEffort(adjustedState.status.providers, adjustedState.status.provider);
+    selectedSpeedMode.value = resolveSelectedSpeedModeFromState(adjustedState, providerStatus);
     state.value = adjustedState;
     hasLoadedState.value = true;
     isSending.value = adjustedState.status.runtimeState === 'busy';
     if (shouldScrollToBottom) {
         void nextTick(scrollAssistantMessagesToBottom);
     }
+}
+
+function resolveSelectedSpeedModeFromState(
+    nextState: IAgentAssistantState,
+    providerStatus: IAgentAssistantState['status']['providers'][number] | undefined,
+) {
+    const stateSpeedMode = normalizeSpeedModeValue(nextState.status.speedMode)
+        ?? providerDefaultSpeedMode(nextState.status.providers, nextState.status.provider);
+    return nextState.status.provider === 'codex'
+        && !hasLocalSpeedModeSelection.value
+        && providerStatus?.availableSpeedModes
+        && !providerStatus.availableSpeedModes.includes(ASSISTANT_DEFAULT_SPEED_MODE)
+        ? ASSISTANT_DEFAULT_SPEED_MODE
+        : stateSpeedMode;
 }
 
 function handleAssistantEvent(event: IAgentAssistantEvent) {
@@ -1352,8 +1423,10 @@ function updateProvider(value: unknown) {
     hasLocalModelSelection.value = false;
     selectedEffort.value = providerDefaultEffort(status.value.providers, nextProvider);
     hasLocalEffortSelection.value = false;
+    selectedSpeedMode.value = providerDefaultSpeedMode(status.value.providers, nextProvider);
+    hasLocalSpeedModeSelection.value = false;
     sendGeneration += 1;
-    applyOptimisticSelection(nextProvider, selectedModel.value, selectedEffort.value, false);
+    applyOptimisticSelection(nextProvider, selectedModel.value, selectedEffort.value, selectedSpeedMode.value, false);
     draft.value = '';
     composerImages.value = [];
     composerError.value = '';
@@ -1383,7 +1456,7 @@ function updateModel(value: unknown) {
     }
     selectedModel.value = nextModel;
     hasLocalModelSelection.value = true;
-    applyOptimisticSelection(selectedProvider.value, nextModel, selectedEffort.value, true);
+    applyOptimisticSelection(selectedProvider.value, nextModel, selectedEffort.value, selectedSpeedMode.value, true);
 }
 
 function updateEffort(value: unknown) {
@@ -1396,7 +1469,20 @@ function updateEffort(value: unknown) {
     }
     selectedEffort.value = nextEffort;
     hasLocalEffortSelection.value = true;
-    applyOptimisticSelection(selectedProvider.value, selectedModel.value, nextEffort, true);
+    applyOptimisticSelection(selectedProvider.value, selectedModel.value, nextEffort, selectedSpeedMode.value, true);
+}
+
+function updateSpeedMode(value: unknown) {
+    if (assistantSelectionLocked.value) {
+        return;
+    }
+    const nextSpeedMode = normalizeSpeedModeValue(value);
+    if (!nextSpeedMode || nextSpeedMode === selectedSpeedMode.value) {
+        return;
+    }
+    selectedSpeedMode.value = nextSpeedMode;
+    hasLocalSpeedModeSelection.value = true;
+    applyOptimisticSelection(selectedProvider.value, selectedModel.value, selectedEffort.value, nextSpeedMode, true);
 }
 
 function refreshStateAfterWindowReturn() {
@@ -1576,6 +1662,7 @@ async function sendMessage() {
             provider: selectedProvider.value,
             model: selectedModel.value,
             effort: selectedEffort.value,
+            speedMode: selectedSpeedMode.value,
             ...(attachments.length > 0 ? { attachments } : {}),
         });
         if (generation !== sendGeneration) {
@@ -2142,124 +2229,22 @@ onUnmounted(() => {
     flex: 0 0 auto;
 }
 
-.agent-assistant-composer {
-    padding: var(--app-space-9xl);
-    border-top: 1px solid var(--ui-border);
-}
-
-/* Reuses the composer markup so the reserved footer is byte-for-byte the same
-   height as the real composer; visibility:hidden keeps the space but paints
-   nothing, so the placeholder above it never shifts when the composer appears. */
-.agent-assistant-composer-reserve {
-    visibility: hidden;
-}
-
-.agent-assistant-composer-field {
-    position: relative;
-    border: 1px solid var(--ui-border);
-    border-radius: 0.85rem;
-    background: var(--ui-bg);
-    transition:
-        border-color var(--app-transition-standard),
-        box-shadow var(--app-transition-standard);
-}
-
-.agent-assistant-composer-field:focus-within {
-    border-color: var(--ui-primary);
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-primary) 18%, transparent);
-}
-
-.agent-assistant-composer-attachments {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--app-space-xl);
-    padding: var(--app-space-3xl) var(--app-space-3xl) 0;
-}
-
-.agent-assistant-composer-attachment {
-    position: relative;
-    width: 3.75rem;
-    height: 3.75rem;
-    flex: 0 0 auto;
-    overflow: hidden;
-    border: 1px solid var(--ui-border);
-    border-radius: var(--ui-radius);
-    background: var(--ui-bg-muted);
-}
-
-.agent-assistant-composer-attachment-image {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.agent-assistant-composer-attachment-preview {
-    display: block;
-    width: 100%;
-    height: 100%;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    cursor: zoom-in;
-}
-
-.agent-assistant-composer-attachment-remove {
-    position: absolute;
-    top: 0.2rem;
-    right: 0.2rem;
-    z-index: 1;
-}
-
-.agent-assistant-composer-error {
-    margin: 0;
-    padding: var(--app-space-xl) var(--app-space-8xl) 0;
-    color: var(--ui-error);
-    font-size: var(--app-text-size-body-sm);
-    line-height: 1.45;
-}
-
-.agent-assistant-input {
-    display: block;
-    width: 100%;
-    min-height: 4.25rem;
-    resize: none;
-    padding: var(--app-space-4xl) var(--app-space-8xl) 0.3rem;
-    border: 0;
-    border-radius: 0.85rem;
-    background: transparent;
-    color: var(--ui-text);
-    font: inherit;
-    font-size: var(--app-text-size-body-sm);
-    line-height: 1.5;
-    outline: none;
-}
-
-.agent-assistant-input:disabled {
-    color: var(--ui-text-dimmed);
-}
-
-.agent-assistant-composer-actions {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--app-space-3xl);
-    padding: 0 var(--app-space-xl) var(--app-space-xl);
-}
-
-.agent-assistant-composer-switchers {
-    display: flex;
-    align-items: center;
-    gap: var(--app-space-md);
-    min-width: 0;
-}
-
 .agent-assistant-setup-footer {
     display: flex;
     align-items: center;
     gap: var(--app-space-md);
-    padding: var(--app-space-5xl) var(--app-space-9xl);
+    padding: var(--app-space-5xl) var(--app-space-7xl);
     border-top: 1px solid var(--ui-border);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.agent-assistant-setup-footer::-webkit-scrollbar {
+    display: none;
+}
+
+.agent-assistant-setup-footer > * {
+    flex: 0 0 auto;
 }
 
 .agent-assistant-device-code {
@@ -2390,3 +2375,5 @@ onUnmounted(() => {
     }
 }
 </style>
+
+<style scoped src="./AgentAssistantPanel.composer.css"></style>

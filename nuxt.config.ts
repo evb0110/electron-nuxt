@@ -320,6 +320,7 @@ export default defineNuxtConfig({
             'ph:text-italic',
             'ph:squares-four',
             'ph:lightbulb',
+            'ph:lightning',
             'ph:list',
             'ph:circle-notch',
             'ph:rows',

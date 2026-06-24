@@ -16,7 +16,7 @@
                 :provider="selectedProvider"
                 class="assistant-model-switcher-provider-icon"
             />
-            <span class="assistant-model-switcher-model">{{ activeModelLabel }}</span>
+            <span class="assistant-model-switcher-model">{{ activeModelDisplayLabel }}</span>
             <UIcon
                 :name="isSwitching ? 'i-ph-circle-notch' : 'i-ph-caret-up-down'"
                 :class="[
@@ -76,7 +76,9 @@
                             :disabled="disabled"
                             @click="onSelectModel(model.value)"
                         >
-                            <span>{{ model.label }}</span>
+                            <span class="assistant-model-switcher-option-copy">
+                                <span class="assistant-model-switcher-option-label">{{ model.displayLabel }}</span>
+                            </span>
                             <UIcon
                                 v-if="isSelectedModel(model.value)"
                                 name="i-ph-check"
@@ -139,6 +141,7 @@ const activeProvider = computed(() => (
 const modelItems = computed(() => (activeProvider.value?.models ?? []).map(model => ({
     value: model.id,
     label: model.label,
+    displayLabel: trimProviderPrefix(model.label, activeProviderLabel.value),
 })));
 const activeProviderLabel = computed(() => activeProvider.value?.label ?? selectedProvider);
 const activeModelOption = computed(() => (
@@ -146,6 +149,10 @@ const activeModelOption = computed(() => (
     ?? null
 ));
 const activeModelLabel = computed(() => activeModelOption.value?.label ?? selectedModel);
+const activeModelDisplayLabel = computed(() => (
+    activeModelOption.value?.displayLabel
+    ?? trimProviderPrefix(activeModelLabel.value, activeProviderLabel.value)
+));
 const ariaLabel = computed(() => (
     `${t('assistant.provider')}: ${activeProviderLabel.value}. `
     + `${t('assistant.model')}: ${activeModelLabel.value}`
@@ -163,6 +170,17 @@ function isSelectedProvider(provider: TAgentAssistantProviderId) {
 
 function isSelectedModel(model: string) {
     return model === selectedModel;
+}
+
+function trimProviderPrefix(label: string, providerLabel: string) {
+    const normalizedProvider = providerLabel.trim();
+    const normalizedLabel = label.trim();
+    if (!normalizedProvider || !normalizedLabel.toLowerCase().startsWith(normalizedProvider.toLowerCase())) {
+        return normalizedLabel;
+    }
+
+    const trimmed = normalizedLabel.slice(normalizedProvider.length).trim();
+    return trimmed.length > 0 ? trimmed : normalizedLabel;
 }
 
 function onSelectProvider(provider: TAgentAssistantProviderId) {
@@ -246,7 +264,7 @@ function onSelectModel(model: string) {
 }
 
 .assistant-model-switcher-menu {
-    width: min(17rem, var(--app-overlay-viewport-width));
+    width: min(20rem, var(--app-overlay-viewport-width));
     max-width: var(--app-overlay-viewport-width);
     padding: var(--app-space-md);
     background: var(--app-toolbar-group-bg);
@@ -339,10 +357,10 @@ function onSelectModel(model: string) {
     align-items: center;
     justify-content: space-between;
     gap: var(--app-space-3xl);
-    min-height: 1.85rem;
+    min-height: 2.55rem;
     min-width: 0;
-    padding: 0 var(--app-space-3xl);
-    border-radius: 5px;
+    padding: var(--app-space-sm) var(--app-space-3xl);
+    border-radius: var(--app-radius-sm);
     color: var(--ui-text);
     font-size: var(--app-text-size-body-sm);
     line-height: 1.15;
@@ -372,7 +390,15 @@ function onSelectModel(model: string) {
     cursor: default;
 }
 
-.assistant-model-switcher-option span {
+.assistant-model-switcher-option-copy {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: var(--app-space-2xs);
+    min-width: 0;
+}
+
+.assistant-model-switcher-option-label {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
