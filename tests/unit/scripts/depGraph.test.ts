@@ -19,7 +19,10 @@ const {
     buildDependencyGraph,
     findStronglyConnectedComponents,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/architecture/dep-graph.mjs')).href);
-const { checkArchitectureBoundaryEdge } = await import(
+const {
+    checkArchitectureBoundaryEdge,
+    checkArchitectureBoundaryNode,
+} = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/architecture/boundary-check.mjs')).href
 );
 
@@ -158,6 +161,86 @@ describe('dependency graph', () => {
             target: 'app/modules/pdf-viewer/public/component-exports/pdfViewer.ts',
             specifier: '@app/modules/pdf-viewer/public/component-exports/pdfViewer',
         })).toEqual([]);
+    });
+
+    it('requires app pages to import modules through public entrypoints', () => {
+        expect(checkArchitectureBoundaryEdge({
+            source: 'app/pages/index.vue',
+            target: 'app/modules/workspace-shell/components/AppShellRoot.vue',
+            specifier: '@app/modules/workspace-shell/components/AppShellRoot.vue',
+        })).toEqual([{
+            rule: 'app-pages-module-deep-import',
+            source: 'app/pages/index.vue',
+            target: 'app/modules/workspace-shell/components/AppShellRoot.vue',
+            specifier: '@app/modules/workspace-shell/components/AppShellRoot.vue',
+            message: 'app/pages imports from app/modules must use module public entrypoints only.',
+        }]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'app/pages/mobile-reader-proof.vue',
+            target: 'app/modules/workspace-shell/composables/usePdfFile.ts',
+            specifier: '@app/modules/workspace-shell/composables/usePdfFile',
+        })).toEqual([{
+            rule: 'app-pages-module-deep-import',
+            source: 'app/pages/mobile-reader-proof.vue',
+            target: 'app/modules/workspace-shell/composables/usePdfFile.ts',
+            specifier: '@app/modules/workspace-shell/composables/usePdfFile',
+            message: 'app/pages imports from app/modules must use module public entrypoints only.',
+        }]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'app/pages/index.vue',
+            target: 'app/modules/workspace-shell/public/component-exports/appShellRoot.ts',
+            specifier: '@app/modules/workspace-shell/public/component-exports/appShellRoot',
+        })).toEqual([]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'app/pages/mobile-reader-proof.vue',
+            target: 'app/modules/workspace-shell/public.ts',
+            specifier: '@app/modules/workspace-shell/public',
+        })).toEqual([]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'app/pages/mobile-reader-proof.vue',
+            target: 'app/modules/pdf-viewer/public/component-exports/pdfViewer.ts',
+            specifier: '@app/modules/pdf-viewer/public/component-exports/pdfViewer',
+        })).toEqual([]);
+    });
+
+    it('keeps retired PDF migration paths from returning', () => {
+        expect(checkArchitectureBoundaryNode('app/components/pdf/PdfViewer.vue')).toEqual([{
+            rule: 'retired-pdf-component-path',
+            source: 'app/components/pdf/PdfViewer.vue',
+            target: 'app/components/pdf/PdfViewer.vue',
+            specifier: 'filesystem',
+            message: 'Retired PDF components must not be recreated under app/components/pdf; use app/modules/pdf-viewer public entrypoints.',
+        }]);
+
+        expect(checkArchitectureBoundaryNode('app/composables/usePdfFile.ts')).toEqual([{
+            rule: 'retired-top-level-use-pdf-file',
+            source: 'app/composables/usePdfFile.ts',
+            target: 'app/composables/usePdfFile.ts',
+            specifier: 'filesystem',
+            message: 'The retired app/composables/usePdfFile.ts path must stay retired; use app/modules/workspace-shell public entrypoints.',
+        }]);
+    });
+
+    it('blocks top-level PDF composables after migration', () => {
+        expect(checkArchitectureBoundaryNode('app/composables/usePdfSearch.ts')).toEqual([{
+            rule: 'top-level-pdf-composable',
+            source: 'app/composables/usePdfSearch.ts',
+            target: 'app/composables/usePdfSearch.ts',
+            specifier: 'filesystem',
+            message: 'Top-level app/composables/usePdf*.ts files are blocked; keep PDF composables in feature modules.',
+        }]);
+
+        expect(checkArchitectureBoundaryNode('app/composables/usePdfAnnotations.ts')).toEqual([{
+            rule: 'top-level-pdf-composable',
+            source: 'app/composables/usePdfAnnotations.ts',
+            target: 'app/composables/usePdfAnnotations.ts',
+            specifier: 'filesystem',
+            message: 'Top-level app/composables/usePdf*.ts files are blocked; keep PDF composables in feature modules.',
+        }]);
     });
 
     it('requires browser platform API imports to go through the public entrypoint', () => {

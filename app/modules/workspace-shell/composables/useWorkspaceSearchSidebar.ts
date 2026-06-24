@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
-import { usePdfSearch } from '@app/composables/usePdfSearch';
+import { usePdfSearch } from '@app/modules/pdf-viewer/public';
 import { usePageSearch } from '@app/modules/workspace-shell/composables/usePageSearch';
 import { useSidebarResize } from '@app/modules/workspace-shell/composables/useSidebarResize';
 import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';

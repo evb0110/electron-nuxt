@@ -15,7 +15,6 @@ import type {
     IAgentAssistantAccount,
     IAgentAssistantChatScope,
     IAgentAssistantChatMessage,
-    IAgentAssistantErrorEnvelope,
     IAgentAssistantEvent,
     IAgentAssistantImageAttachment,
     IAgentAssistantInstallResult,
@@ -30,7 +29,6 @@ import type {
     IAgentAssistantStatus,
     TAgentAssistantAuthState,
     TAgentAssistantEffort,
-    TAgentAssistantErrorCode,
     TAgentAssistantProviderId,
     TAgentAssistantRuntimeState,
     TAgentAssistantTurnPhase,
@@ -64,8 +62,6 @@ import {
 } from '@electron/features/agent/claudeAgentSdkAssistant';
 import {
     ASSISTANT_IMAGE_ONLY_PROMPT,
-    ASSISTANT_MAX_IMAGE_ATTACHMENTS,
-    ASSISTANT_MAX_IMAGE_BYTES,
     ASSISTANT_MCP_CONTRACT_VERSION,
     ASSISTANT_MCP_SERVER_NAME,
     ASSISTANT_MCP_TOKEN_ENV,
@@ -83,6 +79,11 @@ import {
     resolveCodexDefaultModelId,
     type TCodexAssistantModelOption,
 } from '@electron/features/agent/assistantModelCatalog';
+import {
+    createAssistantErrorEnvelope,
+    withAssistantErrorEnvelope,
+} from '@electron/features/agent/assistantErrorEnvelope';
+import { normalizeOutgoingMessageRequest } from '@electron/features/agent/assistantOutgoingMessage';
 import {
     getEmbeddedMcpServerDescriptor,
     isEmbeddedMcpServerRunning,
@@ -126,78 +127,6 @@ interface IAssistantSelection {
     provider: TAgentAssistantProviderId;
     model: string;
     effort: TAgentAssistantEffort;
-}
-
-function classifyAssistantError(message: string): {
-    code: TAgentAssistantErrorCode;
-    retryable: boolean;
-} {
-    const normalized = message.toLowerCase();
-    if (normalized.includes('sign in') || normalized.includes('login') || normalized.includes('auth')) {
-        return {
-            code: normalized.includes('cancel') ? 'LOGIN_CANCELLED' : 'AUTH_REQUIRED',
-            retryable: true,
-        };
-    }
-    if (normalized.includes('install') || normalized.includes('not found') || normalized.includes('missing')) {
-        return {
-            code: 'INSTALL_MISSING',
-            retryable: true,
-        };
-    }
-    if (normalized.includes('interrupt') || normalized.includes('cancel')) {
-        return {
-            code: 'USER_INTERRUPTED',
-            retryable: false,
-        };
-    }
-    if (normalized.includes('model') && (normalized.includes('unavailable') || normalized.includes('unknown'))) {
-        return {
-            code: 'MODEL_UNAVAILABLE',
-            retryable: true,
-        };
-    }
-    if (normalized.includes('rate limit') || normalized.includes('429') || normalized.includes('too many requests')) {
-        return {
-            code: 'PROVIDER_RATE_LIMITED',
-            retryable: true,
-        };
-    }
-    if (normalized.includes('runtime') || normalized.includes('server') || normalized.includes('process')) {
-        return {
-            code: 'RUNTIME_UNAVAILABLE',
-            retryable: true,
-        };
-    }
-    return {
-        code: 'INTERNAL',
-        retryable: false,
-    };
-}
-
-function createAssistantErrorEnvelope(message: string): IAgentAssistantErrorEnvelope {
-    const classified = classifyAssistantError(message);
-    return {
-        code: classified.code,
-        message,
-        retryable: classified.retryable,
-        timestamp: Date.now(),
-    };
-}
-
-function withAssistantErrorEnvelope<T extends {
-    error?: string;
-    errorEnvelope?: IAgentAssistantErrorEnvelope 
-}>(
-    value: T,
-): T {
-    if (!value.error || value.errorEnvelope) {
-        return value;
-    }
-    return {
-        ...value,
-        errorEnvelope: createAssistantErrorEnvelope(value.error),
-    };
 }
 
 interface IClaudeInfoCache {
@@ -1703,82 +1632,6 @@ async function ensureClaudeAssistantSession(
     claudeRuntimeState = 'ready';
     publishState(session.scope, session);
     return session.claudeSession;
-}
-
-function estimateBase64ByteSize(base64: string) {
-    const padding = base64.endsWith('==')
-        ? 2
-        : base64.endsWith('=')
-            ? 1
-            : 0;
-    return Math.floor((base64.length * 3) / 4) - padding;
-}
-
-function parseAssistantImageDataUrl(dataUrl: string): {
-    base64: string;
-    mimeType: string;
-    sizeBytes: number;
-} | null {
-    const match = /^data:([^,]+),([a-z0-9+/=\r\n ]+)$/iu.exec(dataUrl.trim());
-    if (!match) {
-        return null;
-    }
-
-    const headerParts = match[1]!.split(';').map(part => part.trim().toLowerCase()).filter(Boolean);
-    const mimeType = headerParts[0] ?? '';
-    if (!mimeType.startsWith('image/') || !headerParts.includes('base64')) {
-        return null;
-    }
-
-    const base64 = match[2]!.replace(/\s+/gu, '');
-    if (!base64 || !/^[a-z0-9+/]+={0,2}$/iu.test(base64)) {
-        return null;
-    }
-
-    const sizeBytes = estimateBase64ByteSize(base64);
-    if (sizeBytes <= 0 || sizeBytes > ASSISTANT_MAX_IMAGE_BYTES) {
-        return null;
-    }
-
-    return {
-        base64,
-        mimeType,
-        sizeBytes,
-    };
-}
-
-function normalizeAttachmentName(name: string, index: number) {
-    return name.trim().slice(0, 160) || `image-${index + 1}`;
-}
-
-function normalizeOutgoingAttachments(request: IAgentAssistantSendMessageRequest) {
-    const rawAttachments = Array.isArray(request.attachments) ? request.attachments : [];
-    if (rawAttachments.length > ASSISTANT_MAX_IMAGE_ATTACHMENTS) {
-        throw new Error(`EVB Assistant accepts up to ${ASSISTANT_MAX_IMAGE_ATTACHMENTS} images per message.`);
-    }
-
-    return rawAttachments.map((attachment, index): IAgentAssistantImageAttachment => {
-        const parsed = parseAssistantImageDataUrl(attachment.dataUrl);
-        if (!parsed) {
-            throw new Error('One attached image is invalid or too large.');
-        }
-
-        return {
-            type: 'image',
-            id: attachment.id.trim() || randomUUID(),
-            name: normalizeAttachmentName(attachment.name, index),
-            mimeType: parsed.mimeType,
-            sizeBytes: parsed.sizeBytes,
-            dataUrl: `data:${parsed.mimeType};base64,${parsed.base64}`,
-        };
-    });
-}
-
-function normalizeOutgoingMessageRequest(request: IAgentAssistantSendMessageRequest) {
-    return {
-        text: typeof request.text === 'string' ? request.text.trim() : '',
-        attachments: normalizeOutgoingAttachments(request),
-    };
 }
 
 export async function getAgentAssistantState(

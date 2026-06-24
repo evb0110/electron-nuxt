@@ -1,0 +1,232 @@
+import {
+    describe,
+    expect,
+    it,
+} from 'vitest';
+import type {
+    IAgentAssistantProviderStatus,
+    IAgentAssistantStatus,
+    TAgentAssistantProviderId,
+} from '@contracts/agent';
+import {
+    cloneAssistantScope,
+    createSelectedAssistantStatus,
+    modelForSelection,
+    normalizeEffortValue,
+    normalizeModelValue,
+    normalizeProviderValue,
+    providerDefaultEffort,
+    providerDefaultModel,
+} from '@app/modules/agent-panel/utils/assistantSelectionState';
+
+function createProviderStatus(
+    id: TAgentAssistantProviderId,
+    patch: Partial<IAgentAssistantProviderStatus> = {},
+): IAgentAssistantProviderStatus {
+    const label = id === 'claude' ? 'Claude' : 'Codex';
+
+    return {
+        id,
+        label,
+        installState: 'installed',
+        authState: 'signed-in',
+        runtimeState: 'ready',
+        models: [
+            {
+                id: `${id}-default`,
+                label: `${label} Default`,
+            },
+            {
+                id: `${id}-second`,
+                label: `${label} Second`,
+            },
+        ],
+        defaultModel: `${id}-default`,
+        activeModel: `${id}-default`,
+        modelSwitchMode: 'in-session',
+        availableEfforts: [
+            'low',
+            'medium',
+            'high',
+        ],
+        defaultEffort: 'high',
+        activeEffort: 'high',
+        path: `/bin/${id}`,
+        version: '1.0.0',
+        minimumVersion: id === 'codex' ? '0.133.0' : null,
+        versionSupported: true,
+        installUrl: `https://example.test/${id}`,
+        account: null,
+        ...patch,
+    };
+}
+
+function createAssistantStatus(
+    provider: TAgentAssistantProviderId = 'codex',
+    patch: Partial<IAgentAssistantStatus> = {},
+): IAgentAssistantStatus {
+    const providers = [
+        createProviderStatus('codex'),
+        createProviderStatus('claude'),
+    ];
+    const activeProvider = providers.find(candidate => candidate.id === provider) ?? providers[0]!;
+
+    return {
+        supported: true,
+        platform: 'darwin',
+        provider: activeProvider.id,
+        providerLabel: activeProvider.label,
+        providers,
+        model: activeProvider.activeModel,
+        modelLabel: activeProvider.models[0]?.label ?? activeProvider.activeModel,
+        models: activeProvider.models,
+        modelSwitchMode: activeProvider.modelSwitchMode,
+        effort: activeProvider.activeEffort,
+        availableEfforts: activeProvider.availableEfforts,
+        installState: activeProvider.installState,
+        codexInstalled: true,
+        codexPath: '/bin/codex',
+        codexVersion: '1.0.0',
+        minimumCodexVersion: '0.133.0',
+        codexVersionSupported: true,
+        installUrl: activeProvider.installUrl,
+        installScriptUrl: 'https://example.test/install',
+        managedInstallDir: '/tmp/assistant',
+        authState: activeProvider.authState,
+        account: null,
+        runtimeState: activeProvider.runtimeState,
+        mcp: {
+            serverName: 'evb-viewer',
+            serverUrl: 'http://127.0.0.1:1',
+            serverRunning: true,
+            toolCount: 1,
+        },
+        turn: {
+            id: 'turn-1',
+            phase: 'running',
+        },
+        threadId: 'thread-1',
+        activeTurnId: 'turn-1',
+        lastCheckedAt: '2026-01-01T00:00:00.000Z',
+        ...patch,
+    };
+}
+
+describe('assistantSelectionState', () => {
+    it('normalizes provider, model, and effort values from raw or option-like values', () => {
+        expect(normalizeProviderValue('claude')).toBe('claude');
+        expect(normalizeProviderValue({value: 'claude'})).toBe('claude');
+        expect(normalizeProviderValue('unknown')).toBe('codex');
+
+        expect(normalizeModelValue('gpt-5.5')).toBe('gpt-5.5');
+        expect(normalizeModelValue({value: 'sonnet'})).toBe('sonnet');
+        expect(normalizeModelValue({value: 5})).toBeNull();
+
+        expect(normalizeEffortValue('xhigh')).toBe('xhigh');
+        expect(normalizeEffortValue({value: 'max'})).toBe('max');
+        expect(normalizeEffortValue('extreme')).toBeNull();
+    });
+
+    it('resolves selected models with requested, default, first, and empty fallbacks', () => {
+        const provider = createProviderStatus('codex');
+
+        expect(modelForSelection(provider, 'codex-second')?.id).toBe('codex-second');
+        expect(modelForSelection(provider, 'missing')?.id).toBe('codex-default');
+        expect(modelForSelection({
+            ...provider,
+            defaultModel: 'missing',
+        }, 'missing')?.id).toBe('codex-default');
+        expect(modelForSelection({
+            ...provider,
+            defaultModel: 'missing',
+            models: [],
+        }, 'missing')).toBeNull();
+    });
+
+    it('preserves turn state when selecting the active provider', () => {
+        const baseStatus = createAssistantStatus('codex');
+        const providerStatus = baseStatus.providers.find(provider => provider.id === 'codex')!;
+
+        const selectedStatus = createSelectedAssistantStatus(
+            baseStatus,
+            providerStatus,
+            'codex-second',
+            'medium',
+        );
+
+        expect(selectedStatus.provider).toBe('codex');
+        expect(selectedStatus.model).toBe('codex-second');
+        expect(selectedStatus.effort).toBe('medium');
+        expect(selectedStatus.turn).toBe(baseStatus.turn);
+        expect(selectedStatus.threadId).toBe('thread-1');
+        expect(selectedStatus.activeTurnId).toBe('turn-1');
+    });
+
+    it('resets turn state when switching providers', () => {
+        const baseStatus = createAssistantStatus('codex');
+        const providerStatus = baseStatus.providers.find(provider => provider.id === 'claude')!;
+
+        const selectedStatus = createSelectedAssistantStatus(
+            baseStatus,
+            providerStatus,
+            'claude-second',
+            'max',
+        );
+
+        expect(selectedStatus.provider).toBe('claude');
+        expect(selectedStatus.model).toBe('claude-second');
+        expect(selectedStatus.effort).toBe('high');
+        expect(selectedStatus.turn).toEqual({
+            id: null,
+            phase: 'idle',
+        });
+        expect(selectedStatus.threadId).toBeNull();
+        expect(selectedStatus.activeTurnId).toBeNull();
+    });
+
+    it('clones assistant scopes without manufacturing nullable optional fields', () => {
+        expect(cloneAssistantScope({
+            kind: 'document',
+            key: 'scope-1',
+            title: 'Document',
+            tabId: 'tab-1',
+            documentRef: 'document.pdf',
+        })).toEqual({
+            kind: 'document',
+            key: 'scope-1',
+            title: 'Document',
+            tabId: 'tab-1',
+            documentRef: 'document.pdf',
+        });
+
+        expect(cloneAssistantScope({
+            kind: 'document',
+            key: 'scope-2',
+            title: null,
+            tabId: null,
+            documentRef: null,
+        })).toEqual({
+            kind: 'document',
+            key: 'scope-2',
+            title: null,
+        });
+    });
+
+    it('resolves provider default model and effort with stable fallbacks', () => {
+        const providers = [createProviderStatus('codex', {
+            activeModel: 'codex-active',
+            defaultModel: 'codex-default',
+            activeEffort: 'medium',
+            defaultEffort: 'high',
+        })];
+
+        expect(providerDefaultModel(providers, 'codex')).toBe('codex-active');
+        expect(providerDefaultModel([{
+            ...providers[0]!,
+            activeModel: '',
+        }], 'codex')).toBe('');
+        expect(providerDefaultModel([], 'codex')).toBe('default');
+        expect(providerDefaultEffort(providers, 'codex')).toBe('medium');
+        expect(providerDefaultEffort([], 'codex')).toBe('high');
+    });
+});

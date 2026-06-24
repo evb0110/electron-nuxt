@@ -10,6 +10,7 @@ export { usePageContextMenu } from '@app/modules/pdf-viewer/runtime/composables/
 export { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
 export { usePageOperations } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
 export { usePdfHistory } from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
+export { usePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
 export { usePdfSerialization } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';
 export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 export {

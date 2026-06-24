@@ -126,6 +126,12 @@ import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-
 import { resolveThumbnailRenderCoordination } from '@app/modules/pdf-viewer/thumbnails/resolveThumbnailRenderCoordination';
 import type { IPdfPagePreviewEntry } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
 import { isThumbnailRenderGenerationCurrent as isThumbnailRenderGenerationSnapshotCurrent } from '@app/modules/pdf-viewer/thumbnails/isThumbnailRenderGenerationCurrent';
+import {
+    buildThumbnailRenderTransform,
+    resolveSeededThumbnailMetrics,
+    resolveThumbnailRenderWidthFromStyles,
+    roundMetric,
+} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -447,44 +453,18 @@ function isCurrentThumbnailCanvasRendering(pageNum: number) {
         && renderingCanvasKeys.get(pageNum) === renderKey;
 }
 
-function roundMetric(value: number) {
-    return Number(value.toFixed(2));
-}
-
-function parseCssPixelValue(value: string) {
-    const parsed = Number.parseFloat(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function resolveHorizontalInset(style: CSSStyleDeclaration, ...properties: string[]) {
-    return properties.reduce((total, property) => {
-        const value = style.getPropertyValue(property);
-        return total + parseCssPixelValue(value);
-    }, 0);
-}
-
 function resolveThumbnailRenderWidth(container: HTMLElement) {
     const containerStyle = window.getComputedStyle(container);
-    const containerContentWidth = container.clientWidth - resolveHorizontalInset(
-        containerStyle,
-        'padding-left',
-        'padding-right',
-    );
     const thumbnail = container.querySelector<HTMLElement>('.pdf-thumbnail');
     const thumbnailStyle = thumbnail
         ? window.getComputedStyle(thumbnail)
         : null;
-    const thumbnailInset = thumbnailStyle
-        ? resolveHorizontalInset(
-            thumbnailStyle,
-            'padding-left',
-            'padding-right',
-            'border-left-width',
-            'border-right-width',
-        )
-        : 0;
-
-    return Math.max(THUMBNAIL_WIDTH, Math.floor(containerContentWidth - thumbnailInset));
+    return resolveThumbnailRenderWidthFromStyles({
+        containerClientWidth: container.clientWidth,
+        containerStyle,
+        minWidth: THUMBNAIL_WIDTH,
+        thumbnailStyle,
+    });
 }
 
 function resolveThumbnailOutputScale() {
@@ -1096,24 +1076,6 @@ function getPagePreviewSeed(pageNum: number) {
     return preview;
 }
 
-function resolveSeededThumbnailMetrics(sourceWidth: number, sourceHeight: number) {
-    const sourceAspectRatio = sourceHeight / sourceWidth;
-    if (!Number.isFinite(sourceAspectRatio) || sourceAspectRatio <= 0) {
-        return null;
-    }
-
-    const outputScale = resolveThumbnailOutputScale();
-    const cssWidth = Math.max(1, thumbnailRenderWidth.value);
-    const cssHeight = Math.max(1, cssWidth * sourceAspectRatio);
-    return {
-        cssHeight,
-        cssWidth,
-        pixelHeight: Math.max(1, Math.round(cssHeight * outputScale)),
-        pixelWidth: Math.max(1, Math.round(cssWidth * outputScale)),
-        sourceAspectRatio,
-    };
-}
-
 function seedThumbnailCanvasFromPagePreview(
     pageNum: number,
     canvas: HTMLCanvasElement,
@@ -1125,7 +1087,12 @@ function seedThumbnailCanvasFromPagePreview(
         return false;
     }
 
-    const metrics = resolveSeededThumbnailMetrics(preview.width, preview.height);
+    const metrics = resolveSeededThumbnailMetrics({
+        cssWidth: thumbnailRenderWidth.value,
+        outputScale: resolveThumbnailOutputScale(),
+        sourceHeight: preview.height,
+        sourceWidth: preview.width,
+    });
     if (!metrics) {
         return false;
     }
@@ -1261,19 +1228,6 @@ function applyThumbnailCanvasSize(
     canvas.height = metrics.pixelHeight;
     canvas.style.removeProperty('width');
     canvas.style.removeProperty('height');
-}
-
-function buildThumbnailRenderTransform(scaleX: number, scaleY: number) {
-    return scaleX !== 1 || scaleY !== 1
-        ? [
-            scaleX,
-            0,
-            0,
-            scaleY,
-            0,
-            0,
-        ]
-        : undefined;
 }
 
 function cleanupPdfPage(page: PDFPageProxy, pageNumber: number, reason: string) {

@@ -11,7 +11,6 @@ import { delay } from 'es-toolkit/promise';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import type { TPdfViewMode } from '@contracts/shared';
 import { runGuardedTask } from '@app/utils/asyncGuard';
-import { stepBySpread } from '@app/utils/pdfViewMode';
 import { logPdfNav } from '@app/utils/logPdfNav';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
@@ -23,20 +22,32 @@ import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/compo
 import type {
     IWheelPageAccumulatorState,
     TPageSnapAnchor,
-    TWheelDirection,
 } from '@app/utils/document-viewer/single-page-wheel/singlePageWheelTypes';
 import { createWheelPageAccumulatorState } from '@app/utils/document-viewer/single-page-wheel/createWheelPageAccumulatorState';
 import { normalizePageWheelDelta } from '@app/utils/document-viewer/single-page-wheel/normalizePageWheelDelta';
-import { resolveSnapAnchorForWheelDirection } from '@app/utils/document-viewer/single-page-wheel/resolveSnapAnchorForWheelDirection';
 import { accumulateWheelForPageFlips } from '@app/utils/document-viewer/single-page-wheel/accumulateWheelForPageFlips';
 import { resolveWheelPageFlipStepDelta } from '@app/utils/document-viewer/single-page-wheel/resolveWheelPageFlipStepDelta';
 import type { TPdfNavigationEvent } from '@app/modules/pdf-viewer/runtime/navigation/navigationMachine';
 import { createPdfNavigationRuntime } from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationRuntime';
 import { createWheelFlipGate } from '@app/modules/pdf-viewer/runtime/navigation/createWheelFlipGate';
 import { createNavigationSettleEffects } from '@app/modules/pdf-viewer/runtime/navigation/createNavigationSettleEffects';
+import {
+    canScrollWithinPageBounds,
+    hasScrollablePageBounds,
+    isWithinPageScrollBoundsInterior,
+    resolveNextTopWithinPageBounds,
+    resolveWheelDirection,
+    resolveWheelTargetAnchor,
+    resolveWheelTargetPage,
+    shouldHandleSinglePageWheel,
+} from '@app/modules/pdf-viewer/runtime/navigation/singlePageWheelNavigation';
+import {
+    getMountedPageRowVisualStates as getMountedPageRowVisualStatesForContainer,
+    getMountedPageVisualState as getMountedPageVisualStateForContainer,
+    isMountedPageRowCanvasUsable as isMountedPageRowCanvasUsableForRange,
+} from '@app/modules/pdf-viewer/runtime/navigation/singlePageVisualReadiness';
+import type { IMountedPageVisualState } from '@app/modules/pdf-viewer/runtime/navigation/singlePageVisualReadiness';
 
-const HORIZONTAL_INTENT_REJECT_RATIO = 1;
-const PAGE_SCROLL_EDGE_EPSILON = 1;
 const WHEEL_DELTA_EPSILON = 0.01;
 const CONTINUOUS_PROGRAMMATIC_RENDER_SETTLE_DELAYS_MS = [
     0,
@@ -93,139 +104,6 @@ interface INavigationFeedbackState {
 type TPagedTargetLayoutPreparation = void | Promise<void>;
 
 interface IApplySnapToMountedPageCommitOptions {commitCurrentPage?: boolean;}
-
-interface IMountedPageVisualState {
-    buffered: boolean;
-    hasCanvas: boolean;
-    hasSkeleton: boolean;
-    hasVisibleSkeleton: boolean;
-    mounted: boolean;
-    renderedClass: boolean;
-}
-
-interface IMountedPageVisualReadiness {
-    freshlyRendered: boolean;
-    hasUsableCanvas: boolean;
-    usable: boolean;
-}
-
-function shouldHandleSinglePageWheel(
-    event: WheelEvent,
-    container: HTMLElement | null,
-    hasPdfDocument: boolean,
-    isContinuousScroll: boolean,
-    isPdfLoading: boolean,
-    pageCount: number,
-) {
-    if (
-        isContinuousScroll ||
-        isPdfLoading ||
-        !hasPdfDocument ||
-        !container ||
-        pageCount === 0 ||
-        event.ctrlKey ||
-        event.metaKey
-    ) {
-        return false;
-    }
-
-    if (event.deltaY === 0) {
-        return false;
-    }
-
-    return Math.abs(event.deltaX)
-        <= Math.abs(event.deltaY) * HORIZONTAL_INTENT_REJECT_RATIO;
-}
-
-function resolveWheelDirection(delta: number): TWheelDirection {
-    return delta > 0 ? 1 : -1;
-}
-
-function canScrollWithinPageBounds(
-    container: HTMLElement,
-    bounds: IPageScrollBounds,
-    direction: TWheelDirection,
-) {
-    return direction > 0
-        ? container.scrollTop < bounds.max - PAGE_SCROLL_EDGE_EPSILON
-        : container.scrollTop > bounds.min + PAGE_SCROLL_EDGE_EPSILON;
-}
-
-function resolveNextTopWithinPageBounds(
-    container: HTMLElement,
-    bounds: IPageScrollBounds,
-    delta: number,
-    direction: TWheelDirection,
-) {
-    return direction > 0
-        ? Math.min(bounds.max, container.scrollTop + delta)
-        : Math.max(bounds.min, container.scrollTop + delta);
-}
-
-function resolveWheelTargetPage(
-    activePage: number,
-    viewMode: TPdfViewMode,
-    pageCount: number,
-    direction: TWheelDirection,
-) {
-    // Keep paged scrolling predictable: one spread turn per wheel threshold.
-    return stepBySpread(
-        activePage,
-        viewMode,
-        pageCount,
-        direction,
-        1,
-    );
-}
-
-function resolveWheelTargetAnchor(
-    targetPageIsTall: boolean,
-    direction: TWheelDirection,
-): TPageSnapAnchor {
-    return targetPageIsTall
-        ? resolveSnapAnchorForWheelDirection(direction)
-        : 'top';
-}
-
-function isPageSkeletonVisible(skeleton: Element | null) {
-    if (!skeleton) {
-        return false;
-    }
-
-    const htmlSkeleton = skeleton as HTMLElement;
-    const inlineOpacity = htmlSkeleton.style?.opacity ?? '';
-    if (
-        htmlSkeleton.style?.display === 'none'
-        || htmlSkeleton.style?.visibility === 'hidden'
-        || (inlineOpacity.length > 0 && Number(inlineOpacity) <= 0)
-    ) {
-        return false;
-    }
-
-    if (
-        typeof window !== 'undefined'
-        && typeof window.getComputedStyle === 'function'
-        && skeleton instanceof window.Element
-    ) {
-        const style = window.getComputedStyle(skeleton);
-        if (
-            style.display === 'none'
-            || style.visibility === 'hidden'
-            || Number(style.opacity || '1') <= 0
-        ) {
-            return false;
-        }
-    }
-
-    if (typeof htmlSkeleton.getBoundingClientRect === 'function') {
-        const rect = htmlSkeleton.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) {
-            return false;
-        }
-    }
-
-    return true;
-}
 
 interface IUsePdfSinglePageScrollOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -1246,75 +1124,18 @@ export const usePdfSinglePageScroll = (
     }
 
     function getMountedPageVisualState(pageNumber: number): IMountedPageVisualState {
-        const container = viewerContainer.value;
-        if (!container) {
-            return {
-                buffered: false,
-                hasCanvas: false,
-                hasSkeleton: false,
-                hasVisibleSkeleton: false,
-                mounted: false,
-                renderedClass: false,
-            };
-        }
-
-        const pageElement = getPageContainerByNumber(container, pageNumber);
-        if (!pageElement) {
-            return {
-                buffered: false,
-                hasCanvas: false,
-                hasSkeleton: false,
-                hasVisibleSkeleton: false,
-                mounted: false,
-                renderedClass: false,
-            };
-        }
-
-        const queryPageElement = typeof pageElement.querySelector === 'function'
-            ? (selector: string) => pageElement.querySelector(selector)
-            : () => null;
-
-        const skeleton = queryPageElement('.pdf-page-skeleton');
-
-        return {
-            buffered: pageElement.classList?.contains('page_container--buffered') === true,
-            hasCanvas: queryPageElement('.page_canvas canvas') !== null,
-            hasSkeleton: skeleton !== null,
-            hasVisibleSkeleton: isPageSkeletonVisible(skeleton),
-            mounted: true,
-            renderedClass: pageElement.classList?.contains('page_container--rendered') === true,
-        };
-    }
-
-    function getMountedPageVisualReadiness(
-        pageNumber: number,
-        state: IMountedPageVisualState,
-    ): IMountedPageVisualReadiness {
-        const freshlyRendered = options.isPageFreshlyRenderedForNavigation?.(pageNumber) ?? state.renderedClass;
-        const hasUsableCanvas = state.hasCanvas
-            && state.renderedClass
-            && freshlyRendered
-            && !state.hasVisibleSkeleton;
-        return {
-            freshlyRendered,
-            hasUsableCanvas,
-            usable: !state.buffered && hasUsableCanvas,
-        };
+        return getMountedPageVisualStateForContainer(viewerContainer.value, pageNumber);
     }
 
     function getMountedPageRowVisualStates(range: {
         start: number;
         end: number;
     }) {
-        const states: Record<number, IMountedPageVisualState & IMountedPageVisualReadiness> = {};
-        for (let pageNumber = range.start; pageNumber <= range.end; pageNumber += 1) {
-            const visualState = getMountedPageVisualState(pageNumber);
-            states[pageNumber] = {
-                ...visualState,
-                ...getMountedPageVisualReadiness(pageNumber, visualState),
-            };
-        }
-        return states;
+        return getMountedPageRowVisualStatesForContainer(
+            viewerContainer.value,
+            range,
+            options.isPageFreshlyRenderedForNavigation,
+        );
     }
 
     function isMountedPageRowCanvasUsable(
@@ -1324,13 +1145,7 @@ export const usePdfSinglePageScroll = (
         },
         rowVisualStates = getMountedPageRowVisualStates(range),
     ) {
-        for (let pageNumber = range.start; pageNumber <= range.end; pageNumber += 1) {
-            const state = rowVisualStates[pageNumber];
-            if (!state || state.buffered || !state.hasUsableCanvas) {
-                return false;
-            }
-        }
-        return true;
+        return isMountedPageRowCanvasUsableForRange(range, rowVisualStates);
     }
 
     function commitPagedNavigationTarget(
@@ -1883,23 +1698,12 @@ export const usePdfSinglePageScroll = (
         }
 
         const bounds = getPageScrollBounds(pageNumber);
-        if (!bounds || bounds.max - bounds.min <= PAGE_SCROLL_EDGE_EPSILON) {
-            return false;
-        }
-
-        const top = container.scrollTop;
-        return (
-            top > bounds.min + PAGE_SCROLL_EDGE_EPSILON &&
-            top < bounds.max - PAGE_SCROLL_EDGE_EPSILON
-        );
+        return !!bounds && isWithinPageScrollBoundsInterior(container, bounds);
     }
 
     function isTallPage(pageNumber: number) {
         const bounds = getPageScrollBounds(pageNumber);
-        if (!bounds) {
-            return false;
-        }
-        return bounds.max - bounds.min > PAGE_SCROLL_EDGE_EPSILON;
+        return !!bounds && hasScrollablePageBounds(bounds);
     }
 
     function resolveMountedPageSnapTop(options: {

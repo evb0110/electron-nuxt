@@ -25,12 +25,6 @@ import {
 import { getSearchCapability } from '@app/utils/getSearchCapability';
 import { createBrowserSafeId } from '@app/utils/browserSafe';
 
-export type {
-    IPdfPageMatches,
-    IPdfSearchMatch,
-    TSearchDirection,
-};
-
 export const usePdfSearch = () => {
     const { t } = useTypedI18n();
     const analytics = useAnalytics();

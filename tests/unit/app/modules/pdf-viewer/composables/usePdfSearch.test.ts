@@ -91,7 +91,7 @@ vi.mock('@app/utils/getSearchCapability', () => ({ getSearchCapability: () => mo
 vi.mock('#imports', () => ({ useTypedI18n: () => ({ t: (key: string) => key }) }));
 
 async function createPdfSearch(): Promise<IPdfSearchTestApi> {
-    const { usePdfSearch } = await import('@app/composables/usePdfSearch');
+    const { usePdfSearch } = await import('@app/modules/pdf-viewer/runtime/composables/usePdfSearch');
     return usePdfSearch() as IPdfSearchTestApi;
 }
 

@@ -686,9 +686,7 @@ import type {
     IAgentAssistantChatMessage,
     IAgentAssistantEvent,
     IAgentAssistantImageAttachment,
-    IAgentAssistantProviderStatus,
     IAgentAssistantState,
-    IAgentAssistantStatus,
     TAgentAssistantEffort,
     TAgentAssistantLoginMode,
     TAgentAssistantMessageRole,
@@ -705,6 +703,25 @@ import {
 } from '@contracts/agentModels';
 import AssistantEffortSwitcher from '@app/modules/agent-panel/components/AssistantEffortSwitcher.vue';
 import AssistantModelSwitcher from '@app/modules/agent-panel/components/AssistantModelSwitcher.vue';
+import {
+    cloneAssistantScope,
+    createSelectedAssistantStatus,
+    getStateScopeKey,
+    normalizeEffortValue,
+    normalizeModelValue,
+    normalizeProviderValue,
+    providerDefaultEffort,
+    providerDefaultModel,
+} from '@app/modules/agent-panel/utils/assistantSelectionState';
+import {
+    ASSISTANT_IMAGE_SIZE_LIMIT_LABEL,
+    buildComposerImageAttachments,
+    buildExpandedImagePreview,
+    getClipboardImageFiles,
+    navigateExpandedImagePreview,
+    type IExpandedImagePreview,
+    type TAssistantComposerImageError,
+} from '@app/modules/agent-panel/utils/assistantImageAttachments';
 import { isAssistantSelectionLocked } from '@app/modules/agent-panel/utils/isAssistantSelectionLocked';
 import { formatAssistantMessage } from '@app/modules/agent-panel/utils/formatAssistantMessage';
 import { getAgentAssistantPanelView } from '@app/modules/workspace-shell/public';
@@ -746,9 +763,6 @@ const widthVar = computed(() => (width != null ? `${width}px` : undefined));
 const { t } = useTypedI18n();
 const { reportRuntimeError } = useRuntimeErrorReports();
 const { copy: copyClipboardText } = useClipboard();
-const ASSISTANT_MAX_IMAGE_ATTACHMENTS = 8;
-const ASSISTANT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const ASSISTANT_IMAGE_SIZE_LIMIT_LABEL = `${Math.round(ASSISTANT_MAX_IMAGE_BYTES / (1024 * 1024))} MB`;
 const ASSISTANT_AUTO_REFRESH_MIN_INTERVAL_MS = 2500;
 const ASSISTANT_SCROLL_STICKY_THRESHOLD_PX = 96;
 const EMPTY_ASSISTANT_MESSAGE_BLOCKS: ReturnType<typeof formatAssistantMessage> = [];
@@ -784,16 +798,6 @@ const {
 } = useTimeoutFn(() => {
     copiedMessageId.value = null;
 }, 1800, { immediate: false });
-
-interface IExpandedImageItem {
-    src: string;
-    name: string;
-}
-
-interface IExpandedImagePreview {
-    images: IExpandedImageItem[];
-    index: number;
-}
 
 type TAssistantActionErrorTarget = 'status' | 'composer' | 'none';
 
@@ -1192,87 +1196,6 @@ function handleAssistantCopyShortcut(event: KeyboardEvent) {
     void copyText(text, 'Failed to copy selected assistant text');
 }
 
-function cloneAssistantScope(scope: IAgentAssistantChatScope): IAgentAssistantChatScope {
-    return {
-        kind: scope.kind,
-        key: scope.key,
-        title: scope.title,
-        ...(scope.tabId == null ? {} : { tabId: scope.tabId }),
-        ...(scope.documentRef == null ? {} : { documentRef: scope.documentRef }),
-    };
-}
-
-function modelForSelection(
-    providerStatus: IAgentAssistantProviderStatus,
-    model: string,
-) {
-    return providerStatus.models.find(candidate => candidate.id === model)
-        ?? providerStatus.models.find(candidate => candidate.id === providerStatus.defaultModel)
-        ?? providerStatus.models[0]
-        ?? null;
-}
-
-function createSelectedAssistantStatus(
-    baseStatus: IAgentAssistantStatus,
-    providerStatus: IAgentAssistantProviderStatus,
-    model: string,
-    effort: TAgentAssistantEffort,
-) {
-    const selectedModelOption = modelForSelection(providerStatus, model);
-    const selectedModel = selectedModelOption?.id ?? model;
-    const selectedModelLabel = selectedModelOption?.label ?? selectedModel;
-    const selectedEffortValue = providerStatus.availableEfforts.includes(effort)
-        ? effort
-        : providerStatus.defaultEffort;
-    const providers = baseStatus.providers.map(candidate => (candidate.id === providerStatus.id
-        ? {
-            ...candidate,
-            activeModel: selectedModel,
-            activeEffort: selectedEffortValue,
-        }
-        : candidate));
-    const codexProvider = providerStatus.id === 'codex'
-        ? providerStatus
-        : providers.find(candidate => candidate.id === 'codex');
-    const preserveTurn = baseStatus.provider === providerStatus.id;
-    const {
-        error: _baseError,
-        ...baseStatusWithoutError
-    } = baseStatus;
-
-    return {
-        ...baseStatusWithoutError,
-        provider: providerStatus.id,
-        providerLabel: providerStatus.label,
-        providers,
-        model: selectedModel,
-        modelLabel: selectedModelLabel,
-        models: providerStatus.models,
-        modelSwitchMode: providerStatus.modelSwitchMode,
-        effort: selectedEffortValue,
-        availableEfforts: providerStatus.availableEfforts,
-        installState: providerStatus.installState,
-        codexInstalled: codexProvider?.installState === 'installed',
-        codexPath: codexProvider?.path ?? null,
-        codexVersion: codexProvider?.version ?? null,
-        minimumCodexVersion: codexProvider?.minimumVersion ?? baseStatus.minimumCodexVersion,
-        codexVersionSupported: codexProvider?.versionSupported ?? baseStatus.codexVersionSupported,
-        installUrl: providerStatus.installUrl,
-        authState: providerStatus.authState,
-        account: providerStatus.account,
-        runtimeState: providerStatus.runtimeState,
-        turn: preserveTurn
-            ? baseStatus.turn
-            : {
-                id: null,
-                phase: 'idle',
-            },
-        threadId: preserveTurn ? baseStatus.threadId : null,
-        activeTurnId: preserveTurn ? baseStatus.activeTurnId : null,
-        ...(providerStatus.error ? { error: providerStatus.error } : {}),
-    } satisfies IAgentAssistantStatus;
-}
-
 function createOptimisticAssistantState(
     provider: TAgentAssistantProviderId,
     model: string,
@@ -1318,10 +1241,6 @@ function createAssistantStateRequest() {
         model: selectedModel.value,
         effort: selectedEffort.value,
     };
-}
-
-function getStateScopeKey(nextState: IAgentAssistantState) {
-    return nextState.scope?.key ?? null;
 }
 
 function isCurrentScopeState(nextState: IAgentAssistantState) {
@@ -1419,43 +1338,6 @@ async function refreshState() {
     }
 }
 
-function providerDefaultModel(provider: TAgentAssistantProviderId) {
-    const providerStatus = status.value.providers.find(candidate => candidate.id === provider);
-    return providerStatus?.activeModel
-        ?? providerStatus?.defaultModel
-        ?? 'default';
-}
-
-function providerDefaultEffort(provider: TAgentAssistantProviderId): TAgentAssistantEffort {
-    const providerStatus = status.value.providers.find(candidate => candidate.id === provider);
-    return providerStatus?.activeEffort
-        ?? providerStatus?.defaultEffort
-        ?? 'high';
-}
-
-function normalizeEffortValue(value: unknown): TAgentAssistantEffort | null {
-    const id = typeof value === 'object' && value && 'value' in value
-        ? (value as { value?: unknown }).value
-        : value;
-    return id === 'low' || id === 'medium' || id === 'high' || id === 'xhigh' || id === 'max'
-        ? id
-        : null;
-}
-
-function normalizeProviderValue(value: unknown): TAgentAssistantProviderId {
-    const id = typeof value === 'object' && value && 'value' in value
-        ? (value as { value?: unknown }).value
-        : value;
-    return id === 'claude' ? 'claude' : 'codex';
-}
-
-function normalizeModelValue(value: unknown) {
-    const id = typeof value === 'object' && value && 'value' in value
-        ? (value as { value?: unknown }).value
-        : value;
-    return typeof id === 'string' ? id : null;
-}
-
 function updateProvider(value: unknown) {
     if (assistantSelectionLocked.value) {
         return;
@@ -1466,9 +1348,9 @@ function updateProvider(value: unknown) {
     }
     const nextSwitchGeneration = ++assistantSwitchGeneration;
     selectedProvider.value = nextProvider;
-    selectedModel.value = providerDefaultModel(nextProvider);
+    selectedModel.value = providerDefaultModel(status.value.providers, nextProvider);
     hasLocalModelSelection.value = false;
-    selectedEffort.value = providerDefaultEffort(nextProvider);
+    selectedEffort.value = providerDefaultEffort(status.value.providers, nextProvider);
     hasLocalEffortSelection.value = false;
     sendGeneration += 1;
     applyOptimisticSelection(nextProvider, selectedModel.value, selectedEffort.value, false);
@@ -1579,54 +1461,27 @@ function handleRefreshState() {
     runAssistantUiAction(refreshState, { title: 'Failed to refresh assistant state' });
 }
 
-function createAttachmentId() {
-    return globalThis.crypto?.randomUUID?.() ?? `image-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
 function fallbackImageName(index: number) {
     return t('assistant.imageAttachmentFallbackName', { count: index + 1 });
 }
 
-function normalizeImageName(file: File, index: number) {
-    return file.name.trim() || fallbackImageName(index);
-}
-
-function isImageFile(file: File | null): file is File {
-    return Boolean(file?.type?.toLowerCase().startsWith('image/'));
-}
-
-function getClipboardImageFiles(dataTransfer: DataTransfer | null) {
-    if (!dataTransfer) {
-        return [];
+function formatComposerImageError(error: TAssistantComposerImageError | null) {
+    if (!error) {
+        return '';
     }
-
-    const directFiles = Array.from(dataTransfer.files).filter(isImageFile);
-    if (directFiles.length > 0) {
-        return directFiles;
+    if (error.type === 'unsupported') {
+        return t('assistant.imageUnsupported', { name: error.name });
     }
-
-    return Array.from(dataTransfer.items)
-        .flatMap(item => (
-            item.kind === 'file' && item.type.toLowerCase().startsWith('image/')
-                ? [item.getAsFile()]
-                : []
-        ))
-        .filter(isImageFile);
-}
-
-function readFileAsDataUrl(file: File) {
-    return new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = () => reject(new Error('Failed to read image'));
-        reader.onload = () => {
-            if (typeof reader.result === 'string' && reader.result.startsWith('data:image/')) {
-                resolve(reader.result);
-                return;
-            }
-            reject(new Error('Invalid image data'));
-        };
-        reader.readAsDataURL(file);
-    });
+    if (error.type === 'too-large') {
+        return t('assistant.imageTooLarge', {
+            name: error.name,
+            size: ASSISTANT_IMAGE_SIZE_LIMIT_LABEL,
+        });
+    }
+    if (error.type === 'limit') {
+        return t('assistant.imageAttachmentLimit', { count: error.count });
+    }
+    return t('assistant.imageReadFailed', { name: error.name });
 }
 
 async function addComposerImages(files: File[]) {
@@ -1634,42 +1489,13 @@ async function addComposerImages(files: File[]) {
         return;
     }
 
-    const nextImages = [...composerImages.value];
-    let nextError = '';
-    for (const file of files) {
-        const name = normalizeImageName(file, nextImages.length);
-        if (!isImageFile(file)) {
-            nextError = t('assistant.imageUnsupported', { name });
-            continue;
-        }
-        if (file.size <= 0 || file.size > ASSISTANT_MAX_IMAGE_BYTES) {
-            nextError = t('assistant.imageTooLarge', {
-                name,
-                size: ASSISTANT_IMAGE_SIZE_LIMIT_LABEL,
-            });
-            continue;
-        }
-        if (nextImages.length >= ASSISTANT_MAX_IMAGE_ATTACHMENTS) {
-            nextError = t('assistant.imageAttachmentLimit', { count: ASSISTANT_MAX_IMAGE_ATTACHMENTS });
-            break;
-        }
-
-        try {
-            nextImages.push({
-                type: 'image',
-                id: createAttachmentId(),
-                name,
-                mimeType: file.type.toLowerCase(),
-                sizeBytes: file.size,
-                dataUrl: await readFileAsDataUrl(file),
-            });
-        } catch {
-            nextError = t('assistant.imageReadFailed', { name });
-        }
-    }
-
-    composerImages.value = nextImages;
-    composerError.value = nextError;
+    const result = await buildComposerImageAttachments({
+        files,
+        existingImages: composerImages.value,
+        fallbackName: fallbackImageName,
+    });
+    composerImages.value = result.images;
+    composerError.value = formatComposerImageError(result.error);
 }
 
 function handleComposerPaste(event: ClipboardEvent) {
@@ -1685,33 +1511,6 @@ function handleComposerPaste(event: ClipboardEvent) {
 function removeComposerImage(imageId: string) {
     composerImages.value = composerImages.value.filter(image => image.id !== imageId);
     composerError.value = '';
-}
-
-function buildExpandedImagePreview(
-    images: readonly IAgentAssistantImageAttachment[],
-    selectedImageId: string,
-): IExpandedImagePreview | null {
-    const previewableImages = images
-        .filter(image => image.dataUrl.startsWith('data:image/'))
-        .map(image => ({
-            id: image.id,
-            src: image.dataUrl,
-            name: image.name,
-        }));
-    if (previewableImages.length === 0) {
-        return null;
-    }
-    const selectedIndex = previewableImages.findIndex(image => image.id === selectedImageId);
-    if (selectedIndex < 0) {
-        return null;
-    }
-    return {
-        images: previewableImages.map(image => ({
-            src: image.src,
-            name: image.name,
-        })),
-        index: selectedIndex,
-    };
 }
 
 function expandImage(images: readonly IAgentAssistantImageAttachment[] | undefined, selectedImageId: string) {
@@ -1730,10 +1529,7 @@ function navigateExpandedImage(direction: -1 | 1) {
     if (!preview || preview.images.length <= 1) {
         return;
     }
-    expandedImage.value = {
-        ...preview,
-        index: (preview.index + direction + preview.images.length) % preview.images.length,
-    };
+    expandedImage.value = navigateExpandedImagePreview(preview, direction);
 }
 
 function handleExpandedImageKeydown(event: KeyboardEvent) {

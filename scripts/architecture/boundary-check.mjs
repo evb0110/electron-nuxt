@@ -199,6 +199,52 @@ function checkComponentDirectoryFilePlacement(filePath) {
     });
 }
 
+function checkRetiredPdfComponentPath(filePath) {
+    if (!matchesRoot(filePath, 'app/components/pdf')) {
+        return null;
+    }
+
+    return createViolation({
+        rule: 'retired-pdf-component-path',
+        source: filePath,
+        target: filePath,
+        specifier: 'filesystem',
+        message: 'Retired PDF components must not be recreated under app/components/pdf; use app/modules/pdf-viewer public entrypoints.',
+    });
+}
+
+function checkRetiredTopLevelUsePdfFilePath(filePath) {
+    if (filePath !== 'app/composables/usePdfFile.ts') {
+        return null;
+    }
+
+    return createViolation({
+        rule: 'retired-top-level-use-pdf-file',
+        source: filePath,
+        target: filePath,
+        specifier: 'filesystem',
+        message: 'The retired app/composables/usePdfFile.ts path must stay retired; use app/modules/workspace-shell public entrypoints.',
+    });
+}
+
+function checkTopLevelPdfComposable(filePath) {
+    if (
+        !filePath.startsWith('app/composables/usePdf')
+        || !filePath.endsWith('.ts')
+        || filePath === 'app/composables/usePdfFile.ts'
+    ) {
+        return null;
+    }
+
+    return createViolation({
+        rule: 'top-level-pdf-composable',
+        source: filePath,
+        target: filePath,
+        specifier: 'filesystem',
+        message: 'Top-level app/composables/usePdf*.ts files are blocked; keep PDF composables in feature modules.',
+    });
+}
+
 function checkPublicOnlyInternalEntrypoint(edge, boundaryRule) {
     if (!matchesRoot(edge.source, 'app') || !matchesRoot(edge.target, boundaryRule.ownerRoot)) {
         return null;
@@ -218,6 +264,30 @@ function checkPublicOnlyInternalEntrypoint(edge, boundaryRule) {
         target: edge.target,
         specifier: edge.specifier,
         message: boundaryRule.message,
+    });
+}
+
+function checkAppPagesModulePublicEntrypoint(edge) {
+    if (!matchesRoot(edge.source, 'app/pages')) {
+        return null;
+    }
+
+    const targetOwner = getFeatureOwner(edge.target, 'app/modules');
+    if (!targetOwner) {
+        return null;
+    }
+
+    const relativePath = relativeWithinOwner(edge.target, 'app/modules', targetOwner);
+    if (isAllowedPublicEntrypoint(relativePath, APP_MODULE_PUBLIC_ENTRYPOINTS)) {
+        return null;
+    }
+
+    return createViolation({
+        rule: 'app-pages-module-deep-import',
+        source: edge.source,
+        target: edge.target,
+        specifier: edge.specifier,
+        message: 'app/pages imports from app/modules must use module public entrypoints only.',
     });
 }
 
@@ -326,13 +396,27 @@ function checkEdge(edge) {
         ...collectViolationsFromRules(edge, ROOT_BOUNDARY_RULES, checkRootBoundaryRule),
         ...collectViolationsFromRules(edge, FEATURE_BOUNDARY_RULES, checkFeatureBoundaryRule),
         ...collectViolationsFromRules(edge, PUBLIC_ONLY_INTERNAL_ENTRYPOINTS, checkPublicOnlyInternalEntrypoint),
+        checkAppPagesModulePublicEntrypoint(edge),
         checkPlatformApiAggregateImport(edge),
         checkElectronFeatureMainPrivacy(edge),
     ].filter(Boolean);
 }
 
+function checkNode(filePath) {
+    return [
+        checkRetiredPdfComponentPath(filePath),
+        checkRetiredTopLevelUsePdfFilePath(filePath),
+        checkTopLevelPdfComposable(filePath),
+        checkComponentDirectoryFilePlacement(filePath),
+    ].filter(Boolean);
+}
+
 export function checkArchitectureBoundaryEdge(edge) {
     return checkEdge(edge);
+}
+
+export function checkArchitectureBoundaryNode(filePath) {
+    return checkNode(filePath);
 }
 
 function formatViolations(violations) {
@@ -381,9 +465,7 @@ async function run() {
 
     const violations = [
         ...graph.edges.flatMap(checkEdge),
-        ...graph.nodes
-            .map(node => checkComponentDirectoryFilePlacement(node.file))
-            .filter(Boolean),
+        ...graph.nodes.flatMap(node => checkNode(node.file)),
     ];
     const unresolvedInternalImports = graph.unresolvedInternalImports ?? [];
     const cycles = graph.cycles ?? [];

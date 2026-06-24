@@ -1,0 +1,200 @@
+import {
+    describe,
+    expect,
+    it,
+} from 'vitest';
+import type { IAgentAssistantImageAttachment } from '@contracts/agent';
+import {
+    ASSISTANT_MAX_IMAGE_ATTACHMENTS,
+    ASSISTANT_MAX_IMAGE_BYTES,
+    ASSISTANT_IMAGE_SIZE_LIMIT_LABEL,
+    buildComposerImageAttachments,
+    buildExpandedImagePreview,
+    getClipboardImageFiles,
+    navigateExpandedImagePreview,
+} from '@app/modules/agent-panel/utils/assistantImageAttachments';
+import { cast } from '@tests/helpers/cast';
+
+function createFileLike(patch: Partial<File> = {}) {
+    return {
+        name: 'image.png',
+        size: 100,
+        type: 'image/png',
+        ...patch,
+    } as File;
+}
+
+function createImageAttachment(patch: Partial<IAgentAssistantImageAttachment> = {}): IAgentAssistantImageAttachment {
+    return {
+        type: 'image',
+        id: 'image-1',
+        name: 'image.png',
+        mimeType: 'image/png',
+        sizeBytes: 100,
+        dataUrl: 'data:image/png;base64,aW1hZ2U=',
+        ...patch,
+    };
+}
+
+describe('assistantImageAttachments', () => {
+    it('builds image attachments with injected ids and readers', async () => {
+        const result = await buildComposerImageAttachments({
+            files: [
+                createFileLike({
+                    name: ' First.PNG ',
+                    type: 'IMAGE/PNG', 
+                }),
+                createFileLike({
+                    name: '',
+                    type: 'image/jpeg', 
+                }),
+            ],
+            existingImages: [],
+            fallbackName: index => `Image ${index + 1}`,
+            createId: () => 'generated-id',
+            readFile: async file => `data:${file.type.toLowerCase()};base64,abc`,
+        });
+
+        expect(result.error).toBeNull();
+        expect(result.images).toEqual([
+            {
+                type: 'image',
+                id: 'generated-id',
+                name: 'First.PNG',
+                mimeType: 'image/png',
+                sizeBytes: 100,
+                dataUrl: 'data:image/png;base64,abc',
+            },
+            {
+                type: 'image',
+                id: 'generated-id',
+                name: 'Image 2',
+                mimeType: 'image/jpeg',
+                sizeBytes: 100,
+                dataUrl: 'data:image/jpeg;base64,abc',
+            },
+        ]);
+    });
+
+    it('keeps valid images and reports the last recoverable validation error', async () => {
+        const result = await buildComposerImageAttachments({
+            files: [
+                createFileLike({
+                    name: 'text.txt',
+                    type: 'text/plain', 
+                }),
+                createFileLike({
+                    name: 'large.png',
+                    size: ASSISTANT_MAX_IMAGE_BYTES + 1, 
+                }),
+                createFileLike({ name: 'ok.png' }),
+            ],
+            existingImages: [],
+            fallbackName: index => `Image ${index + 1}`,
+            createId: () => 'ok-id',
+            readFile: async () => 'data:image/png;base64,abc',
+        });
+
+        expect(result.images).toHaveLength(1);
+        expect(result.images[0]?.name).toBe('ok.png');
+        expect(result.error).toEqual({
+            type: 'too-large',
+            name: 'large.png',
+            size: ASSISTANT_IMAGE_SIZE_LIMIT_LABEL,
+        });
+    });
+
+    it('stops adding images once the attachment limit is reached', async () => {
+        const existingImages = Array.from({ length: ASSISTANT_MAX_IMAGE_ATTACHMENTS }, (_, index) => (
+            createImageAttachment({ id: `existing-${index}` })
+        ));
+
+        const result = await buildComposerImageAttachments({
+            files: [createFileLike()],
+            existingImages,
+            fallbackName: index => `Image ${index + 1}`,
+            readFile: async () => 'data:image/png;base64,abc',
+        });
+
+        expect(result.images).toHaveLength(ASSISTANT_MAX_IMAGE_ATTACHMENTS);
+        expect(result.error).toEqual({
+            type: 'limit',
+            count: ASSISTANT_MAX_IMAGE_ATTACHMENTS,
+        });
+    });
+
+    it('uses data transfer files before item fallbacks', () => {
+        const directFile = createFileLike({ name: 'direct.png' });
+        const itemFile = createFileLike({ name: 'item.png' });
+        const transfer = cast<DataTransfer>({
+            files: [directFile],
+            items: [{
+                kind: 'file',
+                type: 'image/png',
+                getAsFile: () => itemFile,
+            }],
+        });
+
+        expect(getClipboardImageFiles(transfer)).toEqual([directFile]);
+    });
+
+    it('filters item fallbacks to image files', () => {
+        const itemFile = createFileLike({ name: 'item.png' });
+        const transfer = cast<DataTransfer>({
+            files: [],
+            items: [
+                {
+                    kind: 'string',
+                    type: 'image/png',
+                    getAsFile: () => itemFile,
+                },
+                {
+                    kind: 'file',
+                    type: 'text/plain',
+                    getAsFile: () => createFileLike({ type: 'text/plain' }),
+                },
+                {
+                    kind: 'file',
+                    type: 'image/png',
+                    getAsFile: () => itemFile,
+                },
+            ],
+        });
+
+        expect(getClipboardImageFiles(transfer)).toEqual([itemFile]);
+    });
+
+    it('builds preview data and wraps preview navigation', () => {
+        const preview = buildExpandedImagePreview([
+            createImageAttachment({
+                id: 'first',
+                name: 'First', 
+            }),
+            createImageAttachment({
+                id: 'pdf',
+                dataUrl: 'data:application/pdf;base64,abc', 
+            }),
+            createImageAttachment({
+                id: 'second',
+                name: 'Second', 
+            }),
+        ], 'second');
+
+        expect(preview).toEqual({
+            images: [
+                {
+                    src: 'data:image/png;base64,aW1hZ2U=',
+                    name: 'First',
+                },
+                {
+                    src: 'data:image/png;base64,aW1hZ2U=',
+                    name: 'Second',
+                },
+            ],
+            index: 1,
+        });
+        expect(navigateExpandedImagePreview(preview, 1)?.index).toBe(0);
+        expect(navigateExpandedImagePreview(preview, -1)?.index).toBe(0);
+        expect(buildExpandedImagePreview([], 'missing')).toBeNull();
+    });
+});
