@@ -1182,6 +1182,7 @@ export default {
     },
     'crop': {
         'dialogTitle': 'Обрезка страниц',
+        'dialogDescription': 'Задайте поля обрезки и страницы, к которым их применить.',
         'margins': 'Поля',
         'marginTop': 'Сверху',
         'marginBottom': 'Снизу',

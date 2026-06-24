@@ -31,6 +31,9 @@ import {
     clearSelectedEditorState,
     getActiveEditor,
     getEditorsOnPage,
+    isEditorCommentDeleted,
+    markEditorChangedExistingAnnotation,
+    syncEditorToAnnotationStorage,
     updateEditorDefaultParams,
 } from '@app/services/pdfjs/annotationEditorAdapter';
 import {
@@ -254,9 +257,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
     }
 
     function isDeletedMarkupSubtypeEditor(editor: IPdfjsEditor) {
-        return typeof editor.comment === 'object'
-            && editor.comment !== null
-            && editor.comment.deleted === true;
+        return isEditorCommentDeleted(editor);
     }
 
     function isEditorElementDisconnected(editor: IPdfjsEditor) {
@@ -358,8 +359,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         if (!editor.annotationElementId) {
             return;
         }
-        const uiManager = (annotationUiManager.value ?? editor._uiManager) as { addChangedExistingAnnotation?: (editor: IPdfjsEditor) => unknown } | null | undefined;
-        uiManager?.addChangedExistingAnnotation?.(editor);
+        markEditorChangedExistingAnnotation(annotationUiManager.value, editor);
     }
 
     function resolveEditorMarkupSubtypeColor(
@@ -714,7 +714,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         }
         storeEditorMarkupSubtypeColor(editor, pageIndex, color);
         refreshEditorTextMarkupColor(editor, visualColor, subtype, pageIndex);
-        editor.addToAnnotationStorage?.();
+        syncEditorToAnnotationStorage(editor);
     }
 
     function findSelectedMarkupEditor(): {
@@ -832,7 +832,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         storeEditorMarkupSubtypeColor(editor, pageIndex, color);
         updateMarkupSubtypeGeometryHintColor(editor, pageIndex, color);
         refreshEditorTextMarkupColor(editor, visualColor, subtype, pageIndex);
-        editor.addToAnnotationStorage?.();
+        syncEditorToAnnotationStorage(editor);
         markExistingEditorAnnotationChanged(editor);
     }
 

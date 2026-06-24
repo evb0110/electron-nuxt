@@ -118,21 +118,26 @@ function close() {
 
 .annotation-properties-field {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(88px, auto) minmax(0, 1fr) auto;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--app-space-3xl) var(--app-space-6xl);
 }
 
 .annotation-properties-label {
+    font-size: var(--app-pdf-annotation-properties-title-font-size);
     color: var(--ui-text-muted);
+    line-height: 1.25;
+    overflow-wrap: anywhere;
 }
 
 .annotation-properties-color {
-    width: 2rem;
-    height: 1.5rem;
-    padding: 0;
+    grid-column: -1;
+    justify-self: start;
+    width: var(--app-pdf-annotation-properties-color-size);
+    height: var(--app-pdf-annotation-properties-color-size);
+    padding: 1px;
     border: 1px solid var(--ui-border);
-    border-radius: 0.35rem;
+    border-radius: var(--app-radius-xs);
     background: transparent;
 }
 </style>

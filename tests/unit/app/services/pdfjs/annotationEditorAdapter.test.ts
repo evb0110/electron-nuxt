@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {
     describe,
     expect,
@@ -8,14 +10,26 @@ import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import {
     addUndoableEditorToLayer,
+    assertAnnotationEditorRuntimeSmoke,
     clearSelectedEditorState,
+    createAnnotationEditorAtPoint,
+    createAnnotationEditorWithSyntheticPointer,
+    getAnnotationEditorRuntimeSmokeFailures,
     getEditorById,
+    getEditorParentDimensions,
     getEditorByUidFromLayer,
+    getStoredAnnotationEditor,
+    isEditorCommentDeleted,
+    markEditorChangedExistingAnnotation,
+    patchEditorResizeHandlers,
+    patchEditorUpdateParams,
     selectCommentByUid,
     setEditorDefaultParamUpdater,
     setSelectedEditor,
+    syncEditorToAnnotationStorage,
     unselectAllEditors,
     updateEditorDefaultParams,
+    writeEditorCommentToAnnotationStorage,
 } from '@app/services/pdfjs/annotationEditorAdapter';
 
 function asUiManager<T extends object>(value: T): AnnotationEditorUIManager {
@@ -23,6 +37,22 @@ function asUiManager<T extends object>(value: T): AnnotationEditorUIManager {
 }
 
 describe('annotationEditorAdapter', () => {
+    it('smokes the current PDF.js annotation editor runtime hooks', async () => {
+        const { AnnotationEditorUIManager } = await import('@app/services/pdfjs/runtimeLib');
+
+        expect(getAnnotationEditorRuntimeSmokeFailures({ AnnotationEditorUIManager })).toEqual([]);
+    });
+
+    it('reports clear smoke failures for incompatible runtimes', () => {
+        const IncompleteAnnotationEditorUIManager = vi.fn();
+
+        const failures = getAnnotationEditorRuntimeSmokeFailures({AnnotationEditorUIManager: IncompleteAnnotationEditorUIManager});
+
+        expect(failures).toContain('AnnotationEditorUIManager.getEditors is missing');
+        expect(() => assertAnnotationEditorRuntimeSmoke({AnnotationEditorUIManager: IncompleteAnnotationEditorUIManager}))
+            .toThrow(/PDF\.js annotation editor runtime is incompatible/u);
+    });
+
     it('forwards selected editor to pdf.js ui manager', () => {
         const setSelected = vi.fn();
         const uiManager = asUiManager({ setSelected });
@@ -248,5 +278,163 @@ describe('annotationEditorAdapter', () => {
         expect(remove).toHaveBeenCalledOnce();
         expect(rebuild).toHaveBeenCalledWith(editor);
         expect(afterRedo).toHaveBeenCalledWith(editor);
+    });
+
+    it('creates annotation editors through the layer factory with normalized point data', () => {
+        const div = document.createElement('div');
+        Object.defineProperty(div, 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({
+                left: 10,
+                top: 20,
+                width: 100,
+                height: 200,
+                right: 110,
+                bottom: 220,
+                x: 10,
+                y: 20,
+                toJSON: () => ({}),
+            }),
+        });
+        const editor = { id: 'created-at-point' } as IPdfjsEditor;
+        const createAndAddNewEditor = vi.fn(() => editor);
+        const uiManager = asUiManager({getLayer: vi.fn(() => ({
+            div,
+            createAndAddNewEditor,
+        }))});
+
+        expect(createAnnotationEditorAtPoint(uiManager, 0, div, 25, 75)).toBe(editor);
+
+        expect(createAndAddNewEditor).toHaveBeenCalledWith(
+            expect.objectContaining({
+                button: 0,
+                clientX: 25,
+                clientY: 75,
+                offsetX: 15,
+                offsetY: 55,
+                pointerType: 'mouse',
+            }),
+            false,
+        );
+    });
+
+    it('creates selection editors through the synthetic pointer adapter', () => {
+        const editor = { id: 'created-selection' } as IPdfjsEditor;
+        const createAndAddNewEditor = vi.fn(() => editor);
+        const layer = {
+            div: document.createElement('div'),
+            createAndAddNewEditor,
+        };
+        const payload = {
+            methodOfCreation: 'toolbar',
+            text: 'selected text',
+        };
+
+        expect(createAnnotationEditorWithSyntheticPointer(layer, payload)).toBe(editor);
+
+        expect(createAndAddNewEditor).toHaveBeenCalledWith(
+            expect.objectContaining({
+                button: 0,
+                pointerType: 'mouse',
+            }),
+            false,
+            payload,
+        );
+    });
+
+    it('wraps FreeText resize hooks while preserving original method binding', () => {
+        const onResizing = vi.fn();
+        const onResized = vi.fn();
+
+        class EditorWithPrivateResizeHooks {
+            resizingCount = 0;
+            resizedCount = 0;
+
+            _onResizing() {
+                this.resizingCount += 1;
+            }
+
+            _onResized() {
+                this.resizedCount += 1;
+            }
+        }
+
+        const editor = new EditorWithPrivateResizeHooks() as IPdfjsEditor & EditorWithPrivateResizeHooks;
+
+        patchEditorResizeHandlers(editor, {
+            onResizing,
+            onResized,
+        });
+        editor._onResizing?.();
+        editor._onResized?.();
+
+        expect(editor.resizingCount).toBe(1);
+        expect(editor.resizedCount).toBe(1);
+        expect(onResizing).toHaveBeenCalledOnce();
+        expect(onResized).toHaveBeenCalledOnce();
+    });
+
+    it('wraps editor updateParams while preserving the original this binding', () => {
+        class EditorWithUpdateParams {
+            params: Array<[number, unknown]> = [];
+
+            updateParams(type: number, value: unknown) {
+                this.params.push([
+                    type,
+                    value,
+                ]);
+            }
+        }
+
+        const editor = new EditorWithUpdateParams() as IPdfjsEditor & EditorWithUpdateParams;
+        const handler = vi.fn((original, type: number, value: unknown) => original(type, value));
+
+        expect(patchEditorUpdateParams(editor, handler)).toBe(true);
+        editor.updateParams?.(11, 14);
+
+        expect(handler).toHaveBeenCalledOnce();
+        expect(editor.params).toEqual([[
+            11,
+            14,
+        ]]);
+    });
+
+    it('routes editor storage, comment, and changed-annotation access through named helpers', () => {
+        const addToAnnotationStorage = vi.fn();
+        const storedEditor = { id: 'stored' } as IPdfjsEditor;
+        const getEditor = vi.fn(() => storedEditor);
+        const addChangedExistingAnnotation = vi.fn();
+        const editor = {
+            annotationElementId: '42R0',
+            addToAnnotationStorage,
+            comment: { deleted: true },
+            _uiManager: { addChangedExistingAnnotation },
+        } as IPdfjsEditor;
+
+        writeEditorCommentToAnnotationStorage(editor, 'persisted text');
+
+        expect(editor.comment).toBe('persisted text');
+        expect(addToAnnotationStorage).toHaveBeenCalledOnce();
+        expect(syncEditorToAnnotationStorage(editor)).toBe(true);
+        expect(getStoredAnnotationEditor({ annotationStorage: { getEditor } }, '42R0')).toBe(storedEditor);
+        expect(getEditor).toHaveBeenCalledWith('42R0');
+        editor.comment = { deleted: true };
+        expect(isEditorCommentDeleted(editor)).toBe(true);
+        expect(markEditorChangedExistingAnnotation(null, editor)).toBe(true);
+        expect(addChangedExistingAnnotation).toHaveBeenCalledWith(editor);
+    });
+
+    it('reads finite parent dimensions from private FreeText geometry state', () => {
+        expect(getEditorParentDimensions({ parentDimensions: [
+            400,
+            800,
+        ] } as IPdfjsEditor)).toEqual({
+            parentW: 400,
+            parentH: 800,
+        });
+        expect(getEditorParentDimensions({ parentDimensions: [
+            400,
+            Number.NaN,
+        ] } as IPdfjsEditor)).toBeNull();
     });
 });

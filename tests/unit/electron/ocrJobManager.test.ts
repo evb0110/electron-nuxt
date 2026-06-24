@@ -412,6 +412,58 @@ describe('ocr job manager preparing-stage robustness', () => {
         vi.useRealTimers();
     });
 
+    it('does not re-arm the idle watchdog after a terminal result', async () => {
+        vi.useFakeTimers();
+        vi.stubEnv('EVB_OCR_JOB_IDLE_TIMEOUT_MS', '15000');
+        vi.stubEnv('EVB_OCR_WORKER_CLEANUP_GRACE_MS', '60000');
+        mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
+
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+
+        await handleOcrCreateSearchablePdfAsync(
+            createEvent(57) as never,
+            '/tmp/work-7.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-7',
+        );
+
+        const worker = mocks.workerInstances[0];
+        expect(worker).toBeDefined();
+
+        worker?.emit('message', {
+            type: 'complete',
+            jobId: 'job-7',
+            result: {
+                success: false,
+                errors: ['done'],
+            },
+        });
+        const terminalCalls = () => mocks.sendToLiveWindow.mock.calls.filter(([
+            ,
+            channel,
+        ]) => channel === 'ocr:complete');
+        expect(terminalCalls()).toHaveLength(1);
+
+        worker?.emit('message', {
+            type: 'progress',
+            jobId: 'job-7',
+            progress: {
+                requestId: 'job-7',
+                currentPage: 1,
+                processedCount: 1,
+                totalPages: 1,
+            },
+        });
+        await vi.advanceTimersByTimeAsync(15_001);
+
+        expect(worker?.terminate).not.toHaveBeenCalled();
+        expect(terminalCalls()).toHaveLength(1);
+        vi.useRealTimers();
+    });
+
     it('ignores progress and completion messages emitted after active cancellation', async () => {
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 

@@ -958,6 +958,103 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         expect(dict?.get(PDFName.of('AP'))).toBeUndefined();
     });
 
+    it('preserves unchanged exact highlight opacity and appearance streams', async () => {
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[[
+            60,
+            480,
+            180,
+            680,
+        ]]], {
+            opacitiesByPage: [[0.35]],
+            withAppearance: true,
+        });
+        const targetRef = refs[0]![0]!;
+        const refTag = targetRef.generationNumber === 0
+            ? `${targetRef.objectNumber}R`
+            : `${targetRef.objectNumber}R${targetRef.generationNumber}`;
+
+        const payload = createEmptyPayload();
+        payload.markupSubtypeHints = [{
+            annotationId: refTag,
+            subtype: 'Highlight',
+            pageIndex: 0,
+            markerRect: {
+                left: 0.1,
+                top: 0.15,
+                width: 0.2,
+                height: 0.25,
+            },
+            consumed: false,
+            source: 'pdf',
+        }];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, targetRef);
+
+        expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Highlight');
+        expect(dict?.lookupMaybe(PDFName.of('CA'), PDFNumber)?.asNumber()).toBe(0.35);
+        expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
+        expect(getPdfStringValue(dict?.get(PDFName.of('NM')))).toBe('');
+    });
+
+    it('preserves highlight opacity and appearance when the hinted color already matches', async () => {
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[[
+            60,
+            480,
+            180,
+            680,
+        ]]], {
+            colorsByPage: [[[
+                184 / 255,
+                201 / 255,
+                219 / 255,
+            ]]],
+            opacitiesByPage: [[0.35]],
+            withAppearance: true,
+        });
+        const targetRef = refs[0]![0]!;
+        const refTag = targetRef.generationNumber === 0
+            ? `${targetRef.objectNumber}R`
+            : `${targetRef.objectNumber}R${targetRef.generationNumber}`;
+
+        const payload = createEmptyPayload();
+        payload.markupSubtypeHints = [{
+            annotationId: refTag,
+            subtype: 'Highlight',
+            pageIndex: 0,
+            markerRect: {
+                left: 0.1,
+                top: 0.15,
+                width: 0.2,
+                height: 0.25,
+            },
+            color: '#336699',
+            consumed: false,
+            source: 'editor',
+        }];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, targetRef);
+
+        expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Highlight');
+        expect(getColorNumbers(dict!)).toEqual([
+            184 / 255,
+            201 / 255,
+            219 / 255,
+        ]);
+        expect(dict?.lookupMaybe(PDFName.of('CA'), PDFNumber)?.asNumber()).toBe(0.35);
+        expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
+        expect(getPdfStringValue(dict?.get(PDFName.of('NM')))).toBe('');
+    });
+
     it('persists geometry-matched text markup hint colors to the annotation color', async () => {
         const {
             bytes,
@@ -1996,6 +2093,61 @@ describe('serializePdfEdits free-text note rect application', () => {
         ]);
         expect(firstDict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
         expect(secondDict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
+    });
+
+    it('matches an existing FreeText note by direct PDF ref before geometry or text fallbacks', async () => {
+        const firstRect = [
+            100,
+            500,
+            200,
+            600,
+        ] as [number, number, number, number];
+        const secondRect = [
+            300,
+            100,
+            400,
+            200,
+        ] as [number, number, number, number];
+        const {
+            bytes,
+            noteRefs,
+        } = await createPdfWithFreeTextNotes([
+            {
+                pageIndex: 0,
+                rect: firstRect,
+                contents: 'first',
+            },
+            {
+                pageIndex: 0,
+                rect: secondRect,
+                contents: 'second',
+            },
+        ]);
+        const firstRef = noteRefs[0]!;
+        const secondRef = noteRefs[1]!;
+
+        const payload = createEmptyPayload();
+        payload.freeTextComments = [makeFreeTextComment({
+            pageIndex: 0,
+            annotationId: `${firstRef.objectNumber}R${firstRef.generationNumber}`,
+            text: 'second',
+            markerRect: {
+                left: 0.5,
+                top: 0.7,
+                width: 0.1,
+                height: 0.1,
+            },
+        })];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const firstDict = getAnnotDict(doc, firstRef);
+        const secondDict = getAnnotDict(doc, secondRef);
+
+        expect(getRectNumbers(firstDict!)).not.toEqual(firstRect);
+        expect(firstDict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
+        expect(getRectNumbers(secondDict!)).toEqual(secondRect);
+        expect(secondDict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeUndefined();
     });
 
     it('does not apply singleton fallback when multiple FreeText popup notes share a page', async () => {

@@ -52,6 +52,14 @@ export const usePdfRendererPageRegistry = () => {
         }
     }
 
+    function waitForActiveRenderTasksToSettle() {
+        const activeTaskPromises = Array.from(
+            activeRenderTasks.values(),
+            activeRenderTask => activeRenderTask.task.promise.catch(() => undefined),
+        );
+        return Promise.all(activeTaskPromises).then(() => undefined);
+    }
+
     function cancelActiveTextLayerRender(pageNumber: number) {
         const activeTextLayer = activeTextLayerAbortControllers.get(pageNumber);
         if (!activeTextLayer) {
@@ -147,6 +155,7 @@ export const usePdfRendererPageRegistry = () => {
         cancelActiveRenderTask,
         cancelActiveRenderTaskIfCurrent,
         cancelAllActiveRenderTasks,
+        waitForActiveRenderTasksToSettle,
         cancelActiveTextLayerRender,
         cancelActiveTextLayerRenderIfCurrent,
         cancelAllActiveTextLayerRenders,

@@ -64,39 +64,15 @@
                     <!-- Page Range Selection -->
                     <div
                         class="section"
-                        role="group"
-                        :aria-label="t('ocr.pages')"
                     >
-                        <div class="label">{{ t('ocr.pages') }}</div>
-                        <div class="flex flex-col gap-1.5">
-                            <label class="radio-item">
-                                <input
-                                    v-model="settings.pageRange"
-                                    type="radio"
-                                    name="pageRange"
-                                    value="all"
-                                >
-                                <span>{{ t('ocr.allPages', { total: totalPages }) }}</span>
-                            </label>
-                            <label class="radio-item">
-                                <input
-                                    v-model="settings.pageRange"
-                                    type="radio"
-                                    name="pageRange"
-                                    value="current"
-                                >
-                                <span>{{ t('ocr.currentPage', { page: currentPage }) }}</span>
-                            </label>
-                            <label class="radio-item">
-                                <input
-                                    v-model="settings.pageRange"
-                                    type="radio"
-                                    name="pageRange"
-                                    value="custom"
-                                >
-                                <span>{{ t('ocr.customRange') }}</span>
-                            </label>
-                        </div>
+                        <URadioGroup
+                            v-model="settings.pageRange"
+                            name="pageRange"
+                            :legend="t('ocr.pages')"
+                            :items="pageRangeOptions"
+                            value-key="value"
+                            :ui="listRadioGroupUi"
+                        />
                         <div
                             class="custom-range-reveal"
                             :class="{ 'is-open': showCustomRange }"
@@ -118,70 +94,51 @@
                     <!-- Quality Profile Selection -->
                     <div
                         class="section"
-                        role="group"
-                        :aria-label="t('ocr.qualityProfile.label')"
                     >
-                        <div class="label">{{ t('ocr.qualityProfile.label') }}</div>
-                        <div class="profile-options">
-                            <label
-                                v-for="profile in ocrQualityProfileOptions"
-                                :key="profile"
-                                class="profile-option"
-                                :class="{ 'is-selected': settings.qualityProfile === profile }"
-                            >
-                                <input
-                                    v-model="settings.qualityProfile"
-                                    type="radio"
-                                    name="ocrQualityProfile"
-                                    :value="profile"
-                                >
-                                <span>{{ t(getQualityProfileLabelKey(profile), undefined) }}</span>
-                            </label>
-                        </div>
+                        <URadioGroup
+                            v-model="settings.qualityProfile"
+                            name="ocrQualityProfile"
+                            :legend="t('ocr.qualityProfile.label')"
+                            :items="qualityProfileItems"
+                            value-key="value"
+                            variant="table"
+                            orientation="horizontal"
+                            indicator="hidden"
+                            :ui="segmentedRadioGroupUi"
+                        />
                     </div>
 
                     <!-- OCR tuning -->
                     <div
                         class="section"
-                        role="group"
-                        :aria-label="t('ocr.preprocessing.label')"
                     >
-                        <div class="label">{{ t('ocr.preprocessing.label') }}</div>
-                        <div class="profile-options">
-                            <label
-                                v-for="mode in ocrPreprocessingModeOptions"
-                                :key="mode"
-                                class="profile-option"
-                                :class="{ 'is-selected': settings.preprocessingMode === mode }"
-                            >
-                                <input
-                                    v-model="settings.preprocessingMode"
-                                    type="radio"
-                                    name="ocrPreprocessingMode"
-                                    :value="mode"
-                                >
-                                <span>{{ t(getPreprocessingModeLabelKey(mode), undefined) }}</span>
-                            </label>
-                        </div>
+                        <URadioGroup
+                            v-model="settings.preprocessingMode"
+                            name="ocrPreprocessingMode"
+                            :legend="t('ocr.preprocessing.label')"
+                            :items="preprocessingModeItems"
+                            value-key="value"
+                            variant="table"
+                            orientation="horizontal"
+                            indicator="hidden"
+                            :ui="segmentedRadioGroupUi"
+                        />
                     </div>
 
                     <div class="section">
-                        <label class="label" for="ocr-page-segmentation-mode">
-                            {{ t('ocr.pageSegmentation.label') }}
-                        </label>
-                        <select
-                            id="ocr-page-segmentation-mode"
-                            v-model="pageSegmentationModeInput"
-                            class="select-field"
+                        <UFormField
+                            :label="t('ocr.pageSegmentation.label')"
+                            :ui="formFieldUi"
                         >
-                            <option
-                                v-for="option in ocrPageSegmentationOptions"
-                                :key="option.value"
-                                :value="option.value"
-                            >
-                                {{ t(option.labelKey, undefined) }}
-                            </option>
-                        </select>
+                            <USelect
+                                id="ocr-page-segmentation-mode"
+                                v-model="pageSegmentationModeSelectValue"
+                                :items="pageSegmentationItems"
+                                value-key="value"
+                                class="w-full"
+                                size="sm"
+                            />
+                        </UFormField>
                     </div>
 
                     <!-- Language Selection -->
@@ -196,88 +153,37 @@
                                 v-if="latinCyrillicLanguages.length > 0"
                                 class="flex flex-col gap-1"
                             >
-                                <div class="checkboxes">
-                                    <label
-                                        v-for="lang in latinCyrillicLanguages"
-                                        :key="lang.code"
-                                        class="checkbox-item"
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            :checked="
-                                                settings.selectedLanguages.includes(
-                                                    lang.code,
-                                                )
-                                            "
-                                            @change="
-                                                toggleLanguage(
-                                                    lang.code,
-                                                    ($event.target as HTMLInputElement)
-                                                        .checked,
-                                                )
-                                            "
-                                        >
-                                        <span>{{ translateLanguageName(lang.code) }}</span>
-                                    </label>
-                                </div>
+                                <UCheckboxGroup
+                                    v-model="selectedLanguagesModel"
+                                    :items="latinCyrillicLanguageItems"
+                                    value-key="value"
+                                    size="sm"
+                                    :ui="languageCheckboxGroupUi"
+                                />
                             </div>
                             <div
                                 v-if="greekLanguages.length > 0"
                                 class="flex flex-col gap-1"
                             >
-                                <div class="checkboxes">
-                                    <label
-                                        v-for="lang in greekLanguages"
-                                        :key="lang.code"
-                                        class="checkbox-item"
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            :checked="
-                                                settings.selectedLanguages.includes(
-                                                    lang.code,
-                                                )
-                                            "
-                                            @change="
-                                                toggleLanguage(
-                                                    lang.code,
-                                                    ($event.target as HTMLInputElement)
-                                                        .checked,
-                                                )
-                                            "
-                                        >
-                                        <span>{{ translateLanguageName(lang.code) }}</span>
-                                    </label>
-                                </div>
+                                <UCheckboxGroup
+                                    v-model="selectedLanguagesModel"
+                                    :items="greekLanguageItems"
+                                    value-key="value"
+                                    size="sm"
+                                    :ui="languageCheckboxGroupUi"
+                                />
                             </div>
                             <div
                                 v-if="rtlLanguages.length > 0"
                                 class="flex flex-col gap-1"
                             >
-                                <div class="checkboxes">
-                                    <label
-                                        v-for="lang in rtlLanguages"
-                                        :key="lang.code"
-                                        class="checkbox-item"
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            :checked="
-                                                settings.selectedLanguages.includes(
-                                                    lang.code,
-                                                )
-                                            "
-                                            @change="
-                                                toggleLanguage(
-                                                    lang.code,
-                                                    ($event.target as HTMLInputElement)
-                                                        .checked,
-                                                )
-                                            "
-                                        >
-                                        <span>{{ translateLanguageName(lang.code) }}</span>
-                                    </label>
-                                </div>
+                                <UCheckboxGroup
+                                    v-model="selectedLanguagesModel"
+                                    :items="rtlLanguageItems"
+                                    value-key="value"
+                                    size="sm"
+                                    :ui="languageCheckboxGroupUi"
+                                />
                             </div>
                         </div>
                     </div>
@@ -338,7 +244,6 @@
                 <UButton
                     color="neutral"
                     variant="soft"
-                    size="sm"
                     icon="i-ph-x"
                     :label="t('ocr.cancel')"
                     @click="handleCancel"
@@ -348,7 +253,6 @@
                 <UButton
                     variant="ghost"
                     color="neutral"
-                    size="sm"
                     icon="i-ph-file-text"
                     :label="t('ocr.exportDocx')"
                     :loading="isExporting"
@@ -357,7 +261,6 @@
                 />
                 <UButton
                     color="primary"
-                    size="sm"
                     :label="t('common.close')"
                     @click="handleCloseResults"
                 />
@@ -366,13 +269,11 @@
                 <UButton
                     variant="ghost"
                     color="neutral"
-                    size="sm"
                     :label="t('common.cancel')"
                     @click="isOpen = false"
                 />
                 <UButton
                     color="primary"
-                    size="sm"
                     icon="i-ph-play"
                     :label="t('ocr.start')"
                     :disabled="!canRunOcr"
@@ -452,6 +353,26 @@ const ocrPageSegmentationOptions = [
     value: string;
     labelKey: TOcrPageSegmentationLabelKey;
 }>;
+const OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE = '__automatic_page_segmentation__';
+
+const formFieldUi = { label: 'label' } as const;
+const listRadioGroupUi = {
+    fieldset: 'gap-y-1.5',
+    legend: 'label',
+    item: 'items-center',
+    label: 'font-normal',
+} as const;
+const segmentedRadioGroupUi = {
+    fieldset: 'w-full gap-x-1',
+    legend: 'label',
+    item: 'flex-1 cursor-pointer justify-center px-2 py-1.5',
+    label: 'w-full truncate text-center text-xs font-medium',
+} as const;
+const languageCheckboxGroupUi = {
+    fieldset: 'language-checkboxes',
+    item: 'min-w-0',
+    label: 'min-w-0 font-normal',
+} as const;
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -504,7 +425,6 @@ const {
     cancelOcr,
     clearResults,
     clearRunSettingsHistory,
-    toggleLanguage,
 } = useOcr();
 
 type TOcrViewState = 'configure' | 'running' | 'results' | 'error';
@@ -617,13 +537,74 @@ const hasResultWarning = computed(() => hasResults.value && effectiveError.value
 const resultStatusText = computed(() => (
     hasResultWarning.value ? t('ocr.partialComplete') : t('ocr.complete')
 ));
+const selectedLanguagesModel = computed({
+    get: () => settings.value.selectedLanguages,
+    set: (selectedLanguages: string[]) => {
+        settings.value = {
+            ...settings.value,
+            selectedLanguages: Array.from(new Set(selectedLanguages)),
+        };
+    },
+});
+const pageRangeOptions = computed<Array<{
+    value: TOcrPageRange;
+    label: string;
+}>>(() => [
+    {
+        value: 'all',
+        label: t('ocr.allPages', { total: totalPages }),
+    },
+    {
+        value: 'current',
+        label: t('ocr.currentPage', { page: currentPage }),
+    },
+    {
+        value: 'custom',
+        label: t('ocr.customRange'),
+    },
+]);
+const qualityProfileItems = computed<Array<{
+    value: TOcrQualityProfile;
+    label: string;
+}>>(() => ocrQualityProfileOptions.map(profile => ({
+    value: profile,
+    label: t(getQualityProfileLabelKey(profile), undefined),
+})));
+const preprocessingModeItems = computed<Array<{
+    value: TOcrPreprocessingMode;
+    label: string;
+}>>(() => ocrPreprocessingModeOptions.map(mode => ({
+    value: mode,
+    label: t(getPreprocessingModeLabelKey(mode), undefined),
+})));
+const pageSegmentationItems = computed<Array<{
+    value: string;
+    label: string;
+}>>(() => ocrPageSegmentationOptions.map(option => ({
+    value: option.value === ''
+        ? OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE
+        : option.value,
+    label: t(option.labelKey, undefined),
+})));
+const latinCyrillicLanguageItems = computed(() => latinCyrillicLanguages.value.map(lang => ({
+    value: lang.code,
+    label: translateLanguageName(lang.code),
+})));
+const greekLanguageItems = computed(() => greekLanguages.value.map(lang => ({
+    value: lang.code,
+    label: translateLanguageName(lang.code),
+})));
+const rtlLanguageItems = computed(() => rtlLanguages.value.map(lang => ({
+    value: lang.code,
+    label: translateLanguageName(lang.code),
+})));
 
-const pageSegmentationModeInput = computed({
+const pageSegmentationModeSelectValue = computed({
     get: () => settings.value.pageSegmentationMode === null
-        ? ''
+        ? OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE
         : String(settings.value.pageSegmentationMode),
     set: (value: string) => {
-        const pageSegmentationMode = value === '' ? null : Number(value);
+        const pageSegmentationMode = value === OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE ? null : Number(value);
         settings.value = {
             ...settings.value,
             pageSegmentationMode: isOcrPageSegmentationMode(pageSegmentationMode)
@@ -1039,8 +1020,8 @@ defineExpose<IOcrPopupAgentExpose>({
 <style scoped>
 .hidden-trigger {
     display: block;
-    width: var(--toolbar-control-height);
-    height: var(--toolbar-control-height);
+    width: var(--toolbar-control-height, var(--app-toolbar-control-size));
+    height: var(--toolbar-control-height, var(--app-toolbar-control-size));
     overflow: hidden;
     visibility: hidden;
     pointer-events: none;
@@ -1050,8 +1031,8 @@ defineExpose<IOcrPopupAgentExpose>({
     display: flex;
     align-items: center;
     justify-content: center;
-    width: var(--toolbar-control-height);
-    height: var(--toolbar-control-height);
+    width: var(--toolbar-control-height, var(--app-toolbar-control-size));
+    height: var(--toolbar-control-height, var(--app-toolbar-control-size));
     padding: var(--app-toolbar-button-padding);
     border: 1px solid transparent;
     border-radius: var(--app-toolbar-control-radius);
@@ -1105,71 +1086,13 @@ defineExpose<IOcrPopupAgentExpose>({
     cursor: wait;
 }
 
-.label {
+.label,
+:deep(.label) {
     font-size: var(--app-text-size-micro);
     color: var(--ui-text-muted);
-    margin-bottom: 0.5rem;
+    margin-bottom: var(--app-space-3xl);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-}
-
-.radio-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: var(--app-text-size-body);
-    cursor: pointer;
-}
-
-.radio-item input {
-    accent-color: var(--ui-primary);
-}
-
-.profile-options {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--app-space-sm);
-}
-
-.profile-option {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 0;
-    min-height: calc(var(--app-toolbar-control-size) - var(--app-space-sm));
-    padding: 0 var(--app-space-lg);
-    border: 1px solid var(--app-toolbar-control-hover-border);
-    border-radius: var(--app-toolbar-button-radius);
-    background: transparent;
-    color: var(--app-toolbar-control-inactive-fg);
-    font-size: var(--app-text-size-body-sm);
-    line-height: var(--app-line-height-snug);
-    text-align: center;
-    cursor: pointer;
-}
-
-.profile-option input {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-}
-
-.profile-option.is-selected {
-    border-color: var(--app-toolbar-control-active-border);
-    background: var(--app-toolbar-control-active-bg);
-    color: var(--app-toolbar-control-hover-fg);
-}
-
-.select-field {
-    width: 100%;
-    min-height: var(--app-toolbar-control-height);
-    padding: 0 var(--app-space-lg);
-    border: 1px solid var(--app-toolbar-control-hover-border);
-    border-radius: var(--app-toolbar-button-radius);
-    background: var(--ui-bg);
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body-sm);
 }
 
 .custom-range-reveal {
@@ -1192,29 +1115,15 @@ defineExpose<IOcrPopupAgentExpose>({
     width: 100%;
 }
 
-.checkboxes {
+:deep(.language-checkboxes) {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
     gap: var(--app-space-sm) var(--app-space-3xl);
     padding-left: var(--app-space-sm);
 }
 
-.checkbox-item {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    min-width: 0;
-    font-size: var(--app-text-size-body-sm);
-    cursor: pointer;
-}
-
-.checkbox-item span {
-    min-width: 0;
+:deep(.language-checkboxes [data-slot="label"]) {
     overflow-wrap: anywhere;
-}
-
-.checkbox-item input {
-    accent-color: var(--ui-primary);
 }
 
 .ocr-progress-panel {
@@ -1261,7 +1170,7 @@ defineExpose<IOcrPopupAgentExpose>({
 .error {
     display: flex;
     align-items: flex-start;
-    gap: 0.5rem;
+    gap: var(--app-space-3xl);
     color: var(--ui-error);
     font-size: var(--app-text-size-kicker);
 }

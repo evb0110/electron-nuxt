@@ -530,6 +530,58 @@ describe('useFileOperations', () => {
         expect(deps.markBookmarksSaved).not.toHaveBeenCalled();
     });
 
+    it('refreshes the annotation baseline after a live serialized save materializes PDF.js storage', async () => {
+        let annotationToken = 'annotation-before';
+        const saveDocument = vi.fn(async () => {
+            annotationToken = 'annotation-after-materialize';
+            return new Uint8Array([9]);
+        });
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            getAnnotationSaveStateToken: () => annotationToken,
+            hasAnnotationChanges: vi.fn(() => true),
+            saveDocument,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await expect(handleSave()).resolves.toBe(true);
+
+        expect(saveFile).toHaveBeenCalledOnce();
+        expect(deps.markAnnotationSaved).toHaveBeenCalledWith({ preserveLivePdfjsSession: true });
+    });
+
+    it('keeps newer live annotation edits dirty when they happen during serialized persistence', async () => {
+        let annotationToken = 'annotation-before';
+        const saveFile = vi.fn(async () => {
+            annotationToken = 'annotation-after-newer-edit';
+            return {
+                success: true,
+                outPath: '/tmp/work.pdf',
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            };
+        });
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            getAnnotationSaveStateToken: () => annotationToken,
+            hasAnnotationChanges: vi.fn(() => true),
+            saveDocument: vi.fn(async () => {
+                annotationToken = 'annotation-after-materialize';
+                return new Uint8Array([9]);
+            }),
+            saveFile,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await expect(handleSave()).resolves.toBe(true);
+
+        expect(saveFile).toHaveBeenCalledOnce();
+        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
+    });
+
     it('repair-saves clean documents through the native working-copy repair path when available', async () => {
         const repairWorkingCopy = vi.fn(async () => ({
             success: true,

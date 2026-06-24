@@ -987,6 +987,61 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }
     });
 
+    it('waits for cancelled fit-width renders to settle before starting the replacement render', async () => {
+        vi.useFakeTimers();
+        try {
+            const currentPage = ref(1);
+            const cancellationSettled = createDeferred();
+            const cancelInFlightPageRenders = vi.fn(() => cancellationSettled.promise);
+            const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+            const syncCurrentPageFromViewport = vi.fn(async () => {});
+
+            usePdfViewerRerenderCoordinator(createDeps({
+                currentPage,
+                zoomMode: computed(() => 'fit-width' as const),
+                getVisibleRange: () => ({
+                    start: 2,
+                    end: 2,
+                }),
+                reRenderAllVisiblePages,
+                syncCurrentPageFromViewport,
+                cancelInFlightPageRenders,
+                ensurePageMetricsInRange: vi.fn(async () => true),
+                computeFitWidthScale: vi.fn(() => true),
+                buildResizeAnchorContext: vi.fn(() => createResizeAnchor(2)),
+                getMostVisiblePage: vi.fn(() => 2),
+            }));
+
+            currentPage.value = 2;
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(80);
+            await nextTick();
+            await Promise.resolve();
+
+            expect(cancelInFlightPageRenders).toHaveBeenCalledOnce();
+            expect(reRenderAllVisiblePages).not.toHaveBeenCalled();
+
+            cancellationSettled.resolve();
+            await Promise.resolve();
+            await nextTick();
+            await Promise.resolve();
+            await nextTick();
+
+            expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
+                expect.any(Function),
+                expect.objectContaining({
+                    rerenderSource: 'fit-width-current-page',
+                    renderBufferOverride: 0,
+                }),
+            );
+            expect(syncCurrentPageFromViewport).toHaveBeenCalledWith(
+                expect.objectContaining({ source: 'fit-width-current-page' }),
+            );
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('keeps the current page as the anchor when sidebar resizing settles', async () => {
         vi.useFakeTimers();
         try {

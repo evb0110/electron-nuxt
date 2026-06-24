@@ -1,11 +1,16 @@
 import {
     createPdfNavigationMachineState,
+    getPdfNavigationStatusForSource,
+    getPdfNavigationTargetPageForSource,
+    getPdfNavigationTxnForSource,
+    isPdfNavigationTargetCurrent,
     isPdfNavigationTxnCurrent,
     reducePdfNavigationMachine,
 } from '@app/modules/pdf-viewer/runtime/navigation/navigationMachine';
 import type {
     IPdfNavigationState,
     TPdfNavigationEvent,
+    TPdfNavigationSource,
 } from '@app/modules/pdf-viewer/runtime/navigation/navigationMachine';
 
 export function createPdfNavigationRuntime() {
@@ -24,6 +29,37 @@ export function createPdfNavigationRuntime() {
         return isPdfNavigationTxnCurrent(state.value, candidateTxn);
     }
 
+    function statusForSource(candidateSource: TPdfNavigationSource) {
+        return computed(() => getPdfNavigationStatusForSource(
+            state.value,
+            candidateSource,
+        ));
+    }
+
+    function targetPageForSource(candidateSource: TPdfNavigationSource) {
+        return computed(() => getPdfNavigationTargetPageForSource(
+            state.value,
+            candidateSource,
+        ));
+    }
+
+    function getTxnForSource(candidateSource: TPdfNavigationSource) {
+        return getPdfNavigationTxnForSource(state.value, candidateSource);
+    }
+
+    function isTargetCurrent(
+        candidateSource: TPdfNavigationSource,
+        candidateTxn: number,
+        candidateTargetPage: number,
+    ) {
+        return isPdfNavigationTargetCurrent(
+            state.value,
+            candidateSource,
+            candidateTxn,
+            candidateTargetPage,
+        );
+    }
+
     return {
         state,
         dispatch,
@@ -32,5 +68,9 @@ export function createPdfNavigationRuntime() {
         source,
         txn,
         isTxnCurrent,
+        statusForSource,
+        targetPageForSource,
+        getTxnForSource,
+        isTargetCurrent,
     };
 }

@@ -5,7 +5,7 @@
         :style="menuStyle"
         variant="panel"
         min-width="210px"
-        :z-index="1400"
+        z-index="var(--app-pdf-annotation-style-popover-z-index)"
     >
         <template v-if="bookmark">
             <button
@@ -257,7 +257,7 @@ function removeBookmark(id: string) {
 .bookmarks-color-swatch {
     width: 18px;
     height: 18px;
-    border-radius: 999px;
+    border-radius: var(--app-radius-full);
     border: 1px solid color-mix(in srgb, var(--ui-bg-inverted) 16%, transparent 84%);
     cursor: pointer;
 }

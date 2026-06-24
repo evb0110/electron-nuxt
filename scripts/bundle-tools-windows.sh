@@ -105,6 +105,52 @@ copy_required_tool() {
   cp "$source" "$dest_dir/"
 }
 
+MSYS2_ARM64_RUNTIME_DLL_EXCLUDES=(
+  libpango_training.dll
+)
+
+should_exclude_msys2_runtime_dll() {
+  local dll_name
+  dll_name="$(basename "$1" | tr '[:upper:]' '[:lower:]')"
+
+  local excluded_name
+  for excluded_name in "${MSYS2_ARM64_RUNTIME_DLL_EXCLUDES[@]}"; do
+    if [ "$dll_name" = "$excluded_name" ]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+copy_msys2_runtime_dlls() {
+  local source_bin="$1"
+  local dest_bin="$2"
+  local copied=0
+  local skipped=0
+  local dll_path
+
+  shopt -s nullglob
+  for dll_path in "$source_bin"/*.dll; do
+    if should_exclude_msys2_runtime_dll "$dll_path"; then
+      echo "  Skipping MSYS2 training/development DLL: $(basename "$dll_path")"
+      skipped=$((skipped + 1))
+      continue
+    fi
+
+    cp "$dll_path" "$dest_bin/"
+    copied=$((copied + 1))
+  done
+  shopt -u nullglob
+
+  if [ "$copied" -eq 0 ]; then
+    echo "Error: No MSYS2 runtime DLLs found in $source_bin"
+    exit 1
+  fi
+
+  echo "  Copied $copied MSYS2 runtime DLLs to $dest_bin (skipped $skipped training/development DLLs)"
+}
+
 clean_dir() {
   local dir="$1"
   rm -rf "$dir"
@@ -284,7 +330,7 @@ PACMAN_CONF
   clean_dir "$TESSERACT_DIR/bin"
   require_file "$arm64_bin/tesseract.exe" "tesseract.exe (arm64)"
   cp "$arm64_bin/tesseract.exe" "$TESSERACT_DIR/bin/"
-  cp "$arm64_bin/"*.dll "$TESSERACT_DIR/bin/"
+  copy_msys2_runtime_dlls "$arm64_bin" "$TESSERACT_DIR/bin"
   echo "  Tesseract: $(ls "$TESSERACT_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$TESSERACT_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
 
   echo ""
@@ -296,7 +342,7 @@ PACMAN_CONF
     cp "$arm64_bin/$tool" "$POPPLER_DIR/bin/"
   done
   [ -f "$arm64_bin/pdfinfo.exe" ] && cp "$arm64_bin/pdfinfo.exe" "$POPPLER_DIR/bin/"
-  cp "$arm64_bin/"*.dll "$POPPLER_DIR/bin/"
+  copy_msys2_runtime_dlls "$arm64_bin" "$POPPLER_DIR/bin"
   # Poppler on Windows also relies on runtime data/config directories.
   # Without these, pdftoppm can crash on some PDFs with access violations.
   if [ -d "$staging/clangarm64/share/poppler" ]; then
@@ -314,7 +360,7 @@ PACMAN_CONF
   clean_dir "$QPDF_DIR/bin"
   require_file "$arm64_bin/qpdf.exe" "qpdf.exe (arm64)"
   cp "$arm64_bin/qpdf.exe" "$QPDF_DIR/bin/"
-  cp "$arm64_bin/"*.dll "$QPDF_DIR/bin/"
+  copy_msys2_runtime_dlls "$arm64_bin" "$QPDF_DIR/bin"
   echo "  qpdf: $(ls "$QPDF_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$QPDF_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
 
   echo ""
@@ -325,7 +371,7 @@ PACMAN_CONF
   require_file "$arm64_bin/djvused.exe" "djvused.exe (arm64)"
   cp "$arm64_bin/ddjvu.exe" "$DJVU_DIR/bin/"
   cp "$arm64_bin/djvused.exe" "$DJVU_DIR/bin/"
-  cp "$arm64_bin/"*.dll "$DJVU_DIR/bin/"
+  copy_msys2_runtime_dlls "$arm64_bin" "$DJVU_DIR/bin"
   echo "  DjVuLibre: $(ls "$DJVU_DIR/bin/"*.exe 2>/dev/null | wc -l) exe, $(ls "$DJVU_DIR/bin/"*.dll 2>/dev/null | wc -l) dlls"
 
   echo ""

@@ -25,6 +25,10 @@ const mocks = vi.hoisted(() => ({
     startEmbeddedMcpServer: vi.fn(),
     shutdownEmbeddedMcpServer: vi.fn(async () => undefined),
     openExternal: vi.fn(),
+    initializeGate: null as null | {
+        promise: Promise<void>;
+        resolve: () => void;
+    },
     codexAccountReadMode: 'success',
     codexAuthStatusMode: 'signed-in',
     logger: {
@@ -37,14 +41,15 @@ const mocks = vi.hoisted(() => ({
 class FakeCodexAppServerProcess extends EventEmitter {
     readonly stdout = new PassThrough();
     readonly stderr = new PassThrough();
-    readonly stdin = {write: (
+    readonly requestMethods: string[] = [];
+    readonly stdin = Object.assign(new EventEmitter(), {write: (
         line: string,
         callback?: (error?: Error | null) => void,
     ) => {
         this.handleRequestLine(line);
         callback?.();
         return true;
-    }};
+    }});
 
     private threadCount = 0;
     private turnCount = 0;
@@ -66,9 +71,16 @@ class FakeCodexAppServerProcess extends EventEmitter {
         if (request.id === undefined) {
             return;
         }
+        if (request.method) {
+            this.requestMethods.push(request.method);
+        }
 
         switch (request.method) {
             case 'initialize':
+                if (mocks.initializeGate) {
+                    void mocks.initializeGate.promise.then(() => this.respond(request.id!, {}));
+                    return;
+                }
                 this.respond(request.id, {});
                 return;
             case 'account/read':
@@ -215,11 +227,39 @@ vi.mock('@electron/features/agent/mcpServer', () => ({
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
+function createInitializeGate() {
+    let resolve: () => void = () => {};
+    const promise = new Promise<void>((next) => {
+        resolve = next;
+    });
+    return {
+        promise,
+        resolve,
+    };
+}
+
+async function waitForCodexRequest(process: FakeCodexAppServerProcess, method: string) {
+    for (let index = 0; index < 200; index += 1) {
+        if (process.requestMethods.includes(method)) {
+            return;
+        }
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    throw new Error(`Timed out waiting for Codex request ${method}`);
+}
+
+async function settleAsyncTicks(count = 3) {
+    for (let index = 0; index < count; index += 1) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+}
+
 describe('agent assistant opt-in gating', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
         mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
+        mocks.initializeGate = null;
         mocks.codexAccountReadMode = 'success';
         mocks.codexAuthStatusMode = 'signed-in';
     });
@@ -321,6 +361,44 @@ describe('agent assistant opt-in gating', () => {
         expect(state.status.error).toContain('getAuthStatus timed out');
     });
 
+    it('waits for in-flight Codex runtime startup before reusing the app-server client', async () => {
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+        mocks.getCodexCliInfo.mockResolvedValue({
+            installed: true,
+            path: '/Applications/Codex.app/Contents/Resources/codex',
+            version: '0.133.0',
+            minimumVersion: '0.133.0',
+            isVersionSupported: true,
+            managedInstallDir: '/tmp/codex',
+        });
+        mocks.startEmbeddedMcpServer.mockResolvedValue({
+            descriptor: {
+                name: 'evb_viewer_embedded',
+                url: 'http://127.0.0.1:9876',
+            },
+            token: 'test-mcp-token',
+        });
+        mocks.initializeGate = createInitializeGate();
+        const process = new FakeCodexAppServerProcess();
+        mocks.spawn.mockImplementation(() => process);
+
+        const { getAgentAssistantState }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const firstState = getAgentAssistantState();
+        await waitForCodexRequest(process, 'initialize');
+        const secondState = getAgentAssistantState();
+        await settleAsyncTicks();
+
+        expect(process.requestMethods).toEqual(['initialize']);
+        mocks.initializeGate.resolve();
+
+        await expect(Promise.all([
+            firstState,
+            secondState,
+        ])).resolves.toHaveLength(2);
+        expect(mocks.spawn).toHaveBeenCalledOnce();
+    });
+
     it('keeps assistant chat messages scoped to the selected document', async () => {
         const documentA = {
             kind: 'document',
@@ -381,6 +459,68 @@ describe('agent assistant opt-in gating', () => {
         const restoredDocumentA = await getAgentAssistantState({ scope: documentA });
         expect(restoredDocumentA.messages.map(message => message.text)).toContain('Question for A');
         expect(restoredDocumentA.messages.map(message => message.text)).not.toContain('Question for B');
+    });
+
+    it('starts fresh Codex threads for inactive document sessions after app-server exit', async () => {
+        const documentA = {
+            kind: 'document',
+            key: 'document:/tmp/a.pdf',
+            title: 'a.pdf',
+            documentRef: '/tmp/a.pdf',
+        } as const satisfies IAgentAssistantChatScope;
+        const documentB = {
+            kind: 'document',
+            key: 'document:/tmp/b.pdf',
+            title: 'b.pdf',
+            documentRef: '/tmp/b.pdf',
+        } as const satisfies IAgentAssistantChatScope;
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+        mocks.getCodexCliInfo.mockResolvedValue({
+            installed: true,
+            path: '/Applications/Codex.app/Contents/Resources/codex',
+            version: '0.133.0',
+            minimumVersion: '0.133.0',
+            isVersionSupported: true,
+            managedInstallDir: '/tmp/codex',
+        });
+        mocks.startEmbeddedMcpServer.mockResolvedValue({
+            descriptor: {
+                name: 'evb_viewer_embedded',
+                url: 'http://127.0.0.1:9876',
+            },
+            token: 'test-mcp-token',
+        });
+        const processes: FakeCodexAppServerProcess[] = [];
+        mocks.spawn.mockImplementation(() => {
+            const process = new FakeCodexAppServerProcess();
+            processes.push(process);
+            return process;
+        });
+
+        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        await expect(sendAgentAssistantMessage({
+            text: 'Question for A',
+            scope: documentA,
+        })).resolves.toMatchObject({ ok: true });
+        await expect(sendAgentAssistantMessage({
+            text: 'Question for B',
+            scope: documentB,
+        })).resolves.toMatchObject({ ok: true });
+        expect(processes).toHaveLength(1);
+
+        processes[0]?.emit('close', 1);
+        await settleAsyncTicks();
+
+        await expect(sendAgentAssistantMessage({
+            text: 'Follow-up for A',
+            scope: documentA,
+        })).resolves.toMatchObject({ ok: true });
+
+        expect(processes).toHaveLength(2);
+        const restartedMethods = processes[1]?.requestMethods ?? [];
+        expect(restartedMethods).toContain('thread/start');
+        expect(restartedMethods.indexOf('thread/start')).toBeLessThan(restartedMethods.indexOf('turn/start'));
     });
 
     it('evicts least-recently-used idle document chat sessions', async () => {

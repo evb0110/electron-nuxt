@@ -125,22 +125,22 @@ function addRootBookmark() {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
-    padding: 0.375rem 0.5rem;
+    gap: var(--app-space-3xl);
+    padding: var(--app-space-lg) var(--app-space-3xl);
     border-bottom: 1px solid var(--app-sidebar-border);
 }
 
 .pdf-bookmarks-display-segment {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--app-space-sm);
     min-width: 0;
 }
 
 .pdf-bookmarks-toolbar-actions {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--app-space-sm);
 }
 
 .pdf-bookmarks-segment-button,
@@ -148,17 +148,17 @@ function addRootBookmark() {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.75rem;
-    height: 1.75rem;
+    width: var(--app-outline-toolbar-button-size);
+    height: var(--app-outline-toolbar-button-size);
     border: 1px solid transparent;
-    border-radius: 0.375rem;
+    border-radius: var(--app-radius-md);
     background: transparent;
     color: var(--ui-text-muted);
     cursor: pointer;
     transition:
-        background-color 0.12s ease,
-        color 0.12s ease,
-        border-color 0.12s ease;
+        background-color var(--app-transition-quick),
+        color var(--app-transition-quick),
+        border-color var(--app-transition-quick);
 }
 
 .pdf-bookmarks-segment-button:hover,

@@ -267,6 +267,7 @@ async function writePdfWithNativeImageCombiner(
             inputsPath,
         ]);
         if (!ok) {
+            await rm(outputPath, { force: true }).catch(() => undefined);
             return false;
         }
         return await readValidatedNativePdfOutput(outputPath) !== null;

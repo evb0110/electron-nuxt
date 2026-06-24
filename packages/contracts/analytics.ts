@@ -13,6 +13,13 @@ export type TAnalyticsEventName = typeof ANALYTICS_EVENT_NAMES[number];
 
 export type TAnalyticsScreenCategory = 'mobile' | 'tablet' | 'desktop';
 
+export const ANALYTICS_GEO_LIMITS = {
+    country: 2,
+    region: 32,
+    city: 255,
+    timezone: 64,
+} as const;
+
 export type TAnalyticsPayloadValue =
     | boolean
     | number
@@ -41,12 +48,51 @@ export interface IAnalyticsEventEnvelope {
     payload: Record<string, TAnalyticsPayloadValue>;
 }
 
+export interface IAnalyticsGeoData {
+    country: string | null;
+    city: string | null;
+    region: string | null;
+    timezone: string | null;
+}
+
 export interface INormalizeAnalyticsScalarOptions {
     maxStringLength: number;
     nonFiniteFallback: TAnalyticsPayloadValue | undefined;
 }
 
 export type TAnalyticsScalarResult = TAnalyticsPayloadValue | undefined;
+
+function normalizeOptionalAnalyticsString(value: unknown, maxLength: number) {
+    if (typeof value !== 'string') {
+        return null;
+    }
+
+    const normalized = value.trim();
+    return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function normalizeAnalyticsCountry(value: unknown) {
+    if (typeof value !== 'string') {
+        return null;
+    }
+
+    const normalized = value.trim().toUpperCase();
+    return normalized && /^[A-Z]{2}$/u.test(normalized) ? normalized : null;
+}
+
+export function normalizeAnalyticsGeo(value: {
+    country?: unknown;
+    city?: unknown;
+    region?: unknown;
+    timezone?: unknown;
+}): IAnalyticsGeoData {
+    return {
+        country: normalizeAnalyticsCountry(value.country),
+        city: normalizeOptionalAnalyticsString(value.city, ANALYTICS_GEO_LIMITS.city),
+        region: normalizeOptionalAnalyticsString(value.region, ANALYTICS_GEO_LIMITS.region),
+        timezone: normalizeOptionalAnalyticsString(value.timezone, ANALYTICS_GEO_LIMITS.timezone),
+    };
+}
 
 export function normalizeAnalyticsScalar(
     value: unknown,

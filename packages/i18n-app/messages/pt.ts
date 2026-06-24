@@ -1160,6 +1160,7 @@ export default {
     },
     'crop': {
         'dialogTitle': 'Recortar páginas',
+        'dialogDescription': 'Escolha as margens de recorte e o intervalo de páginas onde aplicá-las.',
         'margins': 'Margens',
         'marginTop': 'Superior',
         'marginBottom': 'Inferior',

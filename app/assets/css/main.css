@@ -59,6 +59,7 @@
     --app-toolbar-segmented-radius: 0.5625rem;
     --app-toolbar-save-primary-width: 2rem;
     --app-toolbar-save-trigger-width: 1rem;
+    --app-toolbar-save-icon-size: 1.25rem;
     --app-toolbar-save-chevron-size: 0.6875rem;
     --app-toolbar-save-menu-min-width: 11rem;
     --app-toolbar-app-menu-min-width: 15rem;
@@ -400,6 +401,7 @@
     --app-tab-context-menu-max-width: 560px;
     --app-assistant-panel-default-width: 24rem;
     --app-assistant-panel-max-viewport-width: 45vw;
+    --app-assistant-image-preview-z-index: 100;
     --app-assistant-image-preview-padding: var(--app-space-16xl);
     --app-assistant-image-preview-max-viewport-width: 92vw;
     --app-assistant-image-preview-content-max-height: 92vh;
@@ -415,8 +417,10 @@
     --app-pdf-annotation-properties-title-font-size: 11px;
     --app-pdf-annotation-properties-title-letter-spacing: 0.5px;
     --app-pdf-annotation-properties-body-padding: 8px 10px;
+    --app-pdf-annotation-properties-color-size: 28px;
     --app-pdf-annotation-style-popover-z-index: 1400;
     --app-pdf-annotation-style-popover-width: 18rem;
+    --app-pdf-context-menu-z-index: 70;
     --app-pdf-zoom-menu-width: 22rem;
     --app-pdf-note-window-z-index: 55;
     --app-pdf-note-window-viewport-gutter: 18px;

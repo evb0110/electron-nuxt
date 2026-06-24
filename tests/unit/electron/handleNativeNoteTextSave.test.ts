@@ -23,6 +23,7 @@ import {
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { createOriginalFileContentFingerprintSync } from '@electron/file-access/workingCopyOriginalFileExpectation';
+import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 
 const mocks = vi.hoisted(() => ({
     runNativeToolCommand: vi.fn(),
@@ -66,6 +67,84 @@ function createOriginalFileExpectationForTest(originalPath: string) {
         contentFingerprint,
         mtimeMs: originalStat.mtimeMs,
         size: originalStat.size,
+    };
+}
+
+interface INativeBookmarkTestItem {
+    title: string;
+    pageIndex: number | null;
+    namedDest: string | null;
+    bold: boolean;
+    italic: boolean;
+    color: string | null;
+    items: INativeBookmarkTestItem[];
+}
+
+function createNativeFreeTextNote() {
+    return {
+        pageIndex: 0,
+        stableKey: 'uid:0:pdfjs_internal_editor_0',
+        text: 'Editor note',
+        markerRect: {
+            left: 0.1,
+            top: 0.2,
+            width: 0.0016,
+            height: 0.0016,
+        },
+    };
+}
+
+function createNativeBookmark(title = 'Chapter'): INativeBookmarkTestItem {
+    return {
+        title,
+        pageIndex: 0,
+        namedDest: null,
+        bold: false,
+        italic: false,
+        color: null,
+        items: [],
+    };
+}
+
+function createDeepNativeBookmarkItems(depth: number) {
+    const root = createNativeBookmark('Root');
+    let current = root;
+    for (let index = 0; index < depth; index += 1) {
+        const child = createNativeBookmark(`Child ${index}`);
+        current.items = [child];
+        current = child;
+    }
+    return [root];
+}
+
+function createNativeShape() {
+    return {
+        type: 'rectangle' as const,
+        pageIndex: 0,
+        x: 0.1,
+        y: 0.2,
+        width: 0.3,
+        height: 0.2,
+        color: '#336699',
+        opacity: 0.5,
+        strokeWidth: 3,
+    };
+}
+
+function createNativePlacedImage() {
+    return {
+        pageIndex: 0,
+        x: 0.1,
+        y: 0.2,
+        width: 0.3,
+        height: 0.2,
+        rotationDegrees: 0,
+        mimeType: 'image/jpeg' as const,
+        bytes: new Uint8Array([
+            0xFF,
+            0xD8,
+            0xFF,
+        ]),
     };
 }
 
@@ -576,6 +655,111 @@ describe('handleNativeNoteTextSave', () => {
         await expect(savePromise).resolves.toMatchObject({applied: false});
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
         expect(readFileSyncUtf8(workingPath)).toBe('changed-before-native');
+    });
+
+    it('rejects shared native mutation limit violations before native execution', async () => {
+        const {
+            handleNativeNoteChangesSave,
+            handleNativePdfMutationsApplyToWorkingCopy,
+            handleNativePdfMutationsSave,
+        } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
+        const workingPath = join(tempRoot, 'working.pdf');
+        const modifiedAt = 'D:20260609133855+03\'00\'';
+
+        await expect(handleNativeNoteChangesSave(
+            event,
+            workingPath,
+            {freeTextNotes: Array.from(
+                {length: PDF_NATIVE_MUTATION_LIMITS.noteChanges + 1},
+                createNativeFreeTextNote,
+            )},
+            modifiedAt,
+        )).rejects.toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.noteChanges} notes`);
+
+        await expect(handleNativePdfMutationsSave(
+            event,
+            workingPath,
+            {pageLabels: {
+                totalPages: 3,
+                ranges: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges + 1}, () => ({
+                    startPage: 1,
+                    style: 'D',
+                    prefix: '',
+                    startNumber: 1,
+                })),
+            }},
+            modifiedAt,
+        )).rejects.toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges} ranges`);
+
+        await expect(handleNativePdfMutationsSave(
+            event,
+            workingPath,
+            {bookmarks: {
+                totalPages: 3,
+                untitledLabel: 'Untitled',
+                items: createDeepNativeBookmarkItems(PDF_NATIVE_MUTATION_LIMITS.bookmarkDepth + 1),
+            }},
+            modifiedAt,
+        )).rejects.toThrow('maximum bookmark depth');
+
+        await expect(handleNativePdfMutationsSave(
+            event,
+            workingPath,
+            {shapes: {
+                totalPages: 3,
+                rewriteShapeState: true,
+                shapes: [{
+                    ...createNativeShape(),
+                    points: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.shapePoints + 1}, () => ({
+                        x: 0.1,
+                        y: 0.2,
+                    })),
+                }],
+                deletedAnnotationIds: [],
+                deletedStableKeys: [],
+            }},
+            modifiedAt,
+        )).rejects.toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.shapePoints} points`);
+
+        await expect(handleNativePdfMutationsSave(
+            event,
+            workingPath,
+            {markup: {
+                overrides: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.markupItems + 1}, (_, index) => [
+                    `${index}R`,
+                    'Highlight',
+                ]),
+                hints: [],
+            }},
+            modifiedAt,
+        )).rejects.toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.markupItems} items`);
+
+        await expect(handleNativePdfMutationsApplyToWorkingCopy(
+            event,
+            workingPath,
+            {placedImages: Array.from(
+                {length: PDF_NATIVE_MUTATION_LIMITS.placedImages + 1},
+                createNativePlacedImage,
+            )},
+            modifiedAt,
+            {
+                byteLength: 3,
+                sha256: 'a'.repeat(64),
+            },
+        )).rejects.toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.placedImages} images`);
+
+        await expect(handleNativePdfMutationsApplyToWorkingCopy(
+            event,
+            workingPath,
+            {placedImages: [createNativePlacedImage()]},
+            modifiedAt,
+            {
+                byteLength: 3,
+                sha256: 'not-a-digest',
+            },
+        )).rejects.toThrow('Invalid native working-copy expectation');
+
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
     });
 
     it('rejects working-copy native mutations without a base expectation', async () => {

@@ -29,7 +29,10 @@ import {
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { createHttpHandler } from '@electron/features/agent/mcp/createHttpHandler';
-import { ASSISTANT_MCP_SERVER_NAME } from '@electron/features/agent/codexAssistantConfig';
+import {
+    ASSISTANT_MCP_SERVER_NAME,
+    ASSISTANT_MCP_TOKEN_ENV,
+} from '@electron/features/agent/codexAssistantConfig';
 
 export { processMcpRequest } from '@electron/features/agent/mcp/mcpServerCore';
 
@@ -40,6 +43,7 @@ const DEFAULT_DEV_MCP_PORT = 38672;
 
 let localMcpServer: Server | null = null;
 let localMcpToken: string | null = null;
+let localMcpTokenEnvOwned = false;
 let localMcpStartPromise: Promise<void> | null = null;
 let embeddedMcpServer: Server | null = null;
 let embeddedMcpServerDescriptor: ILocalMcpServerDescriptor | null = null;
@@ -113,11 +117,24 @@ export function getLocalMcpServerDescriptor(): ILocalMcpServerDescriptor {
 }
 
 function getLocalMcpServerBearerToken() {
-    const configuredToken = process.env.EVB_MCP_TOKEN?.trim();
-    localMcpToken ??= configuredToken && configuredToken.length > 0
-        ? configuredToken
-        : randomBytes(32).toString('hex');
+    const configuredToken = process.env[ASSISTANT_MCP_TOKEN_ENV]?.trim();
+    if (!localMcpToken) {
+        if (configuredToken && configuredToken.length > 0) {
+            localMcpToken = configuredToken;
+        } else {
+            localMcpToken = randomBytes(32).toString('hex');
+            localMcpTokenEnvOwned = true;
+        }
+    }
+    process.env[ASSISTANT_MCP_TOKEN_ENV] = localMcpToken;
     return localMcpToken;
+}
+
+function clearGeneratedLocalMcpTokenEnv() {
+    if (localMcpTokenEnvOwned && process.env[ASSISTANT_MCP_TOKEN_ENV] === localMcpToken) {
+        Reflect.deleteProperty(process.env, ASSISTANT_MCP_TOKEN_ENV);
+    }
+    localMcpTokenEnvOwned = false;
 }
 
 export function isLocalMcpServerRunning() {
@@ -160,6 +177,7 @@ function createDefaultMcpRequestOptions(identity: ILocalMcpServerIdentity): IPro
 }
 
 export function startLocalMcpServer() {
+    const bearerToken = getLocalMcpServerBearerToken();
     if (localMcpStartPromise) {
         return localMcpStartPromise;
     }
@@ -174,7 +192,7 @@ export function startLocalMcpServer() {
         callerKind: 'external' as const,
     };
 
-    const server = createServer(createHttpHandler(options, { bearerToken: getLocalMcpServerBearerToken() }));
+    const server = createServer(createHttpHandler(options, { bearerToken }));
     localMcpServer = server;
     const startPromise = new Promise<void>((resolve, reject) => {
         let settled = false;
@@ -221,13 +239,19 @@ export function startLocalMcpServer() {
 export function shutdownLocalMcpServer() {
     const server = localMcpServer;
     if (!server) {
+        clearGeneratedLocalMcpTokenEnv();
+        localMcpToken = null;
         return Promise.resolve();
     }
 
     localMcpServer = null;
     localMcpStartPromise = null;
     return new Promise<void>((resolve) => {
-        server.close(() => resolve());
+        server.close(() => {
+            clearGeneratedLocalMcpTokenEnv();
+            localMcpToken = null;
+            resolve();
+        });
     });
 }
 

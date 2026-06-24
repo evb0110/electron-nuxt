@@ -5,10 +5,21 @@ import {
     vi,
 } from 'vitest';
 
-vi.mock('electron', () => ({session: {defaultSession: {webRequest: {onHeadersReceived: vi.fn()}}}}));
+const mocks = vi.hoisted(() => ({
+    onHeadersReceived: vi.fn(),
+    setPermissionRequestHandler: vi.fn(),
+}));
+
+vi.mock('electron', () => ({session: {defaultSession: {
+    setPermissionRequestHandler: mocks.setPermissionRequestHandler,
+    webRequest: {onHeadersReceived: mocks.onHeadersReceived},
+}}}));
 vi.mock('@electron/config', () => ({config: {isDev: false}}));
 
-const { buildContentSecurityPolicy } = await import('@electron/security/csp');
+const {
+    buildContentSecurityPolicy,
+    setupContentSecurityPolicy,
+} = await import('@electron/security/csp');
 
 function parseCsp(csp: string) {
     return Object.fromEntries(csp.split('; ').map((directive) => {
@@ -104,5 +115,16 @@ describe('buildContentSecurityPolicy', () => {
                 'blob:',
             ],
         });
+    });
+
+    it('denies runtime permission prompts by default', () => {
+        setupContentSecurityPolicy();
+
+        const handler = mocks.setPermissionRequestHandler.mock.calls[0]?.[0];
+        expect(handler).toBeTypeOf('function');
+        const callback = vi.fn();
+        handler?.({}, 'media', callback, {});
+
+        expect(callback).toHaveBeenCalledWith(false);
     });
 });

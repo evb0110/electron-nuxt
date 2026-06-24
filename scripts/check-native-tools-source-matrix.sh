@@ -166,6 +166,52 @@ check_page_processor_for_tag() {
   fi
 }
 
+check_windows_arm64_runtime_dll_policy() {
+  local bundler="scripts/bundle-tools-windows.sh"
+  local failed=0
+
+  echo "== Checking Windows ARM64 runtime DLL bundle policy =="
+
+  if ! grep -Fq "MSYS2_ARM64_RUNTIME_DLL_EXCLUDES=(" "$bundler" \
+    || ! grep -Fq "libpango_training.dll" "$bundler"; then
+    echo "  FAIL    Windows ARM64 MSYS2 bundle policy must exclude libpango_training.dll"
+    failed=1
+  fi
+
+  local required_runtime_copy
+  for required_runtime_copy in \
+    'copy_msys2_runtime_dlls "$arm64_bin" "$TESSERACT_DIR/bin"' \
+    'copy_msys2_runtime_dlls "$arm64_bin" "$POPPLER_DIR/bin"' \
+    'copy_msys2_runtime_dlls "$arm64_bin" "$QPDF_DIR/bin"' \
+    'copy_msys2_runtime_dlls "$arm64_bin" "$DJVU_DIR/bin"'
+  do
+    if ! grep -Fq "$required_runtime_copy" "$bundler"; then
+      echo "  FAIL    Missing ARM64 runtime DLL copy policy: $required_runtime_copy"
+      failed=1
+    fi
+  done
+
+  local blind_copy
+  for blind_copy in \
+    'cp "$arm64_bin/"*.dll "$TESSERACT_DIR/bin/"' \
+    'cp "$arm64_bin/"*.dll "$POPPLER_DIR/bin/"' \
+    'cp "$arm64_bin/"*.dll "$QPDF_DIR/bin/"' \
+    'cp "$arm64_bin/"*.dll "$DJVU_DIR/bin/"'
+  do
+    if grep -Fq "$blind_copy" "$bundler"; then
+      echo "  FAIL    ARM64 Windows bundler must not blindly copy MSYS2 DLLs: $blind_copy"
+      failed=1
+    fi
+  done
+
+  if [ "$failed" -ne 0 ]; then
+    missing=1
+    return
+  fi
+
+  echo "  OK      libpango_training.dll is excluded and ARM64 bundles use the runtime DLL policy"
+}
+
 check_tag() {
   local tag="$1"
   local platform="${tag%-*}"
@@ -232,6 +278,12 @@ fi
 
 echo ""
 bash "$root_dir/scripts/check-win-dll-allowlist.sh"
+check_windows_arm64_runtime_dll_policy
+
+if [ "$missing" -ne 0 ]; then
+  echo "Native tool source matrix check failed (Windows ARM64 runtime DLL policy)."
+  exit 1
+fi
 
 if [ "$check_all" -eq 1 ]; then
   echo "Native tool source matrix check passed (--all)."

@@ -435,7 +435,7 @@ function handleToolbarCommand(command: TToolbarCommand) {
 .toolbar {
     display: flex;
     align-items: center;
-    padding: 0.5rem 0.65rem;
+    padding: var(--app-space-3xl) var(--app-space-7xl);
     border-bottom: 1px solid var(--app-toolbar-border);
     border-top: 1px solid var(--app-toolbar-border);
     background: var(--app-toolbar-bg);
@@ -443,11 +443,12 @@ function handleToolbarCommand(command: TToolbarCommand) {
     overflow: visible;
     position: relative;
     z-index: 10;
-    transition: background-color 0.15s ease, border-color 0.15s ease;
+    transition:
+        background-color var(--app-transition-standard),
+        border-color var(--app-transition-standard);
     container-type: inline-size;
 
     --toolbar-control-height: var(--app-toolbar-control-size, 2.25rem);
-    --toolbar-icon-size: var(--app-toolbar-icon-size, 1.125rem);
     --toolbar-micro-gap: var(--app-toolbar-group-gap);
     --toolbar-cluster-gap: var(--app-toolbar-section-gap);
 }
@@ -481,13 +482,13 @@ function handleToolbarCommand(command: TToolbarCommand) {
 }
 
 .toolbar--has-ocr-action .toolbar-action--ocr {
-    inline-size: var(--toolbar-control-height);
-    min-inline-size: var(--toolbar-control-height);
+    inline-size: var(--toolbar-control-height, var(--app-toolbar-control-size));
+    min-inline-size: var(--toolbar-control-height, var(--app-toolbar-control-size));
 }
 
 .toolbar-separator {
     width: 1px;
-    height: 1.25rem;
+    height: var(--app-space-15xl);
     background: var(--app-toolbar-separator);
     flex-shrink: 0;
 }
@@ -527,8 +528,8 @@ function handleToolbarCommand(command: TToolbarCommand) {
 }
 
 .toolbar--reader {
-    gap: 0.5rem;
-    padding: 0.5rem 0.625rem;
+    gap: var(--app-space-3xl);
+    padding: var(--app-space-3xl) var(--app-space-6xl);
 }
 
 .toolbar--reader .toolbar-separator {
@@ -538,7 +539,7 @@ function handleToolbarCommand(command: TToolbarCommand) {
 .toolbar--reader .toolbar-left,
 .toolbar--reader .toolbar-center,
 .toolbar--reader .toolbar-right {
-    gap: 0.5rem;
+    gap: var(--app-space-3xl);
 }
 
 .toolbar--reader .toolbar-center {

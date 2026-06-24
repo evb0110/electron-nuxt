@@ -1147,14 +1147,18 @@ const emit = defineEmits<{
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 9999px;
+    border-radius: var(--app-radius-full);
     border: 1px solid color-mix(in srgb, var(--ui-warning) 62%, var(--ui-border) 38%);
     background: color-mix(in srgb, var(--ui-warning) 20%, var(--ui-bg) 80%);
     color: color-mix(in srgb, var(--ui-warning) 58%, var(--ui-text) 42%);
     cursor: pointer;
     transform: translate(-50%, -50%);
     opacity: 0.82;
-    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+    transition:
+        background-color var(--app-transition-standard),
+        border-color var(--app-transition-standard),
+        transform var(--app-transition-standard),
+        opacity var(--app-transition-standard);
 }
 
 .pdf-note-minimized-indicator:hover {
@@ -1176,7 +1180,7 @@ const emit = defineEmits<{
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 9999px;
+    border-radius: var(--app-radius-full);
     border: 1.5px solid color-mix(in srgb, var(--ui-warning) 75%, var(--ui-border) 25%);
     background: color-mix(in srgb, var(--ui-warning) 30%, var(--ui-bg) 70%);
     color: color-mix(in srgb, var(--ui-warning) 65%, var(--ui-text) 35%);

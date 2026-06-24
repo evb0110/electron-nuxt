@@ -33,6 +33,8 @@ const mocks = vi.hoisted(() => ({
     updateSettings: vi.fn(),
     sanitizeAllowedExternalUrl: vi.fn((value: unknown) => value),
     shellOpenExternal: vi.fn(),
+    acknowledgeWindowTabTransfer: vi.fn(),
+    requestWindowTabTransfer: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -67,8 +69,8 @@ vi.mock('@electron/settings', () => ({
     updateSettings: mocks.updateSettings,
 }));
 vi.mock('@electron/windowTabTransfer', () => ({
-    acknowledgeWindowTabTransfer: vi.fn(),
-    requestWindowTabTransfer: vi.fn(),
+    acknowledgeWindowTabTransfer: mocks.acknowledgeWindowTabTransfer,
+    requestWindowTabTransfer: mocks.requestWindowTabTransfer,
 }));
 vi.mock('@electron/window/registry', () => ({
     getAllRegisteredAppWindows: vi.fn(() => Array.from(mocks.registeredWindowsById.values())),
@@ -313,6 +315,49 @@ describe('IPC registry sender trust', () => {
                 dataUrl: `data:image/png;base64,${'A'.repeat(Math.ceil(ASSISTANT_MAX_IMAGE_BYTES / 3) * 4 + 129)}`,
             }],
         })).rejects.toThrow('Invalid assistant message payload');
+    }, ipcRegistrySecurityImportTimeoutMs);
+
+    it('rejects malformed tab transfer payloads before calling the transfer broker', async () => {
+        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
+        registerIpcHandlers();
+        const handler = mocks.handlers.get('tabs:transfer');
+        expect(handler).toBeTypeOf('function');
+        const event = createEvent('http://127.0.0.1:41001/electron/viewer');
+        const validTab = {
+            fileName: 'doc.pdf',
+            originalPath: '/tmp/doc.pdf',
+            isDirty: false,
+            isDjvu: false,
+        };
+
+        await expect(handler?.(event, {
+            target: {
+                kind: 'window',
+                windowId: 42,
+            },
+            payload: { kind: 'empty' },
+        })).resolves.toEqual({
+            transferId: '',
+            success: false,
+            targetWindowId: 42,
+            error: 'Invalid transfer request payload.',
+        });
+
+        await expect(handler?.(event, {
+            target: {
+                kind: 'window',
+                windowId: 42,
+            },
+            tab: validTab,
+            payload: { kind: 'unsupported' },
+        })).resolves.toEqual({
+            transferId: '',
+            success: false,
+            targetWindowId: 42,
+            error: 'Invalid transfer request payload.',
+        });
+
+        expect(mocks.requestWindowTabTransfer).not.toHaveBeenCalled();
     }, ipcRegistrySecurityImportTimeoutMs);
 
     it('coalesces trusted settings saves per sender before writing settings', async () => {

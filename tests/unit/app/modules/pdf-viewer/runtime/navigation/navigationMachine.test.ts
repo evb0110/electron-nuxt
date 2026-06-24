@@ -6,6 +6,10 @@ import {
 import {
     canSyncPdfNavigationFromViewport,
     createPdfNavigationMachineState,
+    getPdfNavigationStatusForSource,
+    getPdfNavigationTargetPageForSource,
+    getPdfNavigationTxnForSource,
+    isPdfNavigationTargetCurrent,
     isPdfNavigationTxnCurrent,
     reducePdfNavigationMachine,
 } from '@app/modules/pdf-viewer/runtime/navigation/navigationMachine';
@@ -135,5 +139,37 @@ describe('pdf navigation machine', () => {
         expect(canSyncPdfNavigationFromViewport(idle)).toBe(true);
         expect(canSyncPdfNavigationFromViewport(navigating)).toBe(false);
         expect(canSyncPdfNavigationFromViewport(settling)).toBe(false);
+    });
+
+    it('reports source-scoped active target state', () => {
+        const continuous = reducePdfNavigationMachine(createPdfNavigationMachineState(), {
+            type: 'NAVIGATE',
+            source: 'continuous',
+            targetPage: 12,
+        });
+        const settling = reducePdfNavigationMachine(continuous, {
+            type: 'SCROLL_APPLIED',
+            txn: continuous.txn,
+            page: 12,
+        });
+
+        expect(getPdfNavigationStatusForSource(settling, 'continuous')).toBe('settling');
+        expect(getPdfNavigationStatusForSource(settling, 'search')).toBe('idle');
+        expect(getPdfNavigationTargetPageForSource(settling, 'continuous')).toBe(12);
+        expect(getPdfNavigationTargetPageForSource(settling, 'paged')).toBeNull();
+        expect(getPdfNavigationTxnForSource(settling, 'continuous')).toBe(settling.txn);
+        expect(getPdfNavigationTxnForSource(settling, 'paged')).toBeNull();
+        expect(isPdfNavigationTargetCurrent(
+            settling,
+            'continuous',
+            settling.txn,
+            12,
+        )).toBe(true);
+        expect(isPdfNavigationTargetCurrent(
+            settling,
+            'continuous',
+            settling.txn,
+            11,
+        )).toBe(false);
     });
 });

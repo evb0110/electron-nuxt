@@ -103,6 +103,45 @@ export function isPdfNavigationTxnCurrent(
     return state.txn === txn && state.status !== 'idle';
 }
 
+export function getPdfNavigationStatusForSource(
+    state: IPdfNavigationState,
+    source: TPdfNavigationSource,
+) {
+    return state.source === source
+        ? state.status
+        : 'idle';
+}
+
+export function getPdfNavigationTargetPageForSource(
+    state: IPdfNavigationState,
+    source: TPdfNavigationSource,
+) {
+    return state.source === source && state.status !== 'idle'
+        ? state.targetPage
+        : null;
+}
+
+export function getPdfNavigationTxnForSource(
+    state: IPdfNavigationState,
+    source: TPdfNavigationSource,
+) {
+    return state.source === source && state.status !== 'idle'
+        ? state.txn
+        : null;
+}
+
+export function isPdfNavigationTargetCurrent(
+    state: IPdfNavigationState,
+    source: TPdfNavigationSource,
+    txn: number,
+    targetPage: number,
+) {
+    return state.source === source
+        && state.status !== 'idle'
+        && state.txn === txn
+        && state.targetPage === targetPage;
+}
+
 export function canSyncPdfNavigationFromViewport(state: IPdfNavigationState) {
     return state.status === 'idle';
 }

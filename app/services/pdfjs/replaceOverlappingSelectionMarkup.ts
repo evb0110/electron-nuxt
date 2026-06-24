@@ -7,7 +7,11 @@ import {
     areMarkupBoxesEqual,
     subtractMarkupBoxes,
 } from '@app/services/pdfjs/highlightMarkupBoxGeometry';
-import { asPdfjsEditor } from '@app/services/pdfjs/annotationEditorAdapter';
+import {
+    createAnnotationEditorWithSyntheticPointer,
+    deleteEditor,
+    removeEditor,
+} from '@app/services/pdfjs/annotationEditorAdapter';
 import type { getAnnotationEditorLayer } from '@app/services/pdfjs/annotationEditorAdapter';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
@@ -72,13 +76,11 @@ function getEditorMarkupSubtype(
 
 function removeEditorWithoutSelection(editor: IPdfjsEditor) {
     try {
-        // PDF.js private editor lifecycle method; re-audit on pdfjs-dist upgrades.
-        editor.remove?.();
+        removeEditor(editor);
     } catch (removeError) {
         BrowserLogger.debug('annotations', `Failed to remove overlapped markup editor: ${errorToLogText(removeError)}`);
         try {
-            // PDF.js private editor deletion fallback; re-audit on pdfjs-dist upgrades.
-            editor.delete?.();
+            deleteEditor(editor);
         } catch (deleteError) {
             BrowserLogger.debug('annotations', `Failed to delete overlapped markup editor: ${errorToLogText(deleteError)}`);
         }
@@ -93,18 +95,13 @@ function createReplacementMarkupEditor(
     boxes: IPdfjsHighlightBox[],
     markupSubtype: IHighlightMarkupSubtypeResolver,
 ) {
-    // PDF.js private editor factory; re-audit on pdfjs-dist upgrades.
-    const replacementEditor = asPdfjsEditor(layer?.createAndAddNewEditor(
-        new PointerEvent('pointerdown'),
-        false,
-        {
-            methodOfCreation: 'toolbar',
-            boxes: cloneHighlightBoxes(boxes),
-            color: sourceEditor.color,
-            opacity: sourceEditor.opacity,
-            text: '',
-        },
-    ));
+    const replacementEditor = createAnnotationEditorWithSyntheticPointer(layer, {
+        methodOfCreation: 'toolbar',
+        boxes: cloneHighlightBoxes(boxes),
+        color: sourceEditor.color,
+        opacity: sourceEditor.opacity,
+        text: '',
+    });
     if (!replacementEditor) {
         return;
     }

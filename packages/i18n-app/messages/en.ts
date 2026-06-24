@@ -1148,6 +1148,7 @@ export default {
     },
     'crop': {
         'dialogTitle': 'Crop Pages',
+        'dialogDescription': 'Choose crop margins and the page range to apply them to.',
         'margins': 'Margins',
         'marginTop': 'Top',
         'marginBottom': 'Bottom',

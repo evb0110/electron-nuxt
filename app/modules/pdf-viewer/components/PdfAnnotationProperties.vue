@@ -324,23 +324,24 @@ const opacityModel = computed({
     display: grid;
     grid-template-columns: minmax(88px, auto) minmax(0, 1fr) auto;
     align-items: center;
-    gap: 8px 10px;
+    gap: var(--app-space-3xl) var(--app-space-6xl);
 }
 
 .annotation-properties-label {
-    font-size: 11px;
+    font-size: var(--app-pdf-annotation-properties-title-font-size);
     color: var(--ui-text-muted);
     line-height: 1.25;
     overflow-wrap: anywhere;
 }
 
 .annotation-properties-color {
+    grid-column: -1;
     justify-self: start;
-    width: 28px;
-    height: 28px;
+    width: var(--app-pdf-annotation-properties-color-size);
+    height: var(--app-pdf-annotation-properties-color-size);
     padding: 1px;
     border: 1px solid var(--ui-border);
-    border-radius: 4px;
+    border-radius: var(--app-radius-xs);
     cursor: pointer;
     background: transparent;
 }
@@ -353,7 +354,7 @@ const opacityModel = computed({
 .annotation-properties-fill-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--app-space-3xl);
     min-width: 0;
     flex-wrap: wrap;
 }

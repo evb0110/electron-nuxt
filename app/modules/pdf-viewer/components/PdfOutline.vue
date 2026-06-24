@@ -16,26 +16,24 @@
             <span>{{ t('bookmarks.loading') }}</span>
         </div>
 
-        <div
+        <PdfPanelEmptyState
             v-else-if="bookmarks.length === 0"
-            class="pdf-bookmarks-empty"
+            icon="i-ph-book-open"
+            :title="t('bookmarks.noBookmarks')"
         >
-            <UIcon name="i-ph-book-open" />
-            <span>{{ t('bookmarks.noBookmarks') }}</span>
-            <button
-                v-if="isEditMode"
-                type="button"
-                class="pdf-bookmarks-empty-action"
-                :aria-label="t('bookmarks.addFirst')"
-                @click="addRootBookmark"
-            >
-                <UIcon
-                    name="i-ph-plus"
-                    class="size-4"
+            <template v-if="isEditMode" #action>
+                <UButton
+                    type="button"
+                    icon="i-ph-plus"
+                    size="xs"
+                    variant="soft"
+                    color="neutral"
+                    :label="t('bookmarks.addFirst')"
+                    :aria-label="t('bookmarks.addFirst')"
+                    @click="addRootBookmark"
                 />
-                <span>{{ t('bookmarks.addFirst') }}</span>
-            </button>
-        </div>
+            </template>
+        </PdfPanelEmptyState>
 
         <div
             v-else
@@ -117,6 +115,7 @@ import { pdfOutlineTreeKey } from '@app/modules/pdf-viewer/engine/pdf-outline-tr
 import AppSpinner from '@app/components/AppSpinner.vue';
 import PdfOutlineContextMenu from '@app/modules/pdf-viewer/components/PdfOutlineContextMenu.vue';
 import PdfOutlineItem from '@app/modules/pdf-viewer/components/PdfOutlineItem.vue';
+import PdfPanelEmptyState from '@app/modules/pdf-viewer/components/PdfPanelEmptyState.vue';
 import PdfOutlineToolbar from '@app/modules/pdf-viewer/components/PdfOutlineToolbar.vue';
 
 interface IProps {
@@ -672,37 +671,18 @@ onBeforeUnmount(() => {
 .pdf-bookmarks {
     height: 100%;
     min-height: 0;
-    padding: 0.75rem;
+    padding: var(--app-space-9xl);
 }
 
-.pdf-bookmarks-loading,
-.pdf-bookmarks-empty {
+.pdf-bookmarks-loading {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding: 24px;
+    gap: var(--app-space-3xl);
+    padding: var(--app-space-16xl);
     color: var(--ui-text-muted);
     text-align: center;
-}
-
-.pdf-bookmarks-empty-action {
-    border: 1px solid var(--ui-border);
-    border-radius: 6px;
-    background: var(--ui-bg);
-    color: var(--ui-text-highlighted);
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 12px;
-    font-weight: 600;
-    padding: 6px 10px;
-    cursor: pointer;
-}
-
-.pdf-bookmarks-empty-action:hover {
-    background: var(--ui-bg-muted);
 }
 
 .pdf-bookmarks-tree {
@@ -714,8 +694,8 @@ onBeforeUnmount(() => {
 
 .pdf-bookmarks-drop-end {
     height: 18px;
-    margin-top: 2px;
-    border-radius: 6px;
+    margin-top: var(--app-space-3xs);
+    border-radius: var(--app-radius-md);
 }
 
 .pdf-bookmarks-drop-end.is-active {

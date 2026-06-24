@@ -18,14 +18,14 @@ interface IProps {
     visible: boolean;
     style?: Record<string, string>;
     variant?: TVariant;
-    zIndex?: number;
+    zIndex?: number | string;
     minWidth?: string;
 }
 
 const {
     style: baseStyle = {},
     variant = 'grid',
-    zIndex = 70,
+    zIndex = 'var(--app-pdf-context-menu-z-index)',
     minWidth = '',
 } = defineProps<IProps>();
 
@@ -63,7 +63,7 @@ const resolvedStyle = computed(() => {
 .pdf-context-menu-base--panel {
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: var(--app-space-xs);
     padding: 0.3rem;
     border-radius: 0.55rem;
     background: var(--app-pdf-context-menu-panel-bg);
@@ -72,16 +72,16 @@ const resolvedStyle = computed(() => {
 
 .pdf-context-menu-base :deep(.pdf-context-menu__section-title) {
     margin: 0;
-    padding: 0.45rem 0.6rem 0.35rem;
+    padding: var(--app-space-2xl) var(--app-space-5xl) var(--app-space-md);
     background: var(--app-pdf-context-menu-title-bg);
     color: var(--app-pdf-context-menu-title-fg);
     font-size: 0.64rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    font-weight: 600;
+    font-weight: var(--app-font-weight-semibold);
     display: flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: var(--app-space-md);
     min-width: 0;
     white-space: normal;
     overflow: hidden;
@@ -94,13 +94,13 @@ const resolvedStyle = computed(() => {
 }
 
 .pdf-context-menu-base--panel :deep(.pdf-context-menu__divider) {
-    margin: 0.15rem 0.1rem;
+    margin: var(--app-space-2xs) 0.1rem;
 }
 
 .pdf-context-menu-base :deep(.pdf-context-menu__action) {
     display: flex;
     align-items: center;
-    gap: 0.45rem;
+    gap: var(--app-space-2xl);
     min-width: 0;
     text-align: left;
     color: var(--app-pdf-context-menu-item-fg);
@@ -112,10 +112,10 @@ const resolvedStyle = computed(() => {
 .pdf-context-menu-base--grid :deep(.pdf-context-menu__action) {
     border: none;
     background: var(--app-pdf-context-menu-item-bg);
-    min-height: 2rem;
-    padding: 0 0.6rem;
+    min-height: var(--app-control-height-sm);
+    padding: 0 var(--app-space-5xl);
     cursor: pointer;
-    font-size: 0.8125rem;
+    font-size: var(--app-text-size-body-sm);
 }
 
 .pdf-context-menu-base--grid :deep(.pdf-context-menu__action:hover:not(:disabled)) {
@@ -130,12 +130,12 @@ const resolvedStyle = computed(() => {
 
 .pdf-context-menu-base--panel :deep(.pdf-context-menu__action) {
     border: 1px solid transparent;
-    border-radius: 0.4rem;
+    border-radius: var(--app-radius-lg);
     background: transparent;
     color: var(--app-pdf-context-menu-panel-action-fg);
     font-size: 0.77rem;
     min-height: 0;
-    padding: 0.35rem 0.45rem;
+    padding: var(--app-space-md) var(--app-space-2xl);
     cursor: pointer;
 }
 
@@ -145,7 +145,7 @@ const resolvedStyle = computed(() => {
 }
 
 .pdf-context-menu-base--panel :deep(.pdf-context-menu__action:disabled) {
-    opacity: 0.5;
+    opacity: var(--app-opacity-disabled);
 }
 
 .pdf-context-menu-base :deep(.pdf-context-menu__action--danger) {
@@ -153,8 +153,8 @@ const resolvedStyle = computed(() => {
 }
 
 .pdf-context-menu-base :deep(.pdf-context-menu__icon) {
-    width: 0.875rem;
-    height: 0.875rem;
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
     flex-shrink: 0;
 }
 </style>

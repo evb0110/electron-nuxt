@@ -9,8 +9,19 @@ import type { IAnnotationSettings } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { detectEditorSubtype } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/detectEditorSubtype';
 import {
+    getEditorParentDimensions,
     getEditorsOnPage,
+    getEditorSerializedData,
+    isEditorDraggable,
+    isEditorInEditMode,
+    makeEditorResizable,
+    markEditorResizable,
+    patchEditorResizeHandlers,
+    patchEditorUpdateParams,
+    refreshEditorLayout,
     setSelectedEditor,
+    setEditorDraggable,
+    updateEditorParams,
 } from '@app/services/pdfjs/annotationEditorAdapter';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
@@ -20,7 +31,6 @@ const FREE_TEXT_FONT_SIZE_MAX = 96;
 type TFreeTextResizableEditor = IPdfjsEditor & {
     __freeTextResizablePatched?: boolean;
     __freeTextFontToWidthRatio?: number;
-    makeResizable?: () => void;
 };
 
 type TFreeTextResizeHookEditor = IPdfjsEditor & {
@@ -94,7 +104,7 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
     }
 
     function readSerializedFontSize(editor: IPdfjsEditor) {
-        const serialized = (editor as { serialize?: () => unknown }).serialize?.();
+        const serialized = getEditorSerializedData(editor);
         if (
             serialized
             && typeof serialized === 'object'
@@ -199,10 +209,10 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
         if (event.button !== 0) {
             return false;
         }
-        if (typeof editor.isInEditMode === 'function' && editor.isInEditMode()) {
+        if (isEditorInEditMode(editor)) {
             return false;
         }
-        return Boolean(editor._isDraggable && !editor.isSelected);
+        return Boolean(isEditorDraggable(editor) && !editor.isSelected);
     }
 
     function handleFreeTextPreSelectPointerDown(editor: IPdfjsEditor) {
@@ -258,15 +268,7 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
     }
 
     function getRecoverableParentDimensions(editor: IPdfjsEditor) {
-        const editorWithDims = editor as IPdfjsEditor & { parentDimensions?: number[] };
-        const parentDims = editorWithDims.parentDimensions;
-        if (!parentDims || parentDims.length < 2) {
-            return null;
-        }
-        return {
-            parentW: parentDims[0] ?? 0,
-            parentH: parentDims[1] ?? 0,
-        };
+        return getEditorParentDimensions(editor);
     }
 
     function recoverNaNDimensions(editor: IPdfjsEditor) {
@@ -295,22 +297,19 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
     }
 
     function ensureFreeTextEditorInteractivity(editor: IPdfjsEditor) {
-        const tagged = editor as IPdfjsEditor & { makeResizable?: () => void };
         const div = editor.div;
         if (!div) {
             return;
         }
 
-        const isEditing = typeof editor.isInEditMode === 'function' && editor.isInEditMode();
+        const isEditing = isEditorInEditMode(editor);
 
         recoverNaNPosition(editor);
         recoverNaNDimensions(editor);
 
         if (!isEditing) {
-            if (typeof tagged.makeResizable === 'function') {
-                tagged.makeResizable();
-            }
-            editor._isDraggable = true;
+            makeEditorResizable(editor);
+            setEditorDraggable(editor, true);
             const overlay = div.querySelector<HTMLElement>('.overlay');
             if (overlay) {
                 overlay.classList.add('enabled');
@@ -333,10 +332,9 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
         }
         captureRatio();
 
-        const originalUpdateParams = typeof editor.updateParams === 'function'
-            ? editor.updateParams.bind(editor) : null;
-        if (originalUpdateParams) {
-            editor.updateParams = (type: number, value: unknown) => {
+        patchEditorUpdateParams(
+            editor,
+            (originalUpdateParams, type, value) => {
                 const isExternalFontChange
                     = type === AnnotationEditorParamsType.FREETEXT_SIZE
                     && !tagged.__freeTextIsResizeSync;
@@ -347,38 +345,29 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
                 if (isExternalFontChange) {
                     refreshFreeTextFontRatio(editor, tagged);
                 }
-            };
-        }
+            },
+        );
 
-        const originalOnResizing = typeof editor._onResizing === 'function'
-            ? editor._onResizing.bind(editor)
-            : null;
-
-        editor._onResizing = () => {
-            originalOnResizing?.();
-            const targetFont = computeFreeTextResizeTargetFont(tagged, editor);
-            if (targetFont === null) {
-                return;
-            }
-            applyFreeTextInternalFontSize(editor, targetFont);
-            updateFreeTextResizerSize(editor);
-        };
-
-        const originalOnResized = typeof editor._onResized === 'function'
-            ? editor._onResized.bind(editor)
-            : null;
-
-        editor._onResized = () => {
-            originalOnResized?.();
-            const nextFont = computeFreeTextResizeTargetFont(tagged, editor);
-            if (nextFont === null) {
-                return;
-            }
-            const targetFont = Math.round(nextFont);
-            applyFreeTextInternalFontSize(editor, targetFont);
-            updateFreeTextResizerSize(editor);
-            scheduleFreeTextFontSync(editor, tagged, targetFont);
-        };
+        patchEditorResizeHandlers(editor, {
+            onResizing: () => {
+                const targetFont = computeFreeTextResizeTargetFont(tagged, editor);
+                if (targetFont === null) {
+                    return;
+                }
+                applyFreeTextInternalFontSize(editor, targetFont);
+                updateFreeTextResizerSize(editor);
+            },
+            onResized: () => {
+                const nextFont = computeFreeTextResizeTargetFont(tagged, editor);
+                if (nextFont === null) {
+                    return;
+                }
+                const targetFont = Math.round(nextFont);
+                applyFreeTextInternalFontSize(editor, targetFont);
+                updateFreeTextResizerSize(editor);
+                scheduleFreeTextFontSync(editor, tagged, targetFont);
+            },
+        });
 
         tagged.__freeTextResizeHookPatched = true;
     }
@@ -463,9 +452,7 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
 
             tagged.__freeTextIsResizeSync = true;
             try {
-                if (typeof editor.updateParams === 'function') {
-                    editor.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, targetFont);
-                } else {
+                if (!updateEditorParams(editor, AnnotationEditorParamsType.FREETEXT_SIZE, targetFont)) {
                     setSelectedEditor(uiManager, editor);
                     uiManager.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, targetFont);
                 }
@@ -485,8 +472,7 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
             if (savedH !== undefined) {
                 editor.height = savedH;
             }
-            editor.setDims?.();
-            editor.fixAndSetPosition?.();
+            refreshEditorLayout(editor);
 
             emitAnnotationModified();
             scheduleAnnotationCommentsSync();
@@ -512,12 +498,7 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
 
     function markFreeTextResizable(editor: IPdfjsEditor, tagged: TFreeTextResizableEditor) {
         try {
-            Object.defineProperty(editor, 'isResizable', {
-                configurable: true,
-                get() {
-                    return true;
-                },
-            });
+            markEditorResizable(editor);
             tagged.__freeTextResizablePatched = true;
         } catch {
             // Ignore if PDF.js internals reject instance patching.

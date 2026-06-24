@@ -9,6 +9,25 @@ interface IContinuousLayoutReapplyEvent {
     scrollOptions?: IScrollToPageOptions | undefined;
 }
 
+interface IPagedNavigationHoldWatchdogEvent {
+    delayMs: number;
+    runId: number;
+    targetPage: number;
+}
+
+interface IArmPagedNavigationHoldWatchdogOptions {
+    abandonMs: number;
+    recoveryRenderMs: number;
+    readyRetryDelaysMs: readonly number[];
+    runId: number;
+    stallLogMs: number;
+    targetPage: number;
+    onAbandon: (event: IPagedNavigationHoldWatchdogEvent) => void;
+    onReadyRetry: (event: IPagedNavigationHoldWatchdogEvent) => void;
+    onRecovery: (event: IPagedNavigationHoldWatchdogEvent) => void;
+    onStillWaiting: (event: IPagedNavigationHoldWatchdogEvent) => void;
+}
+
 interface ICreateNavigationSettleEffectsDeps {
     getLayoutObserverElements: (pageNumber: number) => HTMLElement[];
     hasLayoutMutation: (mutations: MutationRecord[], pageNumber: number) => boolean;
@@ -20,6 +39,10 @@ export function createNavigationSettleEffects(deps: ICreateNavigationSettleEffec
     let searchNavigationSettleTimer: ReturnType<typeof setTimeout> | null = null;
     let continuousNavigationRenderTimers: Array<ReturnType<typeof setTimeout>> = [];
     let continuousNavigationTargetClearTimer: ReturnType<typeof setTimeout> | null = null;
+    let pagedNavigationReadyRetryTimers: Array<ReturnType<typeof setTimeout>> = [];
+    let pagedNavigationRecoveryRenderTimer: ReturnType<typeof setTimeout> | null = null;
+    let pagedNavigationAbandonTimer: ReturnType<typeof setTimeout> | null = null;
+    let pagedNavigationStillWaitingTimer: ReturnType<typeof setTimeout> | null = null;
     let continuousNavigationLayoutObserver: MutationObserver | null = null;
     let continuousNavigationResizeObserver: ResizeObserver | null = null;
     let continuousNavigationResizeObservedElements: HTMLElement[] = [];
@@ -44,6 +67,59 @@ export function createNavigationSettleEffects(deps: ICreateNavigationSettleEffec
             pagedNavigationSettleTimer = null;
             onSettle(runId, pageNumber);
         }, ms);
+    }
+
+    function clearPagedHoldWatchdog() {
+        for (const timer of pagedNavigationReadyRetryTimers) {
+            clearTimeout(timer);
+        }
+        pagedNavigationReadyRetryTimers = [];
+        if (pagedNavigationRecoveryRenderTimer !== null) {
+            clearTimeout(pagedNavigationRecoveryRenderTimer);
+            pagedNavigationRecoveryRenderTimer = null;
+        }
+        if (pagedNavigationAbandonTimer !== null) {
+            clearTimeout(pagedNavigationAbandonTimer);
+            pagedNavigationAbandonTimer = null;
+        }
+        if (pagedNavigationStillWaitingTimer !== null) {
+            clearTimeout(pagedNavigationStillWaitingTimer);
+            pagedNavigationStillWaitingTimer = null;
+        }
+    }
+
+    function armPagedHoldWatchdog(options: IArmPagedNavigationHoldWatchdogOptions) {
+        clearPagedHoldWatchdog();
+
+        const buildEvent = (delayMs: number): IPagedNavigationHoldWatchdogEvent => ({
+            delayMs,
+            runId: options.runId,
+            targetPage: options.targetPage,
+        });
+
+        for (const delayMs of options.readyRetryDelaysMs) {
+            const timer = setTimeout(() => {
+                pagedNavigationReadyRetryTimers = pagedNavigationReadyRetryTimers
+                    .filter(activeTimer => activeTimer !== timer);
+                options.onReadyRetry(buildEvent(delayMs));
+            }, delayMs);
+            pagedNavigationReadyRetryTimers.push(timer);
+        }
+
+        pagedNavigationRecoveryRenderTimer = setTimeout(() => {
+            pagedNavigationRecoveryRenderTimer = null;
+            options.onRecovery(buildEvent(options.recoveryRenderMs));
+        }, options.recoveryRenderMs);
+
+        pagedNavigationAbandonTimer = setTimeout(() => {
+            pagedNavigationAbandonTimer = null;
+            options.onAbandon(buildEvent(options.abandonMs));
+        }, options.abandonMs);
+
+        pagedNavigationStillWaitingTimer = setTimeout(() => {
+            pagedNavigationStillWaitingTimer = null;
+            options.onStillWaiting(buildEvent(options.stallLogMs));
+        }, options.stallLogMs);
     }
 
     function clearSearchSettle() {
@@ -233,18 +309,21 @@ export function createNavigationSettleEffects(deps: ICreateNavigationSettleEffec
 
     function disposeAll() {
         clearPagedSettle();
+        clearPagedHoldWatchdog();
         clearSearchSettle();
         clearContinuous();
     }
 
     return {
         armPagedSettle,
+        armPagedHoldWatchdog,
         armSearchSettle,
         armContinuousRender,
         armContinuousTargetFallback,
         attachLayoutObservers,
         scheduleLayoutReapply,
         clearPagedSettle,
+        clearPagedHoldWatchdog,
         clearSearchSettle,
         clearContinuousRenderTimers,
         clearContinuousTargetFallback,

@@ -1758,7 +1758,7 @@ defineExpose<IDocumentViewerExpose>({
     position: relative;
     overflow: hidden;
     border: 1px solid var(--ui-border);
-    border-radius: var(--ui-radius-lg);
+    border-radius: var(--app-radius-lg);
     background: var(--ui-bg);
     box-shadow: var(--shadow-popup);
 }
@@ -1839,7 +1839,7 @@ defineExpose<IDocumentViewerExpose>({
     position: absolute;
     right: 0.75rem;
     bottom: 0.75rem;
-    border-radius: var(--ui-radius-full);
+    border-radius: var(--app-radius-full);
     background: color-mix(in oklab, var(--ui-bg-elevated) 88%, transparent);
     padding: 0.125rem 0.5rem;
     font-size: 0.75rem;

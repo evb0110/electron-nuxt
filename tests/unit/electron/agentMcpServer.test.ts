@@ -1,17 +1,22 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
+import { createServer } from 'node:net';
 import type {
     IAgentWorkspaceSnapshot,
     TAgentCommand,
 } from '@contracts/agent';
+import { ASSISTANT_MCP_TOKEN_ENV } from '@electron/features/agent/codexAssistantConfig';
 import {
     createLocalMcpServerIdentity,
     processMcpRequest,
     resolveDefaultLocalMcpPort,
+    shutdownLocalMcpServer,
+    startLocalMcpServer,
 } from '@electron/features/agent/mcpServer';
 import type {
     IAgentDocumentPageReadOptions,
@@ -140,6 +145,17 @@ const workspaceSnapshot: IAgentWorkspaceSnapshot = {
     },
 };
 
+async function findFreePort() {
+    const server = createServer();
+    await new Promise<void>((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', () => resolve());
+    });
+    const address = server.address();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    return typeof address === 'object' && address !== null ? address.port : 38672;
+}
+
 function createOptions() {
     return {
         identity: {
@@ -211,9 +227,23 @@ function createOptions() {
 }
 
 describe('processMcpRequest', () => {
+    afterEach(async () => {
+        await shutdownLocalMcpServer();
+        vi.unstubAllEnvs();
+    });
+
     it('uses different default MCP ports for packaged and dev apps', () => {
         expect(resolveDefaultLocalMcpPort(true)).toBe(38671);
         expect(resolveDefaultLocalMcpPort(false)).toBe(38672);
+    });
+
+    it('publishes generated local MCP tokens through the configured Codex env var', async () => {
+        vi.stubEnv('EVB_MCP_PORT', String(await findFreePort()));
+        vi.stubEnv(ASSISTANT_MCP_TOKEN_ENV, '');
+
+        await startLocalMcpServer();
+
+        expect(process.env[ASSISTANT_MCP_TOKEN_ENV]).toMatch(/^[\da-f]{64}$/u);
     });
 
     it('builds dev MCP identity from the Electron app', () => {

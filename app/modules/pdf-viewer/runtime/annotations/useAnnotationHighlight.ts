@@ -32,12 +32,15 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import {
     addUndoableEditorToLayer,
-    asPdfjsEditor,
     clearSelectedEditorState,
+    createAnnotationEditorAtPoint,
+    createAnnotationEditorWithSyntheticPointer,
+    dispatchAnnotationEditorPointerTap,
     getActiveEditor,
     getAnnotationEditorLayer,
     getAnnotationEditorLayerDiv,
     getEditorsOnPage,
+    isEditorCommentDeleted,
     isPdfjsEditorWithEditComment,
 } from '@app/services/pdfjs/annotationEditorAdapter';
 import { replaceOverlappingSelectionMarkup } from '@app/services/pdfjs/replaceOverlappingSelectionMarkup';
@@ -560,21 +563,17 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 markupSubtype,
             );
             editorSnapshot = captureEditorSnapshot(pageIndex, getEditorsForPage, identity.getEditorIdentity);
-            const createdEditor = layer?.createAndAddNewEditor(
-                new PointerEvent('pointerdown'),
-                false,
-                {
-                    methodOfCreation: 'toolbar',
-                    boxes,
-                    anchorNode: startContainer,
-                    anchorOffset: startOffset,
-                    focusNode: endContainer,
-                    focusOffset: endOffset,
-                    text,
-                },
-            );
+            const createdEditor = createAnnotationEditorWithSyntheticPointer(layer, {
+                methodOfCreation: 'toolbar',
+                boxes,
+                anchorNode: startContainer,
+                anchorOffset: startOffset,
+                focusNode: endContainer,
+                focusOffset: endOffset,
+                text,
+            });
             createdAnnotation = true;
-            const targetEditor = await resolveCreatedEditor(asPdfjsEditor(createdEditor));
+            const targetEditor = await resolveCreatedEditor(createdEditor);
             registerCreatedEditorUndo(targetEditor);
             attachSelectionPreviewText(targetEditor, selectionPreviewText);
             applySubtypeOverrideToEditor(targetEditor);
@@ -674,52 +673,6 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             x: pageRect.left + clamp01(pageX) * pageRect.width,
             y: pageRect.top + clamp01(pageY) * pageRect.height,
         };
-    }
-
-    function dispatchFreeTextPointer(layerDiv: HTMLElement, clientX: number, clientY: number) {
-        const eventInit: PointerEventInit = {
-            clientX,
-            clientY,
-            button: 0,
-            buttons: 1,
-            bubbles: true,
-            pointerType: 'mouse',
-            isPrimary: true,
-        };
-        layerDiv.dispatchEvent(new PointerEvent('pointerdown', eventInit));
-        layerDiv.dispatchEvent(new PointerEvent('pointerup', eventInit));
-    }
-
-    function getLayerOffsetPoint(layerDiv: HTMLElement, clientX: number, clientY: number) {
-        const rect = layerDiv.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) {
-            return null;
-        }
-
-        return {
-            offsetX: Math.min(Math.max(clientX - rect.left, 0), rect.width),
-            offsetY: Math.min(Math.max(clientY - rect.top, 0), rect.height),
-        };
-    }
-
-    function createFreeTextEditorAtPoint(
-        uiManager: AnnotationEditorUIManager,
-        pageIndex: number,
-        layerDiv: HTMLElement,
-        clientX: number,
-        clientY: number,
-    ) {
-        const layer = getAnnotationEditorLayer(uiManager, pageIndex);
-        const offsetPoint = getLayerOffsetPoint(layerDiv, clientX, clientY);
-        if (!layer || !offsetPoint) {
-            return null;
-        }
-
-        const editor = layer.createAndAddNewEditor(
-            offsetPoint as PointerEvent,
-            false,
-        );
-        return asPdfjsEditor(editor);
     }
 
     function keepFreeTextEditorAlive(editor: IPdfjsEditor) {
@@ -1055,9 +1008,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
     }
 
     function isDeletedEditor(editor: IPdfjsEditor) {
-        return typeof editor.comment === 'object'
-            && editor.comment !== null
-            && editor.comment.deleted === true;
+        return isEditorCommentDeleted(editor);
     }
 
     function pickCreatedEditorCandidate(
@@ -1152,7 +1103,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 return false;
             }
 
-            const directlyCreatedEditor = createFreeTextEditorAtPoint(
+            const directlyCreatedEditor = createAnnotationEditorAtPoint(
                 uiManager,
                 pageIndex,
                 layerDiv,
@@ -1160,7 +1111,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 pageClientPoint.y,
             );
             if (!directlyCreatedEditor) {
-                dispatchFreeTextPointer(layerDiv, pageClientPoint.x, pageClientPoint.y);
+                dispatchAnnotationEditorPointerTap(layerDiv, pageClientPoint.x, pageClientPoint.y);
             }
 
             const resolvedEditor = await resolveCreatedEditor(directlyCreatedEditor);

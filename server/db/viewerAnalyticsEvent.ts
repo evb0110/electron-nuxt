@@ -8,6 +8,7 @@ import {
     timestamp,
     varchar,
 } from 'drizzle-orm/pg-core';
+import { ANALYTICS_GEO_LIMITS } from '@contracts/analytics';
 
 export const viewerAnalyticsEvent = pgTable(
     'viewer_analytics_event',
@@ -19,9 +20,9 @@ export const viewerAnalyticsEvent = pgTable(
         screenCategory: varchar('screen_category', { length: 16 }),
         sessionId: varchar('session_id', { length: 64 }),
         referrer: text('referrer'),
-        country: varchar('country', { length: 2 }),
-        city: varchar('city', { length: 255 }),
-        region: varchar('region', { length: 32 }),
+        country: varchar('country', { length: ANALYTICS_GEO_LIMITS.country }),
+        city: varchar('city', { length: ANALYTICS_GEO_LIMITS.city }),
+        region: varchar('region', { length: ANALYTICS_GEO_LIMITS.region }),
         visitorHash: varchar('visitor_hash', { length: 64 }),
         deploymentHost: varchar('deployment_host', { length: 255 }),
         userAgent: text('user_agent'),

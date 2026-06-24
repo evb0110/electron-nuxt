@@ -1148,6 +1148,7 @@ export default {
     },
     'crop': {
         'dialogTitle': 'Ritaglia pagine',
+        'dialogDescription': 'Scegli i margini di ritaglio e l\'intervallo di pagine a cui applicarli.',
         'margins': 'Margini',
         'marginTop': 'Superiore',
         'marginBottom': 'Inferiore',

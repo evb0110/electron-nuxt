@@ -27,7 +27,6 @@ const ZOOM_CHANGE_MAX_CANVAS_PIXELS = 14_000_000;
 const ZOOM_CHANGE_SETTLE_CLAMP_SCALE_THRESHOLD = 0.98;
 const ZOOM_GESTURE_CHANGE_SOURCE = 'zoom-gesture-change';
 const CURRENT_PAGE_FIT_RERENDER_SETTLE_MS = 80;
-const CURRENT_PAGE_FIT_CANCEL_SETTLE_MS = 150;
 const FIT_HEIGHT_PRE_RENDER_SNAP_MAX_TICKS = 4;
 
 type TFitRerenderTransitionOwner = 'current-page' | 'paged-target';
@@ -85,7 +84,7 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
         stage: string,
         syncOptions?: ICurrentPageSyncOptions,
     ) => void;
-    cancelInFlightPageRenders?: (() => void) | undefined;
+    cancelInFlightPageRenders?: (() => Promise<void> | void) | undefined;
     /**
      * Hydrates the target row's real dimensions before fit scale recomputes.
      *
@@ -414,18 +413,9 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             && !isResizing.value;
     }
 
-    /**
-     * Give PDF.js enough time to settle cancelled page renders.
-     *
-     * PDF.js 5.x intentionally waits 100ms before aborting the operator-list
-     * stream for a cancelled render. Restarting the same large page during
-     * that window can clear PDF.js's abort timer and leave the replacement
-     * render waiting on a half-cancelled stream, which is how rapid fit-height
-     * navigation to page 928 produced an infinite skeleton.
-     */
-    async function waitForCurrentPageFitCancellationToSettle() {
+    async function cancelCurrentPageFitRendersAndWaitForSettle() {
+        await cancelInFlightPageRenders?.();
         await nextTick();
-        await delay(CURRENT_PAGE_FIT_CANCEL_SETTLE_MS);
     }
 
     async function runCurrentPageFitRerenderTransition(task: () => Promise<void>) {
@@ -694,7 +684,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                     return;
                 }
             }
-            cancelInFlightPageRenders?.();
+            void cancelInFlightPageRenders?.();
             await reRenderAllVisiblePages(getVisibleRange, {
                 preserveExistingPages: true,
                 disableHorizontalAnchorRestore: mode === 'width' || shouldDisableHorizontalAnchorRestore(),
@@ -763,7 +753,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                     return;
                 }
                 cancelDestinationNavigationTarget?.();
-                cancelInFlightPageRenders?.();
+                void cancelInFlightPageRenders?.();
                 const zoomViewportAnchor = consumeZoomViewportAnchor?.() ?? null;
                 const trustCurrentPageAnchor = !zoomViewportAnchor && canTrustCurrentPageAsZoomAnchor();
                 const zoomAnchor = buildResizeAnchorContext({
@@ -822,7 +812,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             setupPagePlaceholders();
         }
 
-        cancelInFlightPageRenders?.();
+        void cancelInFlightPageRenders?.();
         await reRenderAllVisiblePages(getVisibleRange, { disableHorizontalAnchorRestore: shouldDisableHorizontalAnchorRestore() });
         if (!isViewerAsyncRunActive(runId, viewModeRunId, document) || viewMode.value !== targetViewMode) {
             return;
@@ -901,8 +891,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 ) {
                     return;
                 }
-                cancelInFlightPageRenders?.();
-                await waitForCurrentPageFitCancellationToSettle();
+                await cancelCurrentPageFitRendersAndWaitForSettle();
                 if (
                     !isCurrentPageFitRerenderRunActive(runId, document, next)
                     || fitMode.value !== 'height'
@@ -957,8 +946,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             ) {
                 return;
             }
-            cancelInFlightPageRenders?.();
-            await waitForCurrentPageFitCancellationToSettle();
+            await cancelCurrentPageFitRendersAndWaitForSettle();
             if (
                 !isCurrentPageFitRerenderRunActive(runId, document, next)
                 || fitMode.value !== 'width'
@@ -1022,8 +1010,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                     }
                 }
 
-                cancelInFlightPageRenders?.();
-                await waitForCurrentPageFitCancellationToSettle();
+                await cancelCurrentPageFitRendersAndWaitForSettle();
                 if (!isRunActive()) {
                     return;
                 }
@@ -1090,7 +1077,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 return;
             }
             cancelDestinationNavigationTarget?.();
-            cancelInFlightPageRenders?.();
+            void cancelInFlightPageRenders?.();
             const zoomViewportAnchor = consumeZoomViewportAnchor?.() ?? null;
             const trustCurrentPageAnchor = !zoomViewportAnchor && canTrustCurrentPageAsZoomAnchor();
             const zoomRerenderSource = zoomViewportAnchor

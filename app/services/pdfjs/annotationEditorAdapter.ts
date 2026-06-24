@@ -28,6 +28,40 @@ interface IUiManagerWithSetActiveEditor {setActiveEditor: (editor: unknown | nul
 
 interface IUiManagerWithDefaultParamUpdater {__evbUpdateDefaultParams?: (type: number, value: unknown) => boolean;}
 
+interface IPdfjsDocumentWithAnnotationStorage {annotationStorage?: unknown;}
+
+interface IPdfjsRuntimeSmokeInput {AnnotationEditorUIManager: unknown;}
+
+interface IEditorLayerPointerPoint {
+    clientX: number;
+    clientY: number;
+    offsetX: number;
+    offsetY: number;
+}
+
+interface IPatchEditorResizeHandlersOptions {
+    onResizing: () => void;
+    onResized: () => void;
+}
+
+type TEditorUpdateParamsOriginal = (type: number, value: unknown) => unknown;
+
+const REQUIRED_UI_MANAGER_METHODS = [
+    'addCommands',
+    'addEditListeners',
+    'addToAnnotationStorage',
+    'delete',
+    'destroy',
+    'getEditors',
+    'getMode',
+    'onPageChanging',
+    'onScaleChanging',
+    'removeEditListeners',
+    'setSelected',
+    'updateParams',
+    'waitForEditorsRendered',
+] as const;
+
 function isPdfjsEditor(value: unknown): value is IPdfjsEditor {
     if (!isRecord(value)) {
         return false;
@@ -63,6 +97,38 @@ export function isPdfjsEditorWithEditComment(
         editor
         && getOptionalFunction(editor, 'editComment') !== null,
     );
+}
+
+function hasPrototypeFunction(value: unknown, method: string) {
+    if (typeof value !== 'function' && !isRecord(value)) {
+        return false;
+    }
+    const prototype = (value as { prototype?: unknown }).prototype;
+    return getOptionalFunction(prototype, method) !== null;
+}
+
+export function getAnnotationEditorRuntimeSmokeFailures(runtime: IPdfjsRuntimeSmokeInput) {
+    const failures: string[] = [];
+    if (typeof runtime.AnnotationEditorUIManager !== 'function') {
+        failures.push('AnnotationEditorUIManager export is not a constructor');
+        return failures;
+    }
+
+    for (const method of REQUIRED_UI_MANAGER_METHODS) {
+        if (!hasPrototypeFunction(runtime.AnnotationEditorUIManager, method)) {
+            failures.push(`AnnotationEditorUIManager.${method} is missing`);
+        }
+    }
+
+    return failures;
+}
+
+export function assertAnnotationEditorRuntimeSmoke(runtime: IPdfjsRuntimeSmokeInput) {
+    const failures = getAnnotationEditorRuntimeSmokeFailures(runtime);
+    if (failures.length === 0) {
+        return;
+    }
+    throw new Error(`PDF.js annotation editor runtime is incompatible: ${failures.join('; ')}`);
 }
 
 function hasGetLayer(
@@ -260,6 +326,81 @@ export function getEditorById(
     return asPdfjsEditor(uiManager.getEditor(id));
 }
 
+export function getStoredAnnotationEditor(
+    pdfDocument: IPdfjsDocumentWithAnnotationStorage | null,
+    annotationElementId: string,
+) {
+    const annotationStorage = pdfDocument?.annotationStorage;
+    if (!isRecord(annotationStorage)) {
+        return null;
+    }
+    const getEditor = getOptionalFunction<[string], unknown>(
+        annotationStorage,
+        'getEditor',
+    );
+    return asPdfjsEditor(
+        getEditor
+            ? getEditor.call(annotationStorage, annotationElementId)
+            : null,
+    );
+}
+
+export function setEditorCommentText(editor: IPdfjsEditor, text: string) {
+    editor.comment = text;
+}
+
+export function isEditorCommentDeleted(editor: IPdfjsEditor) {
+    return isRecord(editor.comment) && editor.comment.deleted === true;
+}
+
+export function syncEditorToAnnotationStorage(editor: IPdfjsEditor) {
+    const addToAnnotationStorage = getOptionalFunction(editor, 'addToAnnotationStorage');
+    if (!addToAnnotationStorage) {
+        return false;
+    }
+    addToAnnotationStorage.call(editor);
+    return true;
+}
+
+export function writeEditorCommentToAnnotationStorage(editor: IPdfjsEditor, text: string) {
+    setEditorCommentText(editor, text);
+    syncEditorToAnnotationStorage(editor);
+}
+
+export function markEditorChangedExistingAnnotation(
+    uiManager: AnnotationEditorUIManager | null,
+    editor: IPdfjsEditor,
+) {
+    const manager = uiManager ?? editor._uiManager ?? null;
+    const addChangedExistingAnnotation = getOptionalFunction<[IPdfjsEditor], unknown>(
+        manager,
+        'addChangedExistingAnnotation',
+    );
+    if (!addChangedExistingAnnotation) {
+        return false;
+    }
+    addChangedExistingAnnotation.call(manager, editor);
+    return true;
+}
+
+export function removeEditor(editor: IPdfjsEditor) {
+    const remove = getOptionalFunction(editor, 'remove');
+    if (!remove) {
+        return false;
+    }
+    remove.call(editor);
+    return true;
+}
+
+export function deleteEditor(editor: IPdfjsEditor) {
+    const deleteMethod = getOptionalFunction(editor, 'delete');
+    if (!deleteMethod) {
+        return false;
+    }
+    deleteMethod.call(editor);
+    return true;
+}
+
 export function unselectAllEditors(
     uiManager: AnnotationEditorUIManager | null,
 ) {
@@ -353,8 +494,7 @@ function removeEditorForHistory(editor: IPdfjsEditor | null) {
     if (!editor) {
         return false;
     }
-    editor.remove?.();
-    return true;
+    return removeEditor(editor);
 }
 
 function isAnnotationEditorLayer(value: unknown): value is IPdfjsAnnotationEditorLayer {
@@ -391,4 +531,205 @@ export function getAnnotationEditorLayerDiv(
         return layer.div;
     }
     return null;
+}
+
+export function getAnnotationEditorLayerPointerPoint(
+    layerDiv: HTMLElement,
+    clientX: number,
+    clientY: number,
+): IEditorLayerPointerPoint | null {
+    const rect = layerDiv.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+        return null;
+    }
+
+    return {
+        clientX,
+        clientY,
+        offsetX: Math.min(Math.max(clientX - rect.left, 0), rect.width),
+        offsetY: Math.min(Math.max(clientY - rect.top, 0), rect.height),
+    };
+}
+
+function toSyntheticPointerEvent(point?: Partial<IEditorLayerPointerPoint>) {
+    return {
+        button: 0,
+        buttons: 1,
+        bubbles: true,
+        isPrimary: true,
+        pointerType: 'mouse',
+        ...(point ?? {}),
+    } as PointerEvent;
+}
+
+export function createAnnotationEditorWithSyntheticPointer(
+    layer: IPdfjsAnnotationEditorLayer | null,
+    data?: Record<string, unknown>,
+) {
+    if (!layer) {
+        return null;
+    }
+    const editor = layer.createAndAddNewEditor(
+        toSyntheticPointerEvent(),
+        false,
+        data,
+    );
+    return asPdfjsEditor(editor);
+}
+
+export function createAnnotationEditorAtPoint(
+    uiManager: AnnotationEditorUIManager,
+    pageIndex: number,
+    layerDiv: HTMLElement,
+    clientX: number,
+    clientY: number,
+) {
+    const layer = getAnnotationEditorLayer(uiManager, pageIndex);
+    const point = getAnnotationEditorLayerPointerPoint(layerDiv, clientX, clientY);
+    if (!layer || !point) {
+        return null;
+    }
+
+    const editor = layer.createAndAddNewEditor(
+        toSyntheticPointerEvent(point),
+        false,
+    );
+    return asPdfjsEditor(editor);
+}
+
+export function dispatchAnnotationEditorPointerTap(
+    layerDiv: HTMLElement,
+    clientX: number,
+    clientY: number,
+) {
+    if (typeof PointerEvent !== 'function') {
+        return false;
+    }
+    const eventInit: PointerEventInit = {
+        clientX,
+        clientY,
+        button: 0,
+        buttons: 1,
+        bubbles: true,
+        pointerType: 'mouse',
+        isPrimary: true,
+    };
+    layerDiv.dispatchEvent(new PointerEvent('pointerdown', eventInit));
+    layerDiv.dispatchEvent(new PointerEvent('pointerup', eventInit));
+    return true;
+}
+
+export function isEditorInEditMode(editor: IPdfjsEditor) {
+    const isInEditMode = getOptionalFunction(editor, 'isInEditMode');
+    return isInEditMode ? isInEditMode.call(editor) === true : false;
+}
+
+export function isEditorDraggable(editor: IPdfjsEditor) {
+    return editor._isDraggable === true;
+}
+
+export function setEditorDraggable(editor: IPdfjsEditor, draggable: boolean) {
+    editor._isDraggable = draggable;
+}
+
+export function makeEditorResizable(editor: IPdfjsEditor) {
+    const makeResizable = getOptionalFunction(editor, 'makeResizable');
+    if (!makeResizable) {
+        return false;
+    }
+    makeResizable.call(editor);
+    return true;
+}
+
+export function markEditorResizable(editor: IPdfjsEditor) {
+    Object.defineProperty(editor, 'isResizable', {
+        configurable: true,
+        get() {
+            return true;
+        },
+    });
+}
+
+export function getEditorSerializedData(editor: IPdfjsEditor) {
+    const serialize = getOptionalFunction<[], unknown>(editor, 'serialize');
+    return serialize ? serialize.call(editor) : null;
+}
+
+export function getEditorParentDimensions(editor: IPdfjsEditor) {
+    const parentDimensions = isRecord(editor)
+        ? editor.parentDimensions
+        : null;
+    if (
+        !Array.isArray(parentDimensions)
+        || parentDimensions.length < 2
+        || typeof parentDimensions[0] !== 'number'
+        || typeof parentDimensions[1] !== 'number'
+        || !Number.isFinite(parentDimensions[0])
+        || !Number.isFinite(parentDimensions[1])
+    ) {
+        return null;
+    }
+    return {
+        parentW: parentDimensions[0],
+        parentH: parentDimensions[1],
+    };
+}
+
+export function updateEditorParams(
+    editor: IPdfjsEditor,
+    type: number,
+    value: unknown,
+) {
+    const updateParams = getOptionalFunction<[number, unknown], unknown>(editor, 'updateParams');
+    if (!updateParams) {
+        return false;
+    }
+    updateParams.call(editor, type, value);
+    return true;
+}
+
+export function patchEditorUpdateParams(
+    editor: IPdfjsEditor,
+    handler: (
+        originalUpdateParams: TEditorUpdateParamsOriginal,
+        type: number,
+        value: unknown,
+    ) => unknown,
+) {
+    const originalUpdateParams = getOptionalFunction<[number, unknown], unknown>(editor, 'updateParams')?.bind(editor);
+    if (!originalUpdateParams) {
+        return false;
+    }
+
+    editor.updateParams = (type: number, value: unknown) => handler(
+        originalUpdateParams,
+        type,
+        value,
+    );
+    return true;
+}
+
+export function refreshEditorLayout(editor: IPdfjsEditor) {
+    const setDims = getOptionalFunction(editor, 'setDims');
+    setDims?.call(editor);
+    const fixAndSetPosition = getOptionalFunction(editor, 'fixAndSetPosition');
+    fixAndSetPosition?.call(editor);
+}
+
+export function patchEditorResizeHandlers(
+    editor: IPdfjsEditor,
+    options: IPatchEditorResizeHandlersOptions,
+) {
+    const originalOnResizing = getOptionalFunction(editor, '_onResizing')?.bind(editor);
+    const originalOnResized = getOptionalFunction(editor, '_onResized')?.bind(editor);
+
+    editor._onResizing = () => {
+        originalOnResizing?.();
+        options.onResizing();
+    };
+
+    editor._onResized = () => {
+        originalOnResized?.();
+        options.onResized();
+    };
 }

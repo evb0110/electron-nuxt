@@ -2,8 +2,14 @@
     <UModal
         v-model:open="open"
         :title="t('crop.dialogTitle')"
-        :ui="{ footer: 'justify-between', width: 'sm:max-w-lg' }"
+        :ui="{ content: 'sm:max-w-lg', footer: 'justify-between' }"
     >
+        <template #description>
+            <span class="sr-only">
+                {{ t('crop.dialogDescription') }}
+            </span>
+        </template>
+
         <template #body>
             <div class="flex flex-col gap-4">
                 <div
@@ -418,7 +424,7 @@ watch(() => initialMargins, () => {
     width: 100%;
     aspect-ratio: 210 / 297;
     border: 1px solid var(--ui-border);
-    border-radius: var(--radius-sm);
+    border-radius: var(--app-radius-sm);
     background: var(--ui-bg);
     overflow: hidden;
 }

@@ -152,7 +152,7 @@ const repeatParagraphs = computed(() => {
 .line,
 .formula,
 .formula-inline {
-    border-radius: 999px;
+    border-radius: var(--app-radius-full);
 }
 
 .title-line {

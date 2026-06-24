@@ -3,7 +3,11 @@ import {
     expect,
     it,
 } from 'vitest';
-import { normalizeAnalyticsScalar } from '@contracts/analytics';
+import {
+    ANALYTICS_GEO_LIMITS,
+    normalizeAnalyticsGeo,
+    normalizeAnalyticsScalar,
+} from '@contracts/analytics';
 
 describe('normalizeAnalyticsScalar', () => {
     it('truncates strings to the configured length while preserving empty strings', () => {
@@ -55,5 +59,40 @@ describe('normalizeAnalyticsScalar', () => {
             maxStringLength: 8,
             nonFiniteFallback: null,
         })).toBeUndefined();
+    });
+});
+
+describe('normalizeAnalyticsGeo', () => {
+    it('validates countries and truncates bounded geo headers', () => {
+        const geo = normalizeAnalyticsGeo({
+            country: ' us ',
+            region: `CA-${'x'.repeat(80)}`,
+            city: `San Francisco ${'x'.repeat(400)}`,
+            timezone: `America/Los_Angeles-${'x'.repeat(100)}`,
+        });
+
+        expect(geo.country).toBe('US');
+        expect(geo.region).toHaveLength(ANALYTICS_GEO_LIMITS.region);
+        expect(geo.city).toHaveLength(ANALYTICS_GEO_LIMITS.city);
+        expect(geo.timezone).toHaveLength(ANALYTICS_GEO_LIMITS.timezone);
+    });
+
+    it.each([
+        [null],
+        [''],
+        ['u'],
+        ['usa'],
+        ['1!'],
+    ])('drops invalid country header %s without dropping the rest of the geo data', country => {
+        expect(normalizeAnalyticsGeo({
+            country,
+            city: 'Paris',
+            region: 'IDF',
+        })).toEqual({
+            country: null,
+            city: 'Paris',
+            region: 'IDF',
+            timezone: null,
+        });
     });
 });

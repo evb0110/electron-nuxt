@@ -2,7 +2,7 @@
     <UModal
         :open="open"
         :title="title"
-        :ui="{ footer: 'justify-end' }"
+        :ui="{ footer: 'justify-end gap-2' }"
         @update:open="handleOpenUpdate"
     >
         <template #description>
@@ -36,6 +36,7 @@
                 />
                 <UButton
                     :label="t('updates.installAction')"
+                    color="primary"
                     @click="handleInstall"
                 />
             </template>

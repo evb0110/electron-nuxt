@@ -1148,6 +1148,7 @@ export default {
     },
     'crop': {
         'dialogTitle': 'Seiten zuschneiden',
+        'dialogDescription': 'Legen Sie die Ränder und den Seitenbereich für den Zuschnitt fest.',
         'margins': 'Ränder',
         'marginTop': 'Oben',
         'marginBottom': 'Unten',

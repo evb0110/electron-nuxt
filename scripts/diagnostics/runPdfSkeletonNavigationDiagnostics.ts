@@ -86,6 +86,35 @@ interface INavigationZoomToolbarSnapshot {
 
 interface INavigationEffectiveZoomSnapshot {effectiveZoom?: number;}
 
+async function setContinuousScrollMode(
+    session: IElectronE2ESession,
+    continuousScroll: boolean,
+) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        const snapshot = await getWorkspaceToolbarSnapshot(session.page, {requiredMethods: [
+            'getToolbarSnapshot',
+            'handleToggleContinuousScroll',
+        ]}) as INavigationZoomToolbarSnapshot | null;
+        if (snapshot?.continuousScroll === continuousScroll) {
+            return;
+        }
+
+        await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll', [], {requiredMethods: [
+            'getToolbarSnapshot',
+            'handleToggleContinuousScroll',
+        ]});
+        await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            { continuousScroll },
+            { timeoutMs: 3_000 },
+        ).catch(() => {});
+        await delay(100);
+    }
+
+    const snapshot = await getWorkspaceToolbarSnapshot(session.page, {requiredMethods: ['getToolbarSnapshot']}) as INavigationZoomToolbarSnapshot | null;
+    throw new Error(`Unable to set continuous scroll mode to ${String(continuousScroll)}; current=${String(snapshot?.continuousScroll)}`);
+}
+
 function writeDiagnosticArtifact(payload: unknown) {
     mkdirSync(dirname(DIAGNOSTIC_OUTPUT_PATH), { recursive: true });
     writeFileSync(DIAGNOSTIC_OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`);
@@ -148,9 +177,21 @@ async function goToPageViaWorkspace(session: IElectronE2ESession, pageNumber: nu
         requireVisible: true,
     });
 
-    if (!navigationResult.called) {
-        await enterPageInToolbar(session, String(pageNumber));
+    if (navigationResult.called) {
+        const reachedTarget = await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            { currentPage: pageNumber },
+            { timeoutMs: 3_000 },
+        ).then(
+            () => true,
+            () => false,
+        );
+        if (reachedTarget) {
+            return;
+        }
     }
+
+    await enterPageInToolbar(session, String(pageNumber));
 }
 
 async function collectNavigationDiagnosticsSnapshot(session: IElectronE2ESession) {
@@ -233,12 +274,7 @@ async function configureHighZoom(session: IElectronE2ESession, options: { contin
         'getToolbarSnapshot',
         'handleZoomIn',
     ]});
-    if (options.continuousScroll !== (initialSnapshot.continuousScroll === true)) {
-        await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll', [], {requiredMethods: [
-            'getToolbarSnapshot',
-            'handleZoomIn',
-        ]});
-    }
+    await setContinuousScrollMode(session, options.continuousScroll);
     await callWorkspaceCommand(session.page, 'handleActualSize', [], {requiredMethods: [
         'getToolbarSnapshot',
         'handleZoomIn',
@@ -268,12 +304,7 @@ async function configureSinglePagedFitHeightMode(session: IElectronE2ESession) {
         'getToolbarSnapshot',
         'handleFitHeight',
     ]});
-    if (initialSnapshot.continuousScroll === true) {
-        await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll', [], {requiredMethods: [
-            'getToolbarSnapshot',
-            'handleFitHeight',
-        ]});
-    }
+    await setContinuousScrollMode(session, false);
     await callWorkspaceCommand(session.page, 'handleFitHeight', [], {requiredMethods: ['getToolbarSnapshot']});
     await delay(500);
 }
@@ -495,16 +526,26 @@ async function enterPageInToolbar(session: IElectronE2ESession, pageInput: strin
             });
     }, { timeout: 10_000 });
 
+    const selected = await session.page.evaluate(() => {
+        const input = Array.from(document.querySelectorAll<HTMLInputElement>('.page-controls-inline-input'))
+            .find((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return rect.width > 8
+                    && rect.height > 8
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden';
+            });
+        input?.focus();
+        input?.select();
+        return Boolean(input);
+    });
+    if (!selected) {
+        throw new Error('Unable to select the page input');
+    }
+
     await session.page.keyboard.type(pageInput);
     await session.page.keyboard.press('Enter');
-}
-
-async function navigateToPageWithNextButton(session: IElectronE2ESession, pageNumber: number) {
-    for (let target = 2; target <= pageNumber; target += 1) {
-        await clickNextPage(session);
-        await waitForToolbarPage(session, target);
-    }
-    await waitForPageCanvas(session, pageNumber);
 }
 
 async function navigateForwardWithNextButton(session: IElectronE2ESession, steps: number) {
@@ -591,8 +632,9 @@ async function runHighZoomNextPageDiagnostic(session: IElectronE2ESession) {
     const startPage = Math.min(55, totalPages - 1);
     const nextPage = startPage + 1;
     try {
-        await navigateToPageWithNextButton(session, startPage);
         await configureHighZoom(session);
+        await goToPageViaWorkspace(session, startPage);
+        await waitForToolbarPage(session, startPage);
         await waitForPageCanvas(session, startPage);
         await delay(500);
         await enablePdfNavLog(session);

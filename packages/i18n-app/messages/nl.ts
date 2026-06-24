@@ -1148,6 +1148,7 @@ export default {
     },
     'crop': {
         'dialogTitle': 'Pagina\'s bijsnijden',
+        'dialogDescription': 'Kies de bijsnijmarges en het paginabereik waarop je ze toepast.',
         'margins': 'Marges',
         'marginTop': 'Boven',
         'marginBottom': 'Onder',

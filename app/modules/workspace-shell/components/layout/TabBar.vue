@@ -516,7 +516,7 @@ useEventListener(window, 'keydown', (event) => {
     max-width: min(var(--app-tab-context-menu-max-width), var(--app-floating-panel-viewport-width));
     padding: 0;
     border: 1px solid var(--ui-border);
-    border-radius: 0.375rem;
+    border-radius: var(--app-radius-md);
     overflow: hidden;
     background: var(--ui-border);
 }
@@ -529,25 +529,25 @@ useEventListener(window, 'keydown', (event) => {
 
 .tab-context-menu-section {
     margin: 0;
-    padding: 0.45rem 0.6rem 0.35rem;
+    padding: var(--app-space-2xl) var(--app-space-5xl) var(--app-space-md);
     background: var(--ui-bg-muted);
     color: var(--ui-text-dimmed);
     font-size: 0.64rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    font-weight: 600;
+    font-weight: var(--app-font-weight-semibold);
     overflow-wrap: anywhere;
 }
 
 .tab-context-menu-action {
     width: 100%;
     min-width: 0;
-    min-height: 2rem;
-    padding: 0.4rem 0.6rem;
+    min-height: var(--app-control-height-sm);
+    padding: var(--app-space-xl) var(--app-space-5xl);
     border-radius: 0;
     background: var(--ui-bg);
     color: var(--ui-text);
-    font-size: 0.8125rem;
+    font-size: var(--app-text-size-body-sm);
     white-space: normal;
     overflow-wrap: anywhere;
 }
@@ -585,19 +585,21 @@ useEventListener(window, 'keydown', (event) => {
 .tab {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
-    padding: 0 0.5rem 0 0.75rem;
+    gap: var(--app-space-sm);
+    padding: 0 var(--app-space-3xl) 0 var(--app-space-9xl);
     min-width: 0;
     max-width: 12.5rem;
     height: 100%;
     border: none;
     background: transparent;
     color: var(--ui-text-dimmed);
-    font-size: 0.75rem;
+    font-size: var(--app-text-size-kicker);
     position: relative;
     touch-action: none;
     -webkit-app-region: no-drag;
-    transition: color 0.12s ease, background-color 0.12s ease;
+    transition:
+        color var(--app-transition-quick),
+        background-color var(--app-transition-quick);
 }
 
 .tab:not(.is-active):hover {
@@ -623,7 +625,7 @@ useEventListener(window, 'keydown', (event) => {
     width: 1px;
     background: var(--app-tab-divider);
     pointer-events: none;
-    transition: opacity 0.12s ease;
+    transition: opacity var(--app-transition-quick);
 }
 
 .tab.is-active::before,
@@ -649,11 +651,13 @@ useEventListener(window, 'keydown', (event) => {
     height: var(--app-tab-close-size, 1.25rem);
     min-width: var(--app-tab-close-size, 1.25rem);
     border: none;
-    border-radius: 0.25rem;
+    border-radius: var(--app-radius-xs);
     background: transparent;
     color: var(--ui-text-dimmed);
     opacity: 0;
-    transition: opacity 0.1s ease, background-color 0.1s ease;
+    transition:
+        opacity var(--app-transition-fast),
+        background-color var(--app-transition-fast);
 }
 
 .tab.is-dirty .tab-close {
@@ -719,7 +723,9 @@ useEventListener(window, 'keydown', (event) => {
     background: transparent;
     color: var(--ui-text-dimmed);
     -webkit-app-region: no-drag;
-    transition: background-color 0.12s ease, color 0.12s ease;
+    transition:
+        background-color var(--app-transition-quick),
+        color var(--app-transition-quick);
 }
 
 .tab-new:hover {

@@ -1160,6 +1160,7 @@ export default {
     },
     'crop': {
         'dialogTitle': 'Recadrer les pages',
+        'dialogDescription': 'Choisissez les marges de recadrage et les pages auxquelles les appliquer.',
         'margins': 'Marges',
         'marginTop': 'Haut',
         'marginBottom': 'Bas',

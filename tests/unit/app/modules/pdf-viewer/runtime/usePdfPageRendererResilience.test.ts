@@ -367,6 +367,71 @@ describe('usePdfPageRenderer resilience', () => {
         expect(documentState.evictPage).not.toHaveBeenCalled();
     });
 
+    it('resolves in-flight render cancellation only after active PDF.js tasks settle', async () => {
+        const { pageContainer } = createPageContainer();
+        const containerRoot = createContainerRoot(pageContainer);
+        const renderTask = createDeferred();
+        const cancelRenderTask = vi.fn();
+        const startRender = vi.fn(() => ({
+            cancel: cancelRenderTask,
+            promise: renderTask.promise,
+        }));
+        const documentState = {
+            pdfDocument: shallowRef({} as object),
+            numPages: ref(1),
+            basePageWidth: ref(100),
+            basePageHeight: ref(100),
+            isLoading: ref(false),
+            getPage: vi.fn(async () => ({ cleanup: vi.fn() })),
+            evictPage: vi.fn(),
+            cleanupPageCache: vi.fn(),
+        };
+
+        canvasRendererMock.prepareCanvasRender.mockResolvedValueOnce({
+            ...createRenderResult(),
+            startRender,
+        });
+        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
+        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
+
+        const renderer = usePdfPageRenderer({
+            container: ref(containerRoot),
+            document: documentState as never,
+            currentPage: ref(1),
+            effectiveScale: ref(1),
+            bufferPages: ref(0),
+            showAnnotations: ref(true),
+            annotationUiManager: ref(null),
+            annotationL10n: ref(null),
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+        });
+
+        const renderPromise = renderer.renderVisiblePages({
+            start: 1,
+            end: 1,
+        });
+        await vi.waitFor(() => {
+            expect(startRender).toHaveBeenCalledOnce();
+        });
+
+        let cancellationSettled = false;
+        const cancellationPromise = renderer.cancelInFlightRenders().then(() => {
+            cancellationSettled = true;
+        });
+        await Promise.resolve();
+
+        expect(cancelRenderTask).toHaveBeenCalledOnce();
+        expect(cancellationSettled).toBe(false);
+
+        renderTask.resolve();
+        await cancellationPromise;
+        await renderPromise.catch(() => undefined);
+
+        expect(cancellationSettled).toBe(true);
+    });
+
     it('does not suppress managed embedded canvas annotations before the page overlay is mounted', async () => {
         const { pageContainer } = createPageContainer({ hasShapeOverlay: false });
         const containerRoot = createContainerRoot(pageContainer);

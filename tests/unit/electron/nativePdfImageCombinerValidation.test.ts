@@ -82,6 +82,21 @@ describe('native PDF image combiner output validation', () => {
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/output.pdf', { force: true });
     });
 
+    it('removes file-backed native output when the native process fails', async () => {
+        mocks.spawn.mockImplementationOnce(() => {
+            const proc = new MockProcess();
+            queueMicrotask(() => {
+                proc.emit('close', 1);
+            });
+            return proc;
+        });
+        const { tryWritePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+
+        await expect(tryWritePdfWithNativeImageCombiner(['/tmp/input.jpg'], '/tmp/output.pdf')).resolves.toBe(false);
+
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/output.pdf', { force: true });
+    });
+
     it('accepts structurally plausible native PDF output', async () => {
         const validPdf = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n');
         mocks.readFile.mockResolvedValueOnce(validPdf);

@@ -105,7 +105,7 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
             maxCanvasPixelsOverride?: number | undefined;
         },
     ) => Promise<void>;
-    cancelInFlightPageRenders?: (() => void) | undefined;
+    cancelInFlightPageRenders?: (() => Promise<void> | void) | undefined;
     cancelPendingSearchScroll?: (() => void) | undefined;
     cleanupRenderedPages: () => void;
     invalidateRenderedPages: (pages: number[]) => void;
@@ -566,7 +566,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         invalidateDocumentLoad();
         options.cancelInitialVisualReady?.();
         cancelPendingSearchScroll?.();
-        cancelInFlightPageRenders?.();
+        void cancelInFlightPageRenders?.();
         cleanupRenderedPages();
         cleanupInactiveDocumentCaches();
         resetZoomRerenderQueueState('inactive-tab');
@@ -600,7 +600,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
             if (!newSrc) {
                 invalidateDocumentLoad();
                 cancelPendingSearchScroll?.();
-                cancelInFlightPageRenders?.();
+                void cancelInFlightPageRenders?.();
                 cleanupRenderedPages();
                 editor.destroyAnnotationEditor();
                 cleanupDocument();
@@ -613,7 +613,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
             if (!isActive.value) {
                 invalidateDocumentLoad();
                 cancelPendingSearchScroll?.();
-                cancelInFlightPageRenders?.();
+                void cancelInFlightPageRenders?.();
                 cleanupRenderedPages();
                 cleanupDocument();
                 emit('update:document', null);

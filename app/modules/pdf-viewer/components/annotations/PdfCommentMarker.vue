@@ -433,7 +433,7 @@ onBeforeUnmount(() => {
     width: 1.3rem;
     height: 1.3rem;
     border: 1px solid color-mix(in srgb, var(--ui-warning) 62%, var(--ui-border) 38%);
-    border-radius: 9999px;
+    border-radius: var(--app-radius-full);
     transform: translate(-50%, -50%);
     background: color-mix(in srgb, var(--ui-warning) 20%, var(--ui-bg) 80%);
     color: color-mix(in srgb, var(--ui-warning) 58%, var(--ui-text) 42%);
@@ -445,7 +445,11 @@ onBeforeUnmount(() => {
     align-items: center;
     justify-content: center;
     touch-action: none;
-    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+    transition:
+        background-color var(--app-transition-standard),
+        border-color var(--app-transition-standard),
+        transform var(--app-transition-standard),
+        opacity var(--app-transition-standard);
 }
 
 .pdf-comment-marker-button:hover {
@@ -485,7 +489,7 @@ onBeforeUnmount(() => {
     top: -6px;
     min-width: 12px;
     height: 12px;
-    border-radius: 999px;
+    border-radius: var(--app-radius-full);
     border: 1.5px solid var(--app-pdf-comment-marker-badge-border);
     background: var(--app-pdf-comment-marker-badge-bg);
     color: var(--app-pdf-comment-marker-badge-fg);

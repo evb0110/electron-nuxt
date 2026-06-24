@@ -157,9 +157,11 @@ function getMenuShortcut(item: unknown) {
 .save-split {
     display: inline-flex;
     align-items: center;
-    height: var(--toolbar-control-height);
+    height: var(--toolbar-control-height, var(--app-toolbar-control-size));
     border-radius: var(--app-toolbar-button-radius);
-    transition: background-color 0.1s ease, box-shadow 0.1s ease;
+    transition:
+        background-color var(--app-transition-fast),
+        box-shadow var(--app-transition-fast);
 }
 
 .save-split-primary,
@@ -167,12 +169,14 @@ function getMenuShortcut(item: unknown) {
     display: flex;
     align-items: center;
     justify-content: center;
-    height: var(--toolbar-control-height);
+    height: var(--toolbar-control-height, var(--app-toolbar-control-size));
     border: none;
     background: transparent;
     color: var(--app-toolbar-control-inactive-fg);
     cursor: pointer;
-    transition: background-color 0.1s ease, color 0.1s ease;
+    transition:
+        background-color var(--app-transition-fast),
+        color var(--app-transition-fast);
 }
 
 .save-split-primary {
@@ -245,14 +249,14 @@ function getMenuShortcut(item: unknown) {
 }
 
 .save-split-icon {
-    width: var(--app-tab-close-size);
-    height: var(--app-tab-close-size);
+    width: var(--app-toolbar-save-icon-size);
+    height: var(--app-toolbar-save-icon-size);
 }
 
 .save-split-chevron {
     width: var(--app-toolbar-save-chevron-size);
     height: var(--app-toolbar-save-chevron-size);
-    transition: transform 0.15s ease;
+    transition: transform var(--app-transition-standard);
 }
 
 .save-split.is-open .save-split-chevron {

@@ -316,29 +316,14 @@ export const usePdfSinglePageScroll = (
     const snapSuppressUntil = ref(0);
     const isProgrammaticNavigationActive = ref(false);
     const navigationRuntime = createPdfNavigationRuntime();
-    const searchNavigationState = computed(() => (
-        navigationRuntime.source.value === 'search'
-            ? navigationRuntime.status.value
-            : 'idle'
-    ));
-    const searchNavigationTargetPage = computed(() => (
-        navigationRuntime.source.value === 'search'
-        && navigationRuntime.status.value !== 'idle'
-            ? navigationRuntime.targetPage.value
-            : null
-    ));
-    const continuousNavigationTargetPage = ref<number | null>(null);
+    const searchNavigationState = navigationRuntime.statusForSource('search');
+    const searchNavigationTargetPage = navigationRuntime.targetPageForSource('search');
+    const continuousNavigationTargetPage = navigationRuntime.targetPageForSource('continuous');
     const isSearchNavigationLocked = computed(
         () => searchNavigationState.value !== 'idle',
     );
-    const pagedNavigationTargetPage = computed(() => (
-        navigationRuntime.source.value === 'paged'
-        && navigationRuntime.status.value !== 'idle'
-            ? navigationRuntime.targetPage.value
-            : null
-    ));
+    const pagedNavigationTargetPage = navigationRuntime.targetPageForSource('paged');
     const pagedNavigationHold = shallowRef<IPagedNavigationHold | null>(null);
-    let continuousNavigationRenderRunId = 0;
     let pagedNavigationPrepareRunId = 0;
     let pagedNavigationPrepareTargetPage: number | null = null;
     let continuousNavigationTargetScrollOptions: IScrollToPageOptions | undefined;
@@ -348,10 +333,6 @@ export const usePdfSinglePageScroll = (
         runId: null,
     };
     let isDisposed = false;
-    let pagedNavigationHardHoldTimer: ReturnType<typeof setTimeout> | null = null;
-    let pagedNavigationReadyRetryTimers: Array<ReturnType<typeof setTimeout>> = [];
-    let pagedNavigationRecoveryRenderTimer: ReturnType<typeof setTimeout> | null = null;
-    let pagedNavigationAbandonTimer: ReturnType<typeof setTimeout> | null = null;
     let programmaticNavigationReleaseTimer: ReturnType<typeof setTimeout> | null = null;
     const navigationEffects = createNavigationSettleEffects({
         getLayoutObserverElements: resolveContinuousNavigationLayoutObserverElements,
@@ -364,7 +345,7 @@ export const usePdfSinglePageScroll = (
         }) => {
             logPdfRenderTrace('single-page-continuous-navigation-layout-reapply', {
                 runId,
-                activeRunId: continuousNavigationRenderRunId,
+                activeRunId: getActiveContinuousNavigationRunId(),
                 targetPage: pageNumber,
                 activeTargetPage: continuousNavigationTargetPage.value,
                 reason,
@@ -437,22 +418,7 @@ export const usePdfSinglePageScroll = (
     }
 
     function clearPagedNavigationWatchdogTimers() {
-        if (pagedNavigationHardHoldTimer) {
-            clearTimeout(pagedNavigationHardHoldTimer);
-            pagedNavigationHardHoldTimer = null;
-        }
-        for (const timer of pagedNavigationReadyRetryTimers) {
-            clearTimeout(timer);
-        }
-        pagedNavigationReadyRetryTimers = [];
-        if (pagedNavigationRecoveryRenderTimer) {
-            clearTimeout(pagedNavigationRecoveryRenderTimer);
-            pagedNavigationRecoveryRenderTimer = null;
-        }
-        if (pagedNavigationAbandonTimer) {
-            clearTimeout(pagedNavigationAbandonTimer);
-            pagedNavigationAbandonTimer = null;
-        }
+        navigationEffects.clearPagedHoldWatchdog();
     }
 
     function clearProgrammaticNavigationReleaseTimer() {
@@ -515,105 +481,107 @@ export const usePdfSinglePageScroll = (
             targetStart: targetRange.start,
             targetEnd: targetRange.end,
         };
-        for (const delayMs of PAGED_NAVIGATION_READY_RETRY_DELAYS_MS) {
-            const timer = setTimeout(() => {
+        navigationEffects.armPagedHoldWatchdog({
+            runId,
+            targetPage,
+            readyRetryDelaysMs: PAGED_NAVIGATION_READY_RETRY_DELAYS_MS,
+            recoveryRenderMs: PAGED_NAVIGATION_RECOVERY_RENDER_MS,
+            abandonMs: PAGED_NAVIGATION_ABANDON_MS,
+            stallLogMs: PAGED_NAVIGATION_HOLD_STALL_LOG_MS,
+            onReadyRetry: () => {
                 if (!isPagedNavigationTargetCurrent(runId, targetPage)) {
                     return;
                 }
                 commitPagedNavigationTarget(runId, targetPage, 'watchdog-ready-retry');
-            }, delayMs);
-            pagedNavigationReadyRetryTimers.push(timer);
-        }
-        pagedNavigationRecoveryRenderTimer = setTimeout(() => {
-            pagedNavigationRecoveryRenderTimer = null;
-            if (!isPagedNavigationTargetCurrent(runId, targetPage)) {
-                return;
-            }
-            if (commitPagedNavigationTarget(runId, targetPage, 'watchdog-recovery-precheck')) {
-                return;
-            }
-            logPdfRenderTrace('single-page-paged-target-recovery-render', {
-                runId,
-                targetPage,
-                targetRange,
-                rowVisualStates: getMountedPageRowVisualStates(targetRange),
-            });
-            queuePagedRowRenderAfterNavigation(
-                targetPage,
-                'Failed to recover stalled paged navigation target',
-                runId,
-                { allowSuppressedRender: true },
-            );
-        }, PAGED_NAVIGATION_RECOVERY_RENDER_MS);
-        pagedNavigationAbandonTimer = setTimeout(() => {
-            pagedNavigationAbandonTimer = null;
-            if (!isPagedNavigationTargetCurrent(runId, targetPage)) {
-                return;
-            }
-            if (commitPagedNavigationTarget(runId, targetPage, 'watchdog-abandon-final-check')) {
-                return;
-            }
-
-            const hold = pagedNavigationHold.value;
-            if (hold?.runId === runId) {
-                pagedNavigationHold.value = {
-                    ...hold,
-                    expired: true,
-                };
-            }
-            logPdfRenderTrace('single-page-paged-target-abandoned', {
-                runId,
-                targetPage,
-                targetRange,
-                holdStartedAtMs: hold?.startedAtMs ?? null,
-                rowVisualStates: getMountedPageRowVisualStates(targetRange),
-            });
-            clearNavigationFeedbackPage('paged-navigation-abandoned', runId);
-            clearPagedNavigationHold(runId);
-            dispatchNavigationMachine({ type: 'CANCEL' });
-            clearPagedNavigationTarget();
-            pagedNavigationTargetScrollOptions = undefined;
-            snapSuppressUntil.value = 0;
-            isProgrammaticNavigationActive.value = false;
-            isSnapping.value = false;
-            clearProgrammaticNavigationReleaseTimer();
-
-            const container = viewerContainer.value;
-            updateVisibleRange(container, numPages.value);
-            const previous = currentPage.value;
-            const page = updateCurrentPage(
-                container,
-                numPages.value,
-                { requireAuthoritative: true },
-            );
-            if (page !== previous) {
-                emitCurrentPage(page);
-            }
-            if (!isLoading.value && pdfDocument.value) {
-                runGuardedTask(() => renderVisiblePages(
-                    visibleRange.value,
-                    {
-                        preserveRenderedPages: true,
-                        preserveInFlightRequiredPages: true,
-                    },
-                ), {
-                    scope: 'pdf-single-page-scroll',
-                    message: 'Failed to render visible pages after abandoning stalled paged navigation',
+            },
+            onRecovery: () => {
+                if (!isPagedNavigationTargetCurrent(runId, targetPage)) {
+                    return;
+                }
+                if (commitPagedNavigationTarget(runId, targetPage, 'watchdog-recovery-precheck')) {
+                    return;
+                }
+                logPdfRenderTrace('single-page-paged-target-recovery-render', {
+                    runId,
+                    targetPage,
+                    targetRange,
+                    rowVisualStates: getMountedPageRowVisualStates(targetRange),
                 });
-            }
-        }, PAGED_NAVIGATION_ABANDON_MS);
-        pagedNavigationHardHoldTimer = setTimeout(() => {
-            pagedNavigationHardHoldTimer = null;
-            if (!isPagedNavigationRunCurrent(runId)) {
-                return;
-            }
-            logPdfRenderTrace('single-page-paged-target-still-waiting', {
-                runId,
-                targetPage,
-                targetRange,
-                rowVisualStates: getMountedPageRowVisualStates(targetRange),
-            });
-        }, PAGED_NAVIGATION_HOLD_STALL_LOG_MS);
+                queuePagedRowRenderAfterNavigation(
+                    targetPage,
+                    'Failed to recover stalled paged navigation target',
+                    runId,
+                    { allowSuppressedRender: true },
+                );
+            },
+            onAbandon: () => {
+                if (!isPagedNavigationTargetCurrent(runId, targetPage)) {
+                    return;
+                }
+                if (commitPagedNavigationTarget(runId, targetPage, 'watchdog-abandon-final-check')) {
+                    return;
+                }
+
+                const hold = pagedNavigationHold.value;
+                if (hold?.runId === runId) {
+                    pagedNavigationHold.value = {
+                        ...hold,
+                        expired: true,
+                    };
+                }
+                logPdfRenderTrace('single-page-paged-target-abandoned', {
+                    runId,
+                    targetPage,
+                    targetRange,
+                    holdStartedAtMs: hold?.startedAtMs ?? null,
+                    rowVisualStates: getMountedPageRowVisualStates(targetRange),
+                });
+                clearNavigationFeedbackPage('paged-navigation-abandoned', runId);
+                clearPagedNavigationHold(runId);
+                dispatchNavigationMachine({ type: 'CANCEL' });
+                clearPagedNavigationTarget();
+                pagedNavigationTargetScrollOptions = undefined;
+                snapSuppressUntil.value = 0;
+                isProgrammaticNavigationActive.value = false;
+                isSnapping.value = false;
+                clearProgrammaticNavigationReleaseTimer();
+
+                const container = viewerContainer.value;
+                updateVisibleRange(container, numPages.value);
+                const previous = currentPage.value;
+                const page = updateCurrentPage(
+                    container,
+                    numPages.value,
+                    { requireAuthoritative: true },
+                );
+                if (page !== previous) {
+                    emitCurrentPage(page);
+                }
+                if (!isLoading.value && pdfDocument.value) {
+                    runGuardedTask(() => renderVisiblePages(
+                        visibleRange.value,
+                        {
+                            preserveRenderedPages: true,
+                            preserveInFlightRequiredPages: true,
+                        },
+                    ), {
+                        scope: 'pdf-single-page-scroll',
+                        message: 'Failed to render visible pages after abandoning stalled paged navigation',
+                    });
+                }
+            },
+            onStillWaiting: () => {
+                if (!isPagedNavigationRunCurrent(runId)) {
+                    return;
+                }
+                logPdfRenderTrace('single-page-paged-target-still-waiting', {
+                    runId,
+                    targetPage,
+                    targetRange,
+                    rowVisualStates: getMountedPageRowVisualStates(targetRange),
+                });
+            },
+        });
     }
 
     function isNavigationHoldActiveForPage(pageNumber: number) {
@@ -699,10 +667,15 @@ export const usePdfSinglePageScroll = (
     }
 
     function getActiveSearchNavigationRunId() {
-        return navigationRuntime.source.value === 'search'
-        && navigationRuntime.status.value !== 'idle'
-            ? navigationRuntime.txn.value
-            : null;
+        return navigationRuntime.getTxnForSource('search');
+    }
+
+    function getActiveContinuousNavigationRunId() {
+        return navigationRuntime.getTxnForSource('continuous');
+    }
+
+    function isContinuousNavigationTargetCurrent(runId: number, targetPage: number) {
+        return navigationRuntime.isTargetCurrent('continuous', runId, targetPage);
     }
 
     function markPagedNavigationScrollApplied(runId: number, targetPage: number) {
@@ -747,19 +720,27 @@ export const usePdfSinglePageScroll = (
     }
 
     function clearContinuousNavigationTarget(runId?: number, pageNumber?: number) {
-        if (runId !== undefined && runId !== continuousNavigationRenderRunId) {
+        const activeRunId = getActiveContinuousNavigationRunId();
+        if (runId !== undefined && runId !== activeRunId) {
             return;
         }
+        const activeTargetPage = continuousNavigationTargetPage.value;
         if (
             pageNumber !== undefined
-            && continuousNavigationTargetPage.value !== pageNumber
+            && activeTargetPage !== pageNumber
         ) {
             return;
         }
         navigationEffects.clearContinuousTargetFallback();
-        continuousNavigationTargetPage.value = null;
         continuousNavigationTargetScrollOptions = undefined;
         navigationEffects.clearLayoutObservers();
+        if (activeRunId !== null && activeTargetPage !== null) {
+            dispatchNavigationMachine({
+                type: 'RENDER_SETTLED',
+                txn: activeRunId,
+                page: activeTargetPage,
+            });
+        }
     }
 
     function scheduleContinuousNavigationTargetFallbackClear(runId: number, pageNumber: number) {
@@ -779,9 +760,14 @@ export const usePdfSinglePageScroll = (
             return;
         }
 
-        continuousNavigationRenderRunId += 1;
         navigationEffects.clearContinuousRenderTimers();
-        clearContinuousNavigationTarget();
+        navigationEffects.clearContinuousTargetFallback();
+        continuousNavigationTargetScrollOptions = undefined;
+        navigationEffects.clearLayoutObservers();
+        const activeRunId = getActiveContinuousNavigationRunId();
+        if (activeRunId !== null) {
+            dispatchNavigationMachine({ type: 'CANCEL' });
+        }
     }
 
     /**
@@ -1580,14 +1566,14 @@ export const usePdfSinglePageScroll = (
 
         if (
             isDisposed
-            || runId !== continuousNavigationRenderRunId
+            || !isContinuousNavigationTargetCurrent(runId, pageNumber)
             || !continuousScroll.value
             || isLoading.value
             || !pdfDocument.value
         ) {
             logPdfRenderTrace('single-page-continuous-navigation-render-skipped', {
                 runId,
-                activeRunId: continuousNavigationRenderRunId,
+                activeRunId: getActiveContinuousNavigationRunId(),
                 delayMs,
                 isDisposed,
                 continuousScroll: continuousScroll.value,
@@ -1639,11 +1625,10 @@ export const usePdfSinglePageScroll = (
     ) {
         if (
             isDisposed
-            || runId !== continuousNavigationRenderRunId
+            || !isContinuousNavigationTargetCurrent(runId, pageNumber)
             || !continuousScroll.value
             || isLoading.value
             || !pdfDocument.value
-            || continuousNavigationTargetPage.value !== pageNumber
             || !viewerContainer.value
         ) {
             return;
@@ -1748,8 +1733,7 @@ export const usePdfSinglePageScroll = (
     ) {
         if (
             isDisposed
-            || runId !== continuousNavigationRenderRunId
-            || continuousNavigationTargetPage.value !== targetPage
+            || !isContinuousNavigationTargetCurrent(runId, targetPage)
             || !continuousScroll.value
             || !viewerContainer.value
         ) {
@@ -1757,6 +1741,13 @@ export const usePdfSinglePageScroll = (
         }
 
         const didScroll = applyContinuousNavigationTargetScroll(targetPage, options);
+        if (didScroll && isContinuousNavigationTargetCurrent(runId, targetPage)) {
+            dispatchNavigationMachine({
+                type: 'SCROLL_APPLIED',
+                txn: runId,
+                page: targetPage,
+            });
+        }
         if (renderAlreadySettled) {
             startContinuousNavigationLayoutObservers(runId, targetPage, options);
             scheduleContinuousNavigationTargetFallbackClear(runId, targetPage);
@@ -1789,8 +1780,7 @@ export const usePdfSinglePageScroll = (
         await nextTick();
         if (
             isDisposed
-            || runId !== continuousNavigationRenderRunId
-            || continuousNavigationTargetPage.value !== targetPage
+            || !isContinuousNavigationTargetCurrent(runId, targetPage)
             || !continuousScroll.value
             || !viewerContainer.value
         ) {
@@ -2498,9 +2488,11 @@ export const usePdfSinglePageScroll = (
          * scroll event, so repair it here instead of accepting the wrong page.
          */
         const continuousTargetPage = continuousNavigationTargetPage.value;
+        const continuousRunId = getActiveContinuousNavigationRunId();
         if (
             continuousScroll.value
             && continuousTargetPage !== null
+            && continuousRunId !== null
             && viewerContainer.value
             && (
                 page !== continuousTargetPage
@@ -2511,7 +2503,7 @@ export const usePdfSinglePageScroll = (
             )
         ) {
             navigationEffects.scheduleLayoutReapply(
-                continuousNavigationRenderRunId,
+                continuousRunId,
                 continuousTargetPage,
                 'scroll',
                 continuousNavigationTargetScrollOptions,
@@ -2579,9 +2571,13 @@ export const usePdfSinglePageScroll = (
                 ? CONTINUOUS_NAVIGATION_HOLD_WITH_METRICS_MS
                 : CONTINUOUS_NAVIGATION_HOLD_FALLBACK_MS);
             const targetPage = clamp(pageNumber, 1, numPages.value);
-            const runId = ++continuousNavigationRenderRunId;
             navigationEffects.clearContinuous();
-            continuousNavigationTargetPage.value = targetPage;
+            const navigationState = dispatchNavigationMachine({
+                type: 'NAVIGATE',
+                source: 'continuous',
+                targetPage,
+            });
+            const runId = navigationState.txn;
             continuousNavigationTargetScrollOptions = options;
 
             if (
@@ -2641,7 +2637,6 @@ export const usePdfSinglePageScroll = (
         navigationEffects.clearContinuous();
         isProgrammaticNavigationActive.value = false;
         clearProgrammaticNavigationReleaseTimer();
-        continuousNavigationTargetPage.value = null;
         continuousNavigationTargetScrollOptions = undefined;
         snapSuppressUntil.value = 0;
         wheelFlipGate.reset();

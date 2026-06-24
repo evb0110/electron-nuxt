@@ -5,13 +5,11 @@ import {
     getRequestURL,
 } from 'h3';
 import { compact } from 'es-toolkit/array';
+import {
+    normalizeAnalyticsGeo,
+    type IAnalyticsGeoData,
+} from '@contracts/analytics';
 import { getRuntimeEnv } from '@server/utils/getRuntimeEnv';
-
-interface IGeoData {
-    country: string | null;
-    city: string | null;
-    region: string | null;
-}
 
 function isTruthyFlag(value: unknown) {
     return value === true
@@ -44,12 +42,13 @@ function firstNonEmptyString(values: Array<string | undefined>) {
     return '';
 }
 
-export function extractGeo(event: H3Event): IGeoData {
-    return {
+export function extractGeo(event: H3Event): IAnalyticsGeoData {
+    return normalizeAnalyticsGeo({
         country: getHeader(event, 'x-vercel-ip-country') ?? null,
         city: getHeader(event, 'x-vercel-ip-city') ?? null,
         region: getHeader(event, 'x-vercel-ip-country-region') ?? null,
-    };
+        timezone: getHeader(event, 'x-vercel-ip-timezone') ?? null,
+    });
 }
 
 export function getAnalyticsRequestHost(event: H3Event) {

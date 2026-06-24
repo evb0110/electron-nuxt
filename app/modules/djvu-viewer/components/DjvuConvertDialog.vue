@@ -2,7 +2,7 @@
     <UModal
         v-model:open="open"
         :title="t('djvu.convertDialog.title')"
-        :ui="{ footer: 'justify-end' }"
+        :ui="{ footer: 'justify-end gap-2' }"
     >
         <template #body>
             <div class="flex flex-col gap-4">
@@ -36,33 +36,29 @@
                 />
 
                 <div class="convert-presets flex flex-col gap-2">
-                    <label class="convert-presets-title">{{ t('djvu.convertDialog.quality') }}</label>
-                    <div
-                        v-for="estimate in resolvedEstimates"
-                        :key="estimate.subsample"
-                        class="convert-preset"
-                        :class="{ 'is-selected': selectedSubsample === estimate.subsample }"
-                        @click="selectedSubsample = estimate.subsample"
+                    <URadioGroup
+                        v-model="selectedSubsample"
+                        :legend="t('djvu.convertDialog.quality')"
+                        :items="resolvedEstimates"
+                        value-key="value"
+                        variant="card"
+                        :ui="presetRadioGroupUi"
                     >
-                        <div class="convert-preset-radio">
-                            <div
-                                v-if="selectedSubsample === estimate.subsample"
-                                class="convert-preset-radio-dot"
-                            />
-                        </div>
-                        <div class="convert-preset-content">
-                            <div class="convert-preset-label">
-                                {{ estimate.label }}
-                                <span class="convert-preset-dpi">{{ estimate.resultingDpi }} {{ t('common.unitDpi') }}</span>
-                            </div>
-                            <div class="convert-preset-description">
-                                {{ estimate.description }}
-                                <span v-if="estimate.estimatedBytes > 0">
-                                    — ~{{ formatBytes(estimate.estimatedBytes) }}
+                        <template #label="{ item }">
+                            <span class="convert-preset-label">
+                                {{ item.label }}
+                                <span class="convert-preset-dpi">{{ item.resultingDpi }} {{ t('common.unitDpi') }}</span>
+                            </span>
+                        </template>
+                        <template #description="{ item }">
+                            <span class="convert-preset-description">
+                                {{ item.description }}
+                                <span v-if="item.estimatedBytes > 0">
+                                    — ~{{ formatBytes(item.estimatedBytes) }}
                                 </span>
-                            </div>
-                        </div>
-                    </div>
+                            </span>
+                        </template>
+                    </URadioGroup>
                     <div
                         v-if="estimatesLoading"
                         class="convert-preset-loading"
@@ -76,13 +72,10 @@
                     v-if="info?.hasBookmarks"
                     class="convert-option"
                 >
-                    <label class="convert-checkbox-label flex items-center gap-2">
-                        <input
-                            v-model="preserveBookmarks"
-                            type="checkbox"
-                        >
-                        {{ t('djvu.convertDialog.preserveBookmarks') }}
-                    </label>
+                    <UCheckbox
+                        v-model="preserveBookmarks"
+                        :label="t('djvu.convertDialog.preserveBookmarks')"
+                    />
                 </div>
             </div>
         </template>
@@ -134,14 +127,24 @@ interface IEstimate {
     estimatedBytes: number;
 }
 
+interface IResolvedEstimate extends IEstimate { value: number; }
+
 const info = ref<IInfo | null>(null);
 const estimates = ref<IEstimate[]>([]);
 const estimatesLoading = ref(false);
 const selectedSubsample = ref(1);
 const preserveBookmarks = ref(true);
+const presetRadioGroupUi = {
+    fieldset: 'gap-y-2',
+    legend: 'convert-presets-title',
+    item: 'cursor-pointer',
+    label: 'font-normal',
+    description: 'text-xs',
+} as const;
 
-const resolvedEstimates = computed(() => estimates.value.map((estimate) => ({
+const resolvedEstimates = computed<IResolvedEstimate[]>(() => estimates.value.map((estimate) => ({
     ...estimate,
+    value: estimate.subsample,
     label: estimate.label || resolveEstimateLabel(estimate.subsample),
     description:
         estimate.description || resolveEstimateDescription(estimate.subsample),
@@ -281,57 +284,10 @@ function handleConvert() {
     overflow-wrap: anywhere;
 }
 
-.convert-presets-title {
+:deep(.convert-presets-title) {
     font-size: var(--app-text-size-body-sm);
     font-weight: var(--app-font-weight-semibold);
     color: var(--ui-text);
-}
-
-.convert-preset {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--app-space-6xl);
-    padding: var(--app-space-6xl) var(--app-space-9xl);
-    border: thin solid var(--ui-border);
-    border-radius: var(--app-radius-2xl);
-    cursor: pointer;
-    transition: border-color var(--app-transition-standard);
-}
-
-.convert-preset:hover {
-    border-color: var(--ui-border-hover);
-}
-
-.convert-preset.is-selected {
-    border-color: var(--ui-primary);
-    background: var(--ui-bg-elevated);
-}
-
-.convert-preset-radio {
-    width: var(--app-space-12xl);
-    height: var(--app-space-12xl);
-    border: var(--app-crop-selection-border-width) solid var(--ui-border);
-    border-radius: var(--app-radius-full);
-    flex-shrink: 0;
-    margin-top: calc(var(--app-space-3xs) / 2);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.convert-preset.is-selected .convert-preset-radio {
-    border-color: var(--ui-primary);
-}
-
-.convert-preset-radio-dot {
-    width: var(--app-space-3xl);
-    height: var(--app-space-3xl);
-    border-radius: var(--app-radius-full);
-    background: var(--ui-primary);
-}
-
-.convert-preset-content {
-    flex: 1;
 }
 
 .convert-preset-label {
@@ -364,11 +320,5 @@ function handleConvert() {
 
 .convert-option {
     padding-top: var(--app-space-sm);
-}
-
-.convert-checkbox-label {
-    font-size: var(--app-text-size-body-sm);
-    color: var(--ui-text);
-    cursor: pointer;
 }
 </style>

@@ -168,6 +168,23 @@ export type {
     TPdfAnnotationShapeType,
 } from '@contracts/annotations';
 
+export {
+    PDF_NATIVE_DATE_PATTERN,
+    PDF_NATIVE_MUTATION_ENUM_VALUES,
+    PDF_NATIVE_MUTATION_LIMITS,
+    PDF_NATIVE_SHA256_HEX_PATTERN,
+    normalizePdfNativeModifiedAt,
+    normalizePdfNativeMutationSet,
+    normalizePdfNativeNoteChanges,
+    normalizePdfNativeNoteTextUpdates,
+    normalizePdfNativeWorkingCopyExpectation,
+} from '@contracts/nativePdfMutations';
+export type {
+    IPdfNativePlacedImageNativeToolPayload,
+    IPdfNativeValidationOptions,
+    TPdfNativeMutationSetNativeToolPayload,
+} from '@contracts/nativePdfMutations';
+
 export type {
     ILatestReleaseResponse,
     IReleaseInstaller,
@@ -200,8 +217,13 @@ export {
 
 export { isTimeoutError } from '@contracts/isTimeoutError';
 
-export { normalizeAnalyticsScalar } from '@contracts/analytics';
+export {
+    ANALYTICS_GEO_LIMITS,
+    normalizeAnalyticsGeo,
+    normalizeAnalyticsScalar,
+} from '@contracts/analytics';
 export type {
+    IAnalyticsGeoData,
     INormalizeAnalyticsScalarOptions,
     TAnalyticsScalarResult,
 } from '@contracts/analytics';

@@ -72,6 +72,8 @@ const ANNOTATION_NAME = PDFName.of('NM');
 
 const MAX_RGB_DISTANCE = Math.sqrt((255 ** 2) * 3);
 
+const RGB_CHANNEL_MATCH_EPSILON = 0.5;
+
 interface IMarkupAnnotationCandidate {
     color: IRgbColor | null;
     dict: PDFDict;
@@ -237,6 +239,15 @@ function colorSimilarity(left: IRgbColor | null, right: IRgbColor | null) {
         + ((left.b - right.b) ** 2),
     );
     return Math.max(0, 1 - (distance / MAX_RGB_DISTANCE));
+}
+
+function colorsMatch(left: IRgbColor | null, right: IRgbColor | null) {
+    if (!left || !right) {
+        return false;
+    }
+    return Math.abs(left.r - right.r) <= RGB_CHANNEL_MATCH_EPSILON
+        && Math.abs(left.g - right.g) <= RGB_CHANNEL_MATCH_EPSILON
+        && Math.abs(left.b - right.b) <= RGB_CHANNEL_MATCH_EPSILON;
 }
 
 function hintColorsConflict(left: IMarkupSubtypeHint, right: IMarkupSubtypeHint) {
@@ -608,9 +619,22 @@ function applySubtypeRewriteToDict(
     targetSubtype: TMarkupSubtype,
     color?: string | null,
 ) {
-    let modified = ensureMarkupAnnotationName(dict);
+    const currentSubtype = dict.get(subtypeName);
+    const currentMarkupSubtype = currentSubtype instanceof PDFName
+        ? toMarkupSubtypeName(currentSubtype)
+        : null;
     const targetColor = resolveHintTargetColor(targetSubtype, color);
-    if (targetColor) {
+    const colorChanged = Boolean(targetColor && !colorsMatch(readPdfMarkupColor(dict), targetColor));
+    const subtypeChanged = currentMarkupSubtype !== targetSubtype;
+
+    if (!subtypeChanged && !colorChanged) {
+        return targetSubtype === 'Highlight'
+            ? false
+            : ensureMarkupQuadPointsForSubtypeRewrite(doc, dict);
+    }
+
+    let modified = ensureMarkupAnnotationName(dict);
+    if (targetColor && colorChanged) {
         writePdfMarkupColor(doc, dict, targetColor);
         if (targetSubtype === 'Highlight') {
             dict.set(PDFName.of('CA'), PDFNumber.of(1));
@@ -620,22 +644,21 @@ function applySubtypeRewriteToDict(
     }
 
     const pdfSubtypeName = MARKUP_SUBTYPE_TO_PDF_NAME[targetSubtype];
-    if (!pdfSubtypeName || pdfSubtypeName === 'Highlight') {
+    if (!pdfSubtypeName) {
         return modified;
     }
-    const currentSubtype = dict.get(subtypeName);
-    const subtypeAlreadyApplied = currentSubtype instanceof PDFName
-        && currentSubtype.toString() === `/${pdfSubtypeName}`;
-    if (subtypeAlreadyApplied) {
-        modified = ensureMarkupQuadPointsForSubtypeRewrite(doc, dict) || modified;
-    } else {
-        ensureMarkupQuadPointsForSubtypeRewrite(doc, dict);
+    if (subtypeChanged) {
+        if (targetSubtype !== 'Highlight') {
+            ensureMarkupQuadPointsForSubtypeRewrite(doc, dict);
+        }
         dict.set(subtypeName, PDFName.of(pdfSubtypeName));
         dict.delete(PDFName.of('AP'));
         modified = true;
+    } else if (targetSubtype !== 'Highlight') {
+        modified = ensureMarkupQuadPointsForSubtypeRewrite(doc, dict) || modified;
     }
 
-    if (targetSubtype === 'Squiggly') {
+    if (targetSubtype === 'Squiggly' && (subtypeChanged || colorChanged)) {
         const appearanceColor = targetColor ?? readPdfMarkupColor(dict);
         if (appearanceColor && writeSquigglyAppearanceStream(doc, dict, appearanceColor)) {
             modified = true;

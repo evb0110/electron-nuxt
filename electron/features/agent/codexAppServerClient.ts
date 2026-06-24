@@ -65,6 +65,7 @@ export class CodexAppServerClient {
         this.child.stderr.setEncoding('utf8');
         this.child.stdout.on('data', (chunk: string | Buffer) => this.handleStdout(String(chunk)));
         this.child.stderr.on('data', (chunk: string | Buffer) => this.handleStderr(String(chunk)));
+        this.child.stdin.on('error', error => this.failAll(`Codex app-server stdin failed: ${getErrorMessage(error)}`));
         this.child.on('error', error => this.failAll(`Codex app-server failed: ${getErrorMessage(error)}`));
         this.child.on('close', (exitCode) => {
             const detail = this.stderrBuffer.trim();
@@ -110,7 +111,7 @@ export class CodexAppServerClient {
                 reject,
             });
 
-            this.child.stdin.write(`${JSON.stringify(payload)}\n`, (error) => {
+            this.writeLine(payload, (error) => {
                 if (!error) {
                     return;
                 }
@@ -121,6 +122,7 @@ export class CodexAppServerClient {
                 clearTimeout(pending.timeout);
                 this.pending.delete(id);
                 pending.reject(new Error(`Failed to send ${method}: ${getErrorMessage(error)}`));
+                this.failAll(`Codex app-server stdin failed: ${getErrorMessage(error)}`);
             });
         });
     }
@@ -155,7 +157,11 @@ export class CodexAppServerClient {
                 method,
                 params,
             };
-        this.child.stdin.write(`${JSON.stringify(payload)}\n`);
+        this.writeLine(payload, (error) => {
+            if (error) {
+                this.failAll(`Codex app-server stdin failed while sending ${method}: ${getErrorMessage(error)}`);
+            }
+        });
     }
 
     respond(id: unknown, result: unknown) {
@@ -163,11 +169,15 @@ export class CodexAppServerClient {
             return;
         }
 
-        this.child.stdin.write(`${JSON.stringify({
+        this.writeLine({
             jsonrpc: '2.0',
             id,
             result,
-        })}\n`);
+        }, (error) => {
+            if (error) {
+                this.failAll(`Codex app-server stdin failed while sending response: ${getErrorMessage(error)}`);
+            }
+        });
     }
 
     shutdown() {
@@ -181,6 +191,19 @@ export class CodexAppServerClient {
             this.pending.delete(id);
         }
         this.child.kill();
+    }
+
+    private writeLine(
+        payload: unknown,
+        callback: (error: Error | null) => void,
+    ) {
+        try {
+            this.child.stdin.write(`${JSON.stringify(payload)}\n`, (error) => {
+                callback(error ?? null);
+            });
+        } catch (error) {
+            callback(error instanceof Error ? error : new Error(getErrorMessage(error)));
+        }
     }
 
     private handleStdout(chunk: string) {

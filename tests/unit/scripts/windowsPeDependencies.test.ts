@@ -131,6 +131,22 @@ describe('Windows PE dependency helpers', () => {
         })).toEqual([]);
     });
 
+    it('rejects orphan MSYS2 training DLLs with unbundled runtime dependencies', () => {
+        const trainingDllPath = createPeFixture('arm64', [
+            'libpango-1.0-0.dll',
+            'libpangocairo-1.0-0.dll',
+        ]);
+
+        expect(verifyWindowsPeDependencies({
+            allowedMachines: ['arm64'],
+            files: [trainingDllPath],
+            systemDllPattern: /^kernel32\.dll$/iu,
+        })).toEqual([
+            expect.stringContaining('Missing bundled DLL dependency "libpango-1.0-0.dll"'),
+            expect.stringContaining('Missing bundled DLL dependency "libpangocairo-1.0-0.dll"'),
+        ]);
+    });
+
     it('reports missing bundled DLLs and architecture mismatches', () => {
         const toolPath = createPeFixture('x64', ['custom-runtime.dll']);
 

@@ -32,7 +32,7 @@ interface IUsePdfViewerFitWidthControllerOptions {
     computeFitWidthScale: (container: HTMLElement | null) => boolean;
     isFitWidthScaleCurrent: (container: HTMLElement | null) => boolean;
     syncHorizontalScrollForZoomMode: () => void;
-    cancelInFlightRenders: () => void;
+    cancelInFlightRenders: () => Promise<void> | void;
     reRenderAllVisiblePages: (
         getRange: () => IPageRange,
         options: {
@@ -59,7 +59,7 @@ export const usePdfViewerFitWidthController = (options: IUsePdfViewerFitWidthCon
             return false;
         }
 
-        options.cancelInFlightRenders();
+        void options.cancelInFlightRenders();
         await options.reRenderAllVisiblePages(
             () => ({ ...options.visibleRange.value }),
             {

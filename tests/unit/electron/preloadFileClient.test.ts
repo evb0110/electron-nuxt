@@ -9,6 +9,7 @@ import {
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
 import { toPageIndex } from '@contracts/pageNumbers';
+import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 
 class FakeMessagePort {
     readonly close = vi.fn();
@@ -48,6 +49,84 @@ interface INativeMutationInvokePayload {placedImages: Array<{bytes: unknown}>}
 interface IWorkingCopyExpectationInvokePayload {
     byteLength: number;
     sha256: string;
+}
+
+interface INativeBookmarkTestItem {
+    title: string;
+    pageIndex: number | null;
+    namedDest: string | null;
+    bold: boolean;
+    italic: boolean;
+    color: string | null;
+    items: INativeBookmarkTestItem[];
+}
+
+function createNativeFreeTextNote() {
+    return {
+        pageIndex: toPageIndex(0),
+        stableKey: 'uid:0:pdfjs_internal_editor_0',
+        text: 'Editor note',
+        markerRect: {
+            left: 0.1,
+            top: 0.2,
+            width: 0.0016,
+            height: 0.0016,
+        },
+    };
+}
+
+function createNativeBookmark(title = 'Chapter'): INativeBookmarkTestItem {
+    return {
+        title,
+        pageIndex: 0,
+        namedDest: null,
+        bold: false,
+        italic: false,
+        color: null,
+        items: [],
+    };
+}
+
+function createDeepNativeBookmarkItems(depth: number) {
+    const root = createNativeBookmark('Root');
+    let current = root;
+    for (let index = 0; index < depth; index += 1) {
+        const child = createNativeBookmark(`Child ${index}`);
+        current.items = [child];
+        current = child;
+    }
+    return [root];
+}
+
+function createNativeShape() {
+    return {
+        type: 'rectangle' as const,
+        pageIndex: toPageIndex(0),
+        x: 0.1,
+        y: 0.2,
+        width: 0.3,
+        height: 0.2,
+        color: '#336699',
+        opacity: 0.5,
+        strokeWidth: 3,
+    };
+}
+
+function createNativePlacedImage() {
+    return {
+        pageIndex: toPageIndex(0),
+        x: 0.1,
+        y: 0.2,
+        width: 0.3,
+        height: 0.2,
+        rotationDegrees: 0,
+        mimeType: 'image/jpeg' as const,
+        bytes: new Uint8Array([
+            0xFF,
+            0xD8,
+            0xFF,
+        ]),
+    };
 }
 
 describe('createDocumentsPreloadFileClient', () => {
@@ -842,6 +921,103 @@ describe('createDocumentsPreloadFileClient', () => {
         }
         const mutations = firstCall[2];
         expect(mutations.placedImages[0]?.bytes).toBeInstanceOf(Uint8Array);
+    });
+
+    it('rejects shared native mutation limit violations before IPC', () => {
+        const ipcRenderer = {
+            invoke: vi.fn(),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const modifiedAt = 'D:20260609133855+03\'00\'';
+
+        expect(() => client.savePdfNoteChanges!(
+            '/tmp/working.pdf',
+            {freeTextNotes: Array.from(
+                {length: PDF_NATIVE_MUTATION_LIMITS.noteChanges + 1},
+                createNativeFreeTextNote,
+            )},
+            modifiedAt,
+        )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.noteChanges} notes`);
+
+        expect(() => client.savePdfNativeMutations!(
+            '/tmp/working.pdf',
+            {pageLabels: {
+                totalPages: 3,
+                ranges: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges + 1}, () => ({
+                    startPage: 1,
+                    style: 'D',
+                    prefix: '',
+                    startNumber: 1,
+                })),
+            }},
+            modifiedAt,
+        )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges} ranges`);
+
+        expect(() => client.savePdfNativeMutations!(
+            '/tmp/working.pdf',
+            {bookmarks: {
+                totalPages: 3,
+                untitledLabel: 'Untitled',
+                items: createDeepNativeBookmarkItems(PDF_NATIVE_MUTATION_LIMITS.bookmarkDepth + 1),
+            }},
+            modifiedAt,
+        )).toThrow('maximum bookmark depth');
+
+        expect(() => client.savePdfNativeMutations!(
+            '/tmp/working.pdf',
+            {shapes: {
+                totalPages: 3,
+                rewriteShapeState: true,
+                shapes: [{
+                    ...createNativeShape(),
+                    points: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.shapePoints + 1}, () => ({
+                        x: 0.1,
+                        y: 0.2,
+                    })),
+                }],
+                deletedAnnotationIds: [],
+                deletedStableKeys: [],
+            }},
+            modifiedAt,
+        )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.shapePoints} points`);
+
+        expect(() => client.savePdfNativeMutations!(
+            '/tmp/working.pdf',
+            {markup: {
+                overrides: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.markupItems + 1}, (_, index) => [
+                    `${index}R`,
+                    'Highlight',
+                ]),
+                hints: [],
+            }},
+            modifiedAt,
+        )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.markupItems} items`);
+
+        expect(() => client.applyPdfNativeMutationsToWorkingCopy!(
+            '/tmp/working.pdf',
+            {placedImages: Array.from(
+                {length: PDF_NATIVE_MUTATION_LIMITS.placedImages + 1},
+                createNativePlacedImage,
+            )},
+            modifiedAt,
+            {
+                byteLength: 3,
+                sha256: 'a'.repeat(64),
+            },
+        )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.placedImages} images`);
+
+        expect(() => client.applyPdfNativeMutationsToWorkingCopy!(
+            '/tmp/working.pdf',
+            {placedImages: [createNativePlacedImage()]},
+            modifiedAt,
+            {
+                byteLength: 3,
+                sha256: 'not-a-digest',
+            },
+        )).toThrow('SHA-256 hex digest');
+
+        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 });
 

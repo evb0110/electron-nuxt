@@ -83,6 +83,25 @@ function getSnapshotRequest(window: IFakeWindow, index = 0) {
     return request;
 }
 
+function createWorkspaceSnapshot(): IAgentWorkspaceSnapshot {
+    return {
+        capturedAt: '2026-06-22T00:00:00.000Z',
+        activePaneId: null,
+        activeTabId: null,
+        summary: {
+            mode: 'empty-workspace',
+            activeDocument: null,
+            documentCount: 0,
+            recentFileCount: 0,
+            recentFilesResolved: true,
+        },
+        panes: [],
+        tabs: [],
+        recentFiles: [],
+        layout: null,
+    };
+}
+
 describe('agent workspace bridge', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -124,6 +143,7 @@ describe('agent workspace bridge', () => {
     it('cleans lifecycle listeners after accepting a snapshot response', async () => {
         const window = createFakeWindow(202);
         mocks.fromWebContents.mockReturnValue(window);
+        const snapshot = createWorkspaceSnapshot();
 
         const pending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
         const request = getSnapshotRequest(window);
@@ -134,12 +154,12 @@ describe('agent workspace bridge', () => {
                 requestId: request.requestId,
                 windowId: request.windowId,
                 ok: true,
-                snapshot: { tabs: [] },
+                snapshot,
             },
         );
 
         expect(accepted).toEqual({ accepted: true });
-        await expect(pending).resolves.toEqual({ tabs: [] });
+        await expect(pending).resolves.toBe(snapshot);
         expect(window.listenerCount('closed')).toBe(0);
         expect(window.webContents.listenerCount('render-process-gone')).toBe(0);
         expect(window.webContents.listenerCount('did-start-navigation')).toBe(0);
@@ -148,22 +168,7 @@ describe('agent workspace bridge', () => {
     it('resolves unchanged snapshot responses from the per-window cache', async () => {
         const window = createFakeWindow(404);
         mocks.fromWebContents.mockReturnValue(window);
-        const snapshot: IAgentWorkspaceSnapshot = {
-            capturedAt: '2026-06-22T00:00:00.000Z',
-            activePaneId: null,
-            activeTabId: null,
-            summary: {
-                mode: 'empty-workspace',
-                activeDocument: null,
-                documentCount: 0,
-                recentFileCount: 0,
-                recentFilesResolved: true,
-            },
-            panes: [],
-            tabs: [],
-            recentFiles: [],
-            layout: null,
-        };
+        const snapshot = createWorkspaceSnapshot();
 
         const firstPending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
         const firstRequest = getSnapshotRequest(window);
@@ -217,6 +222,51 @@ describe('agent workspace bridge', () => {
         )).toEqual({ accepted: true });
 
         await expect(pending).rejects.toThrow('no cached snapshot is available');
+    });
+
+    it('rejects malformed snapshot responses without poisoning the per-window cache', async () => {
+        const window = createFakeWindow(606);
+        mocks.fromWebContents.mockReturnValue(window);
+
+        const pending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
+        const request = getSnapshotRequest(window);
+
+        expect(submitAgentWorkspaceSnapshotResponse(
+            createResponseEvent(window),
+            {
+                requestId: request.requestId,
+                windowId: request.windowId,
+                ok: true,
+                revision: 7,
+                snapshot: { tabs: [] },
+            },
+        )).toEqual({
+            accepted: false,
+            reason: 'invalid-payload',
+        });
+
+        await expect(pending).rejects.toThrow('did not match the expected contract');
+        expect(window.listenerCount('closed')).toBe(0);
+        expect(window.webContents.listenerCount('render-process-gone')).toBe(0);
+        expect(window.webContents.listenerCount('did-start-navigation')).toBe(0);
+
+        const nextPending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
+        const nextRequest = getSnapshotRequest(window, 1);
+        const snapshot = createWorkspaceSnapshot();
+
+        expect(nextRequest.lastSeenRevision).toBeUndefined();
+        expect(submitAgentWorkspaceSnapshotResponse(
+            createResponseEvent(window),
+            {
+                requestId: nextRequest.requestId,
+                windowId: nextRequest.windowId,
+                ok: true,
+                revision: 8,
+                snapshot,
+            },
+        )).toEqual({ accepted: true });
+
+        await expect(nextPending).resolves.toBe(snapshot);
     });
 
     it('returns actionable acknowledgements for invalid and stale snapshot responses', () => {

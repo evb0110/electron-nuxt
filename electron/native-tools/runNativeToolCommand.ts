@@ -8,6 +8,9 @@ export interface IRunNativeToolCommandOptions {
     cwd?: string;
     env?: NodeJS.ProcessEnv;
     timeoutMs?: number;
+    maxStdoutBytes?: number;
+    maxStderrBytes?: number;
+    rejectOnStdoutTruncation?: boolean;
     allowedExitCodes?: number[];
     signal?: AbortSignal;
     commandLabel?: string;
@@ -23,6 +26,9 @@ export async function runNativeToolCommand(
         cwd,
         env,
         timeoutMs,
+        maxStdoutBytes,
+        maxStderrBytes,
+        rejectOnStdoutTruncation,
         allowedExitCodes,
         signal,
         commandLabel,
@@ -43,6 +49,15 @@ export async function runNativeToolCommand(
     }
     if (timeoutMs !== undefined) {
         commandOptions.timeoutMs = timeoutMs;
+    }
+    if (maxStdoutBytes !== undefined) {
+        commandOptions.maxStdoutBytes = maxStdoutBytes;
+    }
+    if (maxStderrBytes !== undefined) {
+        commandOptions.maxStderrBytes = maxStderrBytes;
+    }
+    if (rejectOnStdoutTruncation !== undefined) {
+        commandOptions.rejectOnStdoutTruncation = rejectOnStdoutTruncation;
     }
     if (allowedExitCodes !== undefined) {
         commandOptions.allowedExitCodes = allowedExitCodes;

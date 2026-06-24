@@ -76,15 +76,19 @@ function handleClick() {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: var(--toolbar-control-height);
-    height: var(--toolbar-control-height);
+    width: var(--toolbar-control-height, var(--app-toolbar-control-size));
+    height: var(--toolbar-control-height, var(--app-toolbar-control-size));
     padding: var(--app-toolbar-button-padding);
     border: 1px solid transparent;
     border-radius: var(--app-toolbar-button-radius);
     background: transparent;
     color: var(--app-toolbar-control-inactive-fg);
     cursor: pointer;
-    transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease;
+    transition:
+        background-color var(--app-transition-fast),
+        border-color var(--app-transition-fast),
+        color var(--app-transition-fast),
+        box-shadow var(--app-transition-fast);
 }
 
 .toolbar-btn.is-toggle {

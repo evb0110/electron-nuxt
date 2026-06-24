@@ -20,6 +20,7 @@ import {
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { isRecord } from '@contracts/runtimeGuards';
+import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import {
     NATIVE_SEARCH_INDEX_MAGIC,
     NATIVE_SEARCH_INDEX_SCHEMA_VERSION,
@@ -43,6 +44,11 @@ const NATIVE_SEARCH_TIMEOUT_MS = (() => {
     }
     return parsed;
 })();
+const NATIVE_SEARCH_MAX_STDOUT_BYTES = parseIntegerEnv(
+    'EVB_PDF_SEARCH_MAX_STDOUT_BYTES',
+    4 * 1024 * 1024,
+    64 * 1024,
+);
 
 interface INativeSearchIndexMetadata {
     pageCount: number;
@@ -367,6 +373,8 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
 
     const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
         timeoutMs: NATIVE_SEARCH_TIMEOUT_MS,
+        maxStdoutBytes: NATIVE_SEARCH_MAX_STDOUT_BYTES,
+        rejectOnStdoutTruncation: true,
         commandLabel: 'evb-pdf-search(search)',
     };
     if (options.signal !== undefined) {

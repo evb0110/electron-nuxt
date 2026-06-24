@@ -2,26 +2,23 @@ import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import { delay } from 'es-toolkit/promise';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
-import { setSelectedEditor } from '@app/services/pdfjs/annotationEditorAdapter';
+import {
+    getStoredAnnotationEditor as getStoredAnnotationEditorFromAdapter,
+    setSelectedEditor,
+    writeEditorCommentToAnnotationStorage as writeEditorCommentToAnnotationStorageFromAdapter,
+} from '@app/services/pdfjs/annotationEditorAdapter';
 
 const ANNOTATION_EDITOR_RENDER_WAIT_TIMEOUT_MS = 1_500;
 
 export function writeEditorCommentToAnnotationStorage(editor: IPdfjsEditor, text: string) {
-    // PDF.js private editor comment field is the only writable note payload surface.
-    editor.comment = text;
-    // PDF.js private storage sync persists the editor mutation into annotationStorage.
-    editor.addToAnnotationStorage?.();
+    writeEditorCommentToAnnotationStorageFromAdapter(editor, text);
 }
 
 export function getStoredAnnotationEditor(
     pdfDocument: PDFDocumentProxy | null,
     annotationElementId: string,
 ) {
-    // PDF.js private annotationStorage.getEditor bridges persisted popup annotations to live editors.
-    const annotationStorage = pdfDocument?.annotationStorage as
-        | { getEditor?: (annotationElementId: string) => IPdfjsEditor | null }
-        | undefined;
-    return annotationStorage?.getEditor?.(annotationElementId) ?? null;
+    return getStoredAnnotationEditorFromAdapter(pdfDocument, annotationElementId);
 }
 
 export function deleteEditorWithUiManager(

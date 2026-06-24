@@ -229,6 +229,7 @@ const CODEX_AUTH_STATUS_TIMEOUT_MS = 8_000;
 
 let codexInfoCache: ICodexCliInfo | null = null;
 let runtime: IAssistantRuntime | null = null;
+let runtimeStartPromise: Promise<IAssistantRuntime> | null = null;
 let runtimeState: TAgentAssistantRuntimeState = 'stopped';
 let turnPhase: TAgentAssistantTurnPhase = 'idle';
 let authState: TAgentAssistantAuthState = 'unknown';
@@ -319,6 +320,7 @@ async function stopAssistantForDisabledFeature() {
 async function shutdownCodexAssistantRuntime(options: { shutdownMcp?: boolean } = {}) {
     authReturnWindow = null;
     pendingLoginId = null;
+    runtimeStartPromise = null;
     runtime?.client.shutdown();
     runtime = null;
     runtimeState = 'stopped';
@@ -1192,8 +1194,14 @@ function handleAppServerExit(message: string) {
     runtimeState = 'error';
     turnPhase = 'error';
     activeTurnId = null;
+    for (const chatSession of chatSessions.values()) {
+        if (chatSession.provider !== 'codex') {
+            continue;
+        }
+        chatSession.threadId = null;
+        chatSession.activeTurnId = null;
+    }
     if (session) {
-        session.activeTurnId = null;
         session.turnPhase = 'error';
         session.lastError = message;
     }
@@ -1325,6 +1333,10 @@ async function ensureAssistantRuntime() {
         throw new Error(createAssistantDisabledError());
     }
 
+    if (runtimeStartPromise) {
+        return runtimeStartPromise;
+    }
+
     if (runtime) {
         if (
             runtime.mcpServerName === ASSISTANT_MCP_SERVER_NAME
@@ -1340,6 +1352,16 @@ async function ensureAssistantRuntime() {
         return runtime;
     }
 
+    const startPromise = startAssistantRuntime().finally(() => {
+        if (runtimeStartPromise === startPromise) {
+            runtimeStartPromise = null;
+        }
+    });
+    runtimeStartPromise = startPromise;
+    return startPromise;
+}
+
+async function startAssistantRuntime() {
     runtimeState = 'starting';
     turnPhase = 'idle';
     lastError = undefined;

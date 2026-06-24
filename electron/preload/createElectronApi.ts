@@ -5,8 +5,14 @@ import type {
 import type { IElectronAPI } from '@contracts/electronApi';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import { sanitizeSettings } from '@contracts/settings';
+import { decodeWindowTabIncomingTransfer } from '@contracts/windowTabsValidation';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import { decodeDebugLogEntry } from '@electron/preload/installDebugLogListener';
+import {
+    decodeAgentAssistantEvent,
+    decodeAgentCommandRequest,
+    decodeAgentWorkspaceSnapshotRequest,
+} from '@electron/preload/agentIpcDecoders';
 import {createDocumentsPreloadClient} from '@electron/features/documents/createDocumentsPreloadClient';
 import { createDocumentsPreloadPageOpsClient } from '@electron/features/documents/createDocumentsPreloadPageOpsClient';
 import { createImageExportPreloadClient } from '@electron/features/image-export/createImageExportPreloadClient';
@@ -260,11 +266,19 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
 
         agent: {
             onWorkspaceSnapshotRequest: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.agentWorkspaceSnapshotRequest, callback),
+                eventSubscriber.onDecodedPayload(
+                    CORE_IPC_EVENT_CHANNELS.agentWorkspaceSnapshotRequest,
+                    decodeAgentWorkspaceSnapshotRequest,
+                    callback,
+                ),
             submitWorkspaceSnapshot: response =>
                 invokeCore(CORE_IPC_CHANNELS.agentSubmitWorkspaceSnapshot, response),
             onCommandRequest: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.agentCommandRequest, callback),
+                eventSubscriber.onDecodedPayload(
+                    CORE_IPC_EVENT_CHANNELS.agentCommandRequest,
+                    decodeAgentCommandRequest,
+                    callback,
+                ),
             submitCommandResponse: response =>
                 invokeCore(CORE_IPC_CHANNELS.agentSubmitCommandResponse, response),
             getMcpIntegrationStatus: () =>
@@ -292,7 +306,11 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                     ? invokeCore(CORE_IPC_CHANNELS.agentResetAssistantChat)
                     : invokeCore(CORE_IPC_CHANNELS.agentResetAssistantChat, request),
             onAssistantEvent: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.agentAssistantEvent, callback),
+                eventSubscriber.onDecodedPayload(
+                    CORE_IPC_EVENT_CHANNELS.agentAssistantEvent,
+                    decodeAgentAssistantEvent,
+                    callback,
+                ),
         },
 
         windowTabs: {
@@ -314,7 +332,11 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
             listTargetWindows: () => invokeCore(CORE_IPC_CHANNELS.tabsListTargets),
             showContextMenu: (tabId) => invokeCore(CORE_IPC_CHANNELS.tabsShowContextMenu, tabId),
             onIncomingTransfer: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.tabsIncomingTransfer, callback),
+                eventSubscriber.onDecodedPayload(
+                    CORE_IPC_EVENT_CHANNELS.tabsIncomingTransfer,
+                    decodeWindowTabIncomingTransfer,
+                    callback,
+                ),
             onWindowAction: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuWindowTabsAction, callback),
             onMenuNewTab: (callback): TMenuEventUnsubscribe =>

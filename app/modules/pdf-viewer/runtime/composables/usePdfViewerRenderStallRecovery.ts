@@ -20,7 +20,7 @@ interface IUsePdfViewerRenderStallRecoveryOptions {
     }>;
     viewerContainer: Ref<HTMLElement | null>;
     summarizeViewerMetricsForLog: (container: HTMLElement | null) => unknown;
-    cancelInFlightPageRenders?: (() => void) | undefined;
+    cancelInFlightPageRenders?: (() => Promise<void> | void) | undefined;
     renderVisiblePages: (
         range: {
             start: number;
@@ -160,7 +160,7 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
                 },
             );
             const recoveryRunId = ++pageLevelRecoveryRunId;
-            cancelInFlightPageRenders?.();
+            void cancelInFlightPageRenders?.();
             invalidatePages(pages);
             void renderVisiblePages(
                 {

@@ -17,9 +17,9 @@ import { sanitizeSettings } from '@contracts/settings';
 import { sanitizeAllowedExternalUrl } from '@contracts/externalUrl';
 import type {
     IWindowTabTransferAck,
-    IWindowTabTransferRequest,
     IWindowTabTargetWindow,
 } from '@contracts/windowTabs';
+import { decodeWindowTabTransferRequest } from '@contracts/windowTabsValidation';
 import type {
     IAgentAssistantChatScope,
     IAgentAssistantLoginRequest,
@@ -324,16 +324,6 @@ function getTargetWindowIdFromTransferRequest(request: unknown) {
     return typeof request.target.windowId === 'number' ? request.target.windowId : -1;
 }
 
-function isValidTransferRequest(request: unknown): request is IWindowTabTransferRequest {
-    if (!isRecord(request) || !isRecord(request.target)) {
-        return false;
-    }
-    if (request.target.kind === 'new-window') {
-        return true;
-    }
-    return request.target.kind === 'window' && typeof request.target.windowId === 'number' && Number.isFinite(request.target.windowId);
-}
-
 function isValidTransferAck(ack: unknown): ack is IWindowTabTransferAck {
     return isRecord(ack)
         && typeof ack.transferId === 'string'
@@ -581,7 +571,8 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
     });
 
     registrar.handle(CORE_IPC_CHANNELS.tabsTransfer, async (event, request: unknown) => {
-        if (!isValidTransferRequest(request)) {
+        const decodedRequest = decodeWindowTabTransferRequest(request);
+        if (!decodedRequest) {
             return {
                 transferId: '',
                 success: false,
@@ -595,12 +586,12 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
             return {
                 transferId: '',
                 success: false,
-                targetWindowId: request.target.kind === 'window' ? request.target.windowId : -1,
+                targetWindowId: decodedRequest.target.kind === 'window' ? decodedRequest.target.windowId : -1,
                 error: 'Source window is not available.',
             };
         }
 
-        return requestWindowTabTransfer(sourceWindow.id, request);
+        return requestWindowTabTransfer(sourceWindow.id, decodedRequest);
     });
 
     registrar.handle(CORE_IPC_CHANNELS.tabsTransferAck, (event, ack: unknown) => {

@@ -41,6 +41,9 @@ export function setupContentSecurityPolicy() {
     isCspConfigured = true;
 
     const csp = buildContentSecurityPolicy(config.isDev);
+    session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+        callback(false);
+    });
 
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
         callback({responseHeaders: {

@@ -80,7 +80,10 @@ function onSave() {
     color: var(--ui-text-dimmed);
     font-size: var(--app-statusbar-font-size);
     line-height: var(--app-line-height-snug);
-    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    transition:
+        background-color var(--app-transition-standard),
+        border-color var(--app-transition-standard),
+        color var(--app-transition-standard);
 }
 
 .status-bar-path {
@@ -151,7 +154,10 @@ function onSave() {
     padding: 0;
     border-radius: var(--app-statusbar-folder-radius);
     cursor: default;
-    transition: color 0.14s ease, background-color 0.14s ease, border-color 0.14s ease;
+    transition:
+        color var(--app-transition-standard),
+        background-color var(--app-transition-standard),
+        border-color var(--app-transition-standard);
 }
 
 .status-folder-icon {
@@ -179,7 +185,10 @@ function onSave() {
     border-radius: var(--app-radius-full);
     background: var(--app-status-save-dot-idle-bg);
     box-shadow: 0 0 0 1px var(--app-status-save-dot-idle-ring);
-    transition: transform 0.14s ease, background-color 0.14s ease, box-shadow 0.14s ease;
+    transition:
+        transform var(--app-transition-standard),
+        background-color var(--app-transition-standard),
+        box-shadow var(--app-transition-standard);
 }
 
 .status-save-dot-button.is-dirty .status-save-dot {

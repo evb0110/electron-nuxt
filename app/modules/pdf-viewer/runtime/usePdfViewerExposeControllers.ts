@@ -41,7 +41,7 @@ interface IUsePdfViewerExposeControllersOptions {
     scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => void;
     computeFitWidthScale: (container: HTMLElement | null) => boolean;
     isFitWidthScaleCurrent: (container: HTMLElement | null) => boolean;
-    cancelInFlightRenders: () => void;
+    cancelInFlightRenders: () => Promise<void> | void;
     reRenderAllVisiblePages: (
         getRange: () => IPageRange,
         options: {

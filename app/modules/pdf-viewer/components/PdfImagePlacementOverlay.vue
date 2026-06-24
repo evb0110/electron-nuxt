@@ -584,7 +584,7 @@ onBeforeUnmount(() => {
 .pdf-image-placement__transform {
     position: absolute;
     inset: 0;
-    border-radius: 0.45rem;
+    border-radius: var(--app-radius-xl);
     transform: rotate(var(--pdf-image-placement-rotation, 0deg));
     transform-origin: center;
     box-shadow: 0 0 0 2px color-mix(in oklab, var(--ui-primary) 70%, var(--ui-bg) 30%);
@@ -624,7 +624,7 @@ onBeforeUnmount(() => {
     width: var(--pdf-image-placement-resizer-size);
     height: var(--pdf-image-placement-resizer-size);
     border: 1px solid var(--ui-bg);
-    border-radius: 999px;
+    border-radius: var(--app-radius-full);
     background: var(--ui-primary);
     box-shadow: 0 1px 3px color-mix(in srgb, var(--ui-bg-inverted) 22%, transparent);
     pointer-events: auto;
@@ -687,7 +687,7 @@ onBeforeUnmount(() => {
     width: var(--pdf-image-placement-rotate-handle-size);
     height: var(--pdf-image-placement-rotate-handle-size);
     border: 1px solid var(--ui-bg);
-    border-radius: 999px;
+    border-radius: var(--app-radius-full);
     background: color-mix(in oklab, var(--ui-bg) 18%, var(--ui-primary) 82%);
     box-shadow: 0 1px 3px color-mix(in srgb, var(--ui-bg-inverted) 22%, transparent);
     cursor: grab;
@@ -707,7 +707,7 @@ onBeforeUnmount(() => {
     top: calc(100% - (var(--pdf-image-placement-rotate-stem-width) * 0.5));
     width: var(--pdf-image-placement-rotate-stem-width);
     height: var(--pdf-image-placement-rotate-stem-height);
-    border-radius: 999px;
+    border-radius: var(--app-radius-full);
     background: color-mix(in oklab, var(--ui-primary) 76%, var(--ui-bg) 24%);
 }
 
@@ -724,11 +724,11 @@ onBeforeUnmount(() => {
     left: 0;
     top: calc(100% + var(--pdf-image-placement-controls-offset-block-start));
     display: flex;
-    gap: 0.45rem;
+    gap: var(--app-space-2xl);
     align-items: center;
-    padding: 0.35rem;
+    padding: var(--app-space-md);
     border: 1px solid var(--app-pdf-context-menu-panel-action-border);
-    border-radius: 999px;
+    border-radius: var(--app-radius-full);
     background: color-mix(in oklab, var(--ui-bg) 94%, var(--ui-bg-elevated) 6%);
     box-shadow: var(--app-pdf-context-menu-panel-shadow);
     white-space: nowrap;
@@ -736,13 +736,16 @@ onBeforeUnmount(() => {
 
 .pdf-image-placement__action {
     border: 1px solid transparent;
-    border-radius: 999px;
+    border-radius: var(--app-radius-full);
     min-height: 0;
-    padding: 0.28rem 0.7rem;
-    font-size: 0.74rem;
-    font-weight: 600;
+    padding: 0.28rem var(--app-space-8xl);
+    font-size: var(--app-text-size-fine);
+    font-weight: var(--app-font-weight-semibold);
     line-height: 1.2;
-    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+    transition:
+        background-color var(--app-transition-quick),
+        border-color var(--app-transition-quick),
+        color var(--app-transition-quick);
 }
 
 .pdf-image-placement__action--secondary {
@@ -758,7 +761,7 @@ onBeforeUnmount(() => {
 }
 
 .pdf-image-placement__action:disabled {
-    opacity: 0.6;
+    opacity: var(--app-opacity-muted);
     cursor: progress;
 }
 </style>

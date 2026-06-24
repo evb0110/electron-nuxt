@@ -30,84 +30,85 @@
                 <div class="pdf-sidebar-pages-editor flex flex-col">
                     <div class="flex flex-col gap-1.5">
                         <div class="pdf-sidebar-pages-field flex flex-col gap-1">
-                            <span id="page-label-scope-label" class="pdf-sidebar-pages-label">{{ t('pageNumbering.applyTo') }}</span>
-                            <div
-                                class="pdf-sidebar-pages-scope-options"
-                                role="radiogroup"
-                                aria-labelledby="page-label-scope-label"
-                            >
-                                <label
-                                    v-for="scopeOption in numberingScopeOptions"
-                                    :key="scopeOption.value"
-                                    class="pdf-sidebar-pages-scope-option"
-                                    :class="{ 'pdf-sidebar-pages-scope-option-active': numberingScope === scopeOption.value }"
-                                >
-                                    <input
-                                        v-model="numberingScope"
-                                        class="pdf-sidebar-pages-scope-input"
-                                        type="radio"
-                                        name="page-label-scope"
-                                        :value="scopeOption.value"
-                                    >
-                                    <span class="pdf-sidebar-pages-scope-label">{{ scopeOption.label }}</span>
-                                </label>
-                            </div>
+                            <URadioGroup
+                                v-model="numberingScope"
+                                name="page-label-scope"
+                                :legend="t('pageNumbering.applyTo')"
+                                :items="numberingScopeOptions"
+                                value-key="value"
+                                variant="card"
+                                indicator="hidden"
+                                size="xs"
+                                :ui="scopeRadioGroupUi"
+                            />
                         </div>
 
                         <div
                             v-if="numberingScope === 'range'"
                             class="pdf-sidebar-pages-field flex flex-col gap-1"
                         >
-                            <label class="pdf-sidebar-pages-label" for="page-label-range-input">{{ t('pageNumbering.pageRange') }}</label>
-                            <input
-                                id="page-label-range-input"
-                                v-model="pageRangeInput"
-                                class="pdf-sidebar-pages-input"
-                                type="text"
-                                inputmode="numeric"
-                                :placeholder="t('pageNumbering.rangePlaceholder')"
+                            <UFormField
+                                :label="t('pageNumbering.pageRange')"
+                                :ui="formFieldUi"
                             >
+                                <UInput
+                                    id="page-label-range-input"
+                                    v-model="pageRangeInput"
+                                    class="w-full"
+                                    size="xs"
+                                    inputmode="numeric"
+                                    :placeholder="t('pageNumbering.rangePlaceholder')"
+                                />
+                            </UFormField>
                         </div>
 
                         <div class="pdf-sidebar-pages-field flex flex-col gap-1">
-                            <label class="pdf-sidebar-pages-label" for="page-label-style-input">{{ t('pageNumbering.style') }}</label>
-                            <select
-                                id="page-label-style-input"
-                                v-model="pageLabelStyle"
-                                class="pdf-sidebar-pages-select"
+                            <UFormField
+                                :label="t('pageNumbering.style')"
+                                :ui="formFieldUi"
                             >
-                                <option
-                                    v-for="styleOption in pageLabelStyleOptions"
-                                    :key="styleOption.value"
-                                    :value="styleOption.value"
-                                >
-                                    {{ styleOption.label }}
-                                </option>
-                            </select>
+                                <USelect
+                                    id="page-label-style-input"
+                                    v-model="pageLabelStyleSelectValue"
+                                    :items="pageLabelStyleOptions"
+                                    value-key="value"
+                                    class="w-full"
+                                    size="xs"
+                                />
+                            </UFormField>
                         </div>
 
                         <div class="pdf-sidebar-pages-field flex flex-col gap-1">
-                            <label class="pdf-sidebar-pages-label" for="page-label-prefix-input">{{ t('pageNumbering.prefix') }}</label>
-                            <input
-                                id="page-label-prefix-input"
-                                v-model="pageLabelPrefix"
-                                class="pdf-sidebar-pages-input"
-                                type="text"
-                                :placeholder="t('pageNumbering.prefixPlaceholder')"
+                            <UFormField
+                                :label="t('pageNumbering.prefix')"
+                                :ui="formFieldUi"
                             >
+                                <UInput
+                                    id="page-label-prefix-input"
+                                    v-model="pageLabelPrefix"
+                                    class="w-full"
+                                    size="xs"
+                                    :placeholder="t('pageNumbering.prefixPlaceholder')"
+                                />
+                            </UFormField>
                         </div>
 
                         <div class="pdf-sidebar-pages-field flex flex-col gap-1">
-                            <label class="pdf-sidebar-pages-label" for="page-label-start-input">{{ t('pageNumbering.startAt') }}</label>
-                            <input
-                                id="page-label-start-input"
-                                :value="pageLabelStartNumber"
-                                class="pdf-sidebar-pages-input"
-                                type="number"
-                                min="1"
-                                :disabled="pageLabelStyle.length === 0"
-                                @input="handleStartNumberInput"
+                            <UFormField
+                                :label="t('pageNumbering.startAt')"
+                                :ui="formFieldUi"
                             >
+                                <UInput
+                                    id="page-label-start-input"
+                                    :model-value="pageLabelStartNumber"
+                                    class="w-full"
+                                    type="number"
+                                    size="xs"
+                                    min="1"
+                                    :disabled="pageLabelStyle.length === 0"
+                                    @update:model-value="handleStartNumberModelUpdate"
+                                />
+                            </UFormField>
                         </div>
                     </div>
 
@@ -199,6 +200,14 @@ const numberingScope = ref<TNumberingScope>('all');
 const pageLabelStyle = ref<'' | Exclude<TPageLabelStyle, null>>('D');
 const pageLabelPrefix = ref('');
 const pageLabelStartNumber = ref(1);
+const PAGE_LABEL_STYLE_PREFIX_ONLY_VALUE = '__prefix_only__';
+const formFieldUi = { label: 'pdf-sidebar-pages-label' } as const;
+const scopeRadioGroupUi = {
+    fieldset: 'gap-y-1',
+    legend: 'pdf-sidebar-pages-label',
+    item: 'min-w-0 cursor-pointer rounded-[var(--app-radius-xs)] bg-elevated px-1.5 py-1',
+    label: 'min-w-0 truncate text-xs font-normal',
+} as const;
 
 const numberingScopeOptions = computed<Array<{
     value: TNumberingScope;
@@ -219,34 +228,44 @@ const numberingScopeOptions = computed<Array<{
 ]);
 
 const pageLabelStyleOptions = computed<Array<{
-    value: '' | Exclude<TPageLabelStyle, null>;
+    value: Exclude<TPageLabelStyle, null> | typeof PAGE_LABEL_STYLE_PREFIX_ONLY_VALUE;
     label: string;
 }>>(() => [
     {
         value: 'D',
-        label: t('pageNumbering.decimal'), 
+        label: t('pageNumbering.decimal'),
     },
     {
         value: 'r',
-        label: t('pageNumbering.romanLower'), 
+        label: t('pageNumbering.romanLower'),
     },
     {
         value: 'R',
-        label: t('pageNumbering.romanUpper'), 
+        label: t('pageNumbering.romanUpper'),
     },
     {
         value: 'a',
-        label: t('pageNumbering.lettersLower'), 
+        label: t('pageNumbering.lettersLower'),
     },
     {
         value: 'A',
-        label: t('pageNumbering.lettersUpper'), 
+        label: t('pageNumbering.lettersUpper'),
     },
     {
-        value: '',
-        label: t('pageNumbering.prefixOnly'), 
+        value: PAGE_LABEL_STYLE_PREFIX_ONLY_VALUE,
+        label: t('pageNumbering.prefixOnly'),
     },
 ]);
+const pageLabelStyleSelectValue = computed({
+    get: () => pageLabelStyle.value === ''
+        ? PAGE_LABEL_STYLE_PREFIX_ONLY_VALUE
+        : pageLabelStyle.value,
+    set: (value: string) => {
+        pageLabelStyle.value = value === PAGE_LABEL_STYLE_PREFIX_ONLY_VALUE
+            ? ''
+            : normalizePageLabelStyleSelectValue(value);
+    },
+});
 
 const normalizedPageLabelRanges = computed(() => normalizePageLabelRanges(
     pageLabelRanges ?? [],
@@ -258,6 +277,12 @@ function buildEffectivePageLabels() {
         return pageLabels;
     }
     return buildPageLabelsFromRanges(totalPages, normalizedPageLabelRanges.value);
+}
+
+function normalizePageLabelStyleSelectValue(value: string): Exclude<TPageLabelStyle, null> {
+    return value === 'D' || value === 'r' || value === 'R' || value === 'a' || value === 'A'
+        ? value
+        : 'D';
 }
 
 const manualRange = computed(() => parsePageRangeInput(pageRangeInput.value, totalPages));
@@ -378,16 +403,10 @@ function queueRangeSyncSuppression() {
     });
 }
 
-function readEventValue(event: Event) {
-    const target = event.target;
-    if (target instanceof HTMLInputElement) {
-        return target.value;
-    }
-    return '';
-}
-
-function handleStartNumberInput(event: Event) {
-    const parsed = Number.parseInt(readEventValue(event), 10);
+function handleStartNumberModelUpdate(value: string | number | null | undefined) {
+    const parsed = typeof value === 'number'
+        ? value
+        : Number.parseInt(String(value ?? ''), 10);
     if (!Number.isFinite(parsed) || parsed < 1) {
         pageLabelStartNumber.value = 1;
         return;
@@ -618,70 +637,12 @@ watch(
     min-width: 0;
 }
 
-.pdf-sidebar-pages-label {
+.pdf-sidebar-pages-label,
+:deep(.pdf-sidebar-pages-label) {
     font-size: 0.675rem;
     color: var(--ui-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
-}
-
-.pdf-sidebar-pages-scope-options {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.pdf-sidebar-pages-scope-option {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    border: 1px solid var(--ui-border);
-    border-radius: 0.25rem;
-    background: var(--ui-bg-elevated);
-    color: var(--ui-text);
-    padding: 0.25rem 0.375rem;
-    font-size: 0.75rem;
-    line-height: 1.2;
-    cursor: pointer;
-    min-width: 0;
-}
-
-.pdf-sidebar-pages-scope-option-active {
-    border-color: var(--app-control-active-border);
-    background: var(--app-control-active-bg);
-    color: var(--ui-text-highlighted);
-}
-
-.pdf-sidebar-pages-scope-input {
-    flex-shrink: 0;
-}
-
-.pdf-sidebar-pages-scope-label {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.pdf-sidebar-pages-input,
-.pdf-sidebar-pages-select {
-    width: 100%;
-    border: 1px solid var(--ui-border);
-    background: var(--ui-bg-elevated);
-    color: var(--ui-text);
-    border-radius: 0.25rem;
-    font-size: 0.75rem;
-    padding: 0.25rem 0.375rem;
-    min-width: 0;
-    max-width: 100%;
-}
-
-.pdf-sidebar-pages-select {
-    text-overflow: ellipsis;
-}
-
-.pdf-sidebar-pages-input:disabled {
-    opacity: 0.6;
 }
 
 .pdf-sidebar-pages-selection-text {

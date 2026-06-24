@@ -113,6 +113,211 @@ describe('createElectronApi', () => {
         });
     });
 
+    it('decodes agent renderer request events before invoking callbacks', async () => {
+        const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
+        const ipcRenderer = {
+            invoke: vi.fn(async () => undefined),
+            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
+                listeners.set(channel, handler);
+            }),
+            removeListener: vi.fn(),
+            send: vi.fn(),
+        };
+        const { createElectronApi } = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(
+            ipcRenderer as never,
+            { getPathForFile: () => '' },
+        );
+        const snapshotCallback = vi.fn();
+        const commandCallback = vi.fn();
+
+        api.agent.onWorkspaceSnapshotRequest(snapshotCallback);
+        api.agent.onCommandRequest(commandCallback);
+        const snapshotListener = listeners.get(CORE_IPC_EVENT_CHANNELS.agentWorkspaceSnapshotRequest);
+        const commandListener = listeners.get(CORE_IPC_EVENT_CHANNELS.agentCommandRequest);
+        if (!snapshotListener || !commandListener) {
+            throw new Error('Expected agent request listeners to be registered');
+        }
+
+        snapshotListener({}, {
+            requestId: '',
+            windowId: 1,
+        });
+        snapshotListener({}, {
+            requestId: ' snapshot-1 ',
+            windowId: 12,
+            lastSeenRevision: 3,
+        });
+        commandListener({}, {
+            requestId: 'command-bad',
+            windowId: 12,
+            command: {
+                name: 'go_to_page',
+                arguments: {page: '2'},
+            },
+        });
+        commandListener({}, {
+            requestId: ' command-1 ',
+            windowId: 12,
+            command: {
+                name: 'run_action',
+                arguments: {
+                    id: 'ui.close_popups',
+                    tabId: ' tab-1 ',
+                    input: {ok: true},
+                    dryRun: true,
+                },
+            },
+        });
+
+        expect(snapshotCallback).toHaveBeenCalledOnce();
+        expect(snapshotCallback).toHaveBeenCalledWith({
+            requestId: 'snapshot-1',
+            windowId: 12,
+            lastSeenRevision: 3,
+        });
+        expect(commandCallback).toHaveBeenCalledOnce();
+        expect(commandCallback).toHaveBeenCalledWith({
+            requestId: 'command-1',
+            windowId: 12,
+            command: {
+                name: 'run_action',
+                arguments: {
+                    id: 'ui.close_popups',
+                    tabId: 'tab-1',
+                    input: {ok: true},
+                    dryRun: true,
+                },
+            },
+        });
+    });
+
+    it('decodes assistant events before invoking callbacks', async () => {
+        const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
+        const ipcRenderer = {
+            invoke: vi.fn(async () => undefined),
+            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
+                listeners.set(channel, handler);
+            }),
+            removeListener: vi.fn(),
+            send: vi.fn(),
+        };
+        const { createElectronApi } = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(
+            ipcRenderer as never,
+            { getPathForFile: () => '' },
+        );
+        const callback = vi.fn();
+
+        api.agent.onAssistantEvent(callback);
+        const listener = listeners.get(CORE_IPC_EVENT_CHANNELS.agentAssistantEvent);
+        if (!listener) {
+            throw new Error('Expected assistant event listener to be registered');
+        }
+
+        listener({}, {
+            type: 'state',
+            state: {
+                status: {provider: 'codex'},
+                messages: [],
+            },
+        });
+        listener({}, {
+            type: 'message-delta',
+            messageId: ' message-1 ',
+            delta: 'hello',
+        });
+
+        expect(callback).toHaveBeenCalledOnce();
+        expect(callback).toHaveBeenCalledWith({
+            type: 'message-delta',
+            messageId: 'message-1',
+            delta: 'hello',
+        });
+    });
+
+    it('decodes incoming tab transfers before invoking callbacks', async () => {
+        const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
+        const ipcRenderer = {
+            invoke: vi.fn(async () => undefined),
+            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
+                listeners.set(channel, handler);
+            }),
+            removeListener: vi.fn(),
+            send: vi.fn(),
+        };
+        const { createElectronApi } = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(
+            ipcRenderer as never,
+            { getPathForFile: () => '' },
+        );
+        const callback = vi.fn();
+
+        const unsubscribe = api.windowTabs.onIncomingTransfer(callback);
+        const listener = listeners.get(CORE_IPC_EVENT_CHANNELS.tabsIncomingTransfer);
+        if (!listener) {
+            throw new Error('Expected incoming tab transfer listener to be registered');
+        }
+
+        listener({}, {
+            transferId: 'transfer-bad',
+            sourceWindowId: 1,
+            targetWindowId: 2,
+            tab: {
+                fileName: 'doc.pdf',
+                originalPath: '/tmp/doc.pdf',
+                isDirty: false,
+                isDjvu: false,
+            },
+            payload: { kind: 'unsupported' },
+        });
+        listener({}, {
+            transferId: ' transfer-1 ',
+            sourceWindowId: 1,
+            targetWindowId: 2,
+            tab: {
+                fileName: 'doc.pdf',
+                originalPath: '/tmp/doc.pdf',
+                isDirty: false,
+                isDjvu: false,
+            },
+            payload: {
+                kind: 'pdfSnapshot',
+                fileName: 'doc.pdf',
+                originalPath: '/tmp/doc.pdf',
+                snapshotPath: '/tmp/doc.snapshot.pdf',
+                isDirty: true,
+                currentPage: 2,
+            },
+        });
+        unsubscribe();
+
+        expect(callback).toHaveBeenCalledOnce();
+        expect(callback).toHaveBeenCalledWith({
+            transferId: 'transfer-1',
+            sourceWindowId: 1,
+            targetWindowId: 2,
+            tab: {
+                fileName: 'doc.pdf',
+                originalPath: '/tmp/doc.pdf',
+                isDirty: false,
+                isDjvu: false,
+            },
+            payload: {
+                kind: 'pdfSnapshot',
+                fileName: 'doc.pdf',
+                originalPath: '/tmp/doc.pdf',
+                snapshotPath: '/tmp/doc.snapshot.pdf',
+                isDirty: true,
+                currentPage: 2,
+            },
+        });
+        expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
+            CORE_IPC_EVENT_CHANNELS.tabsIncomingTransfer,
+            listener,
+        );
+    });
+
     it('awaits renderer file-open authorization before single-file direct open', async () => {
         vi.stubGlobal('crypto', { randomUUID: () => '00000000-0000-4000-8000-000000000001' });
         const invocations: string[] = [];

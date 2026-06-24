@@ -331,7 +331,7 @@ function clearWorkerCleanupTimer(scopedJobId: string) {
 
 function resetJobWatchdog(job: IOcrQueuedJob) {
     const activeJob = activeJobs.get(job.scopedJobId);
-    if (!activeJob || activeJob.completed) {
+    if (!activeJob || activeJob.completed || activeJob.terminalResultSent) {
         return;
     }
 

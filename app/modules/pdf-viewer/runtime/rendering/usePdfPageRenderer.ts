@@ -157,6 +157,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         cancelActiveRenderTask,
         cancelActiveRenderTaskIfCurrent,
         cancelAllActiveRenderTasks,
+        waitForActiveRenderTasksToSettle,
         cancelActiveTextLayerRender,
         cancelActiveTextLayerRenderIfCurrent,
         cancelAllActiveTextLayerRenders,
@@ -630,8 +631,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     }
 
     function cancelInFlightRenders() {
+        const activeRenderTasksSettled = waitForActiveRenderTasksToSettle();
         bumpRenderVersion('cancel-in-flight-renders');
         missingRenderTargetRetries.clear();
+        return activeRenderTasksSettled;
     }
 
     const { requestScrollToCurrentResult } = searchController;

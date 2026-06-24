@@ -86,6 +86,7 @@ describe('package scripts', () => {
         const packageJson = await readPackageJson();
 
         expect(scriptRunTargets(packageJson, 'lint')).toEqual(expect.arrayContaining([
+            'check:css-custom-properties',
             'check:web-deploy-source',
             'check:dependency-lockstep',
             'check:naming',

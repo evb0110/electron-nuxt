@@ -1911,7 +1911,7 @@ onUnmounted(() => {
     touch-action: none;
     background: transparent;
     border-left: 1px solid transparent;
-    transition: border-color 0.15s ease;
+    transition: border-color var(--app-transition-standard);
     -webkit-app-region: no-drag;
 }
 
@@ -1924,11 +1924,11 @@ onUnmounted(() => {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
+    gap: var(--app-space-3xl);
     width: 100%;
     height: var(--app-tabbar-height);
     min-height: var(--app-tabbar-height);
-    padding: 0 0.5rem 0 0.75rem;
+    padding: 0 var(--app-space-3xl) 0 var(--app-space-9xl);
     border-bottom: 1px solid var(--ui-border);
     background: var(--app-tabbar-bg);
     -webkit-app-region: drag;
@@ -1938,7 +1938,7 @@ onUnmounted(() => {
     display: flex;
     flex: 1 1 auto;
     align-items: center;
-    gap: 0.45rem;
+    gap: var(--app-space-2xl);
     min-width: 0;
 }
 
@@ -1952,7 +1952,7 @@ onUnmounted(() => {
 .agent-assistant-title-text {
     overflow: hidden;
     color: var(--ui-text);
-    font-size: 0.75rem;
+    font-size: var(--app-text-size-kicker);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1961,7 +1961,7 @@ onUnmounted(() => {
     display: flex;
     flex: 0 0 auto;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--app-space-sm);
     -webkit-app-region: no-drag;
 }
 
@@ -1975,13 +1975,13 @@ onUnmounted(() => {
     min-height: 1.75rem;
     padding: 0;
     border: 1px solid transparent;
-    border-radius: 0.375rem;
+    border-radius: var(--app-radius-md);
     color: var(--ui-text-muted);
     transition:
-        background-color 0.12s ease,
-        border-color 0.12s ease,
-        color 0.12s ease,
-        box-shadow 0.12s ease;
+        background-color var(--app-transition-quick),
+        border-color var(--app-transition-quick),
+        color var(--app-transition-quick),
+        box-shadow var(--app-transition-quick);
 }
 
 .agent-assistant-header-button:hover:not(:disabled) {
@@ -2017,8 +2017,8 @@ onUnmounted(() => {
     flex-direction: column;
     align-items: flex-start;
     justify-content: flex-start;
-    gap: 0.65rem;
-    padding: 1.25rem;
+    gap: var(--app-space-7xl);
+    padding: var(--app-space-15xl);
 }
 
 /* Anchor the icon + title at a stable fraction of the panel height instead of
@@ -2037,7 +2037,7 @@ onUnmounted(() => {
     width: 2.5rem;
     height: 2.5rem;
     border: 1px solid var(--ui-border);
-    border-radius: 999px;
+    border-radius: var(--app-radius-full);
     background: var(--ui-bg);
 }
 
@@ -2055,7 +2055,7 @@ onUnmounted(() => {
     margin: 0;
     color: var(--ui-text);
     font-size: 0.95rem;
-    font-weight: 650;
+    font-weight: var(--app-font-weight-heading);
     letter-spacing: -0.01em;
 }
 
@@ -2064,7 +2064,7 @@ onUnmounted(() => {
 .agent-assistant-progress {
     margin: 0;
     color: var(--ui-text-muted);
-    font-size: 0.8125rem;
+    font-size: var(--app-text-size-body-sm);
     line-height: 1.5;
 }
 
@@ -2072,7 +2072,7 @@ onUnmounted(() => {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 0.5rem;
+    gap: var(--app-space-3xl);
 }
 
 .agent-assistant-messages {
@@ -2080,7 +2080,7 @@ onUnmounted(() => {
     flex: 1 1 auto;
     min-height: 0;
     flex-direction: column;
-    gap: 0.625rem;
+    gap: var(--app-space-6xl);
     overflow: auto;
     padding: 0.875rem;
     scroll-behavior: smooth;
@@ -2107,7 +2107,7 @@ onUnmounted(() => {
     display: flex;
     max-width: 100%;
     flex-wrap: wrap;
-    gap: 0.35rem;
+    gap: var(--app-space-md);
 }
 
 .agent-assistant-message.is-user .agent-assistant-message-attachments {
@@ -2137,7 +2137,7 @@ onUnmounted(() => {
     display: flex;
     max-width: 100%;
     align-items: flex-start;
-    gap: 0.25rem;
+    gap: var(--app-space-sm);
 }
 
 .agent-assistant-message.is-user .agent-assistant-message-row {
@@ -2149,13 +2149,13 @@ onUnmounted(() => {
     min-width: 0;
     max-width: 100%;
     flex-direction: column;
-    gap: 0.45rem;
-    padding: 0.5rem 0.7rem;
+    gap: var(--app-space-2xl);
+    padding: var(--app-space-3xl) var(--app-space-8xl);
     border: 1px solid var(--ui-border);
     border-radius: 0.9rem;
     background: var(--ui-bg);
     color: var(--ui-text);
-    font-size: 0.8125rem;
+    font-size: var(--app-text-size-body-sm);
     line-height: 1.5;
     overflow-wrap: anywhere;
     user-select: text;
@@ -2192,7 +2192,7 @@ onUnmounted(() => {
 .agent-assistant-message-heading {
     margin: 0;
     color: inherit;
-    font-size: 0.875rem;
+    font-size: var(--app-text-size-body);
     font-weight: var(--app-font-weight-semibold);
     line-height: 1.4;
     overflow-wrap: anywhere;
@@ -2260,7 +2260,7 @@ onUnmounted(() => {
 }
 
 .agent-assistant-message-inline-code {
-    padding: 0 0.25rem;
+    padding: 0 var(--app-space-sm);
     font-size: 0.78em;
 }
 
@@ -2268,8 +2268,8 @@ onUnmounted(() => {
     max-width: 100%;
     margin: 0;
     overflow: auto;
-    padding: 0.5rem 0.6rem;
-    font-size: 0.75rem;
+    padding: var(--app-space-3xl) var(--app-space-5xl);
+    font-size: var(--app-text-size-kicker);
     line-height: 1.45;
     white-space: pre;
 }
@@ -2331,13 +2331,13 @@ onUnmounted(() => {
     display: inline-flex;
     align-items: center;
     align-self: flex-start;
-    gap: 0.4rem;
-    padding: 0.4rem 0.65rem;
+    gap: var(--app-space-xl);
+    padding: var(--app-space-xl) var(--app-space-7xl);
     border: 1px solid var(--ui-border);
-    border-radius: 999px;
+    border-radius: var(--app-radius-full);
     background: var(--ui-bg);
     color: var(--ui-text-dimmed);
-    font-size: 0.75rem;
+    font-size: var(--app-text-size-kicker);
 }
 
 .agent-assistant-working-icon {
@@ -2347,7 +2347,7 @@ onUnmounted(() => {
 }
 
 .agent-assistant-composer {
-    padding: 0.75rem;
+    padding: var(--app-space-9xl);
     border-top: 1px solid var(--ui-border);
 }
 
@@ -2363,7 +2363,9 @@ onUnmounted(() => {
     border: 1px solid var(--ui-border);
     border-radius: 0.85rem;
     background: var(--ui-bg);
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    transition:
+        border-color var(--app-transition-standard),
+        box-shadow var(--app-transition-standard);
 }
 
 .agent-assistant-composer-field:focus-within {
@@ -2374,8 +2376,8 @@ onUnmounted(() => {
 .agent-assistant-composer-attachments {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem;
-    padding: 0.5rem 0.5rem 0;
+    gap: var(--app-space-xl);
+    padding: var(--app-space-3xl) var(--app-space-3xl) 0;
 }
 
 .agent-assistant-composer-attachment {
@@ -2415,9 +2417,9 @@ onUnmounted(() => {
 
 .agent-assistant-composer-error {
     margin: 0;
-    padding: 0.4rem 0.7rem 0;
+    padding: var(--app-space-xl) var(--app-space-8xl) 0;
     color: var(--ui-error);
-    font-size: 0.8125rem;
+    font-size: var(--app-text-size-body-sm);
     line-height: 1.45;
 }
 
@@ -2426,13 +2428,13 @@ onUnmounted(() => {
     width: 100%;
     min-height: 4.25rem;
     resize: none;
-    padding: 0.55rem 0.7rem 0.3rem;
+    padding: var(--app-space-4xl) var(--app-space-8xl) 0.3rem;
     border: 0;
     border-radius: 0.85rem;
     background: transparent;
     color: var(--ui-text);
     font: inherit;
-    font-size: 0.8125rem;
+    font-size: var(--app-text-size-body-sm);
     line-height: 1.5;
     outline: none;
 }
@@ -2445,35 +2447,35 @@ onUnmounted(() => {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
-    padding: 0 0.4rem 0.4rem;
+    gap: var(--app-space-3xl);
+    padding: 0 var(--app-space-xl) var(--app-space-xl);
 }
 
 .agent-assistant-composer-switchers {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: var(--app-space-md);
     min-width: 0;
 }
 
 .agent-assistant-setup-footer {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
-    padding: 0.6rem 0.75rem;
+    gap: var(--app-space-md);
+    padding: var(--app-space-5xl) var(--app-space-9xl);
     border-top: 1px solid var(--ui-border);
 }
 
 .agent-assistant-device-code {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.625rem;
+    gap: var(--app-space-3xl);
+    padding: var(--app-space-3xl) var(--app-space-6xl);
     border: 1px solid var(--ui-border);
     border-radius: var(--ui-radius);
     background: var(--ui-bg);
     color: var(--ui-text);
-    font-size: 0.8125rem;
+    font-size: var(--app-text-size-body-sm);
 }
 
 .agent-assistant-device-code strong {
@@ -2482,19 +2484,19 @@ onUnmounted(() => {
 
 .agent-assistant-error {
     margin: 0 0.875rem 0.875rem;
-    padding: 0.5rem 0.7rem;
+    padding: var(--app-space-3xl) var(--app-space-8xl);
     border: 1px solid color-mix(in oklab, var(--ui-error) 30%, var(--ui-border) 70%);
     border-radius: var(--ui-radius);
     background: color-mix(in oklab, var(--ui-error) 8%, var(--ui-bg) 92%);
     color: var(--ui-error);
-    font-size: 0.8125rem;
+    font-size: var(--app-text-size-body-sm);
     line-height: 1.45;
 }
 
 .agent-assistant-image-preview {
     position: fixed;
     inset: 0;
-    z-index: 100;
+    z-index: var(--app-assistant-image-preview-z-index);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2521,7 +2523,7 @@ onUnmounted(() => {
     max-height: var(--app-assistant-image-preview-content-max-height);
     flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--app-space-3xl);
     margin: 0;
 }
 
@@ -2541,7 +2543,7 @@ onUnmounted(() => {
     max-width: min(var(--app-assistant-image-preview-max-viewport-width), var(--app-assistant-image-preview-max-width));
     overflow: hidden;
     color: color-mix(in oklab, var(--ui-bg) 82%, transparent);
-    font-size: 0.8125rem;
+    font-size: var(--app-text-size-body-sm);
     line-height: 1.4;
     text-align: center;
     text-overflow: ellipsis;

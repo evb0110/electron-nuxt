@@ -11,7 +11,7 @@
         </template>
 
         <template #body>
-            <div class="flex flex-col gap-2">
+            <div class="flex flex-col gap-4">
                 <URadioGroup
                     v-model="scope"
                     :legend="t('export.scopeLabel')"
