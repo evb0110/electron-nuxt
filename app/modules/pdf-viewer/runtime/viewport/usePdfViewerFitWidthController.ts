@@ -11,6 +11,7 @@ import type {
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdf';
+import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
 
 
 interface IUsePdfViewerFitWidthControllerOptions {
@@ -66,7 +67,7 @@ export const usePdfViewerFitWidthController = (options: IUsePdfViewerFitWidthCon
                 preserveExistingPages: true,
                 anchorSnapshot,
                 disableHorizontalAnchorRestore: true,
-                rerenderSource: 'fit-width-explicit',
+                rerenderSource: PDF_RERENDER_SOURCE.FitWidthExplicit,
                 renderBufferOverride: 0,
             },
         );

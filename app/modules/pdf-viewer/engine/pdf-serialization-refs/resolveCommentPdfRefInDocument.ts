@@ -25,6 +25,7 @@ import {
 } from '@pdf-core';
 import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { getPdfPopupDict } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/getPdfPopupDict';
+import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
 
 function toPdfLibRef(ref: ReturnType<typeof parsePdfJsAnnotationRef>) {
     return ref ? PDFRef.of(ref.objectNumber, ref.generationNumber) : null;
@@ -38,14 +39,7 @@ function getPdfDictAuthor(dict: PDFDict | null) {
 }
 
 function parseAnnotationRefFromStableKey(stableKey: string | null | undefined) {
-    if (!stableKey) {
-        return null;
-    }
-    const match = stableKey.trim().match(/^ann:\d+:(\d+R(?:\d+)?)$/i);
-    if (!match?.[1]) {
-        return null;
-    }
-    return toPdfLibRef(parsePdfJsAnnotationRef(match[1]));
+    return toPdfLibRef(parsePdfAnnotationStableKeyRef(stableKey)?.ref ?? null);
 }
 
 function isNoteLikeAnnotationSubtype(

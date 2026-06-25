@@ -3,9 +3,37 @@ import {
     expect,
     it,
 } from 'vitest';
-import { collectLivePdfJsAnnotationChangeIds } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
+import {
+    collectLivePdfJsAnnotationChangeIds,
+    resetLivePdfJsAnnotationStorageModifiedIds,
+    resetLivePdfJsAnnotationStorageModifiedState,
+} from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 
 describe('collectLivePdfJsAnnotationChangeIds', () => {
+    it('exposes named bridge helpers for PDF.js annotation storage resets', () => {
+        let resetModifiedCalls = 0;
+        let resetModifiedIdsCalls = 0;
+        const document = { annotationStorage: {
+            resetModified() {
+                resetModifiedCalls += 1;
+            },
+            resetModifiedIds() {
+                resetModifiedIdsCalls += 1;
+            },
+        }} as never;
+
+        expect(resetLivePdfJsAnnotationStorageModifiedState(document)).toBe(true);
+        expect(resetLivePdfJsAnnotationStorageModifiedIds(document)).toBe(true);
+
+        expect(resetModifiedCalls).toBe(1);
+        expect(resetModifiedIdsCalls).toBe(1);
+    });
+
+    it('treats missing PDF.js annotation storage reset methods as no-ops', () => {
+        expect(resetLivePdfJsAnnotationStorageModifiedState({ annotationStorage: {} } as never)).toBe(false);
+        expect(resetLivePdfJsAnnotationStorageModifiedIds(null)).toBe(false);
+    });
+
     it('ignores editor-only annotations that were deleted before PDF.js materialization', () => {
         const serializableMap = new Map([[
             'pdfjs_internal_editor_0',

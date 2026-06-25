@@ -30,12 +30,17 @@ import {
     type TOcrWorkerManagerMessage,
     toScopedOcrJobId,
 } from '@electron/ocr/jobManagerProtocol';
+import {
+    getOcrWorkerMessageDisposition,
+    transitionOcrJobLifecycle,
+} from '@electron/ocr/ocrJobLifecycle';
 import { createPendingResultFileStore } from '@electron/ocr/createPendingResultFileStore';
 import { createOcrWorker } from '@electron/ocr/createOcrWorker.worker';
+import { ocrResourceGovernor } from '@electron/ocr/ocrResourceGovernor';
 import {
-    ocrResourceGovernor,
-    type IOcrResourceRequest,
-} from '@electron/ocr/ocrResourceGovernor';
+    handleWorkerResourceMessage,
+    isWorkerResourceMessage,
+} from '@electron/ocr/ocrWorkerResourceMessages';
 import type {
     IOcrActiveJob,
     IOcrPreparingJob,
@@ -44,12 +49,8 @@ import type {
 import type {
     IOcrPdfPageRequest,
     TOcrWorkerInboundMessage,
-    TOcrWorkerOutboundMessage,
 } from '@electron/ocr/worker/types';
-import {
-    isErrnoException,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import { isErrnoException } from '@contracts/runtimeGuards';
 import type {
     IOcrCancelResult,
     IOcrErrorEnvelope,
@@ -294,6 +295,13 @@ function abortPreparingJob(
     }
 
     cancelledJobs.add(scopedJobId);
+    if (preparingJob.lifecycleState !== 'cancelling') {
+        preparingJob.lifecycleState = transitionOcrJobLifecycle(
+            preparingJob.lifecycleState,
+            'cancelling',
+            scopedJobId,
+        );
+    }
     if (!preparingJob.abortController.signal.aborted) {
         preparingJob.abortController.abort(createAbortError(reason));
     }
@@ -301,11 +309,15 @@ function abortPreparingJob(
     return true;
 }
 
-function removeQueuedJob(scopedJobId: string) {
+function removeQueuedJob(
+    scopedJobId: string,
+    nextState: 'cancelling' | 'finalized' = 'finalized',
+) {
     const [job = null] = remove(queuedJobs, candidate => candidate.scopedJobId === scopedJobId);
     if (!job) {
         return null;
     }
+    job.lifecycleState = transitionOcrJobLifecycle(job.lifecycleState, nextState, scopedJobId);
     queuedJobIds.delete(scopedJobId);
     clearOcrProgressPump(scopedJobId, job.requestId);
     return job;
@@ -386,10 +398,20 @@ function terminateAndFinalizeActiveJob(
     if (!activeJob) {
         return;
     }
+    if (activeJob.completed || activeJob.terminatedByUs) {
+        return;
+    }
 
     activeJob.completed = true;
     activeJob.terminatedByUs = true;
     if (options.markCancelled) {
+        if (activeJob.lifecycleState !== 'terminal-result-sent') {
+            activeJob.lifecycleState = transitionOcrJobLifecycle(
+                activeJob.lifecycleState,
+                'cancelling',
+                scopedJobId,
+            );
+        }
         cancelledJobs.add(scopedJobId);
         if (!activeJob.terminalResultSent) {
             removePendingCompletionResultFile(activeJob);
@@ -419,7 +441,7 @@ function cancelJobsForSender(webContentsId: number, reason: string) {
         .filter(job => job.webContentsId === webContentsId)
         .map(job => job.scopedJobId);
     for (const scopedJobId of queuedForSender) {
-        const removedJob = removeQueuedJob(scopedJobId);
+        const removedJob = removeQueuedJob(scopedJobId, 'cancelling');
         if (removedJob) {
             log.info(`[${removedJob.requestId}] Removed queued OCR job: ${reason}`);
         }
@@ -560,6 +582,11 @@ function sendPendingCompletionResult(job: IOcrActiveJob) {
     } else {
         job.pendingCompletionResult = null;
     }
+    job.lifecycleState = transitionOcrJobLifecycle(
+        job.lifecycleState,
+        'terminal-result-sent',
+        job.scopedJobId,
+    );
     job.terminalResultSent = true;
     clearJobWatchdog(job.scopedJobId);
     startWorkerCleanupGraceTimer(job);
@@ -602,88 +629,6 @@ function finalizeActiveJob(scopedJobId: string) {
     dispatchQueuedJobs();
 }
 
-function isWorkerResourceMessage(message: unknown): message is Extract<
-    TOcrWorkerOutboundMessage,
-    { type: 'resource-acquire' } | { type: 'resource-release' }
-> {
-    if (!isRecord(message) || typeof message.type !== 'string') {
-        return false;
-    }
-
-    if (message.type === 'resource-release') {
-        return typeof message.jobId === 'string' && typeof message.token === 'string';
-    }
-
-    return message.type === 'resource-acquire'
-        && typeof message.jobId === 'string'
-        && typeof message.requestId === 'string'
-        && typeof message.pageNumber === 'number'
-        && Number.isFinite(message.pageNumber)
-        && typeof message.requestedDpi === 'number'
-        && Number.isFinite(message.requestedDpi)
-        && (message.pageWidthIn === undefined || (typeof message.pageWidthIn === 'number' && Number.isFinite(message.pageWidthIn)))
-        && (message.pageHeightIn === undefined || (typeof message.pageHeightIn === 'number' && Number.isFinite(message.pageHeightIn)));
-}
-
-function handleWorkerResourceMessage(
-    scopedJobId: string,
-    worker: Worker,
-    message: Extract<TOcrWorkerOutboundMessage, { type: 'resource-acquire' } | { type: 'resource-release' }>,
-) {
-    if (message.type === 'resource-release') {
-        ocrResourceGovernor.release(message.token);
-        return;
-    }
-
-    const resourceRequest: IOcrResourceRequest = {
-        jobId: scopedJobId,
-        pageNumber: message.pageNumber,
-        requestedDpi: message.requestedDpi,
-    };
-    if (message.pageWidthIn !== undefined) {
-        resourceRequest.pageWidthIn = message.pageWidthIn;
-    }
-    if (message.pageHeightIn !== undefined) {
-        resourceRequest.pageHeightIn = message.pageHeightIn;
-    }
-
-    const sendResourceDenied = (reason: string) => {
-        const response: TOcrWorkerInboundMessage = {
-            type: 'resource-denied',
-            jobId: message.jobId,
-            requestId: message.requestId,
-            reason,
-        };
-        try {
-            worker.postMessage(response);
-        } catch (error) {
-            log.debug(`[${scopedJobId}] Failed to send OCR resource denial: ${getErrorMessage(error)}`);
-        }
-    };
-
-    void ocrResourceGovernor.acquire(resourceRequest).then((lease) => {
-        const active = activeJobs.get(scopedJobId);
-        if (!active || active.worker !== worker || active.completed || active.terminatedByUs) {
-            ocrResourceGovernor.release(lease.token);
-            sendResourceDenied(`OCR resource request denied because job ${message.jobId} is no longer active`);
-            return;
-        }
-
-        const response: TOcrWorkerInboundMessage = {
-            type: 'resource-acquired',
-            jobId: message.jobId,
-            requestId: message.requestId,
-            token: lease.token,
-            effectiveDpi: lease.effectiveDpi,
-        };
-        worker.postMessage(response);
-    }).catch((error: unknown) => {
-        const messageText = getErrorMessage(error);
-        sendResourceDenied(messageText);
-        log.warn(`[${scopedJobId}] Failed to grant OCR resource slot: ${messageText}`);
-    });
-}
-
 function handleWorkerMessage(
     scopedJobId: string,
     requestId: string,
@@ -703,29 +648,40 @@ function handleWorkerMessage(
                 log.debug(`[worker] ${message.message}`);
             }
             return;
-        case 'progress':
-            if (message.jobId !== requestId) {
-                log.warn(`Ignoring OCR progress for mismatched job id "${message.jobId}" (expected "${requestId}")`);
-                return;
-            }
-            if (!isCurrentActiveWorker(scopedJobId, worker)) {
-                log.debug(`Ignoring late OCR progress for inactive job "${requestId}"`);
+        case 'progress': {
+            const disposition = getOcrWorkerMessageDisposition({
+                incomingJobId: message.jobId,
+                expectedRequestId: requestId,
+                isCurrentWorker: isCurrentActiveWorker(scopedJobId, worker),
+            });
+            if (!disposition.accepted) {
+                if (disposition.reason === 'mismatched-job-id') {
+                    log.warn(`Ignoring OCR progress for mismatched job id "${message.jobId}" (expected "${requestId}")`);
+                } else {
+                    log.debug(`Ignoring late OCR progress for inactive job "${requestId}"`);
+                }
                 return;
             }
             enqueueOcrProgress(scopedJobId, window, message.progress);
             return;
+        }
         case 'complete': {
-            if (message.jobId !== requestId) {
-                log.warn(`Ignoring OCR completion for mismatched job id "${message.jobId}" (expected "${requestId}")`);
-                return;
-            }
-            if (!isCurrentActiveWorker(scopedJobId, worker)) {
-                log.debug(`Ignoring late OCR completion for inactive job "${requestId}"`);
-                return;
-            }
             const activeJob = activeJobs.get(scopedJobId);
-            if (activeJob?.terminalResultSent) {
-                log.debug(`Ignoring duplicate OCR completion for job "${requestId}" after terminal result`);
+            const disposition = getOcrWorkerMessageDisposition({
+                incomingJobId: message.jobId,
+                expectedRequestId: requestId,
+                isCurrentWorker: isCurrentActiveWorker(scopedJobId, worker),
+                terminalResultSent: activeJob?.terminalResultSent === true,
+                rejectAfterTerminalResult: true,
+            });
+            if (!disposition.accepted) {
+                if (disposition.reason === 'mismatched-job-id') {
+                    log.warn(`Ignoring OCR completion for mismatched job id "${message.jobId}" (expected "${requestId}")`);
+                } else if (disposition.reason === 'terminal-result-already-sent') {
+                    log.debug(`Ignoring duplicate OCR completion for job "${requestId}" after terminal result`);
+                } else {
+                    log.debug(`Ignoring late OCR completion for inactive job "${requestId}"`);
+                }
                 return;
             }
             if (activeJob) {
@@ -735,12 +691,17 @@ function handleWorkerMessage(
             return;
         }
         case 'cleanup-complete': {
-            if (message.jobId !== requestId) {
-                log.warn(`Ignoring OCR cleanup completion for mismatched job id "${message.jobId}" (expected "${requestId}")`);
-                return;
-            }
-            if (!isCurrentActiveWorker(scopedJobId, worker)) {
-                log.debug(`Ignoring late OCR cleanup completion for inactive job "${requestId}"`);
+            const disposition = getOcrWorkerMessageDisposition({
+                incomingJobId: message.jobId,
+                expectedRequestId: requestId,
+                isCurrentWorker: isCurrentActiveWorker(scopedJobId, worker),
+            });
+            if (!disposition.accepted) {
+                if (disposition.reason === 'mismatched-job-id') {
+                    log.warn(`Ignoring OCR cleanup completion for mismatched job id "${message.jobId}" (expected "${requestId}")`);
+                } else {
+                    log.debug(`Ignoring late OCR cleanup completion for inactive job "${requestId}"`);
+                }
                 return;
             }
 
@@ -797,6 +758,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
 
     const activeJob: IOcrActiveJob = {
         ...job,
+        lifecycleState: transitionOcrJobLifecycle(job.lifecycleState, 'active', job.scopedJobId),
         worker,
         completed: false,
         terminatedByUs: false,
@@ -812,7 +774,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
     worker.on('message', (message: unknown) => {
         if (isWorkerResourceMessage(message)) {
             resetJobWatchdog(job);
-            handleWorkerResourceMessage(job.scopedJobId, worker, message);
+            handleWorkerResourceMessage(job.scopedJobId, worker, message, activeJobs);
             return;
         }
         const parsedMessage = parseWorkerMessage(message);
@@ -966,6 +928,7 @@ function createPreparingJob(
     requestId: string,
 ): IOcrPreparingJob {
     return {
+        lifecycleState: 'preparing',
         scopedJobId,
         requestId,
         webContentsId: event.sender.id,
@@ -1039,7 +1002,13 @@ function enqueuePreparedOcrJob(
     requestBytes: number,
     options: IOcrSearchablePdfOptions,
 ) {
+    const preparingLifecycleState = preparingJobs.get(scopedJobId)?.lifecycleState ?? 'preparing';
     const queuedJob: IOcrQueuedJob = {
+        lifecycleState: transitionOcrJobLifecycle(
+            preparingLifecycleState,
+            'queued',
+            scopedJobId,
+        ),
         scopedJobId,
         requestId,
         webContentsId: event.sender.id,
@@ -1212,7 +1181,7 @@ export function handleOcrCancel(
         return { canceled: true };
     }
 
-    const queued = removeQueuedJob(scopedJobId);
+    const queued = removeQueuedJob(scopedJobId, 'cancelling');
     if (queued) {
         log.info(`[${requestId}] Queued OCR job cancelled`);
         return { canceled: true };

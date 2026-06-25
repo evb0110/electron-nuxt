@@ -11,7 +11,10 @@ import { getPageRowBounds } from '@app/modules/pdf-viewer/engine/pdf-page-layout
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
-import { expandVirtualWindowForAnchor } from '@app/modules/pdf-viewer/runtime/viewport/expandVirtualWindowForAnchor';
+import {
+    createAnchorPageWindow,
+    expandVirtualWindowForAnchor,
+} from '@app/utils/document-viewer/virtualization/pageVirtualization';
 
 export interface IZoomVirtualizationFreeze {
     sessionId: number | null;
@@ -226,10 +229,11 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             return null;
         }
 
-        return {
-            start: Math.max(1, anchorPage - virtualMountBuffer.value),
-            end: Math.min(numPages.value, anchorPage + virtualMountBuffer.value),
-        };
+        return createAnchorPageWindow({
+            anchorPage,
+            totalPages: numPages.value,
+            radiusPages: virtualMountBuffer.value,
+        });
     });
 
     const resizeTransitionWindow = computed<{

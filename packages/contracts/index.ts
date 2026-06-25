@@ -123,9 +123,11 @@ export type {
     IPdfSearchRequestOptions,
     IPdfSearchResponse,
     IPdfSearchResult,
+    IPdfSearchUtf16Range,
     IResolvedSearchMatchOptions,
     ISearchMatchOptions,
     ISearchPreloadClient,
+    TPdfSearchUtf16Offset,
 } from '@contracts/search';
 
 export type {
@@ -193,6 +195,47 @@ export type {
     TReleaseArch,
     TReleasePlatform,
 } from '@contracts/release';
+
+export {
+    PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,
+    PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES,
+    PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS,
+    PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS,
+    PDF_PERSISTENCE_ERROR_CODES,
+    PDF_PERSISTENCE_ERROR_PHASES,
+    PDF_PERSISTENCE_MESSAGE_UNWRAP_DEPTH,
+    SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
+    createPdfPersistenceAckFrame,
+    createPdfPersistenceCancelFrame,
+    createPdfPersistenceChunkFrame,
+    createPdfPersistenceCompleteFrame,
+    createPdfPersistenceErrorFrame,
+    createPdfPersistenceReadyFrame,
+    createPdfPersistenceResultFrame,
+    describePdfPersistenceMessage,
+    getPdfPersistenceChunkBytes,
+    getPdfPersistenceErrorMessage,
+    isPdfPersistencePreloadToMainPayload,
+    isPdfValidationResult,
+    isSerializedPdfPersistenceLimits,
+    normalizePdfPersistencePreloadToMainPayload,
+    parsePdfPersistenceMainToPreloadFrame,
+} from '@contracts/documentPersistenceFrames';
+export type {
+    IPdfPersistenceAckFrame,
+    IPdfPersistenceCancelFrame,
+    IPdfPersistenceChunkFrame,
+    IPdfPersistenceCompleteFrame,
+    IPdfPersistenceErrorFrame,
+    IPdfPersistencePreloadToMainPayload,
+    IPdfPersistenceReadyFrame,
+    IPdfPersistenceResultFrame,
+    ISerializedPdfPersistenceLimits,
+    TPdfPersistenceErrorCode,
+    TPdfPersistenceErrorPhase,
+    TPdfPersistenceMainToPreloadFrame,
+    TPdfPersistencePreloadToMainFrame,
+} from '@contracts/documentPersistenceFrames';
 
 export {
     AVAILABLE_OCR_LANGUAGES,

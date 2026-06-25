@@ -14,15 +14,27 @@ import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 import type { ISearchCapability } from '@contracts/searchCapability';
 import type { ISettingsCapability } from '@contracts/settingsCapability';
 import { isRecord } from '@contracts/runtimeGuards';
+import {
+    browserPlatformPathDescriptors,
+    type TBrowserPlatformAsyncMethodPath,
+    type TBrowserPlatformEventMethodPath,
+    type TBrowserPlatformMethodPath,
+    type TBrowserPlatformVoidMethodPath,
+    type TMethodAtBrowserPlatformPath,
+} from '@app/platform/browserPlatformPathDescriptors';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 interface IBrowserPlatformModule { browserPlatformApi: IPlatformApi; }
-type TPropertyPath = Array<string | symbol>;
+type TPropertyPath = ReadonlyArray<string | symbol>;
 type TUnsubscribe = () => void;
 type TCallableBrowserMember = (...args: unknown[]) => unknown;
-type TArgs<TMethod> = TMethod extends (...args: infer TMethodArgs) => unknown ? TMethodArgs : never;
-type TAsyncResult<TMethod> = TMethod extends (...args: unknown[]) => Promise<infer TResult> ? TResult : never;
+type TArgs<TPath extends TBrowserPlatformMethodPath> =
+    TMethodAtBrowserPlatformPath<TPath> extends (...args: infer TMethodArgs) => unknown ? TMethodArgs : never;
+type TAsyncResult<TPath extends TBrowserPlatformMethodPath> =
+    TMethodAtBrowserPlatformPath<TPath> extends (...args: never[]) => Promise<infer TResult> ? TResult : never;
+
+const pathDescriptors = browserPlatformPathDescriptors;
 
 let browserPlatformApiPromise: Promise<IPlatformApi> | null = null;
 
@@ -142,189 +154,71 @@ function subscribeToBrowserEvent(path: TPropertyPath, args: unknown[]): TUnsubsc
     };
 }
 
-function lazyAsync<TMethod>(path: TPropertyPath) {
-    return (...args: TArgs<TMethod>) => callBrowserMethod<TAsyncResult<TMethod>>(path, args);
+function lazyAsync<TPath extends TBrowserPlatformAsyncMethodPath>(
+    path: TPath,
+): TMethodAtBrowserPlatformPath<TPath> {
+    return ((...args: TArgs<TPath>) =>
+        callBrowserMethod<TAsyncResult<TPath>>(path, args)) as TMethodAtBrowserPlatformPath<TPath>;
 }
 
-function lazyEvent<TMethod>(path: TPropertyPath) {
-    return (...args: TArgs<TMethod>) => subscribeToBrowserEvent(path, args);
+function lazyEvent<TPath extends TBrowserPlatformEventMethodPath>(
+    path: TPath,
+): TMethodAtBrowserPlatformPath<TPath> {
+    return ((...args: TArgs<TPath>) =>
+        subscribeToBrowserEvent(path, args)) as TMethodAtBrowserPlatformPath<TPath>;
 }
 
-function lazyVoid<TMethod>(path: TPropertyPath) {
-    return (...args: TArgs<TMethod>) => {
+function lazyVoid<TPath extends TBrowserPlatformVoidMethodPath>(
+    path: TPath,
+): TMethodAtBrowserPlatformPath<TPath> {
+    return ((...args: TArgs<TPath>) => {
         void callBrowserMethod<unknown>(path, args);
-    };
+    }) as TMethodAtBrowserPlatformPath<TPath>;
 }
 
 const lazyDocumentsCapability: IDocumentsCapability = {
-    openDocumentDialog: lazyAsync<IDocumentsCapability['openDocumentDialog']>([
-        'documents',
-        'openDocumentDialog',
-    ]),
-    openPdfDialog: lazyAsync<IDocumentsCapability['openPdfDialog']>([
-        'documents',
-        'openPdfDialog',
-    ]),
-    openCombineDialog: lazyAsync<IDocumentsCapability['openCombineDialog']>([
-        'documents',
-        'openCombineDialog',
-    ]),
-    openFolderDialog: lazyAsync<IDocumentsCapability['openFolderDialog']>([
-        'documents',
-        'openFolderDialog',
-    ]),
-    openImageDialog: lazyAsync<IDocumentsCapability['openImageDialog']>([
-        'documents',
-        'openImageDialog',
-    ]),
-    openDocumentDirect: lazyAsync<IDocumentsCapability['openDocumentDirect']>([
-        'documents',
-        'openDocumentDirect',
-    ]),
-    openPdfDirect: lazyAsync<IDocumentsCapability['openPdfDirect']>([
-        'documents',
-        'openPdfDirect',
-    ]),
-    openDocumentDirectBatch: lazyAsync<IDocumentsCapability['openDocumentDirectBatch']>([
-        'documents',
-        'openDocumentDirectBatch',
-    ]),
-    openPdfDirectBatch: lazyAsync<IDocumentsCapability['openPdfDirectBatch']>([
-        'documents',
-        'openPdfDirectBatch',
-    ]),
-    savePdfAs: lazyAsync<IDocumentsCapability['savePdfAs']>([
-        'documents',
-        'savePdfAs',
-    ]),
-    savePdfDataAs: lazyAsync<IDocumentsCapability['savePdfDataAs']>([
-        'documents',
-        'savePdfDataAs',
-    ]),
-    savePdfDialog: lazyAsync<IDocumentsCapability['savePdfDialog']>([
-        'documents',
-        'savePdfDialog',
-    ]),
-    saveDocxAs: lazyAsync<IDocumentsCapability['saveDocxAs']>([
-        'documents',
-        'saveDocxAs',
-    ]),
-    readFile: lazyAsync<IDocumentsCapability['readFile']>([
-        'documents',
-        'readFile',
-    ]),
-    statFile: lazyAsync<IDocumentsCapability['statFile']>([
-        'documents',
-        'statFile',
-    ]),
-    readFileRange: lazyAsync<IDocumentsCapability['readFileRange']>([
-        'documents',
-        'readFileRange',
-    ]),
-    readFileChunks: lazyAsync<IDocumentsCapability['readFileChunks']>([
-        'documents',
-        'readFileChunks',
-    ]),
-    readTextFile: lazyAsync<IDocumentsCapability['readTextFile']>([
-        'documents',
-        'readTextFile',
-    ]),
-    fileExists: lazyAsync<IDocumentsCapability['fileExists']>([
-        'documents',
-        'fileExists',
-    ]),
-    analyzePdfConformance: lazyAsync<IDocumentsCapability['analyzePdfConformance']>([
-        'documents',
-        'analyzePdfConformance',
-    ]),
-    validatePdfData: lazyAsync<IDocumentsCapability['validatePdfData']>([
-        'documents',
-        'validatePdfData',
-    ]),
-    validatePdfPath: lazyAsync<IDocumentsCapability['validatePdfPath']>([
-        'documents',
-        'validatePdfPath',
-    ]),
-    openPdfInDefaultAppData: lazyAsync<IDocumentsCapability['openPdfInDefaultAppData']>([
-        'documents',
-        'openPdfInDefaultAppData',
-    ]),
-    openPdfInDefaultAppPath: lazyAsync<IDocumentsCapability['openPdfInDefaultAppPath']>([
-        'documents',
-        'openPdfInDefaultAppPath',
-    ]),
-    printPdfData: lazyAsync<IDocumentsCapability['printPdfData']>([
-        'documents',
-        'printPdfData',
-    ]),
-    printPdfPath: lazyAsync<IDocumentsCapability['printPdfPath']>([
-        'documents',
-        'printPdfPath',
-    ]),
-    writeFile: lazyAsync<IDocumentsCapability['writeFile']>([
-        'documents',
-        'writeFile',
-    ]),
-    replaceWorkingCopyFromPath: lazyAsync<IDocumentsCapability['replaceWorkingCopyFromPath']>([
-        'documents',
-        'replaceWorkingCopyFromPath',
-    ]),
-    writeDocxFile: lazyAsync<IDocumentsCapability['writeDocxFile']>([
-        'documents',
-        'writeDocxFile',
-    ]),
-    createWorkingCopyFromData: lazyAsync<IDocumentsCapability['createWorkingCopyFromData']>([
-        'documents',
-        'createWorkingCopyFromData',
-    ]),
-    createWorkingCopyFromPath: lazyAsync<IDocumentsCapability['createWorkingCopyFromPath']>([
-        'documents',
-        'createWorkingCopyFromPath',
-    ]),
-    saveFile: lazyAsync<IDocumentsCapability['saveFile']>([
-        'documents',
-        'saveFile',
-    ]),
-    savePdfData: lazyAsync<IDocumentsCapability['savePdfData']>([
-        'documents',
-        'savePdfData',
-    ]),
-    savePdfDataChunks: lazyAsync<IDocumentsCapability['savePdfDataChunks']>([
-        'documents',
-        'savePdfDataChunks',
-    ]),
-    cleanupFile: lazyAsync<IDocumentsCapability['cleanupFile']>([
-        'documents',
-        'cleanupFile',
-    ]),
-    cleanupOcrTemp: lazyAsync<IDocumentsCapability['cleanupOcrTemp']>([
-        'documents',
-        'cleanupOcrTemp',
-    ]),
-    setWindowTitle: lazyAsync<IDocumentsCapability['setWindowTitle']>([
-        'documents',
-        'setWindowTitle',
-    ]),
-    showItemInFolder: lazyAsync<IDocumentsCapability['showItemInFolder']>([
-        'documents',
-        'showItemInFolder',
-    ]),
+    openDocumentDialog: lazyAsync(pathDescriptors.documents.openDocumentDialog.path),
+    openPdfDialog: lazyAsync(pathDescriptors.documents.openPdfDialog.path),
+    openCombineDialog: lazyAsync(pathDescriptors.documents.openCombineDialog.path),
+    openFolderDialog: lazyAsync(pathDescriptors.documents.openFolderDialog.path),
+    openImageDialog: lazyAsync(pathDescriptors.documents.openImageDialog.path),
+    openDocumentDirect: lazyAsync(pathDescriptors.documents.openDocumentDirect.path),
+    openPdfDirect: lazyAsync(pathDescriptors.documents.openPdfDirect.path),
+    openDocumentDirectBatch: lazyAsync(pathDescriptors.documents.openDocumentDirectBatch.path),
+    openPdfDirectBatch: lazyAsync(pathDescriptors.documents.openPdfDirectBatch.path),
+    savePdfAs: lazyAsync(pathDescriptors.documents.savePdfAs.path),
+    savePdfDataAs: lazyAsync(pathDescriptors.documents.savePdfDataAs.path),
+    savePdfDialog: lazyAsync(pathDescriptors.documents.savePdfDialog.path),
+    saveDocxAs: lazyAsync(pathDescriptors.documents.saveDocxAs.path),
+    readFile: lazyAsync(pathDescriptors.documents.readFile.path),
+    statFile: lazyAsync(pathDescriptors.documents.statFile.path),
+    readFileRange: lazyAsync(pathDescriptors.documents.readFileRange.path),
+    readFileChunks: lazyAsync(pathDescriptors.documents.readFileChunks.path),
+    readTextFile: lazyAsync(pathDescriptors.documents.readTextFile.path),
+    fileExists: lazyAsync(pathDescriptors.documents.fileExists.path),
+    analyzePdfConformance: lazyAsync(pathDescriptors.documents.analyzePdfConformance.path),
+    validatePdfData: lazyAsync(pathDescriptors.documents.validatePdfData.path),
+    validatePdfPath: lazyAsync(pathDescriptors.documents.validatePdfPath.path),
+    openPdfInDefaultAppData: lazyAsync(pathDescriptors.documents.openPdfInDefaultAppData.path),
+    openPdfInDefaultAppPath: lazyAsync(pathDescriptors.documents.openPdfInDefaultAppPath.path),
+    printPdfData: lazyAsync(pathDescriptors.documents.printPdfData.path),
+    printPdfPath: lazyAsync(pathDescriptors.documents.printPdfPath.path),
+    writeFile: lazyAsync(pathDescriptors.documents.writeFile.path),
+    replaceWorkingCopyFromPath: lazyAsync(pathDescriptors.documents.replaceWorkingCopyFromPath.path),
+    writeDocxFile: lazyAsync(pathDescriptors.documents.writeDocxFile.path),
+    createWorkingCopyFromData: lazyAsync(pathDescriptors.documents.createWorkingCopyFromData.path),
+    createWorkingCopyFromPath: lazyAsync(pathDescriptors.documents.createWorkingCopyFromPath.path),
+    saveFile: lazyAsync(pathDescriptors.documents.saveFile.path),
+    savePdfData: lazyAsync(pathDescriptors.documents.savePdfData.path),
+    savePdfDataChunks: lazyAsync(pathDescriptors.documents.savePdfDataChunks.path),
+    cleanupFile: lazyAsync(pathDescriptors.documents.cleanupFile.path),
+    cleanupOcrTemp: lazyAsync(pathDescriptors.documents.cleanupOcrTemp.path),
+    setWindowTitle: lazyAsync(pathDescriptors.documents.setWindowTitle.path),
+    showItemInFolder: lazyAsync(pathDescriptors.documents.showItemInFolder.path),
     recentFiles: {
-        get: lazyAsync<IDocumentsCapability['recentFiles']['get']>([
-            'documents',
-            'recentFiles',
-            'get',
-        ]),
-        remove: lazyAsync<IDocumentsCapability['recentFiles']['remove']>([
-            'documents',
-            'recentFiles',
-            'remove',
-        ]),
-        clear: lazyAsync<IDocumentsCapability['recentFiles']['clear']>([
-            'documents',
-            'recentFiles',
-            'clear',
-        ]),
+        get: lazyAsync(pathDescriptors.documents.recentFiles.get.path),
+        remove: lazyAsync(pathDescriptors.documents.recentFiles.remove.path),
+        clear: lazyAsync(pathDescriptors.documents.recentFiles.clear.path),
     },
     getPathForFile(file) {
         return browserDocumentStore.getRefForFile(file);
@@ -332,551 +226,168 @@ const lazyDocumentsCapability: IDocumentsCapability = {
     getPathsForFiles(files) {
         return files.map(file => browserDocumentStore.getRefForFile(file));
     },
-    setMenuDocumentState: lazyAsync<IDocumentsCapability['setMenuDocumentState']>([
-        'documents',
-        'setMenuDocumentState',
-    ]),
-    setMenuTabCount: lazyAsync<IDocumentsCapability['setMenuTabCount']>([
-        'documents',
-        'setMenuTabCount',
-    ]),
-    onMenuOpenPdf: lazyEvent<IDocumentsCapability['onMenuOpenPdf']>([
-        'documents',
-        'onMenuOpenPdf',
-    ]),
-    onMenuInsertImageFromFile: lazyEvent<IDocumentsCapability['onMenuInsertImageFromFile']>([
-        'documents',
-        'onMenuInsertImageFromFile',
-    ]),
-    onMenuPasteImageFromClipboard: lazyEvent<IDocumentsCapability['onMenuPasteImageFromClipboard']>([
-        'documents',
-        'onMenuPasteImageFromClipboard',
-    ]),
-    onMenuSave: lazyEvent<IDocumentsCapability['onMenuSave']>([
-        'documents',
-        'onMenuSave',
-    ]),
-    onMenuRepairSave: lazyEvent<IDocumentsCapability['onMenuRepairSave']>([
-        'documents',
-        'onMenuRepairSave',
-    ]),
-    onMenuOptimizePdfForInteraction: lazyEvent<IDocumentsCapability['onMenuOptimizePdfForInteraction']>([
-        'documents',
-        'onMenuOptimizePdfForInteraction',
-    ]),
-    onMenuSaveAs: lazyEvent<IDocumentsCapability['onMenuSaveAs']>([
-        'documents',
-        'onMenuSaveAs',
-    ]),
-    onMenuPrint: lazyEvent<IDocumentsCapability['onMenuPrint']>([
-        'documents',
-        'onMenuPrint',
-    ]),
-    onMenuPrintCurrentPage: lazyEvent<IDocumentsCapability['onMenuPrintCurrentPage']>([
-        'documents',
-        'onMenuPrintCurrentPage',
-    ]),
-    onMenuExportDocx: lazyEvent<IDocumentsCapability['onMenuExportDocx']>([
-        'documents',
-        'onMenuExportDocx',
-    ]),
-    onMenuExportImages: lazyEvent<IDocumentsCapability['onMenuExportImages']>([
-        'documents',
-        'onMenuExportImages',
-    ]),
-    onMenuExportMultiPageTiff: lazyEvent<IDocumentsCapability['onMenuExportMultiPageTiff']>([
-        'documents',
-        'onMenuExportMultiPageTiff',
-    ]),
-    onMenuZoomIn: lazyEvent<IDocumentsCapability['onMenuZoomIn']>([
-        'documents',
-        'onMenuZoomIn',
-    ]),
-    onMenuZoomOut: lazyEvent<IDocumentsCapability['onMenuZoomOut']>([
-        'documents',
-        'onMenuZoomOut',
-    ]),
-    onMenuActualSize: lazyEvent<IDocumentsCapability['onMenuActualSize']>([
-        'documents',
-        'onMenuActualSize',
-    ]),
-    onMenuFitWidth: lazyEvent<IDocumentsCapability['onMenuFitWidth']>([
-        'documents',
-        'onMenuFitWidth',
-    ]),
-    onMenuFitHeight: lazyEvent<IDocumentsCapability['onMenuFitHeight']>([
-        'documents',
-        'onMenuFitHeight',
-    ]),
-    onMenuViewModeSingle: lazyEvent<IDocumentsCapability['onMenuViewModeSingle']>([
-        'documents',
-        'onMenuViewModeSingle',
-    ]),
-    onMenuViewModeFacing: lazyEvent<IDocumentsCapability['onMenuViewModeFacing']>([
-        'documents',
-        'onMenuViewModeFacing',
-    ]),
-    onMenuViewModeFacingFirstSingle: lazyEvent<IDocumentsCapability['onMenuViewModeFacingFirstSingle']>([
-        'documents',
-        'onMenuViewModeFacingFirstSingle',
-    ]),
-    onMenuToggleAssistant: lazyEvent<IDocumentsCapability['onMenuToggleAssistant']>([
-        'documents',
-        'onMenuToggleAssistant',
-    ]),
-    onMenuUndo: lazyEvent<IDocumentsCapability['onMenuUndo']>([
-        'documents',
-        'onMenuUndo',
-    ]),
-    onMenuRedo: lazyEvent<IDocumentsCapability['onMenuRedo']>([
-        'documents',
-        'onMenuRedo',
-    ]),
-    onMenuDeletePages: lazyEvent<IDocumentsCapability['onMenuDeletePages']>([
-        'documents',
-        'onMenuDeletePages',
-    ]),
-    onMenuExtractPages: lazyEvent<IDocumentsCapability['onMenuExtractPages']>([
-        'documents',
-        'onMenuExtractPages',
-    ]),
-    onMenuRotateCw: lazyEvent<IDocumentsCapability['onMenuRotateCw']>([
-        'documents',
-        'onMenuRotateCw',
-    ]),
-    onMenuRotateCcw: lazyEvent<IDocumentsCapability['onMenuRotateCcw']>([
-        'documents',
-        'onMenuRotateCcw',
-    ]),
-    onMenuInsertPages: lazyEvent<IDocumentsCapability['onMenuInsertPages']>([
-        'documents',
-        'onMenuInsertPages',
-    ]),
-    onMenuOpenRecentFile: lazyEvent<IDocumentsCapability['onMenuOpenRecentFile']>([
-        'documents',
-        'onMenuOpenRecentFile',
-    ]),
-    onMenuOpenExternalPaths: lazyEvent<IDocumentsCapability['onMenuOpenExternalPaths']>([
-        'documents',
-        'onMenuOpenExternalPaths',
-    ]),
-    onMenuClearRecentFiles: lazyEvent<IDocumentsCapability['onMenuClearRecentFiles']>([
-        'documents',
-        'onMenuClearRecentFiles',
-    ]),
-    onOpenDocumentDirectBatchProgress: lazyEvent<IDocumentsCapability['onOpenDocumentDirectBatchProgress']>([
-        'documents',
-        'onOpenDocumentDirectBatchProgress',
-    ]),
-    onPdfOptimizeProgress: lazyEvent<IDocumentsCapability['onPdfOptimizeProgress']>([
-        'documents',
-        'onPdfOptimizeProgress',
-    ]),
-    onOpenPdfDirectBatchProgress: lazyEvent<IDocumentsCapability['onOpenPdfDirectBatchProgress']>([
-        'documents',
-        'onOpenPdfDirectBatchProgress',
-    ]),
+    setMenuDocumentState: lazyAsync(pathDescriptors.documents.setMenuDocumentState.path),
+    setMenuTabCount: lazyAsync(pathDescriptors.documents.setMenuTabCount.path),
+    onMenuOpenPdf: lazyEvent(pathDescriptors.documents.onMenuOpenPdf.path),
+    onMenuInsertImageFromFile: lazyEvent(pathDescriptors.documents.onMenuInsertImageFromFile.path),
+    onMenuPasteImageFromClipboard: lazyEvent(pathDescriptors.documents.onMenuPasteImageFromClipboard.path),
+    onMenuSave: lazyEvent(pathDescriptors.documents.onMenuSave.path),
+    onMenuRepairSave: lazyEvent(pathDescriptors.documents.onMenuRepairSave.path),
+    onMenuOptimizePdfForInteraction: lazyEvent(pathDescriptors.documents.onMenuOptimizePdfForInteraction.path),
+    onMenuSaveAs: lazyEvent(pathDescriptors.documents.onMenuSaveAs.path),
+    onMenuPrint: lazyEvent(pathDescriptors.documents.onMenuPrint.path),
+    onMenuPrintCurrentPage: lazyEvent(pathDescriptors.documents.onMenuPrintCurrentPage.path),
+    onMenuExportDocx: lazyEvent(pathDescriptors.documents.onMenuExportDocx.path),
+    onMenuExportImages: lazyEvent(pathDescriptors.documents.onMenuExportImages.path),
+    onMenuExportMultiPageTiff: lazyEvent(pathDescriptors.documents.onMenuExportMultiPageTiff.path),
+    onMenuZoomIn: lazyEvent(pathDescriptors.documents.onMenuZoomIn.path),
+    onMenuZoomOut: lazyEvent(pathDescriptors.documents.onMenuZoomOut.path),
+    onMenuActualSize: lazyEvent(pathDescriptors.documents.onMenuActualSize.path),
+    onMenuFitWidth: lazyEvent(pathDescriptors.documents.onMenuFitWidth.path),
+    onMenuFitHeight: lazyEvent(pathDescriptors.documents.onMenuFitHeight.path),
+    onMenuViewModeSingle: lazyEvent(pathDescriptors.documents.onMenuViewModeSingle.path),
+    onMenuViewModeFacing: lazyEvent(pathDescriptors.documents.onMenuViewModeFacing.path),
+    onMenuViewModeFacingFirstSingle: lazyEvent(pathDescriptors.documents.onMenuViewModeFacingFirstSingle.path),
+    onMenuToggleAssistant: lazyEvent(pathDescriptors.documents.onMenuToggleAssistant.path),
+    onMenuUndo: lazyEvent(pathDescriptors.documents.onMenuUndo.path),
+    onMenuRedo: lazyEvent(pathDescriptors.documents.onMenuRedo.path),
+    onMenuDeletePages: lazyEvent(pathDescriptors.documents.onMenuDeletePages.path),
+    onMenuExtractPages: lazyEvent(pathDescriptors.documents.onMenuExtractPages.path),
+    onMenuRotateCw: lazyEvent(pathDescriptors.documents.onMenuRotateCw.path),
+    onMenuRotateCcw: lazyEvent(pathDescriptors.documents.onMenuRotateCcw.path),
+    onMenuInsertPages: lazyEvent(pathDescriptors.documents.onMenuInsertPages.path),
+    onMenuOpenRecentFile: lazyEvent(pathDescriptors.documents.onMenuOpenRecentFile.path),
+    onMenuOpenExternalPaths: lazyEvent(pathDescriptors.documents.onMenuOpenExternalPaths.path),
+    onMenuClearRecentFiles: lazyEvent(pathDescriptors.documents.onMenuClearRecentFiles.path),
+    onOpenDocumentDirectBatchProgress: lazyEvent(pathDescriptors.documents.onOpenDocumentDirectBatchProgress.path),
+    onPdfOptimizeProgress: lazyEvent(pathDescriptors.documents.onPdfOptimizeProgress.path),
+    onOpenPdfDirectBatchProgress: lazyEvent(pathDescriptors.documents.onOpenPdfDirectBatchProgress.path),
 };
 
 const lazyImageExportCapability: IImageExportCapability = {
-    exportPdfToImages: lazyAsync<IImageExportCapability['exportPdfToImages']>([
-        'imageExport',
-        'exportPdfToImages',
-    ]),
-    exportPdfToMultiPageTiff: lazyAsync<IImageExportCapability['exportPdfToMultiPageTiff']>([
-        'imageExport',
-        'exportPdfToMultiPageTiff',
-    ]),
-    onProgress: lazyEvent<IImageExportCapability['onProgress']>([
-        'imageExport',
-        'onProgress',
-    ]),
+    exportPdfToImages: lazyAsync(pathDescriptors.imageExport.exportPdfToImages.path),
+    exportPdfToMultiPageTiff: lazyAsync(pathDescriptors.imageExport.exportPdfToMultiPageTiff.path),
+    onProgress: lazyEvent(pathDescriptors.imageExport.onProgress.path),
 };
 
 const lazyPageOpsCapability: IPageOpsCapability = {
-    delete: lazyAsync<IPageOpsCapability['delete']>([
-        'pageOps',
-        'delete',
-    ]),
-    extract: lazyAsync<IPageOpsCapability['extract']>([
-        'pageOps',
-        'extract',
-    ]),
-    reorder: lazyAsync<IPageOpsCapability['reorder']>([
-        'pageOps',
-        'reorder',
-    ]),
-    insert: lazyAsync<IPageOpsCapability['insert']>([
-        'pageOps',
-        'insert',
-    ]),
-    insertFile: lazyAsync<IPageOpsCapability['insertFile']>([
-        'pageOps',
-        'insertFile',
-    ]),
-    rotate: lazyAsync<IPageOpsCapability['rotate']>([
-        'pageOps',
-        'rotate',
-    ]),
-    crop: lazyAsync<IPageOpsCapability['crop']>([
-        'pageOps',
-        'crop',
-    ]),
-    removeCrop: lazyAsync<IPageOpsCapability['removeCrop']>([
-        'pageOps',
-        'removeCrop',
-    ]),
-    getPageGeometry: lazyAsync<IPageOpsCapability['getPageGeometry']>([
-        'pageOps',
-        'getPageGeometry',
-    ]),
+    delete: lazyAsync(pathDescriptors.pageOps.delete.path),
+    extract: lazyAsync(pathDescriptors.pageOps.extract.path),
+    reorder: lazyAsync(pathDescriptors.pageOps.reorder.path),
+    insert: lazyAsync(pathDescriptors.pageOps.insert.path),
+    insertFile: lazyAsync(pathDescriptors.pageOps.insertFile.path),
+    rotate: lazyAsync(pathDescriptors.pageOps.rotate.path),
+    crop: lazyAsync(pathDescriptors.pageOps.crop.path),
+    removeCrop: lazyAsync(pathDescriptors.pageOps.removeCrop.path),
+    getPageGeometry: lazyAsync(pathDescriptors.pageOps.getPageGeometry.path),
 };
 
 const lazyOcrCapability: IOcrCapability = {
-    recognize: lazyAsync<IOcrCapability['recognize']>([
-        'ocr',
-        'recognize',
-    ]),
-    recognizeBatch: lazyAsync<IOcrCapability['recognizeBatch']>([
-        'ocr',
-        'recognizeBatch',
-    ]),
-    cancel: lazyAsync<IOcrCapability['cancel']>([
-        'ocr',
-        'cancel',
-    ]),
-    getLanguages: lazyAsync<IOcrCapability['getLanguages']>([
-        'ocr',
-        'getLanguages',
-    ]),
-    validateTools: lazyAsync<IOcrCapability['validateTools']>([
-        'ocr',
-        'validateTools',
-    ]),
-    installLanguages: lazyAsync<IOcrCapability['installLanguages']>([
-        'ocr',
-        'installLanguages',
-    ]),
-    acknowledgeResultFile: lazyAsync<IOcrCapability['acknowledgeResultFile']>([
-        'ocr',
-        'acknowledgeResultFile',
-    ]),
-    createSearchablePdf: lazyAsync<IOcrCapability['createSearchablePdf']>([
-        'ocr',
-        'createSearchablePdf',
-    ]),
-    onProgress: lazyEvent<IOcrCapability['onProgress']>([
-        'ocr',
-        'onProgress',
-    ]),
-    onComplete: lazyEvent<IOcrCapability['onComplete']>([
-        'ocr',
-        'onComplete',
-    ]),
+    recognize: lazyAsync(pathDescriptors.ocr.recognize.path),
+    recognizeBatch: lazyAsync(pathDescriptors.ocr.recognizeBatch.path),
+    cancel: lazyAsync(pathDescriptors.ocr.cancel.path),
+    getLanguages: lazyAsync(pathDescriptors.ocr.getLanguages.path),
+    validateTools: lazyAsync(pathDescriptors.ocr.validateTools.path),
+    installLanguages: lazyAsync(pathDescriptors.ocr.installLanguages.path),
+    acknowledgeResultFile: lazyAsync(pathDescriptors.ocr.acknowledgeResultFile.path),
+    createSearchablePdf: lazyAsync(pathDescriptors.ocr.createSearchablePdf.path),
+    onProgress: lazyEvent(pathDescriptors.ocr.onProgress.path),
+    onComplete: lazyEvent(pathDescriptors.ocr.onComplete.path),
     preprocessing: {
-        validate: lazyAsync<IOcrCapability['preprocessing']['validate']>([
-            'ocr',
-            'preprocessing',
-            'validate',
-        ]),
-        preprocessPage: lazyAsync<IOcrCapability['preprocessing']['preprocessPage']>([
-            'ocr',
-            'preprocessing',
-            'preprocessPage',
-        ]),
+        validate: lazyAsync(pathDescriptors.ocr.preprocessing.validate.path),
+        preprocessPage: lazyAsync(pathDescriptors.ocr.preprocessing.preprocessPage.path),
     },
 };
 
 const lazySearchCapability: ISearchCapability = {
-    run: lazyAsync<ISearchCapability['run']>([
-        'search',
-        'run',
-    ]),
-    warmIndex: lazyAsync<ISearchCapability['warmIndex']>([
-        'search',
-        'warmIndex',
-    ]),
-    cancel: lazyAsync<ISearchCapability['cancel']>([
-        'search',
-        'cancel',
-    ]),
-    onProgress: lazyEvent<ISearchCapability['onProgress']>([
-        'search',
-        'onProgress',
-    ]),
-    resetCache: lazyAsync<ISearchCapability['resetCache']>([
-        'search',
-        'resetCache',
-    ]),
+    run: lazyAsync(pathDescriptors.search.run.path),
+    warmIndex: lazyAsync(pathDescriptors.search.warmIndex.path),
+    cancel: lazyAsync(pathDescriptors.search.cancel.path),
+    onProgress: lazyEvent(pathDescriptors.search.onProgress.path),
+    resetCache: lazyAsync(pathDescriptors.search.resetCache.path),
 };
 
 const lazyDjvuCapability: IDjvuCapability = {
-    openForViewing: lazyAsync<IDjvuCapability['openForViewing']>([
-        'djvu',
-        'openForViewing',
-    ]),
-    releaseViewingPath: lazyAsync<IDjvuCapability['releaseViewingPath']>([
-        'djvu',
-        'releaseViewingPath',
-    ]),
-    convertToPdf: lazyAsync<IDjvuCapability['convertToPdf']>([
-        'djvu',
-        'convertToPdf',
-    ]),
-    cancel: lazyAsync<IDjvuCapability['cancel']>([
-        'djvu',
-        'cancel',
-    ]),
-    getInfo: lazyAsync<IDjvuCapability['getInfo']>([
-        'djvu',
-        'getInfo',
-    ]),
-    getPageSizes: lazyAsync<IDjvuCapability['getPageSizes']>([
-        'djvu',
-        'getPageSizes',
-    ]),
-    renderPagePreview: lazyAsync<IDjvuCapability['renderPagePreview']>([
-        'djvu',
-        'renderPagePreview',
-    ]),
-    estimateSizes: lazyAsync<IDjvuCapability['estimateSizes']>([
-        'djvu',
-        'estimateSizes',
-    ]),
-    cleanupTemp: lazyAsync<IDjvuCapability['cleanupTemp']>([
-        'djvu',
-        'cleanupTemp',
-    ]),
-    onProgress: lazyEvent<IDjvuCapability['onProgress']>([
-        'djvu',
-        'onProgress',
-    ]),
-    onViewingReady: lazyEvent<IDjvuCapability['onViewingReady']>([
-        'djvu',
-        'onViewingReady',
-    ]),
-    onViewingError: lazyEvent<IDjvuCapability['onViewingError']>([
-        'djvu',
-        'onViewingError',
-    ]),
-    onMenuConvertToPdf: lazyEvent<IDjvuCapability['onMenuConvertToPdf']>([
-        'djvu',
-        'onMenuConvertToPdf',
-    ]),
+    openForViewing: lazyAsync(pathDescriptors.djvu.openForViewing.path),
+    releaseViewingPath: lazyAsync(pathDescriptors.djvu.releaseViewingPath.path),
+    convertToPdf: lazyAsync(pathDescriptors.djvu.convertToPdf.path),
+    cancel: lazyAsync(pathDescriptors.djvu.cancel.path),
+    getInfo: lazyAsync(pathDescriptors.djvu.getInfo.path),
+    getPageSizes: lazyAsync(pathDescriptors.djvu.getPageSizes.path),
+    renderPagePreview: lazyAsync(pathDescriptors.djvu.renderPagePreview.path),
+    estimateSizes: lazyAsync(pathDescriptors.djvu.estimateSizes.path),
+    cleanupTemp: lazyAsync(pathDescriptors.djvu.cleanupTemp.path),
+    onProgress: lazyEvent(pathDescriptors.djvu.onProgress.path),
+    onViewingReady: lazyEvent(pathDescriptors.djvu.onViewingReady.path),
+    onViewingError: lazyEvent(pathDescriptors.djvu.onViewingError.path),
+    onMenuConvertToPdf: lazyEvent(pathDescriptors.djvu.onMenuConvertToPdf.path),
 };
 
 const lazySettingsCapability: ISettingsCapability = {
-    get: lazyAsync<ISettingsCapability['get']>([
-        'settings',
-        'get',
-    ]),
-    save: lazyAsync<ISettingsCapability['save']>([
-        'settings',
-        'save',
-    ]),
-    getDebugLogs: lazyAsync<ISettingsCapability['getDebugLogs']>([
-        'settings',
-        'getDebugLogs',
-    ]),
-    onDebugLog: lazyEvent<ISettingsCapability['onDebugLog']>([
-        'settings',
-        'onDebugLog',
-    ]),
-    rendererLog: lazyVoid<ISettingsCapability['rendererLog']>([
-        'settings',
-        'rendererLog',
-    ]),
-    onMenuOpenSettings: lazyEvent<ISettingsCapability['onMenuOpenSettings']>([
-        'settings',
-        'onMenuOpenSettings',
-    ]),
+    get: lazyAsync(pathDescriptors.settings.get.path),
+    save: lazyAsync(pathDescriptors.settings.save.path),
+    getDebugLogs: lazyAsync(pathDescriptors.settings.getDebugLogs.path),
+    onDebugLog: lazyEvent(pathDescriptors.settings.onDebugLog.path),
+    rendererLog: lazyVoid(pathDescriptors.settings.rendererLog.path),
+    onMenuOpenSettings: lazyEvent(pathDescriptors.settings.onMenuOpenSettings.path),
 };
 
 const lazyUpdatesCapability: IUpdatesCapability = {
-    getState: lazyAsync<IUpdatesCapability['getState']>([
-        'updates',
-        'getState',
-    ]),
-    check: lazyAsync<IUpdatesCapability['check']>([
-        'updates',
-        'check',
-    ]),
-    install: lazyAsync<IUpdatesCapability['install']>([
-        'updates',
-        'install',
-    ]),
-    defer: lazyAsync<IUpdatesCapability['defer']>([
-        'updates',
-        'defer',
-    ]),
-    skipVersion: lazyAsync<IUpdatesCapability['skipVersion']>([
-        'updates',
-        'skipVersion',
-    ]),
-    onStatus: lazyEvent<IUpdatesCapability['onStatus']>([
-        'updates',
-        'onStatus',
-    ]),
-    onMenuCheckForUpdates: lazyEvent<IUpdatesCapability['onMenuCheckForUpdates']>([
-        'updates',
-        'onMenuCheckForUpdates',
-    ]),
+    getState: lazyAsync(pathDescriptors.updates.getState.path),
+    check: lazyAsync(pathDescriptors.updates.check.path),
+    install: lazyAsync(pathDescriptors.updates.install.path),
+    defer: lazyAsync(pathDescriptors.updates.defer.path),
+    skipVersion: lazyAsync(pathDescriptors.updates.skipVersion.path),
+    onStatus: lazyEvent(pathDescriptors.updates.onStatus.path),
+    onMenuCheckForUpdates: lazyEvent(pathDescriptors.updates.onMenuCheckForUpdates.path),
 };
 
 const lazyWindowTabsCapability: IWindowTabsCapability = {
-    transfer: lazyAsync<IWindowTabsCapability['transfer']>([
-        'windowTabs',
-        'transfer',
-    ]),
-    transferAck: lazyAsync<IWindowTabsCapability['transferAck']>([
-        'windowTabs',
-        'transferAck',
-    ]),
-    listTargetWindows: lazyAsync<IWindowTabsCapability['listTargetWindows']>([
-        'windowTabs',
-        'listTargetWindows',
-    ]),
-    showContextMenu: lazyAsync<IWindowTabsCapability['showContextMenu']>([
-        'windowTabs',
-        'showContextMenu',
-    ]),
-    onIncomingTransfer: lazyEvent<IWindowTabsCapability['onIncomingTransfer']>([
-        'windowTabs',
-        'onIncomingTransfer',
-    ]),
-    onWindowAction: lazyEvent<IWindowTabsCapability['onWindowAction']>([
-        'windowTabs',
-        'onWindowAction',
-    ]),
-    closeCurrentWindow: lazyAsync<IWindowTabsCapability['closeCurrentWindow']>([
-        'windowTabs',
-        'closeCurrentWindow',
-    ]),
-    notifyRendererReady: lazyVoid<IWindowTabsCapability['notifyRendererReady']>([
-        'windowTabs',
-        'notifyRendererReady',
-    ]),
-    claimPendingExternalOpenPaths: lazyAsync<IWindowTabsCapability['claimPendingExternalOpenPaths']>([
-        'windowTabs',
-        'claimPendingExternalOpenPaths',
-    ]),
-    acknowledgePendingExternalOpenPaths: lazyAsync<IWindowTabsCapability['acknowledgePendingExternalOpenPaths']>([
-        'windowTabs',
-        'acknowledgePendingExternalOpenPaths',
-    ]),
-    onMenuNewTab: lazyEvent<IWindowTabsCapability['onMenuNewTab']>([
-        'windowTabs',
-        'onMenuNewTab',
-    ]),
-    onMenuCloseTab: lazyEvent<IWindowTabsCapability['onMenuCloseTab']>([
-        'windowTabs',
-        'onMenuCloseTab',
-    ]),
-    onMenuSplitEditor: lazyEvent<IWindowTabsCapability['onMenuSplitEditor']>([
-        'windowTabs',
-        'onMenuSplitEditor',
-    ]),
-    onMenuFocusEditorPane: lazyEvent<IWindowTabsCapability['onMenuFocusEditorPane']>([
-        'windowTabs',
-        'onMenuFocusEditorPane',
-    ]),
-    onMenuMoveTabToPane: lazyEvent<IWindowTabsCapability['onMenuMoveTabToPane']>([
-        'windowTabs',
-        'onMenuMoveTabToPane',
-    ]),
-    onMenuCopyTabToPane: lazyEvent<IWindowTabsCapability['onMenuCopyTabToPane']>([
-        'windowTabs',
-        'onMenuCopyTabToPane',
-    ]),
+    transfer: lazyAsync(pathDescriptors.windowTabs.transfer.path),
+    transferAck: lazyAsync(pathDescriptors.windowTabs.transferAck.path),
+    listTargetWindows: lazyAsync(pathDescriptors.windowTabs.listTargetWindows.path),
+    showContextMenu: lazyAsync(pathDescriptors.windowTabs.showContextMenu.path),
+    onIncomingTransfer: lazyEvent(pathDescriptors.windowTabs.onIncomingTransfer.path),
+    onWindowAction: lazyEvent(pathDescriptors.windowTabs.onWindowAction.path),
+    closeCurrentWindow: lazyAsync(pathDescriptors.windowTabs.closeCurrentWindow.path),
+    notifyRendererReady: lazyVoid(pathDescriptors.windowTabs.notifyRendererReady.path),
+    claimPendingExternalOpenPaths: lazyAsync(pathDescriptors.windowTabs.claimPendingExternalOpenPaths.path),
+    acknowledgePendingExternalOpenPaths: lazyAsync(pathDescriptors.windowTabs.acknowledgePendingExternalOpenPaths.path),
+    onMenuNewTab: lazyEvent(pathDescriptors.windowTabs.onMenuNewTab.path),
+    onMenuCloseTab: lazyEvent(pathDescriptors.windowTabs.onMenuCloseTab.path),
+    onMenuSplitEditor: lazyEvent(pathDescriptors.windowTabs.onMenuSplitEditor.path),
+    onMenuFocusEditorPane: lazyEvent(pathDescriptors.windowTabs.onMenuFocusEditorPane.path),
+    onMenuMoveTabToPane: lazyEvent(pathDescriptors.windowTabs.onMenuMoveTabToPane.path),
+    onMenuCopyTabToPane: lazyEvent(pathDescriptors.windowTabs.onMenuCopyTabToPane.path),
 };
 
 const lazyAgentCapability: IAgentCapability = {
-    onWorkspaceSnapshotRequest: lazyEvent<IAgentCapability['onWorkspaceSnapshotRequest']>([
-        'agent',
-        'onWorkspaceSnapshotRequest',
-    ]),
-    submitWorkspaceSnapshot: lazyAsync<IAgentCapability['submitWorkspaceSnapshot']>([
-        'agent',
-        'submitWorkspaceSnapshot',
-    ]),
-    onCommandRequest: lazyEvent<IAgentCapability['onCommandRequest']>([
-        'agent',
-        'onCommandRequest',
-    ]),
-    submitCommandResponse: lazyAsync<IAgentCapability['submitCommandResponse']>([
-        'agent',
-        'submitCommandResponse',
-    ]),
-    getMcpIntegrationStatus: lazyAsync<IAgentCapability['getMcpIntegrationStatus']>([
-        'agent',
-        'getMcpIntegrationStatus',
-    ]),
-    setMcpIntegrationEnabled: lazyAsync<IAgentCapability['setMcpIntegrationEnabled']>([
-        'agent',
-        'setMcpIntegrationEnabled',
-    ]),
-    getAssistantState: lazyAsync<IAgentCapability['getAssistantState']>([
-        'agent',
-        'getAssistantState',
-    ]),
-    installAssistantCodex: lazyAsync<IAgentCapability['installAssistantCodex']>([
-        'agent',
-        'installAssistantCodex',
-    ]),
-    startAssistantLogin: lazyAsync<IAgentCapability['startAssistantLogin']>([
-        'agent',
-        'startAssistantLogin',
-    ]),
-    cancelAssistantLogin: lazyAsync<IAgentCapability['cancelAssistantLogin']>([
-        'agent',
-        'cancelAssistantLogin',
-    ]),
-    sendAssistantMessage: lazyAsync<IAgentCapability['sendAssistantMessage']>([
-        'agent',
-        'sendAssistantMessage',
-    ]),
-    interruptAssistant: lazyAsync<IAgentCapability['interruptAssistant']>([
-        'agent',
-        'interruptAssistant',
-    ]),
-    resetAssistantChat: lazyAsync<IAgentCapability['resetAssistantChat']>([
-        'agent',
-        'resetAssistantChat',
-    ]),
-    onAssistantEvent: lazyEvent<IAgentCapability['onAssistantEvent']>([
-        'agent',
-        'onAssistantEvent',
-    ]),
+    onWorkspaceSnapshotRequest: lazyEvent(pathDescriptors.agent.onWorkspaceSnapshotRequest.path),
+    submitWorkspaceSnapshot: lazyAsync(pathDescriptors.agent.submitWorkspaceSnapshot.path),
+    onCommandRequest: lazyEvent(pathDescriptors.agent.onCommandRequest.path),
+    submitCommandResponse: lazyAsync(pathDescriptors.agent.submitCommandResponse.path),
+    getMcpIntegrationStatus: lazyAsync(pathDescriptors.agent.getMcpIntegrationStatus.path),
+    setMcpIntegrationEnabled: lazyAsync(pathDescriptors.agent.setMcpIntegrationEnabled.path),
+    getAssistantState: lazyAsync(pathDescriptors.agent.getAssistantState.path),
+    installAssistantCodex: lazyAsync(pathDescriptors.agent.installAssistantCodex.path),
+    startAssistantLogin: lazyAsync(pathDescriptors.agent.startAssistantLogin.path),
+    cancelAssistantLogin: lazyAsync(pathDescriptors.agent.cancelAssistantLogin.path),
+    sendAssistantMessage: lazyAsync(pathDescriptors.agent.sendAssistantMessage.path),
+    interruptAssistant: lazyAsync(pathDescriptors.agent.interruptAssistant.path),
+    resetAssistantChat: lazyAsync(pathDescriptors.agent.resetAssistantChat.path),
+    onAssistantEvent: lazyEvent(pathDescriptors.agent.onAssistantEvent.path),
 };
 
-const lazyShellCapability: IPlatformApi['shell'] = {openExternal: lazyAsync<IPlatformApi['shell']['openExternal']>([
-    'shell',
-    'openExternal',
-])};
+const lazyShellCapability: IPlatformApi['shell'] = {openExternal: lazyAsync(pathDescriptors.shell.openExternal.path)};
 
 const lazySystemCapability: ISystemCapability = { getMemoryInfo: () => null };
 
 const lazyHostCapability: IHostCapability = {
-    getEnvironment: lazyAsync<IHostCapability['getEnvironment']>([
-        'host',
-        'getEnvironment',
-    ]),
-    onEnvironmentChange: lazyEvent<IHostCapability['onEnvironmentChange']>([
-        'host',
-        'onEnvironmentChange',
-    ]),
-    getZenModeState: lazyAsync<IHostCapability['getZenModeState']>([
-        'host',
-        'getZenModeState',
-    ]),
-    setZenMode: lazyAsync<IHostCapability['setZenMode']>([
-        'host',
-        'setZenMode',
-    ]),
-    onZenModeChange: lazyEvent<IHostCapability['onZenModeChange']>([
-        'host',
-        'onZenModeChange',
-    ]),
+    getEnvironment: lazyAsync(pathDescriptors.host.getEnvironment.path),
+    onEnvironmentChange: lazyEvent(pathDescriptors.host.onEnvironmentChange.path),
+    getZenModeState: lazyAsync(pathDescriptors.host.getZenModeState.path),
+    setZenMode: lazyAsync(pathDescriptors.host.setZenMode.path),
+    onZenModeChange: lazyEvent(pathDescriptors.host.onZenModeChange.path),
 };
 
 export const lazyBrowserPlatformApi = {

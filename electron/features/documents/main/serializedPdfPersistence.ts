@@ -15,10 +15,22 @@ import type {
     IBeginSerializedPdfPersistenceResult,
     IBeginSerializedPdfSaveAsResult,
     ISerializedPdfPersistenceLimits,
-    IPdfPersistenceErrorFrame,
     TPdfPersistenceErrorPhase,
 } from '@electron/features/documents/serializedPdfPersistenceContract';
-import { SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION } from '@electron/features/documents/serializedPdfPersistenceContract';
+import {
+    PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,
+    PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES,
+    PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS,
+    PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS,
+    SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
+    createPdfPersistenceAckFrame,
+    createPdfPersistenceErrorFrame,
+    createPdfPersistenceReadyFrame,
+    createPdfPersistenceResultFrame,
+    describePdfPersistenceMessage,
+    getPdfPersistenceChunkBytes,
+    normalizePdfPersistencePreloadToMainPayload,
+} from '@electron/features/documents/serializedPdfPersistenceContract';
 import {
     atomicReplace,
     makeSiblingTempPath,
@@ -44,11 +56,10 @@ import {
 } from '@electron/features/documents/main/pdfSaveAsOptimization';
 
 const SERIALIZED_PDF_SESSION_TIMEOUT_MS = 10 * 60_000;
-const SERIALIZED_PDF_MAX_CHUNK_BYTES = 8 * 1024 * 1024;
-const SERIALIZED_PDF_MAX_IN_FLIGHT_CHUNKS = 2;
-const SERIALIZED_PDF_ACK_TIMEOUT_MS = 60_000;
-const SERIALIZED_PDF_RESULT_TIMEOUT_MS = 10 * 60_000;
-const SERIALIZED_PDF_MESSAGE_UNWRAP_DEPTH = 64;
+const SERIALIZED_PDF_MAX_CHUNK_BYTES = PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES;
+const SERIALIZED_PDF_MAX_IN_FLIGHT_CHUNKS = PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS;
+const SERIALIZED_PDF_ACK_TIMEOUT_MS = PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS;
+const SERIALIZED_PDF_RESULT_TIMEOUT_MS = PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS;
 const DEFAULT_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES = 16 * 1024 * 1024 * 1024;
 const MIN_SERIALIZED_PDF_PERSISTENCE_MAX_BYTES = 1024 * 1024;
 const MAX_SERIALIZED_PDF_PERSISTENCE_BYTES = (() => {
@@ -132,31 +143,6 @@ function getSerializedPdfPersistenceLimits(): ISerializedPdfPersistenceLimits {
         maxTotalBytes: MAX_SERIALIZED_PDF_PERSISTENCE_BYTES,
         ackTimeoutMs: SERIALIZED_PDF_ACK_TIMEOUT_MS,
         resultTimeoutMs: SERIALIZED_PDF_RESULT_TIMEOUT_MS,
-    };
-}
-
-function createPdfPersistenceErrorFrame(
-    error: unknown,
-    options: {
-        phase: TPdfPersistenceErrorPhase;
-        expected?: boolean;
-        seq?: number;
-    },
-): IPdfPersistenceErrorFrame {
-    const message = getErrorMessage(error);
-    const code = options.phase === 'cancel'
-        ? 'CANCELED'
-        : options.phase === 'commit' || options.phase === 'complete'
-            ? 'COMMIT_FAILED'
-            : 'PROTOCOL_ERROR';
-    return {
-        type: 'error',
-        code,
-        phase: options.phase,
-        retryable: false,
-        expected: options.expected ?? false,
-        error: message,
-        ...(options.seq === undefined ? {} : {seq: options.seq}),
     };
 }
 
@@ -478,58 +464,6 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
     return conflictValidation ?? syncWarningValidation ?? committedValidation;
 }
 
-function getChunkBytes(value: unknown) {
-    if (value instanceof Uint8Array) {
-        return value;
-    }
-    if (value instanceof ArrayBuffer) {
-        return new Uint8Array(value);
-    }
-
-    throw new Error('Invalid PDF persistence chunk');
-}
-
-function describePersistenceMessage(message: unknown) {
-    if (!message || typeof message !== 'object') {
-        return typeof message;
-    }
-
-    return `keys=${Object.keys(message).join(',')}`;
-}
-
-function isPdfPersistencePortPayload(message: unknown): message is {
-    type?: unknown;
-    seq?: unknown;
-    bytes?: unknown;
-} {
-    return Boolean(message && typeof message === 'object' && 'type' in message);
-}
-
-function normalizePdfPersistencePortPayload(message: unknown) {
-    let currentMessage = message;
-    const seenMessages = new WeakSet<object>();
-    for (let depth = 0; depth < SERIALIZED_PDF_MESSAGE_UNWRAP_DEPTH; depth += 1) {
-        if (isPdfPersistencePortPayload(currentMessage)) {
-            return currentMessage;
-        }
-        if (!currentMessage || typeof currentMessage !== 'object' || !('data' in currentMessage)) {
-            return currentMessage;
-        }
-        if (seenMessages.has(currentMessage)) {
-            return currentMessage;
-        }
-        seenMessages.add(currentMessage);
-
-        const nextMessage = currentMessage.data;
-        if (nextMessage == null || nextMessage === currentMessage) {
-            return currentMessage;
-        }
-        currentMessage = nextMessage;
-    }
-
-    return currentMessage;
-}
-
 function getSessionForPortEvent(event: IpcMainEvent, rawSessionId: unknown) {
     const sessionId = typeof rawSessionId === 'string' ? rawSessionId : '';
     const session = sessions.get(sessionId);
@@ -566,7 +500,7 @@ export function attachSerializedPdfPersistencePort(event: IpcMainEvent, rawSessi
         }
     });
     port.start();
-    port.postMessage({ type: 'ready' });
+    port.postMessage(createPdfPersistenceReadyFrame());
 }
 
 async function handlePortMessage(
@@ -577,7 +511,7 @@ async function handlePortMessage(
     let errorPhase: TPdfPersistenceErrorPhase = 'streaming';
     let errorSeq: number | undefined;
     try {
-        const normalizedMessage = normalizePdfPersistencePortPayload(message);
+        const normalizedMessage = normalizePdfPersistencePreloadToMainPayload(message);
         if (!normalizedMessage || typeof normalizedMessage !== 'object') {
             throw new Error('Invalid PDF persistence message');
         }
@@ -595,7 +529,7 @@ async function handlePortMessage(
                 throw new Error('Unexpected PDF persistence chunk sequence');
             }
 
-            const bytes = getChunkBytes(payload.bytes);
+            const bytes = getPdfPersistenceChunkBytes(payload.bytes);
             if (bytes.byteLength === 0) {
                 throw new Error('PDF persistence chunk must not be empty');
             }
@@ -608,11 +542,7 @@ async function handlePortMessage(
             }
 
             await session.handle.write(bytes);
-            port.postMessage({
-                type: 'ack',
-                seq: session.nextSeq,
-                receivedBytes: session.receivedBytes,
-            });
+            port.postMessage(createPdfPersistenceAckFrame(session.nextSeq, session.receivedBytes));
             session.nextSeq += 1;
             return;
         }
@@ -627,11 +557,7 @@ async function handlePortMessage(
             if (!validation.isValid) {
                 await cleanupSession(session);
             }
-            port.postMessage({
-                type: 'result',
-                path,
-                validation,
-            });
+            port.postMessage(createPdfPersistenceResultFrame(path, validation));
             port.close();
             return;
         }
@@ -646,7 +572,7 @@ async function handlePortMessage(
             return;
         }
 
-        throw new Error(`Unknown PDF persistence message (${describePersistenceMessage(normalizedMessage)})`);
+        throw new Error(`Unknown PDF persistence message (${describePdfPersistenceMessage(normalizedMessage)})`);
     } catch (error) {
         await cleanupSession(session);
         const errorFrameOptions: {

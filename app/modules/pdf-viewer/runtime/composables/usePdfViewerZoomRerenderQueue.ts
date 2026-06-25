@@ -7,7 +7,11 @@ import type {
     ICurrentPageSyncOptions,
     IResizeAnchorContext,
 } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
-import { isResizeRerenderSource } from '@app/modules/pdf-viewer/runtime/rerender-strategy/isResizeRerenderSource';
+import {
+    PDF_RERENDER_SOURCE,
+    isResizePdfRerenderSource,
+    normalizePdfRerenderSource,
+} from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
 const ZOOM_RERENDER_DEFER_WHILE_GESTURE_MS = 80;
@@ -126,7 +130,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
     function enqueueZoomSettleRerender() {
         zoomGestureLowResRerenderUsed = false;
         pendingZoomSyncOptions = {
-            source: 'zoom-settle',
+            source: PDF_RERENDER_SOURCE.ZoomSettle,
             stabilize: true,
             resizeAnchor: buildResizeAnchorContext(),
         };
@@ -151,8 +155,11 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
         stage: string,
         syncOptions: ICurrentPageSyncOptions = {},
     ) {
-        const source = syncOptions.source ?? 're-render';
-        if (isResizeRerenderSource(source) && isZoomRerenderBusy()) {
+        const source = normalizePdfRerenderSource(
+            syncOptions.source,
+            PDF_RERENDER_SOURCE.ReRender,
+        );
+        if (isResizePdfRerenderSource(source) && isZoomRerenderBusy()) {
             deferredResizeSyncAfterZoom = {
                 stage,
                 syncOptions,
@@ -197,7 +204,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
         BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-flush-deferred-resize', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] flush deferred resize rerender', {
             source,
             stage: deferred.stage,
-            syncSource: deferred.syncOptions.source ?? 'unknown',
+            syncSource: normalizePdfRerenderSource(deferred.syncOptions.source),
         });
         runGuardedTask(() => reRenderVisiblePagesAndSyncCurrentPage(deferred.syncOptions), {
             scope: 'pdf-viewer',
@@ -225,7 +232,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
 
     function logZoomQueueRun(nextSyncOptions: ICurrentPageSyncOptions) {
         BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-run-next-sync-option', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] run next sync option', {
-            source: nextSyncOptions.source ?? 'unknown',
+            source: normalizePdfRerenderSource(nextSyncOptions.source),
             hasResizeAnchor: Boolean(nextSyncOptions.resizeAnchor),
             anchorPage: nextSyncOptions.resizeAnchor?.page ?? null,
             anchorCapturedAtMs: nextSyncOptions.resizeAnchor?.capturedAtMs ?? null,

@@ -36,8 +36,10 @@ import {
     buildNativePdfMutationPlanForSave,
     buildPdfAnnotationSavePlan,
     collectLivePdfJsAnnotationChangeIds,
+    getPdfAnnotationIdFromStableKey,
     isReplayableEditorOnlyFreeTextNote,
     mergeAnnotationCommentSaveSnapshot,
+    resetLivePdfJsAnnotationStorageModifiedState,
 } from '@app/modules/pdf-viewer/public';
 import { getErrorMessage } from '@app/utils/error';
 import { toPdfDateString } from '@app/utils/pdfDate';
@@ -47,12 +49,11 @@ import type {
 } from '@app/modules/pdf-viewer/public';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
+import type { IDocumentDirtyState } from '@app/modules/workspace-shell/composables/file-operations/saveDirtyState';
 import {
-    computeShouldSerializeFlag,
-    shouldPreserveLiveAnnotationSession,
-    type IDocumentDirtyState,
-} from '@app/modules/workspace-shell/composables/file-operations/saveDirtyState';
-import { resolveDocumentSaveRoute } from '@app/modules/workspace-shell/composables/file-operations/documentSaveRoutes';
+    buildWorkspaceSavePlan,
+    type IWorkspaceSavePlan,
+} from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePlan';
 import {
     createPostSaveReloadHandle,
     finalizePostSaveReload,
@@ -241,22 +242,14 @@ interface ISaveFlowConfig {
 interface ISaveFlowContext {
     annotationCommentsSnapshot: IAnnotationCommentSummary[];
     dirtyState: IDocumentDirtyState;
-    expectedOriginalPath: TDocumentRef | null;
-    expectedWorkingPath: TDocumentRef | null;
-    forcePdfjsMaterialize: boolean;
+    savePlan: IWorkspaceSavePlan;
     saveStateSnapshot: ISaveStateSnapshot;
     hasPendingDeletes: boolean;
     hasPendingTexts: boolean;
-    includeManagedShapesForLiveSource: boolean;
     pendingDeletes: IAnnotationCommentSummary[] | null;
     pendingTexts: Map<string, string> | null;
-    preserveLivePdfjsAnnotationSession: boolean;
-    preservedAnnotationSourceDirty: boolean;
     reloadWaiter: IPostSaveReloadHandle;
-    savedPdfjsAnnotationBaselineDirty: boolean;
     shapeStateDirty: boolean;
-    shouldSerialize: boolean;
-    shouldSerializeDirtyState: boolean;
 }
 
 interface ISaveStateSnapshot {
@@ -552,7 +545,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 BrowserLogger.debug('workspace', 'Refreshing changed annotation save baseline after native save');
             }
             if (opts?.resetAnnotationStorage !== false) {
-                pdfDocument.value?.annotationStorage?.resetModified();
+                resetLivePdfJsAnnotationStorageModifiedState(pdfDocument.value);
             }
             markAnnotationSaved({ preserveLivePdfjsSession: opts?.preserveLivePdfjsSession === true });
         }
@@ -721,8 +714,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     }
 
     function addExistingPdfAnnotationIdFromStableKey(ids: Set<string>, stableKey: string) {
-        const match = stableKey.trim().match(/^ann:\d+:(.+)$/u);
-        const normalized = normalizePdfJsAnnotationId(match?.[1]);
+        const normalized = normalizePdfJsAnnotationId(getPdfAnnotationIdFromStableKey(stableKey));
         if (normalized) {
             ids.add(normalized);
         }
@@ -1093,8 +1085,17 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             });
             return null;
         }
+        if (!initialWorkingPath || workingCopyPath.value !== initialWorkingPath) {
+            BrowserLogger.debug('workspace', 'Skipped stale serialized PDF persistence after working copy changed', {
+                initialOriginalPath,
+                currentOriginalPath: originalPath.value,
+                initialWorkingPath,
+                currentWorkingPath: workingCopyPath.value,
+            });
+            return null;
+        }
 
-        return workingCopyPath.value ?? initialWorkingPath;
+        return initialWorkingPath;
     }
 
     async function prepareSaveContext(
@@ -1118,35 +1119,34 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             hasPendingDeletes: pendingChanges.hasPendingDeletes,
             shapeStateDirty,
         });
-        const shouldSerializeDirtyState = computeShouldSerializeFlag(dirtyState);
-        const shouldSerialize = shouldSerializeDirtyState || config.forceSerialize === true;
-        const preserveLivePdfjsAnnotationSession = shouldPreserveLiveAnnotationSession({
+        const savePlan = buildWorkspaceSavePlan({
             mode: config.mode,
-            shouldSerialize,
+            shouldPreferWorkingCopy: config.shouldPreferWorkingCopy,
+            canPersistNativeWorkingCopy: Boolean(config.persistNativeWorkingCopy),
+            canAttemptNativeMutationSave: hasNativePdfMutationCapability(),
+            ...(config.forceSerialize !== undefined ? {forceSerialize: config.forceSerialize} : {}),
+            ...(config.forceRewrite !== undefined ? {forceRewrite: config.forceRewrite} : {}),
+        }, {
+            workingCopyPath: workingCopyPath.value,
+            expectedOriginalPath,
+            expectedWorkingPath,
             dirtyState,
+            hasManagedShapes: hasManagedShapes?.() ?? false,
         });
-        const preservedAnnotationSourceDirty = dirtyState.preservedAnnotationSource;
-        const forcePdfjsMaterialize = preservedAnnotationSourceDirty;
-        const includeManagedShapesForLiveSource = forcePdfjsMaterialize && (hasManagedShapes?.() ?? false);
         const context: ISaveFlowContext = {
             annotationCommentsSnapshot: getAnnotationCommentsForSave(),
             dirtyState,
-            expectedOriginalPath,
-            expectedWorkingPath,
-            forcePdfjsMaterialize,
+            savePlan,
             saveStateSnapshot,
             hasPendingDeletes: pendingChanges.hasPendingDeletes,
             hasPendingTexts: pendingChanges.hasPendingTexts,
-            includeManagedShapesForLiveSource,
             pendingDeletes: pendingChanges.pendingDeletes,
             pendingTexts: pendingChanges.pendingTexts,
-            preserveLivePdfjsAnnotationSession,
-            preservedAnnotationSourceDirty,
-            reloadWaiter: createPostSaveReloadHandle(preparePostSaveReload, preserveLivePdfjsAnnotationSession),
-            savedPdfjsAnnotationBaselineDirty: dirtyState.savedPdfjsAnnotationBaseline,
+            reloadWaiter: createPostSaveReloadHandle(
+                preparePostSaveReload,
+                savePlan.livePdfjsAnnotationSession.canPreserve,
+            ),
             shapeStateDirty,
-            shouldSerialize,
-            shouldSerializeDirtyState,
         };
         logSaveFlowStart(config, context);
         return context;
@@ -1169,33 +1169,25 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             hasLivePdfJsAnnotationChanges: context.dirtyState.livePdfJsAnnotations,
             forceSerialize: config.forceSerialize === true,
             forceRewrite: config.forceRewrite === true,
-            preserveLivePdfjsAnnotationSession: context.preserveLivePdfjsAnnotationSession,
-            savedPdfjsAnnotationBaselineDirty: context.savedPdfjsAnnotationBaselineDirty,
-            preservedAnnotationSourceDirty: context.preservedAnnotationSourceDirty,
-            includeManagedShapesForLiveSource: context.includeManagedShapesForLiveSource,
+            savePlanRoute: context.savePlan.persistenceRoute,
+            preserveLivePdfjsAnnotationSession: context.savePlan.livePdfjsAnnotationSession.canPreserve,
+            savedPdfjsAnnotationBaselineDirty: context.dirtyState.savedPdfjsAnnotationBaseline,
+            preservedAnnotationSourceDirty: context.dirtyState.preservedAnnotationSource,
+            includeManagedShapesForLiveSource: context.savePlan.pdfjsSourceMaterialization.includeManagedShapesForLiveSource,
             annotationNoteWindowsCount: annotationNoteWindowsCount.value,
         }));
     }
 
     async function executeSelectedSavePath(config: ISaveFlowConfig, context: ISaveFlowContext) {
-        const route = resolveDocumentSaveRoute({
-            mode: config.mode,
-            shouldPreferWorkingCopy: config.shouldPreferWorkingCopy,
-            canPersistNativeWorkingCopy: Boolean(config.persistNativeWorkingCopy),
-            ...(config.forceSerialize !== undefined ? {forceSerialize: config.forceSerialize} : {}),
-            ...(config.forceRewrite !== undefined ? {forceRewrite: config.forceRewrite} : {}),
-        }, {
-            workingCopyPath: workingCopyPath.value,
-            expectedOriginalPath: context.expectedOriginalPath,
-            expectedWorkingPath: context.expectedWorkingPath,
-            shouldSerialize: context.shouldSerialize,
-            shouldSerializeDirtyState: context.shouldSerializeDirtyState,
-        });
+        const route = context.savePlan.persistenceRoute;
         if (route === 'working-copy') {
             return executeWorkingCopySave(config, context);
         }
         if (route === 'native-working-copy') {
             return executeNativeWorkingCopySave(config, context);
+        }
+        if (route === 'serialized-rewrite') {
+            return executeSerializedSave(config, context);
         }
 
         const nativeOutcome = await executeNativeMutationSave(config, context);
@@ -1212,7 +1204,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             context.reloadWaiter.current,
             config.mode,
             config.persistUnserialized,
-            context.expectedWorkingPath,
+            context.savePlan.staleTargetProtection.expectedWorkingPath,
             context.saveStateSnapshot,
         );
         clearSaveIndicator(config.mode);
@@ -1235,7 +1227,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             context.reloadWaiter.current,
             config.mode,
             config.persistNativeWorkingCopy,
-            context.expectedWorkingPath,
+            context.savePlan.staleTargetProtection.expectedWorkingPath,
             context.saveStateSnapshot,
         );
         clearSaveIndicator(config.mode);
@@ -1257,10 +1249,10 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             pendingTexts: context.pendingTexts,
             pendingDeletes: context.pendingDeletes,
             shapeStateDirty: context.shapeStateDirty,
-            forcePdfjsMaterialize: context.forcePdfjsMaterialize,
-            includeManagedShapesForLiveSource: context.includeManagedShapesForLiveSource,
+            forcePdfjsMaterialize: context.savePlan.pdfjsSourceMaterialization.forcePdfjsMaterialize,
+            includeManagedShapesForLiveSource: context.savePlan.pdfjsSourceMaterialization.includeManagedShapesForLiveSource,
             forceRewrite: config.forceRewrite === true,
-            savedPdfjsAnnotationBaselineDirty: context.savedPdfjsAnnotationBaselineDirty,
+            savedPdfjsAnnotationBaselineDirty: context.dirtyState.savedPdfjsAnnotationBaseline,
             pageLabelsDirty: context.dirtyState.pageLabels,
             bookmarksDirty: context.dirtyState.bookmarks,
         };
@@ -1302,8 +1294,8 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         nativeMutationPlan: INativePdfMutationPlan,
     ) {
         const persistenceExpectedWorkingPath = resolveExpectedWorkingPathForPersistence(
-            context.expectedWorkingPath,
-            context.expectedOriginalPath,
+            context.savePlan.staleTargetProtection.expectedWorkingPath,
+            context.savePlan.staleTargetProtection.expectedOriginalPath,
         );
         if (!persistenceExpectedWorkingPath) {
             return null;
@@ -1458,13 +1450,18 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     }
 
     async function assertRendererSerializedSaveAllowed(context: ISaveFlowContext) {
-        if (!getWorkingCopySize || !context.expectedWorkingPath) {
+        const expectedWorkingPath = context.savePlan.staleTargetProtection.expectedWorkingPath;
+        if (
+            !context.savePlan.rendererFullPdfSerialization.requiresLargeFileGuard
+            || !getWorkingCopySize
+            || !expectedWorkingPath
+        ) {
             return;
         }
 
         const workingCopySize = await timedSavePhase(
             'stat-working-copy-for-serialization',
-            () => getWorkingCopySize(context.expectedWorkingPath as TDocumentRef),
+            () => getWorkingCopySize(expectedWorkingPath),
             result => ({
                 bytes: result,
                 maxBytes: RENDERER_SERIALIZED_SAVE_MAX_WORKING_COPY_BYTES,
@@ -1487,13 +1484,13 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     async function executeSerializedSave(config: ISaveFlowConfig, context: ISaveFlowContext) {
         await assertRendererSerializedSaveAllowed(context);
         const rawData = await getSerializationBasePdfBytes({
-            forcePdfjsMaterialize: context.forcePdfjsMaterialize || context.savedPdfjsAnnotationBaselineDirty,
+            forcePdfjsMaterialize: context.savePlan.pdfjsSourceMaterialization.required,
             pendingDeletes: context.pendingDeletes,
             pendingTexts: context.pendingTexts,
         });
         const persistenceExpectedWorkingPath = resolveExpectedWorkingPathForPersistence(
-            context.expectedWorkingPath,
-            context.expectedOriginalPath,
+            context.savePlan.staleTargetProtection.expectedWorkingPath,
+            context.savePlan.staleTargetProtection.expectedOriginalPath,
         );
         let saveSucceeded = false;
         if (persistenceExpectedWorkingPath) {
@@ -1507,13 +1504,15 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 config.mode,
                 config.saveMode,
                 config.persistSerialized,
-                context.preserveLivePdfjsAnnotationSession,
-                context.includeManagedShapesForLiveSource,
+                context.savePlan.livePdfjsAnnotationSession.canPreserve,
+                context.savePlan.pdfjsSourceMaterialization.includeManagedShapesForLiveSource,
                 config.forceRewrite === true,
                 persistenceExpectedWorkingPath,
                 context.saveStateSnapshot,
                 () => clearSaveIndicator(config.mode),
             );
+        } else {
+            await finalizeSaveReload(context.reloadWaiter.current, false);
         }
         context.reloadWaiter.markFinalized();
         return saveSucceeded;

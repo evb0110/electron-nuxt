@@ -54,34 +54,34 @@ const EXCLUDED_PATH_SEGMENTS = new Set([
 
 export const SOURCE_SIZE_ALLOWLIST = {
     'app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageScroll.ts': {
-        maxLines: 2484,
+        maxLines: 2405,
         reason: 'transitional PDF navigation controller hotspot after visual readiness extraction',
         stage: 'Worker 4/Stage 11 - PDF navigation visual readiness extraction',
     },
     'app/modules/agent-panel/components/AgentAssistantPanel.vue': {
-        maxLines: 2392,
+        maxLines: 2379,
         reason: 'transitional assistant panel hotspot after selection and image helper extraction',
         stage: 'Worker 1/Stage 9 - Agent panel helper extraction',
     },
     'app/modules/pdf-viewer/components/PdfThumbnails.vue': {
-        maxLines: 2156,
+        maxLines: 2110,
         reason: 'transitional PDF thumbnail render/layout hotspot',
         stage: 'Worker 2 - PDF thumbnail render/layout seams',
     },
     'electron/features/agent/codexAssistant.ts': {
-        maxLines: 2098,
-        reason: 'transitional Electron assistant backend hotspot after error and outgoing-message extraction',
-        stage: 'Worker 5/Stage 10 - Electron assistant backend extraction',
+        maxLines: 1977,
+        reason: 'transitional Electron assistant backend hotspot after provider account extraction',
+        stage: 'Worker 24 - Agent provider account extraction',
     },
     'app/modules/workspace-shell/composables/useFileOperations.ts': {
-        maxLines: 1934,
+        maxLines: 1933,
         reason: 'transitional workspace save orchestration hotspot',
         stage: 'Worker 3 - Workspace save planning extraction',
     },
     'app/modules/djvu-viewer/components/DjvuViewer.vue': {
-        maxLines: 1872,
+        maxLines: 1719,
         reason: 'transitional DjVu viewer component hotspot',
-        stage: 'Future viewer component extraction',
+        stage: 'Worker 25 - DjVu continuous scroll window extraction',
     },
     'scripts/electron-run/sessionManager.ts': {
         maxLines: 1771,
@@ -119,7 +119,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future workspace annotation extraction',
     },
     'app/modules/pdf-viewer/tools/useAnnotationShapes.ts': {
-        maxLines: 1337,
+        maxLines: 1334,
         reason: 'transitional PDF annotation shape tool hotspot',
         stage: 'Future PDF annotation tools extraction',
     },
@@ -134,9 +134,9 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future PDF rendering extraction',
     },
     'electron/ocr/jobManager.ts': {
-        maxLines: 1278,
+        maxLines: 1247,
         reason: 'transitional OCR job manager hotspot',
-        stage: 'Future OCR job lifecycle extraction',
+        stage: 'Worker 23 - OCR worker resource-message extraction',
     },
     'app/modules/workspace-shell/components/AppShellRoot.vue': {
         maxLines: 1254,
@@ -144,7 +144,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future workspace shell extraction',
     },
     'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts': {
-        maxLines: 1244,
+        maxLines: 1239,
         reason: 'transitional PDF annotation CRUD hotspot',
         stage: 'Future PDF annotation extraction',
     },
@@ -212,7 +212,19 @@ export function checkSourceFileSize({
 
     const allowlistEntry = allowlist[normalizedPath];
     if (allowlistEntry) {
-        if (lineCount <= allowlistEntry.maxLines) {
+        if (lineCount < allowlistEntry.maxLines) {
+            return {
+                rule: 'source-size-allowlist-budget-slack',
+                file: normalizedPath,
+                lineCount,
+                maxLines: allowlistEntry.maxLines,
+                message: `Allowlisted source file shrank below its ${allowlistEntry.maxLines} line budget; lower the budget to ${lineCount} lines.`,
+                reason: allowlistEntry.reason,
+                stage: allowlistEntry.stage,
+            };
+        }
+
+        if (lineCount === allowlistEntry.maxLines) {
             return null;
         }
 

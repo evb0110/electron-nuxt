@@ -82,6 +82,14 @@ resolve_host_tag() {
 host_tag="$(resolve_host_tag)"
 allow_host_ci_gen="${EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN:-0}"
 check_optional_page_processor="${EVB_CHECK_OPTIONAL_PAGE_PROCESSOR:-0}"
+case "$check_optional_page_processor" in
+  0|1)
+    ;;
+  *)
+    echo "Error: EVB_CHECK_OPTIONAL_PAGE_PROCESSOR must be 0 or 1 (got: $check_optional_page_processor)" >&2
+    exit 1
+    ;;
+esac
 
 has_ci_bundler_for_tag() {
   local tag="$1"

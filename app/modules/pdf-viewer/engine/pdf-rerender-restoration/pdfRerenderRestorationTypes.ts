@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type { IScrollSnapshot } from '@app/types/pdf';
+import type { TPdfRerenderSource } from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
 
 export interface IRoundedScrollPosition {
     scrollTop: number | null;
@@ -15,7 +16,7 @@ export interface IRerenderRestorationContext {
     disableHorizontalAnchorRestore: boolean;
     disableVerticalAnchorRestore: boolean;
     disablePageAnchorRestore: boolean;
-    rerenderSource: string;
+    rerenderSource: TPdfRerenderSource;
     snapshotToRestore: IScrollSnapshot | null;
 }
 

@@ -16,15 +16,18 @@ import {
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import { getPlatformAPI } from '@app/utils/platform';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
+import {
+    createSettingsPersistenceQueue,
+    type ISettingsPersistenceQueue,
+} from '@app/modules/settings/settingsPersistenceQueue';
 
-const SETTINGS_SAVE_RETRY_INITIAL_DELAY_MS = 1_000;
-const SETTINGS_SAVE_RETRY_MAX_DELAY_MS = 30_000;
 const PERSISTENT_SETTINGS_COOKIE_OPTIONS = {
     watch: false,
     maxAge: BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS,
     sameSite: 'lax' as const,
     path: '/',
 };
+let settingsPersistenceQueue: ISettingsPersistenceQueue | null = null;
 
 export const useSettings = () => {
     const settingsCookie = useCookie<string | Partial<ISettingsData> | null>(BROWSER_SETTINGS_COOKIE_KEY, {
@@ -57,12 +60,15 @@ export const useSettings = () => {
         fallbackSettings.theme = normalizeTheme(themeCookie.value);
     }
     const initialSettings = parseBrowserSettingsPayload(settingsCookie.value, fallbackSettings);
-    let lastSavedSettings: ISettingsData | null = hasSettingsCookieSnapshot.value
-        ? sanitizeSettings(initialSettings)
-        : null;
+    const lastSavedSettings = useState<ISettingsData | null>(
+        'settings:last-saved',
+        () => hasSettingsCookieSnapshot.value
+            ? sanitizeSettings(initialSettings)
+            : null,
+    );
 
     function rememberSavedSettings(nextSettings: ISettingsData) {
-        lastSavedSettings = sanitizeSettings(nextSettings);
+        lastSavedSettings.value = sanitizeSettings(nextSettings);
     }
 
     function syncSettingsCookies(nextSettings: ISettingsData) {
@@ -70,28 +76,6 @@ export const useSettings = () => {
         localeCookie.value = nextSettings.locale;
         themeCookie.value = nextSettings.theme;
         hasSettingsCookieSnapshot.value = true;
-    }
-
-    function buildSettingsPatch(
-        previousSettings: ISettingsData | null,
-        nextSettings: ISettingsData,
-    ): Partial<ISettingsData> {
-        if (!previousSettings) {
-            return nextSettings;
-        }
-
-        const baseSettings = previousSettings;
-        const patch: Partial<ISettingsData> = {};
-        function assignChangedSetting<TKey extends keyof ISettingsData>(key: TKey) {
-            if (nextSettings[key] !== baseSettings[key]) {
-                patch[key] = nextSettings[key];
-            }
-        }
-
-        for (const key of Object.keys(nextSettings) as Array<keyof ISettingsData>) {
-            assignChangedSetting(key);
-        }
-        return patch;
     }
 
     const {
@@ -125,80 +109,36 @@ export const useSettings = () => {
         }
     }
 
-    let saveInFlight: Promise<void> | null = null;
-    let saveDirty = false;
-    let saveRetryTimer: ReturnType<typeof setTimeout> | null = null;
-    let saveRetryDelayMs = SETTINGS_SAVE_RETRY_INITIAL_DELAY_MS;
-
-    function clearSaveRetryTimer() {
-        if (!saveRetryTimer) {
-            return;
+    function getSettingsPersistenceQueue() {
+        if (settingsPersistenceQueue) {
+            return settingsPersistenceQueue;
         }
-        clearTimeout(saveRetryTimer);
-        saveRetryTimer = null;
-    }
 
-    function scheduleSaveRetry() {
-        if (saveRetryTimer) {
-            return;
-        }
-        saveRetryTimer = setTimeout(() => {
-            saveRetryTimer = null;
-            void save();
-        }, saveRetryDelayMs);
-        saveRetryDelayMs = Math.min(saveRetryDelayMs * 2, SETTINGS_SAVE_RETRY_MAX_DELAY_MS);
-    }
-
-    async function runSaveQueue() {
-        while (true) {
-            saveDirty = false;
-            const payload = sanitizeSettings(toRaw(settings.value));
-            const patch = buildSettingsPatch(lastSavedSettings, payload);
-            try {
-                if (Object.keys(patch).length > 0) {
-                    await getPlatformAPI().settings.save(patch);
-                }
-                rememberSavedSettings(payload);
-                syncSettingsCookies(payload);
-                saveRetryDelayMs = SETTINGS_SAVE_RETRY_INITIAL_DELAY_MS;
-            } catch (e) {
-                BrowserLogger.error('settings', 'Failed to save settings', e);
-                saveDirty = true;
-                scheduleSaveRetry();
-                return;
-            }
-
-            if (!saveDirty) {
-                return;
-            }
-        }
+        settingsPersistenceQueue = createSettingsPersistenceQueue({
+            getSettingsSnapshot: () => toRaw(settings.value),
+            getLastSavedSettings: () => lastSavedSettings.value,
+            savePatch: patch => getPlatformAPI().settings.save(patch),
+            onSaved(nextSettings) {
+                rememberSavedSettings(nextSettings);
+                syncSettingsCookies(nextSettings);
+            },
+            onSaveError(error) {
+                BrowserLogger.error('settings', 'Failed to save settings', error);
+            },
+        });
+        return settingsPersistenceQueue;
     }
 
     async function save() {
-        if (saveInFlight) {
-            saveDirty = true;
-            return saveInFlight;
-        }
-
-        clearSaveRetryTimer();
-        saveInFlight = runSaveQueue().finally(() => {
-            saveInFlight = null;
-        });
-        return saveInFlight;
+        return getSettingsPersistenceQueue().save();
     }
 
     function updateSetting<K extends keyof ISettingsData>(key: K, value: ISettingsData[K]) {
         settings.value = {
             ...settings.value,
-            [key]: value, 
+            [key]: value,
         };
         void save();
-    }
-
-    if (getCurrentScope()) {
-        onScopeDispose(() => {
-            clearSaveRetryTimer();
-        });
     }
 
     return {
@@ -210,3 +150,10 @@ export const useSettings = () => {
         updateSetting,
     };
 };
+
+if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+        settingsPersistenceQueue?.clearRetryTimer();
+        settingsPersistenceQueue = null;
+    });
+}

@@ -13,6 +13,7 @@ import {
 import { usePdfViewerRerenderCoordinator } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerRerenderCoordinator';
 import type { IResizeAnchorContext } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import type { IBuildResizeAnchorContextOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle';
+import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import { cast } from '@tests/helpers/cast';
 
@@ -1260,6 +1261,54 @@ describe('usePdfViewerRerenderCoordinator', () => {
             }),
         );
         expect(reRenderAllVisiblePages.mock.calls[0]?.[1]).not.toHaveProperty('maxCanvasPixelsOverride');
+    });
+
+    it('treats custom zoom-mode changes as zoom-like rerenders without gesture caps', async () => {
+        const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+        const markLowResZoomRerenderUsed = vi.fn();
+        const syncCurrentPageFromViewport = vi.fn(async () => {});
+        const resizeAnchor = createResizeAnchor(157);
+
+        const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator(createDeps({
+            numPages: ref(348),
+            currentPage: ref(157),
+            visibleRange: ref({
+                start: 157,
+                end: 157,
+            }),
+            getVisibleRange: () => ({
+                start: 157,
+                end: 157,
+            }),
+            reRenderAllVisiblePages,
+            markLowResZoomRerenderUsed,
+            syncCurrentPageFromViewport,
+            buildResizeAnchorContext: vi.fn(() => resizeAnchor),
+            getMostVisiblePage: vi.fn(() => 157),
+        }));
+
+        await reRenderVisiblePagesAndSyncCurrentPage({
+            source: PDF_RERENDER_SOURCE.ZoomModeChange,
+            stabilize: true,
+            resizeAnchor,
+        });
+
+        expect(markLowResZoomRerenderUsed).not.toHaveBeenCalled();
+        expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
+            expect.any(Function),
+            expect.objectContaining({
+                preserveExistingPages: true,
+                rerenderSource: PDF_RERENDER_SOURCE.ZoomModeChange,
+                renderBufferOverride: 0,
+            }),
+        );
+        expect(reRenderAllVisiblePages.mock.calls[0]?.[1]).not.toHaveProperty('maxCanvasPixelsOverride');
+        expect(syncCurrentPageFromViewport).toHaveBeenCalledWith(
+            expect.objectContaining({
+                source: PDF_RERENDER_SOURCE.ZoomModeChange,
+                resizeAnchor,
+            }),
+        );
     });
 
     it('disables horizontal snapshot restore and clamps horizontal scroll in fit-width mode', async () => {

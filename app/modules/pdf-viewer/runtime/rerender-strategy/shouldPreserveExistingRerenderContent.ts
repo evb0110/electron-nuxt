@@ -1,29 +1,10 @@
 import type { IPageRange } from '@app/types/pdf';
-import { isResizeRerenderSource } from '@app/modules/pdf-viewer/runtime/rerender-strategy/isResizeRerenderSource';
-
-
-const PRESERVE_EXISTING_RENDER_SOURCES = new Set([
-    'zoom-change',
-    'zoom-gesture-change',
-    'zoom-settle',
-    'fit-mode',
-    'fit-width-current-page',
-]);
+import { shouldPreserveExistingPdfRerenderContent } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
 
 export function shouldPreserveExistingRerenderContent(options: {
     source: string;
     visibleRange: IPageRange;
     isPageRendered: (page: number) => boolean;
 }) {
-    const { source } = options;
-
-    if (PRESERVE_EXISTING_RENDER_SOURCES.has(source)) {
-        return true;
-    }
-
-    if (!isResizeRerenderSource(source)) {
-        return false;
-    }
-
-    return true;
+    return shouldPreserveExistingPdfRerenderContent(options.source);
 }

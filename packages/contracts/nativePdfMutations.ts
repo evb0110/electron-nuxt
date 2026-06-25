@@ -28,6 +28,10 @@ import {
     PDF_ANNOTATION_SHAPE_PDF_SUBTYPES,
     PDF_ANNOTATION_SHAPE_TYPES,
 } from '@contracts/annotations';
+import {
+    isPdfNativeNormalizedBoxInsidePageBounds,
+    isPdfNativeNormalizedRectInsidePageBounds,
+} from '@contracts/nativePdfPageBounds';
 import { toPageIndex } from '@contracts/pageNumbers';
 import { PDF_PAGE_LABEL_STYLE_VALUES } from '@contracts/pdfPageLabels';
 import { isRecord } from '@contracts/runtimeGuards';
@@ -181,7 +185,12 @@ function normalizeNativeMarkerRect(
     const top = normalizeFiniteUnitNumber(value.top, `${label}.top`, options);
     const width = normalizeFiniteUnitNumber(value.width, `${label}.width`, options);
     const height = normalizeFiniteUnitNumber(value.height, `${label}.height`, options);
-    if (width <= 0 || height <= 0 || left + width > 1 || top + height > 1) {
+    if (!isPdfNativeNormalizedRectInsidePageBounds({
+        left,
+        top,
+        width,
+        height,
+    })) {
         fail(`${label} must fit inside the normalized page bounds`, options);
     }
     return {
@@ -803,7 +812,12 @@ function normalizePlacedImage<TMode extends TPdfNativePlacedImageBytesMode>(
     const y = normalizeFiniteUnitNumber(value.y, `${label}.y`, options);
     const width = normalizeFiniteUnitNumber(value.width, `${label}.width`, options);
     const height = normalizeFiniteUnitNumber(value.height, `${label}.height`, options);
-    if (width <= 0 || height <= 0 || x + width > 1 || y + height > 1) {
+    if (!isPdfNativeNormalizedBoxInsidePageBounds({
+        x,
+        y,
+        width,
+        height,
+    })) {
         fail(`${label} must fit inside the normalized page bounds`, options);
     }
     const rotationDegrees = value.rotationDegrees ?? null;

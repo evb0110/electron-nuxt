@@ -14,6 +14,11 @@ import { isShapeTool } from '@app/modules/pdf-viewer/engine/annotations/annotati
 import { generateManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/generateManagedShapeStableKey';
 import { normalizeManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/normalizeManagedShapeStableKey';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
+import {
+    getNormalizedShapeAnnotationId,
+    getNormalizedShapeStableKey,
+    shapeStableRefsMatch,
+} from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-identity/shapeAnnotationIdentity';
 import { getPointMinMaxBounds } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/getPointMinMaxBounds';
 import { toShapeRect } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/toShapeRect';
 import { cloneShapePoints } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/cloneShapePoints';
@@ -542,7 +547,7 @@ export const useAnnotationShapes = () => {
 
     function toComparableShape(shape: IShapeAnnotation) {
         const comparable = {
-            annotationId: normalizePdfJsAnnotationId(shape.annotationId) ?? shape.annotationId ?? null,
+            annotationId: getNormalizedShapeAnnotationId(shape) ?? shape.annotationId ?? null,
             color: shape.color,
             fillColor: shape.fillColor ?? null,
             height: shape.height,
@@ -551,7 +556,7 @@ export const useAnnotationShapes = () => {
             opacity: shape.opacity,
             pageIndex: shape.pageIndex,
             pdfSubtype: shape.pdfSubtype ?? null,
-            stableKey: normalizeManagedShapeStableKey(shape.stableKey) ?? null,
+            stableKey: getNormalizedShapeStableKey(shape) ?? null,
             points: shape.points?.map(point => ({
                 x: point.x,
                 y: point.y,
@@ -582,7 +587,7 @@ export const useAnnotationShapes = () => {
             opacity: normalizeComparableNumber(shape.opacity),
             pageIndex: shape.pageIndex,
             pdfSubtype: shape.pdfSubtype ?? null,
-            stableKey: normalizeManagedShapeStableKey(shape.stableKey) ?? null,
+            stableKey: getNormalizedShapeStableKey(shape) ?? null,
             points: shape.points?.map(point => ({
                 x: normalizeComparableNumber(point.x),
                 y: normalizeComparableNumber(point.y),
@@ -625,12 +630,12 @@ export const useAnnotationShapes = () => {
         deletedAnnotationIds: Set<string>,
         deletedStableKeys: Set<string>,
     ) {
-        const annotationId = normalizePdfJsAnnotationId(shape.annotationId);
+        const annotationId = getNormalizedShapeAnnotationId(shape);
         if (annotationId && deletedAnnotationIds.has(annotationId)) {
             return true;
         }
 
-        const stableKey = normalizeManagedShapeStableKey(shape.stableKey);
+        const stableKey = getNormalizedShapeStableKey(shape);
         if (stableKey && deletedStableKeys.has(stableKey)) {
             return true;
         }
@@ -697,15 +702,7 @@ export const useAnnotationShapes = () => {
             return 'durable';
         }
 
-        const candidateStableKey = normalizeManagedShapeStableKey(candidate.stableKey);
-        const referenceStableKey = normalizeManagedShapeStableKey(reference.stableKey);
-        if (candidateStableKey && referenceStableKey && candidateStableKey === referenceStableKey) {
-            return 'durable';
-        }
-
-        const candidateAnnotationId = normalizePdfJsAnnotationId(candidate.annotationId);
-        const referenceAnnotationId = normalizePdfJsAnnotationId(reference.annotationId);
-        if (candidateAnnotationId && referenceAnnotationId && candidateAnnotationId === referenceAnnotationId) {
+        if (shapeStableRefsMatch(candidate, reference)) {
             return 'durable';
         }
 
@@ -911,18 +908,18 @@ export const useAnnotationShapes = () => {
         currentShape: IShapeAnnotation,
         remainingImportedShapes: IShapeAnnotation[],
     ) {
-        const currentStableKey = normalizeManagedShapeStableKey(currentShape.stableKey);
+        const currentStableKey = getNormalizedShapeStableKey(currentShape);
         const importedIndexByStableKey = currentStableKey
-            ? remainingImportedShapes.findIndex(shape => normalizeManagedShapeStableKey(shape.stableKey) === currentStableKey)
+            ? remainingImportedShapes.findIndex(shape => getNormalizedShapeStableKey(shape) === currentStableKey)
             : -1;
 
         if (importedIndexByStableKey !== -1) {
             return importedIndexByStableKey;
         }
 
-        const currentAnnotationId = normalizePdfJsAnnotationId(currentShape.annotationId);
+        const currentAnnotationId = getNormalizedShapeAnnotationId(currentShape);
         const importedIndexByAnnotationId = currentAnnotationId
-            ? remainingImportedShapes.findIndex(shape => normalizePdfJsAnnotationId(shape.annotationId) === currentAnnotationId)
+            ? remainingImportedShapes.findIndex(shape => getNormalizedShapeAnnotationId(shape) === currentAnnotationId)
             : -1;
 
         if (importedIndexByAnnotationId !== -1) {
@@ -1056,7 +1053,7 @@ export const useAnnotationShapes = () => {
         currentDeletedIds.forEach((rawAnnotationId) => {
             const normalizedDeletedId = normalizePdfJsAnnotationId(rawAnnotationId);
             const stillPresentInImportedShapes = normalizedDeletedId
-                ? loaded.some(shape => normalizePdfJsAnnotationId(shape.annotationId) === normalizedDeletedId)
+                ? loaded.some(shape => getNormalizedShapeAnnotationId(shape) === normalizedDeletedId)
                 : loaded.some(shape => shape.annotationId === rawAnnotationId);
 
             if (stillPresentInImportedShapes) {
@@ -1066,7 +1063,7 @@ export const useAnnotationShapes = () => {
         currentDeletedStableKeys.forEach((rawStableKey) => {
             const normalizedDeletedStableKey = normalizeManagedShapeStableKey(rawStableKey);
             const stillPresentInImportedShapes = normalizedDeletedStableKey
-                ? loaded.some(shape => normalizeManagedShapeStableKey(shape.stableKey) === normalizedDeletedStableKey)
+                ? loaded.some(shape => getNormalizedShapeStableKey(shape) === normalizedDeletedStableKey)
                 : loaded.some(shape => shape.stableKey === rawStableKey);
 
             if (stillPresentInImportedShapes) {

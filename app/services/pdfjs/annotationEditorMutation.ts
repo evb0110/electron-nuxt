@@ -3,22 +3,22 @@ import { delay } from 'es-toolkit/promise';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import {
-    getStoredAnnotationEditor as getStoredAnnotationEditorFromAdapter,
+    getAnnotationStorageEditor,
     setSelectedEditor,
-    writeEditorCommentToAnnotationStorage as writeEditorCommentToAnnotationStorageFromAdapter,
+    writeAnnotationStorageEditorComment,
 } from '@app/services/pdfjs/annotationEditorAdapter';
 
 const ANNOTATION_EDITOR_RENDER_WAIT_TIMEOUT_MS = 1_500;
 
 export function writeEditorCommentToAnnotationStorage(editor: IPdfjsEditor, text: string) {
-    writeEditorCommentToAnnotationStorageFromAdapter(editor, text);
+    writeAnnotationStorageEditorComment(editor, text);
 }
 
 export function getStoredAnnotationEditor(
     pdfDocument: PDFDocumentProxy | null,
     annotationElementId: string,
 ) {
-    return getStoredAnnotationEditorFromAdapter(pdfDocument, annotationElementId);
+    return getAnnotationStorageEditor(pdfDocument, annotationElementId);
 }
 
 export function deleteEditorWithUiManager(

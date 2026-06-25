@@ -12,6 +12,7 @@ import type {
     summarizeViewerMetrics,
 } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import { resolveResizeAnchorPage } from '@app/modules/pdf-viewer/runtime/resize-anchor/resolveResizeAnchorPage';
+import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
 
 type TViewerMetrics = ReturnType<typeof summarizeViewerMetrics>;
 
@@ -250,7 +251,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         const anchor = pendingResizeAnchor;
         pendingResizeAnchor = null;
         scheduleResizeAwareRerender('re-render visible pages after resize', {
-            source: 'resize-observer',
+            source: PDF_RERENDER_SOURCE.ResizeObserver,
             stabilize: true,
             resizeAnchor: anchor,
         });
@@ -328,14 +329,17 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             if (!updated) {
                 return;
             }
-            const transitionToken = beginResizeTransition('resize-observer', resizeAnchor.page);
+            const transitionToken = beginResizeTransition(
+                PDF_RERENDER_SOURCE.ResizeObserver,
+                resizeAnchor.page,
+            );
             const anchoredResizeContext: IResizeAnchorContext = {
                 ...resizeAnchor,
                 transitionToken,
             };
             pendingResizeAnchor = anchoredResizeContext;
             if (updated) {
-                restoreResizeAnchorAfterLayout(anchoredResizeContext, 'resize-observer');
+                restoreResizeAnchorAfterLayout(anchoredResizeContext, PDF_RERENDER_SOURCE.ResizeObserver);
             }
             BrowserLogger.diagnostic('pdf-nav', 'Resize observer requested re-render'
                 + ` anchorPage=${anchoredResizeContext.page}`

@@ -7,22 +7,196 @@ import { hasRenderedPageInRange } from '@app/modules/pdf-viewer/runtime/rerender
 import { isAnchoredCurrentPageSyncSource } from '@app/modules/pdf-viewer/runtime/rerender-strategy/isAnchoredCurrentPageSyncSource';
 import { isResizeRerenderSource } from '@app/modules/pdf-viewer/runtime/rerender-strategy/isResizeRerenderSource';
 import { shouldPreserveExistingRerenderContent } from '@app/modules/pdf-viewer/runtime/rerender-strategy/shouldPreserveExistingRerenderContent';
+import {
+    PDF_RERENDER_SOURCE,
+    PDF_RERENDER_SOURCE_VALUES,
+    isPdfRerenderSource,
+    isZoomRestorePdfRerenderSource,
+    normalizePdfRerenderSource,
+    shouldUseMinimalPdfRerenderBuffer,
+    shouldUseZoomGestureCanvasCap,
+    type TPdfRerenderSource,
+} from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
+
+interface IExpectedRerenderPolicy {
+    anchored: boolean;
+    minimalBuffer: boolean;
+    preserve: boolean;
+    resize: boolean;
+    zoomGestureCanvasCap: boolean;
+    zoomRestore: boolean;
+}
+
+const EXPECTED_RERENDER_POLICY = {
+    [PDF_RERENDER_SOURCE.DprChange]: {
+        anchored: false,
+        minimalBuffer: true,
+        preserve: true,
+        resize: false,
+        zoomGestureCanvasCap: false,
+        zoomRestore: false,
+    },
+    [PDF_RERENDER_SOURCE.FitHeightCurrentPage]: {
+        anchored: false,
+        minimalBuffer: true,
+        preserve: true,
+        resize: false,
+        zoomGestureCanvasCap: false,
+        zoomRestore: false,
+    },
+    [PDF_RERENDER_SOURCE.FitHeightPagedTarget]: {
+        anchored: false,
+        minimalBuffer: true,
+        preserve: true,
+        resize: false,
+        zoomGestureCanvasCap: false,
+        zoomRestore: false,
+    },
+    [PDF_RERENDER_SOURCE.FitMode]: {
+        anchored: false,
+        minimalBuffer: true,
+        preserve: true,
+        resize: false,
+        zoomGestureCanvasCap: false,
+        zoomRestore: false,
+    },
+    [PDF_RERENDER_SOURCE.FitWidthCurrentPage]: {
+        anchored: true,
+        minimalBuffer: true,
+        preserve: true,
+        resize: false,
+        zoomGestureCanvasCap: false,
+        zoomRestore: false,
+    },
+    [PDF_RERENDER_SOURCE.FitWidthExplicit]: {
+        anchored: false,
+        minimalBuffer: true,
+        preserve: true,
+        resize: false,
+        zoomGestureCanvasCap: false,
+        zoomRestore: false,
+    },
+    [PDF_RERENDER_SOURCE.FitWidthPagedTarget]: {
+        anchored: false,
+        minimalBuffer: true,
+        preserve: true,
+        resize: false,
+        zoomGestureCanvasCap: false,
+        zoomRestore: false,
+    },
+    [PDF_RERENDER_SOURCE.ReRender]: {
+        anchored: false,
+        minimalBuffer: false,
+        preserve: false,
+        resize: false,
+        zoomGestureCanvasCap: false,
+        zoomRestore: false,
+    },
+    [PDF_RERENDER_SOURCE.ResizeObserver]: {
+        anchored: true,
+        minimalBuffer: false,
+        preserve: true,
+        resize: true,
+        zoomGestureCanvasCap: false,
+        zoomRestore: false,
+    },
+    [PDF_RERENDER_SOURCE.ResizeSettle]: {
+        anchored: true,
+        minimalBuffer: false,
+        preserve: true,
+        resize: true,
+        zoomGestureCanvasCap: false,
+        zoomRestore: false,
+    },
+    [PDF_RERENDER_SOURCE.Unknown]: {
+        anchored: false,
+        minimalBuffer: false,
+        preserve: false,
+        resize: false,
+        zoomGestureCanvasCap: false,
+        zoomRestore: false,
+    },
+    [PDF_RERENDER_SOURCE.ViewMode]: {
+        anchored: false,
+        minimalBuffer: false,
+        preserve: false,
+        resize: false,
+        zoomGestureCanvasCap: false,
+        zoomRestore: false,
+    },
+    [PDF_RERENDER_SOURCE.ZoomChange]: {
+        anchored: true,
+        minimalBuffer: true,
+        preserve: true,
+        resize: false,
+        zoomGestureCanvasCap: false,
+        zoomRestore: true,
+    },
+    [PDF_RERENDER_SOURCE.ZoomGestureChange]: {
+        anchored: true,
+        minimalBuffer: true,
+        preserve: true,
+        resize: false,
+        zoomGestureCanvasCap: true,
+        zoomRestore: true,
+    },
+    [PDF_RERENDER_SOURCE.ZoomMode]: {
+        anchored: false,
+        minimalBuffer: true,
+        preserve: true,
+        resize: false,
+        zoomGestureCanvasCap: false,
+        zoomRestore: false,
+    },
+    [PDF_RERENDER_SOURCE.ZoomModeChange]: {
+        anchored: true,
+        minimalBuffer: true,
+        preserve: true,
+        resize: false,
+        zoomGestureCanvasCap: false,
+        zoomRestore: true,
+    },
+    [PDF_RERENDER_SOURCE.ZoomSettle]: {
+        anchored: true,
+        minimalBuffer: true,
+        preserve: true,
+        resize: false,
+        zoomGestureCanvasCap: false,
+        zoomRestore: false,
+    },
+} satisfies Record<TPdfRerenderSource, IExpectedRerenderPolicy>;
+
+function createPreserveOptions(source: TPdfRerenderSource) {
+    return {
+        source,
+        visibleRange: {
+            start: 4,
+            end: 6,
+        },
+        isPageRendered: () => false,
+    };
+}
 
 describe('rerenderStrategy', () => {
-    it('detects resize-driven rerender sources', () => {
-        expect(isResizeRerenderSource('resize-observer')).toBe(true);
-        expect(isResizeRerenderSource('resize-settle')).toBe(true);
-        expect(isResizeRerenderSource('zoom-change')).toBe(false);
+    it('keeps all known rerender source policies exhaustive', () => {
+        expect(PDF_RERENDER_SOURCE_VALUES).toHaveLength(Object.keys(EXPECTED_RERENDER_POLICY).length);
+
+        for (const source of PDF_RERENDER_SOURCE_VALUES) {
+            const expected = EXPECTED_RERENDER_POLICY[source];
+            expect(isPdfRerenderSource(source)).toBe(true);
+            expect(isResizeRerenderSource(source)).toBe(expected.resize);
+            expect(isAnchoredCurrentPageSyncSource(source)).toBe(expected.anchored);
+            expect(shouldPreserveExistingRerenderContent(createPreserveOptions(source))).toBe(expected.preserve);
+            expect(shouldUseMinimalPdfRerenderBuffer(source)).toBe(expected.minimalBuffer);
+            expect(shouldUseZoomGestureCanvasCap(source)).toBe(expected.zoomGestureCanvasCap);
+            expect(isZoomRestorePdfRerenderSource(source)).toBe(expected.zoomRestore);
+        }
     });
 
-    it('uses fixed current-page sync for resize and zoom anchors', () => {
-        expect(isAnchoredCurrentPageSyncSource('resize-observer')).toBe(true);
-        expect(isAnchoredCurrentPageSyncSource('resize-settle')).toBe(true);
-        expect(isAnchoredCurrentPageSyncSource('zoom-change')).toBe(true);
-        expect(isAnchoredCurrentPageSyncSource('zoom-gesture-change')).toBe(true);
-        expect(isAnchoredCurrentPageSyncSource('zoom-settle')).toBe(true);
-        expect(isAnchoredCurrentPageSyncSource('fit-width-current-page')).toBe(true);
-        expect(isAnchoredCurrentPageSyncSource('re-render')).toBe(false);
+    it('normalizes unknown sources to the explicit unknown protocol source', () => {
+        expect(isPdfRerenderSource('external-caller')).toBe(false);
+        expect(normalizePdfRerenderSource('external-caller')).toBe(PDF_RERENDER_SOURCE.Unknown);
+        expect(normalizePdfRerenderSource(undefined, PDF_RERENDER_SOURCE.ReRender)).toBe(PDF_RERENDER_SOURCE.ReRender);
     });
 
     it('checks whether the visible range already has rendered content', () => {
@@ -41,74 +215,5 @@ describe('rerenderStrategy', () => {
             },
             () => false,
         )).toBe(false);
-    });
-
-    it('always preserves existing content for zoom and fit rerenders', () => {
-        expect(shouldPreserveExistingRerenderContent({
-            source: 'zoom-change',
-            visibleRange: {
-                start: 4,
-                end: 6,
-            },
-            isPageRendered: () => false,
-        })).toBe(true);
-
-        expect(shouldPreserveExistingRerenderContent({
-            source: 'zoom-gesture-change',
-            visibleRange: {
-                start: 4,
-                end: 6,
-            },
-            isPageRendered: () => false,
-        })).toBe(true);
-
-        expect(shouldPreserveExistingRerenderContent({
-            source: 'fit-mode',
-            visibleRange: {
-                start: 4,
-                end: 6,
-            },
-            isPageRendered: () => false,
-        })).toBe(true);
-
-        expect(shouldPreserveExistingRerenderContent({
-            source: 'fit-width-current-page',
-            visibleRange: {
-                start: 4,
-                end: 6,
-            },
-            isPageRendered: () => false,
-        })).toBe(true);
-    });
-
-    it('always preserves resize rerenders', () => {
-        expect(shouldPreserveExistingRerenderContent({
-            source: 'resize-observer',
-            visibleRange: {
-                start: 5,
-                end: 7,
-            },
-            isPageRendered: (page) => page === 6,
-        })).toBe(true);
-
-        expect(shouldPreserveExistingRerenderContent({
-            source: 'resize-settle',
-            visibleRange: {
-                start: 5,
-                end: 7,
-            },
-            isPageRendered: () => false,
-        })).toBe(true);
-    });
-
-    it('does not preserve unrelated rerender sources by default', () => {
-        expect(shouldPreserveExistingRerenderContent({
-            source: 're-render',
-            visibleRange: {
-                start: 1,
-                end: 1,
-            },
-            isPageRendered: () => true,
-        })).toBe(false);
     });
 });

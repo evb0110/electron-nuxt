@@ -23,7 +23,9 @@ export { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/runt
 export {
     collectLivePdfJsAnnotationChangeFingerprint,
     collectLivePdfJsAnnotationChangeIds,
+    resetLivePdfJsAnnotationStorageModifiedState,
 } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
+export { getPdfAnnotationIdFromStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
 export { annotationCommentsMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/annotationCommentsMatch';
 export { selectPreferredAnnotationComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/selectPreferredAnnotationComment';
 export { mergeAnnotationCommentSaveSnapshot } from '@app/modules/pdf-viewer/engine/annotation-comment-save-snapshot/mergeAnnotationCommentSaveSnapshot';

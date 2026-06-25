@@ -17,6 +17,7 @@ import { toPdfRectFromMarkerRect } from '@app/modules/pdf-viewer/engine/annotati
 import { getPdfStringValue } from '@app/utils/pdfDict';
 import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { iterateAnnotationRefDicts } from '@app/modules/pdf-viewer/engine/pdf-page-annotation-iteration/iterateAnnotationRefDicts';
+import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
 import { toPdfDateString } from '@app/utils/pdfDate';
 import { appendAnnotationRefToPage } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shared/appendAnnotationRefToPage';
 import { toFreeTextNoteMarkerRect } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shared/toFreeTextNoteMarkerRect';
@@ -122,8 +123,7 @@ function commentReferencesAnnotationRef(comment: IAnnotationCommentSummary, ref:
         return true;
     }
 
-    const stableMatch = comment.stableKey.trim().match(/^ann:\d+:(\d+R(?:\d+)?)$/iu);
-    const stableRef = parsePdfJsAnnotationRef(stableMatch?.[1]);
+    const stableRef = parsePdfAnnotationStableKeyRef(comment.stableKey)?.ref ?? null;
     return Boolean(
         stableRef
         && stableRef.objectNumber === ref.objectNumber

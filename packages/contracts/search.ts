@@ -11,12 +11,19 @@ export interface IPdfSearchExcerpt {
     after: string;
 }
 
+export type TPdfSearchUtf16Offset = number;
+
+export interface IPdfSearchUtf16Range {
+    startOffset: TPdfSearchUtf16Offset;
+    endOffset: TPdfSearchUtf16Offset;
+}
+
 export interface IPdfSearchResult {
     pageNumber: TPageNumber;
     pageMatchIndex: number;
     matchIndex: number;
-    startOffset: number;
-    endOffset: number;
+    startOffset: TPdfSearchUtf16Offset;
+    endOffset: TPdfSearchUtf16Offset;
     excerpt: IPdfSearchExcerpt;
     words?: IOcrWord[];
     pageWidth?: number;
@@ -478,11 +485,16 @@ export function* iteratePdfSearchMatches(
         yield {
             startOffset: match.index,
             endOffset: match.index + value.length,
-        };
+        } satisfies IPdfSearchUtf16Range;
     }
 }
 
-export function buildPdfSearchExcerpt(text: string, startOffset: number, endOffset: number, contextChars: number) {
+export function buildPdfSearchExcerpt(
+    text: string,
+    startOffset: TPdfSearchUtf16Offset,
+    endOffset: TPdfSearchUtf16Offset,
+    contextChars: number,
+) {
     const excerptStart = Math.max(0, startOffset - contextChars);
     const excerptEnd = Math.min(text.length, endOffset + contextChars);
     return {

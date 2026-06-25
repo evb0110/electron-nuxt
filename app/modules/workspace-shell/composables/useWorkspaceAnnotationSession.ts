@@ -4,7 +4,10 @@ import {
     useStorage,
 } from '@vueuse/core';
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
-import { collectLivePdfJsAnnotationChangeFingerprint } from '@app/modules/pdf-viewer/public';
+import {
+    collectLivePdfJsAnnotationChangeFingerprint,
+    resetLivePdfJsAnnotationStorageModifiedState,
+} from '@app/modules/pdf-viewer/public';
 import { useAnnotationContextMenu } from '@app/modules/workspace-shell/composables/useAnnotationContextMenu';
 import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -50,7 +53,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
 
     function clearAnnotationChanges() {
         try {
-            pdfDocument.value?.annotationStorage?.resetModified();
+            resetLivePdfJsAnnotationStorageModifiedState(pdfDocument.value);
         } catch (error) {
             BrowserLogger.debug('workspace', 'Failed to reset annotation storage modified state', error);
         }

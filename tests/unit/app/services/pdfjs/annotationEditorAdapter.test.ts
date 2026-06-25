@@ -14,11 +14,11 @@ import {
     clearSelectedEditorState,
     createAnnotationEditorAtPoint,
     createAnnotationEditorWithSyntheticPointer,
+    getAnnotationStorageEditor,
     getAnnotationEditorRuntimeSmokeFailures,
     getEditorById,
     getEditorParentDimensions,
     getEditorByUidFromLayer,
-    getStoredAnnotationEditor,
     isEditorCommentDeleted,
     markEditorChangedExistingAnnotation,
     patchEditorResizeHandlers,
@@ -29,7 +29,7 @@ import {
     syncEditorToAnnotationStorage,
     unselectAllEditors,
     updateEditorDefaultParams,
-    writeEditorCommentToAnnotationStorage,
+    writeAnnotationStorageEditorComment,
 } from '@app/services/pdfjs/annotationEditorAdapter';
 
 function asUiManager<T extends object>(value: T): AnnotationEditorUIManager {
@@ -411,12 +411,12 @@ describe('annotationEditorAdapter', () => {
             _uiManager: { addChangedExistingAnnotation },
         } as IPdfjsEditor;
 
-        writeEditorCommentToAnnotationStorage(editor, 'persisted text');
+        writeAnnotationStorageEditorComment(editor, 'persisted text');
 
         expect(editor.comment).toBe('persisted text');
         expect(addToAnnotationStorage).toHaveBeenCalledOnce();
         expect(syncEditorToAnnotationStorage(editor)).toBe(true);
-        expect(getStoredAnnotationEditor({ annotationStorage: { getEditor } }, '42R0')).toBe(storedEditor);
+        expect(getAnnotationStorageEditor({ annotationStorage: { getEditor } }, '42R0')).toBe(storedEditor);
         expect(getEditor).toHaveBeenCalledWith('42R0');
         editor.comment = { deleted: true };
         expect(isEditorCommentDeleted(editor)).toBe(true);

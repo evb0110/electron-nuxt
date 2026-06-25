@@ -1,6 +1,6 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 import type { IBookmarkDestinationTarget } from '@app/utils/pdfOutlineHelpers';
 import {
     resolveBookmarkDestinationTarget,

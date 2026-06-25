@@ -3,6 +3,7 @@ import type {
     TPdfViewMode,
     TZoomMode,
 } from '@contracts/shared';
+import type { TViewerResidencyState } from '@app/utils/document-viewer/memory/viewerResidencyPolicy';
 
 export type TTabTemperature = 'hot' | 'warm' | 'cold';
 
@@ -19,5 +20,7 @@ export interface ITabViewSessionState {
 export interface ITabLifecycleState {
     tabId: string;
     temperature: TTabTemperature;
+    viewerResidency: TViewerResidencyState;
+    isReclaimCandidate: boolean;
     shouldMountHost: boolean;
 }

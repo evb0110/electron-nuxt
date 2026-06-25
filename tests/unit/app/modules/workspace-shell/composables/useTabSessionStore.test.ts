@@ -99,6 +99,24 @@ describe('tab session memory policy', () => {
             c: 'warm',
             d: 'cold',
         });
+        expect(Object.fromEntries(states.map(state => [
+            state.tabId,
+            state.viewerResidency,
+        ]))).toEqual({
+            a: 'active',
+            b: 'warm',
+            c: 'warm',
+            d: 'hibernated',
+        });
+        expect(Object.fromEntries(states.map(state => [
+            state.tabId,
+            state.isReclaimCandidate,
+        ]))).toEqual({
+            a: false,
+            b: true,
+            c: true,
+            d: false,
+        });
     });
 
     it('cools non-active tabs aggressively except visible split panes', () => {
@@ -131,6 +149,61 @@ describe('tab session memory policy', () => {
             a: 'hot',
             b: 'cold',
             c: 'hot',
+        });
+    });
+
+    it('keeps dirty inactive tabs warm but not reclaimable', () => {
+        const dirtyTab = {
+            ...tab('b'),
+            isDirty: true,
+        };
+        const states = resolveTabLifecycleStates({
+            tabs: [
+                tab('a'),
+                dirtyTab,
+                tab('c'),
+            ],
+            panes: [pane('pane-1', 'a', [
+                'a',
+                'b',
+                'c',
+            ])],
+            activeTabId: 'a',
+            activationOrder: [
+                'a',
+                'c',
+                'b',
+            ],
+            policy: 'aggressive',
+        });
+
+        expect(Object.fromEntries(states.map(state => [
+            state.tabId,
+            {
+                isReclaimCandidate: state.isReclaimCandidate,
+                shouldMountHost: state.shouldMountHost,
+                temperature: state.temperature,
+                viewerResidency: state.viewerResidency,
+            },
+        ]))).toEqual({
+            a: {
+                isReclaimCandidate: false,
+                shouldMountHost: true,
+                temperature: 'hot',
+                viewerResidency: 'active',
+            },
+            b: {
+                isReclaimCandidate: false,
+                shouldMountHost: true,
+                temperature: 'warm',
+                viewerResidency: 'warm',
+            },
+            c: {
+                isReclaimCandidate: false,
+                shouldMountHost: false,
+                temperature: 'cold',
+                viewerResidency: 'hibernated',
+            },
         });
     });
 });

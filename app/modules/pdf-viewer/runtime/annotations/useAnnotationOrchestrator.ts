@@ -151,6 +151,45 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         emitAnnotationToolAutoReset,
     });
 
+    const {
+        markersByPage,
+        inlineIndicators,
+    } = useAnnotationMarkerViewModel({
+        viewerContainer,
+        annotationCommentsCache,
+        activeCommentStableKey,
+        markerGeometryVersion,
+        labels: {
+            annotation: t('annotations.annotationLabel'),
+            note: t('annotations.stickyNoteLabel'),
+            moreNotes: count => t('annotations.moreNotes', { count }),
+        },
+    });
+
+    const commentSync = useAnnotationSync({
+        pdfDocument,
+        numPages,
+        currentPage,
+        annotationUiManager,
+        authorName,
+        getIdentity: () => identity,
+        getMarkupSubtype: () => toolState,
+        getStore: () => ({
+            setAnnotations: (comments) => {
+                const appliedComments = emitAnnotationComments(comments) ?? comments;
+                annotationCommentsCache.value = appliedComments;
+                return appliedComments;
+            },
+            setLinkAnnotations: (links) => {
+                linkAnnotations.value = links;
+            },
+            setActiveKey: (key) => {
+                activeCommentStableKey.value = key;
+            },
+        }),
+        syncInlineCommentIndicators: inlineIndicators.syncInlineCommentIndicators,
+    });
+
     const bridge = useAnnotationEditorBridge({
         viewerContainer,
         pdfDocument,
@@ -190,45 +229,6 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         getMarkupSubtypeHints: toolState.getMarkupSubtypeHints,
         ensureFreeTextEditorCanResize: freeTextResize.ensureFreeTextEditorCanResize,
     };
-
-    const commentSync = useAnnotationSync({
-        pdfDocument,
-        numPages,
-        currentPage,
-        annotationUiManager,
-        authorName,
-        getIdentity: () => identity,
-        getMarkupSubtype: () => toolState,
-        getStore: () => ({
-            setAnnotations: (comments) => {
-                const appliedComments = emitAnnotationComments(comments) ?? comments;
-                annotationCommentsCache.value = appliedComments;
-                return appliedComments;
-            },
-            setLinkAnnotations: (links) => {
-                linkAnnotations.value = links;
-            },
-            setActiveKey: (key) => {
-                activeCommentStableKey.value = key;
-            },
-        }),
-        syncInlineCommentIndicators: () => inlineIndicators.syncInlineCommentIndicators(),
-    });
-
-    const {
-        markersByPage,
-        inlineIndicators,
-    } = useAnnotationMarkerViewModel({
-        viewerContainer,
-        annotationCommentsCache,
-        activeCommentStableKey,
-        markerGeometryVersion,
-        labels: {
-            annotation: t('annotations.annotationLabel'),
-            note: t('annotations.stickyNoteLabel'),
-            moreNotes: count => t('annotations.moreNotes', { count }),
-        },
-    });
 
     const highlight = useAnnotationHighlight({
         viewerContainer,

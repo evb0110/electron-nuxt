@@ -36,6 +36,10 @@ import {
     type TCodexAssistantModelOption,
 } from '@electron/features/agent/assistantModelCatalog';
 import { createAssistantErrorEnvelope } from '@electron/features/agent/assistantErrorEnvelope';
+import {
+    getAssistantProviderLabel,
+    normalizeAssistantProviderId,
+} from '@electron/features/agent/assistantProviderRegistry';
 
 export interface IAssistantSelection {
     provider: TAgentAssistantProviderId;
@@ -56,10 +60,6 @@ interface IAssistantSelectionRequest {
     model?: string | null;
     effort?: TAgentAssistantEffort | null;
     speedMode?: TAgentAssistantSpeedMode | null;
-}
-
-function normalizeAssistantProvider(provider: unknown): TAgentAssistantProviderId {
-    return provider === 'claude' ? 'claude' : 'codex';
 }
 
 export function codexDefaultModelId(codexModels: readonly TCodexAssistantModelOption[]) {
@@ -185,7 +185,7 @@ export function resolveAssistantSelection(
         | IAssistantSelectionRequest
         | null,
 ): IAssistantSelection {
-    const provider = normalizeAssistantProvider(request?.provider);
+    const provider = normalizeAssistantProviderId(request?.provider);
     const model = normalizeAssistantModel(codexModels, provider, request?.model);
     return {
         provider,
@@ -213,7 +213,7 @@ export function buildCodexProviderStatus(options: {
     const availableSpeedModes = getProviderSpeedModes(options.models, 'codex', activeModel);
     return {
         id: 'codex',
-        label: 'Codex',
+        label: getAssistantProviderLabel('codex'),
         installState: supported ? (installed ? 'installed' : 'missing') : 'unsupported',
         authState: options.authState,
         runtimeState: options.runtimeState,
@@ -270,7 +270,7 @@ export function buildClaudeProviderStatus(options: {
     const availableSpeedModes = getProviderSpeedModes([], 'claude', activeModel);
     return {
         id: 'claude',
-        label: 'Claude',
+        label: getAssistantProviderLabel('claude'),
         installState: supported ? (installed ? 'installed' : 'missing') : 'unsupported',
         authState: installed && options.authState === 'unknown' ? 'signed-in' : options.authState,
         runtimeState: installed && options.runtimeState === 'stopped' ? 'ready' : options.runtimeState,

@@ -1,4 +1,4 @@
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type { TComputeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/computeSummaryStableKey';
 import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
 import type {
     IPdfTextPreviewItem,
@@ -33,17 +33,6 @@ export interface IPdfPageAnnotationBundle {
     textItems?: IPdfTextPreviewItem[] | undefined;
     textViewport?: IPdfTextPreviewViewport | null | undefined;
 }
-
-export interface IComputeSummaryStableKeyParams {
-    pageIndex: number;
-    id: string;
-    source: IAnnotationCommentSummary['source'];
-    uid?: string | null;
-    annotationId?: string | null;
-    annotationName?: string | null | undefined;
-}
-
-export type TComputeSummaryStableKey = (params: IComputeSummaryStableKeyParams) => string;
 
 export interface IPdfCommentSummaryDeps {
     computeStableKey: TComputeSummaryStableKey;

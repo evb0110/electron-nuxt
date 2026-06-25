@@ -32,6 +32,7 @@ import { usePdfCropSelection } from '@app/modules/pdf-viewer/runtime/composables
 import { usePdfImagePlacement } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfImagePlacement';
 import { usePdfRegionSnip } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSnip';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
+import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
 import { usePdfViewerSelectionToolState } from '@app/modules/pdf-viewer/tools/public';
 import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
 import { isStandaloneSpreadPage } from '@app/utils/pdfViewMode';
@@ -345,7 +346,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         runGuardedTask(
             () => reRenderAllVisiblePages(() => visibleRange.value, {
                 preserveExistingPages: true,
-                rerenderSource: 'dpr-change',
+                rerenderSource: PDF_RERENDER_SOURCE.DprChange,
                 renderBufferOverride: 0,
             }),
             {

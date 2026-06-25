@@ -22,8 +22,16 @@ const {
 const {
     checkArchitectureBoundaryEdge,
     checkArchitectureBoundaryNode,
+    checkArchitectureBoundarySource,
 } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/architecture/boundary-check.mjs')).href
+);
+const {
+    ANNOTATION_LATE_BOUND_EDGES,
+    checkAnnotationDependencyEdge,
+    checkAnnotationDependencyGraph,
+} = await import(
+    pathToFileURL(resolve(process.cwd(), 'scripts/architecture/annotation-dependency-graph.mjs')).href
 );
 
 describe('dependency graph', () => {
@@ -283,9 +291,217 @@ describe('dependency graph', () => {
         }]);
 
         expect(checkArchitectureBoundaryEdge({
+            source: 'app/platform/browserPlatformPathDescriptors.ts',
+            target: 'packages/contracts/platformApi.ts',
+            specifier: '@contracts/platformApi',
+        })).toEqual([]);
+
+        expect(checkArchitectureBoundaryEdge({
             source: 'app/utils/platform.ts',
             target: 'packages/contracts/platformApi.ts',
             specifier: '@contracts/platformApi',
         })).toEqual([]);
+    });
+
+    it('blocks PDF viewer engine imports back to runtime module layers', () => {
+        expect(checkArchitectureBoundaryEdge({
+            source: 'app/modules/pdf-viewer/engine/pdf-rerender-restoration/createPdfRerenderRestorationLogger.ts',
+            target: 'app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol.ts',
+            specifier: '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol',
+        })).toEqual([{
+            rule: 'pdf-viewer-engine-layer-back-edge',
+            source: 'app/modules/pdf-viewer/engine/pdf-rerender-restoration/createPdfRerenderRestorationLogger.ts',
+            target: 'app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol.ts',
+            specifier: '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol',
+            message: 'PDF viewer engine code must not import runtime, component, tool, or public module layers; move pure contracts/helpers into engine.',
+        }]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'app/modules/pdf-viewer/engine/pdf-search-match-scroller/createPdfSearchMatchScroller.ts',
+            target: 'app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses.ts',
+            specifier: '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses',
+        })).toEqual([]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol.ts',
+            target: 'app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocolTypes.ts',
+            specifier: '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocolTypes',
+        })).toEqual([]);
+    });
+
+    it('keeps current PDF viewer engine imports inside allowed module layers', async () => {
+        const graph = await buildDependencyGraph({
+            projectRoot: process.cwd(),
+            roots: ['app/modules/pdf-viewer'],
+        });
+
+        const engineLayerViolations = graph.edges
+            .flatMap(checkArchitectureBoundaryEdge)
+            .filter((violation: { rule: string }) => violation.rule === 'pdf-viewer-engine-layer-back-edge');
+
+        expect(engineLayerViolations).toEqual([]);
+    });
+
+    it('keeps legacy Electron feature re-export shims thin', () => {
+        expect(checkArchitectureBoundarySource(
+            'electron/djvu/convert.ts',
+            'export * from \'@electron/features/djvu/public\';\n',
+        )).toEqual([]);
+
+        expect(checkArchitectureBoundarySource(
+            'electron/search/protocol.ts',
+            'export type * from \'@electron/features/search/protocol\';\n',
+        )).toEqual([]);
+
+        expect(checkArchitectureBoundarySource(
+            'electron/djvu/convert.ts',
+            'import { convertDjvuToPdfFile } from \'@electron/features/djvu/public\';\nexport { convertDjvuToPdfFile };\n',
+        )).toEqual([{
+            rule: 'electron-legacy-feature-reexport-shim',
+            source: 'electron/djvu/convert.ts',
+            target: 'electron/djvu/convert.ts',
+            specifier: 'source',
+            message: 'Legacy Electron feature shims must stay one-line re-exports to their feature entrypoint.',
+        }]);
+
+        expect(checkArchitectureBoundarySource(
+            'electron/search/protocol.ts',
+            'export * from \'@electron/features/search/protocol\';\n',
+        )).toEqual([{
+            rule: 'electron-legacy-feature-reexport-shim',
+            source: 'electron/search/protocol.ts',
+            target: 'electron/search/protocol.ts',
+            specifier: 'source',
+            message: 'Legacy Electron feature shims must stay one-line re-exports to their feature entrypoint.',
+        }]);
+    });
+
+    it('blocks direct PDF.js annotationStorage dirty-state access outside the save bridge', () => {
+        expect(checkArchitectureBoundarySource(
+            'app/modules/workspace-shell/composables/useFileOperations.ts',
+            'pdfDocument.value?.annotationStorage?.resetModified();',
+        )).toEqual([{
+            rule: 'annotation-storage-private-access',
+            source: 'app/modules/workspace-shell/composables/useFileOperations.ts',
+            target: 'app/modules/workspace-shell/composables/useFileOperations.ts',
+            specifier: 'source',
+            message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
+        }]);
+
+        expect(checkArchitectureBoundarySource(
+            'app/modules/workspace-shell/composables/useFileOperations.ts',
+            'const storage = document.annotationStorage;\nreturn storage?.serializable;',
+        )).toEqual([{
+            rule: 'annotation-storage-private-access',
+            source: 'app/modules/workspace-shell/composables/useFileOperations.ts',
+            target: 'app/modules/workspace-shell/composables/useFileOperations.ts',
+            specifier: 'source',
+            message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
+        }]);
+
+        expect(checkArchitectureBoundarySource(
+            'app/modules/workspace-shell/composables/useFileOperations.ts',
+            'const annotationStorage = document.annotationStorage;\nreturn annotationStorage["modifiedIds"];',
+        )).toEqual([{
+            rule: 'annotation-storage-private-access',
+            source: 'app/modules/workspace-shell/composables/useFileOperations.ts',
+            target: 'app/modules/workspace-shell/composables/useFileOperations.ts',
+            specifier: 'source',
+            message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
+        }]);
+
+        expect(checkArchitectureBoundarySource(
+            'app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges.ts',
+            'const storage = document.annotationStorage;\nreturn storage?.serializable;',
+        )).toEqual([]);
+
+        expect(checkArchitectureBoundarySource(
+            'app/modules/pdf-viewer/runtime/annotations/useAnnotationEditorBridge.ts',
+            'annotationStorage.onSetModified = handler;',
+        )).toEqual([]);
+    });
+
+    it('keeps the annotation dependency graph explicit and acyclic', async () => {
+        const graph = await buildDependencyGraph({
+            projectRoot: process.cwd(),
+            roots: [
+                'app/modules/pdf-viewer/runtime/annotations',
+                'app/modules/pdf-viewer/annotations',
+                'app/modules/pdf-viewer/tools',
+                'app/modules/pdf-viewer/runtime/save',
+                'app/modules/pdf-viewer/engine/annotations',
+                'app/modules/pdf-viewer/engine/pdf-serialization-comments',
+                'app/modules/pdf-viewer/engine/pdf-serialization-operations',
+                'app/modules/pdf-viewer/engine/serialization',
+            ],
+        });
+        const result = checkAnnotationDependencyGraph(graph, { includeDirectEdgeViolations: true });
+
+        expect(ANNOTATION_LATE_BOUND_EDGES.length).toBeGreaterThan(0);
+        expect(result.violations).toEqual([]);
+        expect(result.cycles).toEqual([]);
+        expect(result.inventory.lateBoundEdges.length).toBe(ANNOTATION_LATE_BOUND_EDGES.length);
+    });
+
+    it('blocks new hidden annotation runtime/tool crossings', () => {
+        expect(checkAnnotationDependencyEdge({
+            source: 'app/modules/pdf-viewer/tools/usePdfShapeTool.ts',
+            target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
+            specifier: '@app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud',
+        })).toEqual([{
+            rule: 'annotation-tools-to-runtime',
+            source: 'app/modules/pdf-viewer/tools/usePdfShapeTool.ts',
+            target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
+            specifier: '@app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud',
+            message: 'PDF annotation tools must not import runtime annotation composables; share pure helpers through engine/types ports.',
+        }]);
+
+        expect(checkAnnotationDependencyEdge({
+            source: 'app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes.ts',
+            target: 'app/modules/pdf-viewer/tools/useAnnotationShapes.ts',
+            specifier: '@app/modules/pdf-viewer/tools/useAnnotationShapes',
+        })).toEqual([{
+            rule: 'annotation-runtime-to-tools',
+            source: 'app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes.ts',
+            target: 'app/modules/pdf-viewer/tools/useAnnotationShapes.ts',
+            specifier: '@app/modules/pdf-viewer/tools/useAnnotationShapes',
+            message: 'Runtime annotation composables may only compose tools through the explicit shape-tool boundary.',
+        }]);
+
+        expect(checkAnnotationDependencyEdge({
+            source: 'app/modules/workspace-shell/composables/useFileOperations.ts',
+            target: 'app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan.ts',
+            specifier: '@app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan',
+        })).toEqual([{
+            rule: 'annotation-save-public-entrypoint',
+            source: 'app/modules/workspace-shell/composables/useFileOperations.ts',
+            target: 'app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan.ts',
+            specifier: '@app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan',
+            message: 'Annotation save internals must be consumed through app/modules/pdf-viewer/public.',
+        }]);
+    });
+
+    it('reports annotation cycle paths for negative fixtures', () => {
+        const fixtureGraph = { edges: [
+            {
+                source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
+                target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
+                specifier: 'fixture-crud-to-highlight',
+            },
+            {
+                source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
+                target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
+                specifier: 'fixture-highlight-to-crud',
+            },
+        ] };
+        const result = checkAnnotationDependencyGraph(fixtureGraph, { includeKnownLateBoundEdges: false });
+
+        expect(result.violations).toEqual([{
+            rule: 'annotation-dependency-cycle',
+            source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
+            target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
+            specifier: 'direct import / late-bound annotation dependency graph',
+            message: 'Disallowed annotation dependency cycle: app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts -> app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts -> app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
+        }]);
     });
 });

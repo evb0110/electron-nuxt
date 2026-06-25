@@ -373,6 +373,101 @@ describe('useFileOperations', () => {
         expect(deps.isSaving.value).toBe(false);
     });
 
+    it('skips serialized persistence when the working copy target changes after source bytes are prepared', async () => {
+        const sourceBytes = createDeferred<Uint8Array | null>();
+        const pendingTexts = new Map<string, string>();
+        pendingTexts.set('ann:0:3856R', 'Updated note');
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            getSourcePdfData: vi.fn(() => sourceBytes.promise),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const savePromise = handleSave();
+
+        await vi.waitFor(() => {
+            expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        });
+        deps.workingCopyPath.value = '/tmp/other-work.pdf';
+        sourceBytes.resolve(new Uint8Array([1]));
+
+        await expect(savePromise).resolves.toBe(false);
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(deps.saveFile).not.toHaveBeenCalled();
+        expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
+        expect(deps.restorePendingEmbeddedTextUpdates).toHaveBeenCalledWith(pendingTexts);
+        expectWorkspaceSaveNotMarked(deps);
+        expect(deps.isSaving.value).toBe(false);
+    });
+
+    it('cancels post-save reload when stale target protection skips serialized persistence', async () => {
+        const sourceBytes = createDeferred<Uint8Array | null>();
+        const deferredReload = createDeferred<undefined>();
+        const cancel = vi.fn();
+        const { deps } = createDeps({
+            pageLabelsDirty: ref(true),
+            getSourcePdfData: vi.fn(() => sourceBytes.promise),
+            preparePostSaveReload: () => ({
+                promise: deferredReload.promise,
+                cancel,
+            }),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const savePromise = handleSave();
+
+        await vi.waitFor(() => {
+            expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        });
+        deps.workingCopyPath.value = '/tmp/other-work.pdf';
+        sourceBytes.resolve(new Uint8Array([1]));
+
+        await expect(savePromise).resolves.toBe(false);
+        expect(cancel).toHaveBeenCalledOnce();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(deps.saveFile).not.toHaveBeenCalled();
+        expect(deps.clearPendingPersistedShapeStateForNextReload).toHaveBeenCalledOnce();
+        expectWorkspaceSaveNotMarked(deps);
+        expect(deps.isSaving.value).toBe(false);
+    });
+
+    it('skips native mutation persistence when the working copy target changes before the native write', async () => {
+        const notePersistence = createDeferred<boolean>();
+        const pendingTexts = new Map<string, string>();
+        pendingTexts.set('ann:0:3856R', 'Updated note');
+        const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([createPdfNoteComment()]),
+            annotationNoteWindowsCount: ref(1),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            persistAllAnnotationNotes: vi.fn(() => notePersistence.promise),
+            trySaveEmbeddedNoteTextUpdates,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const savePromise = handleSave();
+        await Promise.resolve();
+
+        expect(deps.persistAllAnnotationNotes).toHaveBeenCalledWith(true);
+        deps.workingCopyPath.value = '/tmp/other-work.pdf';
+        notePersistence.resolve(true);
+
+        await expect(savePromise).resolves.toBe(false);
+        expect(trySaveEmbeddedNoteTextUpdates).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(deps.saveFile).not.toHaveBeenCalled();
+        expect(deps.restorePendingEmbeddedTextUpdates).toHaveBeenCalledWith(pendingTexts);
+        expectWorkspaceSaveNotMarked(deps);
+        expect(deps.isSaving.value).toBe(false);
+    });
+
     it('waits for the document operation lease before saving the working copy', async () => {
         const leaseRelease = createDeferred<undefined>();
         const runWithDocumentOperationLease = vi.fn(async (_kind: 'save', operation: () => Promise<boolean>) => {
@@ -675,6 +770,27 @@ describe('useFileOperations', () => {
 
         expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
         expect(clearAnnotationHistory).not.toHaveBeenCalled();
+    });
+
+    it('saves clean Save As from the working copy without serialization', async () => {
+        const {
+            deps,
+            saveWorkingCopyAs,
+        } = createDeps();
+        const { handleSaveAs } = useFileOperations(deps);
+
+        await handleSaveAs();
+
+        expect(deps.validatePdfPath).toHaveBeenCalledOnce();
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveWorkingCopyAs).toHaveBeenCalledWith(undefined, {
+            saveMode: 'save_as_rewrite',
+            expectedWorkingPath: '/tmp/work.pdf',
+            optimizeLossless: false,
+        });
+        expectWorkspaceSaveMarked(deps);
     });
 
     it('serializes on save-as and refreshes recent files when path is returned', async () => {

@@ -237,4 +237,54 @@ describe('native PDF mutation contracts', () => {
             sha256: 'not-a-digest',
         }, 'expectedBase')).toThrow('SHA-256 hex digest');
     });
+
+    it('accepts native mutation bounds that exactly touch normalized page edges', () => {
+        const normalized = normalizePdfNativeMutationSet({
+            freeTextNotes: [{
+                ...validFreeTextNote,
+                markerRect: {
+                    left: 0.5,
+                    top: 0.25,
+                    width: 0.5,
+                    height: 0.75,
+                },
+            }],
+            placedImages: [{
+                ...validImage,
+                x: 0.75,
+                y: 0.5,
+                width: 0.25,
+                height: 0.5,
+            }],
+        }, 'mutations');
+
+        expect(normalized.freeTextNotes?.[0]?.markerRect).toEqual({
+            left: 0.5,
+            top: 0.25,
+            width: 0.5,
+            height: 0.75,
+        });
+        expect(normalized.placedImages?.[0]).toMatchObject({
+            x: 0.75,
+            y: 0.5,
+            width: 0.25,
+            height: 0.5,
+        });
+    });
+
+    it('rejects zero-sized and overflowing normalized page bounds', () => {
+        expect(() => normalizePdfNativeMutationSet({freeTextNotes: [{
+            ...validFreeTextNote,
+            markerRect: {
+                ...validFreeTextNote.markerRect,
+                width: 0,
+            },
+        }]}, 'mutations')).toThrow('must fit inside the normalized page bounds');
+
+        expect(() => normalizePdfNativeMutationSet({placedImages: [{
+            ...validImage,
+            x: 0.75,
+            width: 0.26,
+        }]}, 'mutations')).toThrow('must fit inside the normalized page bounds');
+    });
 });

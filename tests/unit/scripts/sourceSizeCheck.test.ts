@@ -59,7 +59,7 @@ describe('source-size architecture check', () => {
         });
     });
 
-    it('allows budgeted files at budget and fails growth beyond budget', () => {
+    it('allows budgeted files at budget and fails growth or stale slack', () => {
         const allowlist = {'app/modules/example/known.ts': {
             maxLines: 5,
             reason: 'known hotspot',
@@ -72,6 +72,17 @@ describe('source-size architecture check', () => {
             threshold: 3,
             allowlist,
         })).toBeNull();
+        expect(checkSourceFileSize({
+            filePath: 'app/modules/example/known.ts',
+            lineCount: 4,
+            threshold: 3,
+            allowlist,
+        })).toMatchObject({
+            rule: 'source-size-allowlist-budget-slack',
+            file: 'app/modules/example/known.ts',
+            lineCount: 4,
+            maxLines: 5,
+        });
         expect(checkSourceFileSize({
             filePath: 'app/modules/example/known.ts',
             lineCount: 6,

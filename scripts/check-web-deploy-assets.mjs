@@ -4,37 +4,10 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { REQUIRED_WEB_WASM_ASSETS } from './wasm-artifacts.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-
-export const REQUIRED_WEB_WASM_ASSETS = [
-    {
-        relativePath: 'wasm/evb-pdf-image-combine.wasm',
-        requiredExports: [
-            'memory',
-            'evb_pdf_image_combine_alloc',
-            'evb_pdf_image_combine_free',
-            'evb_pdf_image_combine_build_pdf',
-            'evb_pdf_image_combine_output_ptr',
-            'evb_pdf_image_combine_output_len',
-            'evb_pdf_image_combine_error_ptr',
-            'evb_pdf_image_combine_error_len',
-        ],
-    },
-    {
-        relativePath: 'wasm/evb-pdf-page-ops.wasm',
-        requiredExports: [
-            'memory',
-            'evb_pdf_page_ops_alloc',
-            'evb_pdf_page_ops_free',
-            'evb_pdf_page_ops_run',
-            'evb_pdf_page_ops_output_ptr',
-            'evb_pdf_page_ops_output_len',
-            'evb_pdf_page_ops_error_ptr',
-            'evb_pdf_page_ops_error_len',
-        ],
-    },
-];
+export { REQUIRED_WEB_WASM_ASSETS };
 
 function isVercelBuildOutputEnv(env = process.env) {
     return env.VERCEL === '1' || env.NOW_BUILDER === '1';

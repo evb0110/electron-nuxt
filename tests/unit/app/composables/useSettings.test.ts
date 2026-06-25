@@ -10,7 +10,7 @@ import type { ISettingsData } from '@contracts/shared';
 import { installNuxtStateTestStubs } from '@tests/unit/app/composables/installNuxtStateTestStubs';
 
 const mockGet = vi.fn<() => Promise<ISettingsData>>();
-const mockSave = vi.fn<(settings: ISettingsData) => Promise<void>>();
+const mockSave = vi.fn<(settings: Partial<ISettingsData>) => Promise<void>>();
 const cookieStore = new Map<string, Ref<unknown>>();
 const stateStore = new Map<string, Ref<unknown>>();
 const mockPlatformApi = { settings: {
@@ -23,6 +23,20 @@ vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => mockPlatformApi })
 function installNuxtStateStubs() {
     installNuxtStateTestStubs(cookieStore, stateStore);
     vi.stubGlobal('toRaw', <T>(value: T) => value);
+}
+
+function createDeferred() {
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<void>((promiseResolve, promiseReject) => {
+        resolve = promiseResolve;
+        reject = promiseReject;
+    });
+    return {
+        promise,
+        resolve,
+        reject,
+    };
 }
 
 describe('useSettings', () => {
@@ -146,5 +160,34 @@ describe('useSettings', () => {
         expect(mockSave).toHaveBeenCalledTimes(2);
         expect(mockSave).toHaveBeenLastCalledWith(expect.objectContaining({ locale: 'de' }));
         vi.useRealTimers();
+    });
+
+    it('shares one in-flight save queue across settings composable callers', async () => {
+        const firstSave = createDeferred();
+        mockSave
+            .mockImplementationOnce(() => firstSave.promise)
+            .mockResolvedValue(undefined);
+
+        const { useSettings } = await import('@app/composables/useSettings');
+        const firstSettings = useSettings();
+        const secondSettings = useSettings();
+
+        firstSettings.settings.value.locale = 'fr';
+        const firstSavePromise = firstSettings.save();
+        await vi.waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1));
+
+        secondSettings.settings.value.theme = 'dark';
+        const secondSavePromise = secondSettings.save();
+
+        expect(mockSave).toHaveBeenCalledTimes(1);
+
+        firstSave.resolve();
+        await Promise.all([
+            firstSavePromise,
+            secondSavePromise,
+        ]);
+
+        expect(mockSave).toHaveBeenCalledTimes(2);
+        expect(mockSave).toHaveBeenNthCalledWith(2, { theme: 'dark' });
     });
 });

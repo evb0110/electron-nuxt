@@ -12,7 +12,10 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
-import { useManagedEmbeddedPdfShapes } from '@app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes';
+import {
+    type IManagedEmbeddedPdfShapeStore,
+    useManagedEmbeddedPdfShapes,
+} from '@app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes';
 
 vi.mock('@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations', async (importOriginal) => {
     const actual = await importOriginal<{importEmbeddedShapeAnnotations: typeof importEmbeddedShapeAnnotations;}>();
@@ -162,9 +165,32 @@ function createEmbeddedInkShape(overrides: Partial<IShapeAnnotation>): IShapeAnn
     };
 }
 
+function createManagedShapeStorePort(overrides: Partial<IManagedEmbeddedPdfShapeStore> = {}): IManagedEmbeddedPdfShapeStore {
+    return {
+        hasShapes: ref(false),
+        deletedEmbeddedAnnotationIds: ref(new Set<string>()),
+        getAllShapes: () => [],
+        getDeletedEmbeddedAnnotationIds: () => [],
+        getDeletedEmbeddedShapeStableKeys: () => [],
+        replaceShapes: vi.fn(),
+        reconcilePersistedShapes: vi.fn(),
+        primePersistedShapes: vi.fn(),
+        adoptPersistedShapeMetadata: vi.fn(),
+        captureShapeStateSnapshot: () => ({
+            shapes: [],
+            deletedAnnotationIds: [],
+            deletedStableKeys: [],
+            baselineSignature: '[]',
+            selectedShapeId: null,
+        }),
+        restoreShapeStateSnapshot: vi.fn(),
+        ...overrides,
+    };
+}
+
 describe('useManagedEmbeddedPdfShapes', () => {
     it('adopts same-source saved shape metadata without rerendering the visible canvas', async () => {
-        const shapeComposable = useAnnotationShapes();
+        const shapeComposable = useAnnotationShapes() satisfies IManagedEmbeddedPdfShapeStore;
         const importEmbeddedShapesMock = vi.mocked(importEmbeddedShapeAnnotations);
         importEmbeddedShapesMock.mockReset();
         importEmbeddedShapesMock
@@ -276,7 +302,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
                 end: 1,
             }),
             bufferPages: ref(0),
-            shapeComposable: useAnnotationShapes(),
+            shapeComposable: createManagedShapeStorePort(),
             suppressCommentAnnotationId: vi.fn(),
             logger: {
                 debug: vi.fn(),

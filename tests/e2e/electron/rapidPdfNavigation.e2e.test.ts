@@ -14,8 +14,8 @@ import {
 import { delay } from 'es-toolkit/promise';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
+    createMultiPageTextFixturePdf,
     resolvePathFixtureAvailability,
-    selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
@@ -24,10 +24,8 @@ import { callWorkspaceCommand } from '@tests/e2e/electron/helpers/workspaceExpos
 import type { IPdfRenderTraceEntry } from '@app/utils/pdfRenderTrace';
 
 const PAGE_JUMP_PDF_ENV_VAR = 'EVB_E2E_PAGE_JUMP_PDF_PATH';
-const PAGE_JUMP_REQUIRE_ENV_VAR = 'EVB_E2E_REQUIRE_PAGE_JUMP_FIXTURE';
-const PAGE_JUMP_PDF_PATH = process.env[PAGE_JUMP_PDF_ENV_VAR]?.length
-    ? process.env[PAGE_JUMP_PDF_ENV_VAR]
-    : resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'page-jump-source.pdf');
+const PAGE_JUMP_PDF_OVERRIDE = process.env[PAGE_JUMP_PDF_ENV_VAR]?.trim() ?? null;
+const GENERATED_PAGE_JUMP_PAGE_COUNT = 120;
 const TARGET_PAGE = 100;
 const TRACE_OUTPUT_PATH = resolve(
     process.cwd(),
@@ -44,13 +42,6 @@ const RAPID_NEXT_TRACE_OUTPUT_PATH = resolve(
     '.devkit',
     'pdf-rapid-next-to-21-trace.json',
 );
-const pageJumpFixture = resolvePathFixtureAvailability({
-    path: PAGE_JUMP_PDF_PATH,
-    label: 'page-jump PDF',
-    requiredEnvVar: PAGE_JUMP_REQUIRE_ENV_VAR,
-});
-const pageJumpDescribe = selectFixtureDescribe(describe, pageJumpFixture);
-
 interface IVisiblePageState {
     page: number | null;
     renderedClass: boolean;
@@ -76,6 +67,25 @@ interface IPageButtonState {
 function writeTraceArtifact(payload: unknown, outputPath = TRACE_OUTPUT_PATH) {
     mkdirSync(dirname(outputPath), { recursive: true });
     writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`);
+}
+
+async function resolvePageJumpPdfPath() {
+    if (PAGE_JUMP_PDF_OVERRIDE) {
+        const override = resolvePathFixtureAvailability({
+            path: PAGE_JUMP_PDF_OVERRIDE,
+            label: 'page-jump PDF override',
+            requiredEnvVar: PAGE_JUMP_PDF_ENV_VAR,
+        });
+        if (!override.path) {
+            throw new Error(override.reason);
+        }
+        return override.path;
+    }
+
+    return createMultiPageTextFixturePdf(
+        `page-jump-source-${Date.now()}.pdf`,
+        GENERATED_PAGE_JUMP_PAGE_COUNT,
+    );
 }
 
 async function enableBufferedPdfTrace(session: IElectronE2ESession) {
@@ -320,7 +330,8 @@ async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumb
     await delay(1_000);
 }
 
-pageJumpDescribe('Electron E2E - PDF Page Jump Rendering', () => {
+describe('Electron E2E - PDF Page Jump Rendering', () => {
+    let pageJumpPdfPath: string | null = null;
     let pageJumpReady = false;
 
     const sessionFixture = createElectronE2ESessionFixture({
@@ -334,14 +345,15 @@ pageJumpDescribe('Electron E2E - PDF Page Jump Rendering', () => {
             return;
         }
 
+        pageJumpPdfPath = await resolvePageJumpPdfPath();
         await enableBufferedPdfTrace(session);
-        await openPdfInApp(session.page, PAGE_JUMP_PDF_PATH, 45_000);
+        await openPdfInApp(session.page, pageJumpPdfPath, 45_000);
         pageJumpReady = true;
     }, 90_000);
 
     it('renders page 7 after toolbar next navigation to page 10 and previous navigation back', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pageJumpReady) {
+        if (!session || !pageJumpReady || !pageJumpPdfPath) {
             return;
         }
 
@@ -381,7 +393,7 @@ pageJumpDescribe('Electron E2E - PDF Page Jump Rendering', () => {
             const blankVisiblePages = visiblePages.filter(page => !page.hasCanvas || !page.renderedClass);
             const targetPageState = visiblePages.find(page => page.page === 7) ?? null;
             writeTraceArtifact({
-                pdfPath: PAGE_JUMP_PDF_PATH,
+                pdfPath: pageJumpPdfPath,
                 scenario: 'toolbar-next-to-10-prev-to-7',
                 navigationControls,
                 visiblePages,
@@ -402,7 +414,7 @@ pageJumpDescribe('Electron E2E - PDF Page Jump Rendering', () => {
 
     it('renders the final page after twenty rapid next-page clicks', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pageJumpReady) {
+        if (!session || !pageJumpReady || !pageJumpPdfPath) {
             return;
         }
 
@@ -421,7 +433,7 @@ pageJumpDescribe('Electron E2E - PDF Page Jump Rendering', () => {
         const blankVisiblePages = visiblePages.filter(page => !page.hasCanvas || !page.renderedClass);
         const targetPageState = visiblePages.find(page => page.page === 21) ?? null;
         writeTraceArtifact({
-            pdfPath: PAGE_JUMP_PDF_PATH,
+            pdfPath: pageJumpPdfPath,
             scenario: 'toolbar-rapid-next-to-21',
             navigationControls,
             visiblePages,
@@ -438,7 +450,7 @@ pageJumpDescribe('Electron E2E - PDF Page Jump Rendering', () => {
 
     it('keeps page overlays mounted after jumping to page 100', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pageJumpReady) {
+        if (!session || !pageJumpReady || !pageJumpPdfPath) {
             return;
         }
 
@@ -452,7 +464,7 @@ pageJumpDescribe('Electron E2E - PDF Page Jump Rendering', () => {
         const blankVisiblePages = visiblePages.filter(page => !page.hasCanvas || !page.renderedClass);
         const targetPageState = visiblePages.find(page => page.page === TARGET_PAGE) ?? null;
         writeTraceArtifact({
-            pdfPath: PAGE_JUMP_PDF_PATH,
+            pdfPath: pageJumpPdfPath,
             targetPage: TARGET_PAGE,
             navigationControls,
             visiblePages,

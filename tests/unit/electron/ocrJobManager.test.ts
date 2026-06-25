@@ -818,6 +818,155 @@ describe('ocr job manager preparing-stage robustness', () => {
         })]);
     });
 
+    it('denies resource acquires after a terminal result has been sent', async () => {
+        mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
+
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+
+        await expect(handleOcrCreateSearchablePdfAsync(
+            createEvent(180) as never,
+            '/tmp/work-180.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-180',
+        )).resolves.toMatchObject({
+            started: true,
+            jobId: 'job-180',
+        });
+
+        const worker = mocks.workerInstances[0];
+        expect(worker).toBeDefined();
+        if (!worker) {
+            throw new Error('Expected OCR worker to be created');
+        }
+
+        worker.emit('message', {
+            type: 'complete',
+            jobId: 'job-180',
+            result: {
+                success: true,
+                pdfPath: '/tmp/work-180-ocr.pdf',
+                requiresCleanupAck: true,
+                errors: [],
+            },
+        });
+
+        worker.emit('message', {
+            type: 'resource-acquire',
+            jobId: 'job-180',
+            requestId: 'page-after-terminal',
+            pageNumber: 1,
+            requestedDpi: 300,
+        });
+
+        expect(getResourceAcquiredMessages(worker)).toEqual([]);
+        expect(getResourceDeniedMessages(worker)).toEqual([expect.objectContaining({ requestId: 'page-after-terminal' })]);
+    });
+
+    it('accepts owned resource releases while an active cancellation is terminating', async () => {
+        vi.stubEnv('OCR_GLOBAL_PAGE_SLOTS', '1');
+        mocks.ensureTessdataLanguages.mockResolvedValue(undefined);
+
+        const {
+            handleOcrCancel,
+            handleOcrCreateSearchablePdfAsync,
+        } = await import('@electron/ocr/jobManager');
+
+        const firstEvent = createEvent(181);
+        await expect(handleOcrCreateSearchablePdfAsync(
+            firstEvent as never,
+            '/tmp/work-181.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-181',
+        )).resolves.toMatchObject({
+            started: true,
+            jobId: 'job-181',
+        });
+
+        const firstWorker = mocks.workerInstances[0];
+        expect(firstWorker).toBeDefined();
+        if (!firstWorker) {
+            throw new Error('Expected first OCR worker to be created');
+        }
+
+        firstWorker.emit('message', {
+            type: 'resource-acquire',
+            jobId: 'job-181',
+            requestId: 'page-1',
+            pageNumber: 1,
+            requestedDpi: 300,
+        });
+        await vi.waitFor(() => {
+            expect(getResourceAcquiredMessages(firstWorker)).toEqual([expect.objectContaining({ requestId: 'page-1' })]);
+        });
+        const firstLeaseMessage = firstWorker.postMessage.mock.calls
+            .map(([message]) => message)
+            .find(message =>
+                typeof message === 'object'
+                && message !== null
+                && 'type' in message
+                && message.type === 'resource-acquired'
+                && 'token' in message
+                && typeof message.token === 'string');
+        if (
+            typeof firstLeaseMessage !== 'object'
+            || firstLeaseMessage === null
+            || !('token' in firstLeaseMessage)
+            || typeof firstLeaseMessage.token !== 'string'
+        ) {
+            throw new Error('Expected first OCR worker to receive a resource lease token');
+        }
+
+        let resolveTerminate!: () => void;
+        firstWorker.terminate.mockImplementationOnce(() => new Promise<number>((resolve) => {
+            resolveTerminate = () => resolve(0);
+        }));
+
+        expect(handleOcrCancel(firstEvent as never, 'job-181')).toEqual({ canceled: true });
+        firstWorker.emit('message', {
+            type: 'resource-release',
+            jobId: 'job-181',
+            token: firstLeaseMessage.token,
+        });
+
+        await expect(handleOcrCreateSearchablePdfAsync(
+            createEvent(182) as never,
+            '/tmp/work-182.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-182',
+        )).resolves.toMatchObject({
+            started: true,
+            jobId: 'job-182',
+        });
+
+        const secondWorker = mocks.workerInstances[1];
+        expect(secondWorker).toBeDefined();
+        if (!secondWorker) {
+            throw new Error('Expected second OCR worker to be created');
+        }
+
+        secondWorker.emit('message', {
+            type: 'resource-acquire',
+            jobId: 'job-182',
+            requestId: 'page-1',
+            pageNumber: 1,
+            requestedDpi: 300,
+        });
+        await vi.waitFor(() => {
+            expect(getResourceAcquiredMessages(secondWorker)).toEqual([expect.objectContaining({ requestId: 'page-1' })]);
+        });
+
+        resolveTerminate();
+    });
+
     it('keeps a delivered successful result file when canceled before worker cleanup completes', async () => {
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 

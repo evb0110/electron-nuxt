@@ -3,7 +3,14 @@ import {
     expect,
     it,
 } from 'vitest';
+import { readFileSync } from 'fs';
 import {
+    buildPdfSearchExcerpt,
+    findPdfSearchMatches,
+} from '@contracts/search';
+import { EXCERPT_CONTEXT_CHARS } from '@electron/config/constants';
+import {
+    buildExcerpt,
     findPageMatches,
     iteratePageMatches,
 } from '@electron/search/worker/searchMatch';
@@ -13,6 +20,28 @@ const DEFAULT_OPTIONS = {
     wholeWord: false,
     useRegex: false,
 };
+
+interface ISearchConformanceCase {
+    id: string;
+    text: string;
+    query: string;
+    options?: {
+        matchCase?: boolean;
+        wholeWord?: boolean;
+        useRegex?: boolean;
+    };
+    expectedMatches: Array<{
+        startOffset: number;
+        endOffset: number;
+    }>;
+}
+
+interface ISearchConformanceCorpus {cases: ISearchConformanceCase[];}
+
+const searchConformanceCorpus = JSON.parse(readFileSync(
+    new URL('../../../packages/contracts/searchConformanceCorpus.json', import.meta.url),
+    'utf8',
+)) as ISearchConformanceCorpus;
 
 describe('search worker page match iteration', () => {
     it('keeps array match results compatible with streaming matches', () => {
@@ -84,5 +113,31 @@ describe('search worker page match iteration', () => {
             wholeWord: false,
             useRegex: true,
         })).toThrow('pattern is too complex for document search');
+    });
+
+    it.each(searchConformanceCorpus.cases)('matches the shared conformance corpus case $id', (fixture) => {
+        const options = {
+            matchCase: Boolean(fixture.options?.matchCase),
+            wholeWord: Boolean(fixture.options?.wholeWord),
+            useRegex: Boolean(fixture.options?.useRegex),
+        };
+
+        expect(findPageMatches(fixture.text, fixture.query, options)).toEqual(fixture.expectedMatches.map((match) => ({
+            startOffset: match.startOffset,
+            endOffset: match.endOffset,
+        })));
+        expect(findPageMatches(fixture.text, fixture.query, options)).toEqual(
+            findPdfSearchMatches(fixture.text, fixture.query, options),
+        );
+    });
+
+    it('delegates excerpt construction to the contract helper', () => {
+        const text = 'alpha \n beta target gamma \t delta';
+        const startOffset = 13;
+        const endOffset = 19;
+
+        expect(buildExcerpt(text, startOffset, endOffset)).toEqual(
+            buildPdfSearchExcerpt(text, startOffset, endOffset, EXCERPT_CONTEXT_CHARS),
+        );
     });
 });

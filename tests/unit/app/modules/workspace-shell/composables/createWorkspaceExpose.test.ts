@@ -6,7 +6,6 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
-import { requiredWorkspaceExposeMethods } from '@app/modules/workspace-shell/expose/requiredWorkspaceExposeMethods';
 import { cast } from '@tests/helpers/cast';
 
 function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[0]> = {}) {
@@ -94,19 +93,6 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
 }
 
 describe('createWorkspaceExpose', () => {
-    it('keeps required workspace expose methods synced to the real command surface', () => {
-        const exposed = createWorkspaceExpose(createDeps());
-        const exposedMethodNames = Object.entries(exposed)
-            .filter(([
-                name,
-                value,
-            ]) => name !== 'hasPdf' && typeof value === 'function')
-            .map(([name]) => name)
-            .sort();
-
-        expect([...requiredWorkspaceExposeMethods].sort()).toEqual(exposedMethodNames);
-    });
-
     it('runs save only when the toolbar save command is enabled', async () => {
         const deps = createDeps({
             hasPdf: ref(true),

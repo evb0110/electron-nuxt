@@ -1,0 +1,130 @@
+import { sanitizeSettings } from '@contracts/settings';
+import type { ISettingsData } from '@contracts/shared';
+
+const SETTINGS_SAVE_RETRY_INITIAL_DELAY_MS = 1_000;
+const SETTINGS_SAVE_RETRY_MAX_DELAY_MS = 30_000;
+
+type TSettingsSaveTimer = ReturnType<typeof setTimeout>;
+
+export interface ISettingsPersistenceScheduler {
+    setTimeout: (callback: () => void, delayMs: number) => TSettingsSaveTimer;
+    clearTimeout: (timer: TSettingsSaveTimer) => void;
+}
+
+export interface ISettingsPersistenceQueueOptions {
+    getSettingsSnapshot: () => unknown;
+    getLastSavedSettings: () => ISettingsData | null;
+    savePatch: (patch: Partial<ISettingsData>) => Promise<void>;
+    onSaved: (settings: ISettingsData) => void;
+    onSaveError: (error: unknown) => void;
+    scheduler?: ISettingsPersistenceScheduler;
+    retryInitialDelayMs?: number;
+    retryMaxDelayMs?: number;
+}
+
+export interface ISettingsPersistenceQueue {
+    save: () => Promise<void>;
+    clearRetryTimer: () => void;
+    hasRetryScheduled: () => boolean;
+}
+
+const DEFAULT_SETTINGS_PERSISTENCE_SCHEDULER: ISettingsPersistenceScheduler = {
+    setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+    clearTimeout: timer => clearTimeout(timer),
+};
+
+export function buildSettingsPatch(
+    previousSettings: ISettingsData | null,
+    nextSettings: ISettingsData,
+) {
+    if (!previousSettings) {
+        return nextSettings;
+    }
+
+    const baseSettings = previousSettings;
+    const patch: Partial<ISettingsData> = {};
+    function assignChangedSetting<TKey extends keyof ISettingsData>(key: TKey) {
+        if (nextSettings[key] !== baseSettings[key]) {
+            patch[key] = nextSettings[key];
+        }
+    }
+
+    for (const key of Object.keys(nextSettings) as Array<keyof ISettingsData>) {
+        assignChangedSetting(key);
+    }
+    return patch;
+}
+
+export function createSettingsPersistenceQueue(
+    options: ISettingsPersistenceQueueOptions,
+): ISettingsPersistenceQueue {
+    const scheduler = options.scheduler ?? DEFAULT_SETTINGS_PERSISTENCE_SCHEDULER;
+    const retryInitialDelayMs = options.retryInitialDelayMs ?? SETTINGS_SAVE_RETRY_INITIAL_DELAY_MS;
+    const retryMaxDelayMs = options.retryMaxDelayMs ?? SETTINGS_SAVE_RETRY_MAX_DELAY_MS;
+    let saveInFlight: Promise<void> | null = null;
+    let saveDirty = false;
+    let saveRetryTimer: TSettingsSaveTimer | null = null;
+    let saveRetryDelayMs = retryInitialDelayMs;
+
+    function clearRetryTimer() {
+        if (!saveRetryTimer) {
+            return;
+        }
+        scheduler.clearTimeout(saveRetryTimer);
+        saveRetryTimer = null;
+    }
+
+    function scheduleSaveRetry() {
+        if (saveRetryTimer) {
+            return;
+        }
+        saveRetryTimer = scheduler.setTimeout(() => {
+            saveRetryTimer = null;
+            void save();
+        }, saveRetryDelayMs);
+        saveRetryDelayMs = Math.min(saveRetryDelayMs * 2, retryMaxDelayMs);
+    }
+
+    async function runSaveQueue() {
+        while (true) {
+            saveDirty = false;
+            const payload = sanitizeSettings(options.getSettingsSnapshot());
+            const patch = buildSettingsPatch(options.getLastSavedSettings(), payload);
+            try {
+                if (Object.keys(patch).length > 0) {
+                    await options.savePatch(patch);
+                }
+                options.onSaved(payload);
+                saveRetryDelayMs = retryInitialDelayMs;
+            } catch (error) {
+                options.onSaveError(error);
+                saveDirty = true;
+                scheduleSaveRetry();
+                return;
+            }
+
+            if (!saveDirty) {
+                return;
+            }
+        }
+    }
+
+    async function save() {
+        if (saveInFlight) {
+            saveDirty = true;
+            return saveInFlight;
+        }
+
+        clearRetryTimer();
+        saveInFlight = runSaveQueue().finally(() => {
+            saveInFlight = null;
+        });
+        return saveInFlight;
+    }
+
+    return {
+        save,
+        clearRetryTimer,
+        hasRetryScheduled: () => saveRetryTimer !== null,
+    };
+}

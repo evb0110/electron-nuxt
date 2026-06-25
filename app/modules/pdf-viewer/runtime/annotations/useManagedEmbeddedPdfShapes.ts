@@ -8,7 +8,6 @@ import { syncHiddenEmbeddedAnnotationDom as syncHiddenEmbeddedAnnotationDomForCo
 import { resolveEmbeddedShapeImportLoadPolicy } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-import-policy/resolveEmbeddedShapeImportLoadPolicy';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
-import type { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
@@ -28,6 +27,28 @@ interface IManagedEmbeddedPdfShapesRenderOptions {
     bufferOverride?: number;
 }
 
+export interface IManagedEmbeddedPdfShapeStateSnapshot {
+    shapes: IShapeAnnotation[];
+    deletedAnnotationIds: string[];
+    deletedStableKeys: string[];
+    baselineSignature: string;
+    selectedShapeId: string | null;
+}
+
+export interface IManagedEmbeddedPdfShapeStore {
+    hasShapes: { readonly value: boolean };
+    deletedEmbeddedAnnotationIds: { readonly value: Set<string> };
+    getAllShapes: () => IShapeAnnotation[];
+    getDeletedEmbeddedAnnotationIds: () => string[];
+    getDeletedEmbeddedShapeStableKeys: () => string[];
+    replaceShapes: (shapes: IShapeAnnotation[]) => void;
+    reconcilePersistedShapes: (shapes: IShapeAnnotation[]) => void;
+    primePersistedShapes: (shapes: IShapeAnnotation[]) => void;
+    adoptPersistedShapeMetadata: (shapes: IShapeAnnotation[]) => void;
+    captureShapeStateSnapshot: () => IManagedEmbeddedPdfShapeStateSnapshot;
+    restoreShapeStateSnapshot: (snapshot: IManagedEmbeddedPdfShapeStateSnapshot) => void;
+}
+
 interface IUseManagedEmbeddedPdfShapesOptions {
     viewerContainer: Ref<HTMLElement | null>;
     workingCopyPath: Ref<string | null>;
@@ -35,7 +56,7 @@ interface IUseManagedEmbeddedPdfShapesOptions {
     sourcePdfFileSize: Ref<number | null>;
     visibleRange: Ref<IManagedEmbeddedPdfShapesPageRange>;
     bufferPages: Ref<number>;
-    shapeComposable: ReturnType<typeof useAnnotationShapes>;
+    shapeComposable: IManagedEmbeddedPdfShapeStore;
     suppressCommentAnnotationId: (annotationId: string) => void;
     logger: IManagedEmbeddedPdfShapesLogger;
     runGuardedTask: (
@@ -552,7 +573,7 @@ export const useManagedEmbeddedPdfShapes = ({
             return;
         }
 
-        shapeComposable.restoreShapeStateSnapshot(snapshot as ReturnType<typeof shapeComposable.captureShapeStateSnapshot>);
+        shapeComposable.restoreShapeStateSnapshot(snapshot as IManagedEmbeddedPdfShapeStateSnapshot);
         await waitForNextTick();
         syncHiddenEmbeddedAnnotationDom();
     }

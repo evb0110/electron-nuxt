@@ -1,3 +1,5 @@
+import { readdirSync } from 'node:fs';
+import path from 'node:path';
 import {
     describe,
     expect,
@@ -9,6 +11,12 @@ import {
 } from '@i18n-core';
 import { LOCALE_DEFINITIONS } from '@i18n-core/localeDefinitions';
 import { LOCALE_MESSAGES } from '@i18n-app/locales';
+
+function listLocaleFiles(relativeDirectory: string) {
+    return readdirSync(path.join(process.cwd(), relativeDirectory))
+        .filter(fileName => fileName.endsWith('.ts') && fileName !== 'index.ts')
+        .sort();
+}
 
 describe('locale registry', () => {
     it('keeps locale codes, definitions, and app messages synchronized', () => {
@@ -26,5 +34,14 @@ describe('locale registry', () => {
             expect(definition.language).toBe(definition.code);
             expect(definition.file.endsWith('.ts')).toBe(true);
         }
+    });
+
+    it('keeps runtime locale stubs aligned with package message files', () => {
+        const definitionFiles = LOCALE_DEFINITIONS
+            .map(definition => definition.file)
+            .toSorted();
+
+        expect(listLocaleFiles('packages/i18n-app/messages')).toEqual(definitionFiles);
+        expect(listLocaleFiles('app/i18n/runtime-locales')).toEqual(definitionFiles);
     });
 });

@@ -3,6 +3,7 @@ import type {
     Ref,
 } from 'vue';
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
+import { annotationCommentsMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/annotationCommentsMatch';
 import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
 import { usePdfShapeHistory } from '@app/modules/pdf-viewer/tools/usePdfShapeHistory';
 import type { IPdfAppAnnotationHistoryCommand } from '@app/modules/pdf-viewer/tools/usePdfShapeHistory';
@@ -91,11 +92,7 @@ export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
         }
         return shapeComposable.getAllShapes().find((shape) => {
             const summary = toShapeAnnotationCommentSummary(shape);
-            return (
-                summary.stableKey === comment.stableKey
-                || summary.id === comment.id
-                || (summary.annotationId && summary.annotationId === comment.annotationId)
-            );
+            return annotationCommentsMatch(summary, comment);
         }) ?? null;
     }
 

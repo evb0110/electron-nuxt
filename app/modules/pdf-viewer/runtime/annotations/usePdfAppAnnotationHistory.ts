@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import type { IAnnotationEditorState } from '@app/types/annotations';
-import type { IPdfAppAnnotationHistoryCommand } from '@app/modules/pdf-viewer/tools/usePdfShapeHistory';
+import type { IPdfAppAnnotationHistoryCommand } from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
 
 interface IPdfjsHistoryCommandParams {
     type?: number;

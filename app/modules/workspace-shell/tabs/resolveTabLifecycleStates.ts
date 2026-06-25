@@ -5,6 +5,10 @@ import type {
     ITabLifecycleState,
     TTabTemperature,
 } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import {
+    isTabTemperatureReclaimCandidate,
+    resolveTabTemperatureResidency,
+} from '@app/modules/workspace-shell/memory/viewerResidencyPolicy';
 
 const TAB_POLICY_WARM_COUNTS: Record<TTabMemoryPolicy, number> = {
     conservative: 2,
@@ -30,12 +34,15 @@ export function resolveTabLifecycleStates(options: {
 
     return options.tabs.map((tab) => {
         const isHot = visibleTabIds.has(tab.id);
-        const isWarm = !isHot && warmTabIds.has(tab.id);
+        const isSaveProtected = tab.isDirty;
+        const isWarm = !isHot && (warmTabIds.has(tab.id) || isSaveProtected);
         const temperature: TTabTemperature = isHot ? 'hot' : isWarm ? 'warm' : 'cold';
 
         return {
             tabId: tab.id,
             temperature,
+            viewerResidency: resolveTabTemperatureResidency(temperature),
+            isReclaimCandidate: isTabTemperatureReclaimCandidate(temperature, { isSaveProtected }),
             shouldMountHost: temperature !== 'cold',
         };
     });

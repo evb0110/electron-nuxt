@@ -34,6 +34,11 @@ import { usePdfViewerZoomRerenderQueue } from '@app/modules/pdf-viewer/runtime/c
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { usePdfViewerActivationRestore } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerActivationRestore';
 import { usePdfViewerAnnotationRuntimeBridge } from '@app/modules/pdf-viewer/runtime/annotations/usePdfViewerAnnotationRuntimeBridge';
+import {
+    resolvePdfViewerResidencyDecision,
+    resolvePostReclaimResidencyState,
+    type TViewerResidencyState,
+} from '@app/modules/pdf-viewer/runtime/memory/resolvePdfViewerResidencyDecision';
 import type {
     IResizeTransitionSignal,
     IZoomViewportAnchor,
@@ -222,6 +227,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         emit,
     } = options;
     const isActive = computed(() => isActiveOption?.value ?? true);
+    let viewerResidencyState: TViewerResidencyState = isActive.value ? 'active' : 'warm';
 
     const {
         pdfDocument,
@@ -366,14 +372,28 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
     }
 
     function cleanupInactiveDocumentCaches() {
-        if (options.isAnySaving?.value) {
+        const document = pdfDocument.value;
+        const decision = resolvePdfViewerResidencyDecision({
+            isActive: false,
+            isAnySaving: options.isAnySaving?.value === true,
+            hasReclaimableDocumentCaches: Boolean(document && typeof document.cleanup === 'function'),
+            previousState: viewerResidencyState,
+        });
+        viewerResidencyState = decision.state;
+
+        if (!decision.shouldCleanupDocumentCaches) {
             return;
         }
-        const document = pdfDocument.value;
         if (!document || typeof document.cleanup !== 'function') {
             return;
         }
-        void document.cleanup().catch(() => {});
+        void document.cleanup()
+            .then(() => {
+                if (!isActive.value) {
+                    viewerResidencyState = resolvePostReclaimResidencyState(viewerResidencyState);
+                }
+            })
+            .catch(() => {});
     }
 
     const {
@@ -545,6 +565,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
     watch(isActive, async (active) => {
         const runId = nextActivationRestoreRunId();
         if (active) {
+            viewerResidencyState = 'active';
             await nextTick();
             if (!isActivationRunCurrent(runId)) {
                 return;

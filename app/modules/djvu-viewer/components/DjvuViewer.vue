@@ -145,6 +145,10 @@ import {
     createDjvuPageRenderList,
     type TDjvuScrollDirection,
 } from '@app/modules/djvu-viewer/createDjvuPageRenderList';
+import {
+    resolveDjvuContinuousScrollWindow,
+    type IDjvuContinuousScrollWindow,
+} from '@app/modules/djvu-viewer/resolveDjvuContinuousScrollWindow';
 
 interface IProps {
     src: TDocumentRef | null;
@@ -235,29 +239,13 @@ const renderedPagesLayoutClass = computed(() => (
         : 'flex-row items-start justify-center'
 ));
 
-interface IContinuousScrollWindow {
-    start: number;
-    end: number;
-    mostVisiblePage: number | null;
-    pageNumbers: number[];
-}
-
 interface IContinuousScrollWindowCacheEntry {
     scrollTop: number;
     containerHeight: number;
     totalPages: number;
     pageSizes: IDjvuPageSize[];
     usesFallback: boolean;
-    result: IContinuousScrollWindow;
-}
-
-interface IContinuousScrollBoundsState {
-    visibleStart: number | null;
-    visibleEnd: number | null;
-    overscanStart: number | null;
-    overscanEnd: number | null;
-    mostVisiblePage: number | null;
-    maxVisibleHeight: number;
+    result: IDjvuContinuousScrollWindow;
 }
 
 let continuousScrollWindowCache: IContinuousScrollWindowCacheEntry | null = null;
@@ -269,30 +257,11 @@ function getContinuousScrollViewportHeight() {
     return Math.max(0, measuredHeight);
 }
 
-function clampPageRangeStart(pageNumber: number) {
-    return clamp(pageNumber, 1, totalPages.value);
-}
-
-function clampPageRangeEnd(pageNumber: number) {
-    return clamp(pageNumber, 1, totalPages.value);
-}
-
 function cacheContinuousScrollWindow(
-    start: number,
-    end: number,
-    mostVisiblePage: number | null,
+    result: IDjvuContinuousScrollWindow,
     containerHeightValue: number,
     usesFallback: boolean,
 ) {
-    const result = {
-        start,
-        end,
-        mostVisiblePage,
-        pageNumbers: Array.from(
-            { length: end - start + 1 },
-            (_, index) => start + index,
-        ),
-    };
     continuousScrollWindowCache = {
         scrollTop: scrollTop.value,
         containerHeight: containerHeightValue,
@@ -325,51 +294,6 @@ function getCachedContinuousScrollWindow(
     }
 
     return null;
-}
-
-function resolveFallbackContinuousScrollRange(anchorPage: number) {
-    return {
-        start: Math.max(1, anchorPage - DJVU_CONTINUOUS_RENDER_MARGIN_PAGES),
-        end: Math.min(totalPages.value, anchorPage + DJVU_CONTINUOUS_RENDER_MARGIN_PAGES),
-    };
-}
-
-function expandContinuousScrollRange(
-    visibleStart: number | null,
-    visibleEnd: number | null,
-    overscanStart: number | null,
-    overscanEnd: number | null,
-    anchorPage: number,
-) {
-    const baseStart = visibleStart ?? overscanStart ?? anchorPage;
-    const baseEnd = visibleEnd ?? overscanEnd ?? anchorPage;
-    const minStart = Math.max(1, (visibleStart ?? anchorPage) - DJVU_CONTINUOUS_RENDER_MARGIN_PAGES);
-    const minEnd = Math.min(totalPages.value, (visibleEnd ?? anchorPage) + DJVU_CONTINUOUS_RENDER_MARGIN_PAGES);
-
-    return {
-        start: clampPageRangeStart(Math.min(baseStart, minStart)),
-        end: clampPageRangeEnd(Math.max(baseEnd, minEnd)),
-    };
-}
-
-function createContinuousScrollBoundsState(anchorPage: number): IContinuousScrollBoundsState {
-    return {
-        visibleStart: null,
-        visibleEnd: null,
-        overscanStart: null,
-        overscanEnd: null,
-        mostVisiblePage: anchorPage,
-        maxVisibleHeight: -1,
-    };
-}
-
-function measureIntersectionHeight(
-    top: number,
-    bottom: number,
-    viewportTop: number,
-    viewportBottom: number,
-) {
-    return Math.max(0, Math.min(bottom, viewportBottom) - Math.max(top, viewportTop));
 }
 
 function getFitHeightAvailableHeight() {
@@ -411,59 +335,7 @@ function getContinuousPagesHeight(startPage: number, endPage: number) {
     return height;
 }
 
-function applyPageIntersectionToContinuousBounds(
-    state: IContinuousScrollBoundsState,
-    pageNumber: number,
-    visibleHeight: number,
-    overscanHeight: number,
-) {
-    if (overscanHeight > 0) {
-        state.overscanStart ??= pageNumber;
-        state.overscanEnd = pageNumber;
-    }
-
-    if (visibleHeight <= 0) {
-        return;
-    }
-
-    state.visibleStart ??= pageNumber;
-    state.visibleEnd = pageNumber;
-    if (visibleHeight > state.maxVisibleHeight) {
-        state.maxVisibleHeight = visibleHeight;
-        state.mostVisiblePage = pageNumber;
-    }
-}
-
-function resolveContinuousScrollBounds(
-    anchorPage: number,
-    viewportTop: number,
-    viewportBottom: number,
-    overscanTop: number,
-    overscanBottom: number,
-) {
-    const state = createContinuousScrollBoundsState(anchorPage);
-    let pageTop = DJVU_BASE_MARGIN;
-
-    for (let pageNumber = 1; pageNumber <= totalPages.value; pageNumber += 1) {
-        const pageHeight = getContinuousPageHeight(pageNumber);
-        const pageBottom = pageTop + pageHeight;
-        const visibleHeight = measureIntersectionHeight(pageTop, pageBottom, viewportTop, viewportBottom);
-        const overscanHeight = measureIntersectionHeight(pageTop, pageBottom, overscanTop, overscanBottom);
-
-        applyPageIntersectionToContinuousBounds(
-            state,
-            pageNumber,
-            visibleHeight,
-            overscanHeight,
-        );
-
-        pageTop = pageBottom + (pageNumber < totalPages.value ? DJVU_BASE_MARGIN : 0);
-    }
-
-    return state;
-}
-
-function resolveContinuousScrollWindow(): IContinuousScrollWindow | null {
+function resolveContinuousScrollWindow(): IDjvuContinuousScrollWindow | null {
     if (!isContinuousScroll.value || totalPages.value <= 0) {
         return null;
     }
@@ -475,47 +347,22 @@ function resolveContinuousScrollWindow(): IContinuousScrollWindow | null {
         return cached;
     }
 
-    const anchorPage = clamp(currentPage.value, 1, totalPages.value);
-    if (containerHeightValue <= 0) {
-        const {
-            start,
-            end,
-        } = resolveFallbackContinuousScrollRange(anchorPage);
-        return cacheContinuousScrollWindow(
-            start,
-            end,
-            anchorPage,
-            containerHeightValue,
-            usesFallback,
-        );
+    const result = resolveDjvuContinuousScrollWindow({
+        currentPage: currentPage.value,
+        pageGapPx: DJVU_BASE_MARGIN,
+        pageHeights: pageSizes.value.map((_, index) => getContinuousPageHeight(index + 1)),
+        renderMarginPages: DJVU_CONTINUOUS_RENDER_MARGIN_PAGES,
+        scrollTop: scrollTop.value,
+        totalPages: totalPages.value,
+        viewportHeight: containerHeightValue,
+        overscanViewports: DJVU_CONTINUOUS_OVERSCAN_VIEWPORTS,
+    });
+    if (!result) {
+        return null;
     }
 
-    const viewportTop = Math.max(0, scrollTop.value);
-    const viewportBottom = viewportTop + containerHeightValue;
-    const overscanTop = Math.max(0, viewportTop - containerHeightValue * DJVU_CONTINUOUS_OVERSCAN_VIEWPORTS);
-    const overscanBottom = viewportBottom + containerHeightValue * DJVU_CONTINUOUS_OVERSCAN_VIEWPORTS;
-    const bounds = resolveContinuousScrollBounds(
-        anchorPage,
-        viewportTop,
-        viewportBottom,
-        overscanTop,
-        overscanBottom,
-    );
-
-    const {
-        start,
-        end,
-    } = expandContinuousScrollRange(
-        bounds.visibleStart,
-        bounds.visibleEnd,
-        bounds.overscanStart,
-        bounds.overscanEnd,
-        anchorPage,
-    );
     return cacheContinuousScrollWindow(
-        start,
-        end,
-        bounds.mostVisiblePage,
+        result,
         containerHeightValue,
         usesFallback,
     );

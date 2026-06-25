@@ -5,13 +5,13 @@ import {
     vi,
 } from 'vitest';
 import { createDeferredWorkspaceExposeProxy } from '@app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy';
-import { requiredWorkspaceExposeMethods } from '@app/modules/workspace-shell/expose/requiredWorkspaceExposeMethods';
+import { workspaceExposeRequiredMethodNames } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { cast } from '@tests/helpers/cast';
 
 function createWorkspace(overrides: Partial<IWorkspaceExpose> = {}) {
     const workspace: Record<string, unknown> = {hasPdf: true};
-    for (const method of requiredWorkspaceExposeMethods) {
+    for (const method of workspaceExposeRequiredMethodNames) {
         workspace[method] = vi.fn(async () => true);
     }
     return cast<IWorkspaceExpose>({
@@ -135,12 +135,4 @@ describe('createDeferredWorkspaceExposeProxy', () => {
         expect(deps.log).toHaveBeenCalledWith('handleCombineImages', error);
     });
 
-    it('provides every workspace expose method', () => {
-        const deps = createDeps(null);
-        const proxy = createDeferredWorkspaceExposeProxy(deps);
-
-        for (const method of requiredWorkspaceExposeMethods) {
-            expect(proxy[method], method).toEqual(expect.any(Function));
-        }
-    });
 });

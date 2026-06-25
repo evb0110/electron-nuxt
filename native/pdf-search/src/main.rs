@@ -584,6 +584,51 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SearchConformanceCorpus {
+        cases: Vec<SearchConformanceCase>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SearchConformanceCase {
+        id: String,
+        text: String,
+        query: String,
+        options: Option<SearchConformanceOptions>,
+        context_chars: usize,
+        native_supported: bool,
+        expected_matches: Vec<SearchConformanceExpectedMatch>,
+    }
+
+    #[derive(Deserialize, Default)]
+    #[serde(rename_all = "camelCase")]
+    struct SearchConformanceOptions {
+        match_case: Option<bool>,
+        whole_word: Option<bool>,
+        use_regex: Option<bool>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SearchConformanceExpectedMatch {
+        start_offset: usize,
+        end_offset: usize,
+        excerpt: SearchConformanceExpectedExcerpt,
+    }
+
+    #[derive(Deserialize, Debug, PartialEq, Eq)]
+    struct SearchConformanceExpectedExcerpt {
+        prefix: bool,
+        suffix: bool,
+        before: String,
+        #[serde(rename = "match")]
+        matched_text: String,
+        after: String,
+    }
 
     fn test_index(pages: &[(u32, &str)]) -> SearchIndex {
         let mut data = Vec::new();
@@ -813,6 +858,66 @@ mod tests {
 
         assert_eq!(excerpt.before, "\u{85}");
         assert_eq!(excerpt.after, "\u{85}");
+    }
+
+    #[test]
+    fn matches_shared_conformance_corpus_native_subset() {
+        let corpus: SearchConformanceCorpus = serde_json::from_str(include_str!(
+            "../../../packages/contracts/searchConformanceCorpus.json"
+        ))
+        .expect("parse search conformance corpus");
+
+        for case in corpus.cases.iter().filter(|case| case.native_supported) {
+            let options_ref = case.options.as_ref();
+            assert!(
+                !options_ref.and_then(|value| value.whole_word).unwrap_or(false),
+                "native corpus case {} must not require whole-word matching",
+                case.id,
+            );
+            assert!(
+                !options_ref.and_then(|value| value.use_regex).unwrap_or(false),
+                "native corpus case {} must not require regex matching",
+                case.id,
+            );
+            let mut search_options = options(&case.query);
+            search_options.context_chars = case.context_chars;
+            search_options.match_case = options_ref
+                .and_then(|value| value.match_case)
+                .unwrap_or(false);
+            let response = search_index(&test_index(&[(1, &case.text)]), &search_options)
+                .expect("search corpus case");
+
+            assert_eq!(
+                response.results.len(),
+                case.expected_matches.len(),
+                "case {} result count",
+                case.id,
+            );
+            for (actual, expected) in response.results.iter().zip(&case.expected_matches) {
+                assert_eq!(
+                    actual.start_offset, expected.start_offset,
+                    "case {} start",
+                    case.id,
+                );
+                assert_eq!(
+                    actual.end_offset, expected.end_offset,
+                    "case {} end",
+                    case.id,
+                );
+                assert_eq!(
+                    SearchConformanceExpectedExcerpt {
+                        prefix: actual.excerpt.prefix,
+                        suffix: actual.excerpt.suffix,
+                        before: actual.excerpt.before.clone(),
+                        matched_text: actual.excerpt.matched_text.clone(),
+                        after: actual.excerpt.after.clone(),
+                    },
+                    expected.excerpt,
+                    "case {} excerpt",
+                    case.id,
+                );
+            }
+        }
     }
 
     #[test]

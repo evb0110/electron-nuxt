@@ -6,7 +6,6 @@ import { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotation
 import { markerRectCenterDistance } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/markerRectCenterDistance';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
-import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
@@ -485,16 +484,8 @@ export const usePdfAnnotationCommentModel = (options: IUsePdfAnnotationCommentMo
         options: { colorEdited?: boolean } = {},
     ) {
         const colorEdited = options.colorEdited ?? true;
-        const commentAnnotationId = normalizePdfJsAnnotationId(comment.annotationId);
         const next = annotationCommentsCache.value.map((candidate) => {
-            const sameStableKey = candidate.stableKey === comment.stableKey;
-            const candidateAnnotationId = normalizePdfJsAnnotationId(candidate.annotationId);
-            const sameAnnotationId = Boolean(
-                commentAnnotationId
-                && candidateAnnotationId
-                && candidateAnnotationId === commentAnnotationId,
-            );
-            if (!sameStableKey && !sameAnnotationId) {
+            if (!annotationCommentsMatch(candidate, comment)) {
                 return candidate;
             }
             return {

@@ -67,4 +67,15 @@ describe('documentSaveRoutes', () => {
             canPersistNativeWorkingCopy: false,
         }, {shouldSerialize: true})).toBe('native-mutations-or-serialized');
     });
+
+    it('keeps dirty forced rewrite operations out of the native working-copy route', () => {
+        expect(resolveRoute({
+            forceSerialize: true,
+            forceRewrite: true,
+            canPersistNativeWorkingCopy: true,
+        }, {
+            shouldSerialize: true,
+            shouldSerializeDirtyState: true,
+        })).toBe('native-mutations-or-serialized');
+    });
 });

@@ -1,5 +1,6 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
+import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
 import type { IPdfNativeAnnotationDelete } from '@contracts/electronApiDocuments';
 import { parsePageIndex } from '@contracts/pageNumbers';
 import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
@@ -9,8 +10,7 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationPlanTypes';
 
 function parseAnnotationRefFromStableKey(stableKey: string) {
-    const match = stableKey.trim().match(/^ann:\d+:(\d+R(?:\d+)?)$/iu);
-    return parsePdfJsAnnotationRef(match?.[1]);
+    return parsePdfAnnotationStableKeyRef(stableKey)?.ref ?? null;
 }
 
 function resolveNativeAnnotationDeleteRef(comment: IAnnotationCommentSummary) {

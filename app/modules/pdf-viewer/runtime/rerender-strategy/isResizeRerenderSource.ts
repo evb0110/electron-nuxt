@@ -1,8 +1,5 @@
-const RESIZE_RERENDER_SOURCES = new Set([
-    'resize-observer',
-    'resize-settle',
-]);
+import { isResizePdfRerenderSource } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
 
 export function isResizeRerenderSource(source: string) {
-    return RESIZE_RERENDER_SOURCES.has(source);
+    return isResizePdfRerenderSource(source);
 }

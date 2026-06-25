@@ -17,6 +17,7 @@ import { applyAnnotationCommentTextMarkupVisualOverlay } from '@app/modules/pdf-
 import { getStoredAnnotationEditor } from '@app/services/pdfjs/annotationEditorMutation';
 import { toOpaqueHighlightDisplayColor } from '@app/modules/pdf-viewer/engine/text-markup-color/toOpaqueHighlightDisplayColor';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { resetLivePdfJsAnnotationStorageModifiedIds } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 
 type TAnnotationCommentModel = ReturnType<typeof usePdfAnnotationCommentModel>;
 
@@ -50,8 +51,7 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
     }
 
     function resetAnnotationStorageModifiedIds() {
-        const annotationStorage = pdfDocument.value?.annotationStorage as { resetModifiedIds?: () => void } | undefined;
-        annotationStorage?.resetModifiedIds?.();
+        resetLivePdfJsAnnotationStorageModifiedIds(pdfDocument.value);
     }
 
     function refreshRenderedMarkupPage(comment: IAnnotationCommentSummary) {

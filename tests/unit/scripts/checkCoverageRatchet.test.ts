@@ -35,35 +35,54 @@ function coverageSummary(metrics: {
     functions: number;
     lines: number;
     statements: number;
-}) {
-    const total = {
+}, files: Record<string, {
+    branches: number;
+    functions: number;
+    lines: number;
+    statements: number;
+}> = {}) {
+    const metricSummary = (nextMetrics: {
+        branches: number;
+        functions: number;
+        lines: number;
+        statements: number;
+    }) => ({
         statements: {
             total: 100,
-            covered: metrics.statements,
+            covered: nextMetrics.statements,
             skipped: 0,
-            pct: metrics.statements,
+            pct: nextMetrics.statements,
         },
         branches: {
             total: 100,
-            covered: metrics.branches,
+            covered: nextMetrics.branches,
             skipped: 0,
-            pct: metrics.branches,
+            pct: nextMetrics.branches,
         },
         functions: {
             total: 100,
-            covered: metrics.functions,
+            covered: nextMetrics.functions,
             skipped: 0,
-            pct: metrics.functions,
+            pct: nextMetrics.functions,
         },
         lines: {
             total: 100,
-            covered: metrics.lines,
+            covered: nextMetrics.lines,
             skipped: 0,
-            pct: metrics.lines,
+            pct: nextMetrics.lines,
         },
-    };
+    });
 
-    return JSON.stringify({ total });
+    return JSON.stringify({
+        total: metricSummary(metrics),
+        ...Object.fromEntries(Object.entries(files).map(([
+            filePath,
+            fileMetrics,
+        ]) => [
+            filePath,
+            metricSummary(fileMetrics),
+        ])),
+    });
 }
 
 describe('coverage ratchet', () => {
@@ -97,11 +116,13 @@ describe('coverage ratchet', () => {
             expect.objectContaining({
                 deltaPercentagePoints: -0.4,
                 metric: 'branches',
+                scope: 'total',
                 status: 'within-tolerance',
             }),
             expect.objectContaining({
                 deltaPercentagePoints: 1,
                 metric: 'functions',
+                scope: 'total',
                 status: 'improved',
             }),
         ]));
@@ -128,9 +149,47 @@ describe('coverage ratchet', () => {
         expect(result.comparisons).toContainEqual(expect.objectContaining({
             deltaPercentagePoints: -0.51,
             metric: 'branches',
+            scope: 'total',
             status: 'regressed',
         }));
         expect(formatCoverageRatchetResult(result)).toContain('Coverage ratchet failed.');
+    });
+
+    it('ratchets configured hot-path area aggregates independently of the global total', () => {
+        const baseline = createCoverageBaseline(parseCoverageSummary(coverageSummary({
+            branches: 70,
+            functions: 70,
+            lines: 70,
+            statements: 70,
+        }, {'/repo/app/modules/pdf-viewer/runtime/navigation/controller.ts': {
+            branches: 80,
+            functions: 80,
+            lines: 80,
+            statements: 80,
+        }}), '/repo'), 0.5, {'pdf-viewer-navigation': {include: ['app/modules/pdf-viewer/runtime/navigation/']}});
+        const snapshot = parseCoverageSummary(coverageSummary({
+            branches: 70,
+            functions: 70,
+            lines: 70,
+            statements: 70,
+        }, {'/repo/app/modules/pdf-viewer/runtime/navigation/controller.ts': {
+            branches: 80,
+            functions: 80,
+            lines: 79.4,
+            statements: 80,
+        }}), '/repo');
+
+        const result = compareCoverageToBaseline(snapshot, baseline);
+
+        expect(result.passed).toBe(false);
+        expect(result.comparisons).toContainEqual(expect.objectContaining({
+            area: 'pdf-viewer-navigation',
+            deltaPercentagePoints: -0.6,
+            metric: 'lines',
+            scope: 'area',
+            status: 'regressed',
+        }));
+        expect(formatCoverageRatchetResult(result)).toContain('pdf-viewer-navigation lines');
     });
 
     it('updates the baseline deterministically from a generated summary', async () => {

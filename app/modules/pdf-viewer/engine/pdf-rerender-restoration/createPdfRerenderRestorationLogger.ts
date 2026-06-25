@@ -9,6 +9,10 @@ import type {
     IRoundedScrollPosition,
     TRerenderRestoreMode,
 } from '@app/modules/pdf-viewer/engine/pdf-rerender-restoration/pdfRerenderRestorationTypes';
+import {
+    isZoomRestorePdfRerenderSource,
+    type TPdfRerenderSource,
+} from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
 
 function getNullableDelta(before: number | null, after: number | null) {
     return before !== null && after !== null
@@ -53,7 +57,7 @@ export function createPdfRerenderRestorationLogger(options: IRerenderRestoration
 
     function logRerenderZoomRestore(
         mode: TRerenderRestoreMode,
-        rerenderSource: string,
+        rerenderSource: TPdfRerenderSource,
         version: number,
         beforeScroll: IRoundedScrollPosition,
         afterScroll: IRoundedScrollPosition,
@@ -109,9 +113,7 @@ export function createPdfRerenderRestorationLogger(options: IRerenderRestoration
     ) {
         const containerBeforeRestore = options.container.value;
         const beforeScroll = getRoundedScrollPosition(containerBeforeRestore);
-        const isZoomChangeRestore =
-            context.rerenderSource === 'zoom-change'
-            || context.rerenderSource === 'zoom-gesture-change';
+        const isZoomChangeRestore = isZoomRestorePdfRerenderSource(context.rerenderSource);
         restoreScrollFromSnapshot(options.container.value, context.snapshotToRestore, {
             restoreHorizontal: !context.disableHorizontalAnchorRestore,
             restoreVertical: !context.disableVerticalAnchorRestore,

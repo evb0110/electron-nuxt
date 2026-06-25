@@ -18,6 +18,52 @@ const PDFJS_FREETEXT_ANNOTATION_EDITOR_TYPE = 3;
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 const EMPTY_ANNOTATION_CHANGE_FINGERPRINT = 'empty';
 
+type TAnnotationStorageResetMethod = 'resetModified' | 'resetModifiedIds';
+
+function getPdfJsAnnotationStorage(document: PDFDocumentProxy | null | undefined) {
+    return document?.annotationStorage;
+}
+
+function callPdfJsAnnotationStorageResetMethod(
+    document: PDFDocumentProxy | null | undefined,
+    method: TAnnotationStorageResetMethod,
+) {
+    const storage = getPdfJsAnnotationStorage(document);
+    if (!storage || typeof storage !== 'object') {
+        return false;
+    }
+
+    const resetMethod = (storage as Record<TAnnotationStorageResetMethod, unknown>)[method];
+    if (typeof resetMethod !== 'function') {
+        return false;
+    }
+
+    resetMethod.call(storage);
+    return true;
+}
+
+export function resetLivePdfJsAnnotationStorageModifiedIds(
+    document: PDFDocumentProxy | null | undefined,
+) {
+    try {
+        return callPdfJsAnnotationStorageResetMethod(document, 'resetModifiedIds');
+    } catch (error) {
+        BrowserLogger.debug('workspace', 'Failed to reset PDF.js annotation storage modified ids', error);
+        return false;
+    }
+}
+
+export function resetLivePdfJsAnnotationStorageModifiedState(
+    document: PDFDocumentProxy | null | undefined,
+) {
+    try {
+        return callPdfJsAnnotationStorageResetMethod(document, 'resetModified');
+    } catch (error) {
+        BrowserLogger.debug('workspace', 'Failed to reset PDF.js annotation storage modified state', error);
+        return false;
+    }
+}
+
 function getExistingPdfAnnotationIdFromStorageValue(value: unknown) {
     if (!isRecord(value)) {
         return null;
@@ -160,7 +206,7 @@ export function collectLivePdfJsAnnotationChangeIds(
     }
 
     try {
-        const storage = document.annotationStorage;
+        const storage = getPdfJsAnnotationStorage(document);
         resetCachedModifiedIds(storage);
         const ids = new Set<string>();
         const replayableEditorNoteIds = new Set<string>();

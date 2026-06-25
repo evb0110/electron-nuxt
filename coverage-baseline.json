@@ -2,9 +2,71 @@
   "version": 1,
   "tolerancePercentagePoints": 0.5,
   "metrics": {
-    "statements": 61.27,
-    "branches": 52.85,
-    "functions": 64.33,
-    "lines": 61.48
+    "statements": 65.89,
+    "branches": 57.5,
+    "functions": 69.54,
+    "lines": 66.09
+  },
+  "areas": {
+    "electron-core": {
+      "include": [
+        "electron/"
+      ],
+      "fileCount": 211,
+      "metrics": {
+        "statements": 67.77,
+        "branches": 57.76,
+        "functions": 69.46,
+        "lines": 68.14
+      }
+    },
+    "pdf-viewer-engine": {
+      "include": [
+        "app/modules/pdf-viewer/engine/"
+      ],
+      "fileCount": 297,
+      "metrics": {
+        "statements": 75.56,
+        "branches": 66.75,
+        "functions": 87.44,
+        "lines": 75.57
+      }
+    },
+    "pdf-viewer-navigation": {
+      "include": [
+        "app/modules/pdf-viewer/runtime/navigation/"
+      ],
+      "fileCount": 8,
+      "metrics": {
+        "statements": 84.75,
+        "branches": 76.51,
+        "functions": 92,
+        "lines": 85.02
+      }
+    },
+    "pdf-viewer-rendering": {
+      "include": [
+        "app/modules/pdf-viewer/runtime/rendering/"
+      ],
+      "fileCount": 16,
+      "metrics": {
+        "statements": 71.72,
+        "branches": 66.36,
+        "functions": 72.7,
+        "lines": 72.06
+      }
+    },
+    "workspace-shell-composables": {
+      "include": [
+        "app/modules/workspace-shell/composables/"
+      ],
+      "fileCount": 47,
+      "metrics": {
+        "statements": 72.28,
+        "branches": 60.65,
+        "functions": 76.31,
+        "lines": 72.52
+      }
+    }
   }
 }

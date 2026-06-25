@@ -1,16 +1,47 @@
 import {
     describe,
     expect,
+    expectTypeOf,
     it,
     vi,
 } from 'vitest';
+import { ref } from 'vue';
+import { createDeferredWorkspaceExposeProxy } from '@app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy';
+import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
 import { isWorkspaceExpose } from '@app/modules/workspace-shell/expose/isWorkspaceExpose';
 import { requiredWorkspaceExposeMethods } from '@app/modules/workspace-shell/expose/requiredWorkspaceExposeMethods';
+import {
+    workspaceExposeMethodDescriptors,
+    workspaceExposeRequiredMethodNames,
+    type TWorkspaceExposeMethod,
+} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import { cast } from '@tests/helpers/cast';
+
+type TRequiredWorkspaceExposeMethod = typeof requiredWorkspaceExposeMethods[number];
+
+function getDescriptorMethodNames() {
+    return Object.values(workspaceExposeMethodDescriptors).flat();
+}
+
+function getSortedDescriptorMethodNames() {
+    return [...getDescriptorMethodNames()].sort();
+}
+
+function getSortedExposeMethodNames(expose: IWorkspaceExpose) {
+    return Object.entries(expose)
+        .filter(([
+            name,
+            value,
+        ]) => name !== 'hasPdf' && typeof value === 'function')
+        .map(([name]) => name)
+        .sort();
+}
 
 function createWorkspaceCandidate(overrides: Record<string, unknown> = {}) {
     const candidate: Record<string, unknown> = {hasPdf: false};
 
-    for (const methodName of requiredWorkspaceExposeMethods) {
+    for (const methodName of workspaceExposeRequiredMethodNames) {
         candidate[methodName] = vi.fn();
     }
 
@@ -20,7 +51,145 @@ function createWorkspaceCandidate(overrides: Record<string, unknown> = {}) {
     };
 }
 
+function createWorkspaceCandidateWithout(missingMethodName: TWorkspaceExposeMethod) {
+    const candidate: Record<string, unknown> = {hasPdf: false};
+
+    for (const methodName of workspaceExposeRequiredMethodNames) {
+        if (methodName !== missingMethodName) {
+            candidate[methodName] = vi.fn();
+        }
+    }
+
+    return candidate;
+}
+
+function createWorkspaceExposeDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[0]> = {}) {
+    return cast<Parameters<typeof createWorkspaceExpose>[0]>({
+        handleSave: vi.fn(async () => true),
+        handleRepairSave: vi.fn(async () => true),
+        handleOptimizePdfForInteraction: vi.fn(async () => true),
+        handleSaveAs: vi.fn(async () => true),
+        handlePrint: vi.fn(async () => {}),
+        handlePrintCurrentPage: vi.fn(async () => {}),
+        handleUndo: vi.fn(),
+        handleRedo: vi.fn(),
+        handleCombineImages: vi.fn(async () => true),
+        handleOpenFileFromUi: vi.fn(async () => true),
+        handleOpenFileDirectWithPersist: vi.fn(async (_path: string) => true),
+        handleOpenFileDirectBatchWithPersist: vi.fn(async (_paths: string[]) => true),
+        handleOpenFileWithResult: vi.fn(async () => true),
+        handleCloseFileFromUi: vi.fn(async () => true),
+        openRecentFile: vi.fn(async () => true),
+        handleExportDocx: vi.fn(async () => {}),
+        handleExportImages: vi.fn(async () => {}),
+        handleExportMultiPageTiff: vi.fn(async () => {}),
+        hasPdf: ref(false),
+        isOpeningDocument: ref(false),
+        hasOpenError: ref(false),
+        isPreparingPrint: ref(false),
+        isPreparingCurrentPagePrint: ref(false),
+        canSave: ref(false),
+        canUndo: ref(false),
+        canRedo: ref(false),
+        canExportDocx: ref(false),
+        isSaving: ref(false),
+        isSavingAs: ref(false),
+        isAnySaving: ref(false),
+        isHistoryBusy: ref(false),
+        isExportingDocx: ref(false),
+        isFitWidthActive: ref(false),
+        isFitHeightActive: ref(false),
+        showSidebar: ref(false),
+        dragMode: ref(false),
+        continuousScroll: ref(false),
+        isCapturingRegion: ref(false),
+        isCropSelecting: ref(false),
+        isPlacingPageNote: ref(false),
+        closeAllDropdowns: vi.fn(),
+        zoom: ref(1),
+        effectiveZoom: ref(1),
+        zoomMode: ref('custom'),
+        fitMode: ref('width'),
+        viewMode: ref('single'),
+        currentPage: ref(1),
+        handleFitMode: vi.fn(),
+        handleGoToPage: vi.fn(),
+        handleToggleSidebar: vi.fn(),
+        handleToggleContinuousScroll: vi.fn(),
+        handleEnableDragMode: vi.fn(),
+        handleDisableDragMode: vi.fn(),
+        handleCaptureRegion: vi.fn(),
+        handleCrop: vi.fn(),
+        handleQuickNote: vi.fn(),
+        handleInsertImageFromFile: vi.fn(async () => {}),
+        handlePasteImageFromClipboard: vi.fn(async () => {}),
+        selectedThumbnailPages: ref<number[]>([]),
+        pageOpsDelete: vi.fn(async (_pages: number[], _totalPages: number) => true),
+        pageOpsExtract: vi.fn(async (_pages: number[]) => true),
+        handlePageRotate: vi.fn(async (_pages: number[], _angle: 90 | 270) => true),
+        pageOpsInsert: vi.fn(async (_totalPages: number, _afterPage: number) => true),
+        totalPages: ref(1),
+        isDjvuMode: ref(false),
+        openConvertDialog: vi.fn(),
+        captureSplitPayload: vi.fn(async () => ({kind: 'empty'})),
+        restoreSplitPayload: vi.fn(async () => {}),
+        waitForDocumentOpenSettled: vi.fn(async () => {}),
+        runAgentAction: vi.fn(async () => ({})),
+        readAgentResource: vi.fn(async () => ({})),
+        workingCopyPath: ref(null),
+        originalPath: ref(null),
+        annotationComments: ref([]),
+        annotationCommentsStatus: ref('ready'),
+        annotationDirty: ref(false),
+        sortedAnnotationNoteWindows: ref([]),
+        handleOcrComplete: vi.fn(async () => {}),
+        ...overrides,
+    });
+}
+
+function createDeferredWorkspaceExposeDeps(workspace: IWorkspaceExpose | null) {
+    return cast<Parameters<typeof createDeferredWorkspaceExposeProxy>[0]>({
+        enqueueDocumentOpen: vi.fn(async (_intent, run: () => Promise<unknown>) => run()),
+        getMounted: () => workspace,
+        log: vi.fn(),
+        withLoadedWorkspace: vi.fn(async (_action, run) => (
+            workspace ? run(workspace) : null
+        )),
+        withLoadedWorkspaceRequired: vi.fn(async (_action, run) => {
+            if (!workspace) {
+                throw new Error('Workspace is not available.');
+            }
+
+            return run(workspace);
+        }),
+        withWorkspace: vi.fn(async (_action, run) => (
+            workspace ? await run(workspace) !== false : false
+        )),
+    });
+}
+
 describe('workspace expose contract', () => {
+    it('keeps the descriptor method union exhaustive for workspace expose methods', () => {
+        expectTypeOf<TRequiredWorkspaceExposeMethod>().toEqualTypeOf<TWorkspaceExposeMethod>();
+    });
+
+    it('derives required workspace expose methods from the descriptor method surface', () => {
+        const descriptorMethodNames = getSortedDescriptorMethodNames();
+
+        expect([...workspaceExposeRequiredMethodNames].sort()).toEqual(descriptorMethodNames);
+        expect([...requiredWorkspaceExposeMethods].sort()).toEqual(descriptorMethodNames);
+    });
+
+    it('keeps real and deferred expose method surfaces equivalent to the descriptors', () => {
+        const realExpose = createWorkspaceExpose(createWorkspaceExposeDeps());
+        const deferredExpose = createDeferredWorkspaceExposeProxy(createDeferredWorkspaceExposeDeps(null));
+        const descriptorMethodNames = getSortedDescriptorMethodNames();
+
+        expect(getSortedExposeMethodNames(realExpose)).toEqual(descriptorMethodNames);
+        expect(getSortedExposeMethodNames(deferredExpose)).toEqual(descriptorMethodNames);
+        expect(getSortedExposeMethodNames(realExpose)).toEqual(getSortedExposeMethodNames(deferredExpose));
+    });
+
     it('accepts values that match the workspace expose contract', () => {
         expect(isWorkspaceExpose(createWorkspaceCandidate())).toBe(true);
     });
@@ -32,11 +201,10 @@ describe('workspace expose contract', () => {
         expect(isWorkspaceExpose(candidate)).toBe(false);
     });
 
-    it('rejects values with missing methods', () => {
-        const candidate = createWorkspaceCandidate();
-        delete candidate.handleOpenFileWithResult;
-
-        expect(isWorkspaceExpose(candidate)).toBe(false);
+    it('rejects values missing any descriptor method', () => {
+        for (const methodName of getDescriptorMethodNames()) {
+            expect(isWorkspaceExpose(createWorkspaceCandidateWithout(methodName)), methodName).toBe(false);
+        }
     });
 
     it('rejects values where a method is not a function', () => {

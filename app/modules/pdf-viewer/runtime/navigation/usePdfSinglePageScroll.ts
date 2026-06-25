@@ -31,6 +31,7 @@ import type { TPdfNavigationEvent } from '@app/modules/pdf-viewer/runtime/naviga
 import { createPdfNavigationRuntime } from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationRuntime';
 import { createWheelFlipGate } from '@app/modules/pdf-viewer/runtime/navigation/createWheelFlipGate';
 import { createNavigationSettleEffects } from '@app/modules/pdf-viewer/runtime/navigation/createNavigationSettleEffects';
+import { createPagedNavigationAuthority } from '@app/modules/pdf-viewer/runtime/navigation/createPagedNavigationAuthority';
 import {
     canScrollWithinPageBounds,
     hasScrollablePageBounds,
@@ -81,24 +82,11 @@ interface IPageRowGeometry {
     height: number;
 }
 
-interface IPagedNavigationHold {
-    expired: boolean;
-    runId: number;
-    startedAtMs: number;
-    targetStart: number;
-    targetEnd: number;
-}
-
 interface IPagedRowRenderRequest {
     allowSuppressedRender?: boolean;
     pageNumber: number;
     message: string;
     runId: number;
-}
-
-interface INavigationFeedbackState {
-    page: number | null;
-    runId: number | null;
 }
 
 type TPagedTargetLayoutPreparation = void | Promise<void>;
@@ -201,17 +189,10 @@ export const usePdfSinglePageScroll = (
         () => searchNavigationState.value !== 'idle',
     );
     const pagedNavigationTargetPage = navigationRuntime.targetPageForSource('paged');
-    const pagedNavigationHold = shallowRef<IPagedNavigationHold | null>(null);
     let pagedNavigationPrepareRunId = 0;
     let pagedNavigationPrepareTargetPage: number | null = null;
     let continuousNavigationTargetScrollOptions: IScrollToPageOptions | undefined;
-    let pagedNavigationTargetScrollOptions: Pick<IScrollToPageOptions, 'pageYRatio' | 'markerRect'> | undefined;
-    let navigationFeedbackState: INavigationFeedbackState = {
-        page: null,
-        runId: null,
-    };
     let isDisposed = false;
-    let programmaticNavigationReleaseTimer: ReturnType<typeof setTimeout> | null = null;
     const navigationEffects = createNavigationSettleEffects({
         getLayoutObserverElements: resolveContinuousNavigationLayoutObserverElements,
         hasLayoutMutation: hasContinuousNavigationLayoutMutation,
@@ -231,6 +212,16 @@ export const usePdfSinglePageScroll = (
             reapplyContinuousNavigationTargetScroll(runId, pageNumber, scrollOptions);
         },
     });
+    const pagedNavigationAuthority = createPagedNavigationAuthority({
+        armHoldWatchdog: navigationEffects.armPagedHoldWatchdog,
+        clearHoldWatchdog: navigationEffects.clearPagedHoldWatchdog,
+        emitNavigationFeedbackPage,
+        getFeedbackTraceContext: () => ({
+            currentPage: currentPage.value,
+            pagedNavigationTargetPage: pagedNavigationTargetPage.value,
+        }),
+    });
+    const pagedNavigationHold = pagedNavigationAuthority.hold;
 
     function clearPagedNavigationTarget() {
         navigationEffects.clearPagedSettle();
@@ -244,96 +235,33 @@ export const usePdfSinglePageScroll = (
     }
 
     function setNavigationFeedbackPage(page: number, reason: string, runId: number) {
-        if (
-            navigationFeedbackState.page === page
-            && navigationFeedbackState.runId === runId
-        ) {
-            return;
-        }
-
-        navigationFeedbackState = {
-            page,
-            runId,
-        };
-        logPdfRenderTrace('single-page-navigation-feedback-page', {
-            page,
-            reason,
-            runId,
-            currentPage: currentPage.value,
-            pagedNavigationTargetPage: pagedNavigationTargetPage.value,
-        });
-        emitNavigationFeedbackPage?.(page);
+        pagedNavigationAuthority.setFeedbackPage(page, reason, runId);
     }
 
     function clearNavigationFeedbackPage(reason: string, runId?: number) {
-        if (
-            runId !== undefined
-            && navigationFeedbackState.runId !== runId
-        ) {
-            return;
-        }
-        if (
-            navigationFeedbackState.page === null
-            && navigationFeedbackState.runId === null
-        ) {
-            return;
-        }
-
-        const previous = navigationFeedbackState;
-        navigationFeedbackState = {
-            page: null,
-            runId: null,
-        };
-        logPdfRenderTrace('single-page-navigation-feedback-page', {
-            page: null,
-            reason,
-            runId: previous.runId,
-            previousPage: previous.page,
-            currentPage: currentPage.value,
-            pagedNavigationTargetPage: pagedNavigationTargetPage.value,
-        });
-        emitNavigationFeedbackPage?.(null);
-    }
-
-    function clearPagedNavigationWatchdogTimers() {
-        navigationEffects.clearPagedHoldWatchdog();
+        pagedNavigationAuthority.clearFeedbackPage(reason, runId);
     }
 
     function clearProgrammaticNavigationReleaseTimer() {
-        if (!programmaticNavigationReleaseTimer) {
-            return;
-        }
-        clearTimeout(programmaticNavigationReleaseTimer);
-        programmaticNavigationReleaseTimer = null;
+        pagedNavigationAuthority.clearProgrammaticReleaseTimer();
     }
 
     function scheduleProgrammaticNavigationRelease() {
-        clearProgrammaticNavigationReleaseTimer();
-        if (!isProgrammaticNavigationActive.value || isDisposed) {
-            return;
-        }
-
-        const remainingMs = snapSuppressUntil.value - Date.now();
-        const delayMs = remainingMs > 0
-            ? remainingMs
-            : PROGRAMMATIC_NAVIGATION_RELEASE_RETRY_MS;
-        programmaticNavigationReleaseTimer = setTimeout(() => {
-            programmaticNavigationReleaseTimer = null;
-            maybeReleaseProgrammaticNavigation();
-            if (isProgrammaticNavigationActive.value && !isDisposed) {
-                scheduleProgrammaticNavigationRelease();
-            }
-        }, delayMs);
+        pagedNavigationAuthority.scheduleProgrammaticRelease({
+            isActive: () => isProgrammaticNavigationActive.value,
+            isDisposed: () => isDisposed,
+            onRelease: maybeReleaseProgrammaticNavigation,
+            resolveDelayMs: () => {
+                const remainingMs = snapSuppressUntil.value - Date.now();
+                return remainingMs > 0
+                    ? remainingMs
+                    : PROGRAMMATIC_NAVIGATION_RELEASE_RETRY_MS;
+            },
+        });
     }
 
     function clearPagedNavigationHold(runId?: number) {
-        const hold = pagedNavigationHold.value;
-        if (runId !== undefined && hold?.runId !== runId) {
-            return;
-        }
-
-        clearPagedNavigationWatchdogTimers();
-        pagedNavigationHold.value = null;
+        pagedNavigationAuthority.clearHold(runId);
     }
 
     function isPagedNavigationTargetCurrent(runId: number, targetPage: number) {
@@ -351,17 +279,11 @@ export const usePdfSinglePageScroll = (
 
         const targetRange = resolvePageRowRange(targetPage);
 
-        clearPagedNavigationHold();
-        pagedNavigationHold.value = {
-            expired: false,
-            runId,
-            startedAtMs: Date.now(),
-            targetStart: targetRange.start,
-            targetEnd: targetRange.end,
-        };
-        navigationEffects.armPagedHoldWatchdog({
+        pagedNavigationAuthority.startHold({
             runId,
             targetPage,
+            targetStart: targetRange.start,
+            targetEnd: targetRange.end,
             readyRetryDelaysMs: PAGED_NAVIGATION_READY_RETRY_DELAYS_MS,
             recoveryRenderMs: PAGED_NAVIGATION_RECOVERY_RENDER_MS,
             abandonMs: PAGED_NAVIGATION_ABANDON_MS,
@@ -400,13 +322,7 @@ export const usePdfSinglePageScroll = (
                     return;
                 }
 
-                const hold = pagedNavigationHold.value;
-                if (hold?.runId === runId) {
-                    pagedNavigationHold.value = {
-                        ...hold,
-                        expired: true,
-                    };
-                }
+                const hold = pagedNavigationAuthority.expireHold(runId);
                 logPdfRenderTrace('single-page-paged-target-abandoned', {
                     runId,
                     targetPage,
@@ -418,7 +334,7 @@ export const usePdfSinglePageScroll = (
                 clearPagedNavigationHold(runId);
                 dispatchNavigationMachine({ type: 'CANCEL' });
                 clearPagedNavigationTarget();
-                pagedNavigationTargetScrollOptions = undefined;
+                pagedNavigationAuthority.clearTargetScrollOptions();
                 snapSuppressUntil.value = 0;
                 isProgrammaticNavigationActive.value = false;
                 isSnapping.value = false;
@@ -463,17 +379,11 @@ export const usePdfSinglePageScroll = (
     }
 
     function isNavigationHoldActiveForPage(pageNumber: number) {
-        const hold = pagedNavigationHold.value;
-        return hold !== null
-            && pageNumber >= hold.targetStart
-            && pageNumber <= hold.targetEnd;
+        return pagedNavigationAuthority.isHoldActiveForPage(pageNumber);
     }
 
     function isNavigationHoldExpiredPage(pageNumber: number) {
-        const hold = pagedNavigationHold.value;
-        return hold?.expired === true
-            && pageNumber >= hold.targetStart
-            && pageNumber <= hold.targetEnd;
+        return pagedNavigationAuthority.isHoldExpiredPage(pageNumber);
     }
 
     function schedulePagedNavigationReadyRetry(
@@ -588,7 +498,7 @@ export const usePdfSinglePageScroll = (
         });
         if (shouldReleaseProgrammaticNavigation) {
             clearPagedNavigationTarget();
-            pagedNavigationTargetScrollOptions = undefined;
+            pagedNavigationAuthority.clearTargetScrollOptions();
             clearNavigationFeedbackPage('paged-navigation-finished', runId);
             if (releaseHold) {
                 clearPagedNavigationHold(runId);
@@ -657,7 +567,7 @@ export const usePdfSinglePageScroll = (
         clearPagedNavigationPreparation();
         dispatchNavigationMachine({ type: 'CANCEL' });
         clearPagedNavigationTarget();
-        pagedNavigationTargetScrollOptions = undefined;
+        pagedNavigationAuthority.clearTargetScrollOptions();
         clearNavigationFeedbackPage('programmatic-navigation-canceled');
         clearPagedNavigationHold();
         navigationEffects.clearSearchSettle();
@@ -945,6 +855,11 @@ export const usePdfSinglePageScroll = (
     function beginSearchNavigation(pageNumber: number, holdMs = SEARCH_NAVIGATION_DEFAULT_HOLD_MS) {
         navigationEffects.clearSearchSettle();
         cancelContinuousNavigationTarget();
+        pagedNavigationPrepareRunId += 1;
+        clearPagedNavigationPreparation();
+        clearPagedNavigationTarget();
+        pagedNavigationAuthority.clearTargetScrollOptions();
+        clearPagedNavigationHold();
         const targetPage = numPages.value > 0
             ? Math.max(
                 1,
@@ -1176,7 +1091,12 @@ export const usePdfSinglePageScroll = (
 
         const anchor = navigationRuntime.state.value.anchor ?? 'top';
         const rowRange = setVisibleRangeToPageRow(targetPage);
-        const didSnap = applySnapToMountedPage(targetPage, anchor, pagedNavigationTargetScrollOptions, { commitCurrentPage: true });
+        const didSnap = applySnapToMountedPage(
+            targetPage,
+            anchor,
+            pagedNavigationAuthority.getTargetScrollOptions(),
+            { commitCurrentPage: true },
+        );
         if (!didSnap && currentPage.value !== targetPage) {
             currentPage.value = targetPage;
             emitCurrentPage(targetPage);
@@ -1242,9 +1162,10 @@ export const usePdfSinglePageScroll = (
             runId,
             targetPage,
         } = beginPagedNavigation(pageNumber, PAGED_NAVIGATION_SETTLE_TIMEOUT_MS, anchor);
+        const feedbackState = pagedNavigationAuthority.getFeedbackState();
         if (
-            navigationFeedbackState.page !== null
-            && navigationFeedbackState.runId !== runId
+            feedbackState.page !== null
+            && feedbackState.runId !== runId
         ) {
             clearNavigationFeedbackPage('paged-target-replaced');
         }
@@ -1934,7 +1855,7 @@ export const usePdfSinglePageScroll = (
 
         clearPagedNavigationPreparation(prepareRunId);
         const { runId } = setPagedNavigationTarget(targetPage, anchor);
-        pagedNavigationTargetScrollOptions = options;
+        pagedNavigationAuthority.setTargetScrollOptions(options);
 
         if (applySnapToMountedPage(targetPage, anchor, options, { commitCurrentPage: false })) {
             markPagedNavigationScrollApplied(runId, targetPage);
@@ -2434,7 +2355,7 @@ export const usePdfSinglePageScroll = (
         dispatchNavigationMachine({ type: 'DOCUMENT_CHANGED' });
         clearWheelAccumulator();
         clearPagedNavigationTarget();
-        pagedNavigationTargetScrollOptions = undefined;
+        pagedNavigationAuthority.clearTargetScrollOptions();
         clearNavigationFeedbackPage('continuous-scroll-state-reset');
         clearPagedNavigationHold();
         navigationEffects.clearSearchSettle();
@@ -2448,7 +2369,7 @@ export const usePdfSinglePageScroll = (
 
     tryOnScopeDispose(() => {
         isDisposed = true;
-        pagedNavigationTargetScrollOptions = undefined;
+        pagedNavigationAuthority.clearTargetScrollOptions();
         clearNavigationFeedbackPage('scope-dispose');
         clearPagedNavigationHold();
         clearProgrammaticNavigationReleaseTimer();

@@ -140,7 +140,43 @@ describe('createNavigationSettleEffects', () => {
                 'ready:11:4:20',
             ]);
 
-            vi.advanceTimersByTime(30);
+            vi.advanceTimersByTime(9);
+            expect(events).toEqual([
+                'ready:11:4:10',
+                'ready:11:4:20',
+            ]);
+
+            vi.advanceTimersByTime(1);
+            expect(events).toEqual([
+                'ready:11:4:10',
+                'ready:11:4:20',
+                'recovery:11:4:30',
+            ]);
+
+            vi.advanceTimersByTime(9);
+            expect(events).toEqual([
+                'ready:11:4:10',
+                'ready:11:4:20',
+                'recovery:11:4:30',
+            ]);
+
+            vi.advanceTimersByTime(1);
+            expect(events).toEqual([
+                'ready:11:4:10',
+                'ready:11:4:20',
+                'recovery:11:4:30',
+                'abandon:11:4:40',
+            ]);
+
+            vi.advanceTimersByTime(9);
+            expect(events).toEqual([
+                'ready:11:4:10',
+                'ready:11:4:20',
+                'recovery:11:4:30',
+                'abandon:11:4:40',
+            ]);
+
+            vi.advanceTimersByTime(1);
             expect(events).toEqual([
                 'ready:11:4:10',
                 'ready:11:4:20',
@@ -190,6 +226,248 @@ describe('createNavigationSettleEffects', () => {
                 'abandon:3',
                 'waiting:3',
             ]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('runs and replaces paged and search settle timers deterministically', () => {
+        vi.useFakeTimers();
+        try {
+            const events: string[] = [];
+            const effects = createNavigationSettleEffects({
+                getLayoutObserverElements: () => [],
+                hasLayoutMutation: () => false,
+                onLayoutReapply: vi.fn(),
+            });
+            const onPagedSettle = (runId: number, pageNumber: number) => {
+                events.push(`paged:${runId}:${pageNumber}`);
+            };
+            const onSearchSettle = () => {
+                events.push('search');
+            };
+
+            effects.armPagedSettle(1, 4, 25, onPagedSettle);
+            vi.advanceTimersByTime(24);
+            expect(events).toEqual([]);
+
+            vi.advanceTimersByTime(1);
+            expect(events).toEqual(['paged:1:4']);
+
+            vi.advanceTimersByTime(25);
+            expect(events).toEqual(['paged:1:4']);
+
+            effects.armPagedSettle(2, 5, 25, onPagedSettle);
+            effects.armPagedSettle(3, 6, 30, onPagedSettle);
+            vi.advanceTimersByTime(29);
+            expect(events).toEqual(['paged:1:4']);
+
+            vi.advanceTimersByTime(1);
+            expect(events).toEqual([
+                'paged:1:4',
+                'paged:3:6',
+            ]);
+
+            effects.armPagedSettle(4, 7, 10, onPagedSettle);
+            effects.clearPagedSettle();
+            vi.advanceTimersByTime(10);
+            expect(events).toEqual([
+                'paged:1:4',
+                'paged:3:6',
+            ]);
+
+            effects.armSearchSettle(15, onSearchSettle);
+            vi.advanceTimersByTime(14);
+            expect(events).toEqual([
+                'paged:1:4',
+                'paged:3:6',
+            ]);
+
+            vi.advanceTimersByTime(1);
+            expect(events).toEqual([
+                'paged:1:4',
+                'paged:3:6',
+                'search',
+            ]);
+
+            effects.armSearchSettle(10, () => events.push('stale-search'));
+            effects.armSearchSettle(20, () => events.push('latest-search'));
+            vi.advanceTimersByTime(19);
+            expect(events).toEqual([
+                'paged:1:4',
+                'paged:3:6',
+                'search',
+            ]);
+
+            vi.advanceTimersByTime(1);
+            expect(events).toEqual([
+                'paged:1:4',
+                'paged:3:6',
+                'search',
+                'latest-search',
+            ]);
+
+            effects.armSearchSettle(10, () => events.push('cleared-search'));
+            effects.clearSearchSettle();
+            vi.advanceTimersByTime(10);
+            expect(events).toEqual([
+                'paged:1:4',
+                'paged:3:6',
+                'search',
+                'latest-search',
+            ]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('tracks continuous render timers until each configured delay fires', () => {
+        vi.useFakeTimers();
+        try {
+            const events: string[] = [];
+            const effects = createNavigationSettleEffects({
+                getLayoutObserverElements: () => [],
+                hasLayoutMutation: () => false,
+                onLayoutReapply: vi.fn(),
+            });
+
+            effects.armContinuousRender([
+                10,
+                30,
+            ], delayMs => events.push(`render:${delayMs}`));
+
+            expect(effects.hasContinuousRenderTimers()).toBe(true);
+            vi.advanceTimersByTime(9);
+            expect(events).toEqual([]);
+            expect(effects.hasContinuousRenderTimers()).toBe(true);
+
+            vi.advanceTimersByTime(1);
+            expect(events).toEqual(['render:10']);
+            expect(effects.hasContinuousRenderTimers()).toBe(true);
+
+            vi.advanceTimersByTime(19);
+            expect(events).toEqual(['render:10']);
+            expect(effects.hasContinuousRenderTimers()).toBe(true);
+
+            vi.advanceTimersByTime(1);
+            expect(events).toEqual([
+                'render:10',
+                'render:30',
+            ]);
+            expect(effects.hasContinuousRenderTimers()).toBe(false);
+
+            effects.armContinuousRender([10], () => events.push('stale-render'));
+            effects.armContinuousRender([20], () => events.push('latest-render'));
+            vi.advanceTimersByTime(19);
+            expect(events).toEqual([
+                'render:10',
+                'render:30',
+            ]);
+            expect(effects.hasContinuousRenderTimers()).toBe(true);
+
+            vi.advanceTimersByTime(1);
+            expect(events).toEqual([
+                'render:10',
+                'render:30',
+                'latest-render',
+            ]);
+            expect(effects.hasContinuousRenderTimers()).toBe(false);
+
+            effects.armContinuousRender([10], () => events.push('cleared-render'));
+            expect(effects.hasContinuousRenderTimers()).toBe(true);
+            effects.clearContinuousRenderTimers();
+            expect(effects.hasContinuousRenderTimers()).toBe(false);
+            vi.advanceTimersByTime(10);
+            expect(events).toEqual([
+                'render:10',
+                'render:30',
+                'latest-render',
+            ]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('runs, replaces, and clears the continuous target fallback timer', () => {
+        vi.useFakeTimers();
+        try {
+            const events: string[] = [];
+            const effects = createNavigationSettleEffects({
+                getLayoutObserverElements: () => [],
+                hasLayoutMutation: () => false,
+                onLayoutReapply: vi.fn(),
+            });
+
+            effects.armContinuousTargetFallback(25, () => events.push('first'));
+            vi.advanceTimersByTime(24);
+            expect(events).toEqual([]);
+
+            vi.advanceTimersByTime(1);
+            expect(events).toEqual(['first']);
+
+            vi.advanceTimersByTime(25);
+            expect(events).toEqual(['first']);
+
+            effects.armContinuousTargetFallback(10, () => events.push('stale'));
+            effects.armContinuousTargetFallback(20, () => events.push('latest'));
+            vi.advanceTimersByTime(19);
+            expect(events).toEqual(['first']);
+
+            vi.advanceTimersByTime(1);
+            expect(events).toEqual([
+                'first',
+                'latest',
+            ]);
+
+            effects.armContinuousTargetFallback(10, () => events.push('cleared'));
+            effects.clearContinuousTargetFallback();
+            vi.advanceTimersByTime(10);
+            expect(events).toEqual([
+                'first',
+                'latest',
+            ]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('disposeAll clears every pending navigation timer family', () => {
+        vi.useFakeTimers();
+        try {
+            const events: string[] = [];
+            const effects = createNavigationSettleEffects({
+                getLayoutObserverElements: () => [],
+                hasLayoutMutation: () => false,
+                onLayoutReapply: vi.fn(),
+            });
+
+            effects.armPagedSettle(1, 2, 10, () => events.push('paged-settle'));
+            effects.armSearchSettle(20, () => events.push('search-settle'));
+            effects.armContinuousRender([
+                30,
+                40,
+            ], () => events.push('continuous-render'));
+            effects.armContinuousTargetFallback(50, () => events.push('continuous-fallback'));
+            effects.armPagedHoldWatchdog({
+                runId: 9,
+                targetPage: 4,
+                readyRetryDelaysMs: [10],
+                recoveryRenderMs: 20,
+                abandonMs: 30,
+                stallLogMs: 40,
+                onReadyRetry: () => events.push('watchdog-ready'),
+                onRecovery: () => events.push('watchdog-recovery'),
+                onAbandon: () => events.push('watchdog-abandon'),
+                onStillWaiting: () => events.push('watchdog-waiting'),
+            });
+
+            expect(effects.hasContinuousRenderTimers()).toBe(true);
+
+            effects.disposeAll();
+
+            expect(effects.hasContinuousRenderTimers()).toBe(false);
+            vi.advanceTimersByTime(50);
+            expect(events).toEqual([]);
         } finally {
             vi.useRealTimers();
         }

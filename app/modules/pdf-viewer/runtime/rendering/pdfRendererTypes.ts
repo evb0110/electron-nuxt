@@ -1,3 +1,5 @@
+export type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/renderVisiblePagesOptions';
+
 export interface ICancelableRenderTask {
     cancel: () => void;
     promise: Promise<unknown>;
@@ -18,13 +20,3 @@ export interface IActivePdfTextLayerTask {
 export type TPdfTextLayerCleanup = () => void;
 
 export type TClearSelectionBeforePageLayerTeardown = (pageNumber: number) => boolean;
-
-export interface IRenderVisiblePagesOptions {
-    preserveRenderedPages?: boolean;
-    bufferOverride?: number;
-    forceRerender?: boolean;
-    maxCanvasPixelsOverride?: number;
-    markRenderedPageStale?: boolean;
-    preserveInFlightRequiredPages?: boolean;
-    prioritizeTextLayer?: boolean;
-}

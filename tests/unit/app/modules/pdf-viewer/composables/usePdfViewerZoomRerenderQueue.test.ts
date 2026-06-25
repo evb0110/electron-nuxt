@@ -13,6 +13,8 @@ import { usePdfViewerZoomRerenderQueue } from '@app/modules/pdf-viewer/runtime/c
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import { cast } from '@tests/helpers/cast';
 
+type TQueueOptions = Parameters<typeof usePdfViewerZoomRerenderQueue>[0];
+
 function createViewerMetrics() {
     return {
         scrollTop: 0,
@@ -24,31 +26,47 @@ function createViewerMetrics() {
     };
 }
 
-function createQueueHarness() {
+function createResizeAnchor(page: number, transitionToken = page) {
+    return {
+        capturedAtMs: Date.now(),
+        page,
+        transitionToken,
+        snapshot: null,
+        visibleRange: {
+            start: page,
+            end: page,
+        },
+        viewerMetrics: createViewerMetrics(),
+    };
+}
+
+async function flushQueuedRerenderFrame() {
+    await vi.advanceTimersByTimeAsync(16);
+    await Promise.resolve();
+    await Promise.resolve();
+}
+
+function createQueueHarness(overrides: Partial<TQueueOptions> = {}) {
     const scheduleEndResizeTransition = vi.fn();
+    const reRenderVisiblePagesAndSyncCurrentPage = vi.fn<TQueueOptions['reRenderVisiblePagesAndSyncCurrentPage']>(async () => {});
+    const setZoomRerenderBusy = vi.fn();
     const queue = usePdfViewerZoomRerenderQueue({
         pdfDocument: shallowRef<PDFDocumentProxy | null>(cast<PDFDocumentProxy>({ fingerprint: 'doc' })),
         isLoading: ref(false),
         viewerContainer: ref(null),
         summarizeViewerMetricsForLog: () => ({}),
-        reRenderVisiblePagesAndSyncCurrentPage: vi.fn(async () => {}),
-        buildResizeAnchorContext: () => ({
-            capturedAtMs: Date.now(),
-            page: 2,
-            transitionToken: 41,
-            snapshot: null,
-            visibleRange: {
-                start: 2,
-                end: 2,
-            },
-            viewerMetrics: createViewerMetrics(),
-        }),
+        reRenderVisiblePagesAndSyncCurrentPage,
+        buildResizeAnchorContext: () => createResizeAnchor(2, 41),
         scheduleEndResizeTransition,
         isZoomInteractionLocked: () => true,
+        setZoomRerenderBusy,
+        ...overrides,
     });
     return {
         queue,
-        scheduleEndResizeTransition,
+        reRenderVisiblePagesAndSyncCurrentPage,
+        scheduleEndResizeTransition: overrides.scheduleEndResizeTransition ?? scheduleEndResizeTransition,
+        setZoomRerenderBusy,
     };
 }
 
@@ -101,5 +119,69 @@ describe('usePdfViewerZoomRerenderQueue', () => {
             2,
         );
         queue.cleanupZoomRerenderQueue();
+    });
+
+    it('defers locked gesture rerenders and drains only the latest pending sync options', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(1_000);
+        const reRenderVisiblePagesAndSyncCurrentPage = vi.fn<TQueueOptions['reRenderVisiblePagesAndSyncCurrentPage']>(async () => {});
+        const isZoomInteractionLocked = true;
+        const {
+            queue,
+            setZoomRerenderBusy,
+        } = createQueueHarness({
+            reRenderVisiblePagesAndSyncCurrentPage,
+            isZoomInteractionLocked: () => isZoomInteractionLocked,
+        });
+
+        try {
+            queue.enqueueZoomSync({
+                source: 'zoom-gesture-change',
+                resizeAnchor: createResizeAnchor(1),
+            });
+
+            await flushQueuedRerenderFrame();
+
+            expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledOnce();
+            expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    source: 'zoom-gesture-change',
+                    resizeAnchor: expect.objectContaining({ page: 1 }),
+                }),
+            );
+
+            vi.advanceTimersByTime(50);
+            queue.enqueueZoomSync({
+                source: 'zoom-gesture-change',
+                resizeAnchor: createResizeAnchor(2),
+            });
+            queue.enqueueZoomSync({
+                source: 'zoom-change',
+                resizeAnchor: createResizeAnchor(3),
+            });
+
+            await vi.advanceTimersByTimeAsync(79);
+            expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledOnce();
+
+            await vi.advanceTimersByTimeAsync(1);
+            expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledOnce();
+
+            await flushQueuedRerenderFrame();
+
+            expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledTimes(2);
+            expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    source: 'zoom-change',
+                    resizeAnchor: expect.objectContaining({ page: 3 }),
+                }),
+            );
+            expect(reRenderVisiblePagesAndSyncCurrentPage.mock.calls.some(([syncOptions]) => (
+                syncOptions?.resizeAnchor?.page === 2
+            ))).toBe(false);
+            expect(setZoomRerenderBusy).toHaveBeenCalledWith(true);
+            expect(setZoomRerenderBusy).toHaveBeenLastCalledWith(false);
+        } finally {
+            queue.cleanupZoomRerenderQueue();
+        }
     });
 });

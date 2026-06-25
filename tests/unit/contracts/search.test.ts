@@ -3,6 +3,8 @@ import {
     expect,
     it,
 } from 'vitest';
+import { readFileSync } from 'fs';
+import { collectSearchMatchWords } from '@pdf-core';
 import {
     buildPdfSearchExcerpt,
     collapseRepeatedPdfSearchPageText,
@@ -143,5 +145,89 @@ describe('buildPdfSearchExcerpt', () => {
             match: 'target',
             after: ' gamma',
         });
+    });
+});
+
+interface ISearchConformanceExpectedMatch {
+    startOffset: number;
+    endOffset: number;
+    excerpt: ReturnType<typeof buildPdfSearchExcerpt>;
+}
+
+interface ISearchConformanceCase {
+    id: string;
+    text: string;
+    query: string;
+    options?: {
+        matchCase?: boolean;
+        wholeWord?: boolean;
+        useRegex?: boolean;
+    };
+    contextChars: number;
+    expectedMatches: ISearchConformanceExpectedMatch[];
+}
+
+interface ISearchConformanceGeometryCase {
+    pageWidth: number;
+    pageHeight: number;
+    words: Array<{
+        text: string;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    }>;
+    range: {
+        startOffset: number;
+        endOffset: number;
+    };
+    expectedWords: Array<{
+        text: string;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    }>;
+}
+
+interface ISearchConformanceCorpus {
+    spec: {offsetEncoding: string;};
+    cases: ISearchConformanceCase[];
+    geometryCase: ISearchConformanceGeometryCase;
+}
+
+const searchConformanceCorpus = JSON.parse(readFileSync(
+    new URL('../../../packages/contracts/searchConformanceCorpus.json', import.meta.url),
+    'utf8',
+)) as ISearchConformanceCorpus;
+
+describe('search conformance corpus', () => {
+    it('documents UTF-16 as the normative search offset encoding', () => {
+        expect(searchConformanceCorpus.spec.offsetEncoding).toBe('utf-16');
+    });
+
+    it.each(searchConformanceCorpus.cases)('matches corpus case $id', (fixture) => {
+        const matches = findPdfSearchMatches(fixture.text, fixture.query, fixture.options);
+
+        expect(matches).toEqual(fixture.expectedMatches.map((match) => ({
+            startOffset: match.startOffset,
+            endOffset: match.endOffset,
+        })));
+        expect(matches.map(match => buildPdfSearchExcerpt(
+            fixture.text,
+            match.startOffset,
+            match.endOffset,
+            fixture.contextChars,
+        ))).toEqual(fixture.expectedMatches.map(match => match.excerpt));
+    });
+
+    it('attaches OCR geometry from the same UTF-16 match range', () => {
+        const fixture = searchConformanceCorpus.geometryCase;
+
+        expect(collectSearchMatchWords({
+            words: fixture.words,
+            pageWidth: fixture.pageWidth,
+            pageHeight: fixture.pageHeight,
+        }, fixture.range.startOffset, fixture.range.endOffset)).toEqual(fixture.expectedWords);
     });
 });

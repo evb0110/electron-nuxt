@@ -326,7 +326,7 @@ export function getEditorById(
     return asPdfjsEditor(uiManager.getEditor(id));
 }
 
-export function getStoredAnnotationEditor(
+export function getAnnotationStorageEditor(
     pdfDocument: IPdfjsDocumentWithAnnotationStorage | null,
     annotationElementId: string,
 ) {
@@ -362,7 +362,7 @@ export function syncEditorToAnnotationStorage(editor: IPdfjsEditor) {
     return true;
 }
 
-export function writeEditorCommentToAnnotationStorage(editor: IPdfjsEditor, text: string) {
+export function writeAnnotationStorageEditorComment(editor: IPdfjsEditor, text: string) {
     setEditorCommentText(editor, text);
     syncEditorToAnnotationStorage(editor);
 }

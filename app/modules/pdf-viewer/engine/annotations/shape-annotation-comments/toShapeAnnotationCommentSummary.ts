@@ -4,6 +4,7 @@ import type {
 } from '@app/types/annotations';
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 import { getShapeRect } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/getShapeRect';
+import { computeShapeCommentStableKey } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-identity/shapeAnnotationIdentity';
 
 function resolveShapeSubtype(shape: IShapeAnnotation) {
     if (shape.type === 'arrow') {
@@ -26,10 +27,9 @@ export function toShapeAnnotationCommentSummary(
     sortIndex: number | null = null,
 ): IAnnotationCommentSummary {
     const rect = getShapeRect(shape, { rectFallbackMinSize: 0.01 });
-    const sourceKey = shape.stableKey ?? shape.annotationId ?? shape.id;
     return {
         id: shape.id,
-        stableKey: `shape:${shape.pageIndex}:${sourceKey}`,
+        stableKey: computeShapeCommentStableKey(shape),
         sortIndex,
         pageIndex: shape.pageIndex,
         pageNumber: shape.pageIndex + 1,

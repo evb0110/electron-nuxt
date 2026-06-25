@@ -70,5 +70,5 @@ pdf-lib performs a full re-serialize when saving. Annotations that PDF.js added 
 | `app/modules/pdf-viewer/engine/serialization/pdf-serialization-free-text/applyNewFreeTextNoteAnnotations.ts` | Replays newly-created FreeText note markers |
 | `app/modules/pdf-viewer/engine/serialization/pdf-serialization-embedded-notes/applyEmbeddedNoteTextUpdates.ts` | Applies note text updates during full serialization |
 | `app/modules/pdf-viewer/engine/pdf-serialization-comments/updateAnnotationTextByRef.ts` | Writes note text to FreeText `/Contents` for targeted updates |
-| `app/modules/pdf-viewer/runtime/composables/pdf/annotations/useAnnotationSync.ts` | ZWS stripping when selecting text source |
-| `app/modules/pdf-viewer/runtime/composables/pdf/useAnnotationNoteWindows.ts` | ZWS stripping in stale-empty-sync guard |
+| `app/modules/pdf-viewer/runtime/annotations/useAnnotationSync.ts` | ZWS stripping when selecting text source |
+| `app/modules/workspace-shell/composables/useAnnotationNoteWindows.ts` | ZWS stripping in stale-empty-sync guard |

@@ -3,6 +3,7 @@ import {
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
+import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
 import { normalizeAnnotationSubtypeToken } from '@app/utils/textNormalization';
 import type {
     IPdfNativeFreeTextNote,
@@ -24,8 +25,7 @@ const NATIVE_NOTE_TEXT_UPDATE_SUBTYPES = new Set([
 ]);
 
 function parseAnnotationRefFromStableKey(stableKey: string) {
-    const match = stableKey.trim().match(/^ann:\d+:(\d+R(?:\d+)?)$/iu);
-    return parsePdfJsAnnotationRef(match?.[1]);
+    return parsePdfAnnotationStableKeyRef(stableKey)?.ref ?? null;
 }
 
 function resolveNativeNoteTextUpdateRef(stableKey: string, comment: IAnnotationCommentSummary) {

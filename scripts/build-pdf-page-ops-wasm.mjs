@@ -6,54 +6,42 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+    appendRustflags,
+    getWasmArtifactByCrateName,
+    WASM_TARGET,
+} from './wasm-artifacts.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const target = 'wasm32-unknown-unknown';
+const artifact = getWasmArtifactByCrateName('pdf-page-ops');
 const sourcePath = path.join(
     projectRoot,
     'native',
-    'pdf-page-ops',
+    artifact.crateName,
     'target',
-    target,
+    WASM_TARGET,
     'release',
-    'evb_pdf_page_ops.wasm',
+    artifact.builtFileName,
 );
-const destinationPath = path.join(
-    projectRoot,
-    'public',
-    'wasm',
-    'evb-pdf-page-ops.wasm',
-);
-const requiredExports = [
-    'memory',
-    'evb_pdf_page_ops_alloc',
-    'evb_pdf_page_ops_free',
-    'evb_pdf_page_ops_run',
-    'evb_pdf_page_ops_output_ptr',
-    'evb_pdf_page_ops_output_len',
-    'evb_pdf_page_ops_error_ptr',
-    'evb_pdf_page_ops_error_len',
-];
+const destinationPath = path.join(projectRoot, artifact.publicRelativePath);
 
 const cargoArgs = [
     'build',
     '--manifest-path',
-    'native/pdf-page-ops/Cargo.toml',
+    artifact.manifestPath,
     '--release',
     '--locked',
     '--target',
-    target,
+    WASM_TARGET,
     '--lib',
 ];
 
+const rustflags = appendRustflags(process.env, artifact.rustflags);
 const result = spawnSync('cargo', cargoArgs, {
     cwd: projectRoot,
     env: {
         ...process.env,
-        RUSTFLAGS: [
-            process.env.RUSTFLAGS,
-            '--cfg getrandom_backend="custom"',
-        ].filter(Boolean).join(' '),
+        ...(rustflags ? {RUSTFLAGS: rustflags} : {}),
     },
     stdio: 'inherit',
 });
@@ -67,7 +55,7 @@ await copyFile(sourcePath, destinationPath);
 const wasmBytes = await readFile(destinationPath);
 const wasmModule = new WebAssembly.Module(wasmBytes);
 const exportNames = new Set(WebAssembly.Module.exports(wasmModule).map(entry => entry.name));
-const missingExports = requiredExports.filter(name => !exportNames.has(name));
+const missingExports = artifact.requiredExports.filter(name => !exportNames.has(name));
 if (missingExports.length > 0) {
     throw new Error(`PDF page ops WASM is missing exports: ${missingExports.join(', ')}`);
 }

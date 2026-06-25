@@ -1,10 +1,7 @@
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { cloneShape } from '@app/modules/pdf-viewer/engine/shapes/cloneShape';
-
-export interface IPdfAppAnnotationHistoryCommand {
-    cmd: () => void;
-    undo: () => void;
-}
+import type { IPdfAppAnnotationHistoryCommand } from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
+export type { IPdfAppAnnotationHistoryCommand } from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
 
 function cloneShapeForHistoryComparison(shape: IShapeAnnotation) {
     const {

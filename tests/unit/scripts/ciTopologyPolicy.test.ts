@@ -119,10 +119,9 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('name: Push Quality Gates');
         expect(workflowJob(workflow, 'push_quality')).toContain('run: rustup target add wasm32-unknown-unknown');
         expect(workflowJob(workflow, 'push_quality')).toContain('run: pnpm run check:wasm:portable');
-        expect(workflow).toContain('run: pnpm run lint');
-        expect(workflow).toContain('run: pnpm run typecheck');
-        expect(workflow).toContain('run: pnpm run test:release');
-        expect(workflowJob(workflow, 'push_quality')).not.toContain('run: pnpm run test:coverage');
+        expect(workflowJob(workflow, 'push_quality')).toContain('run: pnpm run validate');
+        expect(workflowJob(workflow, 'push_quality')).toContain('run: pnpm run test:coverage');
+        expect(workflowJob(workflow, 'push_quality')).toContain('run: pnpm run test:release');
         expect(releaseWorkflow).not.toContain('test:coverage');
         expect(packageJson).not.toMatch(/"gate:commit":\s*"[^"]*coverage/u);
     });
@@ -244,6 +243,8 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('continue-on-error: true');
         expect(workflow).toContain('EVB_E2E_REQUIRE_DJVU_FIXTURE: \'1\'');
         expect(workflow).toContain('run: pnpm run test:e2e:electron');
+        expect(workflow).toContain('name: Nightly Electron E2E Rapid Navigation');
+        expect(workflow).toMatch(/nightly_electron_e2e_rapid_navigation:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run test:e2e:electron:rapid-navigation/u);
         expect(workflow).toContain('name: Nightly Electron E2E Quarantine');
         expect(workflow).toContain('run: pnpm run test:e2e:electron:quarantine');
         expect(workflow).toContain('name: Nightly PDF Tab Diagnostics');

@@ -5,7 +5,31 @@ import {
     it,
     vi,
 } from 'vitest';
+import { readFileSync } from 'fs';
+import { buildPdfSearchExcerpt } from '@contracts/search';
 import { cast } from '@tests/helpers/cast';
+
+interface ISearchConformanceCase {
+    id: string;
+    text: string;
+    query: string;
+    options?: {
+        matchCase?: boolean;
+        wholeWord?: boolean;
+        useRegex?: boolean;
+    };
+    expectedMatches: Array<{
+        startOffset: number;
+        endOffset: number;
+    }>;
+}
+
+interface ISearchConformanceCorpus {cases: ISearchConformanceCase[];}
+
+const searchConformanceCorpus = JSON.parse(readFileSync(
+    new URL('../../../../packages/contracts/searchConformanceCorpus.json', import.meta.url),
+    'utf8',
+)) as ISearchConformanceCorpus;
 
 class FakeIdbRequest<T> {
     public result!: T;
@@ -346,6 +370,46 @@ describe('createBrowserSearchCapability', () => {
         expect(result.results).toEqual([expect.objectContaining({ pageNumber: 1 })]);
         expect(pdfjsModule.getDocument).toHaveBeenCalledOnce();
         expect(getPage).toHaveBeenCalledOnce();
+    });
+
+    it.each(searchConformanceCorpus.cases)('matches the shared conformance corpus case $id in the browser capability', async (fixture) => {
+        const pdfPath = `browser://documents/test/${fixture.id}.pdf`;
+        const getPage = vi.fn(async () => ({
+            getTextContent: vi.fn(async () => ({items: [{str: fixture.text}]})),
+            cleanup: vi.fn(async () => {}),
+        }));
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
+            numPages: 1,
+            getPage,
+            destroy: vi.fn(async () => {}),
+        }) });
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        browserDocumentStoreMock.getContentSignature.mockResolvedValue(`content-token-${fixture.id}`);
+
+        const { SEARCH_EXCERPT_CONTEXT_CHARS } = await import('@app/platform/browser-api/browserSearchLimits');
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
+        const { capability } = createBrowserSearchCapability();
+        const result = await capability.run(pdfPath, fixture.query, fixture.options);
+
+        expect(result.results.map(match => ({
+            startOffset: match.startOffset,
+            endOffset: match.endOffset,
+            excerpt: match.excerpt,
+        }))).toEqual(fixture.expectedMatches.map(match => ({
+            startOffset: match.startOffset,
+            endOffset: match.endOffset,
+            excerpt: buildPdfSearchExcerpt(
+                fixture.text,
+                match.startOffset,
+                match.endOffset,
+                SEARCH_EXCERPT_CONTEXT_CHARS,
+            ),
+        })));
     });
 
     it('attaches pdfjs operator-list geometry to browser search results', async () => {

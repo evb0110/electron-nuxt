@@ -1,11 +1,13 @@
 import type { Worker } from 'worker_threads';
 import type { IOcrSearchablePdfOptions } from '@contracts/electronApiOcr';
+import type { TOcrJobLifecycleState } from '@electron/ocr/ocrJobLifecycle';
 import type {
     IOcrPdfPageRequest,
     TOcrWorkerCompleteResult,
 } from '@electron/ocr/worker/types';
 
-export interface IOcrQueuedJob {
+export interface IOcrQueuedJob<TState extends TOcrJobLifecycleState = TOcrJobLifecycleState> {
+    lifecycleState: TState;
     scopedJobId: string;
     requestId: string;
     webContentsId: number;
@@ -17,6 +19,7 @@ export interface IOcrQueuedJob {
 }
 
 export interface IOcrPreparingJob {
+    lifecycleState: 'preparing' | 'cancelling';
     scopedJobId: string;
     requestId: string;
     webContentsId: number;
@@ -25,7 +28,7 @@ export interface IOcrPreparingJob {
     abortController: AbortController;
 }
 
-export interface IOcrActiveJob extends IOcrQueuedJob {
+export interface IOcrActiveJob extends IOcrQueuedJob<'active' | 'cancelling' | 'terminal-result-sent'> {
     worker: Worker;
     completed: boolean;
     terminatedByUs: boolean;

@@ -14,14 +14,22 @@ import {
 } from '@contracts/nativePdfMutations';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
+    PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,
+    PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES,
+    PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS,
+    PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS,
+    SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
+    createPdfPersistenceChunkFrame,
+    createPdfPersistenceCompleteFrame,
+    getPdfPersistenceErrorMessage,
+    isSerializedPdfPersistenceLimits,
+    parsePdfPersistenceMainToPreloadFrame,
+    type IPdfPersistenceErrorFrame,
+} from '@contracts/documentPersistenceFrames';
+import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
-import {
-    SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
-    type TPdfPersistenceErrorCode,
-    type TPdfPersistenceErrorPhase,
-} from '@electron/features/documents/serializedPdfPersistenceContract';
 import { createTypedIpcInvoker } from '@electron/preload/ipcClient';
 import {
     assertAbsolutePath,
@@ -33,26 +41,11 @@ import {
 } from '@electron/features/documents/preloadShared';
 
 type TDocumentsPreloadFileClient = Omit<IDocumentsFileCapability, 'getPathForFile' | 'getPathsForFiles'>;
-const PDF_PERSISTENCE_CHUNK_BYTES = 8 * 1024 * 1024;
-const PDF_PERSISTENCE_MAX_IN_FLIGHT_CHUNKS = 2;
+const PDF_PERSISTENCE_CHUNK_BYTES = PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES;
+const PDF_PERSISTENCE_MAX_IN_FLIGHT_CHUNKS = PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS;
 const PDF_PERSISTENCE_READY_TIMEOUT_MS = 10_000;
-const PDF_PERSISTENCE_ACK_TIMEOUT_MS = 60_000;
-const PDF_PERSISTENCE_RESULT_TIMEOUT_MS = 10 * 60_000;
-const PDF_PERSISTENCE_ERROR_CODES = new Set<TPdfPersistenceErrorCode>([
-    'CANCELED',
-    'PROTOCOL_ERROR',
-    'ACK_TIMEOUT',
-    'COMMIT_FAILED',
-    'WORKING_COPY_SYNC_WARNING',
-    'UNKNOWN',
-]);
-const PDF_PERSISTENCE_ERROR_PHASES = new Set<TPdfPersistenceErrorPhase>([
-    'streaming',
-    'ack',
-    'complete',
-    'commit',
-    'cancel',
-]);
+const PDF_PERSISTENCE_ACK_TIMEOUT_MS = PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS;
+const PDF_PERSISTENCE_RESULT_TIMEOUT_MS = PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS;
 const PDF_OPTIMIZE_PRESETS = new Set<IPdfOptimizeOptions['preset']>([
     'lossless',
     'balancedScanned',
@@ -65,52 +58,22 @@ interface ISerializedPdfPersistencePortResult {
     validation: Awaited<ReturnType<IDocumentsFileCapability['validatePdfData']>>;
 }
 
-type TPdfValidationResult = ISerializedPdfPersistencePortResult['validation'];
 type TDocumentChunkSource = Parameters<IDocumentsFileCapability['savePdfDataChunks']>[2];
 
-interface IPdfPersistenceResultMessage {
-    type: 'result';
-    path: string | null;
-    validation: TPdfValidationResult;
-}
-
-interface IPdfPersistenceErrorMessage {
-    type: 'error';
-    error?: string;
-    code?: TPdfPersistenceErrorCode;
-    phase?: TPdfPersistenceErrorPhase;
-    retryable?: boolean;
-    expected?: boolean;
-    seq?: number;
-}
-
-interface IPdfPersistenceReadyMessage {type: 'ready';}
-
-interface IPdfPersistenceAckMessage {
-    type: 'ack';
-    seq: number;
-}
-
-type TPdfPersistenceMessage =
-    | IPdfPersistenceResultMessage
-    | IPdfPersistenceErrorMessage
-    | IPdfPersistenceReadyMessage
-    | IPdfPersistenceAckMessage;
-
 class PdfPersistenceError extends Error {
-    readonly code: TPdfPersistenceErrorCode;
-    readonly phase: TPdfPersistenceErrorPhase;
+    readonly code: IPdfPersistenceErrorFrame['code'];
+    readonly phase: IPdfPersistenceErrorFrame['phase'];
     readonly retryable: boolean;
     readonly expected: boolean;
     readonly seq: number | undefined;
 
-    constructor(payload: IPdfPersistenceErrorMessage) {
+    constructor(payload: IPdfPersistenceErrorFrame) {
         super(getPdfPersistenceErrorMessage(payload));
         this.name = 'PdfPersistenceError';
-        this.code = payload.code ?? 'UNKNOWN';
-        this.phase = payload.phase ?? 'streaming';
-        this.retryable = payload.retryable ?? false;
-        this.expected = payload.expected ?? false;
+        this.code = payload.code;
+        this.phase = payload.phase;
+        this.retryable = payload.retryable;
+        this.expected = payload.expected;
         this.seq = payload.seq;
     }
 }
@@ -202,92 +165,6 @@ function* iterateUint8ArrayChunks(data: Uint8Array) {
     }
 }
 
-function isPdfValidationResult(value: unknown): value is TPdfValidationResult {
-    return isRecord(value)
-        && typeof value.isValid === 'boolean'
-        && (value.tool === 'qpdf' || value.tool === 'browser' || value.tool === 'native')
-        && Array.isArray(value.errors)
-        && value.errors.every(error => typeof error === 'string')
-        && Array.isArray(value.warnings)
-        && value.warnings.every(warning => typeof warning === 'string');
-}
-
-function isPersistenceProtocolLimits(value: unknown): value is {
-    protocolVersion: number;
-    maxChunkBytes: number;
-    maxInFlightChunks: number;
-    maxTotalBytes: number;
-    ackTimeoutMs: number;
-    resultTimeoutMs: number;
-} {
-    return isRecord(value)
-        && value.protocolVersion === SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION
-        && typeof value.maxChunkBytes === 'number'
-        && Number.isSafeInteger(value.maxChunkBytes)
-        && value.maxChunkBytes > 0
-        && typeof value.maxInFlightChunks === 'number'
-        && Number.isSafeInteger(value.maxInFlightChunks)
-        && value.maxInFlightChunks > 0
-        && typeof value.maxTotalBytes === 'number'
-        && Number.isSafeInteger(value.maxTotalBytes)
-        && value.maxTotalBytes > 0
-        && typeof value.ackTimeoutMs === 'number'
-        && Number.isSafeInteger(value.ackTimeoutMs)
-        && value.ackTimeoutMs > 0
-        && typeof value.resultTimeoutMs === 'number'
-        && Number.isSafeInteger(value.resultTimeoutMs)
-        && value.resultTimeoutMs > 0;
-}
-
-function parsePdfPersistenceMessage(value: unknown): TPdfPersistenceMessage | null {
-    if (!isRecord(value) || typeof value.type !== 'string') {
-        return null;
-    }
-    if (value.type === 'result' && isPdfValidationResult(value.validation)) {
-        return {
-            type: 'result',
-            path: typeof value.path === 'string' ? value.path : null,
-            validation: value.validation,
-        };
-    }
-    if (value.type === 'error') {
-        const errorMessage: IPdfPersistenceErrorMessage = {type: 'error'};
-        if (typeof value.error === 'string') {
-            errorMessage.error = value.error;
-        }
-        if (typeof value.code === 'string' && PDF_PERSISTENCE_ERROR_CODES.has(value.code as TPdfPersistenceErrorCode)) {
-            errorMessage.code = value.code as TPdfPersistenceErrorCode;
-        }
-        if (typeof value.phase === 'string' && PDF_PERSISTENCE_ERROR_PHASES.has(value.phase as TPdfPersistenceErrorPhase)) {
-            errorMessage.phase = value.phase as TPdfPersistenceErrorPhase;
-        }
-        if (typeof value.retryable === 'boolean') {
-            errorMessage.retryable = value.retryable;
-        }
-        if (typeof value.expected === 'boolean') {
-            errorMessage.expected = value.expected;
-        }
-        if (typeof value.seq === 'number' && Number.isSafeInteger(value.seq)) {
-            errorMessage.seq = value.seq;
-        }
-        return errorMessage;
-    }
-    if (value.type === 'ready') {
-        return {type: 'ready'};
-    }
-    if (value.type === 'ack' && typeof value.seq === 'number') {
-        return {
-            type: 'ack',
-            seq: value.seq,
-        };
-    }
-    return null;
-}
-
-function getPdfPersistenceErrorMessage(payload: IPdfPersistenceErrorMessage) {
-    return typeof payload.error === 'string' ? payload.error : 'PDF persistence failed';
-}
-
 function assertPersistenceProtocolLimits(value: unknown) {
     if (isRecord(value) && typeof value.sessionId === 'string' && value.protocolVersion === undefined) {
         return {
@@ -299,7 +176,7 @@ function assertPersistenceProtocolLimits(value: unknown) {
             resultTimeoutMs: PDF_PERSISTENCE_RESULT_TIMEOUT_MS,
         };
     }
-    if (!isPersistenceProtocolLimits(value)) {
+    if (!isSerializedPdfPersistenceLimits(value)) {
         throw new Error('Unsupported PDF persistence protocol');
     }
     return value;
@@ -316,7 +193,7 @@ function waitForPortStreamResult(port: MessagePort) {
             reject(new Error('PDF persistence port did not return a final result'));
         }, PDF_PERSISTENCE_RESULT_TIMEOUT_MS);
         const handleMessage = (event: MessageEvent<unknown>) => {
-            const payload = parsePdfPersistenceMessage(event.data);
+            const payload = parsePdfPersistenceMainToPreloadFrame(event.data);
             if (!payload) {
                 return;
             }
@@ -344,7 +221,7 @@ function waitForPortReady(port: MessagePort) {
             reject(new Error('PDF persistence port did not become ready'));
         }, PDF_PERSISTENCE_READY_TIMEOUT_MS);
         const handleMessage = (event: MessageEvent<unknown>) => {
-            const payload = parsePdfPersistenceMessage(event.data);
+            const payload = parsePdfPersistenceMainToPreloadFrame(event.data);
             if (!payload) {
                 return;
             }
@@ -371,7 +248,7 @@ function waitForPortAck(port: MessagePort, expectedSeq: number) {
             reject(new Error(`PDF persistence chunk ${expectedSeq} was not acknowledged`));
         }, PDF_PERSISTENCE_ACK_TIMEOUT_MS);
         const handleMessage = (event: MessageEvent<unknown>) => {
-            const payload = parsePdfPersistenceMessage(event.data);
+            const payload = parsePdfPersistenceMainToPreloadFrame(event.data);
             if (!payload) {
                 return;
             }
@@ -419,11 +296,7 @@ async function streamPdfBytesToPersistencePort(
             }
             // Electron's main-process MessagePort only transfers ports here; transferring the
             // ArrayBuffer drops the structured-clone payload before MessagePortMain receives it.
-            channel.port1.postMessage({
-                type: 'chunk',
-                seq,
-                bytes,
-            });
+            channel.port1.postMessage(createPdfPersistenceChunkFrame(seq, bytes));
             inFlightAcks.push(waitForPortAck(channel.port1, seq));
             if (inFlightAcks.length >= limits.maxInFlightChunks) {
                 await inFlightAcks.shift();
@@ -435,7 +308,7 @@ async function streamPdfBytesToPersistencePort(
         }
         await Promise.all(inFlightAcks);
 
-        channel.port1.postMessage({ type: 'complete' });
+        channel.port1.postMessage(createPdfPersistenceCompleteFrame());
         return await resultPromise;
     } finally {
         channel.port1.close();

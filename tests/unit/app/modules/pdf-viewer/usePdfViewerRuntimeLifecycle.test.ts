@@ -331,7 +331,13 @@ describe('usePdfViewerRuntimeLifecycle inactive lifecycle', () => {
     });
 
     it('cleans inactive PDF document caches after rendered pages are released', async () => {
-        const cleanupPdfCaches = vi.fn(async () => undefined);
+        const cleanupOrder: string[] = [];
+        lifecycleMocks.cleanupRenderedPages.mockImplementationOnce(() => {
+            cleanupOrder.push('rendered-pages');
+        });
+        const cleanupPdfCaches = vi.fn(async () => {
+            cleanupOrder.push('document-caches');
+        });
         const harness = mountCore({
             isActive: true,
             hasDocument: true,
@@ -345,6 +351,10 @@ describe('usePdfViewerRuntimeLifecycle inactive lifecycle', () => {
 
         expect(lifecycleMocks.cleanupRenderedPages).toHaveBeenCalledTimes(1);
         expect(cleanupPdfCaches).toHaveBeenCalledTimes(1);
+        expect(cleanupOrder).toEqual([
+            'rendered-pages',
+            'document-caches',
+        ]);
 
         harness.app.unmount();
     });

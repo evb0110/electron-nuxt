@@ -829,12 +829,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
                 ...(summaryUid !== undefined ? { uid: summaryUid } : {}),
             }),
         };
-        const candidateIds = [
-            normalizedSummary.annotationId,
-            normalizedSummary.uid,
-            normalizedSummary.id,
-        ].flatMap(id => typeof id === 'string' && id.length > 0 ? [id] : []);
-        const uniqueCandidateIds = uniq(candidateIds);
+        const uniqueCandidateIds = getCommentCandidateIds(normalizedSummary);
 
         const cached = annotationCommentsCache.value.find(
             c => c.pageIndex === match.pageIndex

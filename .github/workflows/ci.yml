@@ -107,14 +107,14 @@ jobs:
       - name: WASM portable build
         run: pnpm run check:wasm:portable
 
-      - name: Lint
-        run: pnpm run lint
-
-      - name: Typecheck
-        run: pnpm run typecheck
+      - name: Validate
+        run: pnpm run validate
 
       - name: Unit and integration tests
         run: pnpm run test:release
+
+      - name: Coverage
+        run: pnpm run test:coverage
 
   native_push:
     name: Native Rust Tests
@@ -277,6 +277,32 @@ jobs:
         env:
           EVB_E2E_REQUIRE_DJVU_FIXTURE: '1'
         run: pnpm run test:e2e:electron
+
+  nightly_electron_e2e_rapid_navigation:
+    name: Nightly Electron E2E Rapid Navigation
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: macos-14
+    continue-on-error: true
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Electron E2E rapid navigation
+        run: pnpm run test:e2e:electron:rapid-navigation
 
   nightly_electron_e2e_quarantine:
     name: Nightly Electron E2E Quarantine

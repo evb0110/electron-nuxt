@@ -1,38 +1,24 @@
-export const SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION = 1;
+import type { ISerializedPdfPersistenceLimits } from '@contracts/documentPersistenceFrames';
 
-export interface ISerializedPdfPersistenceLimits {
-    protocolVersion: typeof SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION;
-    maxChunkBytes: number;
-    maxInFlightChunks: number;
-    maxTotalBytes: number;
-    ackTimeoutMs: number;
-    resultTimeoutMs: number;
-}
+export {
+    PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,
+    PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES,
+    PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS,
+    PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS,
+    SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
+    createPdfPersistenceAckFrame,
+    createPdfPersistenceErrorFrame,
+    createPdfPersistenceReadyFrame,
+    createPdfPersistenceResultFrame,
+    describePdfPersistenceMessage,
+    getPdfPersistenceChunkBytes,
+    normalizePdfPersistencePreloadToMainPayload,
+} from '@contracts/documentPersistenceFrames';
 
-export type TPdfPersistenceErrorCode =
-    | 'CANCELED'
-    | 'PROTOCOL_ERROR'
-    | 'ACK_TIMEOUT'
-    | 'COMMIT_FAILED'
-    | 'WORKING_COPY_SYNC_WARNING'
-    | 'UNKNOWN';
-
-export type TPdfPersistenceErrorPhase =
-    | 'streaming'
-    | 'ack'
-    | 'complete'
-    | 'commit'
-    | 'cancel';
-
-export interface IPdfPersistenceErrorFrame {
-    type: 'error';
-    code: TPdfPersistenceErrorCode;
-    phase: TPdfPersistenceErrorPhase;
-    retryable: boolean;
-    expected: boolean;
-    error: string;
-    seq?: number;
-}
+export type {
+    ISerializedPdfPersistenceLimits,
+    TPdfPersistenceErrorPhase,
+} from '@contracts/documentPersistenceFrames';
 
 export interface IBeginSerializedPdfPersistenceResult extends ISerializedPdfPersistenceLimits {sessionId: string;}
 

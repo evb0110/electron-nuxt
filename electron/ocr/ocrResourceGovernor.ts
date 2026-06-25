@@ -206,10 +206,19 @@ class OcrResourceGovernor {
 
     release(token: string) {
         if (!this.activeLeases.has(token)) {
-            return;
+            return false;
         }
         this.activeLeases = removeLease(this.activeLeases, candidate => candidate === token);
         this.dispatch();
+        return true;
+    }
+
+    releaseForJob(token: string, jobId: string) {
+        const lease = this.activeLeases.get(token);
+        if (!lease || lease.jobId !== jobId) {
+            return false;
+        }
+        return this.release(token);
     }
 
     releaseJob(jobId: string) {

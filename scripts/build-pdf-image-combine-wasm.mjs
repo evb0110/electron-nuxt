@@ -6,43 +6,32 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+    getWasmArtifactByCrateName,
+    WASM_TARGET,
+} from './wasm-artifacts.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const target = 'wasm32-unknown-unknown';
+const artifact = getWasmArtifactByCrateName('pdf-image-combine');
 const sourcePath = path.join(
     projectRoot,
     'native',
-    'pdf-image-combine',
+    artifact.crateName,
     'target',
-    target,
+    WASM_TARGET,
     'release',
-    'evb_pdf_image_combine.wasm',
+    artifact.builtFileName,
 );
-const destinationPath = path.join(
-    projectRoot,
-    'public',
-    'wasm',
-    'evb-pdf-image-combine.wasm',
-);
-const requiredExports = [
-    'memory',
-    'evb_pdf_image_combine_alloc',
-    'evb_pdf_image_combine_free',
-    'evb_pdf_image_combine_build_pdf',
-    'evb_pdf_image_combine_output_ptr',
-    'evb_pdf_image_combine_output_len',
-    'evb_pdf_image_combine_error_ptr',
-    'evb_pdf_image_combine_error_len',
-];
+const destinationPath = path.join(projectRoot, artifact.publicRelativePath);
 
 const cargoArgs = [
     'build',
     '--manifest-path',
-    'native/pdf-image-combine/Cargo.toml',
+    artifact.manifestPath,
     '--release',
     '--locked',
     '--target',
-    target,
+    WASM_TARGET,
     '--lib',
 ];
 
@@ -60,7 +49,7 @@ await copyFile(sourcePath, destinationPath);
 const wasmBytes = await readFile(destinationPath);
 const wasmModule = new WebAssembly.Module(wasmBytes);
 const exportNames = new Set(WebAssembly.Module.exports(wasmModule).map(entry => entry.name));
-const missingExports = requiredExports.filter(name => !exportNames.has(name));
+const missingExports = artifact.requiredExports.filter(name => !exportNames.has(name));
 if (missingExports.length > 0) {
     throw new Error(`PDF image combine WASM is missing exports: ${missingExports.join(', ')}`);
 }

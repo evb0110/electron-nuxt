@@ -1,0 +1,233 @@
+{
+  "schemaVersion": 1,
+  "spec": {
+    "offsetEncoding": "utf-16",
+    "matchOffsets": "startOffset and endOffset are UTF-16 code unit offsets into page text, matching JavaScript string index semantics across renderer, Electron, and native boundaries.",
+    "matching": "Default matching is Unicode-aware, case-insensitive literal matching. wholeWord adds letter/number/underscore boundaries. Regex cases use the guarded PDF search regex validator.",
+    "excerpt": "Excerpts use a UTF-16 code unit context window. Only the before and after text collapse JavaScript whitespace runs to one space, then trim the outer edge nearest the excerpt boundary.",
+    "geometry": "OCR/PDF text geometry attaches to the same UTF-16 range used for text matching. Geometry is omitted when no usable page word boxes and dimensions exist."
+  },
+  "cases": [
+    {
+      "id": "case-insensitive-punctuation",
+      "description": "Case-insensitive literal matches keep punctuation in excerpts and count offsets in UTF-16 code units.",
+      "text": "Alpha, beta alpha.",
+      "query": "alpha",
+      "options": {},
+      "contextChars": 4,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "Alpha",
+            "after": ", be"
+          }
+        },
+        {
+          "startOffset": 12,
+          "endOffset": 17,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "eta ",
+            "match": "alpha",
+            "after": "."
+          }
+        }
+      ]
+    },
+    {
+      "id": "unicode-precomposed-with-combining-neighbor",
+      "description": "Search does not normalize combining sequences into precomposed forms, but offsets still count the combining mark as one UTF-16 code unit.",
+      "text": "Café café",
+      "query": "café",
+      "options": {},
+      "contextChars": 4,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 6,
+          "endOffset": 10,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "fé ",
+            "match": "café",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "surrogate-pair-utf16-offsets",
+      "description": "Surrogate pairs occupy two UTF-16 code units, so matches after emoji report JavaScript-compatible offsets.",
+      "text": "😀 needle 😃needle",
+      "query": "needle",
+      "options": {
+        "matchCase": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "needle",
+            "after": " 😃"
+          }
+        },
+        {
+          "startOffset": 12,
+          "endOffset": 18,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "😃",
+            "match": "needle",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "multiline-whitespace-excerpt",
+      "description": "Excerpt edges collapse newlines, tabs, and CRLF sequences without changing the matched text.",
+      "text": "one\n two\tneedle\r\nthree",
+      "query": "needle",
+      "options": {
+        "matchCase": true
+      },
+      "contextChars": 6,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 9,
+          "endOffset": 15,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "two ",
+            "match": "needle",
+            "after": " thre"
+          }
+        }
+      ]
+    },
+    {
+      "id": "whole-word-punctuation-boundaries",
+      "description": "Whole-word matching treats punctuation as a boundary and underscores/alphanumerics as word characters.",
+      "text": "co-op coop co.op _co co_ co",
+      "query": "co",
+      "options": {
+        "wholeWord": true
+      },
+      "contextChars": 3,
+      "nativeSupported": false,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 2,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "co",
+            "after": "-op"
+          }
+        },
+        {
+          "startOffset": 11,
+          "endOffset": 13,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "op ",
+            "match": "co",
+            "after": ".op"
+          }
+        },
+        {
+          "startOffset": 25,
+          "endOffset": 27,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "o_ ",
+            "match": "co",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "case-sensitive-filter",
+      "description": "matchCase true preserves literal casing expectations.",
+      "text": "Alpha alpha ALPHA",
+      "query": "alpha",
+      "options": {
+        "matchCase": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 6,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "ha ",
+            "match": "alpha",
+            "after": " AL"
+          }
+        }
+      ]
+    }
+  ],
+  "geometryCase": {
+    "id": "ocr-geometry-utf16-range",
+    "description": "Geometry attachment crops OCR word boxes using the same UTF-16 offsets as text matches.",
+    "pageWidth": 200,
+    "pageHeight": 100,
+    "words": [
+      {
+        "text": "alpha",
+        "x": 0,
+        "y": 10,
+        "width": 50,
+        "height": 10
+      },
+      {
+        "text": "needle",
+        "x": 60,
+        "y": 10,
+        "width": 60,
+        "height": 10
+      }
+    ],
+    "text": "alpha needle \n",
+    "query": "eed",
+    "range": {
+      "startOffset": 7,
+      "endOffset": 10
+    },
+    "expectedWords": [
+      {
+        "text": "eed",
+        "x": 70,
+        "y": 10,
+        "width": 30,
+        "height": 10
+      }
+    ]
+  }
+}

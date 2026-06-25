@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { buildDependencyGraph } from './dep-graph.mjs';
+import {
+    checkAnnotationDependencyEdge,
+    checkAnnotationDependencyGraph,
+} from './annotation-dependency-graph.mjs';
 
 const APP_MODULE_PUBLIC_ENTRYPOINTS = new Set([
     'public',
@@ -132,6 +137,7 @@ const PUBLIC_ONLY_INTERNAL_ENTRYPOINTS = [ {
 
 const PLATFORM_API_ALLOWED_CONSUMERS = new Set(`
 app/modules/workspace-shell/menu/registerTabsMenuBindings.ts
+app/platform/browserPlatformPathDescriptors.ts
 app/platform/browserPlatformApi.ts
 app/platform/lazyBrowserPlatformApi.ts
 app/types/electron.d.ts
@@ -140,6 +146,44 @@ app/utils/platform.ts
 packages/contracts/electronApi.ts
 packages/contracts/index.ts
 `.trim().split('\n'));
+
+const ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES = new Set(['app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges.ts']);
+
+const ANNOTATION_STORAGE_PRIVATE_MEMBERS = [
+    'serializable',
+    'modifiedIds',
+    'resetModified',
+    'resetModifiedIds',
+];
+
+const PDF_VIEWER_MODULE_ROOT = 'app/modules/pdf-viewer';
+const PDF_VIEWER_ENGINE_ROOT = `${PDF_VIEWER_MODULE_ROOT}/engine`;
+const PDF_VIEWER_ENGINE_ALLOWED_TARGET_ROOTS = [
+    PDF_VIEWER_ENGINE_ROOT,
+    `${PDF_VIEWER_MODULE_ROOT}/dom`,
+];
+
+const ELECTRON_LEGACY_FEATURE_REEXPORT_SHIMS = new Map([
+    [
+        'electron/djvu/conversion.ts',
+        { specifier: '@electron/features/djvu/public' },
+    ],
+    [
+        'electron/djvu/convert.ts',
+        { specifier: '@electron/features/djvu/public' },
+    ],
+    [
+        'electron/djvu/viewing.ts',
+        { specifier: '@electron/features/djvu/public' },
+    ],
+    [
+        'electron/search/protocol.ts',
+        {
+            specifier: '@electron/features/search/protocol',
+            typeOnly: true,
+        },
+    ],
+]);
 
 const FEATURE_BOUNDARY_RULES = [
     {
@@ -308,6 +352,100 @@ function checkPlatformApiAggregateImport(edge) {
     });
 }
 
+function checkPdfViewerEngineLayer(edge) {
+    if (!matchesRoot(edge.source, PDF_VIEWER_ENGINE_ROOT) || !matchesRoot(edge.target, PDF_VIEWER_MODULE_ROOT)) {
+        return null;
+    }
+
+    if (PDF_VIEWER_ENGINE_ALLOWED_TARGET_ROOTS.some(root => matchesRoot(edge.target, root))) {
+        return null;
+    }
+
+    return createViolation({
+        rule: 'pdf-viewer-engine-layer-back-edge',
+        source: edge.source,
+        target: edge.target,
+        specifier: edge.specifier,
+        message: 'PDF viewer engine code must not import runtime, component, tool, or public module layers; move pure contracts/helpers into engine.',
+    });
+}
+
+function escapeRegExp(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+function hasPrivateMemberAccess(sourceText, baseName) {
+    const memberGroup = ANNOTATION_STORAGE_PRIVATE_MEMBERS.map(escapeRegExp).join('|');
+    const base = escapeRegExp(baseName);
+    const dotAccess = new RegExp(`\\b${base}\\s*(?:\\?\\.)?\\s*\\.\\s*(?:${memberGroup})\\b`, 'u');
+    const optionalAccess = new RegExp(`\\b${base}\\s*\\?\\.\\s*(?:${memberGroup})\\b`, 'u');
+    const elementAccess = new RegExp(`\\b${base}\\s*(?:\\?\\.)?\\s*\\[\\s*['"](?:${memberGroup})['"]\\s*\\]`, 'u');
+    return dotAccess.test(sourceText) || optionalAccess.test(sourceText) || elementAccess.test(sourceText);
+}
+
+function collectAnnotationStorageAliases(sourceText) {
+    const aliases = new Set(['annotationStorage']);
+    const aliasPatterns = [
+        /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;\n]*\.\s*annotationStorage\b/gu,
+        /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;\n]*\?\.\s*annotationStorage\b/gu,
+    ];
+
+    for (const pattern of aliasPatterns) {
+        for (const match of sourceText.matchAll(pattern)) {
+            if (match[1]) {
+                aliases.add(match[1]);
+            }
+        }
+    }
+
+    return aliases;
+}
+
+function checkAnnotationStoragePrivateAccess(filePath, sourceText = '') {
+    if (
+        !matchesRoot(filePath, 'app')
+        || ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES.has(filePath)
+    ) {
+        return [];
+    }
+
+    const aliases = collectAnnotationStorageAliases(sourceText);
+    const hasPrivateAccess = Array.from(aliases).some(alias => hasPrivateMemberAccess(sourceText, alias));
+    if (!hasPrivateAccess) {
+        return [];
+    }
+
+    return [createViolation({
+        rule: 'annotation-storage-private-access',
+        source: filePath,
+        target: filePath,
+        specifier: 'source',
+        message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
+    })];
+}
+
+function checkElectronLegacyFeatureReexportShim(filePath, sourceText = '') {
+    const expectedShim = ELECTRON_LEGACY_FEATURE_REEXPORT_SHIMS.get(filePath);
+    if (!expectedShim) {
+        return [];
+    }
+
+    const typeToken = expectedShim.typeOnly ? 'type ' : '';
+    const expectedSourceText = `export ${typeToken}* from '${expectedShim.specifier}';\n`;
+    const normalizedSourceText = sourceText.replaceAll('\r\n', '\n');
+    if (normalizedSourceText === expectedSourceText) {
+        return [];
+    }
+
+    return [createViolation({
+        rule: 'electron-legacy-feature-reexport-shim',
+        source: filePath,
+        target: filePath,
+        specifier: 'source',
+        message: 'Legacy Electron feature shims must stay one-line re-exports to their feature entrypoint.',
+    })];
+}
+
 function matchesRoot(filePath, root) {
     return filePath === root || filePath.startsWith(`${root}/`);
 }
@@ -399,6 +537,8 @@ function checkEdge(edge) {
         checkAppPagesModulePublicEntrypoint(edge),
         checkPlatformApiAggregateImport(edge),
         checkElectronFeatureMainPrivacy(edge),
+        checkPdfViewerEngineLayer(edge),
+        ...checkAnnotationDependencyEdge(edge),
     ].filter(Boolean);
 }
 
@@ -411,12 +551,23 @@ function checkNode(filePath) {
     ].filter(Boolean);
 }
 
+function checkSource(filePath, sourceText) {
+    return [
+        ...checkAnnotationStoragePrivateAccess(filePath, sourceText),
+        ...checkElectronLegacyFeatureReexportShim(filePath, sourceText),
+    ];
+}
+
 export function checkArchitectureBoundaryEdge(edge) {
     return checkEdge(edge);
 }
 
 export function checkArchitectureBoundaryNode(filePath) {
     return checkNode(filePath);
+}
+
+export function checkArchitectureBoundarySource(filePath, sourceText) {
+    return checkSource(filePath, sourceText);
 }
 
 function formatViolations(violations) {
@@ -463,9 +614,18 @@ async function run() {
         ...(roots === null ? {} : {roots}),
     });
 
+    const sourceViolations = (
+        await Promise.all(graph.nodes.map(async node => {
+            const sourceText = await fs.readFile(path.join(process.cwd(), node.file), 'utf8');
+            return checkSource(node.file, sourceText);
+        }))
+    ).flat();
+
     const violations = [
         ...graph.edges.flatMap(checkEdge),
         ...graph.nodes.flatMap(node => checkNode(node.file)),
+        ...sourceViolations,
+        ...checkAnnotationDependencyGraph(graph).violations,
     ];
     const unresolvedInternalImports = graph.unresolvedInternalImports ?? [];
     const cycles = graph.cycles ?? [];

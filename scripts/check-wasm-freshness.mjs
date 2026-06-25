@@ -5,50 +5,21 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { REQUIRED_WEB_WASM_ASSETS } from './check-web-deploy-assets.mjs';
+import {
+    appendRustflags,
+    WASM_ARTIFACTS,
+    WASM_TARGET,
+} from './wasm-artifacts.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const wasmTarget = 'wasm32-unknown-unknown';
 const STRICT_MODE = 'strict';
 const PORTABLE_MODE = 'portable';
 const WASM_FRESHNESS_MODES = new Set([
     STRICT_MODE,
     PORTABLE_MODE,
 ]);
-const requiredExportsByRelativePath = new Map(
-    REQUIRED_WEB_WASM_ASSETS.map(asset => [
-        asset.relativePath,
-        asset.requiredExports,
-    ]),
-);
 
-export const WASM_FRESHNESS_ARTIFACTS = [
-    {
-        builtFileName: 'evb_pdf_image_combine.wasm',
-        crateName: 'pdf-image-combine',
-        label: 'PDF image combine WASM',
-        manifestPath: 'native/pdf-image-combine/Cargo.toml',
-        publicRelativePath: 'public/wasm/evb-pdf-image-combine.wasm',
-        requiredExports: requiredExportsByRelativePath.get('wasm/evb-pdf-image-combine.wasm') ?? [],
-        rustflags: [],
-    },
-    {
-        builtFileName: 'evb_pdf_page_ops.wasm',
-        crateName: 'pdf-page-ops',
-        label: 'PDF page ops WASM',
-        manifestPath: 'native/pdf-page-ops/Cargo.toml',
-        publicRelativePath: 'public/wasm/evb-pdf-page-ops.wasm',
-        requiredExports: requiredExportsByRelativePath.get('wasm/evb-pdf-page-ops.wasm') ?? [],
-        rustflags: ['--cfg getrandom_backend="custom"'],
-    },
-];
-
-function appendRustflags(env, rustflags) {
-    return [
-        env.RUSTFLAGS,
-        ...rustflags,
-    ].filter(Boolean).join(' ');
-}
+export const WASM_FRESHNESS_ARTIFACTS = WASM_ARTIFACTS;
 
 export function getWasmFreshnessBuildPlan(artifact, {
     env = process.env,
@@ -65,7 +36,7 @@ export function getWasmFreshnessBuildPlan(artifact, {
     }
 
     return {
-        builtPath: path.join(cargoTargetDir, wasmTarget, 'release', artifact.builtFileName),
+        builtPath: path.join(cargoTargetDir, WASM_TARGET, 'release', artifact.builtFileName),
         cargoArgs: [
             'build',
             '--manifest-path',
@@ -73,7 +44,7 @@ export function getWasmFreshnessBuildPlan(artifact, {
             '--release',
             '--locked',
             '--target',
-            wasmTarget,
+            WASM_TARGET,
             '--lib',
         ],
         cargoEnv,

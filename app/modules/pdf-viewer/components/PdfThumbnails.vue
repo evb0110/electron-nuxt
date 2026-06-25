@@ -132,6 +132,7 @@ import {
     resolveThumbnailRenderWidthFromStyles,
     roundMetric,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics';
+import { createThumbnailRenderState } from '@app/modules/pdf-viewer/thumbnails/createThumbnailRenderState';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -191,13 +192,7 @@ const emit = defineEmits<{
 }>();
 
 const containerRef = ref<HTMLElement | null>(null);
-const renderingPages = new Set<number>();
-const renderTasks = new Map<number, RenderTask>();
-const renderAbortControllers = new Map<number, AbortController>();
-const renderedCanvases = new Map<number, HTMLCanvasElement>();
-const renderingCanvases = new Map<number, HTMLCanvasElement>();
-const renderingCanvasKeys = new Map<number, string>();
-const pageRenderEpochs = new Map<number, number>();
+const thumbnailRenderState = createThumbnailRenderState();
 let renderRunId = 0;
 let pendingInvalidation: number[] | null = null;
 let reloadTransition = false;
@@ -329,7 +324,7 @@ function getThumbnailStyle(page: number) {
 function getThumbnailRenderKey(page: number) {
     // Read the signal so page-local epoch bumps invalidate Vue's keyed canvas.
     void thumbnailKeySignal.value;
-    const pageEpoch = pageRenderEpochs.get(page) ?? 0;
+    const pageEpoch = thumbnailRenderState.getPageRenderEpoch(page);
     const outputScale = resolveThumbnailOutputScale().toFixed(3);
     return [
         documentRenderEpoch.value,
@@ -436,7 +431,7 @@ function isCurrentThumbnailCanvasRendered(pageNum: number) {
     }
 
     const renderKey = getThumbnailRenderKey(pageNum);
-    return renderedCanvases.get(pageNum) === canvas
+    return thumbnailRenderState.isRenderedCanvas(pageNum, canvas)
         && isCanvasRendered(canvas)
         && isCanvasForRenderKey(canvas, renderKey);
 }
@@ -448,9 +443,11 @@ function isCurrentThumbnailCanvasRendering(pageNum: number) {
     }
 
     const renderKey = getThumbnailRenderKey(pageNum);
-    return renderingPages.has(pageNum)
-        && renderingCanvases.get(pageNum) === canvas
-        && renderingCanvasKeys.get(pageNum) === renderKey;
+    return thumbnailRenderState.isRenderingCanvasKey({
+        page: pageNum,
+        canvas,
+        renderKey,
+    });
 }
 
 function resolveThumbnailRenderWidth(container: HTMLElement) {
@@ -625,7 +622,7 @@ function isThumbnailLayoutStabilizing() {
     return (
         thumbnailAspectRatios.value.every(aspectRatio => !isValidThumbnailAspectRatio(aspectRatio))
         || measurementState !== 'ready'
-        || renderedCanvases.size === 0
+        || thumbnailRenderState.renderedCount === 0
     );
 }
 
@@ -831,8 +828,8 @@ function resolveVisibleContainer(reason: string) {
             totalPages: totalPages,
             geometry: describeContainerGeometry(container),
             contentHeight: roundMetric(thumbnailContentHeight.value),
-            renderedPages: renderedCanvases.size,
-            renderingPages: renderingPages.size,
+            renderedPages: thumbnailRenderState.renderedCount,
+            renderingPages: thumbnailRenderState.renderingCount,
         });
     }
 
@@ -1004,63 +1001,19 @@ function handleContainerPointerDown() {
 }
 
 function cancelAllRenders() {
-    for (const abortController of renderAbortControllers.values()) {
-        abortController.abort();
-    }
-    renderAbortControllers.clear();
-    for (const task of renderTasks.values()) {
-        try {
-            task.cancel();
-        } catch {
-            // Ignore cancellation errors
-        }
-    }
-    renderTasks.clear();
-    renderingPages.clear();
-    renderingCanvases.clear();
-    renderingCanvasKeys.clear();
+    thumbnailRenderState.cancelAll();
 }
 
 function cancelRenderForPage(page: number) {
-    renderAbortControllers.get(page)?.abort();
-    renderAbortControllers.delete(page);
-    const task = renderTasks.get(page);
-    if (task) {
-        try {
-            task.cancel();
-        } catch {
-            // Ignore cancellation errors
-        }
-        renderTasks.delete(page);
-    }
-
-    renderingPages.delete(page);
-    renderingCanvases.delete(page);
-    renderingCanvasKeys.delete(page);
+    thumbnailRenderState.cancelPage(page);
 }
 
 function pruneDetachedThumbnailState() {
     const mountedPages = new Set(virtualPages.value);
-
-    for (const [
-        page,
-        canvas,
-    ] of renderedCanvases.entries()) {
-        if (!mountedPages.has(page) || getCanvas(page) !== canvas) {
-            renderedCanvases.delete(page);
-        }
-    }
-
-    for (const [
-        page,
-        canvas,
-    ] of renderingCanvases.entries()) {
-        if (mountedPages.has(page) && getCanvas(page) === canvas) {
-            continue;
-        }
-
-        cancelRenderForPage(page);
-    }
+    thumbnailRenderState.pruneDetached({
+        mountedPages,
+        resolveCanvas: getCanvas,
+    });
 }
 
 function getPagePreviewSeed(pageNum: number) {
@@ -1176,11 +1129,12 @@ function prepareThumbnailCanvas(pageNum: number) {
     }
 
     const renderKey = getThumbnailRenderKey(pageNum);
-    if (renderingPages.has(pageNum)) {
-        if (
-            renderingCanvases.get(pageNum) === canvas
-            && renderingCanvasKeys.get(pageNum) === renderKey
-        ) {
+    if (thumbnailRenderState.hasRenderingPage(pageNum)) {
+        if (thumbnailRenderState.isRenderingCanvasKey({
+            page: pageNum,
+            canvas,
+            renderKey,
+        })) {
             return null;
         }
         cancelRenderForPage(pageNum);
@@ -1188,9 +1142,11 @@ function prepareThumbnailCanvas(pageNum: number) {
 
     clearThumbnailCanvas(canvas, renderKey);
     seedThumbnailCanvasFromPagePreview(pageNum, canvas, renderKey, 'render-prepare');
-    renderingPages.add(pageNum);
-    renderingCanvases.set(pageNum, canvas);
-    renderingCanvasKeys.set(pageNum, renderKey);
+    thumbnailRenderState.beginRender({
+        page: pageNum,
+        canvas,
+        renderKey,
+    });
     return {
         canvas,
         renderKey,
@@ -1271,14 +1227,17 @@ function finalizeRenderedThumbnail(pageNum: number, canvas: HTMLCanvasElement, r
     canvas.dataset.thumbnailRendered = 'true';
     delete canvas.dataset.thumbnailSeededPreview;
     delete canvas.dataset.thumbnailSeededPreviewId;
-    renderedCanvases.set(pageNum, canvas);
+    const renderedCount = thumbnailRenderState.markRendered({
+        page: pageNum,
+        canvas,
+    });
     logPdfRenderTrace('thumbnail-finalize-rendered', {
         pageNumber: pageNum,
         renderKey,
-        renderedCount: renderedCanvases.size,
+        renderedCount,
     });
     void measureThumbnailHeight();
-    if (renderedCanvases.size === 1) {
+    if (renderedCount === 1) {
         void scheduleVisibleThumbnailRender();
     }
 }
@@ -1318,8 +1277,14 @@ async function renderPreparedThumbnail(
     try {
         const isCurrentThumbnailRender = () => (
             isThumbnailRenderGenerationCurrent(pdfDocument, runId)
+            && getCanvas(pageNum) === canvas
             && getThumbnailRenderKey(pageNum) === renderKey
             && isCanvasForRenderKey(canvas, renderKey)
+            && thumbnailRenderState.isRenderingCanvasKey({
+                page: pageNum,
+                canvas,
+                renderKey,
+            })
         );
         if (
             !isCurrentThumbnailRender()
@@ -1342,7 +1307,7 @@ async function renderPreparedThumbnail(
             ?? 1;
         const metrics = resolveThumbnailRenderMetrics(page, pageNum);
         const renderCoordination = resolveThumbnailRenderCoordination(pageNum, currentPage);
-        renderAbortControllers.set(pageNum, renderAbortController);
+        thumbnailRenderState.trackAbortController(pageNum, renderAbortController);
         const operationsFilter = await createHiddenAnnotationOperationsFilter(
             page,
             annotationMode,
@@ -1405,7 +1370,7 @@ async function renderPreparedThumbnail(
                 }),
                 onTask: (nextTask) => {
                     task = nextTask;
-                    renderTasks.set(pageNum, nextTask);
+                    thumbnailRenderState.trackRenderTask(pageNum, nextTask);
                 },
             });
             logPdfRenderTrace('thumbnail-render-resolve', {
@@ -1428,8 +1393,8 @@ async function renderPreparedThumbnail(
             }
             throw error;
         } finally {
-            if (task && renderTasks.get(pageNum) === task) {
-                renderTasks.delete(pageNum);
+            if (task) {
+                thumbnailRenderState.clearRenderTask(pageNum, task);
             }
         }
         const isStillCurrentCanvas = (
@@ -1468,22 +1433,17 @@ async function renderPreparedThumbnail(
         }
         finalizeRenderedThumbnail(pageNum, canvas, renderKey);
     } finally {
-        if (renderAbortControllers.get(pageNum) === renderAbortController) {
-            renderAbortControllers.delete(pageNum);
-        }
+        thumbnailRenderState.clearAbortController(pageNum, renderAbortController);
         cleanupPdfPage(page, pageNum, 'render-thumbnail');
     }
 }
 
 function cleanupThumbnailRenderState(pageNum: number, canvas: HTMLCanvasElement, renderKey: string) {
-    if (
-        renderingCanvases.get(pageNum) === canvas
-        && renderingCanvasKeys.get(pageNum) === renderKey
-    ) {
-        renderingPages.delete(pageNum);
-        renderingCanvases.delete(pageNum);
-        renderingCanvasKeys.delete(pageNum);
-    }
+    thumbnailRenderState.clearFinishedRender({
+        page: pageNum,
+        canvas,
+        renderKey,
+    });
 }
 
 function handleThumbnailRenderError(
@@ -1492,7 +1452,6 @@ function handleThumbnailRenderError(
     pageNum: number,
     runId: number,
 ) {
-    renderTasks.delete(pageNum);
     if (shouldIgnoreThumbnailRenderError(error, pdfDocument, runId)) {
         return;
     }
@@ -1605,11 +1564,12 @@ async function renderThumbnailQueue(
     });
 
     await Promise.all(workers);
+    const renderStateSnapshot = thumbnailRenderState.createSnapshot();
     logPdfRenderTrace('thumbnail-queue-end', {
         runId,
         renderRunId,
-        renderedCount: renderedCanvases.size,
-        activeTasks: Array.from(renderTasks.keys()),
+        renderedCount: renderStateSnapshot.renderedCount,
+        activeTasks: renderStateSnapshot.activeTasks,
     });
 }
 
@@ -1723,11 +1683,7 @@ function clearRenderedState(options: {
     preserveRenderWidth?: boolean;
     preserveAspectRatio?: boolean;
 } = {}) {
-    renderedCanvases.clear();
-    renderingPages.clear();
-    renderingCanvases.clear();
-    renderingCanvasKeys.clear();
-    renderTasks.clear();
+    thumbnailRenderState.clearAllState();
     clearVisibleThumbnailCanvases();
     if (!options.preserveRenderWidth) {
         thumbnailRenderWidth.value = THUMBNAIL_WIDTH;
@@ -1752,7 +1708,7 @@ watch(
         thumbnailSourceCycleId += 1;
         documentRenderEpoch.value += 1;
         thumbnailKeySignal.value += 1;
-        pageRenderEpochs.clear();
+        thumbnailRenderState.clearPageRenderEpochs();
         clearVisibleThumbnailCanvases();
         BrowserLogger.diagnostic(THUMBNAIL_LOG_SECTION, 'Thumbnail source/watch cycle started', {
             hasDocument: Boolean(doc),
@@ -1778,10 +1734,8 @@ watch(
             if (reloadTransition && pendingInvalidation) {
                 reloadTransition = false;
                 for (const page of pendingInvalidation) {
-                    renderedCanvases.delete(page);
-                    renderingPages.delete(page);
-                    renderingCanvases.delete(page);
-                    renderingCanvasKeys.delete(page);
+                    thumbnailRenderState.deleteRenderedPage(page);
+                    thumbnailRenderState.clearRenderingPage(page);
                 }
                 pendingInvalidation = null;
             } else {
@@ -1881,7 +1835,7 @@ watch(
 function invalidatePages(pages: number[]) {
     pendingInvalidation = pages;
     for (const page of pages) {
-        pageRenderEpochs.set(page, (pageRenderEpochs.get(page) ?? 0) + 1);
+        thumbnailRenderState.bumpPageRenderEpoch(page);
     }
     const nextRatios = thumbnailAspectRatios.value.slice();
     let didClearRatio = false;
@@ -1910,7 +1864,7 @@ function invalidatePages(pages: number[]) {
         currentPage: currentPage,
     });
     for (const page of pages) {
-        renderedCanvases.delete(page);
+        thumbnailRenderState.deleteRenderedPage(page);
         cancelRenderForPage(page);
 
         const canvas = getCanvas(page);

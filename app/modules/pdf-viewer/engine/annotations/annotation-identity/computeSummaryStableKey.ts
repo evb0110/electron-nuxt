@@ -1,13 +1,17 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
-export function computeSummaryStableKey(params: {
+export interface IComputeSummaryStableKeyParams {
     pageIndex: number;
     id: string;
     source: IAnnotationCommentSummary['source'];
     uid?: string | null;
     annotationId?: string | null;
     annotationName?: string | null | undefined;
-}) {
+}
+
+export type TComputeSummaryStableKey = (params: IComputeSummaryStableKeyParams) => string;
+
+export function computeSummaryStableKey(params: IComputeSummaryStableKeyParams) {
     const annotationName = params.annotationName?.trim();
     if (annotationName) {
         return `nm:${annotationName}`;

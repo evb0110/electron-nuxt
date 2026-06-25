@@ -21,17 +21,15 @@ import type {
 import { parsePageRange } from '@app/utils/ocr/parsePageRange';
 import { hasRtlOcrLanguage } from '@app/utils/ocr/hasRtlOcrLanguage';
 import { resolveOcrExportLanguages } from '@app/utils/ocr/resolveOcrExportLanguages';
+import {
+    createOcrRunLifecycle,
+    OcrRunCanceledError,
+    type TOcrRunGuard,
+} from '@app/utils/ocr/ocrRunLifecycle';
 import { useOcrErrorLocalizer } from '@app/composables/useOcrErrorLocalizer';
 import { getOcrCapability } from '@app/utils/getOcrCapability';
 import { getErrorMessage } from '@app/utils/error';
 import { exportTextAsDocx } from '@app/utils/exportTextAsDocx';
-
-class OcrCanceledError extends Error {
-    constructor() {
-        super('OCR canceled');
-        this.name = 'OcrCanceledError';
-    }
-}
 
 class OcrJobStartError extends Error {
     readonly errorEnvelope: IOcrErrorEnvelope | undefined;
@@ -47,14 +45,7 @@ type TOcrCompleteResult = Parameters<IOcrCapability['onComplete']>[0] extends (
     result: infer TResult,
 ) => void ? TResult : never;
 type TOcrPageRequest = Parameters<IOcrCapability['createSearchablePdf']>[1][number];
-type TRunGuard = () => void;
 const OCR_CANCEL_COMPLETION_GRACE_MS = 5_000;
-
-interface IOcrRunContext {
-    runToken: symbol;
-    runGeneration: number;
-    ensureRunActive: TRunGuard;
-}
 
 export const useOcr = () => {
     const { t } = useTypedI18n();
@@ -87,17 +78,14 @@ export const useOcr = () => {
     const error = ref<string | null>(null);
     const isExporting = ref(false);
 
-    const activeRequestId = ref<string | null>(null);
     const activeRunSettings = ref<IOcrSettings | null>(null);
     const lastCompletedRunSettings = ref<IOcrSettings | null>(null);
+    const ocrRunLifecycle = createOcrRunLifecycle();
 
     let progressCleanup: (() => void) | null = null;
     let completeCleanup: (() => void) | null = null;
     let timeoutRunToken: symbol | null = null;
     let pendingOcrReject: ((reason?: unknown) => void) | null = null;
-    let cancelGeneration = 0;
-    let activeRunToken: symbol | null = null;
-    let cancelingRequestId: string | null = null;
     let cancelCleanupTimer: ReturnType<typeof setTimeout> | null = null;
 
     function clearCancelCleanupTimer() {
@@ -108,21 +96,21 @@ export const useOcr = () => {
     }
 
     function finishCancelCompletionWatch(requestId: string) {
-        if (cancelingRequestId !== requestId) {
+        if (!ocrRunLifecycle.finishCancelingRequest(requestId)) {
             return;
         }
         clearCancelCleanupTimer();
-        cancelingRequestId = null;
         completeCleanup?.();
         completeCleanup = null;
-        activeRequestId.value = null;
     }
 
     function cleanupRunState(options: {
         keepCompleteListener?: boolean;
         keepActiveRequestId?: boolean 
     } = {}) {
-        activeRequestId.value = null;
+        if (options.keepActiveRequestId !== true) {
+            ocrRunLifecycle.clearActiveRequest();
+        }
         progress.value.isRunning = false;
         activeRunSettings.value = null;
         progressCleanup?.();
@@ -130,9 +118,6 @@ export const useOcr = () => {
         if (options.keepCompleteListener !== true) {
             completeCleanup?.();
             completeCleanup = null;
-        }
-        if (options.keepActiveRequestId === true) {
-            activeRequestId.value = cancelingRequestId;
         }
         clearOcrTimeout();
         pendingOcrReject = null;
@@ -172,7 +157,6 @@ export const useOcr = () => {
     }
 
     function scheduleCancelCompletionWatch(requestId: string) {
-        cancelingRequestId = requestId;
         clearCancelCleanupTimer();
         cancelCleanupTimer = setTimeout(() => {
             BrowserLogger.debug('ocr', 'OCR cancel completion watch timed out', { requestId });
@@ -181,7 +165,7 @@ export const useOcr = () => {
     }
 
     function cleanupLateCanceledResult(result: TOcrCompleteResult) {
-        if (cancelingRequestId !== result.requestId) {
+        if (!ocrRunLifecycle.shouldHandleLateCanceledResult(result.requestId)) {
             return;
         }
 
@@ -203,6 +187,7 @@ export const useOcr = () => {
     }
 
     function beginCancelingRequest(requestId: string) {
+        ocrRunLifecycle.beginCancelingRequest(requestId);
         scheduleCancelCompletionWatch(requestId);
         cleanupRunState({
             keepCompleteListener: true,
@@ -215,15 +200,15 @@ export const useOcr = () => {
         stop: stopOcrTimeout,
     } = useTimeoutFn(() => {
         const runToken = timeoutRunToken;
-        if (activeRunToken !== runToken) {
+        if (runToken === null || !ocrRunLifecycle.isRunTokenActive(runToken)) {
             return;
         }
         const rejectPending = pendingOcrReject;
         pendingOcrReject = null;
         timeoutRunToken = null;
-        const requestIdToCancel = activeRequestId.value;
+        const requestIdToCancel = ocrRunLifecycle.getActiveRequestId();
         if (requestIdToCancel) {
-            activeRunToken = null;
+            ocrRunLifecycle.cancelActiveRun();
             beginCancelingRequest(requestIdToCancel);
             void cancelBackendRequest(requestIdToCancel, 'timeout');
         }
@@ -236,29 +221,6 @@ export const useOcr = () => {
         } catch (e) {
             error.value = localizeOcrError(e, 'errors.ocr.loadLanguages');
         }
-    }
-
-    function isRunActive(runToken: symbol, runGeneration: number) {
-        return activeRunToken === runToken && runGeneration === cancelGeneration;
-    }
-
-    function createRunGuard(runToken: symbol, runGeneration: number): TRunGuard {
-        return () => {
-            if (!isRunActive(runToken, runGeneration)) {
-                throw new OcrCanceledError();
-            }
-        };
-    }
-
-    function createOcrRunContext(): IOcrRunContext {
-        const runToken = Symbol('ocr-run');
-        activeRunToken = runToken;
-        const runGeneration = cancelGeneration;
-        return {
-            runToken,
-            runGeneration,
-            ensureRunActive: createRunGuard(runToken, runGeneration),
-        };
     }
 
     function cloneOcrSettings(source: IOcrSettings): IOcrSettings {
@@ -309,12 +271,12 @@ export const useOcr = () => {
 
     async function waitForRunUiReady(runToken: symbol, runGeneration: number) {
         await nextTick();
-        if (!isRunActive(runToken, runGeneration)) {
+        if (!ocrRunLifecycle.isRunActive(runToken, runGeneration)) {
             return false;
         }
 
         await waitForVisualFrames({ frames: 2 });
-        return isRunActive(runToken, runGeneration);
+        return ocrRunLifecycle.isRunActive(runToken, runGeneration);
     }
 
     function resetOcrTimeout(runToken: symbol) {
@@ -328,7 +290,7 @@ export const useOcr = () => {
         runToken: symbol,
     ) {
         progressCleanup = ocr.onProgress((p) => {
-            if (activeRunToken !== runToken) {
+            if (!ocrRunLifecycle.isRunTokenActive(runToken)) {
                 return;
             }
             BrowserLogger.debug('ocr', 'Progress update', {
@@ -366,7 +328,7 @@ export const useOcr = () => {
                 if (result.requestId !== requestId) {
                     return;
                 }
-                if (activeRunToken !== runToken) {
+                if (!ocrRunLifecycle.isRunTokenActive(runToken)) {
                     cleanupLateCanceledResult(result);
                     return;
                 }
@@ -506,18 +468,18 @@ export const useOcr = () => {
 
     function createOcrRequestId(pages: number[]) {
         const requestId = `ocr-${crypto.randomUUID()}`;
-        activeRequestId.value = requestId;
         BrowserLogger.info('ocr', 'Request created', {
             requestId,
             pages: pages.length,
         });
+        ocrRunLifecycle.markRequestActive(requestId);
         return requestId;
     }
 
     function handleOcrResponse(
         requestId: string,
         response: TOcrCompleteResult,
-        ensureRunActive: TRunGuard,
+        ensureRunActive: TOcrRunGuard,
         runSettings: IOcrSettings,
     ) {
         applyOcrResponseErrors(response, requestId);
@@ -540,7 +502,7 @@ export const useOcr = () => {
         workingCopyPath: TDocumentRef,
         runSettings: IOcrSettings,
         runToken: symbol,
-        ensureRunActive: TRunGuard,
+        ensureRunActive: TOcrRunGuard,
     ) {
         const ocr = getOcrCapability();
         registerProgressListener(ocr, requestId, runToken);
@@ -600,7 +562,7 @@ export const useOcr = () => {
             workingCopyPath,
         });
 
-        if (progress.value.isRunning || cancelingRequestId !== null) {
+        if (progress.value.isRunning || ocrRunLifecycle.getCancelingRequestId() !== null) {
             BrowserLogger.debug('ocr', 'runOcr ignored; already running');
             return;
         }
@@ -618,7 +580,7 @@ export const useOcr = () => {
             runToken,
             runGeneration,
             ensureRunActive,
-        } = createOcrRunContext();
+        } = ocrRunLifecycle.beginRun();
 
         beginRunProgress(pages, runSettings);
         if (!await waitForRunUiReady(runToken, runGeneration)) {
@@ -637,7 +599,7 @@ export const useOcr = () => {
                 ensureRunActive,
             );
         } catch (e) {
-            if (e instanceof OcrCanceledError) {
+            if (e instanceof OcrRunCanceledError) {
                 return;
             }
             logOcrRunFailure(requestId, e);
@@ -647,21 +609,18 @@ export const useOcr = () => {
             }
             error.value = localizeOcrError(e, 'errors.ocr.createSearchablePdf');
         } finally {
-            if (activeRunToken === runToken) {
-                activeRunToken = null;
+            if (ocrRunLifecycle.clearRunIfActive(runToken)) {
                 cleanupRunState();
             }
         }
     }
 
     async function cancelOcr(): Promise<IOcrCancelResult> {
-        const requestIdToCancel = activeRequestId.value;
-        cancelGeneration += 1;
-        activeRunToken = null;
+        const requestIdToCancel = ocrRunLifecycle.cancelActiveRun();
 
         const rejectPending = pendingOcrReject;
         pendingOcrReject = null;
-        rejectPending?.(new OcrCanceledError());
+        rejectPending?.(new OcrRunCanceledError());
 
         if (!requestIdToCancel) {
             cleanupRunState();

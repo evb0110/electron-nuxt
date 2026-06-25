@@ -46,7 +46,10 @@ interface IWasmFreshnessModule {
         mode: string;
         publicPath: string
     }>>;
-    getWasmFreshnessBuildPlan: (artifact: IWasmFreshnessArtifact, options: {projectRoot: string;}) => {
+    getWasmFreshnessBuildPlan: (artifact: IWasmFreshnessArtifact, options: {
+        env?: NodeJS.ProcessEnv;
+        projectRoot: string;
+    }) => {
         builtPath: string;
         cargoArgs: string[];
         cargoEnv: NodeJS.ProcessEnv;
@@ -55,6 +58,13 @@ interface IWasmFreshnessModule {
     };
 }
 
+interface IRequiredWebWasmAsset {
+    relativePath: string;
+    requiredExports: string[];
+}
+
+interface IWasmArtifactModule {REQUIRED_WEB_WASM_ASSETS: IRequiredWebWasmAsset[];}
+
 const {
     WASM_FRESHNESS_ARTIFACTS,
     checkWasmFreshness,
@@ -62,6 +72,9 @@ const {
 } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/check-wasm-freshness.mjs')).href
 ) as IWasmFreshnessModule;
+const { REQUIRED_WEB_WASM_ASSETS } = await import(
+    pathToFileURL(resolve(process.cwd(), 'scripts/wasm-artifacts.mjs')).href
+) as IWasmArtifactModule;
 
 async function createTempProject(artifact: IWasmFreshnessArtifact) {
     const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-wasm-freshness-'));
@@ -72,6 +85,29 @@ async function createTempProject(artifact: IWasmFreshnessArtifact) {
 }
 
 describe('WASM freshness check', () => {
+    it('uses the shared web WASM exports and page-ops getrandom rustflags', () => {
+        const requiredExportsByPublicPath = new Map(
+            REQUIRED_WEB_WASM_ASSETS.map(asset => [
+                `public/${asset.relativePath}`,
+                asset.requiredExports,
+            ]),
+        );
+
+        for (const artifact of WASM_FRESHNESS_ARTIFACTS) {
+            expect(artifact.requiredExports).toEqual(requiredExportsByPublicPath.get(artifact.publicRelativePath));
+        }
+
+        const pageOpsArtifact = WASM_FRESHNESS_ARTIFACTS.find(artifact => artifact.crateName === 'pdf-page-ops');
+        expect(pageOpsArtifact).toBeDefined();
+        expect(pageOpsArtifact?.rustflags).toEqual(['--cfg getrandom_backend="custom"']);
+        expect(getWasmFreshnessBuildPlan(pageOpsArtifact!, {projectRoot: '/tmp/project'}).cargoEnv.RUSTFLAGS)
+            .toBe('--cfg getrandom_backend="custom"');
+        expect(getWasmFreshnessBuildPlan(pageOpsArtifact!, {
+            projectRoot: '/tmp/project',
+            env: {RUSTFLAGS: '-C opt-level=z'},
+        }).cargoEnv.RUSTFLAGS).toBe('-C opt-level=z --cfg getrandom_backend="custom"');
+    });
+
     it('compares fresh Cargo output with public WASM without updating the public artifact', async () => {
         const artifact = WASM_FRESHNESS_ARTIFACTS[0]!;
         const tempRoot = await createTempProject(artifact);

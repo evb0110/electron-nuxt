@@ -110,6 +110,30 @@ function runSourceMatrixAsLinuxX64Host() {
     );
 }
 
+function runSourceMatrixWithInvalidPageProcessorOptIn() {
+    try {
+        execFileSync(
+            '/bin/bash',
+            [sourceMatrixScriptPath],
+            {
+                encoding: 'utf8',
+                env: {
+                    ...process.env,
+                    EVB_CHECK_OPTIONAL_PAGE_PROCESSOR: 'true',
+                },
+            },
+        );
+    } catch (error: unknown) {
+        if (error && typeof error === 'object' && 'stderr' in error) {
+            return String(error.stderr);
+        }
+
+        throw error;
+    }
+
+    throw new Error('Expected source matrix to reject invalid page-processor opt-in value');
+}
+
 describe('macOS native tool workflow', () => {
     it('keeps unpaper documentation tooling on Homebrew packages instead of PyPI', async () => {
         const workflowPaths = [
@@ -257,6 +281,7 @@ describe('macOS native tool workflow', () => {
         expect(sourceMatrix).not.toContain('&& [ -f "scripts/bundle-page-processor-macos.sh" ]');
         expect(sourceMatrix).toContain('EVB_CHECK_OPTIONAL_PAGE_PROCESSOR=1');
         expect(sourceMatrix).toContain('check_optional_page_processor="${EVB_CHECK_OPTIONAL_PAGE_PROCESSOR:-0}"');
+        expect(sourceMatrix).toContain('EVB_CHECK_OPTIONAL_PAGE_PROCESSOR must be 0 or 1');
         expect(sourceMatrix).toContain('check_file_for_tag "$root/bin/page-processor/page-processor$exe_suffix" "page-processor" "$tag"');
         expect(sourceMatrix).toContain('check_dir_for_tag "$root/bin/page-processor/_internal" "page-processor PyInstaller _internal" "$tag"');
         expect(sourceMatrix).toContain('echo "  CI-GEN  $label: $path"');
@@ -273,6 +298,12 @@ describe('macOS native tool workflow', () => {
         expect(verifier).toContain('Skipping optional dormant page-processor packaged resource check for $platform_arch');
         expect(verifier).toContain('run_macos_packaged_tool_smoke "page-processor" "$page_processor_binary" --version');
         expect(verifier).toContain('if [ -f "$page_processor_binary" ]; then');
+    });
+
+    it('rejects typoed optional page-processor source-matrix opt-in values', () => {
+        const stderr = runSourceMatrixWithInvalidPageProcessorOptIn();
+
+        expect(stderr).toContain('Error: EVB_CHECK_OPTIONAL_PAGE_PROCESSOR must be 0 or 1 (got: true)');
     });
 
     it('verifies macOS packaged native tool architectures against the release target', async () => {

@@ -3,6 +3,7 @@ import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import { logPdfNav } from '@app/utils/logPdfNav';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import { getViewportVisibilityFromDom } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom';
 import type { IViewportVisibilityResult } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/pdfScrollVisibilityTypes';
@@ -11,28 +12,10 @@ import { getPageHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/ge
 import { getPageTop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageTop';
 import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
 
+export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
+
 type TPageLayoutMetrics = IPdfPageLayoutMetrics;
 type TMarkerTargetReapplyReason = 'arm' | 'mutation' | 'resize';
-
-export interface IScrollToPageOptions {
-    preferExactDom?: boolean;
-    /**
-     * Align a normalized page y coordinate to the top of the viewport. This is
-     * used for PDF outline destinations such as /XYZ and /FitH, where the
-     * destination describes a page coordinate rather than an annotation box.
-     */
-    pageYRatio?: number | null | undefined;
-    /**
-     * Snap to an already mounted page without queueing another paged render.
-     *
-     * Fit-height current-page rerenders already start a force render before
-     * snapping back to the same page. Queueing the usual post-snap render there
-     * can cancel the in-flight canvas render repeatedly on large PDFs, leaving
-     * the page skeleton visible. Normal navigation leaves this unset.
-     */
-    suppressRenderAfterSnap?: boolean;
-    markerRect?: IAnnotationMarkerRect | null | undefined;
-}
 
 interface IUsePdfScrollOptions { getPinnedMostVisiblePage?: () => number | null; }
 

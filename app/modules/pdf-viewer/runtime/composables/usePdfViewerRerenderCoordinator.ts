@@ -21,11 +21,17 @@ import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/compo
 import type { IZoomViewportAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import { shouldPreserveExistingRerenderContent } from '@app/modules/pdf-viewer/runtime/rerender-strategy/shouldPreserveExistingRerenderContent';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
+import {
+    PDF_RERENDER_SOURCE,
+    isZoomRestorePdfRerenderSource,
+    normalizePdfRerenderSource,
+    shouldUseMinimalPdfRerenderBuffer,
+    shouldUseZoomGestureCanvasCap,
+} from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
 const ZOOM_CHANGE_MAX_CANVAS_PIXELS = 14_000_000;
 const ZOOM_CHANGE_SETTLE_CLAMP_SCALE_THRESHOLD = 0.98;
-const ZOOM_GESTURE_CHANGE_SOURCE = 'zoom-gesture-change';
 const CURRENT_PAGE_FIT_RERENDER_SETTLE_MS = 80;
 const FIT_HEIGHT_PRE_RENDER_SNAP_MAX_TICKS = 4;
 
@@ -244,21 +250,13 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     }
 
     function resolveRerenderBufferOverride(source: string) {
-        if (
-            source === 'zoom-change'
-            || source === ZOOM_GESTURE_CHANGE_SOURCE
-            || source === 'zoom-settle'
-            || source === 'fit-mode'
-            || source === 'fit-height-current-page'
-            || source === 'fit-width-current-page'
-        ) {
-            return 0;
-        }
-        return undefined;
+        return shouldUseMinimalPdfRerenderBuffer(source)
+            ? 0
+            : undefined;
     }
 
     function resolveMaxCanvasPixelsOverride(source: string) {
-        if (source !== ZOOM_GESTURE_CHANGE_SOURCE) {
+        if (!shouldUseZoomGestureCanvasCap(source)) {
             return undefined;
         }
         return ZOOM_CHANGE_MAX_CANVAS_PIXELS;
@@ -559,10 +557,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         message: string,
         buildPayload: () => Record<string, unknown>,
     ) {
-        if (
-            source !== 'zoom-change'
-            && source !== ZOOM_GESTURE_CHANGE_SOURCE
-        ) {
+        if (!isZoomRestorePdfRerenderSource(source)) {
             return;
         }
         BrowserLogger.diagnostic('pdf-zoom-debug', message, buildPayload());
@@ -571,7 +566,10 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     async function reRenderVisiblePagesAndSyncCurrentPage(
         syncOptions: ICurrentPageSyncOptions = {},
     ) {
-        const source = syncOptions.source ?? 're-render';
+        const source = normalizePdfRerenderSource(
+            syncOptions.source,
+            PDF_RERENDER_SOURCE.ReRender,
+        );
         const runId = ++reRenderSyncRunId;
         warnZoomRerenderSync(source, `[rerender-sync] begin zoom run=${runId}`, () => ({
             runId,
@@ -731,7 +729,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         const interactionEpoch = getCurrentUserViewportInteractionEpoch();
         const document = pdfDocument.value;
         await handleFitScaleModeChange(
-            'fit-mode',
+            PDF_RERENDER_SOURCE.FitMode,
             mode,
             runId,
             document,
@@ -763,7 +761,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                     trustPreferredAnchorPage: trustCurrentPageAnchor,
                 });
                 enqueueZoomSync({
-                    source: 'zoom-mode-change',
+                    source: PDF_RERENDER_SOURCE.ZoomModeChange,
                     stabilize: true,
                     resizeAnchor: zoomAnchor,
                 });
@@ -779,7 +777,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             const interactionEpoch = getCurrentUserViewportInteractionEpoch();
             const document = pdfDocument.value;
             await handleFitScaleModeChange(
-                'zoom-mode',
+                PDF_RERENDER_SOURCE.ZoomMode,
                 modeFitMode,
                 runId,
                 document,
@@ -813,7 +811,10 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         }
 
         void cancelInFlightPageRenders?.();
-        await reRenderAllVisiblePages(getVisibleRange, { disableHorizontalAnchorRestore: shouldDisableHorizontalAnchorRestore() });
+        await reRenderAllVisiblePages(getVisibleRange, {
+            disableHorizontalAnchorRestore: shouldDisableHorizontalAnchorRestore(),
+            rerenderSource: PDF_RERENDER_SOURCE.ViewMode,
+        });
         if (!isViewerAsyncRunActive(runId, viewModeRunId, document) || viewMode.value !== targetViewMode) {
             return;
         }
@@ -876,7 +877,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
 
             if (fitMode.value === 'height') {
                 const snappedBeforeRender = await snapFitHeightPageBeforeRender(
-                    'fit-height-current-page',
+                    PDF_RERENDER_SOURCE.FitHeightCurrentPage,
                     runId,
                     next,
                     interactionEpoch,
@@ -903,7 +904,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                     disableHorizontalAnchorRestore: shouldDisableHorizontalAnchorRestore(),
                     disableVerticalAnchorRestore: true,
                     disablePageAnchorRestore: true,
-                    rerenderSource: 'fit-height-current-page',
+                    rerenderSource: PDF_RERENDER_SOURCE.FitHeightCurrentPage,
                     renderBufferOverride: 0,
                 });
                 if (
@@ -921,7 +922,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                     !isCurrentPageFitRerenderRunActive(runId, document, next)
                     || fitMode.value !== 'height'
                     || !canApplyDelayedViewportScroll(
-                        'fit-height-current-page',
+                        PDF_RERENDER_SOURCE.FitHeightCurrentPage,
                         runId,
                         interactionEpoch,
                     )
@@ -954,7 +955,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 return;
             }
             await reRenderVisiblePagesAndSyncCurrentPage({
-                source: 'fit-width-current-page',
+                source: PDF_RERENDER_SOURCE.FitWidthCurrentPage,
                 stabilize: true,
                 resizeAnchor,
             });
@@ -999,7 +1000,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 // valid visual authority for committing the target page.
                 if (fitMode.value === 'height') {
                     await snapFitHeightPageBeforeRender(
-                        'fit-height-paged-target',
+                        PDF_RERENDER_SOURCE.FitHeightPagedTarget,
                         runId,
                         next,
                         interactionEpoch,
@@ -1021,8 +1022,8 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                     disableVerticalAnchorRestore: fitMode.value === 'height',
                     disablePageAnchorRestore: fitMode.value === 'height',
                     rerenderSource: fitMode.value === 'height'
-                        ? 'fit-height-paged-target'
-                        : 'fit-width-paged-target',
+                        ? PDF_RERENDER_SOURCE.FitHeightPagedTarget
+                        : PDF_RERENDER_SOURCE.FitWidthPagedTarget,
                     renderBufferOverride: 0,
                 });
                 if (isRunActive()) {
@@ -1081,8 +1082,8 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             const zoomViewportAnchor = consumeZoomViewportAnchor?.() ?? null;
             const trustCurrentPageAnchor = !zoomViewportAnchor && canTrustCurrentPageAsZoomAnchor();
             const zoomRerenderSource = zoomViewportAnchor
-                ? ZOOM_GESTURE_CHANGE_SOURCE
-                : 'zoom-change';
+                ? PDF_RERENDER_SOURCE.ZoomGestureChange
+                : PDF_RERENDER_SOURCE.ZoomChange;
             const zoomAnchor = buildResizeAnchorContext({
                 anchorViewportX: zoomViewportAnchor?.x ?? null,
                 anchorViewportY: zoomViewportAnchor?.y ?? null,
@@ -1133,13 +1134,13 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         }
 
         const transitionToken = beginResizeTransition(
-            'resize-settle',
+            PDF_RERENDER_SOURCE.ResizeSettle,
             resizeAnchor.page,
         );
         scheduleResizeAwareRerender(
             're-render visible pages after resize settle',
             {
-                source: 'resize-settle',
+                source: PDF_RERENDER_SOURCE.ResizeSettle,
                 stabilize: true,
                 resizeAnchor: {
                     ...resizeAnchor,

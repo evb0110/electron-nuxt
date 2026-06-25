@@ -2,27 +2,22 @@ import type { PDFDocument } from 'pdf-lib';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { updateAnnotationTextByRef } from '@app/modules/pdf-viewer/engine/pdf-serialization-comments/updateAnnotationTextByRef';
 import { resolveCommentPdfRefInDocument } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/resolveCommentPdfRefInDocument';
-import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
+import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
 
 function buildCommentFromEmbeddedUpdateStableKey(
     stableKey: string,
 ): IAnnotationCommentSummary | null {
-    const match = stableKey.trim().match(/^ann:(\d+):(\d+R(?:\d+)?)$/iu);
-    if (!match?.[1] || !match[2]) {
-        return null;
-    }
-
-    const pageIndex = Number(match[1]);
-    if (!Number.isInteger(pageIndex) || pageIndex < 0 || !parsePdfJsAnnotationRef(match[2])) {
+    const parsed = parsePdfAnnotationStableKeyRef(stableKey);
+    if (!parsed) {
         return null;
     }
 
     return {
-        id: match[2],
-        stableKey,
+        id: parsed.annotationId,
+        stableKey: parsed.stableKey,
         sortIndex: null,
-        pageIndex,
-        pageNumber: pageIndex + 1,
+        pageIndex: parsed.pageIndex,
+        pageNumber: parsed.pageIndex + 1,
         text: '',
         kindLabel: 'Note',
         subtype: 'FreeText',
@@ -30,7 +25,7 @@ function buildCommentFromEmbeddedUpdateStableKey(
         modifiedAt: null,
         color: null,
         uid: null,
-        annotationId: match[2],
+        annotationId: parsed.annotationId,
         source: 'pdf',
         hasNote: true,
         markerRect: null,

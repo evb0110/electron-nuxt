@@ -12,6 +12,10 @@ import { collectPreservedRenderPageNumbers } from '@app/modules/pdf-viewer/engin
 import { createPdfRerenderRestorationLogger } from '@app/modules/pdf-viewer/engine/pdf-rerender-restoration/createPdfRerenderRestorationLogger';
 import type { IRerenderRestorationContext } from '@app/modules/pdf-viewer/engine/pdf-rerender-restoration/pdfRerenderRestorationTypes';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import {
+    normalizePdfRerenderSource,
+    type TPdfRerenderSource,
+} from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
 
 interface IRerenderAllVisiblePagesOptions {
     preserveExistingPages?: boolean;
@@ -38,7 +42,7 @@ interface INormalizedRerenderOptions {
     disableHorizontalAnchorRestore: boolean;
     disableVerticalAnchorRestore: boolean;
     disablePageAnchorRestore: boolean;
-    rerenderSource: string;
+    rerenderSource: TPdfRerenderSource;
     renderBufferOverride?: number;
     maxCanvasPixelsOverride?: number;
 }
@@ -108,7 +112,7 @@ export const usePdfRendererRerenderController = (options: IUsePdfRendererRerende
             disableHorizontalAnchorRestore = false,
             disableVerticalAnchorRestore = false,
             disablePageAnchorRestore = false,
-            rerenderSource = 'unknown',
+            rerenderSource,
             renderBufferOverride,
             maxCanvasPixelsOverride,
         } = rerenderOptions ?? {};
@@ -119,7 +123,7 @@ export const usePdfRendererRerenderController = (options: IUsePdfRendererRerende
             disableHorizontalAnchorRestore,
             disableVerticalAnchorRestore,
             disablePageAnchorRestore,
-            rerenderSource,
+            rerenderSource: normalizePdfRerenderSource(rerenderSource),
         };
         if (renderBufferOverride !== undefined) {
             normalized.renderBufferOverride = renderBufferOverride;

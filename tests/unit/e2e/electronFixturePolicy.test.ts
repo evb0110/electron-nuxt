@@ -4,6 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { readFile } from 'node:fs/promises';
 import {
     type IFixtureDescribeSelector,
     resolvePathFixtureAvailability,
@@ -65,5 +66,13 @@ describe('Electron E2E fixture policy', () => {
                 process.env.EVB_UNIT_REQUIRE_MISSING_FIXTURE = previousValue;
             }
         }
+    });
+
+    it('keeps rapid PDF navigation self-sufficient instead of silently skipped', async () => {
+        const source = await readFile('tests/e2e/electron/rapidPdfNavigation.e2e.test.ts', 'utf8');
+
+        expect(source).toContain('createMultiPageTextFixturePdf');
+        expect(source).not.toContain('selectFixtureDescribe');
+        expect(source).not.toContain('EVB_E2E_REQUIRE_PAGE_JUMP_FIXTURE');
     });
 });
