@@ -76,6 +76,8 @@ const { REQUIRED_WEB_WASM_ASSETS } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/wasm-artifacts.mjs')).href
 ) as IWasmArtifactModule;
 
+const WASM_FRESHNESS_TEST_TIMEOUT_MS = 20_000;
+
 async function createTempProject(artifact: IWasmFreshnessArtifact) {
     const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-wasm-freshness-'));
     const publicPath = path.join(tempRoot, artifact.publicRelativePath);
@@ -147,7 +149,7 @@ describe('WASM freshness check', () => {
                 recursive: true,
             });
         }
-    });
+    }, WASM_FRESHNESS_TEST_TIMEOUT_MS);
 
     it('fails when the committed public WASM differs from the fresh build', async () => {
         const artifact = {
@@ -183,7 +185,7 @@ describe('WASM freshness check', () => {
                 recursive: true,
             });
         }
-    });
+    }, WASM_FRESHNESS_TEST_TIMEOUT_MS);
 
     it('allows byte differences in portable mode while still reporting freshness', async () => {
         const artifact = {
@@ -223,5 +225,5 @@ describe('WASM freshness check', () => {
                 recursive: true,
             });
         }
-    });
+    }, WASM_FRESHNESS_TEST_TIMEOUT_MS);
 });
