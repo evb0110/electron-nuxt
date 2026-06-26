@@ -59,7 +59,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 4/Stage 11 - PDF navigation visual readiness extraction',
     },
     'app/modules/agent-panel/components/AgentAssistantPanel.vue': {
-        maxLines: 2379,
+        maxLines: 2373,
         reason: 'transitional assistant panel hotspot after selection and image helper extraction',
         stage: 'Worker 1/Stage 9 - Agent panel helper extraction',
     },
