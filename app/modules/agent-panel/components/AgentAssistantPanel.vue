@@ -57,12 +57,17 @@
             <section
                 v-if="panelView === 'checking'"
                 class="agent-assistant-placeholder"
+                :class="{ 'is-muted': hasPendingComposer }"
             >
                 <span class="agent-assistant-glyph">
-                    <UIcon name="i-ph-circle-notch" class="agent-assistant-glyph-icon is-spinning" />
+                    <UIcon
+                        :name="hasPendingComposer ? 'i-ph-lightbulb' : 'i-ph-circle-notch'"
+                        class="agent-assistant-glyph-icon"
+                        :class="{ 'is-spinning': !hasPendingComposer }"
+                    />
                 </span>
-                <h2>{{ t('assistant.checkingTitle') }}</h2>
-                <p>{{ t('assistant.checkingDescription') }}</p>
+                <h2>{{ hasPendingComposer ? emptyTitle : t('assistant.checkingTitle') }}</h2>
+                <p>{{ hasPendingComposer ? emptyDescription : t('assistant.checkingDescription') }}</p>
             </section>
 
             <section
@@ -509,6 +514,7 @@
                                 {{ composerError }}
                             </p>
                             <textarea
+                                ref="composerInputRef"
                                 v-model="draft"
                                 class="agent-assistant-input"
                                 :placeholder="placeholderText"
@@ -575,28 +581,77 @@
             <div
                 v-if="!hasComposer"
                 class="agent-assistant-composer agent-assistant-composer-reserve"
+                :class="{ 'is-visible': hasPendingComposer }"
                 aria-hidden="true"
             >
                 <div class="agent-assistant-composer-field">
                     <textarea
                         class="agent-assistant-input"
+                        :placeholder="placeholderText"
                         rows="3"
                         tabindex="-1"
                         disabled
                     />
                     <div class="agent-assistant-composer-actions">
-                        <div class="agent-assistant-composer-switchers">
+                        <div
+                            v-if="hasPendingComposer"
+                            class="agent-assistant-composer-switchers"
+                        >
+                            <AssistantModelSwitcher
+                                :providers="status.providers"
+                                :selected-provider="selectedProvider"
+                                :selected-model="selectedModel"
+                                :is-switching="false"
+                                disabled
+                                side="top"
+                                @select-provider="updateProvider"
+                                @select-model="updateModel"
+                            />
+                            <AssistantEffortSwitcher
+                                v-if="availableEfforts.length > 0"
+                                :efforts="availableEfforts"
+                                :selected-effort="selectedEffort"
+                                disabled
+                                side="top"
+                                @select-effort="updateEffort"
+                            />
+                            <AssistantSpeedSwitcher
+                                v-if="availableSpeedModes.length > 1"
+                                :modes="availableSpeedModes"
+                                :selected-mode="selectedSpeedMode"
+                                disabled
+                                side="top"
+                                @select-mode="updateSpeedMode"
+                            />
+                        </div>
+                        <div
+                            v-else
+                            class="agent-assistant-composer-switchers"
+                        >
                             <span class="agent-assistant-composer-control-reserve" />
                             <span class="agent-assistant-composer-control-reserve is-short" />
                             <span class="agent-assistant-composer-control-reserve is-short" />
                         </div>
-                        <span class="agent-assistant-composer-send-reserve" />
+                        <UButton
+                            v-if="hasPendingComposer"
+                            :aria-label="t('assistant.send')"
+                            icon="i-ph-arrow-up"
+                            color="neutral"
+                            variant="soft"
+                            size="sm"
+                            type="button"
+                            disabled
+                        />
+                        <span
+                            v-else
+                            class="agent-assistant-composer-send-reserve"
+                        />
                     </div>
                 </div>
             </div>
 
             <div
-                v-if="hasLoadedState && !hasComposer && panelView !== 'unsupported'"
+                v-if="hasLoadedState && !hasComposer && panelView !== 'checking' && panelView !== 'unsupported'"
                 class="agent-assistant-setup-footer"
             >
                 <AssistantModelSwitcher
@@ -731,6 +786,7 @@ import {
 import AssistantEffortSwitcher from '@app/modules/agent-panel/components/AssistantEffortSwitcher.vue';
 import AssistantModelSwitcher from '@app/modules/agent-panel/components/AssistantModelSwitcher.vue';
 import AssistantSpeedSwitcher from '@app/modules/agent-panel/components/AssistantSpeedSwitcher.vue';
+import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import {
     cloneAssistantScope,
     createSelectedAssistantStatus,
@@ -797,6 +853,148 @@ const { copy: copyClipboardText } = useClipboard();
 const ASSISTANT_AUTO_REFRESH_MIN_INTERVAL_MS = 2500;
 const ASSISTANT_SCROLL_STICKY_THRESHOLD_PX = 96;
 const EMPTY_ASSISTANT_MESSAGE_BLOCKS: ReturnType<typeof formatAssistantMessage> = [];
+
+type TAssistantModelPreferenceMap = Partial<Record<TAgentAssistantProviderId, string>>;
+
+interface IAssistantSelectionPreference {
+    provider: TAgentAssistantProviderId;
+    modelsByProvider: TAssistantModelPreferenceMap;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function normalizeStoredModelValue(value: unknown) {
+    const model = normalizeModelValue(value)?.trim();
+    return model && model.length > 0 ? model : null;
+}
+
+function normalizeStoredProviderValue(value: unknown): TAgentAssistantProviderId | null {
+    return value === 'codex' || value === 'claude' ? value : null;
+}
+
+function fallbackAssistantModel(provider: TAgentAssistantProviderId) {
+    return provider === 'claude'
+        ? CLAUDE_ASSISTANT_DEFAULT_MODEL
+        : CODEX_ASSISTANT_DEFAULT_MODEL;
+}
+
+function parseAssistantModelPreferences(value: unknown): TAssistantModelPreferenceMap {
+    if (!isRecord(value)) {
+        return {};
+    }
+
+    const modelsByProvider: TAssistantModelPreferenceMap = {};
+    for (const provider of [
+        'codex',
+        'claude',
+    ] as const) {
+        const model = normalizeStoredModelValue(value[provider]);
+        if (model) {
+            modelsByProvider[provider] = model;
+        }
+    }
+
+    return modelsByProvider;
+}
+
+function parseAssistantSelectionPreference(value: unknown): IAssistantSelectionPreference | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+
+    const provider = normalizeStoredProviderValue(value.provider);
+    if (!provider) {
+        return null;
+    }
+
+    const modelsByProvider = parseAssistantModelPreferences(value.modelsByProvider);
+    const legacyModel = normalizeStoredModelValue(value.model);
+    if (legacyModel) {
+        modelsByProvider[provider] = legacyModel;
+    }
+
+    return {
+        provider,
+        modelsByProvider,
+    };
+}
+
+function readAssistantSelectionPreference(): IAssistantSelectionPreference | null {
+    const storage = defaultWindow?.localStorage;
+    if (!storage) {
+        return null;
+    }
+
+    const rawPreference = storage.getItem(STORAGE_KEYS.ASSISTANT_SELECTION);
+    if (!rawPreference) {
+        return null;
+    }
+
+    try {
+        return parseAssistantSelectionPreference(JSON.parse(rawPreference));
+    } catch (error) {
+        BrowserLogger.warn('assistant', 'Failed to read assistant selection preference', { error });
+        return null;
+    }
+}
+
+function preferredAssistantModel(
+    preference: IAssistantSelectionPreference | null,
+    provider: TAgentAssistantProviderId,
+) {
+    return normalizeStoredModelValue(preference?.modelsByProvider[provider])
+        ?? fallbackAssistantModel(provider);
+}
+
+function persistAssistantSelection(provider: TAgentAssistantProviderId, model: string) {
+    const storage = defaultWindow?.localStorage;
+    if (!storage) {
+        return;
+    }
+
+    const currentPreference = readAssistantSelectionPreference();
+    const preference: IAssistantSelectionPreference = {
+        provider,
+        modelsByProvider: {
+            ...currentPreference?.modelsByProvider,
+            [provider]: model,
+        },
+    };
+
+    try {
+        storage.setItem(STORAGE_KEYS.ASSISTANT_SELECTION, JSON.stringify(preference));
+    } catch (error) {
+        BrowserLogger.warn('assistant', 'Failed to persist assistant selection preference', { error });
+    }
+}
+
+function defaultAssistantModel(
+    provider: TAgentAssistantProviderId,
+    providers: Parameters<typeof providerDefaultModel>[0],
+) {
+    const defaultModel = providerDefaultModel(providers, provider);
+    return defaultModel === 'default'
+        ? fallbackAssistantModel(provider)
+        : defaultModel;
+}
+
+function selectedAssistantModelForProvider(
+    provider: TAgentAssistantProviderId,
+    providers: Parameters<typeof providerDefaultModel>[0],
+    preference = readAssistantSelectionPreference(),
+) {
+    return normalizeStoredModelValue(preference?.modelsByProvider[provider])
+        ?? defaultAssistantModel(provider, providers);
+}
+
+const initialAssistantSelectionPreference = readAssistantSelectionPreference();
+const initialSelectedProvider = initialAssistantSelectionPreference?.provider ?? 'codex';
+const initialSelectedModel = preferredAssistantModel(
+    initialAssistantSelectionPreference,
+    initialSelectedProvider,
+);
 const isInstalling = ref(false);
 const isLoggingIn = ref(false);
 const loginMode = ref<TAgentAssistantLoginMode | null>(null);
@@ -811,10 +1009,11 @@ const composerError = ref('');
 const copiedMessageId = ref<string | null>(null);
 const panelRef = ref<HTMLElement | null>(null);
 const messagesRef = ref<HTMLElement | null>(null);
+const composerInputRef = ref<HTMLTextAreaElement | null>(null);
 const state = ref<IAgentAssistantState | null>(null);
-const selectedProvider = ref<TAgentAssistantProviderId>('codex');
-const selectedModel = ref(CODEX_ASSISTANT_DEFAULT_MODEL);
-const hasLocalModelSelection = ref(false);
+const selectedProvider = ref<TAgentAssistantProviderId>(initialSelectedProvider);
+const selectedModel = ref(initialSelectedModel);
+const hasLocalModelSelection = ref(Boolean(initialAssistantSelectionPreference?.modelsByProvider[initialSelectedProvider]));
 const selectedEffort = ref<TAgentAssistantEffort>(ASSISTANT_DEFAULT_EFFORT);
 const hasLocalEffortSelection = ref(false);
 const selectedSpeedMode = ref<TAgentAssistantSpeedMode>(ASSISTANT_DEFAULT_SPEED_MODE);
@@ -968,6 +1167,8 @@ const renderedMessages = computed(() => {
 const isClaudeProvider = computed(() => selectedProvider.value === 'claude');
 const panelView = computed(() => getAgentAssistantPanelView(status.value, hasLoadedState.value));
 const hasComposer = computed(() => panelView.value === 'ready' && Boolean(chatScope));
+const hasPendingComposer = computed(() => panelView.value === 'checking' && Boolean(chatScope));
+const canFocusComposerInput = computed(() => hasComposer.value && !isSending.value);
 const hasMessages = computed(() => messages.value.length > 0 || isTurnActive.value);
 const canSend = computed(() => (
     Boolean(chatScope)
@@ -1418,13 +1619,15 @@ function updateProvider(value: unknown) {
         return;
     }
     const nextSwitchGeneration = ++assistantSwitchGeneration;
+    const nextModel = selectedAssistantModelForProvider(nextProvider, status.value.providers);
     selectedProvider.value = nextProvider;
-    selectedModel.value = providerDefaultModel(status.value.providers, nextProvider);
-    hasLocalModelSelection.value = false;
+    selectedModel.value = nextModel;
+    hasLocalModelSelection.value = true;
     selectedEffort.value = providerDefaultEffort(status.value.providers, nextProvider);
     hasLocalEffortSelection.value = false;
     selectedSpeedMode.value = providerDefaultSpeedMode(status.value.providers, nextProvider);
     hasLocalSpeedModeSelection.value = false;
+    persistAssistantSelection(nextProvider, nextModel);
     sendGeneration += 1;
     applyOptimisticSelection(nextProvider, selectedModel.value, selectedEffort.value, selectedSpeedMode.value, false);
     draft.value = '';
@@ -1456,6 +1659,7 @@ function updateModel(value: unknown) {
     }
     selectedModel.value = nextModel;
     hasLocalModelSelection.value = true;
+    persistAssistantSelection(selectedProvider.value, nextModel);
     applyOptimisticSelection(selectedProvider.value, nextModel, selectedEffort.value, selectedSpeedMode.value, true);
 }
 
@@ -1750,12 +1954,35 @@ watch(() => chatScope?.key ?? null, () => {
 });
 
 let unsubscribe: (() => void) | null = null;
+let shouldAutofocusComposerInput = true;
+
+async function focusComposerInputOnce() {
+    if (!shouldAutofocusComposerInput || !canFocusComposerInput.value) {
+        return;
+    }
+
+    await nextTick();
+
+    const input = composerInputRef.value;
+    if (!shouldAutofocusComposerInput || !canFocusComposerInput.value || !input || input.disabled) {
+        return;
+    }
+
+    input.focus({ preventScroll: true });
+    shouldAutofocusComposerInput = false;
+}
+
+watch(canFocusComposerInput, () => {
+    void focusComposerInputOnce();
+}, { flush: 'post' });
+
 onMounted(() => {
     unsubscribe = getPlatformAPI().agent.onAssistantEvent(handleAssistantEvent);
     guardAsync(refreshState(), {
         scope: 'assistant',
         message: 'Failed to load assistant state',
     });
+    void focusComposerInputOnce();
 });
 
 useEventListener(defaultWindow, 'focus', refreshStateAfterWindowReturn);
@@ -1949,6 +2176,12 @@ onUnmounted(() => {
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-body-sm);
     line-height: 1.5;
+}
+
+.agent-assistant-placeholder.is-muted .agent-assistant-glyph-icon,
+.agent-assistant-placeholder.is-muted h2,
+.agent-assistant-placeholder.is-muted p {
+    color: var(--ui-text-dimmed);
 }
 
 .agent-assistant-placeholder-actions {
