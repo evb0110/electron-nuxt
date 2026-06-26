@@ -103,6 +103,7 @@ function runSourceMatrixAsLinuxX64Host() {
             encoding: 'utf8',
             env: {
                 ...process.env,
+                EVB_CHECK_OPTIONAL_PAGE_PROCESSOR: '0',
                 EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN: '1',
                 PATH: `${binDir}:${process.env.PATH ?? ''}`,
             },
@@ -121,6 +122,11 @@ function runSourceMatrixWithInvalidPageProcessorOptIn() {
                     ...process.env,
                     EVB_CHECK_OPTIONAL_PAGE_PROCESSOR: 'true',
                 },
+                stdio: [
+                    'ignore',
+                    'pipe',
+                    'pipe',
+                ],
             },
         );
     } catch (error: unknown) {
