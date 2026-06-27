@@ -8,7 +8,14 @@ export function getLocalReleaseCheckCommands() {
         {
             args: [
                 'run',
-                'validate',
+                'lint',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
+                'typecheck',
             ],
             command: 'pnpm',
         },
@@ -36,6 +43,13 @@ export function getLocalReleaseCheckCommands() {
         {
             args: [
                 'run',
+                'check:architecture',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
                 'test:rust',
             ],
             command: 'pnpm',
@@ -44,13 +58,6 @@ export function getLocalReleaseCheckCommands() {
             args: [
                 'run',
                 'test:release',
-            ],
-            command: 'pnpm',
-        },
-        {
-            args: [
-                'run',
-                'test:coverage',
             ],
             command: 'pnpm',
         },

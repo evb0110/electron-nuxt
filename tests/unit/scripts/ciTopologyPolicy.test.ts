@@ -61,35 +61,6 @@ function workflowJob(workflow: string, jobName: string) {
         : workflow.slice(start, start + 1 + nextJob);
 }
 
-function ciChangedFileFilter(workflow: string, outputName: string) {
-    const marker = `echo "${outputName}=true"`;
-    let searchStart = 0;
-
-    while (searchStart < workflow.length) {
-        const markerIndex = workflow.indexOf(marker, searchStart);
-        if (markerIndex === -1) {
-            break;
-        }
-
-        const beforeMarker = workflow.slice(0, markerIndex);
-        const grepIndex = beforeMarker.lastIndexOf('grep -Eq ');
-        const changedFileGuardIndex = beforeMarker.lastIndexOf('if printf');
-        searchStart = markerIndex + marker.length;
-
-        if (grepIndex === -1 || changedFileGuardIndex === -1 || grepIndex < changedFileGuardIndex) {
-            continue;
-        }
-
-        const filterStart = beforeMarker.indexOf('\'', grepIndex);
-        const filterEnd = beforeMarker.indexOf('\'', filterStart + 1);
-        if (filterStart !== -1 && filterEnd !== -1) {
-            return new RegExp(beforeMarker.slice(filterStart + 1, filterEnd));
-        }
-    }
-
-    throw new Error(`Missing grep filter for changed-file output: ${outputName}`);
-}
-
 async function collectTestFiles(directory: string): Promise<string[]> {
     const entries = await readdir(directory, { withFileTypes: true });
     const nestedFiles: string[][] = await Promise.all(entries.map(async (entry) => {
@@ -108,61 +79,50 @@ async function collectTestFiles(directory: string): Promise<string[]> {
 }
 
 describe('CI topology policy', () => {
-    it('runs the fast feedback lane on direct pushes to main', async () => {
+    it('keeps fast feedback lanes manual and release coverage out of the release workflow', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
         const packageJson = await readProjectFile('package.json');
 
-        expect(workflow).toContain('push:\n    branches:\n      - main');
+        expect(workflow).not.toContain('push:');
         expect(workflow).toContain('schedule:');
+        expect(workflow).toContain('workflow_dispatch:');
         expect(workflow).not.toContain('pull_request:');
-        expect(workflow).toContain('name: Push Quality Gates');
-        expect(workflowJob(workflow, 'push_quality')).toContain('run: rustup target add wasm32-unknown-unknown');
-        expect(workflowJob(workflow, 'push_quality')).toContain('run: pnpm run check:wasm:portable');
-        expect(workflowJob(workflow, 'push_quality')).toContain('run: pnpm run validate');
-        expect(workflowJob(workflow, 'push_quality')).toContain('run: pnpm run test:coverage');
-        expect(workflowJob(workflow, 'push_quality')).toContain('run: pnpm run test:release');
+        expect(workflow).toContain('name: Manual Quality Gates');
+        expect(workflowJob(workflow, 'manual_quality')).toContain('if: ${{ github.event_name == \'workflow_dispatch\' }}');
+        expect(workflowJob(workflow, 'manual_quality')).toContain('run: rustup target add wasm32-unknown-unknown');
+        expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm run check:wasm:portable');
+        expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm run validate');
+        expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm run test:coverage');
+        expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm run test:release');
         expect(releaseWorkflow).not.toContain('test:coverage');
         expect(packageJson).not.toMatch(/"gate:commit":\s*"[^"]*coverage/u);
     });
 
-    it('keeps native, landing, and Python smoke checks path-filtered on push', async () => {
+    it('keeps native, landing, and Python smoke checks manual or nightly only', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const testsTsconfig = await readTsConfigJsonWithGlobs('tests/tsconfig.json');
         const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
 
-        expect(workflow).toContain('packages/(contracts|i18n-core|release-selection)/');
-        expect(workflow).toContain('public/wasm/');
-        expect(workflow).toContain('scripts/(build-pdf-image-combine|build-pdf-page-ops|build-pdf-search|check-wasm-freshness|native-rust-targets)[.]mjs');
-        expect(workflow).toContain('Cargo[.]lock');
-        expect(workflow).toContain('rust-toolchain[.]toml');
-        const pageProcessorFilter = ciChangedFileFilter(workflow, 'python_page_processor');
-
-        expect(pageProcessorFilter.test('python/page-processor/main.py')).toBe(true);
-        expect(pageProcessorFilter.test('scripts/check-page-processor-smoke.py')).toBe(true);
-        expect(pageProcessorFilter.test('scripts/bundle-page-processor-macos.sh')).toBe(true);
-        expect(pageProcessorFilter.test('scripts/devkit/page-processing-harness.py')).toBe(true);
-        expect(pageProcessorFilter.test('scripts/devkit/process-pdf-split-pad.py')).toBe(true);
-        expect(pageProcessorFilter.test('scripts/afterPack.cjs')).toBe(true);
-        expect(pageProcessorFilter.test('electron-builder.yml')).toBe(true);
-        expect(pageProcessorFilter.test('package.json')).toBe(false);
-        expect(pageProcessorFilter.test('scripts/release/verify-local-checks.mjs')).toBe(false);
+        expect(workflow).not.toContain('Detect Changed Areas');
+        expect(workflow).not.toContain('github.event_name == \'push\'');
+        expect(workflow).not.toContain('needs.changes');
         expect(workflow).toContain('name: Native Rust Tests');
-        expect(workflowJob(workflow, 'native_push')).toContain('run: pnpm run test:rust');
+        expect(workflowJob(workflow, 'manual_native')).toContain('if: ${{ github.event_name == \'workflow_dispatch\' }}');
+        expect(workflowJob(workflow, 'manual_native')).toContain('run: pnpm run test:rust');
         expect(workflow).toContain('name: Landing Quality Gates');
         expect(workflow).toContain('run: pnpm --dir landing run check:vendor');
         expect(workflow).toContain('run: pnpm --dir landing run typecheck');
         expect(workflow).toContain('run: pnpm --dir landing run build');
-        expect(workflowJob(workflow, 'landing_push')).toContain('continue-on-error: true');
+        expect(workflowJob(workflow, 'manual_landing')).toContain('if: ${{ github.event_name == \'workflow_dispatch\' }}');
+        expect(workflowJob(workflow, 'manual_landing')).toContain('continue-on-error: true');
         expect(sharedVitestConfig).toContain('tests/unit/landing/**/*.test.ts');
         expect(testsTsconfig.exclude).toContain('./unit/landing/**/*.ts');
-        expect(workflow).toContain('name: Python Page Processor Smoke');
-        expect(workflowJob(workflow, 'python_page_processor_push')).toContain('if: ${{ github.event_name == \'push\' && needs.changes.outputs.python_page_processor == \'true\' }}');
-        expect(workflowJob(workflow, 'python_page_processor_push')).toContain('python -m pip install');
-        expect(workflowJob(workflow, 'python_page_processor_push')).toContain('opencv-python-headless');
-        expect(workflowJob(workflow, 'python_page_processor_push')).toContain('img2pdf');
-        expect(workflowJob(workflow, 'python_page_processor_push')).toContain('Pillow');
-        expect(workflowJob(workflow, 'python_page_processor_push')).toContain('run: pnpm run test:python-page-processor');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('python -m pip install');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('opencv-python-headless');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('img2pdf');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('Pillow');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run test:python-page-processor');
     });
 
     it('verifies release build artifacts before upload', async () => {

@@ -59,7 +59,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 4/Stage 11 - PDF navigation visual readiness extraction',
     },
     'app/modules/agent-panel/components/AgentAssistantPanel.vue': {
-        maxLines: 2373,
+        maxLines: 1857,
         reason: 'transitional assistant panel hotspot after selection and image helper extraction',
         stage: 'Worker 1/Stage 9 - Agent panel helper extraction',
     },
@@ -69,7 +69,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 2 - PDF thumbnail render/layout seams',
     },
     'electron/features/agent/codexAssistant.ts': {
-        maxLines: 1977,
+        maxLines: 1900,
         reason: 'transitional Electron assistant backend hotspot after provider account extraction',
         stage: 'Worker 24 - Agent provider account extraction',
     },
@@ -159,7 +159,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future workspace annotation extraction',
     },
     'electron/features/agent/mcp/mcpServerCore.ts': {
-        maxLines: 1217,
+        maxLines: 1205,
         reason: 'transitional agent MCP server core hotspot',
         stage: 'Future MCP server core extraction',
     },

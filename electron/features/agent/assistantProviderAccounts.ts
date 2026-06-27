@@ -1,12 +1,36 @@
 import type { IAgentAssistantAccount } from '@contracts/agent';
 import { isRecord } from '@contracts/runtimeGuards';
 import type { IAssistantProviderRuntimeState } from '@electron/features/agent/assistantProviderState';
+import { getErrorMessage } from '@electron/utils/error';
+
+const CODEX_AUTH_ACCOUNT_READ_TIMEOUT_MS = 8_000;
+const CODEX_AUTH_STATUS_TIMEOUT_MS = 8_000;
 
 export interface IClaudeAssistantAccountSnapshot {
     apiKeySource?: string | null;
     apiProvider?: string | null;
     email?: string | null;
     subscriptionType?: string | null;
+}
+
+export interface ICodexAuthStateClient {requestDecoded<T>(
+    method: string,
+    params: unknown,
+    decode: (value: unknown) => T | null,
+    timeoutMs?: number,
+): Promise<T>;}
+
+export interface ICodexAuthRefreshOptions {warn?: (message: string) => void;}
+
+export interface ICodexAuthRuntimeAvailabilityOptions extends ICodexAuthRefreshOptions {
+    client: ICodexAuthStateClient | null;
+    hasRuntime: boolean;
+    providerRuntime: IAssistantProviderRuntimeState;
+    recoverFromError?: boolean;
+}
+
+function decodeRecordResponse(value: unknown): Record<PropertyKey, unknown> | null {
+    return isRecord(value) ? value : null;
 }
 
 export function normalizeCodexAssistantAccount(rawAccount: unknown): IAgentAssistantAccount | null {
@@ -26,6 +50,28 @@ export function normalizeCodexAssistantAccount(rawAccount: unknown): IAgentAssis
     return { type: 'other' };
 }
 
+export function applyCodexAccountReadResponse(
+    providerRuntime: IAssistantProviderRuntimeState,
+    accountResponse: Record<PropertyKey, unknown>,
+) {
+    const normalizedAccount = normalizeCodexAssistantAccount(accountResponse.account);
+    if (normalizedAccount) {
+        providerRuntime.authState = 'signed-in';
+        providerRuntime.account = normalizedAccount;
+        delete providerRuntime.lastError;
+        return true;
+    }
+
+    if (accountResponse.requiresOpenaiAuth === true) {
+        providerRuntime.authState = 'signed-out';
+        providerRuntime.account = null;
+        delete providerRuntime.lastError;
+        return true;
+    }
+
+    return false;
+}
+
 export function applyCodexAuthStatusResponse(
     providerRuntime: IAssistantProviderRuntimeState,
     authStatus: Record<PropertyKey, unknown>,
@@ -39,6 +85,89 @@ export function applyCodexAuthStatusResponse(
     if (providerRuntime.authState === 'signed-in' || providerRuntime.authState === 'signed-out') {
         delete providerRuntime.lastError;
     }
+}
+
+export async function refreshCodexAuthState(
+    providerRuntime: IAssistantProviderRuntimeState,
+    client: ICodexAuthStateClient | null,
+    options: ICodexAuthRefreshOptions = {},
+) {
+    if (!client) {
+        providerRuntime.authState = 'unknown';
+        providerRuntime.account = null;
+        return;
+    }
+
+    let accountReadError: unknown;
+    try {
+        const accountResponse = await client.requestDecoded(
+            'account/read',
+            { refreshToken: true },
+            decodeRecordResponse,
+            CODEX_AUTH_ACCOUNT_READ_TIMEOUT_MS,
+        );
+        if (applyCodexAccountReadResponse(providerRuntime, accountResponse)) {
+            return;
+        }
+    } catch (error) {
+        accountReadError = error;
+        options.warn?.(`Failed to read Codex account state; falling back to auth status: ${getErrorMessage(error)}`);
+    }
+
+    try {
+        const authStatus = await client.requestDecoded(
+            'getAuthStatus',
+            {
+                includeToken: false,
+                refreshToken: accountReadError === undefined,
+            },
+            decodeRecordResponse,
+            CODEX_AUTH_STATUS_TIMEOUT_MS,
+        );
+        applyCodexAuthStatusResponse(providerRuntime, authStatus);
+    } catch (error) {
+        const message = accountReadError === undefined
+            ? getErrorMessage(error)
+            : `${getErrorMessage(accountReadError)}; ${getErrorMessage(error)}`;
+        options.warn?.(`Failed to read Codex auth state: ${message}`);
+        providerRuntime.authState = providerRuntime.authState === 'signed-in' ? 'signed-in' : 'signed-out';
+        providerRuntime.account = null;
+        if (providerRuntime.authState !== 'signed-in') {
+            providerRuntime.lastError = `Could not verify Codex authentication: ${message}`;
+        }
+    }
+}
+
+export function syncCodexRuntimeStateAfterAuthCheck(
+    providerRuntime: IAssistantProviderRuntimeState,
+    options: {
+        hasRuntime: boolean;
+        recoverFromError?: boolean
+    },
+) {
+    if (!options.hasRuntime || providerRuntime.runtimeState === 'busy') {
+        return;
+    }
+    if (providerRuntime.runtimeState === 'error' && !options.recoverFromError) {
+        return;
+    }
+
+    providerRuntime.runtimeState = providerRuntime.authState === 'signed-in' ? 'ready' : 'stopped';
+    providerRuntime.turnPhase = 'idle';
+}
+
+export async function refreshCodexAuthStateAndRuntimeAvailability(
+    options: ICodexAuthRuntimeAvailabilityOptions,
+) {
+    await refreshCodexAuthState(
+        options.providerRuntime,
+        options.client,
+        options.warn ? { warn: options.warn } : {},
+    );
+    syncCodexRuntimeStateAfterAuthCheck(options.providerRuntime, {
+        hasRuntime: options.hasRuntime,
+        ...(options.recoverFromError === undefined ? {} : { recoverFromError: options.recoverFromError }),
+    });
 }
 
 export function normalizeClaudeAssistantAccount(

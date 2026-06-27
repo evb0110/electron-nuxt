@@ -92,9 +92,10 @@ import {
     getAssistantProviderRuntimeState,
 } from '@electron/features/agent/assistantProviderState';
 import {
-    applyCodexAuthStatusResponse,
     normalizeClaudeAssistantAccount,
-    normalizeCodexAssistantAccount,
+    refreshCodexAuthState,
+    refreshCodexAuthStateAndRuntimeAvailability,
+    syncCodexRuntimeStateAfterAuthCheck,
 } from '@electron/features/agent/assistantProviderAccounts';
 import {
     createAssistantErrorEnvelope,
@@ -102,6 +103,11 @@ import {
 } from '@electron/features/agent/assistantErrorEnvelope';
 import { normalizeOutgoingMessageRequest } from '@electron/features/agent/assistantOutgoingMessage';
 import { resolveAssistantPresetInstructions } from '@electron/features/agent/assistantPresetWorkflows';
+import {
+    focusAssistantReturnWindow,
+    rememberAssistantReturnWindow,
+    type TAssistantReturnWindow,
+} from '@electron/features/agent/assistantReturnWindow';
 import {
     getEmbeddedMcpServerDescriptor,
     isEmbeddedMcpServerRunning,
@@ -162,8 +168,6 @@ const ASSISTANT_CHAT_SESSION_TTL_MS = (() => {
     }
     return parsed;
 })();
-const CODEX_AUTH_ACCOUNT_READ_TIMEOUT_MS = 8_000;
-const CODEX_AUTH_STATUS_TIMEOUT_MS = 8_000;
 
 let codexInfoCache: ICodexCliInfo | null = null;
 let runtime: IAssistantRuntime | null = null;
@@ -176,35 +180,9 @@ let lastStateModel = CODEX_ASSISTANT_DEFAULT_MODEL;
 let lastStateEffort: TAgentAssistantEffort = ASSISTANT_DEFAULT_EFFORT;
 let lastStateSpeedMode: TAgentAssistantSpeedMode = ASSISTANT_DEFAULT_SPEED_MODE;
 let pendingLoginId: string | null = null;
-let authReturnWindow: BrowserWindow | null = null;
+let authReturnWindow: TAssistantReturnWindow = null;
 let installPromise: Promise<IAgentAssistantInstallResult> | null = null;
 const chatSessions = new Map<string, IAssistantChatSession>();
-
-function rememberAssistantReturnWindow(parentWindow?: BrowserWindow | null) {
-    authReturnWindow = parentWindow && !parentWindow.isDestroyed()
-        ? parentWindow
-        : BrowserWindow.getFocusedWindow();
-}
-
-function focusAssistantReturnWindow() {
-    const window = authReturnWindow && !authReturnWindow.isDestroyed()
-        ? authReturnWindow
-        : BrowserWindow.getAllWindows().find(candidate => !candidate.isDestroyed());
-    authReturnWindow = null;
-    if (!window || window.isDestroyed() || config.automation.noFocus) {
-        return;
-    }
-    if (window.isMinimized()) {
-        window.restore();
-    }
-    if (!window.isVisible()) {
-        window.show();
-    }
-    window.focus();
-    if (process.platform === 'darwin') {
-        app.focus({ steal: true });
-    }
-}
 
 function getAssistantBaseDir() {
     return join(app.getPath('userData'), ASSISTANT_MODEL_CONFIG_DIR);
@@ -838,10 +816,9 @@ function handleAppServerNotification(notification: ICodexAppServerNotification) 
         const success = isRecord(params) && params.success === true;
         const error = isRecord(params) && typeof params.error === 'string' ? params.error : null;
         if (success) {
-            focusAssistantReturnWindow();
-        } else {
-            authReturnWindow = null;
+            focusAssistantReturnWindow(authReturnWindow, { noFocus: config.automation.noFocus });
         }
+        authReturnWindow = null;
         pendingLoginId = null;
         codexProviderRuntime.authState = success ? 'signed-in' : 'signed-out';
         if (success) {
@@ -1029,79 +1006,17 @@ async function refreshClaudeInfo() {
 }
 
 async function refreshAuthState() {
-    if (!runtime) {
-        codexProviderRuntime.authState = 'unknown';
-        codexProviderRuntime.account = null;
-        return;
-    }
-
-    let accountReadError: unknown;
-    try {
-        const accountResponse = await runtime.client.requestDecoded(
-            'account/read',
-            { refreshToken: true },
-            decodeRecordResponse,
-            CODEX_AUTH_ACCOUNT_READ_TIMEOUT_MS,
-        );
-        const normalizedAccount = normalizeCodexAssistantAccount(accountResponse.account);
-        if (normalizedAccount) {
-            codexProviderRuntime.authState = 'signed-in';
-            codexProviderRuntime.account = normalizedAccount;
-            delete codexProviderRuntime.lastError;
-            return;
-        }
-
-        const accountRequiresOpenaiAuth = accountResponse.requiresOpenaiAuth === true;
-        if (accountRequiresOpenaiAuth) {
-            codexProviderRuntime.authState = 'signed-out';
-            codexProviderRuntime.account = null;
-            delete codexProviderRuntime.lastError;
-            return;
-        }
-    } catch (error) {
-        accountReadError = error;
-        logger.warn(`Failed to read Codex account state; falling back to auth status: ${getErrorMessage(error)}`);
-    }
-
-    try {
-        const authStatus = await runtime.client.requestDecoded(
-            'getAuthStatus',
-            {
-                includeToken: false,
-                refreshToken: accountReadError === undefined,
-            },
-            decodeRecordResponse,
-            CODEX_AUTH_STATUS_TIMEOUT_MS,
-        );
-        applyCodexAuthStatusResponse(codexProviderRuntime, authStatus);
-    } catch (error) {
-        const message = accountReadError === undefined
-            ? getErrorMessage(error)
-            : `${getErrorMessage(accountReadError)}; ${getErrorMessage(error)}`;
-        logger.warn(`Failed to read Codex auth state: ${message}`);
-        codexProviderRuntime.authState = codexProviderRuntime.authState === 'signed-in' ? 'signed-in' : 'signed-out';
-        codexProviderRuntime.account = null;
-        if (codexProviderRuntime.authState !== 'signed-in') {
-            codexProviderRuntime.lastError = `Could not verify Codex authentication: ${message}`;
-        }
-    }
-}
-
-function syncRuntimeStateAfterAuthCheck(options: { recoverFromError?: boolean } = {}) {
-    if (!runtime || codexProviderRuntime.runtimeState === 'busy') {
-        return;
-    }
-    if (codexProviderRuntime.runtimeState === 'error' && !options.recoverFromError) {
-        return;
-    }
-
-    codexProviderRuntime.runtimeState = codexProviderRuntime.authState === 'signed-in' ? 'ready' : 'stopped';
-    codexProviderRuntime.turnPhase = 'idle';
+    await refreshCodexAuthState(codexProviderRuntime, runtime?.client ?? null, {warn: message => logger.warn(message)});
 }
 
 async function refreshAuthStateAndRuntimeAvailability(options: { recoverFromError?: boolean } = {}) {
-    await refreshAuthState();
-    syncRuntimeStateAfterAuthCheck(options);
+    await refreshCodexAuthStateAndRuntimeAvailability({
+        providerRuntime: codexProviderRuntime,
+        client: runtime?.client ?? null,
+        hasRuntime: Boolean(runtime),
+        ...(options.recoverFromError === undefined ? {} : { recoverFromError: options.recoverFromError }),
+        warn: message => logger.warn(message),
+    });
 }
 
 async function ensureAssistantRuntime() {
@@ -1197,7 +1112,7 @@ async function startAssistantRuntime() {
     try {
         await client.initialize();
         await refreshAuthState();
-        syncRuntimeStateAfterAuthCheck();
+        syncCodexRuntimeStateAfterAuthCheck(codexProviderRuntime, { hasRuntime: true });
         await refreshCodexModelList();
         await refreshMcpToolCount();
         publishState(lastStateScope, currentCodexSelection());
@@ -1602,7 +1517,7 @@ export async function startAgentAssistantLogin(
 
         pendingLoginId = typeof response.loginId === 'string' ? response.loginId : null;
         codexProviderRuntime.authState = 'login-pending';
-        rememberAssistantReturnWindow(parentWindow);
+        authReturnWindow = rememberAssistantReturnWindow(parentWindow);
         const authUrl = typeof response.authUrl === 'string' ? response.authUrl : undefined;
         const verificationUrl = typeof response.verificationUrl === 'string' ? response.verificationUrl : undefined;
         const urlToOpen = authUrl ?? verificationUrl;

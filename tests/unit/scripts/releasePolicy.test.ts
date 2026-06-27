@@ -403,7 +403,11 @@ describe('release policy', () => {
         expect(commandArgs).toEqual([
             [
                 'run',
-                'validate',
+                'lint',
+            ],
+            [
+                'run',
+                'typecheck',
             ],
             [
                 'run',
@@ -419,6 +423,10 @@ describe('release policy', () => {
             ],
             [
                 'run',
+                'check:architecture',
+            ],
+            [
+                'run',
                 'test:rust',
             ],
             [
@@ -427,13 +435,13 @@ describe('release policy', () => {
             ],
             [
                 'run',
-                'test:coverage',
-            ],
-            [
-                'run',
                 'test:bundle-integrity',
             ],
         ]);
+        expect(scriptNames).not.toContain('validate');
+        expect(scriptNames).not.toContain('fallow:all');
+        expect(scriptNames).not.toContain('typecheck:coverage');
+        expect(scriptNames).not.toContain('test:coverage');
         expect(scriptNames).not.toContain('test:python-page-processor');
         expect(scriptNames).not.toContain('check:architecture:all');
         expect(commandArgs.flat()).not.toContain('landing');
