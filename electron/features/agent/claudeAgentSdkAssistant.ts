@@ -8,6 +8,7 @@ import {randomUUID} from 'node:crypto';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import {
+    delimiter,
     dirname,
     join,
 } from 'node:path';
@@ -48,6 +49,7 @@ import { getErrorMessage } from '@electron/utils/error';
 const logger = createLogger('agent-claude-assistant');
 const execFileAsync = promisify(execFile);
 const requireFromHere = createRequire(import.meta.url);
+const CLAUDE_CLI_DISCOVERY_TIMEOUT_MS = 5_000;
 
 type TClaudeImageMimeType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
 
@@ -173,8 +175,11 @@ interface IClaudeAgentSdkInfoOptions {
     resolveSdkPackageDir?: () => string | null;
     readSdkVersion?: (sdkDir: string) => Promise<string | null>;
     findBundledClaudeExecutable?: (sdkDir: string) => Promise<string | null>;
-    findClaudeOnPath?: () => Promise<string | null>;
     pathIsExecutable?: (path: string | null | undefined) => Promise<boolean>;
+    findClaudeOnPath?: (
+        env: NodeJS.ProcessEnv,
+        pathIsExecutable: (path: string | null | undefined) => Promise<boolean>,
+    ) => Promise<string | null>;
 }
 
 export interface IClaudeAgentAssistantInit {
@@ -275,21 +280,154 @@ async function pathIsExecutable(path: string | null | undefined) {
     }
 }
 
-async function findClaudeOnPath() {
-    try {
-        if (process.platform === 'win32') {
-            const { stdout } = await execFileAsync('where.exe', ['claude'], { windowsHide: true });
-            return stdout.split(/\r?\n/u).map(line => line.trim()).find(Boolean) ?? null;
+function uniqueStrings(values: Array<string | null | undefined>) {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const value of values) {
+        const candidate = value?.trim();
+        if (!candidate || seen.has(candidate)) {
+            continue;
         }
+        seen.add(candidate);
+        result.push(candidate);
+    }
+    return result;
+}
 
-        const { stdout } = await execFileAsync('/bin/sh', [
-            '-lc',
-            'command -v claude',
-        ], { windowsHide: true });
-        return stdout.trim() || null;
+function firstNonBlank(values: Array<string | null | undefined>) {
+    for (const value of values) {
+        const candidate = value?.trim();
+        if (candidate) {
+            return candidate;
+        }
+    }
+    return null;
+}
+
+function getClaudeExecutableNames() {
+    return process.platform === 'win32'
+        ? [
+            'claude.cmd',
+            'claude.exe',
+            'claude',
+        ]
+        : ['claude'];
+}
+
+function getClaudeHomeDir(env: NodeJS.ProcessEnv) {
+    return firstNonBlank([
+        env.HOME,
+        env.USERPROFILE,
+    ]) ?? homedir();
+}
+
+function buildClaudePathCandidates(env: NodeJS.ProcessEnv) {
+    const executableNames = getClaudeExecutableNames();
+    const pathCandidates = (env.PATH ?? '')
+        .split(delimiter)
+        .filter(Boolean)
+        .flatMap(entry => executableNames.map(name => join(entry, name)));
+    const homeDir = getClaudeHomeDir(env);
+    const userBinCandidates = process.platform === 'win32'
+        ? [
+            env.LOCALAPPDATA ? join(env.LOCALAPPDATA, 'Programs', 'Claude', 'claude.exe') : undefined,
+            env.APPDATA ? join(env.APPDATA, 'npm', 'claude.cmd') : undefined,
+        ]
+        : executableNames.flatMap(name => [
+            join(homeDir, '.local', 'bin', name),
+            join(homeDir, '.claude', 'local', name),
+            join(homeDir, '.bun', 'bin', name),
+            join(homeDir, 'Library', 'pnpm', name),
+        ]);
+    const systemCandidates = process.platform === 'win32'
+        ? []
+        : executableNames.flatMap(name => [
+            join('/opt/homebrew/bin', name),
+            join('/usr/local/bin', name),
+            join('/usr/bin', name),
+            join('/snap/bin', name),
+        ]);
+
+    return uniqueStrings([
+        env.CLAUDE_CODE_PATH,
+        env.CLAUDE_CLI_PATH,
+        ...pathCandidates,
+        ...userBinCandidates,
+        ...systemCandidates,
+    ]);
+}
+
+async function findClaudeWithCommand(
+    command: string,
+    args: string[],
+    env: NodeJS.ProcessEnv,
+    isExecutable: (path: string | null | undefined) => Promise<boolean>,
+) {
+    try {
+        const {stdout} = await execFileAsync(command, args, {
+            encoding: 'utf8',
+            env: {
+                ...process.env,
+                ...env,
+            },
+            timeout: CLAUDE_CLI_DISCOVERY_TIMEOUT_MS,
+            windowsHide: true,
+        });
+        const matches = stdout
+            .split(/\r?\n/u)
+            .map(line => line.trim())
+            .filter(Boolean);
+        for (const match of matches) {
+            if (await isExecutable(match)) {
+                return match;
+            }
+        }
     } catch {
         return null;
     }
+    return null;
+}
+
+async function findClaudeInLoginShell(
+    env: NodeJS.ProcessEnv,
+    isExecutable: (path: string | null | undefined) => Promise<boolean>,
+) {
+    if (process.platform === 'win32') {
+        return null;
+    }
+
+    const shellPath = firstNonBlank([env.SHELL]) ?? '/bin/zsh';
+    if (!(await isExecutable(shellPath))) {
+        return null;
+    }
+    return findClaudeWithCommand(shellPath, [
+        '-lc',
+        'command -v claude',
+    ], env, isExecutable);
+}
+
+async function findClaudeOnPath(
+    env: NodeJS.ProcessEnv = process.env,
+    isExecutable: (path: string | null | undefined) => Promise<boolean> = pathIsExecutable,
+) {
+    for (const candidate of buildClaudePathCandidates(env)) {
+        if (await isExecutable(candidate)) {
+            return candidate;
+        }
+    }
+
+    if (process.platform === 'win32') {
+        return findClaudeWithCommand('where.exe', ['claude'], env, isExecutable);
+    }
+
+    const shCandidate = await findClaudeWithCommand('/bin/sh', [
+        '-lc',
+        'command -v claude',
+    ], env, isExecutable);
+    if (shCandidate) {
+        return shCandidate;
+    }
+    return findClaudeInLoginShell(env, isExecutable);
 }
 
 function platformNativePackageNames() {
@@ -343,7 +481,12 @@ function resolveOptionalSdkPackageDir(resolvePackageDir: () => string | null) {
     try {
         return resolvePackageDir();
     } catch (error) {
-        logger.warn(`Claude Agent SDK package metadata is unavailable: ${getErrorMessage(error)}`);
+        const message = `Claude Agent SDK package metadata is unavailable: ${getErrorMessage(error)}`;
+        if (app.isPackaged) {
+            logger.info(message);
+        } else {
+            logger.warn(message);
+        }
         return null;
     }
 }
@@ -365,7 +508,7 @@ export async function getClaudeAgentSdkInfo(options: IClaudeAgentSdkInfoOptions 
             bundledExecutable,
         ] = await Promise.all([
             sdkDir ? readVersion(sdkDir) : Promise.resolve(null),
-            findPathExecutable(),
+            findPathExecutable(env, isExecutable),
             sdkDir ? findBundledExecutable(sdkDir) : Promise.resolve(null),
         ]);
         const executablePath = await isExecutable(envPath)

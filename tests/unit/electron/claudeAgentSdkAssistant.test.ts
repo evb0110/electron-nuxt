@@ -86,6 +86,25 @@ describe('claudeAgentSdkAssistant', () => {
         });
     });
 
+    it('finds user-local Claude CLI when packaged metadata and GUI launch PATH are sparse', async () => {
+        const result = await getClaudeAgentSdkInfo({
+            env: {
+                HOME: '/Users/test',
+                PATH: '/usr/bin:/bin',
+            },
+            resolveSdkPackageDir: () => {
+                throw new Error('Cannot find module @anthropic-ai/claude-agent-sdk');
+            },
+            pathIsExecutable: vi.fn(async path => path === '/Users/test/.local/bin/claude'),
+        });
+
+        expect(result).toEqual({
+            installed: true,
+            version: null,
+            executablePath: '/Users/test/.local/bin/claude',
+        });
+    });
+
     it('reports an actionable missing Claude CLI error when package metadata is unavailable', async () => {
         const result = await getClaudeAgentSdkInfo({
             env: {},
