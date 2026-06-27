@@ -28,6 +28,21 @@ describe('agent assistant model catalog', () => {
                         name: 'Standard',
                     },
                 ],
+                defaultReasoningEffort: 'medium',
+                supportedReasoningEfforts: [
+                    {
+                        reasoningEffort: 'low',
+                        description: 'Fast responses',
+                    },
+                    {
+                        reasoningEffort: 'medium',
+                        description: 'Balanced responses',
+                    },
+                    {
+                        reasoningEffort: 'xhigh',
+                        description: 'Extra high reasoning depth',
+                    },
+                ],
             },
             {
                 id: 'gpt-5.4-mini',
@@ -40,6 +55,25 @@ describe('agent assistant model catalog', () => {
             {
                 id: 'gpt-5.5',
                 label: 'GPT-5.5 Live',
+                reasoningEfforts: [
+                    {
+                        id: 'low',
+                        label: 'Low',
+                        description: 'Fast responses',
+                    },
+                    {
+                        id: 'medium',
+                        label: 'Medium',
+                        description: 'Balanced responses',
+                        isDefault: true,
+                    },
+                    {
+                        id: 'xhigh',
+                        label: 'Extra High',
+                        description: 'Extra high reasoning depth',
+                    },
+                ],
+                defaultReasoningEffort: 'medium',
                 serviceTiers: [
                     {
                         id: 'priority',
@@ -115,5 +149,37 @@ describe('agent assistant model catalog', () => {
             },
         ]);
         expect(normalizeCodexModelListResponse({data: 'bad'})).toBeNull();
+    });
+
+    it('preserves arbitrary Codex reasoning efforts advertised by model/list', () => {
+        const models = normalizeCodexModelListResponse({data: [{
+            model: 'gpt-test',
+            displayName: 'GPT Test',
+            defaultReasoningEffort: 'super-high',
+            supportedReasoningEfforts: [
+                {
+                    reasoningEffort: 'super-high',
+                    description: 'Maximum reasoning',
+                },
+                {reasoningEffort: 'minimal'},
+            ],
+        }]});
+
+        expect(models?.[0]).toMatchObject({
+            id: 'gpt-test',
+            reasoningEfforts: [
+                {
+                    id: 'super-high',
+                    label: 'Super High',
+                    description: 'Maximum reasoning',
+                    isDefault: true,
+                },
+                {
+                    id: 'minimal',
+                    label: 'Minimal',
+                },
+            ],
+            defaultReasoningEffort: 'super-high',
+        });
     });
 });

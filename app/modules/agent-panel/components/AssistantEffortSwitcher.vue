@@ -58,7 +58,11 @@
 </template>
 
 <script setup lang="ts">
-import type { TAgentAssistantEffort } from '@contracts/agent';
+import type {
+    TAgentAssistantEffort,
+    TAgentAssistantKnownEffort,
+} from '@contracts/agent';
+import { getAssistantEffortFallbackLabel } from '@contracts/agentModels';
 
 const {
     efforts,
@@ -89,7 +93,7 @@ const EFFORT_LABEL_KEYS = {
     high: 'assistant.effortHigh',
     xhigh: 'assistant.effortXHigh',
     max: 'assistant.effortMax',
-} as const satisfies Record<TAgentAssistantEffort, string>;
+} as const satisfies Record<TAgentAssistantKnownEffort, string>;
 
 const ariaLabel = computed(() => t('assistant.reasoningEffortAria', { label: effortLabel(selectedEffort) }));
 
@@ -100,7 +104,10 @@ watch(() => disabled, (nextDisabled) => {
 });
 
 function effortLabel(effort: TAgentAssistantEffort) {
-    return t(EFFORT_LABEL_KEYS[effort]);
+    if (isKnownEffort(effort)) {
+        return t(EFFORT_LABEL_KEYS[effort]);
+    }
+    return getAssistantEffortFallbackLabel(effort);
 }
 
 function onSelect(effort: TAgentAssistantEffort) {
@@ -109,6 +116,10 @@ function onSelect(effort: TAgentAssistantEffort) {
     }
     emit('select-effort', effort);
     open.value = false;
+}
+
+function isKnownEffort(effort: TAgentAssistantEffort): effort is TAgentAssistantKnownEffort {
+    return Object.prototype.hasOwnProperty.call(EFFORT_LABEL_KEYS, effort);
 }
 </script>
 

@@ -130,7 +130,6 @@ interface IAssistantRuntime {
     mcpToken: string;
     mcpServerName: string;
     mcpContractVersion: number;
-    effort: TAgentAssistantEffort;
 }
 
 interface IAssistantChatSession {
@@ -506,7 +505,12 @@ function currentCodexSelection(): IAssistantSelection {
     return {
         provider: 'codex',
         model,
-        effort: normalizeAssistantEffort('codex', lastStateProvider === 'codex' ? lastStateEffort : ASSISTANT_DEFAULT_EFFORT),
+        effort: normalizeAssistantEffort(
+            codexAssistantModels,
+            'codex',
+            model,
+            lastStateProvider === 'codex' ? lastStateEffort : ASSISTANT_DEFAULT_EFFORT,
+        ),
         speedMode: normalizeAssistantSpeedMode(
             codexAssistantModels,
             'codex',
@@ -533,11 +537,12 @@ function currentStatus(
     const installed = codexInfo?.installed === true;
     const versionSupported = codexInfo?.isVersionSupported === true;
     const supported = process.platform === 'darwin' || process.platform === 'win32' || process.platform === 'linux';
+    const normalizedModel = normalizeAssistantModel(codexAssistantModels, selection.provider, selection.model);
     const normalizedSelection = {
         provider: selection.provider,
-        model: normalizeAssistantModel(codexAssistantModels, selection.provider, selection.model),
-        effort: normalizeAssistantEffort(selection.provider, selection.effort),
-        speedMode: normalizeAssistantSpeedMode(codexAssistantModels, selection.provider, selection.model, selection.speedMode),
+        model: normalizedModel,
+        effort: normalizeAssistantEffort(codexAssistantModels, selection.provider, normalizedModel, selection.effort),
+        speedMode: normalizeAssistantSpeedMode(codexAssistantModels, selection.provider, normalizedModel, selection.speedMode),
     } as const satisfies IAssistantSelection;
     const session = getSessionForStatus(scope, normalizedSelection);
     const activeProviderRuntime = getAssistantProviderRuntimeState(providerRuntimeStates, normalizedSelection.provider);
@@ -565,7 +570,7 @@ function currentStatus(
         session?.model ?? normalizedSelection.model,
     );
     const models = activeProvider.models;
-    const effort = normalizeAssistantEffort(normalizedSelection.provider, effortInput);
+    const effort = normalizeAssistantEffort(codexAssistantModels, normalizedSelection.provider, model, effortInput);
     const speedMode = normalizeAssistantSpeedMode(codexAssistantModels, normalizedSelection.provider, model, speedModeInput);
     const error = session?.lastError ?? activeProvider.error;
     return {
@@ -579,7 +584,7 @@ function currentStatus(
         models,
         modelSwitchMode: activeProvider.modelSwitchMode,
         effort,
-        availableEfforts: getProviderEfforts(normalizedSelection.provider),
+        availableEfforts: getProviderEfforts(codexAssistantModels, normalizedSelection.provider, model),
         speedMode,
         availableSpeedModes: getProviderSpeedModes(codexAssistantModels, normalizedSelection.provider, model),
         installState: activeProvider.installState,
@@ -1078,7 +1083,13 @@ async function startAssistantRuntime() {
     const codeHome = getAssistantCodexHome();
     const cwd = getAssistantCwd();
     await mkdir(cwd, { recursive: true });
-    const codexEffort = normalizeAssistantEffort('codex', lastStateProvider === 'codex' ? lastStateEffort : ASSISTANT_DEFAULT_EFFORT);
+    const codexModel = lastStateProvider === 'codex' ? lastStateModel : codexDefaultModelId(codexAssistantModels);
+    const codexEffort = normalizeAssistantEffort(
+        codexAssistantModels,
+        'codex',
+        codexModel,
+        lastStateProvider === 'codex' ? lastStateEffort : ASSISTANT_DEFAULT_EFFORT,
+    );
     const {
         descriptor,
         token: mcpToken,
@@ -1105,7 +1116,6 @@ async function startAssistantRuntime() {
         mcpToken,
         mcpServerName: ASSISTANT_MCP_SERVER_NAME,
         mcpContractVersion: ASSISTANT_MCP_CONTRACT_VERSION,
-        effort: codexEffort,
     } satisfies IAssistantRuntime;
     runtime = nextRuntime;
 
@@ -1358,7 +1368,7 @@ async function ensureClaudeAssistantSession(
     }
 
     const normalizedModel = normalizeClaudeAssistantModel(model);
-    const normalizedEffort = normalizeAssistantEffort('claude', effort);
+    const normalizedEffort = normalizeAssistantEffort(codexAssistantModels, 'claude', normalizedModel, effort);
     const normalizedSpeedMode = normalizeAssistantSpeedMode(codexAssistantModels, 'claude', normalizedModel, speedMode);
     const desiredFastMode = shouldUseClaudeAssistantFastMode(normalizedModel, normalizedSpeedMode);
 
@@ -1669,11 +1679,6 @@ export async function sendAgentAssistantMessage(
 
     let currentThreadId: string | null = null;
     try {
-        // Codex effort is a runtime-level config (model_reasoning_effort); apply a change by
-        // restarting the runtime so the next ensureAssistantRuntime rewrites config.toml.
-        if (runtime && runtime.effort !== selection.effort) {
-            await shutdownCodexAssistantRuntime();
-        }
         const currentRuntime = await ensureAssistantRuntime();
         const codexModel = getCodexAppServerModel(selection.model);
         const codexServiceTier = resolveCodexServiceTier(codexAssistantModels, selection.model, selection.speedMode);
@@ -1708,6 +1713,7 @@ export async function sendAgentAssistantMessage(
                 })),
             ],
             ...(codexModel ? { model: codexModel } : {}),
+            effort: selection.effort,
             ...(codexServiceTier ? { serviceTier: codexServiceTier } : {}),
             cwd: currentRuntime.cwd,
             approvalPolicy: 'never',

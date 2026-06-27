@@ -135,7 +135,8 @@ describe('assistantSelectionState', () => {
 
         expect(normalizeEffortValue('xhigh')).toBe('xhigh');
         expect(normalizeEffortValue({value: 'max'})).toBe('max');
-        expect(normalizeEffortValue('extreme')).toBeNull();
+        expect(normalizeEffortValue('extreme')).toBe('extreme');
+        expect(normalizeEffortValue('   ')).toBeNull();
 
         expect(normalizeSpeedModeValue('fast')).toBe('fast');
         expect(normalizeSpeedModeValue({value: 'standard'})).toBe('standard');
@@ -177,6 +178,69 @@ describe('assistantSelectionState', () => {
         expect(selectedStatus.turn).toBe(baseStatus.turn);
         expect(selectedStatus.threadId).toBe('thread-1');
         expect(selectedStatus.activeTurnId).toBe('turn-1');
+    });
+
+    it('uses selected model reasoning efforts for optimistic effort selection', () => {
+        const baseStatus = createAssistantStatus('codex');
+        const providerStatus = createProviderStatus('codex', {
+            models: [
+                {
+                    id: 'codex-default',
+                    label: 'Codex Default',
+                    reasoningEfforts: [{
+                        id: 'low',
+                        label: 'Low',
+                    }],
+                    defaultReasoningEffort: 'low',
+                },
+                {
+                    id: 'codex-deep',
+                    label: 'Codex Deep',
+                    reasoningEfforts: [
+                        {
+                            id: 'medium',
+                            label: 'Medium',
+                            isDefault: true,
+                        },
+                        {
+                            id: 'xhigh',
+                            label: 'Extra High',
+                        },
+                        {
+                            id: 'super-high',
+                            label: 'Super High',
+                        },
+                    ],
+                    defaultReasoningEffort: 'medium',
+                },
+            ],
+            availableEfforts: ['low'],
+            defaultEffort: 'low',
+            activeEffort: 'low',
+        });
+
+        const selectedStatus = createSelectedAssistantStatus(
+            baseStatus,
+            providerStatus,
+            'codex-deep',
+            'xhigh',
+            'fast',
+        );
+        const fallbackStatus = createSelectedAssistantStatus(
+            baseStatus,
+            providerStatus,
+            'codex-deep',
+            'not-advertised',
+            'fast',
+        );
+
+        expect(selectedStatus.availableEfforts).toEqual([
+            'medium',
+            'xhigh',
+            'super-high',
+        ]);
+        expect(selectedStatus.effort).toBe('xhigh');
+        expect(fallbackStatus.effort).toBe('medium');
     });
 
     it('resets turn state when switching providers', () => {

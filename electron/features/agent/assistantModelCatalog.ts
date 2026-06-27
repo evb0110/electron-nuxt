@@ -1,11 +1,21 @@
 import type {
+    IAgentAssistantEffortOption,
     IAgentAssistantModelOption,
     IAgentAssistantServiceTierOption,
 } from '@contracts/agent';
-import { CODEX_ASSISTANT_DEFAULT_MODEL } from '@contracts/agentModels';
+import {
+    CODEX_ASSISTANT_DEFAULT_MODEL,
+    getAssistantEffortFallbackLabel,
+    normalizeAssistantEffortId,
+} from '@contracts/agentModels';
 import { isRecord } from '@contracts/runtimeGuards';
 
 export type TCodexAssistantModelOption = IAgentAssistantModelOption & { isDefault?: boolean };
+
+interface ICodexReasoningEffortMetadata {
+    reasoningEfforts: IAgentAssistantEffortOption[] | null;
+    defaultReasoningEffort: IAgentAssistantModelOption['defaultReasoningEffort'];
+}
 
 function normalizeCodexServiceTier(rawTier: unknown): IAgentAssistantServiceTierOption | null {
     if (typeof rawTier === 'string') {
@@ -66,6 +76,66 @@ function normalizeCodexServiceTiers(rawModel: Record<PropertyKey, unknown>) {
         });
 }
 
+function normalizeCodexReasoningEffort(
+    rawEffort: unknown,
+    defaultReasoningEffort: IAgentAssistantModelOption['defaultReasoningEffort'],
+): IAgentAssistantEffortOption | null {
+    const rawId = isRecord(rawEffort)
+        ? rawEffort.reasoningEffort ?? rawEffort.id ?? rawEffort.value
+        : rawEffort;
+    const id = normalizeAssistantEffortId(rawId);
+    if (!id) {
+        return null;
+    }
+
+    const label = isRecord(rawEffort) && typeof rawEffort.label === 'string' && rawEffort.label.trim()
+        ? rawEffort.label.trim()
+        : isRecord(rawEffort) && typeof rawEffort.name === 'string' && rawEffort.name.trim()
+            ? rawEffort.name.trim()
+            : getAssistantEffortFallbackLabel(id);
+    return {
+        id,
+        label,
+        ...(isRecord(rawEffort) && typeof rawEffort.description === 'string' && rawEffort.description.trim()
+            ? { description: rawEffort.description.trim() }
+            : {}),
+        ...((isRecord(rawEffort) && rawEffort.isDefault === true) || defaultReasoningEffort === id
+            ? { isDefault: true }
+            : {}),
+    };
+}
+
+function normalizeCodexReasoningEfforts(
+    rawModel: Record<PropertyKey, unknown>,
+): ICodexReasoningEffortMetadata {
+    const defaultReasoningEffort = normalizeAssistantEffortId(rawModel.defaultReasoningEffort);
+    const rawEfforts = Array.isArray(rawModel.supportedReasoningEfforts)
+        ? rawModel.supportedReasoningEfforts
+        : Array.isArray(rawModel.reasoningEfforts)
+            ? rawModel.reasoningEfforts
+            : null;
+    if (!rawEfforts) {
+        return {
+            reasoningEfforts: null,
+            defaultReasoningEffort,
+        };
+    }
+
+    const seen = new Set<string>();
+    return {
+        reasoningEfforts: rawEfforts
+            .map(rawEffort => normalizeCodexReasoningEffort(rawEffort, defaultReasoningEffort))
+            .filter((effort): effort is IAgentAssistantEffortOption => {
+                if (!effort || seen.has(effort.id)) {
+                    return false;
+                }
+                seen.add(effort.id);
+                return true;
+            }),
+        defaultReasoningEffort,
+    };
+}
+
 function normalizeCodexModelOption(rawModel: unknown): TCodexAssistantModelOption | null {
     if (!isRecord(rawModel)) {
         return null;
@@ -83,6 +153,10 @@ function normalizeCodexModelOption(rawModel: unknown): TCodexAssistantModelOptio
     const label = typeof rawModel.displayName === 'string' && rawModel.displayName.trim()
         ? rawModel.displayName.trim()
         : id;
+    const {
+        reasoningEfforts,
+        defaultReasoningEffort,
+    } = normalizeCodexReasoningEfforts(rawModel);
     const serviceTiers = normalizeCodexServiceTiers(rawModel);
     const defaultServiceTier = typeof rawModel.defaultServiceTier === 'string' && rawModel.defaultServiceTier.trim()
         ? rawModel.defaultServiceTier.trim()
@@ -90,6 +164,8 @@ function normalizeCodexModelOption(rawModel: unknown): TCodexAssistantModelOptio
     return {
         id,
         label,
+        ...(reasoningEfforts ? { reasoningEfforts } : {}),
+        ...(defaultReasoningEffort ? { defaultReasoningEffort } : {}),
         ...(serviceTiers.length > 0 ? { serviceTiers } : {}),
         ...(defaultServiceTier ? { defaultServiceTier } : {}),
         ...(rawModel.isDefault === true ? {isDefault: true} : {}),

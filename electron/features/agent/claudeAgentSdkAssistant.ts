@@ -18,6 +18,7 @@ import {
     query,
     type AccountInfo,
     type CanUseTool,
+    type EffortLevel,
     type Query,
     type SDKAssistantMessage,
     type SDKMessage,
@@ -829,6 +830,20 @@ function normalizeClaudeAccount(account: AccountInfo | null): AccountInfo | null
     };
 }
 
+function toClaudeEffortLevel(effort: TAgentAssistantEffort): EffortLevel {
+    if (
+        effort === 'low'
+        || effort === 'medium'
+        || effort === 'high'
+        || effort === 'xhigh'
+        || effort === 'max'
+    ) {
+        return effort as EffortLevel;
+    }
+
+    return 'low';
+}
+
 export class ClaudeAgentAssistantSession {
     private readonly promptQueue = new ClaudePromptQueue();
     private query: Query | null = null;
@@ -837,7 +852,7 @@ export class ClaudeAgentAssistantSession {
     private currentTurnId: string | null = null;
     private currentAssistantMessageId: string | null = null;
     private currentModel: string;
-    private readonly currentEffort: TAgentAssistantEffort;
+    private readonly currentEffort: EffortLevel;
     private readonly currentSpeedMode: TAgentAssistantSpeedMode;
     private readonly queryFastMode: boolean;
     private sessionId: string | null = null;
@@ -847,7 +862,7 @@ export class ClaudeAgentAssistantSession {
 
     constructor(private readonly options: IClaudeAgentAssistantSessionOptions) {
         this.currentModel = normalizeClaudeAssistantModel(options.model);
-        this.currentEffort = options.effort;
+        this.currentEffort = toClaudeEffortLevel(options.effort);
         this.currentSpeedMode = options.speedMode;
         this.queryFastMode = shouldUseClaudeAssistantFastMode(this.currentModel, this.currentSpeedMode);
     }

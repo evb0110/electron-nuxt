@@ -11,6 +11,7 @@ import {
     ASSISTANT_DEFAULT_EFFORT,
     ASSISTANT_DEFAULT_SPEED_MODE,
     ASSISTANT_SPEED_MODES,
+    normalizeAssistantEffortId,
 } from '@contracts/agentModels';
 
 export function cloneAssistantScope(scope: IAgentAssistantChatScope): IAgentAssistantChatScope {
@@ -39,6 +40,34 @@ export function speedModesForProviderStatus(providerStatus: IAgentAssistantProvi
         : providerStatus.availableSpeedModes ?? [ASSISTANT_DEFAULT_SPEED_MODE];
 }
 
+function effortsForProviderModel(
+    providerStatus: IAgentAssistantProviderStatus,
+    modelOption: ReturnType<typeof modelForSelection>,
+) {
+    return modelOption?.reasoningEfforts
+        ? modelOption.reasoningEfforts.map(effort => effort.id)
+        : providerStatus.availableEfforts ?? [];
+}
+
+function defaultEffortForProviderModel(
+    providerStatus: IAgentAssistantProviderStatus,
+    efforts: readonly TAgentAssistantEffort[],
+    modelOption: ReturnType<typeof modelForSelection>,
+) {
+    if (efforts.includes(providerStatus.defaultEffort)) {
+        return providerStatus.defaultEffort;
+    }
+    const modelDefault = modelOption?.defaultReasoningEffort;
+    if (modelDefault && efforts.includes(modelDefault)) {
+        return modelDefault;
+    }
+    const defaultOption = modelOption?.reasoningEfforts?.find(effort => effort.isDefault)?.id;
+    if (defaultOption && efforts.includes(defaultOption)) {
+        return defaultOption;
+    }
+    return efforts[0] ?? providerStatus.defaultEffort ?? ASSISTANT_DEFAULT_EFFORT;
+}
+
 export function createSelectedAssistantStatus(
     baseStatus: IAgentAssistantStatus,
     providerStatus: IAgentAssistantProviderStatus,
@@ -49,11 +78,11 @@ export function createSelectedAssistantStatus(
     const selectedModelOption = modelForSelection(providerStatus, model);
     const selectedModel = selectedModelOption?.id ?? model;
     const selectedModelLabel = selectedModelOption?.label ?? selectedModel;
-    const providerEfforts = providerStatus.availableEfforts ?? [];
+    const providerEfforts = effortsForProviderModel(providerStatus, selectedModelOption);
     const providerSpeedModes = speedModesForProviderStatus(providerStatus);
     const selectedEffortValue = providerEfforts.includes(effort)
         ? effort
-        : providerStatus.defaultEffort ?? ASSISTANT_DEFAULT_EFFORT;
+        : defaultEffortForProviderModel(providerStatus, providerEfforts, selectedModelOption);
     const selectedSpeedModeValue = providerSpeedModes.includes(speedMode)
         ? speedMode
         : providerStatus.defaultSpeedMode ?? ASSISTANT_DEFAULT_SPEED_MODE;
@@ -154,9 +183,7 @@ function unwrapSelectionValue(value: unknown) {
 
 export function normalizeEffortValue(value: unknown): TAgentAssistantEffort | null {
     const id = unwrapSelectionValue(value);
-    return id === 'low' || id === 'medium' || id === 'high' || id === 'xhigh' || id === 'max'
-        ? id
-        : null;
+    return normalizeAssistantEffortId(id);
 }
 
 export function normalizeSpeedModeValue(value: unknown): TAgentAssistantSpeedMode | null {

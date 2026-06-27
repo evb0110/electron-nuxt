@@ -18,6 +18,7 @@ import {
     CLAUDE_ASSISTANT_EFFORTS,
     CODEX_ASSISTANT_EFFORTS,
     getAssistantPreferredModelId,
+    normalizeAssistantEffortId,
 } from '@contracts/agentModels';
 import {
     CLAUDE_AGENT_DEFAULT_MODEL,
@@ -101,13 +102,47 @@ export function getProviderModelLabel(
         : getCodexAssistantModelLabel(codexModels, model);
 }
 
-export function getProviderEfforts(provider: TAgentAssistantProviderId): readonly TAgentAssistantEffort[] {
-    return provider === 'claude' ? CLAUDE_ASSISTANT_EFFORTS : CODEX_ASSISTANT_EFFORTS;
-}
-
 function findCodexModelOption(codexModels: readonly TCodexAssistantModelOption[], model: string) {
     const normalized = normalizeCodexAssistantModel(codexModels, model);
     return codexModels.find(option => option.id === normalized) ?? null;
+}
+
+export function getProviderEfforts(
+    codexModels: readonly TCodexAssistantModelOption[],
+    provider: TAgentAssistantProviderId,
+    model: string,
+): readonly TAgentAssistantEffort[] {
+    if (provider === 'claude') {
+        return CLAUDE_ASSISTANT_EFFORTS;
+    }
+
+    const modelOption = findCodexModelOption(codexModels, model);
+    return modelOption?.reasoningEfforts
+        ? modelOption.reasoningEfforts.map(effort => effort.id)
+        : CODEX_ASSISTANT_EFFORTS;
+}
+
+function getProviderDefaultEffort(
+    codexModels: readonly TCodexAssistantModelOption[],
+    provider: TAgentAssistantProviderId,
+    model: string,
+) {
+    const efforts = getProviderEfforts(codexModels, provider, model);
+    if (efforts.includes(ASSISTANT_DEFAULT_EFFORT)) {
+        return ASSISTANT_DEFAULT_EFFORT;
+    }
+    if (provider === 'codex') {
+        const modelOption = findCodexModelOption(codexModels, model);
+        const modelDefault = modelOption?.defaultReasoningEffort;
+        if (modelDefault && efforts.includes(modelDefault)) {
+            return modelDefault;
+        }
+        const defaultOption = modelOption?.reasoningEfforts?.find(effort => effort.isDefault)?.id;
+        if (defaultOption && efforts.includes(defaultOption)) {
+            return defaultOption;
+        }
+    }
+    return efforts[0] ?? ASSISTANT_DEFAULT_EFFORT;
 }
 
 function isCodexFastServiceTierId(id: string) {
@@ -156,12 +191,16 @@ function getProviderDefaultSpeedMode(
 }
 
 export function normalizeAssistantEffort(
+    codexModels: readonly TCodexAssistantModelOption[],
     provider: TAgentAssistantProviderId,
+    model: string,
     effort: TAgentAssistantEffort | null | undefined,
 ): TAgentAssistantEffort {
-    return effort && getProviderEfforts(provider).includes(effort)
-        ? effort
-        : ASSISTANT_DEFAULT_EFFORT;
+    const normalizedEffort = normalizeAssistantEffortId(effort);
+    const efforts = getProviderEfforts(codexModels, provider, model);
+    return normalizedEffort && efforts.includes(normalizedEffort)
+        ? normalizedEffort
+        : getProviderDefaultEffort(codexModels, provider, model);
 }
 
 export function normalizeAssistantSpeedMode(
@@ -190,7 +229,7 @@ export function resolveAssistantSelection(
     return {
         provider,
         model,
-        effort: normalizeAssistantEffort(provider, request?.effort),
+        effort: normalizeAssistantEffort(codexModels, provider, model, request?.effort),
         speedMode: normalizeAssistantSpeedMode(codexModels, provider, model, request?.speedMode),
     };
 }
@@ -211,6 +250,8 @@ export function buildCodexProviderStatus(options: {
     const supported = options.platform === 'darwin' || options.platform === 'win32' || options.platform === 'linux';
     const activeModel = normalizeCodexAssistantModel(options.models, options.model);
     const availableSpeedModes = getProviderSpeedModes(options.models, 'codex', activeModel);
+    const availableEfforts = getProviderEfforts(options.models, 'codex', activeModel);
+    const defaultEffort = getProviderDefaultEffort(options.models, 'codex', activeModel);
     return {
         id: 'codex',
         label: getAssistantProviderLabel('codex'),
@@ -221,9 +262,9 @@ export function buildCodexProviderStatus(options: {
         defaultModel: codexDefaultModelId(options.models),
         activeModel,
         modelSwitchMode: 'in-session',
-        availableEfforts: CODEX_ASSISTANT_EFFORTS,
-        defaultEffort: ASSISTANT_DEFAULT_EFFORT,
-        activeEffort: normalizeAssistantEffort('codex', options.effort),
+        availableEfforts,
+        defaultEffort,
+        activeEffort: normalizeAssistantEffort(options.models, 'codex', activeModel, options.effort),
         availableSpeedModes,
         defaultSpeedMode: getProviderDefaultSpeedMode(options.models, 'codex', activeModel),
         activeSpeedMode: normalizeAssistantSpeedMode(options.models, 'codex', activeModel, options.speedMode),
@@ -268,6 +309,8 @@ export function buildClaudeProviderStatus(options: {
         ];
     const error = options.lastError ?? options.claudeInfo?.error;
     const availableSpeedModes = getProviderSpeedModes([], 'claude', activeModel);
+    const availableEfforts = getProviderEfforts([], 'claude', activeModel);
+    const defaultEffort = getProviderDefaultEffort([], 'claude', activeModel);
     return {
         id: 'claude',
         label: getAssistantProviderLabel('claude'),
@@ -278,9 +321,9 @@ export function buildClaudeProviderStatus(options: {
         defaultModel: getAssistantPreferredModelId(models, 'opus', CLAUDE_AGENT_DEFAULT_MODEL),
         activeModel,
         modelSwitchMode: 'in-session',
-        availableEfforts: CLAUDE_ASSISTANT_EFFORTS,
-        defaultEffort: ASSISTANT_DEFAULT_EFFORT,
-        activeEffort: normalizeAssistantEffort('claude', options.effort),
+        availableEfforts,
+        defaultEffort,
+        activeEffort: normalizeAssistantEffort([], 'claude', activeModel, options.effort),
         availableSpeedModes,
         defaultSpeedMode: getProviderDefaultSpeedMode([], 'claude', activeModel),
         activeSpeedMode: normalizeAssistantSpeedMode([], 'claude', activeModel, options.speedMode),

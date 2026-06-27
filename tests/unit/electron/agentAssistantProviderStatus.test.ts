@@ -6,7 +6,9 @@ import {
 } from 'vitest';
 import {
     buildCodexProviderStatus,
+    getProviderEfforts,
     getProviderSpeedModes,
+    normalizeAssistantEffort,
     resolveCodexServiceTier,
 } from '@electron/features/agent/assistantProviderStatus';
 
@@ -89,5 +91,53 @@ describe('agent assistant provider status', () => {
         ]);
         expect(status.defaultSpeedMode).toBe('fast');
         expect(status.activeSpeedMode).toBe('fast');
+    });
+
+    it('uses model-advertised Codex reasoning efforts instead of static provider values', () => {
+        const models = [{
+            id: 'gpt-5.5',
+            label: 'GPT-5.5',
+            reasoningEfforts: [
+                {
+                    id: 'medium',
+                    label: 'Medium',
+                    isDefault: true,
+                },
+                {
+                    id: 'xhigh',
+                    label: 'Extra High',
+                },
+                {
+                    id: 'super-high',
+                    label: 'Super High',
+                },
+            ],
+            defaultReasoningEffort: 'medium',
+        }];
+        const status = buildCodexProviderStatus({
+            platform: 'darwin',
+            codexInfo: null,
+            models,
+            model: 'gpt-5.5',
+            effort: 'xhigh',
+            speedMode: 'fast',
+            authState: 'signed-in',
+            runtimeState: 'ready',
+            account: null,
+        });
+
+        expect(getProviderEfforts(models, 'codex', 'gpt-5.5')).toEqual([
+            'medium',
+            'xhigh',
+            'super-high',
+        ]);
+        expect(status.availableEfforts).toEqual([
+            'medium',
+            'xhigh',
+            'super-high',
+        ]);
+        expect(status.defaultEffort).toBe('medium');
+        expect(status.activeEffort).toBe('xhigh');
+        expect(normalizeAssistantEffort(models, 'codex', 'gpt-5.5', 'not-advertised')).toBe('medium');
     });
 });

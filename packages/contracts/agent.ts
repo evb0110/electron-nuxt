@@ -19,7 +19,8 @@ export type TAgentAssistantEventType = 'state' | 'message' | 'message-delta' | '
 export type TAgentAssistantChatScopeKind = 'document';
 export type TAgentAssistantProviderId = 'codex' | 'claude';
 export type TAgentAssistantModelSwitchMode = 'none' | 'in-session';
-export type TAgentAssistantEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type TAgentAssistantKnownEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type TAgentAssistantEffort = TAgentAssistantKnownEffort | (string & {});
 export type TAgentAssistantSpeedMode = 'fast' | 'standard';
 export type TAgentWorkspaceMode = 'empty-workspace' | 'open-document' | 'documents-open-no-active-document';
 
@@ -257,8 +258,17 @@ export interface IAgentAssistantMcpStatus {
 export interface IAgentAssistantModelOption {
     id: string;
     label: string;
+    reasoningEfforts?: readonly IAgentAssistantEffortOption[];
+    defaultReasoningEffort?: TAgentAssistantEffort | null;
     serviceTiers?: readonly IAgentAssistantServiceTierOption[];
     defaultServiceTier?: string | null;
+}
+
+export interface IAgentAssistantEffortOption {
+    id: TAgentAssistantEffort;
+    label: string;
+    description?: string;
+    isDefault?: boolean;
 }
 
 export interface IAgentAssistantServiceTierOption {
