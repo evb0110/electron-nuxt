@@ -56,7 +56,6 @@
                 </div>
 
                 <div class="assistant-model-switcher-section">
-                    <span class="assistant-model-switcher-section-label">{{ t('assistant.model') }}</span>
                     <div
                         class="assistant-model-switcher-list"
                         role="radiogroup"
@@ -275,10 +274,6 @@ function onSelectModel(model: string) {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--app-space-sm);
-    padding: var(--app-space-2xs);
-    border: 1px solid var(--app-toolbar-group-border);
-    border-radius: var(--app-radius-md);
-    background: var(--app-sidebar-bg);
 }
 
 .assistant-model-switcher-tab {
@@ -290,7 +285,7 @@ function onSelectModel(model: string) {
     min-height: 1.85rem;
     padding: 0 0.5rem;
     border: 1px solid transparent;
-    border-radius: var(--app-radius-xs);
+    border-radius: var(--app-radius-sm);
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-body-sm);
     line-height: var(--app-line-height-tight);
@@ -298,6 +293,7 @@ function onSelectModel(model: string) {
     transition:
         background-color var(--app-transition-fast),
         border-color var(--app-transition-fast),
+        box-shadow var(--app-transition-fast),
         color var(--app-transition-fast);
 }
 
@@ -315,10 +311,17 @@ function onSelectModel(model: string) {
 }
 
 .assistant-model-switcher-tab.is-active {
-    border-color: var(--app-toolbar-control-hover-border);
-    background: var(--app-toolbar-control-hover-bg);
+    border-color: var(--app-toolbar-control-active-border);
+    background: var(--app-toolbar-control-active-bg);
+    box-shadow: var(--app-toolbar-control-active-shadow);
     color: var(--ui-text);
     font-weight: var(--app-font-weight-semibold);
+}
+
+.assistant-model-switcher-tab.is-active:hover:not(:disabled) {
+    border-color: var(--app-toolbar-control-active-hover-border);
+    background: var(--app-toolbar-control-active-hover-bg);
+    color: var(--ui-text);
 }
 
 .assistant-model-switcher-tab:disabled {
@@ -335,15 +338,6 @@ function onSelectModel(model: string) {
     flex-direction: column;
     gap: 0.3rem;
     padding-top: var(--app-space-2xl);
-}
-
-.assistant-model-switcher-section-label {
-    padding: 0 var(--app-space-2xs);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-micro);
-    font-weight: var(--app-font-weight-semibold);
-    line-height: var(--app-line-height-tight);
-    text-transform: uppercase;
 }
 
 .assistant-model-switcher-list {
