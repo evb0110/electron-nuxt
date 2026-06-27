@@ -98,13 +98,13 @@ function createAgentOptions(
         bookmarkItems,
         bookmarksDirty: ref(false),
         canSave: ref(false),
+        canUndo: ref(false),
+        canRedo: ref(false),
         closeAllDropdowns: vi.fn(),
         closeShapeProperties: vi.fn(),
         closeTextMarkupProperties: vi.fn(),
         continuousScroll: ref(false),
         currentPage: ref(1),
-        dragMode: ref(false),
-        enableDragMode: vi.fn(),
         fitMode: ref<unknown>('width'),
         handleActualSize: vi.fn(),
         handleAnnotationFocusComment: vi.fn(async () => undefined),
@@ -122,6 +122,10 @@ function createAgentOptions(
         handleGoToPage: vi.fn(),
         handleOpenAnnotationNote: vi.fn(),
         handleOpenFileFromUi: vi.fn(async () => undefined),
+        handleRepairSave: vi.fn(async () => true),
+        handleOptimizePdfForInteraction: vi.fn(async () => true),
+        handleUndo: vi.fn(async () => undefined),
+        handleRedo: vi.fn(async () => undefined),
         handlePageLabelRangesUpdate: vi.fn((ranges) => {
             pageLabelRanges.value = ranges;
         }),
@@ -148,6 +152,8 @@ function createAgentOptions(
         pageOpsDelete: vi.fn(async () => undefined),
         pageOpsExtract: vi.fn(async () => undefined),
         pageOpsInsert: vi.fn(async () => undefined),
+        handleCropPages: vi.fn(async () => true),
+        handleRemoveCrop: vi.fn(async () => true),
         pdfViewerRef: ref<IPdfViewerExpose | null>(null),
         selectedThumbnailPages: ref([]),
         showConvertDialog: ref(false),
@@ -348,6 +354,112 @@ describe('useDocumentWorkspaceAgent', () => {
         expect(handleSave).toHaveBeenCalledOnce();
     });
 
+    it('runs repair-save and optimize-for-interaction through semantic file actions', async () => {
+        const handleRepairSave = vi.fn(async () => true);
+        const handleOptimizePdfForInteraction = vi.fn(async () => true);
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            handleRepairSave,
+            handleOptimizePdfForInteraction,
+            workingCopyPath: ref('/tmp/working.pdf'),
+            originalPath: ref('/tmp/original.pdf'),
+        }));
+
+        await expect(agent.runAgentAction('file.repair_save')).resolves.toMatchObject({
+            ok: true,
+            actionId: 'file.repair_save',
+            repaired: true,
+            workingCopyPath: '/tmp/working.pdf',
+            originalPath: '/tmp/original.pdf',
+        });
+        await expect(agent.runAgentAction('file.optimize_for_interaction')).resolves.toMatchObject({
+            ok: true,
+            actionId: 'file.optimize_for_interaction',
+            optimized: true,
+        });
+        expect(handleRepairSave).toHaveBeenCalledOnce();
+        expect(handleOptimizePdfForInteraction).toHaveBeenCalledOnce();
+    });
+
+    it('runs structured crop and remove-crop page operations', async () => {
+        const handleCropPages = vi.fn(async () => true);
+        const handleRemoveCrop = vi.fn(async () => true);
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            handleCropPages,
+            handleRemoveCrop,
+            totalPages: ref(4),
+        }));
+
+        await expect(agent.runAgentAction('page_ops.crop', {
+            pages: [
+                2,
+                2,
+                4,
+            ],
+            margins: {
+                top: 12,
+                right: 6,
+                bottom: 8,
+                left: 6,
+            },
+        })).resolves.toMatchObject({
+            ok: true,
+            actionId: 'page_ops.crop',
+            pages: [
+                2,
+                4,
+            ],
+            margins: {
+                top: 12,
+                right: 6,
+                bottom: 8,
+                left: 6,
+            },
+            cropped: true,
+        });
+        await expect(agent.runAgentAction('page_ops.remove_crop', {pages: [4]})).resolves.toMatchObject({
+            ok: true,
+            actionId: 'page_ops.remove_crop',
+            pages: [4],
+            cropRemoved: true,
+        });
+        expect(handleCropPages).toHaveBeenCalledWith([
+            2,
+            4,
+        ], {
+            top: 12,
+            right: 6,
+            bottom: 8,
+            left: 6,
+        });
+        expect(handleRemoveCrop).toHaveBeenCalledWith([4]);
+    });
+
+    it('guards history actions by undo and redo availability', async () => {
+        const canUndo = ref(false);
+        const canRedo = ref(true);
+        const handleUndo = vi.fn(async () => undefined);
+        const handleRedo = vi.fn(async () => {
+            canUndo.value = true;
+            canRedo.value = false;
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            canUndo,
+            canRedo,
+            handleUndo,
+            handleRedo,
+        }));
+
+        await expect(agent.runAgentAction('history.undo')).rejects.toThrow('Undo is not currently available.');
+        await expect(agent.runAgentAction('history.redo')).resolves.toMatchObject({
+            ok: true,
+            actionId: 'history.redo',
+            canUndo: true,
+            canRedo: false,
+        });
+        expect(handleUndo).not.toHaveBeenCalled();
+        expect(handleRedo).toHaveBeenCalledOnce();
+    });
+
     it('routes assistant text-markup color edits through the undo-aware color updater', async () => {
         const comment = createAnnotationComment();
         const updateTextMarkupColorWithHistory = vi.fn(() => true);
@@ -478,6 +590,22 @@ describe('useDocumentWorkspaceAgent', () => {
             [
                 'page_ops.insert_pages',
                 { afterPage: 2 },
+            ],
+            [
+                'page_ops.crop',
+                {
+                    pages: [1],
+                    margins: {
+                        top: 1,
+                        right: 1,
+                        bottom: 1,
+                        left: 1,
+                    },
+                },
+            ],
+            [
+                'page_ops.remove_crop',
+                { pages: [1] },
             ],
         ];
 

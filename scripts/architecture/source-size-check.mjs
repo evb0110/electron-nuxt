@@ -94,7 +94,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1568,
+        maxLines: 1553,
         reason: 'transitional workspace component hotspot',
         stage: 'Future workspace component extraction',
     },
@@ -149,7 +149,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future PDF annotation extraction',
     },
     'app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts': {
-        maxLines: 1241,
+        maxLines: 1133,
         reason: 'transitional document workspace agent hotspot',
         stage: 'Future workspace agent extraction',
     },
@@ -159,7 +159,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future workspace annotation extraction',
     },
     'electron/features/agent/mcp/mcpServerCore.ts': {
-        maxLines: 1205,
+        maxLines: 1062,
         reason: 'transitional agent MCP server core hotspot',
         stage: 'Future MCP server core extraction',
     },

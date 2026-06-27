@@ -1,9 +1,7 @@
 import type {
-    IAgentCapabilityDescriptor,
     IAgentTabSnapshot,
     IAgentWorkspaceSnapshot,
     TAgentCommand,
-    TAgentCapabilityDomain,
 } from '@contracts/agent';
 import { isRecord } from '@contracts/runtimeGuards';
 import type {
@@ -24,7 +22,14 @@ import {
     type IJsonRpcResponse,
 } from '@electron/features/agent/mcp/mcpJsonRpc';
 import {
-    AGENT_CAPABILITY_TEMPLATES,
+    describeAgentCapability,
+    getCapabilityTemplate,
+    getRequestedCapabilityId,
+    getRequiredCapabilityId,
+    isAgentDocumentTab,
+    listAgentCapabilities,
+} from '@electron/features/agent/mcp/mcpCapabilityDescriptors';
+import {
     MCP_PROMPTS,
     MCP_RESOURCE_TEMPLATES,
     MCP_TOOLS,
@@ -183,160 +188,21 @@ function createInitializeInstructions(callerKind: TMcpCallerKind) {
 
     return [
         'EVB Viewer exposes the live workspace. A document may or may not be open; inspect the workspace before answering questions about open tabs, current pages, or document contents.',
-        'Use the compact capability workflow: evb_workspace_snapshot for state; evb_list_capabilities to discover actions; evb_describe_capability for schemas, policy, and availability; evb_read_resource for notes, annotations, bookmarks, page labels, page text, and OCR status; evb_read_action for non-mutating preview/read capabilities; evb_run_action for write, destructive, navigation, and long-running actions.',
+        'Use the compact capability workflow: evb_workspace_snapshot for state; evb_list_capabilities to discover compact action ids by domain; evb_describe_capability for schemas, policy, and availability before unfamiliar writes; evb_read_resource for notes, annotations, bookmarks, page labels, page text, and OCR status; evb_read_action for non-mutating preview/read capabilities; evb_run_action for write, destructive, navigation, and long-running actions.',
         'Use semantic capability ids through evb_read_action for read/preview capabilities such as document.open_documents, document.readiness, document.inspect_text, document.search, document.read_pages, page_labels.preview, and bookmarks.preview_tree; use evb_run_action for document.capture_page_image, view.go_to_page, annotation.*, page_labels writes, bookmarks writes, ocr.*, file.save, and other non-read actions.',
         'Recent files in workspace snapshots are metadata only; do not summarize contents until opened and read through EVB tools.',
         'For search/navigation, search first, read candidate pages, then navigate only after selecting the best page. If text is missing or visual evidence matters, inspect text coverage or capture a page image.',
         'For annotations, use direct create/update capabilities instead of only selecting toolbar tools. Read annotation/note resources first when updating existing content.',
         'For page labels and bookmarks, read existing state, verify against text and screenshots when uncertain, preview first, apply only verified plans, re-read after writes, then save with file.save.',
+        'Use page_ops.crop/page_ops.remove_crop only from explicit page and margin instructions. Use file.repair_save or file.optimize_for_interaction only on explicit user intent. Use history.undo/history.redo only when requested or to recover from an immediately preceding assistant action, then verify state.',
         'For OCR, use ocr.status before acting, ocr.open_popup for visible controls, and ocr.start only after explicit user request or policy approval.',
         `${writePolicyInstruction} For DjVu or image documents, recommend converting to PDF before deep text analysis.`,
     ].join('\n');
 }
 
-function getOptionalCapabilityDomain(params: unknown): TAgentCapabilityDomain | undefined {
-    const value = getParamsObject(params).domain;
-    return typeof value === 'string' && AGENT_CAPABILITY_TEMPLATES.some(template => template.domain === value)
-        ? value as TAgentCapabilityDomain
-        : undefined;
-}
-
-function getRequiredCapabilityId(params: unknown) {
-    const value = getParamsObject(params).id;
-    if (typeof value !== 'string' || value.trim().length === 0) {
-        throw new Error('Capability id is required.');
-    }
-    return value.trim();
-}
-
 function getOptionalActionInput(params: unknown) {
     const input = getParamsObject(params).input;
     return isRecord(input) ? input : undefined;
-}
-
-function getCapabilityTemplate(id: string) {
-    return AGENT_CAPABILITY_TEMPLATES.find(template => template.id === id) ?? null;
-}
-
-function findCapabilityTargetTab(snapshot: IAgentWorkspaceSnapshot, tabId?: string) {
-    const targetTabId = tabId ?? snapshot.activeTabId;
-    if (!targetTabId) {
-        return null;
-    }
-    return snapshot.tabs.find(tab => tab.tabId === targetTabId) ?? null;
-}
-
-function createCapabilityAvailability(
-    template: IAgentCapabilityTemplate,
-    tab: IAgentTabSnapshot | null,
-) {
-    if (template.availabilityKind === 'always') {
-        return {available: true};
-    }
-
-    if (!tab) {
-        return {
-            available: false,
-            reason: 'No target tab is available.',
-        };
-    }
-
-    if (template.availabilityKind === 'document' && !isAgentDocumentTab(tab)) {
-        return {
-            available: false,
-            reason: `Tab ${tab.tabId} does not have an open document.`,
-        };
-    }
-
-    if ((template.availabilityKind === 'pdf' || template.availabilityKind === 'pdf-path') && tab.kind !== 'pdf') {
-        return {
-            available: false,
-            reason: `Tab ${tab.tabId} is a ${tab.kind} document; convert/open it as PDF first.`,
-        };
-    }
-
-    if (template.availabilityKind === 'pdf-path' && !tab.originalPath) {
-        return {
-            available: false,
-            reason: `Tab ${tab.tabId} does not expose a readable PDF path yet.`,
-        };
-    }
-
-    if (template.availabilityKind === 'renderer-document' || template.availabilityKind === 'renderer-pdf') {
-        if (!isAgentDocumentTab(tab)) {
-            return {
-                available: false,
-                reason: `Tab ${tab.tabId} does not have an open document.`,
-            };
-        }
-        if (!tab.workspaceAttached) {
-            return {
-                available: false,
-                reason: `Workspace for tab ${tab.tabId} is not attached yet.`,
-            };
-        }
-    }
-
-    if (template.availabilityKind === 'renderer-pdf' && tab.kind !== 'pdf') {
-        return {
-            available: false,
-            reason: `Tab ${tab.tabId} is a ${tab.kind} document; convert/open it as PDF first.`,
-        };
-    }
-
-    return {available: true};
-}
-
-function createCapabilityDescriptor(
-    template: IAgentCapabilityTemplate,
-    tab: IAgentTabSnapshot | null,
-): IAgentCapabilityDescriptor {
-    return {
-        id: template.id,
-        domain: template.domain,
-        title: template.title,
-        summary: template.summary,
-        risk: template.risk,
-        inputSchema: template.inputSchema,
-        ...(template.outputSchema === undefined ? {} : {outputSchema: template.outputSchema}),
-        policy: template.policy,
-        ...(template.resourceTemplates === undefined ? {} : {resourceTemplates: template.resourceTemplates}),
-        availability: createCapabilityAvailability(template, tab),
-    };
-}
-
-async function listAgentCapabilities(params: unknown, options: IProcessMcpRequestOptions) {
-    const windowId = getOptionalWindowId(params);
-    const snapshot = await options.getWorkspaceSnapshot(windowId);
-    const targetTab = findCapabilityTargetTab(snapshot, getOptionalTabId(params));
-    const domain = getOptionalCapabilityDomain(params);
-    const capabilities = AGENT_CAPABILITY_TEMPLATES
-        .filter(template => domain === undefined || template.domain === domain)
-        .map(template => createCapabilityDescriptor(template, targetTab));
-    return {
-        activeTabId: snapshot.activeTabId,
-        targetTabId: targetTab?.tabId ?? null,
-        domain: domain ?? null,
-        capabilityCount: capabilities.length,
-        capabilities,
-    };
-}
-
-async function describeAgentCapability(params: unknown, options: IProcessMcpRequestOptions) {
-    const id = getRequiredCapabilityId(params);
-    const template = getCapabilityTemplate(id);
-    if (!template) {
-        throw new Error(`Unknown EVB capability: ${id}`);
-    }
-
-    const windowId = getOptionalWindowId(params);
-    const snapshot = await options.getWorkspaceSnapshot(windowId);
-    const targetTab = findCapabilityTargetTab(snapshot, getOptionalTabId(params));
-    return {
-        activeTabId: snapshot.activeTabId,
-        targetTabId: targetTab?.tabId ?? null,
-        capability: createCapabilityDescriptor(template, targetTab),
-    };
 }
 
 function getRequiredCapability<TCapability>(
@@ -507,16 +373,6 @@ function selectDocumentsFromSnapshot(snapshot: IAgentWorkspaceSnapshot, tabId?: 
     };
 }
 
-function isAgentDocumentTab(tab: IAgentTabSnapshot) {
-    return tab.kind !== 'empty'
-        && (
-            Boolean(tab.fileName)
-            || Boolean(tab.originalPath)
-            || tab.hasPdf === true
-            || tab.isDjvu === true
-        );
-}
-
 function createOpenDocumentsResponse(snapshot: IAgentWorkspaceSnapshot) {
     const documents = snapshot.tabs
         .filter(isAgentDocumentTab)
@@ -619,9 +475,10 @@ async function runAgentActionTool(
     dispatchOptions: { readOnlyOnly?: boolean } = {},
 ) {
     const id = getRequiredCapabilityId(params);
+    const requestedId = getRequestedCapabilityId(params);
     const template = getCapabilityTemplate(id);
     if (!template) {
-        throw new Error(`Unknown EVB capability: ${id}`);
+        throw new Error(`Unknown EVB capability: ${requestedId ?? id}`);
     }
     if (dispatchOptions.readOnlyOnly) {
         enforceReadActionToolPolicy(template);

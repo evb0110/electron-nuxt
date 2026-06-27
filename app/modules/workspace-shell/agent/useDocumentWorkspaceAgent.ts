@@ -1,12 +1,7 @@
-import type {
-    IAnnotationCommentSummary,
-    TAnnotationTool,
-} from '@app/types/annotations';
-import { normalizeMarkerRect } from '@app/modules/pdf-viewer/public';
+import type { TAnnotationTool } from '@app/types/annotations';
 import {
     getAgentNumberInput,
     getAgentNumberArrayInput,
-    getAgentRawStringInput,
     getAgentStringArrayInput,
     getAgentStringInput,
     hasAgentInputKey,
@@ -24,10 +19,13 @@ import type {
     TWorkspaceAgentSidebarTab,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 import { createDocumentAgentAnnotations } from '@app/modules/workspace-shell/agent/createDocumentAgentAnnotations';
+import { createDocumentAgentAnnotationNoteActions } from '@app/modules/workspace-shell/agent/createDocumentAgentAnnotationNoteActions';
 import { createDocumentAgentBookmarks } from '@app/modules/workspace-shell/agent/createDocumentAgentBookmarks';
+import { createDocumentAgentFilePageHistoryActions } from '@app/modules/workspace-shell/agent/createDocumentAgentFilePageHistoryActions';
 import { createDocumentAgentPageImageCapture } from '@app/modules/workspace-shell/agent/createDocumentAgentPageImageCapture';
 import { createDocumentAgentPageLabels } from '@app/modules/workspace-shell/agent/createDocumentAgentPageLabels';
 import { createDocumentAgentResources } from '@app/modules/workspace-shell/agent/createDocumentAgentResources';
+import { createAgentActionHandlerRegistry } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentActionRegistry';
 import {
     getAgentPageNumberInput,
     normalizeAgentPageNumber,
@@ -73,6 +71,8 @@ export const DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS = [
     'annotation.create_shape',
     'file.save',
     'file.save_as',
+    'file.repair_save',
+    'file.optimize_for_interaction',
     'file.print',
     'file.print_current_page',
     'export.docx',
@@ -89,8 +89,12 @@ export const DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS = [
     'page_ops.extract_selected',
     'page_ops.rotate_cw_selected',
     'page_ops.rotate_ccw_selected',
+    'page_ops.crop',
+    'page_ops.remove_crop',
     'page_ops.insert_pages',
     'page_ops.convert_to_pdf',
+    'history.undo',
+    'history.redo',
 ] as const;
 
 export const DOCUMENT_WORKSPACE_AGENT_ALIAS_ACTION_IDS = [
@@ -115,53 +119,12 @@ export const DOCUMENT_WORKSPACE_AGENT_ALIAS_ACTION_IDS = [
     'annotation.set_tool',
     'annotation.mark_text',
     'annotation.draw_shape',
-    'view.enable_drag_mode',
-    'view.disable_drag_mode',
 ] as const;
 
 export const DOCUMENT_WORKSPACE_AGENT_ACTION_IDS = [
     ...DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS,
     ...DOCUMENT_WORKSPACE_AGENT_ALIAS_ACTION_IDS,
 ] as const;
-
-type TAgentActionHandlerRunResult = object | Promise<object>;
-
-interface IAgentActionHandler {
-    parse: (input: Record<string, unknown>, actionId: string) => unknown;
-    run: (parsedInput: unknown, actionId: string) => TAgentActionHandlerRunResult;
-}
-
-interface IAgentActionHandlerDefinition<TParsedInput> {
-    ids: readonly string[];
-    parse(input: Record<string, unknown>, actionId: string): TParsedInput;
-    run(parsedInput: TParsedInput, actionId: string): TAgentActionHandlerRunResult;
-}
-
-interface IAgentUpdateNoteInput {
-    input: Record<string, unknown>;
-    markerRect: IAnnotationCommentSummary['markerRect'] | null;
-    text: string;
-}
-
-function createAgentActionHandler<TParsedInput>(
-    definition: IAgentActionHandlerDefinition<TParsedInput>,
-): IAgentActionHandler {
-    return {
-        parse: definition.parse,
-        run: (parsedInput, actionId) => definition.run(parsedInput as TParsedInput, actionId),
-    };
-}
-
-function createAgentActionHandlerRegistry(
-    definitions: ReadonlyArray<IAgentActionHandlerDefinition<unknown>>,
-) {
-    return Object.fromEntries(
-        definitions.flatMap(definition => definition.ids.map(id => [
-            id,
-            createAgentActionHandler(definition),
-        ])),
-    ) as Record<string, IAgentActionHandler>;
-}
 
 export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOptions) => {
     const {
@@ -173,13 +136,13 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         bookmarkItems,
         bookmarksDirty,
         canSave,
+        canUndo,
+        canRedo,
         closeAllDropdowns,
         closeShapeProperties,
         closeTextMarkupProperties,
         continuousScroll,
         currentPage,
-        dragMode,
-        enableDragMode,
         fitMode,
         handleActualSize,
         handleAnnotationFocusComment,
@@ -195,6 +158,10 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         handleGoToPage,
         handleOpenAnnotationNote,
         handleOpenFileFromUi,
+        handleRepairSave,
+        handleOptimizePdfForInteraction,
+        handleUndo,
+        handleRedo,
         handlePageLabelRangesUpdate,
         handlePageRotate,
         handlePrint,
@@ -219,6 +186,8 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         pageOpsDelete,
         pageOpsExtract,
         pageOpsInsert,
+        handleCropPages,
+        handleRemoveCrop,
         pdfViewerRef,
         selectedThumbnailPages,
         showConvertDialog,
@@ -391,35 +360,6 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         return input;
     }
 
-    function parseAgentUpdateNoteInput(input: Record<string, unknown>): IAgentUpdateNoteInput {
-        parseAgentAnnotationRef(input);
-        const text = getAgentRawStringInput(input, 'text')
-            ?? getAgentRawStringInput(input, 'note')
-            ?? getAgentRawStringInput(input, 'noteText');
-        if (text === null) {
-            throw new Error('annotation.update_note requires input.text.');
-        }
-        return {
-            input,
-            markerRect: normalizeMarkerRect(
-                input.markerRect as IAnnotationCommentSummary['markerRect'],
-            ),
-            text,
-        };
-    }
-
-    function parseAgentAnnotationColorInput(input: Record<string, unknown>) {
-        parseAgentAnnotationRef(input);
-        const color = getAgentStringInput(input, 'color');
-        if (!color) {
-            throw new Error('annotation.update_text_markup_color requires input.color.');
-        }
-        return {
-            input,
-            color,
-        };
-    }
-
     function parseAgentAnnotationToolInput(input: Record<string, unknown>) {
         const tool = input.tool;
         if (!isAgentAnnotationTool(tool)) {
@@ -560,131 +500,6 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             throw new Error(`${actionId} requires input.paths, input.items with path, or input.path.`);
         }
         return input;
-    }
-
-    function patchAgentAnnotationCommentMarker(
-        comment: IAnnotationCommentSummary,
-        inputMarkerRect: IAnnotationCommentSummary['markerRect'] | null,
-        text: string,
-    ) {
-        if (!inputMarkerRect) {
-            return;
-        }
-        let matched = false;
-        const nextComments = annotationComments.value.map((candidate) => {
-            if (
-                candidate.stableKey !== comment.stableKey
-                && candidate.id !== comment.id
-                && (!candidate.annotationId || candidate.annotationId !== comment.annotationId)
-            ) {
-                return candidate;
-            }
-            matched = true;
-            return {
-                ...candidate,
-                markerRect: inputMarkerRect,
-                text,
-                hasNote: true,
-            };
-        });
-        annotationComments.value = matched
-            ? nextComments
-            : [
-                ...nextComments,
-                {
-                    ...comment,
-                    markerRect: inputMarkerRect,
-                    text,
-                    hasNote: true,
-                },
-            ];
-    }
-
-    function markerRectsEqual(
-        left: IAnnotationCommentSummary['markerRect'] | null | undefined,
-        right: IAnnotationCommentSummary['markerRect'] | null | undefined,
-    ) {
-        return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
-    }
-
-    function findOpenAgentAnnotationNote(comment: IAnnotationCommentSummary) {
-        return sortedAnnotationNoteWindows.value.find(note =>
-            note.comment.stableKey === comment.stableKey
-            || isSameAnnotationComment(note.comment, comment),
-        );
-    }
-
-    function updateOpenAgentAnnotationNoteMarker(
-        comment: IAnnotationCommentSummary,
-        markerRect: IAnnotationCommentSummary['markerRect'] | null,
-    ) {
-        const openNote = findOpenAgentAnnotationNote(comment);
-        if (!openNote || !markerRect) {
-            return openNote ?? null;
-        }
-
-        const previousComment = openNote.comment;
-        openNote.comment = {
-            ...previousComment,
-            markerRect,
-        };
-        annotationComments.value = annotationComments.value.map(candidate => (
-            candidate.stableKey === previousComment.stableKey
-            || isSameAnnotationComment(candidate, previousComment)
-                ? {
-                    ...candidate,
-                    markerRect,
-                }
-                : candidate
-        ));
-        return openNote;
-    }
-
-    function applyAgentAnnotationNoteTextUpdate(
-        comment: IAnnotationCommentSummary,
-        text: string,
-        markerRect: IAnnotationCommentSummary['markerRect'] | null,
-    ) {
-        const commentForUpdate = markerRect
-            ? {
-                ...comment,
-                markerRect,
-                hasNote: text.trim().length > 0 || comment.hasNote === true,
-            }
-            : comment;
-        patchAgentAnnotationCommentMarker(commentForUpdate, markerRect, text);
-        const openNote = updateOpenAgentAnnotationNoteMarker(commentForUpdate, markerRect);
-        if (openNote) {
-            updateAnnotationNoteText(openNote.comment.stableKey, text);
-            markAnnotationDirty();
-            return true;
-        }
-        return pdfViewerRef.value?.updateAnnotationComment(commentForUpdate, text) ?? false;
-    }
-
-    function registerAgentAnnotationNoteUpdateHistory(
-        previousComment: IAnnotationCommentSummary,
-        previousText: string,
-        previousMarkerRect: IAnnotationCommentSummary['markerRect'] | null,
-        nextComment: IAnnotationCommentSummary,
-        nextText: string,
-        nextMarkerRect: IAnnotationCommentSummary['markerRect'] | null,
-    ) {
-        if (
-            previousText === nextText
-            && markerRectsEqual(previousMarkerRect, nextMarkerRect)
-        ) {
-            return;
-        }
-
-        pdfViewerRef.value?.registerAnnotationHistoryCommand?.({
-            cmd: () => {
-                applyAgentAnnotationNoteTextUpdate(nextComment, nextText, nextMarkerRect);
-            },
-            undo: () => {
-                applyAgentAnnotationNoteTextUpdate(previousComment, previousText, previousMarkerRect);
-            },
-        });
     }
 
     const agentActionHandlers = createAgentActionHandlerRegistry([
@@ -978,78 +793,18 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
                 return {comment: normalizeAgentAnnotationComment(comment)};
             },
         },
-        {
-            ids: ['annotation.update_note'],
-            parse: parseAgentUpdateNoteInput,
-            async run(parsedInput: IAgentUpdateNoteInput) {
-                const comment = findAgentAnnotationComment(parsedInput.input);
-                const previousText = comment.text ?? '';
-                const previousMarkerRect = comment.markerRect ?? null;
-                const commentForUpdate = parsedInput.markerRect
-                    ? {
-                        ...comment,
-                        markerRect: parsedInput.markerRect,
-                        hasNote: true,
-                    }
-                    : comment;
-                patchAgentAnnotationCommentMarker(commentForUpdate, parsedInput.markerRect, parsedInput.text);
-                handleOpenAnnotationNote(commentForUpdate);
-                await nextTick();
-                const updated = applyAgentAnnotationNoteTextUpdate(
-                    commentForUpdate,
-                    parsedInput.text,
-                    parsedInput.markerRect,
-                );
-                if (!updated) {
-                    throw new Error('Annotation note could not be updated.');
-                }
-                registerAgentAnnotationNoteUpdateHistory(
-                    comment,
-                    previousText,
-                    previousMarkerRect,
-                    {
-                        ...commentForUpdate,
-                        text: parsedInput.text,
-                        markerRect: parsedInput.markerRect ?? comment.markerRect,
-                        hasNote: parsedInput.text.trim().length > 0 || comment.hasNote === true,
-                    },
-                    parsedInput.text,
-                    parsedInput.markerRect ?? previousMarkerRect,
-                );
-                await nextTick();
-                patchAgentAnnotationCommentMarker(commentForUpdate, parsedInput.markerRect, parsedInput.text);
-                await nextTick();
-                return {
-                    updated,
-                    comment: normalizeAgentAnnotationComment({
-                        ...commentForUpdate,
-                        markerRect: parsedInput.markerRect ?? comment.markerRect,
-                        text: parsedInput.text,
-                        hasNote: parsedInput.text.trim().length > 0 || comment.hasNote === true,
-                    }),
-                };
-            },
-        },
-        {
-            ids: ['annotation.update_text_markup_color'],
-            parse: parseAgentAnnotationColorInput,
-            async run(parsedInput: ReturnType<typeof parseAgentAnnotationColorInput>) {
-                const comment = findAgentAnnotationComment(parsedInput.input);
-                const updated = updateTextMarkupColorWithHistory(comment, parsedInput.color);
-                if (!updated) {
-                    throw new Error('Text markup annotation color could not be updated.');
-                }
-                await nextTick();
-                return {
-                    updated,
-                    comment: normalizeAgentAnnotationComment({
-                        ...comment,
-                        color: parsedInput.color,
-                        colorEdited: true,
-                    }),
-                };
-            },
-        },
+        ...createDocumentAgentAnnotationNoteActions({
+            annotationComments,
+            findAgentAnnotationComment,
+            handleOpenAnnotationNote,
+            isSameAnnotationComment,
+            markAnnotationDirty,
+            normalizeAgentAnnotationComment,
+            pdfViewerRef,
+            sortedAnnotationNoteWindows,
+            updateAnnotationNoteText,
+            updateTextMarkupColorWithHistory,
+        }),
         {
             ids: ['annotation.delete'],
             parse: parseAgentAnnotationRef,
@@ -1169,6 +924,22 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
                 return {};
             },
         },
+        ...createDocumentAgentFilePageHistoryActions({
+            canRedo,
+            canSave,
+            canUndo,
+            handleCropPages,
+            handleOptimizePdfForInteraction,
+            handleRedo,
+            handleRemoveCrop,
+            handleRepairSave,
+            handleUndo,
+            originalPath,
+            runPdfPageOperationAgentAction,
+            totalPages,
+            waitForAgentMutationStateSettled,
+            workingCopyPath,
+        }),
         {
             ids: ['file.print'],
             parse: parseEmptyAgentActionInput,
@@ -1255,22 +1026,6 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             run() {
                 continuousScroll.value = !continuousScroll.value;
                 return {continuousScroll: continuousScroll.value};
-            },
-        },
-        {
-            ids: ['view.enable_drag_mode'],
-            parse: parseEmptyAgentActionInput,
-            run() {
-                enableDragMode();
-                return {dragMode: dragMode.value};
-            },
-        },
-        {
-            ids: ['view.disable_drag_mode'],
-            parse: parseEmptyAgentActionInput,
-            run() {
-                handleAnnotationToolChange('none');
-                return {dragMode: dragMode.value};
             },
         },
         {

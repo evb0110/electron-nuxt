@@ -5,7 +5,7 @@ export type TAgentDocumentKind = 'empty' | 'pdf' | 'djvu' | 'image' | 'unknown';
 export type TAgentDocumentReadinessStatus = 'ready' | 'needs-preparation' | 'unknown' | 'empty';
 export type TAgentOcrCoverageStatus = 'complete' | 'partial' | 'none' | 'unknown';
 export type TAgentRecommendationId = 'convert_to_pdf' | 'ocr_all_pages';
-export type TAgentCapabilityDomain = 'workspace' | 'document' | 'annotation' | 'toc' | 'page_labels' | 'bookmarks' | 'ocr' | 'ui' | 'view' | 'file' | 'export' | 'page_ops';
+export type TAgentCapabilityDomain = 'workspace' | 'document' | 'annotation' | 'toc' | 'page_labels' | 'bookmarks' | 'ocr' | 'ui' | 'view' | 'file' | 'export' | 'page_ops' | 'history';
 export type TAgentCapabilityRisk = 'read' | 'navigate' | 'write' | 'destructive' | 'longRunning';
 export type TAgentCommandName = 'activate_tab' | 'go_to_page' | 'run_action' | 'read_resource';
 export type TAgentMcpCodexRegistrationState = 'configured' | 'missing' | 'mismatched' | 'unknown';
@@ -60,6 +60,12 @@ export interface IAgentCapabilityDescriptor {
     availability: IAgentCapabilityAvailability;
     policy: IAgentCapabilityPolicy;
     resourceTemplates?: string[];
+}
+
+export interface IAgentCompactCapabilityDescriptor extends Omit<IAgentCapabilityDescriptor, 'inputSchema' | 'outputSchema' | 'resourceTemplates'> {
+    hasInputSchema: boolean;
+    hasOutputSchema: boolean;
+    hasResourceTemplates: boolean;
 }
 
 export interface IAgentDocumentReadiness {

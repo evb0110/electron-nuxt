@@ -55,8 +55,17 @@ const CAPABILITY_DOMAIN_SCHEMA = {
         'file',
         'export',
         'page_ops',
+        'history',
     ],
     description: 'Optional capability domain filter.',
+};
+const CAPABILITY_DETAIL_SCHEMA = {
+    type: 'string',
+    enum: [
+        'compact',
+        'full',
+    ],
+    description: 'Capability listing detail. Defaults to compact; use evb_describe_capability for full schemas when possible.',
 };
 const CAPABILITY_ID_SCHEMA = {
     type: 'string',
@@ -90,13 +99,14 @@ export const MCP_TOOLS = [
     {
         name: 'evb_list_capabilities',
         title: 'EVB Viewer list capabilities',
-        description: 'List semantic EVB Viewer capabilities for the current workspace or a specific tab. Use this to discover annotation, note, bookmark, page-label, OCR, UI, file, export, page, search, and navigation actions without bloating the top-level MCP tool list.',
+        description: 'List semantic EVB Viewer capabilities for the current workspace or a specific tab. Defaults to compact descriptors; use evb_describe_capability for full schemas. Use this to discover annotation, note, bookmark, page-label, OCR, UI, file, export, page, history, search, and navigation actions without bloating the top-level MCP tool list.',
         inputSchema: {
             type: 'object',
             properties: {
                 windowId: WINDOW_ID_SCHEMA,
                 tabId: TAB_ID_SCHEMA,
                 domain: CAPABILITY_DOMAIN_SCHEMA,
+                detail: CAPABILITY_DETAIL_SCHEMA,
             },
             additionalProperties: false,
         },

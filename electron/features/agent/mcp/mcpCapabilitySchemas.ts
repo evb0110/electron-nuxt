@@ -30,6 +30,55 @@ export const PAGE_INPUT_SCHEMA = {
     required: ['page'],
     additionalProperties: false,
 };
+const PAGE_NUMBER_ARRAY_SCHEMA = {
+    type: 'array',
+    items: {type: 'number'},
+    minItems: 1,
+    description: 'One-based PDF page numbers.',
+};
+const CROP_MARGIN_SCHEMA = {
+    type: 'number',
+    minimum: 0,
+    description: 'Crop margin in PDF points.',
+};
+export const CROP_PAGES_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        tabId: TAB_ID_SCHEMA,
+        pages: PAGE_NUMBER_ARRAY_SCHEMA,
+        margins: {
+            type: 'object',
+            properties: {
+                top: CROP_MARGIN_SCHEMA,
+                right: CROP_MARGIN_SCHEMA,
+                bottom: CROP_MARGIN_SCHEMA,
+                left: CROP_MARGIN_SCHEMA,
+            },
+            required: [
+                'top',
+                'right',
+                'bottom',
+                'left',
+            ],
+            additionalProperties: false,
+            description: 'Crop margins in PDF points, matching EVB Viewer crop dialog semantics.',
+        },
+    },
+    required: [
+        'pages',
+        'margins',
+    ],
+    additionalProperties: false,
+};
+export const REMOVE_CROP_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        tabId: TAB_ID_SCHEMA,
+        pages: PAGE_NUMBER_ARRAY_SCHEMA,
+    },
+    required: ['pages'],
+    additionalProperties: false,
+};
 export const SEARCH_INPUT_SCHEMA = {
     type: 'object',
     properties: {

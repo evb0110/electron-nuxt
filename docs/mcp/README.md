@@ -192,9 +192,10 @@ Initialize instructions explicitly tell agents to use EVB Viewer MCP tools befor
 
 | Tool | Purpose | Mutation |
 | --- | --- | --- |
-| `evb_list_capabilities` | Discover semantic EVB Viewer capabilities by domain, including document, annotation, bookmarks, page labels, OCR, view, file, export, and page operations. | Read-only |
-| `evb_describe_capability` | Inspect one capability's input schema, risk, policy, availability, and related resources. | Read-only |
+| `evb_list_capabilities` | Discover compact semantic EVB Viewer capabilities by domain, including document, annotation, bookmarks, page labels, OCR, view, file, export, history, and page operations. Use `detail: "full"` only when a full listing is really needed. | Read-only |
+| `evb_describe_capability` | Inspect one capability's input schema, risk, policy, availability, and related resources. Prefer this over full capability listings when the id is known. | Read-only |
 | `evb_run_action` | Run a semantic capability action, such as navigation, OCR, sidebar actions, or annotation creation. | Depends on capability |
+| `evb_read_action` | Run a semantic read-only or preview capability, such as document search, page reads, page-label preview, or bookmark preview. | Read-only |
 | `evb_read_resource` | Read EVB resource URIs such as workspace, page text, text status, annotations, notes, TOC/bookmarks, and page labels. | Read-only |
 | `evb_job_status` | Read status for a long-running EVB action job if an action returned a job id. OCR progress is exposed through the `ocr.status` capability; current EVB MCP actions otherwise complete inline or expose progress in the app UI. | Read-only |
 | `evb_workspace_snapshot` | Full live workspace: summary mode, panes, tabs, active ids, layout tree, document kind, page numbers, readiness, and recent-file list metadata. | Read-only |
@@ -208,6 +209,8 @@ Initialize instructions explicitly tell agents to use EVB Viewer MCP tools befor
 | `evb_go_to_page` | Activate a tab if needed and navigate to a one-based page number. | UI navigation |
 
 Read-only tools set MCP annotations with `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`. Navigation tools are non-destructive but not read-only.
+
+`evb_list_capabilities` defaults to compact descriptors so agents can discover ids without loading every JSON schema into context. Call `evb_describe_capability` for the selected id before write, destructive, or long-running actions. Compatibility aliases such as `page_numbering.*`, `toc.*`, and `document.screenshot_page` may be accepted for older callers, but they are not advertised as public capabilities.
 
 ### Annotation Capabilities
 
@@ -255,6 +258,19 @@ Bookmark tools work with a recursive tree and a flat agent-friendly view. Read `
 Bookmark entries accept `title`, `page`/`pageNumber`, `pageIndex`, `namedDest`, `bold`, `italic`, `color`, and nested `items`. Flat rebuild plans may use `entries`, `flat`, or `outline` arrays with `level` (1-based) or `depth` (0-based), so an extracted table of contents can be passed without hand-nesting.
 
 When agents rebuild bookmarks, the existing PDF TOC/bookmarks are hints rather than proof. Agents should verify each target with `document.search`, `document.read_pages`, and `document.capture_page_image` for doubtful matches, run `bookmarks.preview_tree`, inspect the diff/issues/flat paths, then commit with `bookmarks.apply_plan`. Bookmark edits made through these capabilities go through the metadata undo stack; after final verification the agent should save with `file.save`.
+
+### File, Page Operation, And History Capabilities
+
+Agents should treat file and page operations as semantic document changes, not toolbar automation:
+
+- `file.save` saves verified changes.
+- `file.repair_save` rewrites the current PDF through EVB Viewer's repair-save path. Use it only when the user explicitly asks to repair/save a problematic file or a normal save is known to be insufficient.
+- `file.optimize_for_interaction` saves pending changes when needed and rewrites the current PDF for faster EVB Viewer interaction. Use it only on explicit user intent.
+- `page_ops.crop` applies crop margins in PDF points to explicit one-based pages. It does not enter the interactive crop selector.
+- `page_ops.remove_crop` clears crop boxes from explicit one-based pages.
+- `history.undo` and `history.redo` are recovery actions. Use them only when the user asks or to recover from an immediately preceding agent-applied action, then verify state again.
+
+Interactive UI affordances such as Settings, fullscreen, file-picker open, recent-file activation, region capture to clipboard, drag/hand mode, and raw toolbar toggles are intentionally not advertised as public capabilities. Agents should prefer semantic document operations and resources.
 
 ### Visual Verification Capability
 
@@ -492,7 +508,7 @@ pnpm run release:verify
 
 - The external local HTTP MCP server has no token/auth layer.
 - Web runtime has no MCP server; it only has no-op typed APIs.
-- Convert-to-PDF is still a recommendation rather than an MCP-callable action; OCR is callable through the `ocr.*` capabilities with the normal policy checks.
+- File-picker-driven actions such as opening arbitrary files, opening recent files, region capture to clipboard, and inserting images from file or clipboard are intentionally not advertised as public MCP capabilities.
 - PDF readiness starts as `unknown` until `evb_inspect_document_text` builds or reads the index.
 - Port collisions are logged as server errors; there is no automatic fallback port.
 - The stdio proxy duplicates descriptor metadata.

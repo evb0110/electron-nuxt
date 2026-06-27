@@ -1,6 +1,7 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPdfViewMode } from '@contracts/shared';
+import type { ICropMargins } from '@app/types/crop';
 import type {
     IPdfBookmarkChangePayload,
     IPdfBookmarkEntry,
@@ -37,13 +38,13 @@ export interface IUseDocumentWorkspaceAgentOptions {
     bookmarkItems: Ref<IPdfBookmarkEntry[]>;
     bookmarksDirty: Ref<boolean>;
     canSave: Ref<boolean>;
+    canUndo: Ref<boolean>;
+    canRedo: Ref<boolean>;
     closeAllDropdowns: () => void;
     closeShapeProperties: () => void;
     closeTextMarkupProperties: () => void;
     continuousScroll: Ref<boolean>;
     currentPage: Ref<number>;
-    dragMode: Ref<boolean>;
-    enableDragMode: () => void;
     fitMode: Ref<unknown>;
     handleActualSize: () => void;
     handleAnnotationFocusComment: (comment: IAnnotationCommentSummary) => Promise<void>;
@@ -59,6 +60,10 @@ export interface IUseDocumentWorkspaceAgentOptions {
     handleGoToPage: (page: number) => void;
     handleOpenAnnotationNote: (comment: IAnnotationCommentSummary) => void;
     handleOpenFileFromUi: () => Promise<unknown>;
+    handleRepairSave: () => Promise<boolean>;
+    handleOptimizePdfForInteraction: () => Promise<boolean>;
+    handleUndo: () => Promise<unknown> | unknown;
+    handleRedo: () => Promise<unknown> | unknown;
     handlePageLabelRangesUpdate: (ranges: IPdfPageLabelRange[]) => void;
     handlePageRotate: (pages: number[], degrees: TWorkspaceAgentRotateAngle) => Promise<unknown>;
     handlePrint: () => void;
@@ -83,6 +88,8 @@ export interface IUseDocumentWorkspaceAgentOptions {
     pageOpsDelete: (pages: number[], totalPages: number) => Promise<unknown>;
     pageOpsExtract: (pages: number[]) => Promise<unknown>;
     pageOpsInsert: (totalPages: number, afterPage: number) => Promise<unknown>;
+    handleCropPages: (pages: number[], margins: ICropMargins) => Promise<unknown>;
+    handleRemoveCrop: (pages: number[]) => Promise<unknown>;
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
     selectedThumbnailPages: Ref<number[]>;
     showConvertDialog: Ref<boolean>;

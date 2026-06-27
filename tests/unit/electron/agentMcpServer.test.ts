@@ -434,7 +434,10 @@ describe('processMcpRequest', () => {
             method: 'tools/call',
             params: {
                 name: 'evb_list_capabilities',
-                arguments: {domain: 'annotation'},
+                arguments: {
+                    domain: 'annotation',
+                    detail: 'full',
+                },
             },
         }, options);
 
@@ -482,6 +485,196 @@ describe('processMcpRequest', () => {
                 }),
             ]),
         }});
+    });
+
+    it('lists capabilities compactly by default and keeps schemas behind full detail or describe', async () => {
+        const options = createOptions();
+
+        const compactResponse = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'compact-file-capabilities',
+            method: 'tools/call',
+            params: {
+                name: 'evb_list_capabilities',
+                arguments: {domain: 'file'},
+            },
+        }, options);
+        const fullResponse = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'full-file-capabilities',
+            method: 'tools/call',
+            params: {
+                name: 'evb_list_capabilities',
+                arguments: {
+                    domain: 'file',
+                    detail: 'full',
+                },
+            },
+        }, options);
+        const describeResponse = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'describe-repair-save',
+            method: 'tools/call',
+            params: {
+                name: 'evb_describe_capability',
+                arguments: {id: 'file.repair_save'},
+            },
+        }, options);
+
+        expect(compactResponse?.result).toMatchObject({structuredContent: {
+            detail: 'compact',
+            capabilities: expect.arrayContaining([
+                expect.objectContaining({
+                    id: 'file.repair_save',
+                    risk: 'longRunning',
+                    hasInputSchema: true,
+                    hasOutputSchema: true,
+                }),
+                expect.objectContaining({
+                    id: 'file.optimize_for_interaction',
+                    risk: 'longRunning',
+                }),
+            ]),
+        }});
+        expect(JSON.stringify(compactResponse?.result)).not.toContain('inputSchema');
+        expect(fullResponse?.result).toMatchObject({structuredContent: {
+            detail: 'full',
+            capabilities: expect.arrayContaining([expect.objectContaining({
+                id: 'file.repair_save',
+                inputSchema: expect.objectContaining({additionalProperties: false}),
+            })]),
+        }});
+        expect(describeResponse?.result).toMatchObject({structuredContent: {capability: expect.objectContaining({
+            id: 'file.repair_save',
+            inputSchema: expect.objectContaining({additionalProperties: false}),
+        })}});
+    });
+
+    it('exposes repair, optimize, crop, remove-crop, and history as semantic capabilities', async () => {
+        const options = createOptions();
+
+        const [
+            fileResponse,
+            pageOpsResponse,
+            historyResponse,
+        ] = await Promise.all([
+            processMcpRequest({
+                jsonrpc: '2.0',
+                id: 'file-capabilities',
+                method: 'tools/call',
+                params: {
+                    name: 'evb_list_capabilities',
+                    arguments: {
+                        domain: 'file',
+                        detail: 'full',
+                    },
+                },
+            }, options),
+            processMcpRequest({
+                jsonrpc: '2.0',
+                id: 'page-op-capabilities',
+                method: 'tools/call',
+                params: {
+                    name: 'evb_list_capabilities',
+                    arguments: {
+                        domain: 'page_ops',
+                        detail: 'full',
+                    },
+                },
+            }, options),
+            processMcpRequest({
+                jsonrpc: '2.0',
+                id: 'history-capabilities',
+                method: 'tools/call',
+                params: {
+                    name: 'evb_list_capabilities',
+                    arguments: {
+                        domain: 'history',
+                        detail: 'full',
+                    },
+                },
+            }, options),
+        ]);
+
+        expect(fileResponse?.result).toMatchObject({structuredContent: {capabilities: expect.arrayContaining([
+            expect.objectContaining({
+                id: 'file.repair_save',
+                risk: 'longRunning',
+            }),
+            expect.objectContaining({
+                id: 'file.optimize_for_interaction',
+                risk: 'longRunning',
+            }),
+        ])}});
+        expect(pageOpsResponse?.result).toMatchObject({structuredContent: {capabilities: expect.arrayContaining([
+            expect.objectContaining({
+                id: 'page_ops.crop',
+                inputSchema: expect.objectContaining({required: [
+                    'pages',
+                    'margins',
+                ]}),
+            }),
+            expect.objectContaining({
+                id: 'page_ops.remove_crop',
+                inputSchema: expect.objectContaining({required: ['pages']}),
+            }),
+        ])}});
+        expect(historyResponse?.result).toMatchObject({structuredContent: {
+            capabilityCount: 2,
+            capabilities: expect.arrayContaining([
+                expect.objectContaining({id: 'history.undo'}),
+                expect.objectContaining({id: 'history.redo'}),
+            ]),
+        }});
+    });
+
+    it('normalizes compatibility aliases without advertising them as public capabilities', async () => {
+        const options = createOptions();
+
+        const compactResponse = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'all-capabilities',
+            method: 'tools/call',
+            params: {
+                name: 'evb_list_capabilities',
+                arguments: {},
+            },
+        }, options);
+        const describeAliasResponse = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'describe-page-numbering',
+            method: 'tools/call',
+            params: {
+                name: 'evb_describe_capability',
+                arguments: {id: 'page_numbering.preview'},
+            },
+        }, options);
+        await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'run-annotation-alias',
+            method: 'tools/call',
+            params: {
+                name: 'evb_run_action',
+                arguments: {
+                    id: 'annotation.set_tool',
+                    input: {tool: 'highlight'},
+                },
+            },
+        }, options);
+
+        expect(JSON.stringify(compactResponse?.result)).not.toContain('page_numbering.preview');
+        expect(JSON.stringify(compactResponse?.result)).not.toContain('annotation.set_tool');
+        expect(describeAliasResponse?.result).toMatchObject({structuredContent: {
+            requestedId: 'page_numbering.preview',
+            capability: expect.objectContaining({id: 'page_labels.preview'}),
+        }});
+        expect(options.runCommand).toHaveBeenCalledWith({
+            name: 'run_action',
+            arguments: {
+                id: 'annotation.select_tool',
+                input: {tool: 'highlight'},
+            },
+        }, undefined);
     });
 
     it('dispatches text-markup annotation creation through run action', async () => {
@@ -727,7 +920,10 @@ describe('processMcpRequest', () => {
                 method: 'tools/call',
                 params: {
                     name: 'evb_list_capabilities',
-                    arguments: {domain: 'page_labels'},
+                    arguments: {
+                        domain: 'page_labels',
+                        detail: 'full',
+                    },
                 },
             }, options),
             processMcpRequest({
@@ -736,7 +932,10 @@ describe('processMcpRequest', () => {
                 method: 'tools/call',
                 params: {
                     name: 'evb_list_capabilities',
-                    arguments: {domain: 'bookmarks'},
+                    arguments: {
+                        domain: 'bookmarks',
+                        detail: 'full',
+                    },
                 },
             }, options),
         ]);
@@ -789,7 +988,10 @@ describe('processMcpRequest', () => {
             method: 'tools/call',
             params: {
                 name: 'evb_list_capabilities',
-                arguments: {domain: 'document'},
+                arguments: {
+                    domain: 'document',
+                    detail: 'full',
+                },
             },
         }, options);
 

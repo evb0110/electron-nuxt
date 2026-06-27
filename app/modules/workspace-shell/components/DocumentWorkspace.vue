@@ -678,6 +678,7 @@ const {
     searchFocusRequest,
     handleSave,
     handleRepairSave,
+    handleOptimizePdfForInteraction: handleOptimizePdfForInteractionDirect,
     handleOptimizePdfAsCopy,
     handleSaveAs,
     handlePrint,
@@ -893,7 +894,7 @@ function createOptimizeRequestId() {
         : `pdf-optimize-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function handleOptimizePdfForInteraction() {
+function openOptimizePdfForInteractionDialog() {
     if (!canOptimizePdf.value) {
         return false;
     }
@@ -1021,7 +1022,7 @@ const {
     closeAllDropdowns,
     handleSave,
     handleRepairSave,
-    handleOptimizePdfForInteraction,
+    handleOptimizePdfForInteraction: openOptimizePdfForInteractionDialog,
     handleSaveAs,
     handleExportDocx,
     handleUndo,
@@ -1366,13 +1367,13 @@ const {
     bookmarkItems,
     bookmarksDirty,
     canSave,
+    canUndo,
+    canRedo,
     closeAllDropdowns,
     closeShapeProperties,
     closeTextMarkupProperties,
     continuousScroll,
     currentPage,
-    dragMode,
-    enableDragMode,
     fitMode,
     handleActualSize,
     handleAnnotationFocusComment,
@@ -1388,6 +1389,10 @@ const {
     handleGoToPage,
     handleOpenAnnotationNote,
     handleOpenFileFromUi,
+    handleRepairSave,
+    handleOptimizePdfForInteraction: handleOptimizePdfForInteractionDirect,
+    handleUndo,
+    handleRedo,
     handlePageLabelRangesUpdate,
     handlePageRotate,
     handlePrint,
@@ -1412,6 +1417,8 @@ const {
     pageOpsDelete,
     pageOpsExtract,
     pageOpsInsert,
+    handleCropPages,
+    handleRemoveCrop,
     pdfViewerRef,
     selectedThumbnailPages,
     showConvertDialog,
@@ -1433,18 +1440,12 @@ const readHasPreservedAnnotationSourceChanges = (): boolean => hasPreservedAnnot
 const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleSave,
     handleRepairSave,
-    handleOptimizePdfForInteraction: () => Promise.resolve(handleOptimizePdfForInteraction()),
+    handleOptimizePdfForInteraction: () => Promise.resolve(openOptimizePdfForInteractionDialog()),
     handleSaveAs,
     handlePrint,
-    handlePrintCurrentPage: () => {
-        void handlePrintCurrentPage();
-    },
-    handleUndo: () => {
-        void handleUndo();
-    },
-    handleRedo: () => {
-        void handleRedo();
-    },
+    handlePrintCurrentPage: () => { void handlePrintCurrentPage(); },
+    handleUndo: () => { void handleUndo(); },
+    handleRedo: () => { void handleRedo(); },
     handleOpenFileFromUi,
     handleCombineImages,
     handleOpenFileDirectWithPersist,
@@ -1489,33 +1490,15 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     documentViewerRef,
     handleFitMode,
     handleGoToPage,
-    handleToggleSidebar: () => {
-        showSidebar.value = !showSidebar.value;
-    },
-    handleToggleContinuousScroll: () => {
-        continuousScroll.value = !continuousScroll.value;
-    },
-    handleEnableDragMode: () => {
-        enableDragMode();
-    },
-    handleDisableDragMode: () => {
-        handleAnnotationToolChange('none');
-    },
-    handleCaptureRegion: () => {
-        void handleCaptureRegion();
-    },
-    handleCrop: () => {
-        void handleToolbarCrop();
-    },
-    handleQuickNote: () => {
-        void handleQuickNoteAction();
-    },
-    handleInsertImageFromFile: async () => {
-        await handleInsertImageFromFile();
-    },
-    handlePasteImageFromClipboard: async () => {
-        await handlePasteImageFromClipboard();
-    },
+    handleToggleSidebar: () => { showSidebar.value = !showSidebar.value; },
+    handleToggleContinuousScroll: () => { continuousScroll.value = !continuousScroll.value; },
+    handleEnableDragMode: () => { enableDragMode(); },
+    handleDisableDragMode: () => { handleAnnotationToolChange('none'); },
+    handleCaptureRegion: () => { void handleCaptureRegion(); },
+    handleCrop: () => { void handleToolbarCrop(); },
+    handleQuickNote: () => { void handleQuickNoteAction(); },
+    handleInsertImageFromFile: async () => { await handleInsertImageFromFile(); },
+    handlePasteImageFromClipboard: async () => { await handlePasteImageFromClipboard(); },
     selectedThumbnailPages,
     pageOpsDelete,
     pageOpsExtract,
