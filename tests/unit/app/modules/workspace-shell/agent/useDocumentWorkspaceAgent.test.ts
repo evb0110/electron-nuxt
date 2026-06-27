@@ -23,6 +23,7 @@ import {
     useDocumentWorkspaceAgent,
 } from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
 import type { IUseDocumentWorkspaceAgentOptions } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
+import { cast } from '@tests/helpers/cast';
 
 const COMMAND_ONLY_CAPABILITY_IDS = new Set([
     'workspace.snapshot',
@@ -39,6 +40,40 @@ const COMMAND_ONLY_CAPABILITY_IDS = new Set([
 
 function sortIds(ids: readonly string[]) {
     return [...ids].sort((left, right) => left.localeCompare(right));
+}
+
+function createBookmark(title: string, items: IPdfBookmarkEntry[] = []): IPdfBookmarkEntry {
+    return {
+        title,
+        pageIndex: null,
+        namedDest: null,
+        bold: false,
+        italic: false,
+        color: null,
+        items,
+    };
+}
+
+function createAnnotationComment(
+    overrides: Partial<IAnnotationCommentSummary> = {},
+): IAnnotationCommentSummary {
+    return {
+        id: 'annotation-1',
+        stableKey: 'annotation-stable-1',
+        pageIndex: 0,
+        pageNumber: 1,
+        text: '',
+        kindLabel: 'Highlight',
+        subtype: 'Highlight',
+        author: null,
+        modifiedAt: null,
+        color: '#ffff00',
+        uid: null,
+        annotationId: 'annotation-1',
+        source: 'pdf',
+        hasNote: false,
+        ...overrides,
+    };
 }
 
 function createAgentOptions(
@@ -77,6 +112,7 @@ function createAgentOptions(
         handleBookmarksChange: vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         }),
+        updateTextMarkupColorWithHistory: vi.fn(() => true),
         handleDeleteAnnotationComment: vi.fn(async () => undefined),
         handleDropdownOpen: vi.fn(),
         handleExportDocx: vi.fn(async () => undefined),
@@ -168,6 +204,8 @@ describe('useDocumentWorkspaceAgent', () => {
             .rejects.toThrow('page_labels.apply_range requires a valid one-based page number');
         await expect(agent.runAgentAction('bookmarks.add_batch', {}, {dryRun: true}))
             .rejects.toThrow('bookmarks.add_batch requires input.bookmarks or input.items');
+        await expect(agent.runAgentAction('bookmarks.delete_batch', {}, {dryRun: true}))
+            .rejects.toThrow('bookmarks.delete_batch requires input.paths, input.items with path, or input.path');
 
         await expect(agent.runAgentAction('ui.open_sidebar_tab', {tab: 'bookmarks'}, {dryRun: true}))
             .resolves.toMatchObject({
@@ -229,6 +267,45 @@ describe('useDocumentWorkspaceAgent', () => {
         });
         expect(waitForDocumentOpenSettled).toHaveBeenCalledOnce();
         expect(handleBookmarksChange).toHaveBeenCalledOnce();
+        expect(handleBookmarksChange).toHaveBeenCalledWith(expect.objectContaining({
+            dirty: true,
+            history: 'record',
+        }));
+    });
+
+    it('deletes multiple bookmarks through the batch agent action', async () => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([
+            createBookmark('Chapter 1', [createBookmark('Section 1.1')]),
+            createBookmark('Chapter 2'),
+            createBookmark('Chapter 3'),
+        ]);
+        const handleBookmarksChange = vi.fn(({bookmarks}) => {
+            bookmarkItems.value = bookmarks;
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            bookmarkItems,
+            handleBookmarksChange,
+        }));
+
+        await expect(agent.runAgentAction('bookmarks.delete_batch', {paths: [
+            [0],
+            [
+                0,
+                0,
+            ],
+            [2],
+        ]})).resolves.toMatchObject({
+            ok: true,
+            actionId: 'bookmarks.delete_batch',
+            bookmarks: [expect.objectContaining({title: 'Chapter 2'})],
+        });
+
+        expect(bookmarkItems.value).toEqual([createBookmark('Chapter 2')]);
+        expect(handleBookmarksChange).toHaveBeenCalledOnce();
+        expect(handleBookmarksChange).toHaveBeenCalledWith(expect.objectContaining({
+            dirty: true,
+            history: 'record',
+        }));
     });
 
     it('lets file.save observe save readiness after an immediate bookmark action', async () => {
@@ -269,6 +346,92 @@ describe('useDocumentWorkspaceAgent', () => {
             canSave: false,
         });
         expect(handleSave).toHaveBeenCalledOnce();
+    });
+
+    it('routes assistant text-markup color edits through the undo-aware color updater', async () => {
+        const comment = createAnnotationComment();
+        const updateTextMarkupColorWithHistory = vi.fn(() => true);
+        const rawViewerColorUpdate = vi.fn(() => true);
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            annotationComments: ref([comment]),
+            updateTextMarkupColorWithHistory,
+            pdfViewerRef: ref(cast<IPdfViewerExpose>({updateTextMarkupAnnotationColor: rawViewerColorUpdate})),
+        }));
+
+        await expect(agent.runAgentAction('annotation.update_text_markup_color', {
+            stableKey: comment.stableKey,
+            color: '#00ff00',
+        })).resolves.toMatchObject({
+            ok: true,
+            actionId: 'annotation.update_text_markup_color',
+            updated: true,
+            comment: expect.objectContaining({
+                stableKey: comment.stableKey,
+                color: '#00ff00',
+                hasNote: false,
+            }),
+        });
+
+        expect(updateTextMarkupColorWithHistory).toHaveBeenCalledWith(comment, '#00ff00');
+        expect(rawViewerColorUpdate).not.toHaveBeenCalled();
+    });
+
+    it('registers annotation history for assistant note text edits', async () => {
+        const comment = createAnnotationComment({
+            text: 'Original note',
+            hasNote: true,
+            kindLabel: 'Note',
+            subtype: 'Text',
+        });
+        const historyCommands: Array<{
+            cmd: () => void;
+            undo: () => void;
+        }> = [];
+        const updateAnnotationComment = vi.fn(() => true);
+        const registerAnnotationHistoryCommand = vi.fn((command: {
+            cmd: () => void;
+            undo: () => void;
+        }) => {
+            historyCommands.push(command);
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            annotationComments: ref([comment]),
+            pdfViewerRef: ref(cast<IPdfViewerExpose>({
+                updateAnnotationComment,
+                registerAnnotationHistoryCommand,
+            })),
+        }));
+
+        await expect(agent.runAgentAction('annotation.update_note', {
+            stableKey: comment.stableKey,
+            text: 'Updated note',
+        })).resolves.toMatchObject({
+            ok: true,
+            actionId: 'annotation.update_note',
+            updated: true,
+            comment: expect.objectContaining({
+                stableKey: comment.stableKey,
+                text: 'Updated note',
+                hasNote: true,
+            }),
+        });
+
+        expect(updateAnnotationComment).toHaveBeenCalledWith(comment, 'Updated note');
+        expect(registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
+
+        const command = historyCommands[0];
+        if (!command) {
+            throw new Error('Expected annotation history command to be registered');
+        }
+
+        command.undo();
+        expect(updateAnnotationComment).toHaveBeenLastCalledWith(comment, 'Original note');
+
+        command.cmd();
+        expect(updateAnnotationComment).toHaveBeenLastCalledWith(expect.objectContaining({
+            stableKey: comment.stableKey,
+            text: 'Updated note',
+        }), 'Updated note');
     });
 
     it('blocks PDF page-operation actions in DjVu mode while keeping convert-to-PDF available', async () => {

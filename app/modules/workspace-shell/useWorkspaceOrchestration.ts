@@ -49,6 +49,19 @@ interface IWorkspaceOrchestrationDeps {
 
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 
+function readExposedNumber(value: unknown) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+    }
+    if (!value || typeof value !== 'object' || !('value' in value)) {
+        return 0;
+    }
+    const refValue = (value as { value?: unknown }).value;
+    return typeof refValue === 'number' && Number.isFinite(refValue)
+        ? refValue
+        : 0;
+}
+
 export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => {
     const {
         isActive,
@@ -145,6 +158,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const isSavingAs = ref(false);
     const isHistoryBusy = ref(false);
     const documentOperationLease = useDocumentOperationLease();
+    const annotationHistoryMutationVersion = computed(() => (
+        readExposedNumber(pdfViewerRef.value?.annotationHistoryMutationVersion)
+    ));
+    const annotationHistoryResetVersion = computed(() => (
+        readExposedNumber(pdfViewerRef.value?.annotationHistoryResetVersion)
+    ));
 
     const metadataSession = useMetadataSession({
         pdfDocument,
@@ -152,12 +171,19 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         markDirty,
         fileHistoryMutationVersion,
         fileHistorySessionVersion,
+        annotationHistoryMutationVersion,
+        annotationHistoryResetVersion,
         undoFile: undo,
         redoFile: redo,
+        undoAnnotation: () => pdfViewerRef.value?.undoAnnotation?.() === true,
+        redoAnnotation: () => pdfViewerRef.value?.redoAnnotation?.() === true,
     });
     const {
         pageLabelState,
         bookmarkState,
+        clearPreservedSourceReloadMetadata,
+        consumePreservedSourceReloadMetadata,
+        preserveMetadataForNextSourceReload,
         workspaceUndoTimeline,
     } = metadataSession;
     const {
@@ -434,6 +460,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         getPageLabelsSaveStateToken: getPageLabelsRevision,
         markBookmarksSaved,
         getBookmarksSaveStateToken: getBookmarksRevision,
+        preserveMetadataForNextSourceReload,
+        clearPreservedSourceReloadMetadata,
         isDirty,
         hasPendingUnsavedChanges,
         validatePdfPath: path => getDocumentsCapability().validatePdfPath(path),
@@ -579,6 +607,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     });
     const {
         isAnnotationUndoContext,
+        canUndoAnnotation,
+        canRedoAnnotation,
         canUndo,
         canRedo,
     } = viewState;
@@ -591,13 +621,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isHistoryBusy,
         canUndo,
         canRedo,
+        canUndoAnnotation,
+        canRedoAnnotation,
         isAnnotationUndoContext,
-        shouldPreferTimelineUndo: () => (
-            !annotationDirty.value
-            && !isDirty.value
-            && pendingEmbeddedAnnotationDeleteCount.value === 0
-            && workspaceUndoTimeline.nextUndoSource.value === 'file'
-        ),
         nextUndoSource: workspaceUndoTimeline.nextUndoSource,
         nextRedoSource: workspaceUndoTimeline.nextRedoSource,
         workingCopyPath,
@@ -918,6 +944,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         bookmarkItems,
         bookmarksDirty,
         bookmarkEditMode,
+        consumePreservedSourceReloadMetadata,
         pageLabels,
         pageLabelRanges,
         pageLabelsDirty,

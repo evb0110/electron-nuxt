@@ -45,6 +45,7 @@ export interface IDocumentTransitionDeps {
     closePageContextMenu: () => void;
     closeAllAnnotationNotes: (opts?: { saveIfDirty?: boolean }) => Promise<boolean>;
     loadRecentFiles: () => void;
+    consumePreservedSourceReloadMetadata?: (() => boolean) | undefined;
 }
 
 interface IDestroyablePdfDocument { destroy?: () => Promise<void> }
@@ -95,6 +96,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         closePageContextMenu,
         closeAllAnnotationNotes,
         loadRecentFiles,
+        consumePreservedSourceReloadMetadata,
     } = deps;
 
     watch(pdfError, (err: unknown) => {
@@ -138,8 +140,11 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             if (!isReload) {
                 clearAnnotationComments();
             }
-            bookmarkItems.value = [];
-            bookmarksDirty.value = false;
+            const didPreserveMetadata = isReload && consumePreservedSourceReloadMetadata?.() === true;
+            if (!didPreserveMetadata) {
+                bookmarkItems.value = [];
+                bookmarksDirty.value = false;
+            }
             bookmarkEditMode.value = false;
             closeAnnotationContextMenu();
             closePageContextMenu();

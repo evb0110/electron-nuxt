@@ -141,6 +141,8 @@ export interface IPdfViewerBrowserPrintExpose {renderLoadedPdfPagesForBrowserPri
 ) => Promise<void>;}
 
 export interface IPdfViewerAnnotationCommandExpose {
+    annotationHistoryMutationVersion?: number | Ref<number> | ComputedRef<number> | undefined;
+    annotationHistoryResetVersion?: number | Ref<number> | ComputedRef<number> | undefined;
     clearAnnotationHistory?: () => void;
     highlightSelection: () => Promise<boolean>;
     commentSelection: () => Promise<boolean>;
@@ -161,8 +163,8 @@ export interface IPdfViewerAnnotationCommandExpose {
     ) => Promise<ICreateShapeAnnotationResult>;
     startCommentPlacement: () => void;
     cancelCommentPlacement: () => void;
-    undoAnnotation: () => void;
-    redoAnnotation: () => void;
+    undoAnnotation: () => boolean | undefined;
+    redoAnnotation: () => boolean | undefined;
     registerAnnotationHistoryCommand?: (command: {
         cmd: () => void;
         undo: () => void;

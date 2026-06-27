@@ -83,29 +83,23 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         // is the only state that should fully disable annotation interaction.
         return true;
     });
-    const canUndo = computed(() => (
-        isAnnotationUndoContext.value
-            ? (
-                (
-                    deps.annotationEditorState.value.hasSomethingToUndo
-                    && deps.hasLivePdfJsAnnotationChanges.value
-                )
-                || deps.annotationEditorState.value.hasAppAnnotationUndoHistory === true
-                || deps.appAnnotationUndoDepth.value > 0
-            )
-            : deps.canUndoHistory.value
+    const canUndoAnnotation = computed(() => (
+        (
+            deps.annotationEditorState.value.hasSomethingToUndo
+            && deps.hasLivePdfJsAnnotationChanges.value
+        )
+        || deps.annotationEditorState.value.hasAppAnnotationUndoHistory === true
+        || deps.appAnnotationUndoDepth.value > 0
     ));
-    const canRedo = computed(() => (
-        isAnnotationUndoContext.value
-            ? (
-                (
-                    deps.annotationEditorState.value.hasSomethingToRedo
-                    && deps.hasLivePdfJsAnnotationChanges.value
-                )
-                || deps.annotationEditorState.value.hasAppAnnotationRedoHistory === true
-            )
-            : deps.canRedoHistory.value
+    const canRedoAnnotation = computed(() => (
+        (
+            deps.annotationEditorState.value.hasSomethingToRedo
+            && deps.hasLivePdfJsAnnotationChanges.value
+        )
+        || deps.annotationEditorState.value.hasAppAnnotationRedoHistory === true
     ));
+    const canUndo = computed(() => canUndoAnnotation.value || deps.canUndoHistory.value);
+    const canRedo = computed(() => canRedoAnnotation.value || deps.canRedoHistory.value);
 
     function handleFitMode(mode: TFitMode) {
         deps.documentViewerRef.value?.cancelProgrammaticNavigation?.();
@@ -189,6 +183,8 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         isFitHeightActive,
         isAnnotationUndoContext,
         annotationCursorMode,
+        canUndoAnnotation,
+        canRedoAnnotation,
         canUndo,
         canRedo,
         handleFitMode,

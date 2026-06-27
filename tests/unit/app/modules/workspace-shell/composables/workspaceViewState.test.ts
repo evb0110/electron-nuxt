@@ -235,6 +235,44 @@ describe('useWorkspaceViewState', () => {
         expect(state.canUndo.value).toBe(true);
     });
 
+    it('keeps document undo available while an annotation tool is active', () => {
+        const state = useWorkspaceViewState({
+            fitMode: ref('width'),
+            zoomMode: ref('fit-width'),
+            zoom: ref(1),
+            dragMode: ref(false),
+            showSidebar: ref(false),
+            sidebarTab: ref('annotations'),
+            annotationTool: ref('highlight'),
+            annotationPlacingPageNote: ref(false),
+            annotationEditorState: ref({
+                isEditing: false,
+                isEmpty: true,
+                hasSomethingToUndo: false,
+                hasSomethingToRedo: false,
+                hasSelectedEditor: false,
+            }),
+            hasLivePdfJsAnnotationChanges: ref(false),
+            appAnnotationUndoDepth: ref(0),
+            hasOpenAnnotationNotes: ref(false),
+            canUndoHistory: ref(true),
+            canRedoHistory: ref(true),
+            currentPage: ref(1),
+            totalPages: ref(1),
+            documentViewerRef: ref({
+                getViewerContainer: () => null,
+                scrollToPage: () => {},
+                cancelCommentPlacement: () => {},
+            }),
+        });
+
+        expect(state.isAnnotationUndoContext.value).toBe(true);
+        expect(state.canUndoAnnotation.value).toBe(false);
+        expect(state.canRedoAnnotation.value).toBe(false);
+        expect(state.canUndo.value).toBe(true);
+        expect(state.canRedo.value).toBe(true);
+    });
+
     it('enables app-routed PDF.js annotation undo before live dirty detection catches up', () => {
         const state = useWorkspaceViewState({
             fitMode: ref('width'),

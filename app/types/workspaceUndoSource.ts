@@ -1,1 +1,1 @@
-export type TWorkspaceUndoSource = 'file' | 'metadata';
+export type TWorkspaceUndoSource = 'file' | 'metadata' | 'annotation';

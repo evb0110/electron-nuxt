@@ -28,6 +28,8 @@ export const usePdfAppAnnotationHistory = (options: {
     const redoStack: TPdfAnnotationHistoryEntry[] = [];
     const undoDepth = ref(0);
     const redoDepth = ref(0);
+    const annotationHistoryMutationVersion = ref(0);
+    const annotationHistoryResetVersion = ref(0);
     const canUndo = computed(() => undoDepth.value > 0);
     const canRedo = computed(() => redoDepth.value > 0);
     let routedPdfjsHistoryDepth = 0;
@@ -80,6 +82,7 @@ export const usePdfAppAnnotationHistory = (options: {
         redoStack.length = 0;
         trimHistory();
         syncDepths();
+        annotationHistoryMutationVersion.value += 1;
         emitCombinedState();
     }
 
@@ -106,6 +109,7 @@ export const usePdfAppAnnotationHistory = (options: {
         redoStack.length = 0;
         trimHistory();
         syncDepths();
+        annotationHistoryMutationVersion.value += 1;
         emitCombinedState();
     }
 
@@ -230,6 +234,7 @@ export const usePdfAppAnnotationHistory = (options: {
         undoStack.length = 0;
         redoStack.length = 0;
         syncDepths();
+        annotationHistoryResetVersion.value += 1;
         emitCombinedState();
     }
 
@@ -250,10 +255,13 @@ export const usePdfAppAnnotationHistory = (options: {
             return;
         }
         syncDepths();
+        annotationHistoryResetVersion.value += 1;
         emitCombinedState();
     }
 
     return {
+        annotationHistoryMutationVersion,
+        annotationHistoryResetVersion,
         canUndo,
         canRedo,
         registerCommand,

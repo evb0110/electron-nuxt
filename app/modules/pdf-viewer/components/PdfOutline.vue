@@ -3,9 +3,11 @@
         <PdfOutlineToolbar
             :display-mode="displayMode"
             :is-edit-mode="isEditMode"
+            :selected-delete-count="selectedBookmarkDeleteCount"
             @set-display-mode="setDisplayMode"
             @toggle-edit-mode="toggleEditMode"
             @add-root-bookmark="addRootBookmark"
+            @remove-selected-bookmarks="removeSelectedBookmarks"
         />
 
         <div
@@ -73,6 +75,7 @@
             :style-range-start-id="styleRangeStartId"
             :can-apply-style-range="canApplyStyleRange"
             :apply-style-range-label="applyStyleRangeLabel"
+            :remove-label="contextRemoveBookmarkLabel"
             @edit="startEditingBookmark"
             @add-sibling-above="addSiblingAbove"
             @add-sibling-below="addSiblingBelow"
@@ -96,7 +99,10 @@ import type {
     IBookmarkDropPayload,
     TBookmarkDisplayMode,
 } from '@app/types/pdfOutline';
-import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import type {
+    IPdfBookmarkChangePayload,
+    IPdfBookmarkEntry,
+} from '@app/types/pdf';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {
@@ -130,10 +136,7 @@ const props = defineProps<IProps>();
 
 const emit = defineEmits<{
     goToPage: [page: number, options?: IScrollToPageOptions];
-    'bookmarks-change': [payload: {
-        bookmarks: IPdfBookmarkEntry[];
-        dirty: boolean;
-    }];
+    'bookmarks-change': [payload: IPdfBookmarkChangePayload];
     'update:isEditMode': [value: boolean];
 }>();
 
@@ -280,6 +283,7 @@ const editing = usePdfOutlineEditing(
     displayMode,
     isEditMode,
     parentBookmarkIdMap,
+    bookmarkOrderIndexMap,
     selection.selectedBookmarkIds,
     selection.selectionAnchorBookmarkId,
     styleRangeStartId,
@@ -358,6 +362,28 @@ function removeBookmark(id: string) {
     editing.removeBookmark(id);
 }
 
+function removeSelectedBookmarks() {
+    editing.removeSelectedBookmarks();
+}
+
+const selectedBookmarkDeleteCount = computed(() => (
+    editing.resolveRootBookmarkIds(selection.selectedBookmarkIds.value).length
+));
+
+const contextRemoveBookmarkLabel = computed(() => {
+    const contextBookmark = selectedContextBookmark.value;
+    if (!contextBookmark) {
+        return t('bookmarks.removeBookmark');
+    }
+
+    const count = editing.resolveBookmarkRemovalTargetIds(contextBookmark.id).length;
+    if (count <= 1) {
+        return t('bookmarks.removeBookmark');
+    }
+
+    return t('bookmarks.removeSelectedBookmarks', { count });
+});
+
 provide(pdfOutlineTreeKey, {
     expandedBookmarkIds,
     activeItemId,
@@ -375,6 +401,7 @@ provide(pdfOutlineTreeKey, {
 
 let outlineRunId = 0;
 const initialBookmarkSnapshot = ref('[]');
+const hasMaterializedBookmarkSnapshot = ref(false);
 
 function getPersistedBookmarkSnapshot(items = bookmarks.value) {
     return JSON.stringify(editing.mapBookmarksForPersistence(items));
@@ -386,15 +413,18 @@ function emitBookmarksChange() {
     emit('bookmarks-change', {
         bookmarks: persisted,
         dirty: snapshot !== initialBookmarkSnapshot.value,
+        history: 'record',
     });
 }
 
 function setBookmarkBaseline() {
     const persisted = editing.mapBookmarksForPersistence(bookmarks.value);
     initialBookmarkSnapshot.value = JSON.stringify(persisted);
+    hasMaterializedBookmarkSnapshot.value = true;
     emit('bookmarks-change', {
         bookmarks: persisted,
         dirty: false,
+        history: 'reset',
     });
 }
 
@@ -418,8 +448,25 @@ function getPendingBookmarkEntries() {
     return props.bookmarksDirty ? props.bookmarkItems ?? [] : null;
 }
 
-function applyPendingBookmarkItems(entries: IPdfBookmarkEntry[]) {
+function shouldApplyExternalBookmarkItems(isDirty: boolean) {
+    return isDirty || hasMaterializedBookmarkSnapshot.value;
+}
+
+function syncBookmarkBaselineFromCurrentItems() {
+    initialBookmarkSnapshot.value = getPersistedBookmarkSnapshot();
+    hasMaterializedBookmarkSnapshot.value = true;
+}
+
+function applyPendingBookmarkItems(
+    entries: IPdfBookmarkEntry[],
+    options: { syncBaseline?: boolean } = {},
+) {
     if (JSON.stringify(entries) === getPersistedBookmarkSnapshot()) {
+        if (options.syncBaseline) {
+            syncBookmarkBaselineFromCurrentItems();
+        } else {
+            hasMaterializedBookmarkSnapshot.value = true;
+        }
         return;
     }
 
@@ -435,6 +482,11 @@ function applyPendingBookmarkItems(entries: IPdfBookmarkEntry[]) {
     updateActiveItemFromCurrentPage();
     if (activeItemId.value) {
         selection.applySingleSelection(activeItemId.value);
+    }
+    if (options.syncBaseline) {
+        syncBookmarkBaselineFromCurrentItems();
+    } else {
+        hasMaterializedBookmarkSnapshot.value = true;
     }
 }
 
@@ -551,6 +603,7 @@ async function loadOutline() {
     const pdfDocument = props.pdfDocument;
     outlineRunId += 1;
     invalidateBookmarkNavigationRequests();
+    hasMaterializedBookmarkSnapshot.value = false;
     const runId = outlineRunId;
     resetOutlineInteractionState();
 
@@ -627,10 +680,16 @@ watch(
 );
 
 watch(
-    () => props.bookmarksDirty ? props.bookmarkItems ?? [] : null,
-    (items) => {
-        if (items) {
-            applyPendingBookmarkItems(items);
+    () => ({
+        isDirty: props.bookmarksDirty ?? false,
+        items: props.bookmarkItems ?? [],
+    }),
+    ({
+        isDirty,
+        items,
+    }) => {
+        if (shouldApplyExternalBookmarkItems(isDirty)) {
+            applyPendingBookmarkItems(items, { syncBaseline: !isDirty });
         }
     },
     {

@@ -115,6 +115,8 @@ interface IPageSaveOrchestrationDeps extends TSharedSaveOperationDeps {
     getPageLabelsSaveStateToken?: () => unknown;
     markBookmarksSaved: () => void;
     getBookmarksSaveStateToken?: () => unknown;
+    preserveMetadataForNextSourceReload?: (() => void) | undefined;
+    clearPreservedSourceReloadMetadata?: (() => void) | undefined;
     isDirty: Ref<boolean>;
     hasPendingUnsavedChanges?: ComputedRef<boolean>;
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
@@ -170,6 +172,8 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         getPageLabelsSaveStateToken,
         markBookmarksSaved,
         getBookmarksSaveStateToken,
+        preserveMetadataForNextSourceReload,
+        clearPreservedSourceReloadMetadata,
         isDirty,
         hasPendingUnsavedChanges,
         validatePdfPath,
@@ -286,13 +290,17 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         annotationNoteWindowsCount,
         loadRecentFiles,
         preparePostSaveReload: () => {
+            const shouldPreserveMetadata = pageLabelsDirty.value || bookmarksDirty.value;
+            if (shouldPreserveMetadata) {
+                preserveMetadataForNextSourceReload?.();
+            }
             const capturedReloadState = capturePdfReloadSnapshot(pdfViewerRef.value, currentPage.value);
             pdfViewerRef.value?.preserveNextSourceReloadVisibleContent?.({
                 scrollSnapshot: capturedReloadState.scrollSnapshot,
                 pageToRestore: capturedReloadState.pageToRestore,
             });
 
-            return createPdfReloadWaiter({
+            const reloadWaiter = createPdfReloadWaiter({
                 pdfDocument,
                 pdfViewerRef,
                 resetSearchCache,
@@ -300,6 +308,15 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 scrollSnapshot: capturedReloadState.scrollSnapshot,
                 restoreScroll: capturedReloadState.scrollSnapshot !== null,
             });
+            return {
+                promise: reloadWaiter.promise,
+                cancel: () => {
+                    if (shouldPreserveMetadata) {
+                        clearPreservedSourceReloadMetadata?.();
+                    }
+                    reloadWaiter.cancel();
+                },
+            };
         },
         markShapeStateSaved: () => pdfViewerRef.value?.markSavedShapeState?.(),
         preparePersistedShapeStateForSave: (data) => (

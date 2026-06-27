@@ -78,7 +78,7 @@ describe('usePageSaveOrchestration', () => {
         vi.stubGlobal('useToast', () => ({ add: platformMocks.toastAdd }));
     });
 
-    it('arms preserved PDF reloads without rewriting the workspace current page', () => {
+    it('arms preserved PDF and metadata reloads without rewriting the workspace current page', () => {
         const currentPage = ref(41);
         const scrollSnapshot: IScrollSnapshot = {
             width: 800,
@@ -98,6 +98,8 @@ describe('usePageSaveOrchestration', () => {
             anchorPageYOutsideOffsetPx: null,
         };
         const preserveNextSourceReloadVisibleContent = vi.fn();
+        const preserveMetadataForNextSourceReload = vi.fn();
+        const clearPreservedSourceReloadMetadata = vi.fn();
         const pdfViewerRef = ref({
             scrollToPage: vi.fn(),
             captureScrollSnapshot: vi.fn(() => scrollSnapshot),
@@ -121,7 +123,7 @@ describe('usePageSaveOrchestration', () => {
             totalPages: ref(50),
             pageLabelsDirty: ref(false),
             pageLabelRanges: ref([]),
-            bookmarksDirty: ref(false),
+            bookmarksDirty: ref(true),
             bookmarkItems: ref([]),
             isSaving: ref(false),
             isSavingAs: ref(false),
@@ -131,6 +133,8 @@ describe('usePageSaveOrchestration', () => {
             markAnnotationSaved: vi.fn(),
             markPageLabelsSaved: vi.fn(),
             markBookmarksSaved: vi.fn(),
+            preserveMetadataForNextSourceReload,
+            clearPreservedSourceReloadMetadata,
             isDirty: ref(false),
             hasPendingUnsavedChanges: computed(() => false),
             persistAllAnnotationNotes: vi.fn(async () => true),
@@ -175,6 +179,8 @@ describe('usePageSaveOrchestration', () => {
         reloadWaiter.cancel();
 
         expect(currentPage.value).toBe(41);
+        expect(preserveMetadataForNextSourceReload).toHaveBeenCalledOnce();
+        expect(clearPreservedSourceReloadMetadata).toHaveBeenCalledOnce();
         expect(preserveNextSourceReloadVisibleContent).toHaveBeenCalledWith({
             scrollSnapshot,
             pageToRestore: 42,

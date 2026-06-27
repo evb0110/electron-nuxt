@@ -7,6 +7,7 @@ import {
     collectBookmarkIds,
     findBookmarkById,
     findBookmarkLocation,
+    flattenBookmarks,
     normalizeBookmarkColor,
 } from '@app/utils/pdfOutlineHelpers';
 
@@ -17,6 +18,7 @@ export const usePdfOutlineEditing = (
     displayMode: Ref<TBookmarkDisplayMode>,
     isEditMode: ComputedRef<boolean>,
     parentBookmarkIdMap: ComputedRef<Map<string, string | null>>,
+    bookmarkOrderIndexMap: ComputedRef<Map<string, number>>,
     selectedBookmarkIds: Ref<Set<string>>,
     selectionAnchorBookmarkId: Ref<string | null>,
     styleRangeStartId: Ref<string | null>,
@@ -144,16 +146,6 @@ export const usePdfOutlineEditing = (
         emitBookmarksChange();
     }
 
-    function collectRemovedBookmarkIds(item: IBookmarkItem) {
-        const removedIds = new Set<string>();
-        collectBookmarkIds(item, removedIds);
-        return removedIds;
-    }
-
-    function getNextActiveAfterRemoval(location: NonNullable<ReturnType<typeof findBookmarkLocation>>) {
-        return location.list[location.index] ?? location.list[location.index - 1] ?? location.parent;
-    }
-
     function removeIdsFromSet(source: Set<string>, removedIds: Set<string>) {
         const next = new Set<string>();
         for (const id of source) {
@@ -174,34 +166,138 @@ export const usePdfOutlineEditing = (
         }
     }
 
-    function updateActiveAfterBookmarkRemoval(
-        location: NonNullable<ReturnType<typeof findBookmarkLocation>>,
+    function resolveRootBookmarkIds(ids: Iterable<string>) {
+        const selectedIds = new Set(ids);
+        const roots = new Set<string>();
+
+        for (const id of selectedIds) {
+            if (!findBookmarkLocation(bookmarks.value, id)) {
+                continue;
+            }
+
+            let hasSelectedAncestor = false;
+            let cursor = parentBookmarkIdMap.value.get(id) ?? null;
+
+            while (cursor) {
+                if (selectedIds.has(cursor)) {
+                    hasSelectedAncestor = true;
+                    break;
+                }
+                cursor = parentBookmarkIdMap.value.get(cursor) ?? null;
+            }
+
+            if (!hasSelectedAncestor) {
+                roots.add(id);
+            }
+        }
+
+        const order = bookmarkOrderIndexMap.value;
+        return [...roots].sort((left, right) => (
+            (order.get(left) ?? Number.MAX_SAFE_INTEGER) - (order.get(right) ?? Number.MAX_SAFE_INTEGER)
+        ));
+    }
+
+    function resolveBookmarkRemovalTargetIds(id: string) {
+        if (selectedBookmarkIds.value.has(id)) {
+            const selectedRoots = resolveRootBookmarkIds(selectedBookmarkIds.value);
+            if (selectedRoots.length > 0) {
+                return selectedRoots;
+            }
+        }
+
+        return resolveRootBookmarkIds([id]);
+    }
+
+    function removeBookmarkRoots(
+        items: readonly IBookmarkItem[],
+        rootIds: ReadonlySet<string>,
+        removedIds: Set<string>,
+    ): IBookmarkItem[] {
+        return items.flatMap((item) => {
+            if (rootIds.has(item.id)) {
+                collectBookmarkIds(item, removedIds);
+                return [];
+            }
+
+            return [{
+                ...item,
+                items: removeBookmarkRoots(item.items, rootIds, removedIds),
+            }];
+        });
+    }
+
+    function resolveNextActiveAfterRemoval(
+        flatBeforeRemoval: IBookmarkItem[],
+        removedIds: Set<string>,
+    ) {
+        const validIds = new Set(flattenBookmarks(bookmarks.value).map(item => item.id));
+        const activeIndex = activeItemId.value && removedIds.has(activeItemId.value)
+            ? flatBeforeRemoval.findIndex(item => item.id === activeItemId.value)
+            : -1;
+        const firstRemovedIndex = flatBeforeRemoval.findIndex(item => removedIds.has(item.id));
+        const startIndex = activeIndex >= 0 ? activeIndex : firstRemovedIndex;
+
+        if (startIndex < 0) {
+            return null;
+        }
+
+        for (let index = startIndex; index < flatBeforeRemoval.length; index += 1) {
+            const id = flatBeforeRemoval[index]?.id;
+            if (id && !removedIds.has(id) && validIds.has(id)) {
+                return id;
+            }
+        }
+
+        for (let index = startIndex - 1; index >= 0; index -= 1) {
+            const id = flatBeforeRemoval[index]?.id;
+            if (id && !removedIds.has(id) && validIds.has(id)) {
+                return id;
+            }
+        }
+
+        return null;
+    }
+
+    function updateActiveAfterBookmarksRemoval(
+        flatBeforeRemoval: IBookmarkItem[],
         removedIds: Set<string>,
     ) {
         if (!activeItemId.value || !removedIds.has(activeItemId.value)) {
             return;
         }
 
-        const nextActive = getNextActiveAfterRemoval(location);
-        activeItemId.value = nextActive?.id ?? null;
+        activeItemId.value = resolveNextActiveAfterRemoval(flatBeforeRemoval, removedIds);
     }
 
-    function removeBookmark(id: string) {
-        const location = findBookmarkLocation(bookmarks.value, id);
-        if (!location) {
+    function removeBookmarkTargets(targetIds: Iterable<string>) {
+        const rootIds = resolveRootBookmarkIds(targetIds);
+        if (rootIds.length === 0) {
             return;
         }
 
-        const removedIds = collectRemovedBookmarkIds(location.item);
-        location.list.splice(location.index, 1);
+        const flatBeforeRemoval = flattenBookmarks(bookmarks.value);
+        const removedIds = new Set<string>();
+        bookmarks.value = removeBookmarkRoots(bookmarks.value, new Set(rootIds), removedIds);
+        if (removedIds.size === 0) {
+            return;
+        }
 
-        updateActiveAfterBookmarkRemoval(location, removedIds);
+        updateActiveAfterBookmarksRemoval(flatBeforeRemoval, removedIds);
         clearRemovedEditingState(removedIds);
+        selectedBookmarkIds.value = removeIdsFromSet(selectedBookmarkIds.value, removedIds);
         expandedBookmarkIds.value = removeIdsFromSet(expandedBookmarkIds.value, removedIds);
 
         closeBookmarkContextMenu();
         pruneStaleState();
         emitBookmarksChange();
+    }
+
+    function removeBookmark(id: string) {
+        removeBookmarkTargets(resolveBookmarkRemovalTargetIds(id));
+    }
+
+    function removeSelectedBookmarks() {
+        removeBookmarkTargets(selectedBookmarkIds.value);
     }
 
     function resolveBookmarkStyle(
@@ -367,7 +463,10 @@ export const usePdfOutlineEditing = (
         addSiblingAbove,
         addSiblingBelow,
         addChildBookmark,
+        resolveRootBookmarkIds,
+        resolveBookmarkRemovalTargetIds,
         removeBookmark,
+        removeSelectedBookmarks,
         toggleBookmarkBold,
         toggleBookmarkItalic,
         setBookmarkColor,

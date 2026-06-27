@@ -250,6 +250,7 @@ Bookmark tools work with a recursive tree and a flat agent-friendly view. Read `
 - `bookmarks.add_batch` adds many bookmarks, each optionally carrying its own `parentPath` and `index`.
 - `bookmarks.update` updates one bookmark by `path`.
 - `bookmarks.delete` deletes one bookmark subtree by `path`.
+- `bookmarks.delete_batch` deletes multiple bookmark subtrees in one undoable metadata edit, accepting `paths` such as `[[0], [2, 1]]` or `items`/`bookmarks` objects with `path` fields. Parent/child overlaps are collapsed so descendants are removed only once.
 
 Bookmark entries accept `title`, `page`/`pageNumber`, `pageIndex`, `namedDest`, `bold`, `italic`, `color`, and nested `items`. Flat rebuild plans may use `entries`, `flat`, or `outline` arrays with `level` (1-based) or `depth` (0-based), so an extracted table of contents can be passed without hand-nesting.
 

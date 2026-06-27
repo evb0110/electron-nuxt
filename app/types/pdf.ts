@@ -10,6 +10,7 @@ import type {
     IPdfValidationResult,
     TPdfSaveMode,
 } from '@contracts/pdfConformance';
+import type { IPdfBookmarkEntry as TPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type {
     PDFDocumentProxy,
     PDFPageProxy,
@@ -36,6 +37,14 @@ export type {
 } from '@contracts/pdfConformance';
 
 export type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+
+export type TPdfBookmarkChangeHistoryMode = 'record' | 'reset';
+
+export interface IPdfBookmarkChangePayload {
+    bookmarks: TPdfBookmarkEntry[];
+    dirty: boolean;
+    history?: TPdfBookmarkChangeHistoryMode | undefined;
+}
 
 export interface IContentInsets {
     top: number;

@@ -159,6 +159,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IResolvedSearchMatchOptions } from '@contracts/search';
 import type {
+    IPdfBookmarkChangePayload,
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
     IPdfSearchMatch,
@@ -288,10 +289,7 @@ const emit = defineEmits<{
     'annotation-open-note': [comment: IAnnotationCommentSummary];
     'annotation-delete-comment': [comment: IAnnotationCommentSummary];
     'annotation-place-note': [];
-    'bookmarks-change': [payload: {
-        bookmarks: IPdfBookmarkEntry[];
-        dirty: boolean;
-    }];
+    'bookmarks-change': [payload: IPdfBookmarkChangePayload];
     'page-context-menu': [payload: {
         clientX: number;
         clientY: number;
@@ -426,10 +424,7 @@ function updatePageLabelRanges(ranges: IPdfPageLabelRange[]) {
     emit('update:pageLabelRanges', ranges);
 }
 
-function updateBookmarks(payload: {
-    bookmarks: IPdfBookmarkEntry[];
-    dirty: boolean;
-}) {
+function updateBookmarks(payload: IPdfBookmarkChangePayload) {
     emit('bookmarks-change', payload);
 }
 

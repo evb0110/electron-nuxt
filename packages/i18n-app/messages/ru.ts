@@ -865,6 +865,12 @@ export default {
             other: 'Применить стиль к {count} закладкам',
         }),
         'removeBookmark': 'Удалить закладку',
+        'removeSelectedBookmarks': plural({
+            one: 'Удалить {count} выбранную закладку',
+            few: 'Удалить {count} выбранные закладки',
+            many: 'Удалить {count} выбранных закладок',
+            other: 'Удалить {count} выбранные закладки',
+        }),
         'newBookmark': 'Новая закладка',
     },
     'status': {

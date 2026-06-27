@@ -147,4 +147,86 @@ describe('useWorkspaceMetadataHistory', () => {
         expect(bookmarksDirty.value).toBe(false);
         expect(history.canUndoMetadata.value).toBe(false);
     });
+
+    it('preserves undo history when the current metadata state is marked clean after save', () => {
+        const {
+            bookmarkItems,
+            bookmarksDirty,
+            history,
+        } = createHistory();
+
+        history.resetToCurrentState();
+
+        bookmarkItems.value = [{
+            title: 'Saved bookmark',
+            pageIndex: 0,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        }];
+        history.recordCurrentState();
+        expect(bookmarksDirty.value).toBe(true);
+
+        history.markCurrentStateClean();
+
+        expect(bookmarksDirty.value).toBe(false);
+        expect(history.canUndoMetadata.value).toBe(true);
+
+        expect(history.undoMetadata()).toBe(true);
+        expect(bookmarkItems.value).toEqual([]);
+        expect(bookmarksDirty.value).toBe(true);
+
+        expect(history.redoMetadata()).toBe(true);
+        expect(bookmarkItems.value).toEqual([{
+            title: 'Saved bookmark',
+            pageIndex: 0,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        }]);
+        expect(bookmarksDirty.value).toBe(false);
+    });
+
+    it('records edits that return metadata to the clean snapshot as undoable', () => {
+        const {
+            bookmarkItems,
+            bookmarksDirty,
+            history,
+        } = createHistory();
+
+        history.resetToCurrentState();
+
+        bookmarkItems.value = [{
+            title: 'Transient bookmark',
+            pageIndex: 0,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        }];
+        history.recordCurrentState();
+
+        bookmarkItems.value = [];
+        history.recordCurrentState();
+
+        expect(bookmarksDirty.value).toBe(false);
+        expect(history.canUndoMetadata.value).toBe(true);
+
+        expect(history.undoMetadata()).toBe(true);
+        expect(bookmarkItems.value).toEqual([{
+            title: 'Transient bookmark',
+            pageIndex: 0,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        }]);
+        expect(bookmarksDirty.value).toBe(true);
+    });
 });

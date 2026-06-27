@@ -173,7 +173,7 @@ describe('usePageLabelState', () => {
         ]);
     });
 
-    it('marks dirty only when label ranges actually change', () => {
+    it('marks page labels dirty only when label ranges actually change', () => {
         const markDirty = vi.fn();
         const onPageLabelsDirty = vi.fn();
         const state = usePageLabelState({
@@ -192,7 +192,7 @@ describe('usePageLabelState', () => {
 
         state.handlePageLabelRangesUpdate(ranges);
         expect(state.pageLabelsDirty.value).toBe(true);
-        expect(markDirty).toHaveBeenCalledTimes(1);
+        expect(markDirty).not.toHaveBeenCalled();
         expect(onPageLabelsDirty).toHaveBeenCalledTimes(1);
 
         markDirty.mockClear();

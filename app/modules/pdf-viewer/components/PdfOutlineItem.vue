@@ -460,7 +460,8 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
     transition:
         background-color 0.15s,
         border-color 0.15s,
-        color 0.15s;
+        color 0.15s,
+        outline-color 0.15s;
     user-select: none;
     outline: none;
 }
@@ -479,8 +480,17 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
     color: var(--ui-text);
 }
 
-.pdf-bookmark-item-row.is-selected:not(.is-active) {
+.pdf-bookmark-item-row.is-selected {
+    border-color: color-mix(in srgb, var(--ui-primary) 24%, var(--ui-border) 76%);
     background: color-mix(in srgb, var(--ui-primary) 10%, var(--app-sidebar-bg) 90%);
+    outline: 1px solid color-mix(in srgb, var(--ui-primary) 28%, transparent 72%);
+    outline-offset: -1px;
+}
+
+.pdf-bookmark-item-row.is-active.is-selected {
+    border-color: color-mix(in srgb, var(--ui-primary) 36%, var(--app-control-active-border) 64%);
+    background: color-mix(in srgb, var(--ui-primary) 12%, var(--app-sidebar-bg) 88%);
+    outline-color: color-mix(in srgb, var(--ui-primary) 42%, transparent 58%);
 }
 
 .pdf-bookmark-item-row.is-editing {

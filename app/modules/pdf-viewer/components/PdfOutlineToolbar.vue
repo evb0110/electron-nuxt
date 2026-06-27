@@ -29,6 +29,23 @@
 
         <div class="pdf-bookmarks-toolbar-actions">
             <AppTooltip
+                v-if="isEditMode && selectedDeleteCount > 0"
+                :text="t('bookmarks.removeSelectedBookmarks', { count: selectedDeleteCount })"
+                :delay-duration="800"
+            >
+                <button
+                    type="button"
+                    class="pdf-bookmarks-icon-button pdf-bookmarks-icon-button-danger"
+                    :aria-label="t('bookmarks.removeSelectedBookmarks', { count: selectedDeleteCount })"
+                    @click="removeSelectedBookmarks"
+                >
+                    <UIcon
+                        name="i-ph-trash"
+                        class="size-3.5"
+                    />
+                </button>
+            </AppTooltip>
+            <AppTooltip
                 v-if="isEditMode"
                 :text="t('bookmarks.addTopLevel')"
                 :delay-duration="800"
@@ -73,6 +90,7 @@ import type { TBookmarkDisplayMode } from '@app/types/pdfOutline';
 interface IProps {
     displayMode: TBookmarkDisplayMode;
     isEditMode: boolean;
+    selectedDeleteCount: number;
 }
 
 defineProps<IProps>();
@@ -81,6 +99,7 @@ const emit = defineEmits<{
     'set-display-mode': [mode: TBookmarkDisplayMode];
     'toggle-edit-mode': [];
     'add-root-bookmark': [];
+    'remove-selected-bookmarks': [];
 }>();
 
 const { t } = useTypedI18n();
@@ -117,6 +136,10 @@ function toggleEditMode() {
 
 function addRootBookmark() {
     emit('add-root-bookmark');
+}
+
+function removeSelectedBookmarks() {
+    emit('remove-selected-bookmarks');
 }
 </script>
 
@@ -172,5 +195,9 @@ function addRootBookmark() {
     background: var(--app-control-active-bg);
     border-color: var(--app-control-active-border);
     color: var(--ui-text);
+}
+
+.pdf-bookmarks-icon-button-danger:hover {
+    color: var(--app-pdf-context-menu-danger-fg);
 }
 </style>

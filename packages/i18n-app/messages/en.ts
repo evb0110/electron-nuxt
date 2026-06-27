@@ -841,6 +841,10 @@ export default {
             other: 'Apply style to {count} bookmarks',
         }),
         'removeBookmark': 'Remove bookmark',
+        'removeSelectedBookmarks': plural({
+            one: 'Remove {count} selected bookmark',
+            other: 'Remove {count} selected bookmarks',
+        }),
         'newBookmark': 'New Bookmark',
     },
     'status': {

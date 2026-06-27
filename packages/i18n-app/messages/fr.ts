@@ -849,6 +849,11 @@ export default {
             other: 'Appliquer le style à {count} signets',
         }),
         'removeBookmark': 'Supprimer le signet',
+        'removeSelectedBookmarks': plural({
+            zero: 'Supprimer {count} signets sélectionnés',
+            one: 'Supprimer {count} signet sélectionné',
+            other: 'Supprimer {count} signets sélectionnés',
+        }),
         'newBookmark': 'Nouveau signet',
     },
     'status': {

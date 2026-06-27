@@ -841,6 +841,10 @@ export default {
             other: 'Stil auf {count} Lesezeichen anwenden',
         }),
         'removeBookmark': 'Lesezeichen entfernen',
+        'removeSelectedBookmarks': plural({
+            one: '{count} ausgewähltes Lesezeichen entfernen',
+            other: '{count} ausgewählte Lesezeichen entfernen',
+        }),
         'newBookmark': 'Neues Lesezeichen',
     },
     'status': {

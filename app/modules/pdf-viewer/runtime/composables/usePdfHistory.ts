@@ -9,10 +9,6 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 
 interface IWaitForPdfReloadOptions {captureScrollSnapshot?: boolean;}
 type THistoryDirection = 'undo' | 'redo';
-type TShouldPreferTimelineUndo = (
-    direction?: THistoryDirection,
-    source?: TWorkspaceUndoSource | null,
-) => boolean;
 type THistoryRoute = (
     | {kind: 'blocked';}
     | {
@@ -23,7 +19,6 @@ type THistoryRoute = (
         kind: 'timeline';
         direction: THistoryDirection;
         source: TWorkspaceUndoSource | null;
-        shouldPreferTimelineUndo: boolean;
     }
 );
 
@@ -46,8 +41,9 @@ export const usePdfHistory = (deps: {
     isHistoryBusy: Ref<boolean>;
     canUndo: Ref<boolean>;
     canRedo: Ref<boolean>;
+    canUndoAnnotation?: Ref<boolean> | undefined;
+    canRedoAnnotation?: Ref<boolean> | undefined;
     isAnnotationUndoContext: Ref<boolean>;
-    shouldPreferTimelineUndo?: TShouldPreferTimelineUndo | undefined;
     nextUndoSource: Ref<TWorkspaceUndoSource | null>;
     nextRedoSource: Ref<TWorkspaceUndoSource | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
@@ -64,8 +60,9 @@ export const usePdfHistory = (deps: {
         isHistoryBusy,
         canUndo,
         canRedo,
+        canUndoAnnotation,
+        canRedoAnnotation,
         isAnnotationUndoContext,
-        shouldPreferTimelineUndo,
         nextUndoSource,
         nextRedoSource,
         workingCopyPath,
@@ -74,7 +71,6 @@ export const usePdfHistory = (deps: {
         undoHistory,
         redoHistory,
     } = deps;
-    let preferredTimelineRedoSource: TWorkspaceUndoSource | null = null;
 
     /**
      * Starts watching for a PDF document instance swap and resolves when
@@ -118,6 +114,13 @@ export const usePdfHistory = (deps: {
             : canRedo.value;
     }
 
+    function getCanUseAnnotationHistory(direction: THistoryDirection) {
+        const canUseAnnotation = direction === 'undo'
+            ? canUndoAnnotation
+            : canRedoAnnotation;
+        return canUseAnnotation?.value ?? getCanUseHistory(direction);
+    }
+
     function getTimelineHistorySource(direction: THistoryDirection) {
         return direction === 'undo'
             ? nextUndoSource.value
@@ -130,11 +133,18 @@ export const usePdfHistory = (deps: {
         }
 
         const source = getTimelineHistorySource(direction);
-        const prefersTimeline = shouldPreferTimelineUndo?.(direction, source) === true;
-        const redoesPreferredTimelineUndo = direction === 'redo'
-            && source !== null
-            && source === preferredTimelineRedoSource;
-        if (isAnnotationUndoContext.value && !prefersTimeline && !redoesPreferredTimelineUndo) {
+        if (source) {
+            return {
+                kind: 'timeline',
+                direction,
+                source,
+            };
+        }
+
+        if (
+            isAnnotationUndoContext.value
+            && getCanUseAnnotationHistory(direction)
+        ) {
             return {
                 kind: 'annotation',
                 direction,
@@ -145,7 +155,6 @@ export const usePdfHistory = (deps: {
             kind: 'timeline',
             direction,
             source,
-            shouldPreferTimelineUndo: prefersTimeline,
         };
     }
 
@@ -158,7 +167,6 @@ export const usePdfHistory = (deps: {
                 canUndo: canUndo.value,
                 canRedo: canRedo.value,
                 isAnnotationUndoContext: isAnnotationUndoContext.value,
-                shouldPreferTimelineUndo: route.shouldPreferTimelineUndo,
             },
         );
     }
@@ -202,17 +210,11 @@ export const usePdfHistory = (deps: {
             return;
         }
         if (route.kind === 'annotation') {
-            preferredTimelineRedoSource = null;
             pdfViewerRef.value?.undoAnnotation();
             return;
         }
 
-        const didUndo = await runTimelineHistoryRoute(route, undoHistory);
-        if (didUndo) {
-            preferredTimelineRedoSource = route.shouldPreferTimelineUndo
-                ? route.source
-                : null;
-        }
+        await runTimelineHistoryRoute(route, undoHistory);
     }
 
     async function handleRedo() {
@@ -221,15 +223,11 @@ export const usePdfHistory = (deps: {
             return;
         }
         if (route.kind === 'annotation') {
-            preferredTimelineRedoSource = null;
             pdfViewerRef.value?.redoAnnotation();
             return;
         }
 
-        const didRedo = await runTimelineHistoryRoute(route, redoHistory);
-        if (didRedo) {
-            preferredTimelineRedoSource = null;
-        }
+        await runTimelineHistoryRoute(route, redoHistory);
     }
 
     return {

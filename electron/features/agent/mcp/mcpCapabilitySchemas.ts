@@ -687,6 +687,59 @@ export const BOOKMARK_DELETE_INPUT_SCHEMA = {
     required: ['path'],
     additionalProperties: false,
 };
+export const BOOKMARK_DELETE_BATCH_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        paths: {
+            type: 'array',
+            minItems: 1,
+            items: {
+                ...BOOKMARK_PATH_SCHEMA,
+                minItems: 1,
+            },
+            description: 'Zero-based bookmark paths to delete in one metadata edit.',
+        },
+        items: {
+            type: 'array',
+            minItems: 1,
+            items: {
+                type: 'object',
+                properties: {path: {
+                    ...BOOKMARK_PATH_SCHEMA,
+                    minItems: 1,
+                }},
+                required: ['path'],
+                additionalProperties: false,
+            },
+            description: 'Alias for paths using objects returned by bookmarks.read flat entries.',
+        },
+        bookmarks: {
+            type: 'array',
+            minItems: 1,
+            items: {
+                type: 'object',
+                properties: {path: {
+                    ...BOOKMARK_PATH_SCHEMA,
+                    minItems: 1,
+                }},
+                required: ['path'],
+                additionalProperties: false,
+            },
+            description: 'Alias for items.',
+        },
+        path: {
+            ...BOOKMARK_PATH_SCHEMA,
+            minItems: 1,
+        },
+    },
+    anyOf: [
+        {required: ['paths']},
+        {required: ['items']},
+        {required: ['bookmarks']},
+        {required: ['path']},
+    ],
+    additionalProperties: false,
+};
 export const VIEW_MODE_INPUT_SCHEMA = {
     type: 'object',
     properties: {mode: {

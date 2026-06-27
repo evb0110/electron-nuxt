@@ -841,6 +841,10 @@ export default {
             other: 'Stijl op {count} bladwijzers toepassen',
         }),
         'removeBookmark': 'Bladwijzer verwijderen',
+        'removeSelectedBookmarks': plural({
+            one: '{count} geselecteerde bladwijzer verwijderen',
+            other: '{count} geselecteerde bladwijzers verwijderen',
+        }),
         'newBookmark': 'Nieuwe bladwijzer',
     },
     'status': {

@@ -24,6 +24,8 @@ export const useWorkspaceMetadataHistory = (deps: {
 }) => {
     const history = shallowRef<IWorkspaceMetadataSnapshot[]>([]);
     const historyIndex = ref(-1);
+    const cleanSnapshot = shallowRef<IWorkspaceMetadataSnapshot | null>(null);
+    const preservedReloadSnapshot = shallowRef<IWorkspaceMetadataSnapshot | null>(null);
     const isApplyingSnapshot = ref(false);
     const metadataHistoryMutationVersion = ref(0);
     const metadataHistoryResetVersion = ref(0);
@@ -45,7 +47,7 @@ export const useWorkspaceMetadataHistory = (deps: {
     }
 
     function syncDirtyFlags(snapshot: IWorkspaceMetadataSnapshot) {
-        const baseline = history.value[0] ?? null;
+        const baseline = cleanSnapshot.value;
         if (!baseline) {
             deps.bookmarksDirty.value = false;
             deps.pageLabelsDirty.value = false;
@@ -81,8 +83,34 @@ export const useWorkspaceMetadataHistory = (deps: {
         const snapshot = captureCurrentSnapshot();
         history.value = [snapshot];
         historyIndex.value = 0;
+        cleanSnapshot.value = cloneSnapshot(snapshot);
         metadataHistoryResetVersion.value += 1;
         syncDirtyFlags(snapshot);
+    }
+
+    function markCurrentStateClean() {
+        const snapshot = captureCurrentSnapshot();
+        cleanSnapshot.value = cloneSnapshot(snapshot);
+        syncDirtyFlags(snapshot);
+    }
+
+    function preserveCurrentStateForNextSourceReload() {
+        preservedReloadSnapshot.value = captureCurrentSnapshot();
+    }
+
+    function clearPreservedSourceReloadState() {
+        preservedReloadSnapshot.value = null;
+    }
+
+    function consumePreservedSourceReloadState() {
+        const snapshot = preservedReloadSnapshot.value;
+        preservedReloadSnapshot.value = null;
+        if (!snapshot) {
+            return false;
+        }
+
+        applySnapshot(snapshot);
+        return true;
     }
 
     function recordCurrentState() {
@@ -95,6 +123,7 @@ export const useWorkspaceMetadataHistory = (deps: {
         if (!current) {
             history.value = [snapshot];
             historyIndex.value = 0;
+            cleanSnapshot.value ??= cloneSnapshot(snapshot);
             syncDirtyFlags(snapshot);
             return;
         }
@@ -168,6 +197,10 @@ export const useWorkspaceMetadataHistory = (deps: {
         metadataHistoryMutationVersion,
         metadataHistoryResetVersion,
         resetToCurrentState,
+        markCurrentStateClean,
+        clearPreservedSourceReloadState,
+        consumePreservedSourceReloadState,
+        preserveCurrentStateForNextSourceReload,
         recordCurrentState,
         undoMetadata,
         redoMetadata,

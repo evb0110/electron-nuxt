@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPdfViewMode } from '@contracts/shared';
 import type {
+    IPdfBookmarkChangePayload,
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
 } from '@app/types/pdf';
@@ -47,10 +48,8 @@ export interface IUseDocumentWorkspaceAgentOptions {
     handleActualSize: () => void;
     handleAnnotationFocusComment: (comment: IAnnotationCommentSummary) => Promise<void>;
     handleAnnotationToolChange: (tool: TAnnotationTool) => void;
-    handleBookmarksChange: (payload: {
-        bookmarks: IPdfBookmarkEntry[];
-        dirty: boolean;
-    }) => void;
+    handleBookmarksChange: (payload: IPdfBookmarkChangePayload) => void;
+    updateTextMarkupColorWithHistory: (comment: IAnnotationCommentSummary, color: string) => boolean;
     handleDeleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
     handleDropdownOpen: (dropdown: 'ocr', open: boolean) => void;
     handleExportDocx: () => Promise<unknown>;

@@ -105,7 +105,7 @@
                 class="pdf-context-menu__action pdf-context-menu__action--danger"
                 @click="removeBookmark(bookmark.id)"
             >
-                {{ t('bookmarks.removeBookmark') }}
+                {{ removeLabel }}
             </button>
         </template>
     </PdfContextMenuBase>
@@ -124,6 +124,7 @@ interface IProps {
     styleRangeStartId: string | null;
     canApplyStyleRange: boolean;
     applyStyleRangeLabel: string;
+    removeLabel: string;
 }
 
 const {

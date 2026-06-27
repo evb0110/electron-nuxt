@@ -2,14 +2,18 @@ import type { Ref } from 'vue';
 import type { TWorkspaceUndoSource } from '@app/types/workspaceUndoSource';
 
 export const useWorkspaceUndoTimeline = (deps: {
-    fileHistoryMutationVersion: Ref<number>;
-    fileHistorySessionVersion: Ref<number>;
-    metadataHistoryMutationVersion: Ref<number>;
-    metadataHistoryResetVersion: Ref<number>;
+    fileHistoryMutationVersion: Readonly<Ref<number>>;
+    fileHistorySessionVersion: Readonly<Ref<number>>;
+    metadataHistoryMutationVersion: Readonly<Ref<number>>;
+    metadataHistoryResetVersion: Readonly<Ref<number>>;
+    annotationHistoryMutationVersion?: Readonly<Ref<number>> | undefined;
+    annotationHistoryResetVersion?: Readonly<Ref<number>> | undefined;
     undoFile: () => Promise<boolean>;
     redoFile: () => Promise<boolean>;
     undoMetadata: () => Promise<boolean> | boolean;
     redoMetadata: () => Promise<boolean> | boolean;
+    undoAnnotation?: (() => Promise<boolean> | boolean) | undefined;
+    redoAnnotation?: (() => Promise<boolean> | boolean) | undefined;
 }) => {
     const entries = shallowRef<TWorkspaceUndoSource[]>([]);
     const entryIndex = ref(-1);
@@ -50,6 +54,11 @@ export const useWorkspaceUndoTimeline = (deps: {
     function resetTimeline() {
         entries.value = [];
         entryIndex.value = -1;
+    }
+
+    function didVersionIncrement(nextVersion: number, previousVersion: number | undefined) {
+        return previousVersion !== undefined
+            && nextVersion > previousVersion;
     }
 
     watch(
@@ -96,6 +105,32 @@ export const useWorkspaceUndoTimeline = (deps: {
         { flush: 'sync' },
     );
 
+    if (deps.annotationHistoryMutationVersion) {
+        watch(
+            deps.annotationHistoryMutationVersion,
+            (nextVersion, previousVersion) => {
+                if (!didVersionIncrement(nextVersion, previousVersion)) {
+                    return;
+                }
+                recordEntry('annotation');
+            },
+            { flush: 'sync' },
+        );
+    }
+
+    if (deps.annotationHistoryResetVersion) {
+        watch(
+            deps.annotationHistoryResetVersion,
+            (nextVersion, previousVersion) => {
+                if (!didVersionIncrement(nextVersion, previousVersion)) {
+                    return;
+                }
+                pruneEntries('annotation');
+            },
+            { flush: 'sync' },
+        );
+    }
+
     const canUndoTimeline = computed(() => entryIndex.value >= 0);
     const canRedoTimeline = computed(
         () => entryIndex.value < entries.value.length - 1,
@@ -115,7 +150,9 @@ export const useWorkspaceUndoTimeline = (deps: {
 
         const didUndo = source === 'file'
             ? await deps.undoFile()
-            : await deps.undoMetadata();
+            : source === 'metadata'
+                ? await deps.undoMetadata()
+                : (await deps.undoAnnotation?.()) === true;
         if (!didUndo) {
             return false;
         }
@@ -132,7 +169,9 @@ export const useWorkspaceUndoTimeline = (deps: {
 
         const didRedo = source === 'file'
             ? await deps.redoFile()
-            : await deps.redoMetadata();
+            : source === 'metadata'
+                ? await deps.redoMetadata()
+                : (await deps.redoAnnotation?.()) === true;
         if (!didRedo) {
             return false;
         }

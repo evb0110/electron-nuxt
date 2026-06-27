@@ -1,4 +1,7 @@
-import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import type {
+    IPdfBookmarkChangePayload,
+    IPdfBookmarkEntry,
+} from '@app/types/pdf';
 
 export const useBookmarkState = (deps: {
     markDirty: () => void;
@@ -7,7 +10,6 @@ export const useBookmarkState = (deps: {
     onBookmarksSaved?: () => void;
 }) => {
     const {
-        markDirty,
         onBookmarksSynchronized,
         onBookmarksDirty,
         onBookmarksSaved,
@@ -23,18 +25,13 @@ export const useBookmarkState = (deps: {
         onBookmarksSaved?.();
     }
 
-    function handleBookmarksChange(payload: {
-        bookmarks: IPdfBookmarkEntry[];
-        dirty: boolean;
-    }) {
+    function handleBookmarksChange(payload: IPdfBookmarkChangePayload) {
         bookmarkItems.value = payload.bookmarks;
         bookmarkRevision += 1;
+        const historyMode = payload.history ?? (payload.dirty ? 'record' : 'reset');
 
-        if (payload.dirty) {
-            if (!bookmarksDirty.value) {
-                markDirty();
-            }
-            bookmarksDirty.value = true;
+        if (historyMode === 'record') {
+            bookmarksDirty.value = payload.dirty;
             onBookmarksDirty?.();
             return;
         }

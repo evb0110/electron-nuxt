@@ -693,14 +693,13 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         return resolveAnnotationCommentTextMarkupColor(container, comment);
     }
 
-    function handleContextTextMarkupColorUpdate(color: string) {
-        const comment = annotationContextMenu.value.comment;
-        if (!comment) {
-            return;
-        }
+    function updateTextMarkupColorWithHistory(
+        comment: IAnnotationCommentSummary,
+        color: string,
+    ) {
         const previousColor = resolveContextTextMarkupUndoColor(comment);
         const previousColorEdited = comment.colorEdited === true;
-        applyContextTextMarkupColorUpdate(comment, color, { sourceColor: previousColor });
+        const didUpdate = applyContextTextMarkupColorUpdate(comment, color, { sourceColor: previousColor });
         if (
             previousColor
             && normalizeTextMarkupColorValue(previousColor) !== normalizeTextMarkupColorValue(color)
@@ -733,6 +732,15 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 },
             });
         }
+        return didUpdate;
+    }
+
+    function handleContextTextMarkupColorUpdate(color: string) {
+        const comment = annotationContextMenu.value.comment;
+        if (!comment) {
+            return;
+        }
+        updateTextMarkupColorWithHistory(comment, color);
         closeAnnotationContextMenu();
     }
 
@@ -1332,6 +1340,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         handleShapePropertyUpdate,
         handleTextMarkupColorUpdate,
         handleContextTextMarkupColorUpdate,
+        updateTextMarkupColorWithHistory,
         handleShapeContextMenu,
         handleViewerAnnotationContextMenu,
         openContextMenuNote,

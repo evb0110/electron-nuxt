@@ -1,5 +1,8 @@
 import type { Ref } from 'vue';
-import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import type {
+    IPdfBookmarkChangePayload,
+    IPdfBookmarkEntry,
+} from '@app/types/pdf';
 import { normalizeBookmarkColor } from '@app/utils/pdfOutlineHelpers';
 import {
     createAgentBookmarkPlan,
@@ -23,10 +26,7 @@ import type { TWorkspaceAgentTranslate } from '@app/modules/workspace-shell/agen
 interface ICreateDocumentAgentBookmarksOptions {
     bookmarkItems: Ref<IPdfBookmarkEntry[]>;
     bookmarksDirty: Ref<boolean>;
-    handleBookmarksChange: (payload: {
-        bookmarks: IPdfBookmarkEntry[];
-        dirty: boolean;
-    }) => void;
+    handleBookmarksChange: (payload: IPdfBookmarkChangePayload) => void;
     t: TWorkspaceAgentTranslate;
     totalPages: Ref<number>;
 }
@@ -73,6 +73,64 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         return path?.map(index => Math.max(0, Math.trunc(index))) ?? null;
     }
 
+    function normalizeAgentBookmarkPath(value: unknown) {
+        if (!Array.isArray(value)) {
+            return null;
+        }
+
+        const path: number[] = [];
+        for (const item of value) {
+            if (typeof item !== 'number' || !Number.isFinite(item)) {
+                return null;
+            }
+            path.push(Math.max(0, Math.trunc(item)));
+        }
+        return path;
+    }
+
+    function getAgentBookmarkPathListInput(input: Record<string, unknown>, actionId: string) {
+        const rawPaths = input.paths;
+        if (Array.isArray(rawPaths)) {
+            const paths: number[][] = [];
+            rawPaths.forEach((rawPath) => {
+                const path = normalizeAgentBookmarkPath(rawPath);
+                if (!path || path.length === 0) {
+                    throw new Error(`${actionId} requires each input.paths item to be a non-empty path array.`);
+                }
+                paths.push(path);
+            });
+            if (paths.length === 0) {
+                throw new Error(`${actionId} requires at least one bookmark path.`);
+            }
+            return paths;
+        }
+
+        const rawItems = input.bookmarks ?? input.items;
+        if (Array.isArray(rawItems)) {
+            const paths = rawItems.map((item) => {
+                if (!isAgentRecord(item)) {
+                    throw new Error(`${actionId} requires each input.items item to include a non-empty path.`);
+                }
+                const path = getAgentBookmarkPathInput(item);
+                if (!path || path.length === 0) {
+                    throw new Error(`${actionId} requires each input.items item to include a non-empty path.`);
+                }
+                return path;
+            });
+            if (paths.length === 0) {
+                throw new Error(`${actionId} requires at least one bookmark path.`);
+            }
+            return paths;
+        }
+
+        const singlePath = getAgentBookmarkPathInput(input);
+        if (singlePath && singlePath.length > 0) {
+            return [singlePath];
+        }
+
+        throw new Error(`${actionId} requires input.paths, input.items with path, or input.path.`);
+    }
+
     function getBookmarkListAtPath(
         bookmarks: IPdfBookmarkEntry[],
         path: number[],
@@ -109,6 +167,60 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
             index,
             bookmark,
         };
+    }
+
+    function compareAgentBookmarkPaths(left: number[], right: number[]) {
+        const length = Math.min(left.length, right.length);
+        for (let index = 0; index < length; index += 1) {
+            const difference = left[index]! - right[index]!;
+            if (difference !== 0) {
+                return difference;
+            }
+        }
+        return left.length - right.length;
+    }
+
+    function pathsAreEqual(left: number[], right: number[]) {
+        return left.length === right.length && left.every((value, index) => value === right[index]);
+    }
+
+    function pathStartsWith(path: number[], prefix: number[]) {
+        return prefix.length <= path.length && prefix.every((value, index) => value === path[index]);
+    }
+
+    function resolveRootBookmarkPaths(paths: number[][]) {
+        const roots: number[][] = [];
+        const sorted = [...paths].sort(compareAgentBookmarkPaths);
+        for (const path of sorted) {
+            if (path.length === 0) {
+                continue;
+            }
+            if (roots.some(rootPath => pathStartsWith(path, rootPath))) {
+                continue;
+            }
+            roots.push(path);
+        }
+        return roots;
+    }
+
+    function removeBookmarkPaths(
+        items: IPdfBookmarkEntry[],
+        paths: number[][],
+        parentPath: number[] = [],
+    ): IPdfBookmarkEntry[] {
+        return items.flatMap((item, index) => {
+            const path = [
+                ...parentPath,
+                index,
+            ];
+            if (paths.some(targetPath => pathsAreEqual(path, targetPath))) {
+                return [];
+            }
+            return [{
+                ...item,
+                items: removeBookmarkPaths(item.items, paths, path),
+            }];
+        });
     }
 
     function normalizeAgentBookmarkEntry(input: Record<string, unknown>, actionId: string): IPdfBookmarkEntry {
@@ -150,6 +262,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         handleBookmarksChange({
             bookmarks,
             dirty: true,
+            history: 'record',
         });
         return createAgentBookmarkSnapshot();
     }
@@ -266,12 +379,22 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         return updateAgentBookmarks(bookmarks);
     }
 
+    function deleteAgentBookmarks(input: Record<string, unknown>, actionId: string) {
+        const bookmarks = cloneAgentBookmarks();
+        const paths = getAgentBookmarkPathListInput(input, actionId);
+        paths.forEach(path => getBookmarkLocationAtPath(bookmarks, path, actionId));
+        const rootPaths = resolveRootBookmarkPaths(paths);
+        const nextBookmarks = removeBookmarkPaths(bookmarks, rootPaths);
+        return updateAgentBookmarks(nextBookmarks);
+    }
+
     return {
         addAgentBookmark,
         addAgentBookmarks,
         applyAgentBookmarkPlan,
         createAgentBookmarkSnapshot,
         deleteAgentBookmark,
+        deleteAgentBookmarks,
         previewAgentBookmarkPlan,
         setAgentBookmarkTree,
         updateAgentBookmark,

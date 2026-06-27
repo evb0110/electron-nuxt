@@ -219,6 +219,8 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
             shapeTool.handleShapeCreated(shape);
             return result(true, toShapeAnnotationCommentSummary(shape));
         },
+        annotationHistoryMutationVersion: options.appAnnotationHistory.annotationHistoryMutationVersion,
+        annotationHistoryResetVersion: options.appAnnotationHistory.annotationHistoryResetVersion,
         startCommentPlacement: annotationRuntime.highlightComposable.startCommentPlacement,
         cancelCommentPlacement: annotationRuntime.highlightComposable.cancelCommentPlacement,
         undoAnnotation: options.undoAnnotation,

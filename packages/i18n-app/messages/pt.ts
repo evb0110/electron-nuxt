@@ -849,6 +849,11 @@ export default {
             other: 'Aplicar estilo a {count} marcadores',
         }),
         'removeBookmark': 'Remover marcador',
+        'removeSelectedBookmarks': plural({
+            zero: 'Remover {count} marcadores selecionados',
+            one: 'Remover {count} marcador selecionado',
+            other: 'Remover {count} marcadores selecionados',
+        }),
         'newBookmark': 'Novo Marcador',
     },
     'status': {

@@ -34,6 +34,8 @@ describe('PDF viewer expose contract', () => {
             'restorePreparedManagedShapesAfterFailedSave',
             'saveDocument',
             'commitPdfEditorsForSave',
+            'annotationHistoryMutationVersion',
+            'annotationHistoryResetVersion',
             'clearAnnotationHistory',
             'renderLoadedPdfPagesForBrowserPrint',
             'highlightSelection',

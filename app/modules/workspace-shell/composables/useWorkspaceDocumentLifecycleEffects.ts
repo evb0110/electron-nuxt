@@ -77,6 +77,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         closePageContextMenu,
         closeAllAnnotationNotes,
         loadRecentFiles,
+        consumePreservedSourceReloadMetadata,
     } = options;
 
     useWorkspaceUiSyncWatchers({
@@ -132,5 +133,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         closePageContextMenu,
         closeAllAnnotationNotes,
         loadRecentFiles,
+        consumePreservedSourceReloadMetadata,
     });
 };

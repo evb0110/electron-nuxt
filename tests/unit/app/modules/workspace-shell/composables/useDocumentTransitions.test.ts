@@ -99,6 +99,23 @@ describe('useDocumentTransitions', () => {
         expect(deps.annotationComments.value).toBe(previousComments);
     });
 
+    it('keeps preserved bookmark metadata during source reloads', async () => {
+        const deps = {
+            ...createDeps(),
+            consumePreservedSourceReloadMetadata: vi.fn(() => true),
+        };
+        const previousBookmarks = deps.bookmarkItems.value;
+
+        useDocumentTransitions(deps);
+
+        deps.pdfSrc.value = {} as TPdfSource;
+        await nextTick();
+
+        expect(deps.consumePreservedSourceReloadMetadata).toHaveBeenCalledOnce();
+        expect(deps.bookmarkItems.value).toBe(previousBookmarks);
+        expect(deps.bookmarksDirty.value).toBe(true);
+    });
+
     it('refreshes recent files when the open document changes without unloading first', async () => {
         const deps = createDeps();
 

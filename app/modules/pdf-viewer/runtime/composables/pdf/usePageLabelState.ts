@@ -23,7 +23,6 @@ export const usePageLabelState = (deps: {
     const {
         pdfDocument,
         totalPages,
-        markDirty,
         onPageLabelsSynchronized,
         onPageLabelsDirty,
         onPageLabelsSaved,
@@ -134,7 +133,6 @@ export const usePageLabelState = (deps: {
         pageLabels.value = materializePageLabels(totalPages.value, normalized);
         pageLabelsDirty.value = true;
         pageLabelRevision += 1;
-        markDirty();
         onPageLabelsDirty?.();
     }
 

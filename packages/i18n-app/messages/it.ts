@@ -841,6 +841,10 @@ export default {
             other: 'Applica stile a {count} segnalibri',
         }),
         'removeBookmark': 'Rimuovi segnalibro',
+        'removeSelectedBookmarks': plural({
+            one: 'Rimuovi {count} segnalibro selezionato',
+            other: 'Rimuovi {count} segnalibri selezionati',
+        }),
         'newBookmark': 'Nuovo segnalibro',
     },
     'status': {

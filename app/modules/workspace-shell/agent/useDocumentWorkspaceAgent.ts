@@ -59,6 +59,7 @@ export const DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS = [
     'bookmarks.add_batch',
     'bookmarks.update',
     'bookmarks.delete',
+    'bookmarks.delete_batch',
     'toc.read',
     'annotation.open_note',
     'annotation.focus',
@@ -108,6 +109,7 @@ export const DOCUMENT_WORKSPACE_AGENT_ALIAS_ACTION_IDS = [
     'toc.add_batch',
     'toc.update',
     'toc.delete',
+    'toc.delete_batch',
     'annotation.start_note_placement',
     'annotation.place_note',
     'annotation.set_tool',
@@ -183,6 +185,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         handleAnnotationFocusComment,
         handleAnnotationToolChange,
         handleBookmarksChange,
+        updateTextMarkupColorWithHistory,
         handleDeleteAnnotationComment,
         handleDropdownOpen,
         handleExportDocx,
@@ -274,6 +277,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         applyAgentBookmarkPlan,
         createAgentBookmarkSnapshot,
         deleteAgentBookmark,
+        deleteAgentBookmarks,
         previewAgentBookmarkPlan,
         setAgentBookmarkTree,
         updateAgentBookmark,
@@ -520,6 +524,44 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         return input;
     }
 
+    function parseAgentBookmarkPathBatchInput(input: Record<string, unknown>, actionId: string) {
+        if (Array.isArray(input.paths)) {
+            if (input.paths.length === 0) {
+                throw new Error(`${actionId} requires at least one bookmark path.`);
+            }
+            input.paths.forEach((path) => {
+                if (
+                    !Array.isArray(path)
+                    || path.length === 0
+                    || !path.every(value => typeof value === 'number' && Number.isFinite(value))
+                ) {
+                    throw new Error(`${actionId} requires input.paths to contain non-empty path arrays.`);
+                }
+            });
+            return input;
+        }
+
+        if (Array.isArray(input.items) || Array.isArray(input.bookmarks)) {
+            const rawItems = input.items ?? input.bookmarks;
+            if (!Array.isArray(rawItems) || rawItems.length === 0) {
+                throw new Error(`${actionId} requires at least one bookmark path.`);
+            }
+            rawItems.forEach((item) => {
+                if (!isAgentRecord(item)) {
+                    throw new Error(`${actionId} requires each input.items item to include a non-empty path.`);
+                }
+                parseAgentBookmarkPathInput(item, actionId);
+            });
+            return input;
+        }
+
+        const path = getAgentNumberArrayInput(input, 'path');
+        if (!path || path.length === 0) {
+            throw new Error(`${actionId} requires input.paths, input.items with path, or input.path.`);
+        }
+        return input;
+    }
+
     function patchAgentAnnotationCommentMarker(
         comment: IAnnotationCommentSummary,
         inputMarkerRect: IAnnotationCommentSummary['markerRect'] | null,
@@ -556,6 +598,93 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
                     hasNote: true,
                 },
             ];
+    }
+
+    function markerRectsEqual(
+        left: IAnnotationCommentSummary['markerRect'] | null | undefined,
+        right: IAnnotationCommentSummary['markerRect'] | null | undefined,
+    ) {
+        return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+    }
+
+    function findOpenAgentAnnotationNote(comment: IAnnotationCommentSummary) {
+        return sortedAnnotationNoteWindows.value.find(note =>
+            note.comment.stableKey === comment.stableKey
+            || isSameAnnotationComment(note.comment, comment),
+        );
+    }
+
+    function updateOpenAgentAnnotationNoteMarker(
+        comment: IAnnotationCommentSummary,
+        markerRect: IAnnotationCommentSummary['markerRect'] | null,
+    ) {
+        const openNote = findOpenAgentAnnotationNote(comment);
+        if (!openNote || !markerRect) {
+            return openNote ?? null;
+        }
+
+        const previousComment = openNote.comment;
+        openNote.comment = {
+            ...previousComment,
+            markerRect,
+        };
+        annotationComments.value = annotationComments.value.map(candidate => (
+            candidate.stableKey === previousComment.stableKey
+            || isSameAnnotationComment(candidate, previousComment)
+                ? {
+                    ...candidate,
+                    markerRect,
+                }
+                : candidate
+        ));
+        return openNote;
+    }
+
+    function applyAgentAnnotationNoteTextUpdate(
+        comment: IAnnotationCommentSummary,
+        text: string,
+        markerRect: IAnnotationCommentSummary['markerRect'] | null,
+    ) {
+        const commentForUpdate = markerRect
+            ? {
+                ...comment,
+                markerRect,
+                hasNote: text.trim().length > 0 || comment.hasNote === true,
+            }
+            : comment;
+        patchAgentAnnotationCommentMarker(commentForUpdate, markerRect, text);
+        const openNote = updateOpenAgentAnnotationNoteMarker(commentForUpdate, markerRect);
+        if (openNote) {
+            updateAnnotationNoteText(openNote.comment.stableKey, text);
+            markAnnotationDirty();
+            return true;
+        }
+        return pdfViewerRef.value?.updateAnnotationComment(commentForUpdate, text) ?? false;
+    }
+
+    function registerAgentAnnotationNoteUpdateHistory(
+        previousComment: IAnnotationCommentSummary,
+        previousText: string,
+        previousMarkerRect: IAnnotationCommentSummary['markerRect'] | null,
+        nextComment: IAnnotationCommentSummary,
+        nextText: string,
+        nextMarkerRect: IAnnotationCommentSummary['markerRect'] | null,
+    ) {
+        if (
+            previousText === nextText
+            && markerRectsEqual(previousMarkerRect, nextMarkerRect)
+        ) {
+            return;
+        }
+
+        pdfViewerRef.value?.registerAnnotationHistoryCommand?.({
+            cmd: () => {
+                applyAgentAnnotationNoteTextUpdate(nextComment, nextText, nextMarkerRect);
+            },
+            undo: () => {
+                applyAgentAnnotationNoteTextUpdate(previousComment, previousText, previousMarkerRect);
+            },
+        });
     }
 
     const agentActionHandlers = createAgentActionHandlerRegistry([
@@ -819,6 +948,18 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             },
         },
         {
+            ids: [
+                'bookmarks.delete_batch',
+                'toc.delete_batch',
+            ],
+            parse: parseAgentBookmarkPathBatchInput,
+            async run(bookmarksInput: Record<string, unknown>, actionId) {
+                const snapshot = deleteAgentBookmarks(bookmarksInput, actionId);
+                await waitForAgentMutationStateSettled();
+                return snapshot;
+            },
+        },
+        {
             ids: ['annotation.open_note'],
             parse: parseAgentAnnotationRef,
             async run(annotationInput: Record<string, unknown>) {
@@ -842,6 +983,8 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             parse: parseAgentUpdateNoteInput,
             async run(parsedInput: IAgentUpdateNoteInput) {
                 const comment = findAgentAnnotationComment(parsedInput.input);
+                const previousText = comment.text ?? '';
+                const previousMarkerRect = comment.markerRect ?? null;
                 const commentForUpdate = parsedInput.markerRect
                     ? {
                         ...comment,
@@ -852,36 +995,27 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
                 patchAgentAnnotationCommentMarker(commentForUpdate, parsedInput.markerRect, parsedInput.text);
                 handleOpenAnnotationNote(commentForUpdate);
                 await nextTick();
-                const openNote = sortedAnnotationNoteWindows.value.find(note =>
-                    note.comment.stableKey === commentForUpdate.stableKey
-                    || isSameAnnotationComment(note.comment, commentForUpdate),
+                const updated = applyAgentAnnotationNoteTextUpdate(
+                    commentForUpdate,
+                    parsedInput.text,
+                    parsedInput.markerRect,
                 );
-                const updated = openNote
-                    ? true
-                    : (pdfViewerRef.value?.updateAnnotationComment(commentForUpdate, parsedInput.text) ?? false);
                 if (!updated) {
                     throw new Error('Annotation note could not be updated.');
                 }
-                if (openNote) {
-                    if (parsedInput.markerRect) {
-                        const previousComment = openNote.comment;
-                        openNote.comment = {
-                            ...previousComment,
-                            markerRect: parsedInput.markerRect,
-                        };
-                        annotationComments.value = annotationComments.value.map(candidate => (
-                            candidate.stableKey === previousComment.stableKey
-                            || isSameAnnotationComment(candidate, previousComment)
-                                ? {
-                                    ...candidate,
-                                    markerRect: parsedInput.markerRect,
-                                }
-                                : candidate
-                        ));
-                    }
-                    updateAnnotationNoteText(openNote.comment.stableKey, parsedInput.text);
-                    markAnnotationDirty();
-                }
+                registerAgentAnnotationNoteUpdateHistory(
+                    comment,
+                    previousText,
+                    previousMarkerRect,
+                    {
+                        ...commentForUpdate,
+                        text: parsedInput.text,
+                        markerRect: parsedInput.markerRect ?? comment.markerRect,
+                        hasNote: parsedInput.text.trim().length > 0 || comment.hasNote === true,
+                    },
+                    parsedInput.text,
+                    parsedInput.markerRect ?? previousMarkerRect,
+                );
                 await nextTick();
                 patchAgentAnnotationCommentMarker(commentForUpdate, parsedInput.markerRect, parsedInput.text);
                 await nextTick();
@@ -901,7 +1035,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             parse: parseAgentAnnotationColorInput,
             async run(parsedInput: ReturnType<typeof parseAgentAnnotationColorInput>) {
                 const comment = findAgentAnnotationComment(parsedInput.input);
-                const updated = pdfViewerRef.value?.updateTextMarkupAnnotationColor?.(comment, parsedInput.color) ?? false;
+                const updated = updateTextMarkupColorWithHistory(comment, parsedInput.color);
                 if (!updated) {
                     throw new Error('Text markup annotation color could not be updated.');
                 }

@@ -723,18 +723,24 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
 
     function undoAnnotation() {
         if (appAnnotationHistory.canUndo.value) {
-            appAnnotationHistory.undo({ undoPdfjs: runtimeLifecycle.undoAnnotation });
-            return;
+            return appAnnotationHistory.undo({ undoPdfjs: runtimeLifecycle.undoAnnotation });
+        }
+        if (!pdfjsAnnotationEditorState.value.hasSomethingToUndo) {
+            return false;
         }
         runtimeLifecycle.undoAnnotation();
+        return true;
     }
 
     function redoAnnotation() {
         if (appAnnotationHistory.canRedo.value) {
-            appAnnotationHistory.redo({ redoPdfjs: runtimeLifecycle.redoAnnotation });
-            return;
+            return appAnnotationHistory.redo({ redoPdfjs: runtimeLifecycle.redoAnnotation });
+        }
+        if (!pdfjsAnnotationEditorState.value.hasSomethingToRedo) {
+            return false;
         }
         runtimeLifecycle.redoAnnotation();
+        return true;
     }
 
     const {
