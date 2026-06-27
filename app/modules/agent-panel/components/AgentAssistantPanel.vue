@@ -216,19 +216,20 @@
                             v-if="hasActiveDocument"
                             class="agent-assistant-presets"
                         >
-                            <UButton
+                            <button
                                 v-for="preset in ASSISTANT_PRESETS"
                                 :key="preset.id"
+                                type="button"
                                 class="agent-assistant-preset"
-                                :icon="preset.icon"
-                                :label="presetLabel(preset.id)"
-                                color="neutral"
-                                variant="soft"
-                                size="sm"
-                                block
                                 :disabled="isSending"
                                 @click="sendPreset(preset)"
-                            />
+                            >
+                                <UIcon
+                                    :name="preset.icon"
+                                    class="agent-assistant-preset-icon"
+                                />
+                                <span class="agent-assistant-preset-label">{{ presetLabel(preset.id) }}</span>
+                            </button>
                         </div>
                     </section>
 
@@ -489,6 +490,25 @@
                         class="agent-assistant-composer"
                         @submit.prevent="handleSendMessage"
                     >
+                        <div
+                            v-if="hasActiveDocument && hasMessages"
+                            class="agent-assistant-composer-presets"
+                        >
+                            <button
+                                v-for="preset in ASSISTANT_PRESETS"
+                                :key="preset.id"
+                                type="button"
+                                class="agent-assistant-preset"
+                                :disabled="isSending"
+                                @click="sendPreset(preset)"
+                            >
+                                <UIcon
+                                    :name="preset.icon"
+                                    class="agent-assistant-preset-icon"
+                                />
+                                <span class="agent-assistant-preset-label">{{ presetLabel(preset.id) }}</span>
+                            </button>
+                        </div>
                         <div class="agent-assistant-composer-field">
                             <div
                                 v-if="composerImages.length > 0"
@@ -2033,8 +2053,69 @@ onUnmounted(() => {
     gap: var(--app-space-2xl);
 }
 
+.agent-assistant-composer-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--app-space-sm);
+    margin-bottom: var(--app-space-3xl);
+}
+
 .agent-assistant-preset {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--app-space-sm);
+    min-width: 0;
+    height: 1.85rem;
+    padding: 0 var(--app-space-3xl);
+    border: 1px solid var(--app-toolbar-group-border);
+    border-radius: var(--app-radius-md);
+    background: var(--app-toolbar-group-bg);
+    color: var(--ui-text);
+    font-size: var(--app-text-size-body-sm);
+    line-height: var(--app-line-height-tight);
+    cursor: pointer;
+    user-select: none;
+    transition:
+        background-color var(--app-transition-fast),
+        border-color var(--app-transition-fast),
+        box-shadow var(--app-transition-fast);
+}
+
+.agent-assistant-presets .agent-assistant-preset {
+    width: 100%;
     justify-content: flex-start;
+}
+
+.agent-assistant-preset:hover:not(:disabled) {
+    background: var(--app-toolbar-control-hover-bg);
+    border-color: var(--app-toolbar-control-hover-border);
+}
+
+.agent-assistant-preset:focus {
+    outline: none;
+}
+
+.agent-assistant-preset:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
+}
+
+.agent-assistant-preset:disabled {
+    opacity: var(--app-toolbar-control-disabled-opacity);
+    cursor: default;
+}
+
+.agent-assistant-preset-icon {
+    flex: 0 0 auto;
+    width: 0.9rem;
+    height: 0.9rem;
+    color: var(--ui-text-muted);
+}
+
+.agent-assistant-preset-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .agent-assistant-messages {
@@ -2128,10 +2209,10 @@ onUnmounted(() => {
 }
 
 .agent-assistant-message.is-user .agent-assistant-message-bubble {
-    border-color: transparent;
+    border-color: color-mix(in oklab, var(--ui-primary) 24%, var(--ui-border));
     border-bottom-right-radius: 0.3rem;
-    background: var(--ui-primary);
-    color: var(--ui-primary-fg);
+    background: color-mix(in oklab, var(--ui-primary) 12%, var(--ui-bg));
+    color: var(--ui-text);
 }
 
 .agent-assistant-message.is-system .agent-assistant-message-bubble {
@@ -2238,25 +2319,6 @@ onUnmounted(() => {
 
 .agent-assistant-message-code-block code {
     font: inherit;
-}
-
-.agent-assistant-message.is-user .agent-assistant-message-inline-code,
-.agent-assistant-message.is-user .agent-assistant-message-code-block {
-    border-color: color-mix(in oklab, var(--ui-primary-fg) 26%, transparent);
-    background: color-mix(in oklab, var(--ui-primary-fg) 13%, transparent);
-    color: var(--ui-primary-fg);
-}
-
-.agent-assistant-message.is-user .agent-assistant-message-link {
-    color: var(--ui-primary-fg);
-}
-
-.agent-assistant-message.is-user .agent-assistant-message-blockquote {
-    border-left-color: color-mix(in oklab, var(--ui-primary-fg) 45%, transparent);
-}
-
-.agent-assistant-message.is-user .agent-assistant-message-rule {
-    border-top-color: color-mix(in oklab, var(--ui-primary-fg) 28%, transparent);
 }
 
 .agent-assistant-message.is-system .agent-assistant-message-inline-code,
