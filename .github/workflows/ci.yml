@@ -5,9 +5,6 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  push:
-    branches:
-      - main
   schedule:
     - cron: '17 2 * * *'
   workflow_dispatch:
@@ -21,67 +18,9 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  changes:
-    name: Detect Changed Areas
-    if: ${{ github.event_name != 'schedule' }}
-    runs-on: ubuntu-latest
-    outputs:
-      landing: ${{ steps.filter.outputs.landing }}
-      native: ${{ steps.filter.outputs.native }}
-      python_page_processor: ${{ steps.filter.outputs.python_page_processor }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Detect changed areas
-        id: filter
-        shell: bash
-        env:
-          BEFORE_SHA: ${{ github.event.before }}
-          EVENT_NAME: ${{ github.event_name }}
-          HEAD_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "landing=true" >> "$GITHUB_OUTPUT"
-            echo "native=true" >> "$GITHUB_OUTPUT"
-            echo "python_page_processor=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          base_sha="$BEFORE_SHA"
-          if [ -z "$base_sha" ] || [[ "$base_sha" =~ ^0+$ ]] || ! git cat-file -e "$base_sha^{commit}" 2>/dev/null; then
-            base_sha="$(git rev-list --max-parents=0 "$HEAD_SHA")"
-          fi
-
-          changed_files="$(git diff --name-only "$base_sha" "$HEAD_SHA")"
-          printf '%s\n' "$changed_files"
-
-          if printf '%s\n' "$changed_files" | grep -Eq '^(landing/|packages/(contracts|i18n-core|release-selection)/)'; then
-            echo "landing=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "landing=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if printf '%s\n' "$changed_files" | grep -Eq '^(native/|public/wasm/|scripts/(build-pdf-image-combine|build-pdf-page-ops|build-pdf-search|check-wasm-freshness|native-rust-targets)[.]mjs|Cargo[.]lock|rust-toolchain[.]toml|package[.]json|[.]github/workflows/(ci|build|release)[.]yml)'; then
-            echo "native=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "native=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if printf '%s\n' "$changed_files" | grep -Eq '^(python/page-processor/|scripts/(check-page-processor-smoke[.]py|bundle-page-processor-macos[.]sh|devkit/(page-processing-harness|process-pdf-split-pad)[.]py|verify-packaged-native-tools[.]sh|check-native-tools-source-matrix[.]sh|afterPack[.]cjs|afterSign[.]cjs)|electron-builder[.]yml|[.]github/workflows/ci[.]yml)'; then
-            echo "python_page_processor=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "python_page_processor=false" >> "$GITHUB_OUTPUT"
-          fi
-
-  push_quality:
-    name: Push Quality Gates
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+  manual_quality:
+    name: Manual Quality Gates
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -116,10 +55,9 @@ jobs:
       - name: Coverage
         run: pnpm run test:coverage
 
-  native_push:
+  manual_native:
     name: Native Rust Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.native == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -138,10 +76,9 @@ jobs:
       - name: Rust tests
         run: pnpm run test:rust
 
-  landing_push:
+  manual_landing:
     name: Landing Quality Gates
-    needs: changes
-    if: ${{ needs.changes.outputs.landing == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     continue-on-error: true
     timeout-minutes: 15
@@ -171,36 +108,6 @@ jobs:
 
       - name: Landing build
         run: pnpm --dir landing run build
-
-  python_page_processor_push:
-    name: Python Page Processor Smoke
-    needs: changes
-    if: ${{ github.event_name == 'push' && needs.changes.outputs.python_page_processor == 'true' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Install page processor smoke dependencies
-        run: python -m pip install 'numpy>=2.0.0' 'opencv-python-headless>=4.10.0' 'img2pdf>=0.6.3' 'Pillow>=10.0.0'
-
-      - name: Page processor smoke
-        run: pnpm run test:python-page-processor
 
   nightly_maintenance:
     name: Nightly Maintenance Gates
