@@ -450,13 +450,13 @@ const EVB_MCP_PROMPTS = [
     },
     {
         name: 'evb_number_pages_from_printed_pages',
-        title: 'Number PDF pages from printed page numbers',
-        description: 'Workflow for reconstructing page labels from printed paper-page numbers using OCR as a starting point and visual verification when uncertain.',
+        title: 'Number PDF pages',
+        description: 'Universal workflow for reconstructing PDF page labels for any numbering scheme (roman front matter, arabic body, restarts, prefixed/alphabetic labels, unnumbered plates), using OCR as a starting point and visual verification when uncertain.',
     },
     {
         name: 'evb_rebuild_verified_bookmarks',
-        title: 'Rebuild verified PDF bookmarks',
-        description: 'Workflow for reconstructing bookmarks from the existing TOC/bookmarks and verifying every target before writing.',
+        title: 'Add or rebuild PDF bookmarks',
+        description: 'Universal workflow for building bookmarks whatever the document state: from a user outline, the embedded TOC/bookmarks, a printed contents page, or derived document structure when no outline exists, verifying every target before writing.',
     },
 ];
 
@@ -637,30 +637,31 @@ function createPromptText(name, params) {
 
     if (name === 'evb_number_pages_from_printed_pages') {
         return [
-            'Reconstruct the PDF page labels from the printed page numbers.',
-            'Start by reading evb://document/{tabId}/page-labels and inspecting text coverage with document.inspect_text through evb_read_action. Use OCR/searchable page text as evidence, but do not trust it blindly.',
-            'Sample the beginning, front-matter/body transition, appendix or plate sections, and the end. Look for printed numerals such as iv, A, A-1, 1, or restarted numbering; search/read nearby pages to infer ranges.',
-            'For every uncertain boundary or suspicious OCR result, call document.capture_page_image through evb_run_action with full/top/bottom or normalized crops and visually inspect the returned image before deciding.',
-            'Preview with page_labels.preview through evb_read_action. External writes require an app-issued grant flow that is not currently available; if evb_run_action reports confirmation required, say no numbering was changed and provide the verified plan for the user to apply through the app.',
+            'Reconstruct the PDF page labels to match the document\'s real numbering, whatever scheme it uses.',
+            'Read evb://document/{tabId}/page-labels and inspect text coverage with document.inspect_text through evb_read_action. Use searchable/OCR text as evidence but never trust it blindly.',
+            'Sample the cover, the front-matter/body transition, any appendix/plate/insert sections, and the end. Detect and combine schemes as needed: roman front matter (i, ii, iii), arabic body, restarted numbering, alphabetic or prefixed labels (A, A-1), and unnumbered covers, plates, or blanks. Determine the offset for each range by finding which physical page carries each printed number.',
+            'For every uncertain boundary, restart, or suspicious OCR result (l vs 1, O vs 0, missing folios), call document.capture_page_image through evb_run_action with top/bottom or normalized crops where folios sit and inspect the image before deciding.',
+            'Preview with page_labels.preview through evb_read_action and inspect the normalized segments, samples, issues, and changed-page diff. External writes require an app-issued grant flow that is not currently available; if evb_run_action reports confirmation required, say no numbering was changed and provide the verified plan for the user to apply through the app.',
         ].join('\n');
     }
 
     if (name === 'evb_rebuild_verified_bookmarks') {
         return [
-            'Rebuild or correct PDF bookmarks from verified section starts.',
-            'Start by reading evb://document/{tabId}/toc and /bookmarks. Treat the existing PDF TOC/bookmarks as hints, not proof.',
-            'Use document.search and document.read_pages through evb_read_action to locate each section title from the TOC, printed contents pages, or the user-specified outline.',
-            'For doubtful title/page matches, wrong-looking offsets, duplicated headings, or OCR gaps, call document.capture_page_image through evb_run_action on candidate pages or crops and inspect the visible page before writing.',
-            'Preview with bookmarks.preview_tree through evb_read_action. External writes require an app-issued grant flow that is not currently available; if evb_run_action reports confirmation required, say no bookmarks were changed and provide the verified tree for the user to apply through the app.',
+            'Build or correct PDF bookmarks for the active document, whatever its current state.',
+            'Read evb://document/{tabId}/toc and /bookmarks and inspect text coverage with document.inspect_text through evb_read_action. Treat any existing TOC/bookmarks as hints, not proof.',
+            'Choose the outline source in this order: (1) a user-supplied outline if one was given; (2) the embedded TOC/bookmarks; (3) a printed contents page inside the document, located with document.search ("contents", "table of contents") and read with document.read_pages; (4) if none exist, derive the structure yourself from chapter/section starts, heading patterns, numbered headings, and running heads sampled across the document.',
+            'Locate every section start with document.search and document.read_pages through evb_read_action, and resolve the printed-number vs physical-page offset using evb://document/{tabId}/page-labels so each destination points to the correct physical page.',
+            'For doubtful title/page matches, duplicated or ambiguous headings, wrong-looking offsets, or OCR gaps, call document.capture_page_image through evb_run_action on candidate pages or crops and inspect the visible page before writing. If the document has little or no searchable text, say OCR is recommended instead of guessing.',
+            'Infer a sane hierarchy (parts > chapters > sections) and a reasonable depth, then preview with bookmarks.preview_tree through evb_read_action and inspect the normalized tree, flat path list, issues, and diff. External writes require an app-issued grant flow that is not currently available; if evb_run_action reports confirmation required, say no bookmarks were changed and provide the verified tree for the user to apply through the app.',
         ].join('\n');
     }
 
     if (name === 'evb_check_document_prep') {
         return [
-            'Check whether the active EVB Viewer document is agent-ready.',
+            'Check whether the active EVB Viewer document is ready for agent analysis.',
             'Use evb_viewer_open_documents, evb_workspace_snapshot, and evb_document_readiness first.',
             'For PDFs, call evb_inspect_document_text to compute searchable text coverage.',
-            'If coverage is partial or none, explain that OCR all pages is recommended. If the document is DjVu or image, recommend converting to PDF first.',
+            'If coverage is partial or none, explain that running OCR on all pages is recommended. If the document is DjVu or an image, recommend converting to PDF first.',
         ].join('\n');
     }
 

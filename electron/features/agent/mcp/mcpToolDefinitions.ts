@@ -470,12 +470,12 @@ export const MCP_PROMPTS = [
     },
     {
         name: 'evb_number_pages_from_printed_pages',
-        title: 'Number PDF pages from printed page numbers',
-        description: 'Workflow for reconstructing page labels from printed paper-page numbers using OCR as a starting point and visual verification when uncertain.',
+        title: 'Number PDF pages',
+        description: 'Universal workflow for reconstructing PDF page labels for any numbering scheme (roman front matter, arabic body, restarts, prefixed/alphabetic labels, unnumbered plates), using OCR as a starting point and visual verification when uncertain.',
     },
     {
         name: 'evb_rebuild_verified_bookmarks',
-        title: 'Rebuild verified PDF bookmarks',
-        description: 'Workflow for reconstructing bookmarks from the existing TOC/bookmarks and verifying every target before writing.',
+        title: 'Add or rebuild PDF bookmarks',
+        description: 'Universal workflow for building bookmarks whatever the document state: from a user outline, the embedded TOC/bookmarks, a printed contents page, or derived document structure when no outline exists, verifying every target before writing.',
     },
 ] as const satisfies readonly IMcpPromptDefinition[];

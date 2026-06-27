@@ -86,6 +86,9 @@ export default {
         'previousImage': 'Предыдущее изображение',
         'nextImage': 'Следующее изображение',
         'imagePreviewPosition': '{name} ({current}/{total})',
+        'presetAddBookmarks': 'Добавить закладки',
+        'presetNumberPages': 'Пронумеровать страницы',
+        'presetCheckOcr': 'Проверить готовность OCR',
     },
     'seo': {
         'title': 'EVB Viewer Web',

@@ -13,6 +13,11 @@ import type {
 } from '@electron/features/agent/documentText';
 import { getErrorMessage } from '@electron/utils/error';
 import {
+    ASSISTANT_BOOKMARK_WORKFLOW,
+    ASSISTANT_OCR_READINESS_WORKFLOW,
+    ASSISTANT_PAGE_NUMBER_WORKFLOW,
+} from '@electron/features/agent/assistantPresetWorkflows';
+import {
     createErrorResponse,
     createResultResponse,
     getJsonRpcId,
@@ -1078,32 +1083,15 @@ function createPromptText(name: string, params: unknown) {
     }
 
     if (name === 'evb_number_pages_from_printed_pages') {
-        return [
-            'Reconstruct the PDF page labels from the printed page numbers.',
-            'Start by reading evb://document/{tabId}/page-labels and inspecting text coverage with document.inspect_text. Use OCR/searchable page text as evidence, but do not trust it blindly.',
-            'Sample the beginning, front-matter/body transition, appendix or plate sections, and the end. Look for printed numerals such as iv, A, A-1, 1, or restarted numbering; search/read nearby pages to infer ranges.',
-            'For every uncertain boundary or suspicious OCR result, call document.capture_page_image through evb_run_action with full/top/bottom or normalized crops and visually inspect the returned image before deciding.',
-            'Call page_labels.preview through evb_read_action with ranges, inclusive segments, or explicit labels. Inspect the normalized segments, samples, issues, and changed-page diff. If caller policy permits the write, commit with page_labels.apply_plan through evb_run_action so the app records an undoable metadata step. If evb_run_action reports confirmation required, denied, or unavailable, no labels were changed; report the preview plan and ask for an app/user grant or manual apply. Re-read page labels and save with file.save only after a successful write.',
-        ].join('\n');
+        return ASSISTANT_PAGE_NUMBER_WORKFLOW;
     }
 
     if (name === 'evb_rebuild_verified_bookmarks') {
-        return [
-            'Rebuild or correct PDF bookmarks from verified section starts.',
-            'Start by reading evb://document/{tabId}/toc and /bookmarks. Treat the existing PDF TOC/bookmarks as hints, not proof.',
-            'Use document.search and document.read_pages through evb_read_action to locate each section title from the TOC, printed contents pages, or the user-specified outline.',
-            'For doubtful title/page matches, wrong-looking offsets, duplicated headings, or OCR gaps, call document.capture_page_image through evb_run_action on candidate pages or crops and inspect the visible page before writing.',
-            'Call bookmarks.preview_tree through evb_read_action with a nested tree or flat entries that carry level/depth values. Inspect the normalized tree, flat path list, issues, and diff. If caller policy permits the write, commit with bookmarks.apply_plan through evb_run_action so the app records an undoable metadata step. If evb_run_action reports confirmation required, denied, or unavailable, no bookmarks were changed; report the preview tree and ask for an app/user grant or manual apply. Re-read bookmarks and save with file.save only after a successful write.',
-        ].join('\n');
+        return ASSISTANT_BOOKMARK_WORKFLOW;
     }
 
     if (name === 'evb_check_document_prep') {
-        return [
-            'Check whether the active EVB Viewer document is agent-ready.',
-            'Use evb_workspace_snapshot and evb_read_action with document.open_documents or document.readiness first.',
-            'For PDFs, call document.inspect_text through evb_read_action to compute searchable text coverage.',
-            'If coverage is partial or none, explain that OCR all pages is recommended. If the document is DjVu or image, recommend converting to PDF first.',
-        ].join('\n');
+        return ASSISTANT_OCR_READINESS_WORKFLOW;
     }
 
     throw new Error(`Unknown prompt: ${name}`);

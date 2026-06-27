@@ -396,6 +396,11 @@ export interface IAgentAssistantLoginResult {
     errorEnvelope?: IAgentAssistantErrorEnvelope;
 }
 
+export type TAgentAssistantPresetId =
+    | 'add-bookmarks'
+    | 'number-pages'
+    | 'check-ocr-readiness';
+
 export interface IAgentAssistantSendMessageRequest {
     text: string;
     scope?: IAgentAssistantChatScope | null;
@@ -404,6 +409,7 @@ export interface IAgentAssistantSendMessageRequest {
     effort?: TAgentAssistantEffort;
     speedMode?: TAgentAssistantSpeedMode;
     attachments?: IAgentAssistantImageAttachment[];
+    presetId?: TAgentAssistantPresetId;
 }
 
 export interface IAgentAssistantSendMessageResult {

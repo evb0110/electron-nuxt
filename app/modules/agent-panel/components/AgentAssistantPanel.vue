@@ -212,6 +212,24 @@
                         </span>
                         <h2>{{ emptyTitle }}</h2>
                         <p>{{ emptyDescription }}</p>
+                        <div
+                            v-if="hasActiveDocument"
+                            class="agent-assistant-presets"
+                        >
+                            <UButton
+                                v-for="preset in ASSISTANT_PRESETS"
+                                :key="preset.id"
+                                class="agent-assistant-preset"
+                                :icon="preset.icon"
+                                :label="presetLabel(preset.id)"
+                                color="neutral"
+                                variant="soft"
+                                size="sm"
+                                block
+                                :disabled="isSending"
+                                @click="sendPreset(preset)"
+                            />
+                        </div>
                     </section>
 
                     <div
@@ -769,6 +787,7 @@ import type {
     TAgentAssistantEffort,
     TAgentAssistantLoginMode,
     TAgentAssistantMessageRole,
+    TAgentAssistantPresetId,
     TAgentAssistantProviderId,
     TAgentAssistantSpeedMode,
 } from '@contracts/agent';
@@ -793,6 +812,10 @@ import {
     speedModesForProviderStatus,
 } from '@app/modules/agent-panel/utils/assistantSelectionState';
 import { createEmptyAssistantState } from '@app/modules/agent-panel/utils/createEmptyAssistantState';
+import {
+    ASSISTANT_PRESETS,
+    type IAssistantPreset,
+} from '@app/modules/agent-panel/utils/assistantPresets';
 import {
     persistAssistantSelection,
     preferredAssistantModel,
@@ -1627,29 +1650,33 @@ function handleExpandedImageKeydown(event: KeyboardEvent) {
     }
 }
 
-async function sendMessage() {
-    if (!canSend.value) {
-        return;
-    }
+interface IAssistantSubmitPayload {
+    text: string;
+    attachments?: IAgentAssistantImageAttachment[];
+    presetId?: TAgentAssistantPresetId;
+}
+
+async function submitAssistantPayload(
+    payload: IAssistantSubmitPayload,
+    errorTitle: string,
+    onSendError?: () => void,
+) {
     if (!chatScope) {
         return;
     }
     const generation = sendGeneration;
-    const text = draft.value.trim();
-    const attachments = composerImages.value.map(image => ({ ...image }));
-    draft.value = '';
-    composerImages.value = [];
-    composerError.value = '';
+    const attachments = payload.attachments ?? [];
     isSending.value = true;
     try {
         const result = await getPlatformAPI().agent.sendAssistantMessage({
-            text,
+            text: payload.text,
             scope: cloneAssistantScope(chatScope),
             provider: selectedProvider.value,
             model: selectedModel.value,
             effort: selectedEffort.value,
             speedMode: selectedSpeedMode.value,
             ...(attachments.length > 0 ? { attachments } : {}),
+            ...(payload.presetId ? { presetId: payload.presetId } : {}),
         });
         if (generation !== sendGeneration) {
             return;
@@ -1657,10 +1684,9 @@ async function sendMessage() {
         applyState(result.state);
     } catch (error) {
         if (generation === sendGeneration) {
-            draft.value = text;
-            composerImages.value = attachments;
+            onSendError?.();
             handleAssistantActionError(error, {
-                title: 'Failed to send assistant message',
+                title: errorTitle,
                 target: 'composer',
             });
         } else {
@@ -1671,6 +1697,54 @@ async function sendMessage() {
             isSending.value = status.value.runtimeState === 'busy';
         }
     }
+}
+
+function presetLabel(presetId: TAgentAssistantPresetId) {
+    if (presetId === 'add-bookmarks') {
+        return t('assistant.presetAddBookmarks');
+    }
+    if (presetId === 'number-pages') {
+        return t('assistant.presetNumberPages');
+    }
+    return t('assistant.presetCheckOcr');
+}
+
+function sendPreset(preset: IAssistantPreset) {
+    if (!chatScope || isSending.value) {
+        return;
+    }
+    void submitAssistantPayload(
+        {
+            text: presetLabel(preset.id),
+            presetId: preset.id, 
+        },
+        'Failed to send assistant preset',
+    );
+}
+
+async function sendMessage() {
+    if (!canSend.value) {
+        return;
+    }
+    if (!chatScope) {
+        return;
+    }
+    const text = draft.value.trim();
+    const attachments = composerImages.value.map(image => ({ ...image }));
+    draft.value = '';
+    composerImages.value = [];
+    composerError.value = '';
+    await submitAssistantPayload(
+        {
+            text,
+            attachments, 
+        },
+        'Failed to send assistant message',
+        () => {
+            draft.value = text;
+            composerImages.value = attachments;
+        },
+    );
 }
 
 function handleSendMessage() {
@@ -1950,6 +2024,17 @@ onUnmounted(() => {
     align-items: center;
     flex-wrap: wrap;
     gap: var(--app-space-3xl);
+}
+
+.agent-assistant-presets {
+    display: flex;
+    flex-direction: column;
+    align-self: stretch;
+    gap: var(--app-space-2xl);
+}
+
+.agent-assistant-preset {
+    justify-content: flex-start;
 }
 
 .agent-assistant-messages {

@@ -101,6 +101,7 @@ import {
     withAssistantErrorEnvelope,
 } from '@electron/features/agent/assistantErrorEnvelope';
 import { normalizeOutgoingMessageRequest } from '@electron/features/agent/assistantOutgoingMessage';
+import { resolveAssistantPresetInstructions } from '@electron/features/agent/assistantPresetWorkflows';
 import {
     getEmbeddedMcpServerDescriptor,
     isEmbeddedMcpServerRunning,
@@ -1698,7 +1699,14 @@ export async function sendAgentAssistantMessage(
         text,
         attachments,
     } = normalizedRequest;
-    if (!text && attachments.length === 0) {
+    // Preset chips send a short visible label as `text` and carry the detailed,
+    // edge-case-aware workflow as hidden instructions. The transcript records the
+    // short label, while the model receives the label plus the full workflow.
+    const presetInstructions = resolveAssistantPresetInstructions(request.presetId);
+    const modelText = presetInstructions
+        ? (text ? `${text}\n\n${presetInstructions}` : presetInstructions)
+        : text;
+    if (!text && attachments.length === 0 && !presetInstructions) {
         return withAssistantErrorEnvelope({
             ok: false,
             state: currentState(session.scope, session),
@@ -1727,7 +1735,7 @@ export async function sendAgentAssistantMessage(
                 ...(attachments.length > 0 ? { attachments } : {}),
             });
             publishState(session.scope, session);
-            await claudeSession.sendMessage(text, attachments, selection.model);
+            await claudeSession.sendMessage(modelText, attachments, selection.model);
             publishState(session.scope, session);
             return {
                 ok: true,
@@ -1776,7 +1784,7 @@ export async function sendAgentAssistantMessage(
             input: [
                 {
                     type: 'text',
-                    text: text || ASSISTANT_IMAGE_ONLY_PROMPT,
+                    text: modelText || ASSISTANT_IMAGE_ONLY_PROMPT,
                     text_elements: [],
                 },
                 ...attachments.map(attachment => ({

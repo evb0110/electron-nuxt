@@ -414,6 +414,10 @@ function isAgentAssistantSendMessageRequest(request: unknown): request is IAgent
         && (
             request.attachments === undefined
             || isAgentAssistantImageAttachmentList(request.attachments)
+        )
+        && (
+            request.presetId === undefined
+            || typeof request.presetId === 'string'
         );
 }
 
