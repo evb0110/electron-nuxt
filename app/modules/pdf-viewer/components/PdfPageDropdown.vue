@@ -104,6 +104,11 @@ import {
     getPageIndicatorLayoutMetrics,
 } from '@app/utils/pdfPageLabels';
 import { stepBySpread } from '@app/utils/pdfViewMode';
+import {
+    getPdfPageDropdownIndicatorParts,
+    getPdfPageDropdownInputLabel,
+    resolvePdfPageDropdownDisplayPage,
+} from '@app/modules/pdf-viewer/components/pdfPageDropdownModel';
 
 const { t } = useTypedI18n();
 
@@ -148,13 +153,12 @@ const showEdgeButtons = computed(() => true);
 const showStepButtons = computed(() => true);
 const showTotalInDisplay = computed(() => true);
 const hasPages = computed(() => totalPages > 0);
-const commandPage = computed(() => {
-    const page = navigationPage ?? currentPage;
-    if (!Number.isFinite(page)) {
-        return currentPage;
-    }
-    return Math.min(Math.max(Math.trunc(page), 1), Math.max(totalPages, 1));
-});
+const commandPage = computed(() => resolvePdfPageDropdownDisplayPage({
+    currentPage,
+    navigationPage,
+    totalPages,
+}));
+const displayPage = computed(() => commandPage.value);
 
 const effectivePageLabels = computed(() =>
     pageLabels && pageLabels.length === totalPages
@@ -162,38 +166,27 @@ const effectivePageLabels = computed(() =>
         : null,
 );
 
+function getInputLabelForPage(page: number) {
+    return getPdfPageDropdownInputLabel(page, effectivePageLabels.value);
+}
+
 function getCurrentInputLabel() {
-    const label = effectivePageLabels.value?.[currentPage - 1] ?? '';
-    return label.trim() || currentPage.toString();
+    return getInputLabelForPage(displayPage.value);
 }
 
 watch(
-    () => currentPage,
+    () => displayPage.value,
     () => {
         pageInputValue.value = getCurrentInputLabel();
     },
 );
 
 const pageIndicatorParts = computed(() => {
-    if (!hasPages.value) {
-        return {
-            primary: '-',
-            secondary: '',
-        };
-    }
-
-    const logical = effectivePageLabels.value?.[currentPage - 1]?.trim() ?? '';
-    if (!logical || logical === String(currentPage)) {
-        return {
-            primary: String(currentPage),
-            secondary: '',
-        };
-    }
-
-    return {
-        primary: logical,
-        secondary: `(${currentPage})`,
-    };
+    return getPdfPageDropdownIndicatorParts({
+        page: displayPage.value,
+        pageLabels: effectivePageLabels.value,
+        totalPages,
+    });
 });
 
 const pageLayoutMetrics = computed(() => getPageIndicatorLayoutMetrics(
