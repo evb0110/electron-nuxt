@@ -112,10 +112,22 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
     function getVisibleRenderBounds(
         visibleRange: IPageRange,
         buffer: number,
+        renderOptions?: IRenderVisiblePagesOptions,
     ): IVisibleRenderBounds {
+        const bufferedStart = visibleRange.start - buffer;
+        const bufferedEnd = visibleRange.end + buffer;
+        const override = renderOptions?.renderWindowOverride;
+        const overrideStart = override
+            && Number.isFinite(override.start)
+            ? override.start
+            : bufferedStart;
+        const overrideEnd = override
+            && Number.isFinite(override.end)
+            ? override.end
+            : bufferedEnd;
         return {
-            renderStart: Math.max(1, visibleRange.start - buffer),
-            renderEnd: Math.min(numPages.value, visibleRange.end + buffer),
+            renderStart: Math.max(1, Math.min(visibleRange.start, bufferedStart, overrideStart)),
+            renderEnd: Math.min(numPages.value, Math.max(visibleRange.end, bufferedEnd, overrideEnd)),
         };
     }
 
@@ -136,7 +148,7 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
             version,
             buffer,
             forceRerender,
-            ...getVisibleRenderBounds(visibleRange, buffer),
+            ...getVisibleRenderBounds(visibleRange, buffer, renderOptions),
         };
     }
 
@@ -486,6 +498,7 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
             forceRerender,
             preserveRenderedPages: renderOptions?.preserveRenderedPages === true,
             bufferOverride: renderOptions?.bufferOverride ?? null,
+            renderWindowOverride: renderOptions?.renderWindowOverride ?? null,
             renderedPages: Array.from(renderedPages),
             staleRenderedPages: Array.from(staleRenderedPages),
         });

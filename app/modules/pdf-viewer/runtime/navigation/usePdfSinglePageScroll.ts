@@ -32,6 +32,8 @@ import { createPdfNavigationRuntime } from '@app/modules/pdf-viewer/runtime/navi
 import { createWheelFlipGate } from '@app/modules/pdf-viewer/runtime/navigation/createWheelFlipGate';
 import { createNavigationSettleEffects } from '@app/modules/pdf-viewer/runtime/navigation/createNavigationSettleEffects';
 import { createPagedNavigationAuthority } from '@app/modules/pdf-viewer/runtime/navigation/createPagedNavigationAuthority';
+import { createContinuousScrollWarmScheduler } from '@app/modules/pdf-viewer/runtime/navigation/createContinuousScrollWarmScheduler';
+import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import {
     canScrollWithinPageBounds,
     hasScrollablePageBounds,
@@ -124,11 +126,7 @@ interface IUsePdfSinglePageScrollOptions {
             start: number;
             end: number
         },
-        renderOptions?: {
-            preserveRenderedPages?: boolean;
-            bufferOverride?: number;
-            preserveInFlightRequiredPages?: boolean;
-        },
+        renderOptions?: IRenderVisiblePagesOptions,
     ) => Promise<void>;
     ensurePageMetricsInRange?: ((startPage: number, endPage: number) => Promise<boolean>) | undefined;
     preparePagedTargetLayout?: ((
@@ -193,6 +191,13 @@ export const usePdfSinglePageScroll = (
     let pagedNavigationPrepareTargetPage: number | null = null;
     let continuousNavigationTargetScrollOptions: IScrollToPageOptions | undefined;
     let isDisposed = false;
+    const continuousScrollWarmScheduler = createContinuousScrollWarmScheduler(options, {
+        isDisposed: () => isDisposed,
+        isProgrammaticNavigationActive: () => isProgrammaticNavigationActive.value,
+        getSnapSuppressUntil: () => snapSuppressUntil.value,
+        scheduleFrame: scheduleSinglePageScrollFrame,
+        runGuardedTask,
+    });
     const navigationEffects = createNavigationSettleEffects({
         getLayoutObserverElements: resolveContinuousNavigationLayoutObserverElements,
         hasLayoutMutation: hasContinuousNavigationLayoutMutation,
@@ -579,28 +584,20 @@ export const usePdfSinglePageScroll = (
     }
 
     function scheduleSinglePageScrollFrame(callback: () => void) {
-        if (
-            typeof window !== 'undefined'
-            && typeof window.requestAnimationFrame === 'function'
-        ) {
-            window.requestAnimationFrame(callback);
+        if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+            setTimeout(callback, 0);
             return;
         }
-
-        setTimeout(callback, 0);
+        window.requestAnimationFrame(callback);
     }
 
     function waitForContinuousRenderFrame() {
-        if (
-            typeof window !== 'undefined'
-            && typeof window.requestAnimationFrame === 'function'
-        ) {
-            return new Promise<void>((resolve) => {
-                window.requestAnimationFrame(() => resolve());
-            });
+        if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+            return delay(0);
         }
-
-        return delay(0);
+        return new Promise<void>((resolve) => {
+            window.requestAnimationFrame(() => resolve());
+        });
     }
 
     function resolveContinuousNavigationLayoutObserverElements(pageNumber: number) {
@@ -2251,6 +2248,7 @@ export const usePdfSinglePageScroll = (
                 now: Date.now(),
             });
         } else {
+            continuousScrollWarmScheduler.track(container);
             void debouncedRenderOnScroll();
         }
         maybeReleaseProgrammaticNavigation();
@@ -2363,6 +2361,7 @@ export const usePdfSinglePageScroll = (
         isProgrammaticNavigationActive.value = false;
         clearProgrammaticNavigationReleaseTimer();
         continuousNavigationTargetScrollOptions = undefined;
+        continuousScrollWarmScheduler.reset();
         snapSuppressUntil.value = 0;
         wheelFlipGate.reset();
     }

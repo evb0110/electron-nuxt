@@ -250,17 +250,67 @@ describe('usePdfRendererVisibleRenderController', () => {
         }
         expect(harness.staleRenderedPages.size).toBe(0);
     });
+
+    it('uses a render-window override as buffer horizon while preserving the actual visible range', async () => {
+        const resolveBufferPageCanvasClamp = vi.fn(() => null);
+        const harness = createBufferClampHarness({
+            pageNumbers: [
+                10,
+                11,
+                12,
+                13,
+            ],
+            resolveBufferPageCanvasClamp,
+        });
+
+        await harness.renderVisiblePages(
+            {
+                start: 10,
+                end: 10,
+            },
+            {
+                preserveRenderedPages: true,
+                bufferOverride: 0,
+                renderWindowOverride: {
+                    start: 10,
+                    end: 13,
+                },
+                preserveInFlightRequiredPages: true,
+            },
+        );
+
+        const renderedPageOrder = harness.renderSingleVisiblePage.mock.calls.map(call => call[1]);
+        expect(renderedPageOrder).toEqual([
+            10,
+            11,
+            12,
+            13,
+        ]);
+        expect(harness.ensurePageMetricsInRange).toHaveBeenCalledWith(10, 13);
+        expect(resolveBufferPageCanvasClamp).toHaveBeenCalledTimes(3);
+        for (const call of harness.renderSingleVisiblePage.mock.calls) {
+            expect(call[7]).toEqual(new Set([10]));
+            expect(call[8]).toEqual({
+                start: 10,
+                end: 10,
+            });
+        }
+    });
 });
 
 type TVisibleRenderControllerOptions = Parameters<typeof usePdfRendererVisibleRenderController>[0];
 
-function createBufferClampHarness(options: {resolveBufferPageCanvasClamp: NonNullable<TVisibleRenderControllerOptions['resolveBufferPageCanvasClamp']>;}) {
+function createBufferClampHarness(options: {
+    pageNumbers?: number[];
+    resolveBufferPageCanvasClamp: NonNullable<TVisibleRenderControllerOptions['resolveBufferPageCanvasClamp']>;
+}) {
+    const pageNumbers = options.pageNumbers ?? [
+        9,
+        10,
+        11,
+    ];
     const pageElements = new Map<number, HTMLElement>(
-        [
-            9,
-            10,
-            11,
-        ].map(pageNumber => [
+        pageNumbers.map(pageNumber => [
             pageNumber,
             cast<HTMLElement>({
                 dataset: { page: String(pageNumber) },
@@ -280,6 +330,7 @@ function createBufferClampHarness(options: {resolveBufferPageCanvasClamp: NonNul
     });
     const renderedPages = new Set<number>();
     const staleRenderedPages = new Set<number>();
+    const ensurePageMetricsInRange = vi.fn(async () => true);
     const renderSingleVisiblePage = vi.fn<TVisibleRenderControllerOptions['renderSingleVisiblePage']>(
         async (_containerRoot, pageNumber) => {
             renderedPages.add(pageNumber);
@@ -305,7 +356,7 @@ function createBufferClampHarness(options: {resolveBufferPageCanvasClamp: NonNul
             visibleRenderRequestId += 1;
             return visibleRenderRequestId;
         },
-        ensurePageMetricsInRange: vi.fn(async () => true),
+        ensurePageMetricsInRange,
         setupPagePlaceholders: vi.fn(),
         cleanupPage: vi.fn(),
         cancelObsoleteInFlightRenders: vi.fn(),
@@ -317,6 +368,7 @@ function createBufferClampHarness(options: {resolveBufferPageCanvasClamp: NonNul
 
     return {
         renderVisiblePages,
+        ensurePageMetricsInRange,
         renderSingleVisiblePage,
         renderedPages,
         staleRenderedPages,

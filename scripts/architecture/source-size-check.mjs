@@ -54,7 +54,7 @@ const EXCLUDED_PATH_SEGMENTS = new Set([
 
 export const SOURCE_SIZE_ALLOWLIST = {
     'app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageScroll.ts': {
-        maxLines: 2405,
+        maxLines: 2404,
         reason: 'transitional PDF navigation controller hotspot after visual readiness extraction',
         stage: 'Worker 4/Stage 11 - PDF navigation visual readiness extraction',
     },

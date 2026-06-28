@@ -144,6 +144,10 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
             delayedSkeleton.hidePage(page);
             return true;
         }
+        if (options.hasMountedPageCanvas(page)) {
+            delayedSkeleton.markPageRendered(page);
+            return false;
+        }
         const showSkeleton = delayedSkeleton.shouldShowSkeleton(page);
         const isVisiblePage = page >= options.visibleRange.value.start && page <= options.visibleRange.value.end;
         if (showSkeleton && isVisiblePage) {

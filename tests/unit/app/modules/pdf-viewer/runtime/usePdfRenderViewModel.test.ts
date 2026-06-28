@@ -186,7 +186,7 @@ describe('usePdfRenderViewModel', () => {
         scope.stop();
     });
 
-    it('keeps page skeletons visible while an active render has only mounted an unfinished canvas', () => {
+    it('hides page skeletons when an active render has mounted a canvas before final class readiness', () => {
         vi.useFakeTimers();
         try {
             const hasMountedCanvas = ref(false);
@@ -209,7 +209,7 @@ describe('usePdfRenderViewModel', () => {
 
             hasMountedCanvas.value = true;
             isRendering.value = true;
-            expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
 
             scope.stop();
         } finally {
@@ -236,7 +236,7 @@ describe('usePdfRenderViewModel', () => {
             }
 
             vi.advanceTimersByTime(PDF_VIEWER_PAGE_SKELETON_DELAY_MS);
-            expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
 
             isRendered.value = true;
             expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
@@ -336,7 +336,7 @@ describe('usePdfRenderViewModel', () => {
         }
     });
 
-    it('keeps recovery skeletons eligible for an orphan mounted canvas', () => {
+    it('hides recovery skeletons for an orphan mounted canvas without rendered-class readiness', () => {
         vi.useFakeTimers();
         try {
             const hasMountedCanvas = ref(true);
@@ -354,6 +354,57 @@ describe('usePdfRenderViewModel', () => {
             }
 
             vi.advanceTimersByTime(PDF_VIEWER_PAGE_SKELETON_DELAY_MS);
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
+
+            scope.stop();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps immediate navigation skeletons visible even when a canvas is mounted', () => {
+        vi.useFakeTimers();
+        try {
+            const pagedNavigationTargetPage = ref<number | null>(1);
+            const {
+                scope,
+                viewModel,
+            } = createHarness({
+                hasMountedPageCanvas: () => true,
+                pagedNavigationTargetPage,
+                shouldShowSkeleton: () => true,
+                shouldShowSkeletonImmediately: page => pagedNavigationTargetPage.value === page,
+            });
+
+            if (!viewModel) {
+                throw new Error('Failed to create PDF render view model');
+            }
+
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
+
+            scope.stop();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps immediate recovery skeletons visible even when an orphan canvas is mounted', () => {
+        vi.useFakeTimers();
+        try {
+            const {
+                scope,
+                viewModel,
+            } = createHarness({
+                hasMountedPageCanvas: () => true,
+                isPageRendering: () => false,
+                shouldShowSkeleton: () => true,
+                shouldShowSkeletonImmediately: page => page === 1,
+            });
+
+            if (!viewModel) {
+                throw new Error('Failed to create PDF render view model');
+            }
+
             expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
 
             scope.stop();

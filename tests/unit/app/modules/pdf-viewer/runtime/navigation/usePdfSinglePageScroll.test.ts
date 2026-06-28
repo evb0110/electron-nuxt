@@ -1252,6 +1252,128 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         }
     });
 
+    it('coalesces page-ahead warming on the next animation frame while keeping debounced scroll render', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(1_000);
+        const frameCallbacks: FrameRequestCallback[] = [];
+        const requestAnimationFrame = (callback: FrameRequestCallback) => {
+            frameCallbacks.push(callback);
+            return frameCallbacks.length;
+        };
+        vi.stubGlobal('window', { requestAnimationFrame });
+        try {
+            const {
+                container,
+                renderVisiblePages,
+                singlePageScroll,
+            } = createSinglePageScrollHarness({
+                continuousScroll: true,
+                pageGeometries: [
+                    {
+                        offsetTop: 20,
+                        offsetHeight: 100,
+                    },
+                    {
+                        offsetTop: 140,
+                        offsetHeight: 100,
+                    },
+                    {
+                        offsetTop: 260,
+                        offsetHeight: 100,
+                    },
+                    {
+                        offsetTop: 380,
+                        offsetHeight: 100,
+                    },
+                    {
+                        offsetTop: 500,
+                        offsetHeight: 100,
+                    },
+                    {
+                        offsetTop: 620,
+                        offsetHeight: 100,
+                    },
+                ],
+                clientHeight: 100,
+                scrollHeight: 740,
+                getMostVisiblePage: viewer => {
+                    const top = viewer?.scrollTop ?? 0;
+                    if (top >= 500) {
+                        return 5;
+                    }
+                    if (top >= 380) {
+                        return 4;
+                    }
+                    if (top >= 260) {
+                        return 3;
+                    }
+                    if (top >= 140) {
+                        return 2;
+                    }
+                    return 1;
+                },
+                updateVisibleRange: (viewer, _pageCount, range) => {
+                    const page = viewer
+                        ? Math.max(1, Math.floor((viewer.scrollTop + 20) / 120) + 1)
+                        : 1;
+                    range.value = {
+                        start: page,
+                        end: page,
+                    };
+                },
+            });
+
+            container.scrollTop = 0;
+            singlePageScroll.handleScroll();
+
+            vi.setSystemTime(1_016);
+            container.scrollTop = 140;
+            singlePageScroll.handleScroll();
+
+            expect(renderVisiblePages).not.toHaveBeenCalled();
+            expect(frameCallbacks).toHaveLength(1);
+
+            vi.setSystemTime(1_032);
+            container.scrollTop = 260;
+            singlePageScroll.handleScroll();
+
+            expect(frameCallbacks).toHaveLength(1);
+
+            frameCallbacks[0]?.(16);
+            await Promise.resolve();
+
+            expect(renderVisiblePages).toHaveBeenCalledWith(
+                {
+                    start: 3,
+                    end: 3,
+                },
+                {
+                    preserveRenderedPages: true,
+                    bufferOverride: 0,
+                    renderWindowOverride: {
+                        start: 3,
+                        end: 6,
+                    },
+                    preserveInFlightRequiredPages: true,
+                },
+            );
+
+            vi.advanceTimersByTime(100);
+            await Promise.resolve();
+
+            expect(renderVisiblePages).toHaveBeenCalledWith(
+                {
+                    start: 3,
+                    end: 3,
+                },
+                { preserveRenderedPages: true },
+            );
+        } finally {
+            vi.unstubAllGlobals();
+            vi.useRealTimers();
+        }
+    });
+
     it('reapplies continuous destination navigation with the original page y target', async () => {
         vi.useFakeTimers();
         try {
