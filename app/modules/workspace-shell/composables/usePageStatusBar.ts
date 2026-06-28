@@ -6,7 +6,7 @@ import {
     isBrowserDocumentRef,
 } from '@app/utils/documentRef';
 import { formatBytes } from '@app/utils/formatters';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 
 type TSaveDotState = 'idle' | 'saving' | 'dirty' | 'clean';
 
@@ -153,7 +153,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         }
 
         try {
-            await getDocumentsCapability().showItemInFolder(path);
+            await getDocumentWindowCapability().showItemInFolder(path);
         } catch {
             // Ignore failures; status bar action is best-effort.
         }

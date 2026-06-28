@@ -8,9 +8,9 @@ import { useWorkspaceCrop } from '@app/modules/workspace-shell/composables/useWo
 import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
 import { useWorkspaceViewerDefaults } from '@app/modules/workspace-shell/composables/useWorkspaceViewerDefaults';
 import type {
-    IDocumentViewerExpose,
-    IPdfViewerExpose,
-} from '@app/modules/pdf-viewer/public';
+    IWorkspaceDocumentViewerSplitPort,
+    IWorkspacePdfViewerInteractionPort,
+} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
@@ -42,8 +42,8 @@ interface IWorkspaceInteractionControlsOptions {
     showSettings: Ref<boolean>;
     annotationTool: Ref<TAnnotationTool>;
     annotationPlacingPageNote: Ref<boolean>;
-    pdfViewerRef: Ref<IPdfViewerExpose | null>;
-    documentViewerRef: Ref<IDocumentViewerExpose | null>;
+    pdfViewerRef: Ref<IWorkspacePdfViewerInteractionPort | null>;
+    documentViewerRef: Ref<IWorkspaceDocumentViewerSplitPort | null>;
     shapePropertiesPopoverVisible: ComputedRef<boolean>;
     annotationContextMenuVisible: ComputedRef<boolean>;
     pageContextMenuVisible: ComputedRef<boolean>;

@@ -78,9 +78,10 @@ import type {
     IAgentMcpIntegrationStatus,
 } from '@contracts/agent';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
-import { getPlatformAPI } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
+import { getAgentCapability } from '@app/utils/getAgentCapability';
+import { getShellCapability } from '@app/utils/getShellCapability';
 import SettingsAgentPanel from '@app/components/settings/SettingsAgentPanel.vue';
 import SettingsGeneralPanel from '@app/components/settings/SettingsGeneralPanel.vue';
 import SettingsShortcutsPanel from '@app/components/settings/SettingsShortcutsPanel.vue';
@@ -455,20 +456,20 @@ async function runAssistantAction(
 
 async function refreshAssistantState() {
     await runAssistantAction('refresh', async () => {
-        applyAssistantState(await getPlatformAPI().agent.getAssistantState());
+        applyAssistantState(await getAgentCapability().getAssistantState());
     });
 }
 
 async function installAssistantCodex() {
     await runAssistantAction('install', async () => {
-        const result = await getPlatformAPI().agent.installAssistantCodex();
+        const result = await getAgentCapability().installAssistantCodex();
         applyAssistantState(result.state);
     });
 }
 
 async function startAssistantLogin() {
     await runAssistantAction('login', async () => {
-        const result = await getPlatformAPI().agent.startAssistantLogin({ mode: 'chatgpt' });
+        const result = await getAgentCapability().startAssistantLogin({ mode: 'chatgpt' });
         applyAssistantState(result.state);
         assistantDeviceCode.value = result.userCode ?? '';
     });
@@ -476,7 +477,7 @@ async function startAssistantLogin() {
 
 async function cancelAssistantLogin() {
     await runAssistantAction('cancel', async () => {
-        applyAssistantState(await getPlatformAPI().agent.cancelAssistantLogin());
+        applyAssistantState(await getAgentCapability().cancelAssistantLogin());
         assistantDeviceCode.value = '';
     });
 }
@@ -504,7 +505,7 @@ async function refreshAgentMcpStatus() {
 
     isAgentMcpBusy.value = true;
     try {
-        agentMcpStatus.value = await getPlatformAPI().agent.getMcpIntegrationStatus();
+        agentMcpStatus.value = await getAgentCapability().getMcpIntegrationStatus();
     } catch (error) {
         BrowserLogger.warn('settings', 'Failed to refresh agent MCP integration status', { error });
         toast.add({
@@ -524,7 +525,7 @@ async function setAgentMcpEnabled(enabled: boolean) {
 
     isAgentMcpBusy.value = true;
     try {
-        const result = await getPlatformAPI().agent.setMcpIntegrationEnabled(enabled);
+        const result = await getAgentCapability().setMcpIntegrationEnabled(enabled);
         agentMcpStatus.value = result.status;
         await load();
         if (!result.ok && result.error) {
@@ -545,7 +546,7 @@ async function setAgentMcpEnabled(enabled: boolean) {
             description: getErrorMessage(error),
         });
         try {
-            agentMcpStatus.value = await getPlatformAPI().agent.getMcpIntegrationStatus();
+            agentMcpStatus.value = await getAgentCapability().getMcpIntegrationStatus();
         } catch (statusError) {
             BrowserLogger.warn('settings', 'Failed to refresh agent MCP status after update failure', { statusError });
         }
@@ -556,7 +557,7 @@ async function setAgentMcpEnabled(enabled: boolean) {
 
 function openAgentMcpInstall() {
     const installUrl = agentMcpStatus.value?.installUrl ?? 'https://developers.openai.com/codex/app';
-    void getPlatformAPI().shell.openExternal(installUrl).catch((error: unknown) => {
+    void getShellCapability().openExternal(installUrl).catch((error: unknown) => {
         BrowserLogger.warn('settings', 'Failed to open agent MCP install URL', {
             installUrl,
             error,
@@ -573,7 +574,7 @@ onMounted(() => {
     void ensureUpdatesInitialized();
     void refreshAgentMcpStatus();
     if (isDesktopRuntime.value) {
-        unsubscribeAssistantEvent = getPlatformAPI().agent.onAssistantEvent(handleAssistantEvent);
+        unsubscribeAssistantEvent = getAgentCapability().onAssistantEvent(handleAssistantEvent);
         if (settings.value.assistantPanelEnabled) {
             void refreshAssistantState();
         }

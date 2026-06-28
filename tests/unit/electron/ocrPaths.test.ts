@@ -79,6 +79,36 @@ describe('getOcrToolPaths resource base resolution', () => {
         });
     });
 
+    it('resolves OCR-owned native paths without Poppler or QPDF fields', async () => {
+        const { resolveOcrNativeToolPaths } = await import('@electron/ocr/nativeToolPaths');
+
+        expect(resolveOcrNativeToolPaths({
+            exists: candidate => candidate.includes('/tesseract/darwin-arm64/bin/'),
+            isPackaged: false,
+            nativeToolsBase: '/repo/resources',
+            platform: 'darwin',
+            platformArch: 'darwin-arm64',
+            tessdataDir: '/runtime/tessdata',
+        })).toEqual({
+            tesseract: '/repo/resources/tesseract/darwin-arm64/bin/tesseract',
+            tessdata: '/runtime/tessdata',
+            unpaper: '/repo/resources/tesseract/darwin-arm64/bin/unpaper',
+        });
+    });
+
+    it('keeps OCR tool paths awaitable so runtime tessdata seeding is preserved', async () => {
+        const { getOcrToolPaths } = await import('@electron/ocr/paths');
+
+        const paths = getOcrToolPaths();
+
+        expect(typeof paths.then).toBe('function');
+        await expect(paths).resolves.toMatchObject({
+            tesseract: '/repo/resources/tesseract/darwin-arm64/bin/tesseract',
+            tessdata: '/repo/resources/tesseract/tessdata',
+        });
+        expect(mocks.ensureRuntimeTessdataSeeded).toHaveBeenCalled();
+    });
+
     it('validates available OCR tools, language models, and tesseract version', async () => {
         mocks.runNativeToolCommand.mockImplementation(async (command: string) => ({
             exitCode: 0,

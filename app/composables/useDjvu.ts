@@ -7,7 +7,10 @@ import {
     isBrowserDocumentRef,
 } from '@app/utils/documentRef';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import {
+    getDocumentFilesCapability,
+    getDocumentWorkingCopyCapability,
+} from '@app/utils/platformDocuments';
 
 interface IDjvuConversionState {
     isConverting: boolean;
@@ -368,13 +371,14 @@ export const useDjvu = () => {
 
         const generation = ++conversionGeneration;
         const djvu = getDjvuCapability();
-        const documents = getDocumentsCapability();
+        const documentFiles = getDocumentFilesCapability();
+        const documentWorkingCopy = getDocumentWorkingCopyCapability();
 
         const sourceBaseName = getDocumentRefBaseName(sourcePath)?.trim();
         const suggestedName = sourceBaseName
             ? ensurePdfSuggestedName(sourceBaseName.replace(/\.djvu?$/i, ''))
             : ensurePdfSuggestedName(t('djvu.documentFallback'));
-        const savePath = await documents.savePdfDialog(suggestedName);
+        const savePath = await documentFiles.savePdfDialog(suggestedName);
         if (!savePath || generation !== conversionGeneration || djvuSourcePath.value !== sourcePath) {
             return;
         }
@@ -455,7 +459,7 @@ export const useDjvu = () => {
                 percent: 0,
             };
             if (shouldCleanupSavePath && isBrowserDocumentRef(savePath)) {
-                await documents.cleanupFile(savePath).catch((cleanupError: unknown) => {
+                await documentWorkingCopy.cleanupFile(savePath).catch((cleanupError: unknown) => {
                     logSuppressedError('Failed to cleanup DjVu browser output ref', cleanupError);
                 });
             }

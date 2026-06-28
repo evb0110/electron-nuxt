@@ -1,14 +1,7 @@
-import {
-    mkdir,
-    writeFile,
-} from 'fs/promises';
+import * as fsPromises from 'fs/promises';
 import { randomUUID } from 'crypto';
 import { join } from 'path';
-import {
-    BrowserWindow,
-    app,
-    shell,
-} from 'electron';
+import * as electron from 'electron';
 import { sanitizeAllowedExternalUrl } from '@contracts/externalUrl';
 import { config } from '@electron/config';
 import type {
@@ -114,7 +107,7 @@ import {
     shutdownEmbeddedMcpServer,
     startEmbeddedMcpServer,
 } from '@electron/features/agent/mcpServer';
-import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
+import { sendAgentAssistantEvent } from '@electron/features/agent/main/agentRendererEvents';
 import { loadSettings } from '@electron/settings';
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
@@ -184,7 +177,7 @@ let installPromise: Promise<IAgentAssistantInstallResult> | null = null;
 const chatSessions = new Map<string, IAssistantChatSession>();
 
 function getAssistantBaseDir() {
-    return join(app.getPath('userData'), ASSISTANT_MODEL_CONFIG_DIR);
+    return join(electron.app.getPath('userData'), ASSISTANT_MODEL_CONFIG_DIR);
 }
 
 function getAssistantCodexHome() {
@@ -478,8 +471,8 @@ function getRequestChatSession(request?: IAgentAssistantStateRequest | IAgentAss
 }
 
 async function writeAssistantConfig(codeHome: string, serverUrl: string, reasoningEffort: TAgentAssistantEffort) {
-    await mkdir(codeHome, { recursive: true });
-    await writeFile(join(codeHome, 'config.toml'), createAssistantCodexConfig(serverUrl, reasoningEffort), 'utf-8');
+    await fsPromises.mkdir(codeHome, { recursive: true });
+    await fsPromises.writeFile(join(codeHome, 'config.toml'), createAssistantCodexConfig(serverUrl, reasoningEffort), 'utf-8');
 }
 
 function createBaseMcpStatus() {
@@ -683,11 +676,11 @@ function publishAssistantEvent(
             ? { state: normalizedEvent.state ?? currentState(scope, selection) }
             : {}),
     } satisfies IAgentAssistantEvent;
-    for (const window of BrowserWindow.getAllWindows()) {
+    for (const window of electron.BrowserWindow.getAllWindows()) {
         if (window.isDestroyed() || window.webContents.isDestroyed()) {
             continue;
         }
-        window.webContents.send(CORE_IPC_EVENT_CHANNELS.agentAssistantEvent, payload);
+        sendAgentAssistantEvent(window, payload);
     }
 }
 
@@ -1082,7 +1075,7 @@ async function startAssistantRuntime() {
 
     const codeHome = getAssistantCodexHome();
     const cwd = getAssistantCwd();
-    await mkdir(cwd, { recursive: true });
+    await fsPromises.mkdir(cwd, { recursive: true });
     const codexModel = lastStateProvider === 'codex' ? lastStateModel : codexDefaultModelId(codexAssistantModels);
     const codexEffort = normalizeAssistantEffort(
         codexAssistantModels,
@@ -1399,7 +1392,7 @@ async function ensureClaudeAssistantSession(
     delete claudeProviderRuntime.lastError;
     publishState(session.scope, session);
     const cwd = getAssistantCwd();
-    await mkdir(cwd, { recursive: true });
+    await fsPromises.mkdir(cwd, { recursive: true });
     const {
         descriptor,
         token: mcpToken,
@@ -1510,7 +1503,7 @@ export async function installAgentAssistantCodex(): Promise<IAgentAssistantInsta
 
 export async function startAgentAssistantLogin(
     request: IAgentAssistantLoginRequest,
-    parentWindow?: BrowserWindow | null,
+    parentWindow?: electron.BrowserWindow | null,
 ): Promise<IAgentAssistantLoginResult> {
     try {
         const currentRuntime = await ensureAssistantRuntime();
@@ -1532,7 +1525,7 @@ export async function startAgentAssistantLogin(
         const verificationUrl = typeof response.verificationUrl === 'string' ? response.verificationUrl : undefined;
         const urlToOpen = authUrl ?? verificationUrl;
         if (urlToOpen) {
-            await shell.openExternal(sanitizeAllowedExternalUrl(urlToOpen));
+            await electron.shell.openExternal(sanitizeAllowedExternalUrl(urlToOpen));
         }
         publishState();
         return {

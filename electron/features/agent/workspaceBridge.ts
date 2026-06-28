@@ -28,7 +28,10 @@ import type {
 } from '@contracts/agent';
 import { isRecord } from '@contracts/runtimeGuards';
 import type { TEditorLayoutNode } from '@contracts/editorPanes';
-import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
+import {
+    sendAgentCommandRequest,
+    sendAgentWorkspaceSnapshotRequest,
+} from '@electron/features/agent/main/agentRendererEvents';
 import { getErrorMessage } from '@electron/utils/error';
 
 const DEFAULT_AGENT_REQUEST_TIMEOUT_MS = 2500;
@@ -439,7 +442,7 @@ export function requestAgentWorkspaceSnapshot(
     );
 
     try {
-        window.webContents.send(CORE_IPC_EVENT_CHANNELS.agentWorkspaceSnapshotRequest, request);
+        sendAgentWorkspaceSnapshotRequest(window, request);
     } catch (error) {
         rejectPendingRequest(
             pendingSnapshotRequests,
@@ -471,7 +474,7 @@ export function requestAgentCommand(
     );
 
     try {
-        window.webContents.send(CORE_IPC_EVENT_CHANNELS.agentCommandRequest, request);
+        sendAgentCommandRequest(window, request);
     } catch (error) {
         rejectPendingRequest(
             pendingCommandRequests,

@@ -9,6 +9,7 @@ import { isKnownWorkingCopyOriginalPath } from '@electron/file-access/workingCop
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import { createLogger } from '@electron/utils/createLogger';
 import { IPC_FILENAME_MAX_LENGTH } from '@electron/utils/ipcLimits';
+import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 
 const logger = createLogger('documents-dialogs');
 const MAX_WORKING_COPY_DATA_BYTES = 512 * 1024 * 1024;
@@ -44,7 +45,7 @@ function resolveTrustedOriginalPath(
 }
 
 export async function handleCreateWorkingCopyFromData(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     fileName: string,
     data: Uint8Array,
     originalPath?: string,
@@ -60,14 +61,14 @@ export async function handleCreateWorkingCopyFromData(
     const trustedOriginalPath = resolveTrustedOriginalPath(
         originalPath,
         {warningContext: 'createWorkingCopyFromData'},
-        event.sender.id,
+        context.senderId,
     );
 
-    return createWorkingCopyFromData(normalizedName, data, trustedOriginalPath, event.sender.id);
+    return createWorkingCopyFromData(normalizedName, data, trustedOriginalPath, context.senderId);
 }
 
 export async function handleCreateWorkingCopyFromPath(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     sourcePath: TOpenPath,
     originalPath?: string,
 ) {
@@ -81,7 +82,7 @@ export async function handleCreateWorkingCopyFromPath(
     const trustedOriginalPath = resolveTrustedOriginalPath(originalPath, {
         sourcePath,
         warningContext: 'createWorkingCopyFromPath',
-    }, event.sender.id);
+    }, context.senderId);
 
-    return createWorkingCopyFromPath(sourcePath, trustedOriginalPath, event.sender.id);
+    return createWorkingCopyFromPath(sourcePath, trustedOriginalPath, context.senderId);
 }

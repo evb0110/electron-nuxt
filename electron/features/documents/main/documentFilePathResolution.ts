@@ -110,8 +110,8 @@ export async function resolveReadablePath(
 }
 
 export async function resolveExistingReadableBinaryPath(
-    event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
+    senderId?: number,
 ) {
     const normalizedPath = normalizeNonEmptyPath(filePath);
     const extension = extname(normalizedPath).toLowerCase();
@@ -122,7 +122,7 @@ export async function resolveExistingReadableBinaryPath(
     const resolvedPath = await resolveReadablePath(
         normalizedPath,
         extension,
-        event.sender?.id,
+        senderId,
     );
     if (!resolvedPath) {
         throw new Error('Invalid file path: reads only allowed within temp directory');

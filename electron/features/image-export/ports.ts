@@ -1,12 +1,17 @@
-import type { IpcMainInvokeEvent } from 'electron';
-import type { IIpcMainRegistrar as IContractIpcMainRegistrar } from '@contracts/ipcMain';
-import type { IImageExportInvokeMap } from '@electron/features/image-export/contract';
+import type {
+    BrowserWindow,
+    WebContents,
+} from 'electron';
 
-export type TImageExportIpcMainRegistrar = IContractIpcMainRegistrar<IImageExportInvokeMap, IpcMainInvokeEvent>;
+export interface IImageExportOperationContext {
+    sender: WebContents;
+    senderId: number;
+    parentWindow: BrowserWindow | null;
+}
 
 export interface IImageExportService {
     exportImages: (
-        event: IpcMainInvokeEvent,
+        context: IImageExportOperationContext,
         workingCopyPath: string,
         pageNumbers?: number[],
         requestId?: string,
@@ -16,7 +21,7 @@ export interface IImageExportService {
         outputPaths?: string[];
     }>;
     exportMultiPageTiff: (
-        event: IpcMainInvokeEvent,
+        context: IImageExportOperationContext,
         workingCopyPath: string,
         pageNumbers?: number[],
         requestId?: string,

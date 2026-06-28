@@ -48,7 +48,7 @@ vi.mock('fs/promises', async () => {
     };
 });
 
-vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths: () => ({
+vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
     pdftoppm: '/mock/pdftoppm',
     qpdf: '/mock/qpdf',
     pdfimages: mocks.pdfimagesPath,

@@ -3,7 +3,7 @@ import type {
     IDjvuCapability,
     IDjvuPagePreviewOptions,
 } from '@contracts/electronApiDjvu';
-import type { IDocumentsCapability } from '@contracts/electronApiDocuments';
+import type { IDocumentsFileIoCapability } from '@contracts/electronApiDocuments';
 import {
     browserDocumentStore,
     isBrowserDocumentRef,
@@ -16,6 +16,8 @@ import {
 const DJVU_READ_CHUNK_BYTES = 4 * 1024 * 1024;
 
 interface IDjvuWorkerReadOptions {signal?: AbortSignal;}
+
+type TDjvuDocumentFileReader = Pick<IDocumentsFileIoCapability, 'statFile' | 'readFile' | 'readFileRange'>;
 
 interface IDjvuRenderedPageObjectUrl {
     objectUrl: string;
@@ -73,11 +75,15 @@ function getDesktopDocumentsCapability(path: TDocumentRef) {
         return null;
     }
 
-    const documents = (window as Window & {electronAPI?: { documents?: IDocumentsCapability };}).electronAPI?.documents;
-    if (!documents) {
+    const electronAPI = (window as Window & {electronAPI?: {
+        documentFiles?: TDjvuDocumentFileReader;
+        documents?: TDjvuDocumentFileReader;
+    };}).electronAPI;
+    const documentFiles = electronAPI?.documentFiles ?? electronAPI?.documents;
+    if (!documentFiles) {
         throw new Error(`Browser document not found: ${path}`);
     }
-    return documents;
+    return documentFiles;
 }
 
 function getDesktopDjvuPreviewCapability(path: TDocumentRef) {

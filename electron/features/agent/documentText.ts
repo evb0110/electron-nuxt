@@ -2,10 +2,8 @@ import type {
     BrowserWindow,
     IpcMainInvokeEvent,
 } from 'electron';
-import type {
-    IPdfSearchResponse,
-    ISearchMatchOptions,
-} from '@contracts/search';
+import type { IPdfSearchResponse } from '@contracts/search';
+import type { ISearchMatchOptions } from '@pdf-core';
 import type { IAgentTabSnapshot } from '@contracts/agent';
 import { createLogger } from '@electron/utils/createLogger';
 import {

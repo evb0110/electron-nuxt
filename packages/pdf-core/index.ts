@@ -48,6 +48,39 @@ export type {
     TPdfjsTextOps,
 } from '@pdf-core/pdfjsTextGeometry';
 export { collectSearchMatchWords } from '@pdf-core/collectSearchMatchWords';
+export type {
+    IPdfSearchExcerpt,
+    IPdfSearchUtf16Range,
+    IResolvedSearchMatchOptions,
+    ISearchMatchOptions,
+    TPdfSearchUtf16Offset,
+} from '@pdf-core/pdfSearchCore';
+export {
+    assertSafePdfSearchRegex,
+    buildPdfSearchExcerpt,
+    buildPdfSearchRegex,
+    collapseRepeatedPdfSearchPageText,
+    escapeSearchRegex,
+    findPdfSearchMatches,
+    iteratePdfSearchMatches,
+    validateSearchQuery,
+} from '@pdf-core/pdfSearchCore';
+export {
+    PDF_NATIVE_DATE_PATTERN,
+    PDF_NATIVE_MUTATION_ENUM_VALUES,
+    PDF_NATIVE_MUTATION_LIMITS,
+    PDF_NATIVE_SHA256_HEX_PATTERN,
+    normalizePdfNativeModifiedAt,
+    normalizePdfNativeMutationSet,
+    normalizePdfNativeNoteChanges,
+    normalizePdfNativeNoteTextUpdates,
+    normalizePdfNativeWorkingCopyExpectation,
+} from '@pdf-core/nativePdfMutationPayload';
+export type {
+    IPdfNativePlacedImageNativeToolPayload,
+    IPdfNativeValidationOptions,
+    TPdfNativeMutationSetNativeToolPayload,
+} from '@pdf-core/nativePdfMutationPayload';
 export {
     buildTiffImageIfd,
     encodeTiffIfds,

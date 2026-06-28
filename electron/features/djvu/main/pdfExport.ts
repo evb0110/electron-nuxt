@@ -1,12 +1,6 @@
-import {
-    app,
-    BrowserWindow,
-} from 'electron';
+import { app } from 'electron';
 import { randomUUID } from 'node:crypto';
-import type {
-    IpcMainInvokeEvent,
-    WebContents,
-} from 'electron';
+import type { WebContents } from 'electron';
 import type { Worker } from 'worker_threads';
 import {
     remove,
@@ -50,6 +44,7 @@ import { createAbortError } from '@electron/utils/abort';
 import { optimizeGeneratedPdfForInteraction } from '@electron/features/documents/public/pdfSaveAsOptimization';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { DJVU_EVENT_CHANNELS } from '@electron/features/djvu/contract';
+import type { IDjvuOperationContext } from '@electron/features/djvu/ports';
 
 const logger = createLogger('djvu-pdfExport');
 const canceledJobIds = new Set<string>();
@@ -375,7 +370,7 @@ async function embedPdfBookmarks(
 }
 
 export async function handleDjvuConvertToPdf(
-    event: IpcMainInvokeEvent,
+    context: IDjvuOperationContext,
     djvuPath: TOpenPath,
     outputPath: string,
     options: {
@@ -388,10 +383,9 @@ export async function handleDjvuConvertToPdf(
     jobId?: string;
     error?: string;
 }> {
-    const window = BrowserWindow.fromWebContents(event.sender);
     let normalizedOutputPath: string | null = null;
     try {
-        normalizedOutputPath = consumeAllowedDjvuWritePath(outputPath, event.sender.id);
+        normalizedOutputPath = consumeAllowedDjvuWritePath(outputPath, context.senderId);
     } catch {
         return {
             success: false,
@@ -412,16 +406,16 @@ export async function handleDjvuConvertToPdf(
     logger.info(`[${jobId}] Converting DjVu to PDF: ${djvuPath} -> ${normalizedOutputPath}`);
     canceledJobIds.delete(jobId);
     activeJobIds.add(jobId);
-    activeJobOwnerById.set(jobId, event.sender.id);
-    registerSenderLifecycleCleanup(event.sender);
+    activeJobOwnerById.set(jobId, context.senderId);
+    registerSenderLifecycleCleanup(context.sender);
     const abortController = new AbortController();
     activeJobAbortControllerById.set(jobId, abortController);
     const progressPump = createIpcProgressPump<IDjvuProgress>({
         channel: DJVU_EVENT_CHANNELS.progress,
         getTarget: () => ({
-            isDestroyed: () => event.sender.isDestroyed?.() === true,
+            isDestroyed: () => context.sender.isDestroyed?.() === true,
             send: (channel, payload) => safeSendToWindow(
-                window,
+                context.parentWindow,
                 channel,
                 payload,
             ),
@@ -499,7 +493,7 @@ export async function handleDjvuConvertToPdf(
             });
 
             logger.info(`[${jobId}] Conversion to PDF complete: ${normalizedOutputPath}`);
-            allowOpenPath(normalizedOutputPath, event.sender);
+            allowOpenPath(normalizedOutputPath, context.sender);
             return {
                 success: true,
                 pdfPath: normalizedOutputPath,
@@ -517,7 +511,7 @@ export async function handleDjvuConvertToPdf(
         canceledJobIds.delete(jobId);
         activeJobIds.delete(jobId);
         activeJobOwnerById.delete(jobId);
-        unregisterSenderLifecycleCleanupIfIdle(event.sender.id);
+        unregisterSenderLifecycleCleanupIfIdle(context.senderId);
         activeJobAbortControllerById.delete(jobId);
         activePdfWorkerByJobId.delete(jobId);
         progressPump.clear();
@@ -533,7 +527,7 @@ export async function handleDjvuConvertToPdf(
 }
 
 export async function handleDjvuCancel(
-    event: IpcMainInvokeEvent,
+    context: IDjvuOperationContext,
     jobId: string,
 ): Promise<{ canceled: boolean }> {
     const normalizedJobId = typeof jobId === 'string' ? jobId.trim() : '';
@@ -547,9 +541,9 @@ export async function handleDjvuCancel(
         return { canceled: false };
     }
     const ownerWebContentsId = activeJobOwnerById.get(normalizedJobId);
-    if (ownerWebContentsId !== event.sender.id) {
+    if (ownerWebContentsId !== context.senderId) {
         logger.warn(
-            `[${normalizedJobId}] Cancel ignored: sender ${event.sender.id} does not own DjVu conversion job (owner=${ownerWebContentsId ?? 'unknown'})`,
+            `[${normalizedJobId}] Cancel ignored: sender ${context.senderId} does not own DjVu conversion job (owner=${ownerWebContentsId ?? 'unknown'})`,
         );
         return { canceled: false };
     }

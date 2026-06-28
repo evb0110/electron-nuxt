@@ -2,7 +2,7 @@ import type {
     IPdfPageMatches,
     IPdfSearchMatch,
 } from '@app/types/pdf';
-import { findPdfSearchMatches } from '@contracts/search';
+import { findPdfSearchMatches } from '@pdf-core';
 import type { IHighlightMatchRange } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 
 interface IVisualSearchMatch {

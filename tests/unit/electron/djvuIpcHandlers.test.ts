@@ -38,10 +38,13 @@ const mocks = vi.hoisted(() => ({
     sweepStaleDjvuTempPdfs: vi.fn(),
 }));
 
-vi.mock('electron', () => ({ipcMain: {handle: (channel: string, handler: TRegisteredHandler) => {
-    mocks.ipcHandle(channel, handler);
-    mocks.handlers.set(channel, handler);
-}}}));
+vi.mock('electron', () => ({
+    BrowserWindow: {fromWebContents: vi.fn(() => null)},
+    ipcMain: {handle: (channel: string, handler: TRegisteredHandler) => {
+        mocks.ipcHandle(channel, handler);
+        mocks.handlers.set(channel, handler);
+    }},
+}));
 
 vi.mock('@electron/djvu/estimateSizes', () => ({estimateSizes: mocks.estimateSizes}));
 vi.mock('@electron/djvu/metadata', () => ({
@@ -74,7 +77,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 
-const { registerDjvuHandlers } = await import('@electron/features/djvu/main/registerDjvuHandlers');
+const { registerDjvuIpcAdapter } = await import('@electron/features/djvu/registerDjvuIpcAdapter');
 
 function getHandler(channel: string) {
     const handler = mocks.handlers.get(channel);
@@ -84,7 +87,7 @@ function getHandler(channel: string) {
     return handler;
 }
 
-describe('registerDjvuHandlers', () => {
+describe('registerDjvuIpcAdapter', () => {
     beforeEach(() => {
         mocks.handlers.clear();
         vi.clearAllMocks();
@@ -117,7 +120,7 @@ describe('registerDjvuHandlers', () => {
     });
 
     it('triggers stale DjVu temp sweep during handler registration by default', () => {
-        registerDjvuHandlers();
+        registerDjvuIpcAdapter();
 
         expect(mocks.sweepStaleDjvuTempPdfs).toHaveBeenCalledTimes(1);
     });
@@ -125,13 +128,13 @@ describe('registerDjvuHandlers', () => {
     it('skips stale sweep when explicitly disabled', () => {
         process.env.EVB_DJVU_SWEEP_STALE_TEMP = '0';
 
-        registerDjvuHandlers();
+        registerDjvuIpcAdapter();
 
         expect(mocks.sweepStaleDjvuTempPdfs).not.toHaveBeenCalled();
     });
 
     it('delegates cleanupTemp to tracked temp cleanup helper', async () => {
-        registerDjvuHandlers();
+        registerDjvuIpcAdapter();
         const handler = getHandler('djvu:cleanupTemp');
 
         await handler({sender: {id: 1}}, '/tmp/djvu-123.pdf');
@@ -140,13 +143,20 @@ describe('registerDjvuHandlers', () => {
     });
 
     it('releases viewing paths without requiring the source file to still exist', () => {
-        registerDjvuHandlers();
+        registerDjvuIpcAdapter();
         const handler = getHandler('djvu:releaseViewingPath');
         const event = {sender: {id: 1}};
 
         handler(event, '/tmp/missing.djvu');
 
-        expect(mocks.releaseDjvuViewingPath).toHaveBeenCalledWith(event, '/tmp/missing.djvu');
+        expect(mocks.releaseDjvuViewingPath).toHaveBeenCalledWith(
+            expect.objectContaining({
+                sender: event.sender,
+                senderId: 1,
+                parentWindow: null,
+            }),
+            '/tmp/missing.djvu',
+        );
     });
 
     it('releases symlinked viewing paths using the granted realpath while the source still exists', async () => {
@@ -161,12 +171,19 @@ describe('registerDjvuHandlers', () => {
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
             const event = {sender: {id: 1}};
             allowOpenPath(symlinkPath, event.sender as never);
-            registerDjvuHandlers();
+            registerDjvuIpcAdapter();
             const handler = getHandler('djvu:releaseViewingPath');
 
             handler(event, symlinkPath);
 
-            expect(mocks.releaseDjvuViewingPath).toHaveBeenCalledWith(event, canonicalRealPath);
+            expect(mocks.releaseDjvuViewingPath).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    sender: event.sender,
+                    senderId: 1,
+                    parentWindow: null,
+                }),
+                canonicalRealPath,
+            );
         } finally {
             rmSync(tempRoot, {
                 force: true,
@@ -185,7 +202,7 @@ describe('registerDjvuHandlers', () => {
             const event = {sender: {id: 1}};
             allowOpenPath(realPath, event.sender as never);
             mocks.isAllowedDjvuViewingPath.mockReturnValue(false);
-            registerDjvuHandlers();
+            registerDjvuIpcAdapter();
             const handler = getHandler('djvu:getPageSizes');
 
             await expect(handler(event, realPath)).rejects.toThrow('DjVu viewing path is not active');
@@ -209,7 +226,7 @@ describe('registerDjvuHandlers', () => {
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
             const event = {sender: {id: 1}};
             allowOpenPath(realPath, event.sender as never);
-            registerDjvuHandlers();
+            registerDjvuIpcAdapter();
             const handler = getHandler('djvu:renderPagePreview');
 
             await expect(handler(event, realPath, 1, {subsample: 3})).resolves.toEqual({

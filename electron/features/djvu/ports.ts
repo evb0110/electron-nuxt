@@ -1,7 +1,52 @@
-import type { IpcMainInvokeEvent } from 'electron';
-import type { IIpcMainRegistrar as IContractIpcMainRegistrar } from '@contracts/ipcMain';
-import type { IDjvuInvokeMap } from '@electron/features/djvu/contract';
+import type {
+    BrowserWindow,
+    WebContents,
+} from 'electron';
+import type { IDjvuCapability } from '@contracts/electronApiDjvu';
 
-export type TDjvuIpcMainRegistrar = IContractIpcMainRegistrar<IDjvuInvokeMap, IpcMainInvokeEvent>;
+type TDjvuApi = IDjvuCapability;
 
-export interface IDjvuService {registerHandlers: (registrar: TDjvuIpcMainRegistrar) => void;}
+export interface IDjvuOperationContext {
+    sender: WebContents;
+    senderId: number;
+    parentWindow: BrowserWindow | null;
+}
+
+export interface IDjvuService {
+    openForViewing: (
+        context: IDjvuOperationContext,
+        ...args: Parameters<TDjvuApi['openForViewing']>
+    ) => ReturnType<TDjvuApi['openForViewing']>;
+    releaseViewingPath: (
+        context: IDjvuOperationContext,
+        ...args: Parameters<TDjvuApi['releaseViewingPath']>
+    ) => ReturnType<TDjvuApi['releaseViewingPath']>;
+    convertToPdf: (
+        context: IDjvuOperationContext,
+        ...args: Parameters<TDjvuApi['convertToPdf']>
+    ) => ReturnType<TDjvuApi['convertToPdf']>;
+    cancel: (
+        context: IDjvuOperationContext,
+        ...args: Parameters<TDjvuApi['cancel']>
+    ) => ReturnType<TDjvuApi['cancel']>;
+    getInfo: (
+        context: IDjvuOperationContext,
+        ...args: Parameters<TDjvuApi['getInfo']>
+    ) => ReturnType<TDjvuApi['getInfo']>;
+    getPageSizes: (
+        context: IDjvuOperationContext,
+        ...args: Parameters<TDjvuApi['getPageSizes']>
+    ) => ReturnType<TDjvuApi['getPageSizes']>;
+    renderPagePreview: (
+        context: IDjvuOperationContext,
+        ...args: Parameters<TDjvuApi['renderPagePreview']>
+    ) => ReturnType<TDjvuApi['renderPagePreview']>;
+    estimateSizes: (
+        context: IDjvuOperationContext,
+        ...args: Parameters<TDjvuApi['estimateSizes']>
+    ) => ReturnType<TDjvuApi['estimateSizes']>;
+    cleanupTemp: (
+        context: IDjvuOperationContext,
+        ...args: Parameters<TDjvuApi['cleanupTemp']>
+    ) => ReturnType<TDjvuApi['cleanupTemp']>;
+}

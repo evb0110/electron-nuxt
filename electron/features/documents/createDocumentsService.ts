@@ -1,4 +1,3 @@
-import { BrowserWindow } from 'electron';
 import {
     handleOpenCombineDialog,
     handleOpenFolderDialog,
@@ -143,56 +142,51 @@ export function createDocumentsService(): IDocumentsService {
             beginSerializedPdfSaveToOriginal(...args),
         cleanupFile: (...args: TDocumentsServiceArgs<'cleanupFile'>) => {
             const [
-                event,
+                context,
                 workingPath,
             ] = args;
-            cleanupWorkingCopy(workingPath, event.sender.id);
+            cleanupWorkingCopy(workingPath, context.senderId);
         },
         cleanupOcrTemp: (...args: TDocumentsServiceArgs<'cleanupOcrTemp'>) => handleCleanupOcrTemp(...args),
         setWindowTitle: (...args: TDocumentsServiceArgs<'setWindowTitle'>) => handleSetWindowTitle(...args),
         showItemInFolder: (...args: TDocumentsServiceArgs<'showItemInFolder'>) => handleShowItemInFolder(...args),
         setMenuDocumentState: (...args: TDocumentsServiceArgs<'setMenuDocumentState'>) => {
             const [
-                event,
+                context,
                 state,
             ] = args;
-            const window = BrowserWindow.fromWebContents(event.sender);
-            if (!window) {
+            if (!context.window) {
                 return;
             }
 
-            setMenuDocumentState(window.id, state);
+            setMenuDocumentState(context.window.id, state);
         },
         setMenuTabCount: (...args: TDocumentsServiceArgs<'setMenuTabCount'>) => {
             const [
-                event,
+                context,
                 tabCount,
             ] = args;
-            const window = BrowserWindow.fromWebContents(event.sender);
-            if (!window) {
+            if (!context.window) {
                 return;
             }
 
-            setMenuTabCount(window.id, tabCount);
+            setMenuTabCount(context.window.id, tabCount);
         },
         getRecentFiles: async (...args: TDocumentsServiceArgs<'getRecentFiles'>) => {
-            const [event] = args;
+            const [context] = args;
             const startedAt = Date.now();
             const files = await getRecentFiles();
             // Grant reveal-in-folder capability for each recent path to the
             // requesting webContents; without this, showItemInFolder is rejected
             // by requireOpenPath for paths the user has not opened this session.
-            allowOpenPaths(files.map(file => file.originalPath), event.sender);
+            allowOpenPaths(files.map(file => file.originalPath), context.sender);
             if (STARTUP_TRACE_ENABLED) {
                 logger.info(`[startup] IPC recentFiles:get resolved (${files.length} file(s), +${Date.now() - startedAt}ms)`);
             }
             return files;
         },
         removeRecentFile: async (...args: TDocumentsServiceArgs<'removeRecentFile'>) => {
-            const [
-                ,
-                originalPath,
-            ] = args;
+            const [originalPath] = args;
             await removeRecentFile(originalPath);
             removeAllowedOpenPath(originalPath);
             updateRecentFilesMenu();

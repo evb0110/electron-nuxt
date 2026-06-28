@@ -34,7 +34,7 @@ vi.mock('@electron/features/documents/main/pdfConformance', () => ({
     analyzePdfConformanceFile: (...args: unknown[]) => mocks.analyzePdfConformanceFile(...args),
     validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args),
 }));
-vi.mock('@electron/native-tools/getNativeToolPaths', () => ({ getNativeToolPaths: () => ({ qpdf: '/native/qpdf' }) }));
+vi.mock('@electron/pdf/nativeToolPaths', () => ({ getPdfNativeToolPaths: () => ({ qpdf: '/native/qpdf' }) }));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({ runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args) }));
 vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
     debug: vi.fn(),

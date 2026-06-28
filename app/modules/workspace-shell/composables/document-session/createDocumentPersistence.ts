@@ -21,7 +21,8 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { getErrorMessage } from '@app/utils/error';
 import {
-    getDocumentsCapability,
+    getDocumentFilesCapability,
+    getDocumentWorkingCopyCapability,
     shouldRefreshWorkingCopyAfterSaveAs,
 } from '@app/utils/platformDocuments';
 
@@ -216,7 +217,7 @@ export function createDocumentPersistence(
         const expectedWorkingPath = state.workingCopyPath.value;
         const snapshot = data.slice();
         if (expectedWorkingPath) {
-            await getDocumentsCapability().writeFile(expectedWorkingPath, snapshot);
+            await getDocumentFilesCapability().writeFile(expectedWorkingPath, snapshot);
             if (!state.isActiveWorkingCopy(expectedWorkingPath)) {
                 BrowserLogger.debug('pdf-file', 'Skipped stale silent PDF data persistence', {
                     expectedWorkingPath,
@@ -331,7 +332,7 @@ export function createDocumentPersistence(
                 });
             }
 
-            await getDocumentsCapability().saveFile(workingPath);
+            await getDocumentFilesCapability().saveFile(workingPath);
             if (!state.isActiveWorkingCopy(workingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale working-copy save completion', {
                     workingPath,
@@ -372,7 +373,7 @@ export function createDocumentPersistence(
                 });
             }
 
-            const repairPdf = getDocumentsCapability().repairPdf;
+            const repairPdf = getDocumentFilesCapability().repairPdf;
             if (!repairPdf) {
                 return createFailedPersistResult(requestedSaveMode, false);
             }
@@ -421,7 +422,7 @@ export function createDocumentPersistence(
                 });
             }
 
-            const optimizePdfForInteraction = getDocumentsCapability().optimizePdfForInteraction;
+            const optimizePdfForInteraction = getDocumentFilesCapability().optimizePdfForInteraction;
             if (!optimizePdfForInteraction) {
                 return createFailedPersistResult(requestedSaveMode, false);
             }
@@ -457,7 +458,7 @@ export function createDocumentPersistence(
         const requestedSaveMode = opts?.saveMode ?? 'save_as_rewrite';
         return runPersistOperation(requestedSaveMode, true, async (workingPath) => {
             const previousWorkingPath = workingPath;
-            const optimizePdfAsCopy = getDocumentsCapability().optimizePdfAsCopy;
+            const optimizePdfAsCopy = getDocumentFilesCapability().optimizePdfAsCopy;
             if (!optimizePdfAsCopy) {
                 return createFailedPersistResult(requestedSaveMode, true);
             }
@@ -481,7 +482,7 @@ export function createDocumentPersistence(
             if (savedPath) {
                 let savedWorkingPath = previousWorkingPath;
                 if (shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath)) {
-                    const nextWorkingPath = await getDocumentsCapability().createWorkingCopyFromPath(savedPath);
+                    const nextWorkingPath = await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(savedPath);
                     if (!state.isActiveWorkingCopy(previousWorkingPath)) {
                         BrowserLogger.debug('workspace', 'Skipped stale optimized-copy working-copy refresh', {
                             workingPath: previousWorkingPath,
@@ -491,7 +492,7 @@ export function createDocumentPersistence(
                             saveMode: requestedSaveMode,
                         });
                         if (!state.isActiveWorkingCopy(nextWorkingPath)) {
-                            void getDocumentsCapability().cleanupFile(nextWorkingPath);
+                            void getDocumentWorkingCopyCapability().cleanupFile(nextWorkingPath);
                         }
                         return createStalePersistResult(requestedSaveMode, true);
                     }
@@ -499,7 +500,7 @@ export function createDocumentPersistence(
                     savedWorkingPath = nextWorkingPath;
                     if (previousWorkingPath !== nextWorkingPath) {
                         try {
-                            await getDocumentsCapability().cleanupFile(previousWorkingPath);
+                            await getDocumentWorkingCopyCapability().cleanupFile(previousWorkingPath);
                         } catch (cleanupError) {
                             BrowserLogger.warn('workspace', 'Optimized copy succeeded but previous working-copy cleanup failed', {
                                 previousWorkingPath,
@@ -558,7 +559,7 @@ export function createDocumentPersistence(
             modifiedAt: string;
         },
     ): Promise<IPdfPersistResult | null> {
-        const documents = getDocumentsCapability();
+        const documentFiles = getDocumentFilesCapability();
         const updates = mutations.updates ?? [];
         const freeTextNotes = mutations.freeTextNotes ?? [];
         const deletes = mutations.deletes ?? [];
@@ -580,7 +581,7 @@ export function createDocumentPersistence(
         ) {
             return null;
         }
-        const canUseGenericNativeMutations = typeof documents.savePdfNativeMutations === 'function';
+        const canUseGenericNativeMutations = typeof documentFiles.savePdfNativeMutations === 'function';
         const canUseLegacyNativeNoteText = (
             !hasPageLabels
             && !hasBookmarks
@@ -590,7 +591,7 @@ export function createDocumentPersistence(
             && freeTextNotes.length === 0
             && deletes.length === 0
             && updates.length > 0
-            && typeof documents.savePdfNoteTextUpdates === 'function'
+            && typeof documentFiles.savePdfNoteTextUpdates === 'function'
         );
         const canUseLegacyNativeNoteChanges = (
             !hasPageLabels
@@ -599,7 +600,7 @@ export function createDocumentPersistence(
             && !hasMarkup
             && !hasPlacedImages
             && (freeTextNotes.length > 0 || deletes.length > 0)
-            && typeof documents.savePdfNoteChanges === 'function'
+            && typeof documentFiles.savePdfNoteChanges === 'function'
         );
         if (!canUseGenericNativeMutations && !canUseLegacyNativeNoteText && !canUseLegacyNativeNoteChanges) {
             return null;
@@ -665,16 +666,16 @@ export function createDocumentPersistence(
                 'native-ipc',
                 () => {
                     if (canUseGenericNativeMutations) {
-                        return documents.savePdfNativeMutations!(workingPath, mutations, opts.modifiedAt);
+                        return documentFiles.savePdfNativeMutations!(workingPath, mutations, opts.modifiedAt);
                     }
                     if (canUseLegacyNativeNoteChanges) {
-                        return documents.savePdfNoteChanges!(workingPath, {
+                        return documentFiles.savePdfNoteChanges!(workingPath, {
                             ...(updates.length > 0 ? {updates} : {}),
                             ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
                             ...(deletes.length > 0 ? {deletes} : {}),
                         }, opts.modifiedAt);
                     }
-                    return documents.savePdfNoteTextUpdates!(workingPath, updates, opts.modifiedAt);
+                    return documentFiles.savePdfNoteTextUpdates!(workingPath, updates, opts.modifiedAt);
                 },
             );
             if (!result.applied || !result.validation?.isValid) {
@@ -763,8 +764,8 @@ export function createDocumentPersistence(
                 ? await savePdfBytesAs(workingPath, data, saveAsOptions)
                 : {
                     path: saveAsOptions
-                        ? await getDocumentsCapability().savePdfAs(workingPath, saveAsOptions)
-                        : await getDocumentsCapability().savePdfAs(workingPath),
+                        ? await getDocumentFilesCapability().savePdfAs(workingPath, saveAsOptions)
+                        : await getDocumentFilesCapability().savePdfAs(workingPath),
                     validation: null,
                 };
             if (saveAsResult.validation && !saveAsResult.validation.isValid) {
@@ -785,7 +786,7 @@ export function createDocumentPersistence(
                 let savedWorkingPath = previousWorkingPath;
                 if (shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath)) {
                     const nextWorkingPath =
-                        await getDocumentsCapability().createWorkingCopyFromPath(savedPath);
+                        await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(savedPath);
                     if (!state.isActiveWorkingCopy(previousWorkingPath)) {
                         BrowserLogger.debug('workspace', 'Skipped stale Save As working-copy refresh', {
                             workingPath: previousWorkingPath,
@@ -795,7 +796,7 @@ export function createDocumentPersistence(
                             saveMode: requestedSaveMode,
                         });
                         if (!state.isActiveWorkingCopy(nextWorkingPath)) {
-                            void getDocumentsCapability().cleanupFile(nextWorkingPath);
+                            void getDocumentWorkingCopyCapability().cleanupFile(nextWorkingPath);
                         }
                         return createStalePersistResult(requestedSaveMode, true);
                     }
@@ -803,7 +804,7 @@ export function createDocumentPersistence(
                     savedWorkingPath = nextWorkingPath;
                     if (previousWorkingPath !== nextWorkingPath) {
                         try {
-                            await getDocumentsCapability().cleanupFile(previousWorkingPath);
+                            await getDocumentWorkingCopyCapability().cleanupFile(previousWorkingPath);
                         } catch (cleanupError) {
                             BrowserLogger.warn('workspace', 'Save As succeeded but previous working-copy cleanup failed', {
                                 previousWorkingPath,

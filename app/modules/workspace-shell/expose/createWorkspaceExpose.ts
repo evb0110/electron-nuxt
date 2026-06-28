@@ -21,12 +21,13 @@ import type {
     IWorkspaceAutomationStateSnapshot,
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
-import {
-    clampPdfManualZoom,
-    type IDocumentViewerExpose,
-    type IPdfViewerExpose,
-} from '@app/modules/pdf-viewer/public';
+import { clampPdfManualZoom } from '@app/modules/pdf-viewer/public';
 import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
+import type {
+    IWorkspaceDocumentViewerNavigationPort,
+    IWorkspacePdfViewerExposeAutomationPort,
+    IWorkspacePdfViewerExposeToolbarSnapshotPort,
+} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 
 interface ICreateWorkspaceExposeDeps extends
     IWorkspaceFilePort,
@@ -62,8 +63,9 @@ interface ICreateWorkspaceExposeDeps extends
     fitMode: Ref<TFitMode>;
     viewMode: Ref<TPdfViewMode>;
     currentPage: Ref<number>;
-    pdfViewerRef?: Ref<IPdfViewerExpose | null>;
-    documentViewerRef?: Ref<IDocumentViewerExpose | null>;
+    pdfToolbarSnapshotViewerRef?: Ref<IWorkspacePdfViewerExposeToolbarSnapshotPort | null>;
+    pdfAutomationViewerRef?: Ref<IWorkspacePdfViewerExposeAutomationPort | null>;
+    documentViewerRef?: Ref<IWorkspaceDocumentViewerNavigationPort | null>;
     handleFitMode: (mode: TFitMode) => void;
     handleGoToPage: (page: number) => void;
     handleToggleSidebar: () => void;
@@ -179,7 +181,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
     function getToolbarSnapshot(): IWorkspaceToolbarSnapshot {
         const currentPage = normalizeToolbarSnapshotPage(
             deps.documentViewerRef?.value?.getCurrentPage?.()
-                ?? deps.pdfViewerRef?.value?.getCurrentPage?.()
+                ?? deps.pdfToolbarSnapshotViewerRef?.value?.getCurrentPage?.()
                 ?? deps.currentPage.value,
         );
         const totalPages = normalizeToolbarSnapshotTotalPages(deps.totalPages.value, currentPage);
@@ -383,12 +385,12 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         scrollToPage: (page: number) => {
             deps.documentViewerRef?.value?.scrollToPage(page);
         },
-        getAllShapes: () => deps.pdfViewerRef?.value?.getAllShapes?.() ?? [],
-        getDeletedEmbeddedShapeAnnotationIds: () => deps.pdfViewerRef?.value?.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
-        getDeletedEmbeddedShapeStableKeys: () => deps.pdfViewerRef?.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
-        highlightSelection: () => deps.pdfViewerRef?.value?.highlightSelection?.() ?? Promise.resolve(false),
+        getAllShapes: () => deps.pdfAutomationViewerRef?.value?.getAllShapes?.() ?? [],
+        getDeletedEmbeddedShapeAnnotationIds: () => deps.pdfAutomationViewerRef?.value?.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
+        getDeletedEmbeddedShapeStableKeys: () => deps.pdfAutomationViewerRef?.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
+        highlightSelection: () => deps.pdfAutomationViewerRef?.value?.highlightSelection?.() ?? Promise.resolve(false),
         commentAtPoint: (pageNumber, pageX, pageY, options) => (
-            deps.pdfViewerRef?.value?.commentAtPoint?.(pageNumber, pageX, pageY, options) ?? Promise.resolve(false)
+            deps.pdfAutomationViewerRef?.value?.commentAtPoint?.(pageNumber, pageX, pageY, options) ?? Promise.resolve(false)
         ),
     };
 }

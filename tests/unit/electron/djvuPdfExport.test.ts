@@ -131,6 +131,15 @@ function createEvent(senderId: number) {
     return { sender };
 }
 
+function createOperationContext(senderId: number) {
+    const event = createEvent(senderId);
+    return {
+        ...event,
+        senderId,
+        parentWindow: null,
+    };
+}
+
 describe('handleDjvuConvertToPdf', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -202,7 +211,7 @@ describe('handleDjvuConvertToPdf', () => {
         mocks.bookmarkTaskState.mode = 'startup-error';
 
         const result = await handleDjvuConvertToPdf(
-            createEvent(7) as never,
+            createOperationContext(7) as never,
             trustedDjvuPath,
             '/tmp/output.pdf',
             {preserveBookmarks: true},
@@ -234,7 +243,7 @@ describe('handleDjvuConvertToPdf', () => {
         mocks.stat.mockResolvedValue({size: 256 * 1024 * 1024});
 
         const result = await handleDjvuConvertToPdf(
-            createEvent(7) as never,
+            createOperationContext(7) as never,
             trustedDjvuPath,
             '/tmp/output.pdf',
             {preserveBookmarks: true},
@@ -252,7 +261,7 @@ describe('handleDjvuConvertToPdf', () => {
         mocks.bookmarkTaskState.mode = 'cancel-pending';
 
         const convertPromise = handleDjvuConvertToPdf(
-            createEvent(7) as never,
+            createOperationContext(7) as never,
             trustedDjvuPath,
             '/tmp/output.pdf',
             {preserveBookmarks: true},
@@ -263,7 +272,7 @@ describe('handleDjvuConvertToPdf', () => {
         }
         expect(mocks.createDjvuPdfBookmarkTask).toHaveBeenCalledTimes(1);
         const cancelResult = await handleDjvuCancel(
-            createEvent(7) as never,
+            createOperationContext(7) as never,
             'djvu-convert-convert-123',
         );
         const result = await convertPromise;
@@ -290,7 +299,7 @@ describe('handleDjvuConvertToPdf', () => {
         }));
 
         const convertPromise = handleDjvuConvertToPdf(
-            createEvent(7) as never,
+            createOperationContext(7) as never,
             trustedDjvuPath,
             '/tmp/output.pdf',
             {preserveBookmarks: true},
@@ -301,7 +310,7 @@ describe('handleDjvuConvertToPdf', () => {
         }
         const metadataOptions = mocks.getDjvuPageCount.mock.calls[0]?.[1] as { signal?: AbortSignal } | undefined;
         const cancelResult = await handleDjvuCancel(
-            createEvent(7) as never,
+            createOperationContext(7) as never,
             'djvu-convert-convert-123',
         );
         const result = await convertPromise;
@@ -329,7 +338,7 @@ describe('handleDjvuConvertToPdf', () => {
         }));
 
         const convertPromise = handleDjvuConvertToPdf(
-            createEvent(7) as never,
+            createOperationContext(7) as never,
             trustedDjvuPath,
             '/tmp/output.pdf',
             {preserveBookmarks: true},
@@ -349,7 +358,7 @@ describe('handleDjvuConvertToPdf', () => {
         expect(mocks.getDjvuPageCount).toHaveBeenCalledTimes(1);
 
         const cancelResult = await handleDjvuCancel(
-            createEvent(7) as never,
+            createOperationContext(7) as never,
             'djvu-convert-convert-123',
         );
         const result = await convertPromise;
@@ -364,7 +373,7 @@ describe('handleDjvuConvertToPdf', () => {
 
     it('atomically replaces the output file', async () => {
         const result = await handleDjvuConvertToPdf(
-            createEvent(7) as never,
+            createOperationContext(7) as never,
             trustedDjvuPath,
             '/tmp/output.pdf',
             {preserveBookmarks: false},
@@ -398,7 +407,7 @@ describe('handleDjvuConvertToPdf', () => {
                 reject(error);
             });
         }));
-        const event = createEvent(9);
+        const event = createOperationContext(9);
 
         const convertPromise = handleDjvuConvertToPdf(
             event as never,
@@ -431,8 +440,8 @@ describe('handleDjvuConvertToPdf', () => {
                 resolve({success: true});
             };
         }));
-        const firstEvent = createEvent(10);
-        const queuedEvent = createEvent(11);
+        const firstEvent = createOperationContext(10);
+        const queuedEvent = createOperationContext(11);
 
         const firstPromise = handleDjvuConvertToPdf(
             firstEvent as never,

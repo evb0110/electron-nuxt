@@ -1,7 +1,7 @@
 import { useEventListener } from '@vueuse/core';
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import { getDocumentPickerCapability } from '@app/utils/platformDocuments';
 import { isSupportedWorkspaceDocumentPath } from '@app/utils/supportedDocumentPaths';
 
 interface IUseExternalFileDropOptions {
@@ -46,7 +46,7 @@ function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
     const paths: TDocumentRef[] = [];
     const seen = new Set<TDocumentRef>();
     const droppedFiles = Array.from(dataTransfer.files);
-    const droppedPaths = getDocumentsCapability().getPathsForFiles(droppedFiles);
+    const droppedPaths = getDocumentPickerCapability().getPathsForFiles(droppedFiles);
 
     for (const path of droppedPaths) {
         if (!path || seen.has(path)) {

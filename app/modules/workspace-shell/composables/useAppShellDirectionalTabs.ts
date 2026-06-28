@@ -18,7 +18,7 @@ import type {
     TTabContextCommand,
 } from '@app/types/tabContextMenu';
 import { hasElectronAPI } from '@app/utils/platform';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import { getDocumentWorkingCopyCapability } from '@app/utils/platformDocuments';
 import type { IWorkspaceSplitCacheLike } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 
 const TAB_TRANSITION_CACHE_GRACE_MS = 1200;
@@ -214,7 +214,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             return payload;
         }
 
-        const snapshotPath = await getDocumentsCapability().createWorkingCopyFromPath(
+        const snapshotPath = await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(
             payload.snapshotPath,
             payload.originalPath ?? undefined,
         );

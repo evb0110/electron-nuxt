@@ -1,6 +1,6 @@
 import type { TSplitPayload } from '@contracts/windowTabs';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import { getDocumentWorkingCopyCapability } from '@app/utils/platformDocuments';
 
 export async function cleanupSplitPayloadSnapshot(
     payload: TSplitPayload | null | undefined,
@@ -15,7 +15,7 @@ export async function cleanupSplitPayloadSnapshot(
     }
 
     try {
-        await getDocumentsCapability().cleanupFile(payload.snapshotPath);
+        await getDocumentWorkingCopyCapability().cleanupFile(payload.snapshotPath);
         return true;
     } catch (error) {
         BrowserLogger.warn(

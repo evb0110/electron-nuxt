@@ -4,7 +4,6 @@ import {
     type TOcrRunCommandOptions,
 } from '@electron/ocr/worker/runOcrCommand';
 import { compact } from 'es-toolkit/array';
-import { clamp } from 'es-toolkit/math';
 import { getErrorMessage } from '@electron/utils/error';
 
 const PDFIMAGES_TIMEOUT_MS = 30 * 1000;
@@ -241,11 +240,4 @@ export async function detectSourceDpi(
         signal,
         pages,
     )).documentDpi;
-}
-
-export function clampDpi(value: number) {
-    if (!Number.isFinite(value)) {
-        return 300;
-    }
-    return clamp(Math.round(value), 72, 1200);
 }

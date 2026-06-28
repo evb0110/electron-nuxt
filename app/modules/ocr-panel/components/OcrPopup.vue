@@ -285,37 +285,25 @@
 </template>
 
 <script setup lang="ts">
-import {
-    useClipboard,
-    useTimeoutFn,
-} from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import type {
-    TOcrProgressPhase,
     TOcrPreprocessingMode,
     TOcrQualityProfile,
 } from '@contracts/electronApiOcr';
 import type { TTranslationKey } from '@i18n-app';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppSpinner from '@app/components/AppSpinner.vue';
-import type {
-    IAgentOcrRunOptions,
-    IOcrPopupAgentExpose,
-} from '@app/types/ocrAgent';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getSettingsCapability } from '@app/utils/getSettingsCapability';
+import type { IOcrPopupAgentExpose } from '@app/types/ocrAgent';
+import { OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE } from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
+import { useOcrPopupPresenter } from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
 import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
 import type {
-    IOcrSettings,
     IOcrSearchablePdfResult,
     TOcrPageRange,
 } from '@app/utils/ocr/ocrTypes';
-import { resolveOcrExportLanguages } from '@app/utils/ocr/resolveOcrExportLanguages';
 
 const { t } = useTypedI18n();
-const { copy: copyClipboardText } = useClipboard();
 type TOcrLanguageTranslationKey = Extract<TTranslationKey, `ocr.languageName.${string}`>;
 type TOcrQualityProfileLabelKey = Extract<TTranslationKey, `ocr.qualityProfile.options.${string}`>;
 type TOcrPreprocessingModeLabelKey = Extract<TTranslationKey, `ocr.preprocessing.options.${string}`>;
@@ -353,8 +341,6 @@ const ocrPageSegmentationOptions = [
     value: string;
     labelKey: TOcrPageSegmentationLabelKey;
 }>;
-const OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE = '__automatic_page_segmentation__';
-
 const formFieldUi = { label: 'label' } as const;
 const listRadioGroupUi = {
     fieldset: 'gap-y-1.5',
@@ -408,144 +394,59 @@ const emit = defineEmits<{
     'export-docx': [selectedLanguages: string[]];
 }>();
 
-const {
-    settings,
-    activeRunSettings,
-    lastCompletedRunSettings,
-    progress,
-    results,
-    error,
-    hasResults,
-    progressPercent,
-    latinCyrillicLanguages,
-    greekLanguages,
-    rtlLanguages,
-    loadLanguages,
-    runOcr,
-    cancelOcr,
-    clearResults,
-    clearRunSettingsHistory,
-} = useOcr();
-
-type TOcrViewState = 'configure' | 'running' | 'results' | 'error';
-
 const isOpen = computed({
     get: () => open,
     set: (value: boolean) => emit('update:open', value),
 });
 const isExporting = computed(() => isExportingDocx ?? false);
-const effectiveError = computed(() => error.value ?? externalError ?? null);
-const isRunSettingsLocked = computed(() => progress.value.isRunning);
-
-const viewState = computed<TOcrViewState>(() => {
-    if (progress.value.isRunning) {
-        return 'running';
-    }
-    if (hasResults.value) {
-        return 'results';
-    }
-    if (effectiveError.value !== null) {
-        return 'error';
-    }
-    return 'configure';
+const {
+    settings,
+    progress,
+    progressPercent,
+    latinCyrillicLanguages,
+    greekLanguages,
+    rtlLanguages,
+    viewState,
+    effectiveError,
+    canRunOcr,
+    showCustomRange,
+    isCopyingLogs,
+    copyLogsTooltip,
+    showSuccessState,
+    progressStatusText,
+    triggerTooltip,
+    hasResultWarning,
+    resultStatusText,
+    selectedLanguagesModel,
+    pageSegmentationModeSelectValue,
+    handleCopyLogs,
+    handleRunOcr,
+    handleCancel,
+    handleExportDocx,
+    handleCloseResults,
+    runOcrForAgent,
+    cancelOcrForAgent,
+    getAgentOcrSnapshot,
+} = useOcrPopupPresenter({
+    isOpen,
+    context: {
+        pdfDocument: () => pdfDocument,
+        currentPage: () => currentPage,
+        totalPages: () => totalPages,
+        workingCopyPath: () => workingCopyPath,
+        disabled: () => disabled,
+        externalError: () => externalError,
+    },
+    events: {
+        onRunningChange: value => emit('update:running', value),
+        onOcrComplete: payload => emit('ocrComplete', payload),
+        onExportDocx: selectedLanguages => emit('export-docx', selectedLanguages),
+    },
 });
-
-const availableLanguageCodes = computed(() => new Set([
-    ...latinCyrillicLanguages.value,
-    ...greekLanguages.value,
-    ...rtlLanguages.value,
-].map(lang => lang.code)));
-
-const hasSelectedAvailableLanguage = computed(() =>
-    settings.value.selectedLanguages.some(code => availableLanguageCodes.value.has(code)),
-);
-
-const canRunOcr = computed(() =>
-    !disabled
-    && !progress.value.isRunning
-    && hasSelectedAvailableLanguage.value
-    && Boolean(pdfDocument)
-    && Boolean(workingCopyPath),
-);
-
-const showCustomRange = computed(() => settings.value.pageRange === 'custom');
-
-const isCopyingLogs = ref(false);
-const copyLogsState = ref<'idle' | 'copied' | 'failed'>('idle');
-const showSuccessState = ref(false);
-const activeOcrSourcePath = ref<TDocumentRef | null>(null);
-const activeOcrSourcePage = ref<number | null>(null);
-const pendingAppliedOcrRequestId = ref<string | null>(null);
-const {
-    start: startCopyLogsStateReset,
-    stop: stopCopyLogsStateReset,
-} = useTimeoutFn(() => {
-    copyLogsState.value = 'idle';
-}, 2500, { immediate: false });
-const {
-    start: startSuccessStateReset,
-    stop: stopSuccessStateReset,
-} = useTimeoutFn(() => {
-    showSuccessState.value = false;
-}, 3000, { immediate: false });
 
 const triggerIcon = computed(() => (
     showSuccessState.value ? 'ph:check-circle' : getReaderCommandToolbarIcon('ocr')
 ));
-const ocrProgressStageKeys = {
-    preparing: 'ocr.preparing',
-    'model-prep': 'ocr.progressStage.modelPrep',
-    'pdf-prep': 'ocr.progressStage.pdfPrep',
-    'dpi-inspection': 'ocr.progressStage.dpiInspection',
-    'page-size-probing': 'ocr.progressStage.pageSizeProbing',
-    merging: 'ocr.progressStage.merging',
-    indexing: 'ocr.progressStage.indexing',
-} as const satisfies Record<Exclude<TOcrProgressPhase, 'processing'>, TTranslationKey>;
-const progressStatusText = computed(() => {
-    if (progress.value.phase === 'processing') {
-        return t('ocr.processingPage', {
-            page: progress.value.currentPage,
-            processed: progress.value.processedCount,
-            total: progress.value.totalPages,
-        });
-    }
-
-    return t(ocrProgressStageKeys[progress.value.phase], undefined);
-});
-const triggerTooltip = computed(() => {
-    if (progress.value.isRunning) {
-        return progressStatusText.value;
-    }
-
-    if (showSuccessState.value) {
-        return t('ocr.complete');
-    }
-
-    return t('ocr.button');
-});
-
-const copyLogsTooltip = computed(() => {
-    if (copyLogsState.value === 'copied') {
-        return t('ocr.logsCopied');
-    }
-    if (copyLogsState.value === 'failed') {
-        return t('ocr.logsCopyFailed');
-    }
-    return t('ocr.copyLogs');
-});
-const hasResultWarning = computed(() => hasResults.value && effectiveError.value !== null);
-const resultStatusText = computed(() => (
-    hasResultWarning.value ? t('ocr.partialComplete') : t('ocr.complete')
-));
-const selectedLanguagesModel = computed({
-    get: () => settings.value.selectedLanguages,
-    set: (selectedLanguages: string[]) => {
-        settings.value = {
-            ...settings.value,
-            selectedLanguages: Array.from(new Set(selectedLanguages)),
-        };
-    },
-});
 const pageRangeOptions = computed<Array<{
     value: TOcrPageRange;
     label: string;
@@ -599,43 +500,12 @@ const rtlLanguageItems = computed(() => rtlLanguages.value.map(lang => ({
     label: translateLanguageName(lang.code),
 })));
 
-const pageSegmentationModeSelectValue = computed({
-    get: () => settings.value.pageSegmentationMode === null
-        ? OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE
-        : String(settings.value.pageSegmentationMode),
-    set: (value: string) => {
-        const pageSegmentationMode = value === OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE ? null : Number(value);
-        settings.value = {
-            ...settings.value,
-            pageSegmentationMode: isOcrPageSegmentationMode(pageSegmentationMode)
-                ? pageSegmentationMode
-                : null,
-        };
-    },
-});
-
 function getLanguageNameKey(code: string): TOcrLanguageTranslationKey {
     return `ocr.languageName.${code}` as TOcrLanguageTranslationKey;
 }
 
 function translateLanguageName(code: string) {
     return t(getLanguageNameKey(code), undefined);
-}
-
-function isOcrPageRange(value: unknown): value is TOcrPageRange {
-    return value === 'all' || value === 'current' || value === 'custom';
-}
-
-function isOcrQualityProfile(value: unknown): value is TOcrQualityProfile {
-    return value === 'balanced' || value === 'accurate' || value === 'poor-scan';
-}
-
-function isOcrPreprocessingMode(value: unknown): value is TOcrPreprocessingMode {
-    return value === 'off' || value === 'clean';
-}
-
-function isOcrPageSegmentationMode(value: unknown): value is number {
-    return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 13;
 }
 
 function getQualityProfileLabelKey(profile: TOcrQualityProfile): TOcrQualityProfileLabelKey {
@@ -646,374 +516,10 @@ function getPreprocessingModeLabelKey(mode: TOcrPreprocessingMode): TOcrPreproce
     return `ocr.preprocessing.options.${mode}`;
 }
 
-function normalizeAgentLanguages(value: unknown) {
-    if (!Array.isArray(value)) {
-        return null;
-    }
-    const availableCodes = availableLanguageCodes.value;
-    const languages: string[] = [];
-    for (const language of value) {
-        if (typeof language !== 'string') {
-            continue;
-        }
-
-        const trimmedLanguage = language.trim();
-        if (trimmedLanguage && availableCodes.has(trimmedLanguage)) {
-            languages.push(trimmedLanguage);
-        }
-    }
-    return Array.from(new Set(languages));
-}
-
-function applyAgentOcrOptions(options: IAgentOcrRunOptions) {
-    if (isRunSettingsLocked.value) {
-        return;
-    }
-
-    const nextSettings = {...settings.value};
-    if (isOcrPageRange(options.pageRange)) {
-        nextSettings.pageRange = options.pageRange;
-    }
-    if (typeof options.customRange === 'string') {
-        nextSettings.customRange = options.customRange;
-    }
-    if (isOcrQualityProfile(options.qualityProfile)) {
-        nextSettings.qualityProfile = options.qualityProfile;
-    }
-    if (isOcrPreprocessingMode(options.preprocessingMode)) {
-        nextSettings.preprocessingMode = options.preprocessingMode;
-    }
-    if (isOcrPageSegmentationMode(options.pageSegmentationMode)) {
-        nextSettings.pageSegmentationMode = options.pageSegmentationMode;
-    }
-    const languages = normalizeAgentLanguages(options.languages);
-    if (languages !== null) {
-        nextSettings.selectedLanguages = languages;
-    }
-    settings.value = nextSettings;
-}
-
-function cloneSettingsSnapshot(value: IOcrSettings | null) {
-    return value
-        ? {
-            pageRange: value.pageRange,
-            customRange: value.customRange,
-            selectedLanguages: [...value.selectedLanguages],
-            qualityProfile: value.qualityProfile,
-            preprocessingMode: value.preprocessingMode,
-            pageSegmentationMode: value.pageSegmentationMode,
-        }
-        : null;
-}
-
-function createAgentOcrSnapshot() {
-    const activeSettingsSnapshot = cloneSettingsSnapshot(activeRunSettings.value);
-    const draftSettingsSnapshot = cloneSettingsSnapshot(settings.value);
-    const completedSettingsSnapshot = cloneSettingsSnapshot(lastCompletedRunSettings.value);
-
-    return {
-        isOpen: isOpen.value,
-        isRunning: progress.value.isRunning,
-        phase: progress.value.phase,
-        phaseLabel: progressStatusText.value,
-        currentPage,
-        totalPages,
-        processedCount: progress.value.processedCount,
-        progressCurrentPage: progress.value.currentPage,
-        progressTotalPages: progress.value.totalPages,
-        draftSettings: draftSettingsSnapshot,
-        activeRunSettings: activeSettingsSnapshot,
-        lastCompletedRunSettings: completedSettingsSnapshot,
-        selectedLanguages: [...settings.value.selectedLanguages],
-        pageRange: settings.value.pageRange,
-        customRange: settings.value.customRange,
-        qualityProfile: settings.value.qualityProfile,
-        preprocessingMode: settings.value.preprocessingMode,
-        pageSegmentationMode: settings.value.pageSegmentationMode,
-        hasWorkingCopy: Boolean(workingCopyPath),
-        error: effectiveError.value,
-        hasResults: hasResults.value,
-    };
-}
-
-watch(isOpen, (value) => {
-    if (value) {
-        void loadLanguages();
-        return;
-    }
-
-    if (!progress.value.isRunning) {
-        resetCompletedOcrState();
-    }
-});
-
-watch(() => progress.value.isRunning, value => emit('update:running', value), {immediate: true});
-
-watch(() => settings.value.qualityProfile, (nextProfile, previousProfile) => {
-    if (isRunSettingsLocked.value) {
-        return;
-    }
-
-    if (nextProfile === 'poor-scan' && settings.value.preprocessingMode === 'off') {
-        settings.value = {
-            ...settings.value,
-            preprocessingMode: 'clean',
-        };
-        return;
-    }
-
-    if (
-        previousProfile === 'poor-scan'
-        && nextProfile !== 'poor-scan'
-        && settings.value.preprocessingMode === 'clean'
-    ) {
-        settings.value = {
-            ...settings.value,
-            preprocessingMode: 'off',
-        };
-    }
-});
-
-onBeforeUnmount(() => {
-    emit('update:running', false);
-    stopCopyLogsStateReset();
-    stopSuccessStateReset();
-});
-
-function scheduleCopyLogsStateReset() {
-    stopCopyLogsStateReset();
-    startCopyLogsStateReset();
-}
-
-function formatLanguagesForDiagnostics(languages: readonly string[]) {
-    return languages.length > 0
-        ? languages.join(',')
-        : '-';
-}
-
-function getExportLanguages() {
-    return resolveOcrExportLanguages(
-        lastCompletedRunSettings.value,
-        activeRunSettings.value,
-        settings.value,
-    );
-}
-
-function formatDebugLogEntry(entry: IDebugLogEntry) {
-    return `[${entry.timestamp}] [${entry.source}] ${entry.message}`;
-}
-
-function buildOcrDiagnosticsLog(debugLogs: IDebugLogEntry[]) {
-    return [
-        'EVB Viewer OCR diagnostics',
-        `generatedAt=${new Date().toISOString()}`,
-        `currentPage=${currentPage}`,
-        `totalPages=${totalPages}`,
-        `isRunning=${progress.value.isRunning}`,
-        `phase=${progress.value.phase}`,
-        `phaseLabel=${progressStatusText.value}`,
-        `draftSelectedLanguages=${formatLanguagesForDiagnostics(settings.value.selectedLanguages)}`,
-        `activeRunSelectedLanguages=${formatLanguagesForDiagnostics(activeRunSettings.value?.selectedLanguages ?? [])}`,
-        `lastCompletedSelectedLanguages=${formatLanguagesForDiagnostics(lastCompletedRunSettings.value?.selectedLanguages ?? [])}`,
-        `draftPageRange=${settings.value.pageRange}`,
-        `activeRunPageRange=${activeRunSettings.value?.pageRange ?? '-'}`,
-        `lastCompletedPageRange=${lastCompletedRunSettings.value?.pageRange ?? '-'}`,
-        `draftQualityProfile=${settings.value.qualityProfile}`,
-        `activeRunQualityProfile=${activeRunSettings.value?.qualityProfile ?? '-'}`,
-        `lastCompletedQualityProfile=${lastCompletedRunSettings.value?.qualityProfile ?? '-'}`,
-        `draftPreprocessingMode=${settings.value.preprocessingMode}`,
-        `activeRunPreprocessingMode=${activeRunSettings.value?.preprocessingMode ?? '-'}`,
-        `lastCompletedPreprocessingMode=${lastCompletedRunSettings.value?.preprocessingMode ?? '-'}`,
-        `draftPageSegmentationMode=${settings.value.pageSegmentationMode ?? '-'}`,
-        `activeRunPageSegmentationMode=${activeRunSettings.value?.pageSegmentationMode ?? '-'}`,
-        `lastCompletedPageSegmentationMode=${lastCompletedRunSettings.value?.pageSegmentationMode ?? '-'}`,
-        `uiError=${effectiveError.value}`,
-        '',
-        '--- debug:log stream ---',
-        ...(debugLogs.length > 0
-            ? debugLogs.map(formatDebugLogEntry)
-            : ['(no buffered logs available)']),
-    ];
-}
-
-async function handleCopyLogs() {
-    if (!effectiveError.value || isCopyingLogs.value) {
-        return;
-    }
-
-    isCopyingLogs.value = true;
-    copyLogsState.value = 'idle';
-
-    try {
-        const debugLogs = await getSettingsCapability().getDebugLogs();
-        await copyClipboardText(buildOcrDiagnosticsLog(debugLogs).join('\n'));
-        copyLogsState.value = 'copied';
-    } catch (copyErr) {
-        copyLogsState.value = 'failed';
-        BrowserLogger.error('ocr', 'Failed to copy OCR debug logs', copyErr);
-    } finally {
-        isCopyingLogs.value = false;
-        scheduleCopyLogsStateReset();
-    }
-}
-
-function handleRunOcr() {
-    if (!canRunOcr.value || !workingCopyPath) {
-        return;
-    }
-    activeOcrSourcePath.value = workingCopyPath;
-    activeOcrSourcePage.value = currentPage;
-    void runOcr(currentPage, totalPages, workingCopyPath);
-}
-
-async function runOcrForAgent(options: IAgentOcrRunOptions = {}) {
-    if (progress.value.isRunning) {
-        return {
-            ok: false,
-            error: t('errors.ocr.alreadyRunning'),
-            ocr: createAgentOcrSnapshot(),
-        };
-    }
-
-    if (disabled) {
-        return {
-            ok: false,
-            error: t('errors.ocr.disabled'),
-            ocr: createAgentOcrSnapshot(),
-        };
-    }
-
-    if (options.open !== false) {
-        isOpen.value = true;
-    }
-    await loadLanguages();
-    applyAgentOcrOptions(options);
-
-    if (!pdfDocument || !workingCopyPath) {
-        return {
-            ok: false,
-            error: t('errors.ocr.noDocument'),
-            ocr: createAgentOcrSnapshot(),
-        };
-    }
-
-    if (!hasSelectedAvailableLanguage.value) {
-        return {
-            ok: false,
-            error: t('errors.ocr.noLanguages'),
-            ocr: createAgentOcrSnapshot(),
-        };
-    }
-
-    if (!canRunOcr.value) {
-        return {
-            ok: false,
-            error: t('errors.ocr.start'),
-            ocr: createAgentOcrSnapshot(),
-        };
-    }
-
-    activeOcrSourcePath.value = workingCopyPath;
-    activeOcrSourcePage.value = currentPage;
-    await runOcr(currentPage, totalPages, workingCopyPath);
-    await nextTick();
-
-    const agentSnapshot = createAgentOcrSnapshot();
-    if (hasResults.value) {
-        return {
-            ok: true,
-            ...(effectiveError.value ? { warning: effectiveError.value } : {}),
-            ocr: agentSnapshot,
-        };
-    }
-
-    return {
-        ok: false,
-        error: effectiveError.value ?? t('errors.ocr.incomplete'),
-        ocr: agentSnapshot,
-    };
-}
-
-function handleCancel() {
-    activeOcrSourcePath.value = null;
-    activeOcrSourcePage.value = null;
-    void cancelOcr();
-}
-
-async function cancelOcrForAgent() {
-    activeOcrSourcePath.value = null;
-    activeOcrSourcePage.value = null;
-    const cancelResult = await cancelOcr();
-    return {
-        ok: cancelResult.canceled,
-        cancel: cancelResult,
-        ...(cancelResult.canceled ? {} : {error: cancelResult.error ?? t('errors.ocr.cancel')}),
-        ocr: createAgentOcrSnapshot(),
-    };
-}
-
-function handleExportDocx() {
-    emit('export-docx', getExportLanguages());
-}
-
-function handleCloseResults() {
-    resetCompletedOcrState();
-    isOpen.value = false;
-}
-
-function resetCompletedOcrState() {
-    activeOcrSourcePath.value = null;
-    activeOcrSourcePage.value = null;
-    pendingAppliedOcrRequestId.value = null;
-    clearResults();
-    clearRunSettingsHistory();
-}
-
-watch(() => workingCopyPath, (nextPath, previousPath) => {
-    if (nextPath === previousPath) {
-        return;
-    }
-    if (progress.value.isRunning) {
-        void cancelOcr();
-    }
-    resetCompletedOcrState();
-});
-
-watch(() => pdfDocument, (nextDocument, previousDocument) => {
-    if (
-        !nextDocument
-        || nextDocument === previousDocument
-        || pendingAppliedOcrRequestId.value === null
-        || progress.value.isRunning
-    ) {
-        return;
-    }
-
-    resetCompletedOcrState();
-});
-
-watch(() => results.value.searchablePdfResult, (searchablePdfResult) => {
-    const sourceWorkingCopyPath = activeOcrSourcePath.value;
-    const sourcePageToRestore = activeOcrSourcePage.value ?? currentPage;
-    if (searchablePdfResult && sourceWorkingCopyPath) {
-        showSuccessState.value = true;
-        stopSuccessStateReset();
-        startSuccessStateReset();
-        pendingAppliedOcrRequestId.value = searchablePdfResult.requestId;
-        emit('ocrComplete', {
-            ...searchablePdfResult,
-            sourceWorkingCopyPath,
-            sourcePageToRestore,
-        });
-        activeOcrSourcePath.value = null;
-        activeOcrSourcePage.value = null;
-    }
-});
-
 defineExpose<IOcrPopupAgentExpose>({
     runOcrForAgent,
     cancelOcrForAgent,
-    getAgentOcrSnapshot: createAgentOcrSnapshot,
+    getAgentOcrSnapshot,
 });
 </script>
 

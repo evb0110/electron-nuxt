@@ -6,7 +6,6 @@ import {
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
 import { ref } from 'vue';
-import type { IElectronAPI } from '@contracts/electronApi';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
 import { cast } from '@tests/helpers/cast';
@@ -51,7 +50,7 @@ function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBinding
     });
 }
 
-function createElectronApi() {
+function createMenuApi(options: { legacyDocumentsMenu?: boolean } = {}) {
     let onMenuOpenPdf: (() => void) | null = null;
     let onMenuRepairSave: (() => void) | null = null;
     let onMenuOptimizePdfForInteraction: (() => void) | null = null;
@@ -60,7 +59,7 @@ function createElectronApi() {
     let onMenuOpenExternalPaths: ((paths: string[]) => void) | null = null;
     let onMenuOpenRecentFile: ((path: string) => void) | null = null;
 
-    const api = cast<IElectronAPI>({documents: {
+    const menuApi = {
         onMenuOpenPdf: vi.fn((callback: () => void) => {
             onMenuOpenPdf = callback;
             return () => {
@@ -103,7 +102,22 @@ function createElectronApi() {
                 onMenuOpenRecentFile = null;
             };
         }),
-    }});
+    };
+    const api = cast<Parameters<typeof registerTabsMenuBindings>[0]>(options.legacyDocumentsMenu
+        ? {
+            documents: menuApi,
+            settings: {},
+            updates: {},
+            djvu: {},
+            windowTabs: {},
+        }
+        : {
+            documentMenu: menuApi,
+            settings: {},
+            updates: {},
+            djvu: {},
+            windowTabs: {},
+        });
 
     return {
         api,
@@ -135,22 +149,34 @@ describe('registerTabsMenuBindings', () => {
     it('routes menu open-file through the placeholder-aware fallback handler', async () => {
         const handleFallbackToolbarOpenFile = vi.fn(async () => {});
         const deps = createDeps({ handleFallbackToolbarOpenFile });
-        const electronApi = createElectronApi();
+        const menuApi = createMenuApi();
 
-        registerTabsMenuBindings(electronApi.api, deps);
-        electronApi.emitOpenPdf();
+        registerTabsMenuBindings(menuApi.api, deps);
+        menuApi.emitOpenPdf();
         await flushMicrotasks();
 
         expect(handleFallbackToolbarOpenFile).toHaveBeenCalledTimes(1);
     });
 
+    it('does not fall back to legacy aggregate documents menu callbacks', async () => {
+        const handleFallbackToolbarOpenFile = vi.fn(async () => {});
+        const deps = createDeps({ handleFallbackToolbarOpenFile });
+        const menuApi = createMenuApi({ legacyDocumentsMenu: true });
+
+        registerTabsMenuBindings(menuApi.api, deps);
+        menuApi.emitOpenPdf();
+        await flushMicrotasks();
+
+        expect(handleFallbackToolbarOpenFile).not.toHaveBeenCalled();
+    });
+
     it('routes the repair-save menu command to the active workspace', async () => {
         const handleRepairSave = vi.fn(async () => {});
         const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(cast<IWorkspaceExpose>({handleRepairSave}))});
-        const electronApi = createElectronApi();
+        const menuApi = createMenuApi();
 
-        registerTabsMenuBindings(electronApi.api, deps);
-        electronApi.emitRepairSave();
+        registerTabsMenuBindings(menuApi.api, deps);
+        menuApi.emitRepairSave();
         await flushMicrotasks();
 
         expect(handleRepairSave).toHaveBeenCalledTimes(1);
@@ -161,10 +187,10 @@ describe('registerTabsMenuBindings', () => {
         const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(
             cast<IWorkspaceExpose>({handleOptimizePdfForInteraction}),
         )});
-        const electronApi = createElectronApi();
+        const menuApi = createMenuApi();
 
-        registerTabsMenuBindings(electronApi.api, deps);
-        electronApi.emitOptimizePdfForInteraction();
+        registerTabsMenuBindings(menuApi.api, deps);
+        menuApi.emitOptimizePdfForInteraction();
         await flushMicrotasks();
 
         expect(handleOptimizePdfForInteraction).toHaveBeenCalledTimes(1);
@@ -173,10 +199,10 @@ describe('registerTabsMenuBindings', () => {
     it('routes the menu print command to the active workspace', async () => {
         const handlePrint = vi.fn(async () => {});
         const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(cast<IWorkspaceExpose>({handlePrint}))});
-        const electronApi = createElectronApi();
+        const menuApi = createMenuApi();
 
-        registerTabsMenuBindings(electronApi.api, deps);
-        electronApi.emitPrint();
+        registerTabsMenuBindings(menuApi.api, deps);
+        menuApi.emitPrint();
         await flushMicrotasks();
 
         expect(handlePrint).toHaveBeenCalledTimes(1);
@@ -185,10 +211,10 @@ describe('registerTabsMenuBindings', () => {
     it('routes the menu print current page command to the active workspace', async () => {
         const handlePrintCurrentPage = vi.fn(async () => {});
         const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(cast<IWorkspaceExpose>({handlePrintCurrentPage}))});
-        const electronApi = createElectronApi();
+        const menuApi = createMenuApi();
 
-        registerTabsMenuBindings(electronApi.api, deps);
-        electronApi.emitPrintCurrentPage();
+        registerTabsMenuBindings(menuApi.api, deps);
+        menuApi.emitPrintCurrentPage();
         await flushMicrotasks();
 
         expect(handlePrintCurrentPage).toHaveBeenCalledTimes(1);
@@ -202,12 +228,12 @@ describe('registerTabsMenuBindings', () => {
             .mockImplementationOnce(async () => firstOpen.promise)
             .mockImplementationOnce(async () => secondOpen.promise);
         const deps = createDeps({ openPathsInAppropriateTab });
-        const electronApi = createElectronApi();
+        const menuApi = createMenuApi();
 
-        registerTabsMenuBindings(electronApi.api, deps);
+        registerTabsMenuBindings(menuApi.api, deps);
 
-        electronApi.emitExternalPaths(['/docs/first.pdf']);
-        electronApi.emitExternalPaths(['/docs/second.pdf']);
+        menuApi.emitExternalPaths(['/docs/first.pdf']);
+        menuApi.emitExternalPaths(['/docs/second.pdf']);
         await flushMicrotasks();
 
         expect(openPathsInAppropriateTab).toHaveBeenCalledTimes(1);
@@ -229,13 +255,13 @@ describe('registerTabsMenuBindings', () => {
             .mockRejectedValueOnce(new Error('boom'))
             .mockResolvedValueOnce(true);
         const deps = createDeps({ openPathInAppropriateTab });
-        const electronApi = createElectronApi();
+        const menuApi = createMenuApi();
 
-        registerTabsMenuBindings(electronApi.api, deps);
+        registerTabsMenuBindings(menuApi.api, deps);
 
-        electronApi.emitRecentFile('/docs/first.pdf');
+        menuApi.emitRecentFile('/docs/first.pdf');
         await flushMicrotasks();
-        electronApi.emitRecentFile('/docs/second.pdf');
+        menuApi.emitRecentFile('/docs/second.pdf');
         await flushMicrotasks();
 
         expect(openPathInAppropriateTab).toHaveBeenCalledTimes(2);

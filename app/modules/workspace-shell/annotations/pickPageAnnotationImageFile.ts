@@ -1,5 +1,9 @@
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import {
+    getDocumentFilesCapability,
+    getDocumentPickerCapability,
+    getDocumentWorkingCopyCapability,
+} from '@app/utils/platformDocuments';
 
 function mimeTypeFromPath(path: string) {
     const normalized = path.toLowerCase();
@@ -57,14 +61,13 @@ function extensionForMimeType(mimeType: string) {
 }
 
 export async function pickPageAnnotationImageFile() {
-    const documents = getDocumentsCapability();
-    const imagePath = await documents.openImageDialog();
+    const imagePath = await getDocumentPickerCapability().openImageDialog();
     if (!imagePath) {
         return null;
     }
 
     try {
-        const bytes = await documents.readFile(imagePath);
+        const bytes = await getDocumentFilesCapability().readFile(imagePath);
         const fileBytes = Uint8Array.from(bytes);
         const mimeType = mimeTypeFromPath(imagePath);
         const fileName = imagePath.split(/[\\/]/).pop() ?? `image.${extensionForMimeType(mimeType)}`;
@@ -73,8 +76,8 @@ export async function pickPageAnnotationImageFile() {
             lastModified: Date.now(),
         });
     } finally {
-        if (typeof documents.cleanupFile === 'function' && isBrowserDocumentRef(imagePath)) {
-            await documents.cleanupFile(imagePath).catch(() => {});
+        if (isBrowserDocumentRef(imagePath)) {
+            await getDocumentWorkingCopyCapability().cleanupFile(imagePath).catch(() => {});
         }
     }
 }

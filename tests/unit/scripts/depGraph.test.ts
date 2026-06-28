@@ -278,29 +278,156 @@ describe('dependency graph', () => {
     });
 
     it('keeps the aggregate platform API limited to composition points', () => {
-        expect(checkArchitectureBoundaryEdge({
-            source: 'app/modules/workspace-shell/composables/usePdfFile.ts',
-            target: 'packages/contracts/platformApi.ts',
-            specifier: '@contracts/platformApi',
-        })).toEqual([{
+        const aggregatePlatformApiViolation = (source: string) => [{
             rule: 'platform-api-aggregate-import',
-            source: 'app/modules/workspace-shell/composables/usePdfFile.ts',
+            source,
             target: 'packages/contracts/platformApi.ts',
             specifier: '@contracts/platformApi',
             message: 'Import narrow platform capability contracts instead of the aggregate IPlatformApi contract.',
-        }]);
+        }];
 
         expect(checkArchitectureBoundaryEdge({
-            source: 'app/platform/browserPlatformPathDescriptors.ts',
+            source: 'app/modules/workspace-shell/composables/usePdfFile.ts',
             target: 'packages/contracts/platformApi.ts',
             specifier: '@contracts/platformApi',
-        })).toEqual([]);
+        })).toEqual(aggregatePlatformApiViolation('app/modules/workspace-shell/composables/usePdfFile.ts'));
 
         expect(checkArchitectureBoundaryEdge({
-            source: 'app/utils/platform.ts',
+            source: 'app/utils/getViewerHostApi.ts',
             target: 'packages/contracts/platformApi.ts',
             specifier: '@contracts/platformApi',
-        })).toEqual([]);
+        })).toEqual(aggregatePlatformApiViolation('app/utils/getViewerHostApi.ts'));
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'app/modules/workspace-shell/menu/registerTabsMenuBindings.ts',
+            target: 'packages/contracts/platformApi.ts',
+            specifier: '@contracts/platformApi',
+        })).toEqual(aggregatePlatformApiViolation('app/modules/workspace-shell/menu/registerTabsMenuBindings.ts'));
+
+        for (const source of [
+            'app/platform/browserPlatformPathDescriptors.ts',
+            'app/platform/browserPlatformApi.ts',
+            'app/platform/lazyBrowserPlatformApi.ts',
+            'app/types/electron.d.ts',
+            'app/utils/platform.ts',
+            'packages/contracts/electronApi.ts',
+            'packages/contracts/index.ts',
+        ]) {
+            expect(checkArchitectureBoundaryEdge({
+                source,
+                target: 'packages/contracts/platformApi.ts',
+                specifier: '@contracts/platformApi',
+            })).toEqual([]);
+        }
+    });
+
+    it('blocks app production calls to the aggregate platform runtime getter', () => {
+        const runtimeGetterViolation = (source: string) => [{
+            rule: 'platform-api-runtime-getter',
+            source,
+            target: 'app/utils/platform.ts',
+            specifier: '@app/utils/platform#getPlatformAPI',
+            message: 'App code must use a narrow platform capability getter instead of calling getPlatformAPI() directly.',
+        }];
+
+        expect(checkArchitectureBoundarySource(
+            'app/modules/workspace-shell/composables/usePlatformEscape.ts',
+            'import { getPlatformAPI } from \'@app/utils/platform\';\nexport function readShell() {\n    return getPlatformAPI().shell;\n}\n',
+        )).toEqual(runtimeGetterViolation('app/modules/workspace-shell/composables/usePlatformEscape.ts'));
+
+        expect(checkArchitectureBoundarySource(
+            'app/utils/getAgentCapability.ts',
+            'import { getPlatformAPI } from \'@app/utils/platform\';\nexport function getAgentCapability() {\n    return getPlatformAPI().agent;\n}\n',
+        )).toEqual([]);
+
+        expect(checkArchitectureBoundarySource(
+            'app/modules/workspace-shell/composables/usePlatformText.ts',
+            'import { getPlatformAPI } from \'@app/utils/platform\';\nconst label = \'getPlatformAPI()\';\n// getPlatformAPI()\nexport const getterName = getPlatformAPI.name;\n',
+        )).toEqual([]);
+
+        expect(checkArchitectureBoundarySource(
+            'app/utils/platform.ts',
+            'export function getPlatformAPI() {\n    return window.electronAPI;\n}\n',
+        )).toEqual([]);
+    });
+
+    it('blocks production imports of compatibility policy from contracts', () => {
+        const policyViolation = (source: string, target: string, specifier: string) => [{
+            rule: 'contract-compat-policy-import',
+            source,
+            target,
+            specifier,
+            message: 'Production app/electron code must import moved search and native PDF policy from @pdf-core or the owning Electron feature, not contract compatibility modules.',
+        }];
+
+        expect(checkArchitectureBoundarySource(
+            'app/platform/browser-api/createBrowserSearchCapability.ts',
+            'import { buildPdfSearchRegex } from \'@contracts/search\';\nexport const regex = buildPdfSearchRegex;\n',
+        )).toEqual(policyViolation(
+            'app/platform/browser-api/createBrowserSearchCapability.ts',
+            '@contracts/search',
+            'buildPdfSearchRegex',
+        ));
+
+        expect(checkArchitectureBoundarySource(
+            'electron/features/documents/createDocumentsPreloadFileClient.ts',
+            'import { normalizePdfNativeMutationSet } from \'@contracts/nativePdfMutations\';\nexport const normalize = normalizePdfNativeMutationSet;\n',
+        )).toEqual(policyViolation(
+            'electron/features/documents/createDocumentsPreloadFileClient.ts',
+            '@contracts/nativePdfMutations',
+            'normalizePdfNativeMutationSet',
+        ));
+
+        expect(checkArchitectureBoundarySource(
+            'electron/features/search/main/ipc.ts',
+            'import { normalizePdfSearchRequestPayload } from \'@contracts\';\nexport const normalize = normalizePdfSearchRequestPayload;\n',
+        )).toEqual(policyViolation(
+            'electron/features/search/main/ipc.ts',
+            '@contracts',
+            'normalizePdfSearchRequestPayload',
+        ));
+
+        expect(checkArchitectureBoundarySource(
+            'electron/features/search/main/ipc.ts',
+            'import * as searchContracts from \'@contracts/search\';\nexport const normalize = searchContracts.normalizePdfSearchRequestPayload;\n',
+        )).toEqual(policyViolation(
+            'electron/features/search/main/ipc.ts',
+            '@contracts/search',
+            '*',
+        ));
+
+        expect(checkArchitectureBoundarySource(
+            'app/platform/browser-api/public.ts',
+            'export { buildPdfSearchRegex } from \'@contracts/search\';\n',
+        )).toEqual(policyViolation(
+            'app/platform/browser-api/public.ts',
+            '@contracts/search',
+            'buildPdfSearchRegex',
+        ));
+
+        expect(checkArchitectureBoundarySource(
+            'app/platform/browser-api/public.ts',
+            'export * from \'@contracts/nativePdfMutations\';\n',
+        )).toEqual(policyViolation(
+            'app/platform/browser-api/public.ts',
+            '@contracts/nativePdfMutations',
+            '*',
+        ));
+
+        expect(checkArchitectureBoundarySource(
+            'app/modules/pdf-viewer/components/PdfSearchBar.vue',
+            '<script setup lang="ts">\nimport type { IResolvedSearchMatchOptions } from \'@contracts/search\';\nconst options = {} as IResolvedSearchMatchOptions;\n</script>\n',
+        )).toEqual([]);
+
+        expect(checkArchitectureBoundarySource(
+            'tests/unit/contracts/search.test.ts',
+            'import { findPdfSearchMatches } from \'@contracts/search\';\nexpect(findPdfSearchMatches).toBeDefined();\n',
+        )).toEqual([]);
+
+        expect(checkArchitectureBoundarySource(
+            'packages/contracts/index.ts',
+            'export { normalizePdfNativeMutationSet } from \'@contracts/nativePdfMutations\';\n',
+        )).toEqual([]);
     });
 
     it('blocks PDF viewer engine imports back to runtime module layers', () => {
@@ -376,36 +503,121 @@ describe('dependency graph', () => {
         }]);
     });
 
+    it('locks Finding 7 native-tool ownership boundaries', () => {
+        expect(checkArchitectureBoundaryEdge({
+            source: 'electron/native-tools/resolveNativeToolsBase.ts',
+            target: 'electron/ocr/resolveOcrResourcesBase.ts',
+            specifier: '@electron/ocr/resolveOcrResourcesBase',
+        })).toEqual([{
+            rule: 'native-tools-domain-import',
+            source: 'electron/native-tools/resolveNativeToolsBase.ts',
+            target: 'electron/ocr/resolveOcrResourcesBase.ts',
+            specifier: '@electron/ocr/resolveOcrResourcesBase',
+            message: 'Generic native-tool code must not import OCR, PDF, or DjVu domain modules.',
+        }]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'electron/native-tools/getNativeToolPaths.ts',
+            target: 'electron/pdf/nativeToolPaths.ts',
+            specifier: '@electron/pdf/nativeToolPaths',
+        })).toEqual([{
+            rule: 'native-tools-domain-import',
+            source: 'electron/native-tools/getNativeToolPaths.ts',
+            target: 'electron/pdf/nativeToolPaths.ts',
+            specifier: '@electron/pdf/nativeToolPaths',
+            message: 'Generic native-tool code must not import OCR, PDF, or DjVu domain modules.',
+        }]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'electron/search/extractTextFromPdf.ts',
+            target: 'electron/native-tools/getNativeToolPaths.ts',
+            specifier: '@electron/native-tools/getNativeToolPaths',
+        })).toEqual([{
+            rule: 'native-tool-compat-aggregate-import',
+            source: 'electron/search/extractTextFromPdf.ts',
+            target: 'electron/native-tools/getNativeToolPaths.ts',
+            specifier: '@electron/native-tools/getNativeToolPaths',
+            message: 'Electron runtime code must import domain-owned native-tool path boundaries instead of the broad compatibility aggregate.',
+        }]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'electron/features/image-export/main/export.ts',
+            target: 'electron/ocr/worker/dpiDetection.ts',
+            specifier: '@electron/ocr/worker/dpiDetection',
+        })).toEqual([{
+            rule: 'ocr-native-tool-boundary-import',
+            source: 'electron/features/image-export/main/export.ts',
+            target: 'electron/ocr/worker/dpiDetection.ts',
+            specifier: '@electron/ocr/worker/dpiDetection',
+            message: 'Non-OCR Electron code must not import OCR-owned native-tool, resource, or DPI helpers.',
+        }]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'electron/features/ocr/main/ocrOperations.ts',
+            target: 'electron/ocr/paths.ts',
+            specifier: '@electron/ocr/paths',
+        })).toEqual([]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'electron/features/image-export/main/export.ts',
+            target: 'electron/image/imageDpi.ts',
+            specifier: '@electron/image/imageDpi',
+        })).toEqual([]);
+
+        expect(checkArchitectureBoundaryEdge({
+            source: 'tests/unit/electron/nativeToolPathResolution.test.ts',
+            target: 'electron/native-tools/getNativeToolPaths.ts',
+            specifier: '@electron/native-tools/getNativeToolPaths',
+        })).toEqual([]);
+    });
+
+    it('keeps current Electron native-tool ownership imports clean', async () => {
+        const graph = await buildDependencyGraph({
+            projectRoot: process.cwd(),
+            roots: ['electron'],
+        });
+        const nativeToolOwnershipRules = new Set([
+            'native-tools-domain-import',
+            'native-tool-compat-aggregate-import',
+            'ocr-native-tool-boundary-import',
+        ]);
+        const violations = graph.edges
+            .flatMap(checkArchitectureBoundaryEdge)
+            .filter((violation: { rule: string }) => nativeToolOwnershipRules.has(violation.rule));
+
+        expect(violations).toEqual([]);
+    });
+
     it('blocks direct PDF.js annotationStorage dirty-state access outside the save bridge', () => {
         expect(checkArchitectureBoundarySource(
-            'app/modules/workspace-shell/composables/useFileOperations.ts',
+            'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts',
             'pdfDocument.value?.annotationStorage?.resetModified();',
         )).toEqual([{
             rule: 'annotation-storage-private-access',
-            source: 'app/modules/workspace-shell/composables/useFileOperations.ts',
-            target: 'app/modules/workspace-shell/composables/useFileOperations.ts',
+            source: 'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts',
+            target: 'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts',
             specifier: 'source',
             message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
         }]);
 
         expect(checkArchitectureBoundarySource(
-            'app/modules/workspace-shell/composables/useFileOperations.ts',
+            'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts',
             'const storage = document.annotationStorage;\nreturn storage?.serializable;',
         )).toEqual([{
             rule: 'annotation-storage-private-access',
-            source: 'app/modules/workspace-shell/composables/useFileOperations.ts',
-            target: 'app/modules/workspace-shell/composables/useFileOperations.ts',
+            source: 'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts',
+            target: 'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts',
             specifier: 'source',
             message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
         }]);
 
         expect(checkArchitectureBoundarySource(
-            'app/modules/workspace-shell/composables/useFileOperations.ts',
+            'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts',
             'const annotationStorage = document.annotationStorage;\nreturn annotationStorage["modifiedIds"];',
         )).toEqual([{
             rule: 'annotation-storage-private-access',
-            source: 'app/modules/workspace-shell/composables/useFileOperations.ts',
-            target: 'app/modules/workspace-shell/composables/useFileOperations.ts',
+            source: 'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts',
+            target: 'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts',
             specifier: 'source',
             message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
         }]);
@@ -469,12 +681,12 @@ describe('dependency graph', () => {
         }]);
 
         expect(checkAnnotationDependencyEdge({
-            source: 'app/modules/workspace-shell/composables/useFileOperations.ts',
+            source: 'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts',
             target: 'app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan.ts',
             specifier: '@app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan',
         })).toEqual([{
             rule: 'annotation-save-public-entrypoint',
-            source: 'app/modules/workspace-shell/composables/useFileOperations.ts',
+            source: 'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts',
             target: 'app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan.ts',
             specifier: '@app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan',
             message: 'Annotation save internals must be consumed through app/modules/pdf-viewer/public.',

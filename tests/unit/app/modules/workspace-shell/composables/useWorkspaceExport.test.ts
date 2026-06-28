@@ -38,7 +38,7 @@ const onProgressMock = vi.hoisted(() => vi.fn((callback: (progress: {
         progressListeners.delete(callback);
     };
 }));
-const mockDocumentsCapability = {cleanupFile: cleanupFileMock};
+const mockDocumentWorkingCopyCapability = {cleanupFile: cleanupFileMock};
 const mockImageExportCapability = {
     exportPdfToImages: exportImagesMock,
     exportPdfToMultiPageTiff: exportTiffMock,
@@ -46,7 +46,10 @@ const mockImageExportCapability = {
 };
 
 vi.mock('@app/utils/platformDocuments', () => ({
-    getDocumentsCapability: () => mockDocumentsCapability,
+    getDocumentsCapability: () => {
+        throw new Error('Legacy documents facade should not be used for workspace export cleanup');
+    },
+    getDocumentWorkingCopyCapability: () => mockDocumentWorkingCopyCapability,
     getImageExportCapability: () => mockImageExportCapability,
 }));
 vi.mock('@app/composables/useAnalytics', () => ({useAnalytics: () => ({track: trackMock})}));

@@ -150,7 +150,7 @@ function createNativePlacedImage() {
 
 describe('handleNativeNoteTextSave', () => {
     let tempRoot = '';
-    const event = {sender: {id: 42}} as Electron.IpcMainInvokeEvent;
+    const context = {senderId: 42};
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -204,7 +204,7 @@ describe('handleNativeNoteTextSave', () => {
         });
         const { handleNativeNoteTextSave } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
-        const result = await handleNativeNoteTextSave(event, requestedWorkingPath, [{
+        const result = await handleNativeNoteTextSave(context, requestedWorkingPath, [{
             objectNumber: 42,
             generationNumber: 0,
             text: 'Updated note',
@@ -254,7 +254,7 @@ describe('handleNativeNoteTextSave', () => {
         });
         const { handleNativeNoteTextSave } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
-        const result = await handleNativeNoteTextSave(event, requestedWorkingPath, [{
+        const result = await handleNativeNoteTextSave(context, requestedWorkingPath, [{
             objectNumber: 42,
             generationNumber: 0,
             text: 'Updated note',
@@ -322,7 +322,7 @@ describe('handleNativeNoteTextSave', () => {
             },
         }];
         const result = await handleNativeNoteChangesSave(
-            event,
+            context,
             requestedWorkingPath,
             {
                 updates: [],
@@ -445,7 +445,7 @@ describe('handleNativeNoteTextSave', () => {
         const { handleNativePdfMutationsSave } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
         const result = await handleNativePdfMutationsSave(
-            event,
+            context,
             requestedWorkingPath,
             {
                 pageLabels: {
@@ -557,7 +557,7 @@ describe('handleNativeNoteTextSave', () => {
         const blockingMutation = enqueueWorkingCopyMutation(latestWorkingPath, () => blockedLatestMutation.promise);
         const { handleNativeNoteTextSave } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
-        const savePromise = handleNativeNoteTextSave(event, requestedWorkingPath, [{
+        const savePromise = handleNativeNoteTextSave(context, requestedWorkingPath, [{
             objectNumber: 42,
             generationNumber: 0,
             text: 'Updated note',
@@ -592,7 +592,7 @@ describe('handleNativeNoteTextSave', () => {
         });
         const { handleNativeNoteTextSave } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
-        const result = await handleNativeNoteTextSave(event, requestedWorkingPath, [{
+        const result = await handleNativeNoteTextSave(context, requestedWorkingPath, [{
             objectNumber: 42,
             generationNumber: 0,
             text: 'Updated note',
@@ -623,7 +623,7 @@ describe('handleNativeNoteTextSave', () => {
         const { handleNativePdfMutationsApplyToWorkingCopy } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
         const savePromise = handleNativePdfMutationsApplyToWorkingCopy(
-            event,
+            context,
             workingPath,
             {placedImages: [{
                 pageIndex: 0,
@@ -667,7 +667,7 @@ describe('handleNativeNoteTextSave', () => {
         const modifiedAt = 'D:20260609133855+03\'00\'';
 
         await expect(handleNativeNoteChangesSave(
-            event,
+            context,
             workingPath,
             {freeTextNotes: Array.from(
                 {length: PDF_NATIVE_MUTATION_LIMITS.noteChanges + 1},
@@ -677,7 +677,7 @@ describe('handleNativeNoteTextSave', () => {
         )).rejects.toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.noteChanges} notes`);
 
         await expect(handleNativePdfMutationsSave(
-            event,
+            context,
             workingPath,
             {pageLabels: {
                 totalPages: 3,
@@ -692,7 +692,7 @@ describe('handleNativeNoteTextSave', () => {
         )).rejects.toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges} ranges`);
 
         await expect(handleNativePdfMutationsSave(
-            event,
+            context,
             workingPath,
             {bookmarks: {
                 totalPages: 3,
@@ -703,7 +703,7 @@ describe('handleNativeNoteTextSave', () => {
         )).rejects.toThrow('maximum bookmark depth');
 
         await expect(handleNativePdfMutationsSave(
-            event,
+            context,
             workingPath,
             {shapes: {
                 totalPages: 3,
@@ -722,7 +722,7 @@ describe('handleNativeNoteTextSave', () => {
         )).rejects.toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.shapePoints} points`);
 
         await expect(handleNativePdfMutationsSave(
-            event,
+            context,
             workingPath,
             {markup: {
                 overrides: Array.from({length: PDF_NATIVE_MUTATION_LIMITS.markupItems + 1}, (_, index) => [
@@ -735,7 +735,7 @@ describe('handleNativeNoteTextSave', () => {
         )).rejects.toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.markupItems} items`);
 
         await expect(handleNativePdfMutationsApplyToWorkingCopy(
-            event,
+            context,
             workingPath,
             {placedImages: Array.from(
                 {length: PDF_NATIVE_MUTATION_LIMITS.placedImages + 1},
@@ -749,7 +749,7 @@ describe('handleNativeNoteTextSave', () => {
         )).rejects.toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.placedImages} images`);
 
         await expect(handleNativePdfMutationsApplyToWorkingCopy(
-            event,
+            context,
             workingPath,
             {placedImages: [createNativePlacedImage()]},
             modifiedAt,
@@ -766,7 +766,7 @@ describe('handleNativeNoteTextSave', () => {
         const { handleNativePdfMutationsApplyToWorkingCopy } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
 
         await expect(handleNativePdfMutationsApplyToWorkingCopy(
-            event,
+            context,
             join(tempRoot, 'working.pdf'),
             {placedImages: [{
                 pageIndex: 0,

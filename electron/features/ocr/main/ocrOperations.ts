@@ -1,11 +1,4 @@
-import type {
-    IpcMainInvokeEvent,
-    WebContents,
-} from 'electron';
-import {
-    BrowserWindow,
-    ipcMain,
-} from 'electron';
+import type { WebContents } from 'electron';
 import { extname } from 'path';
 import type {
     IOcrCancelResult,
@@ -15,10 +8,7 @@ import type {
     IOcrRecognizeResult,
     IOcrToolValidationResult,
 } from '@contracts/electronApiOcr';
-import {
-    OCR_CHANNELS,
-    OCR_EVENT_CHANNELS,
-} from '@electron/features/ocr/contract';
+import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 import {AVAILABLE_OCR_LANGUAGES} from '@electron/ocr/availableLanguages';
 import {
     buildOcrErrorEnvelope,
@@ -40,10 +30,6 @@ import {
     getOcrToolPaths,
     validateOcrTools,
 } from '@electron/ocr/paths';
-import {
-    handlePreprocessingValidate,
-    handlePreprocessPage,
-} from '@electron/ocr/preprocessingHandlers';
 import { runOcr } from '@electron/ocr/runOcr';
 import { createLogger } from '@electron/utils/createLogger';
 import {
@@ -61,7 +47,7 @@ import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import { requireManagedWorkingCopyPath } from '@electron/file-access/workingCopyCreation';
 import { getErrorMessage } from '@electron/utils/error';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
-import type { TOcrIpcMainRegistrar } from '@electron/features/ocr/ports';
+import type { IOcrOperationContext } from '@electron/features/ocr/ports';
 
 const log = createLogger('ocr-ipc');
 
@@ -171,8 +157,36 @@ class PlainOcrLimiter {
 const plainOcrLimiter = new PlainOcrLimiter();
 const plainOcrBatchControllers = new Map<string, AbortController>();
 
+type TOcrJobManagerContext = Parameters<typeof handleOcrCreateSearchablePdfAsync>[0];
+
 function toScopedPlainOcrBatchId(senderId: number, requestId: string) {
     return `${senderId}:${requestId}`;
+}
+
+function createOcrJobManagerContext(context: IOcrOperationContext): TOcrJobManagerContext {
+    const {sender} = context;
+    return {
+        senderId: context.senderId,
+        sender: {
+            isDestroyed: () => sender.isDestroyed(),
+            once: (event, listener) => {
+                if (event === 'destroyed') {
+                    return sender.once('destroyed', listener);
+                }
+                return sender.once('render-process-gone', listener);
+            },
+            on: (event, listener) => sender.on(event, listener),
+            removeListener: (event, listener) => {
+                if (event === 'destroyed') {
+                    return sender.removeListener('destroyed', listener as () => void);
+                }
+                if (event === 'render-process-gone') {
+                    return sender.removeListener('render-process-gone', listener as () => void);
+                }
+                return sender.removeListener('did-start-navigation', listener);
+            },
+        },
+    };
 }
 
 function toPlainOcrErrorEnvelope(error: unknown): IOcrErrorEnvelope {
@@ -225,12 +239,12 @@ function createSenderAbortSignal(sender: WebContents) {
     };
 }
 
-async function handleOcrRecognize(
-    event: IpcMainInvokeEvent,
+export async function handleOcrRecognize(
+    context: IOcrOperationContext,
     requestPayload: unknown,
 ): Promise<IOcrRecognizeResult> {
     let pageNumber = 0;
-    const senderAbort = createSenderAbortSignal(event.sender);
+    const senderAbort = createSenderAbortSignal(context.sender);
 
     try {
         const request = validateRecognizeRequest(requestPayload);
@@ -269,12 +283,12 @@ async function handleOcrRecognize(
     }
 }
 
-async function handleOcrRecognizeBatch(
-    event: IpcMainInvokeEvent,
+export async function handleOcrRecognizeBatch(
+    context: IOcrOperationContext,
     pagesPayload: unknown,
     requestIdPayload: unknown,
 ) {
-    const senderAbort = createSenderAbortSignal(event.sender);
+    const senderAbort = createSenderAbortSignal(context.sender);
     let scopedBatchId: string | null = null;
     let registeredBatchController = false;
 
@@ -283,21 +297,21 @@ async function handleOcrRecognizeBatch(
             pages,
             requestId,
         } = validateRecognizeBatchPayload(pagesPayload, requestIdPayload);
-        scopedBatchId = toScopedPlainOcrBatchId(event.sender.id, requestId);
+        scopedBatchId = toScopedPlainOcrBatchId(context.senderId, requestId);
         if (plainOcrBatchControllers.has(scopedBatchId)) {
             throw new PlainOcrBackpressureError(`OCR batch with id "${requestId}" already exists`);
         }
         plainOcrBatchControllers.set(scopedBatchId, senderAbort.controller);
         registeredBatchController = true;
         const targetPages = pages;
-        const window = BrowserWindow.fromWebContents(event.sender);
+        const window = context.parentWindow;
         const results: Record<number, string> = {};
         const errors: string[] = [];
         let firstErrorEnvelope: IOcrErrorEnvelope | undefined;
         const progressPump = createIpcProgressPump<IOcrProgress>({
             channel: OCR_EVENT_CHANNELS.progress,
             getTarget: () => ({
-                isDestroyed: () => event.sender.isDestroyed(),
+                isDestroyed: () => context.sender.isDestroyed(),
                 send: (channel, payload) => safeSendToWindow(
                     window,
                     channel as typeof OCR_EVENT_CHANNELS.progress,
@@ -395,11 +409,11 @@ async function handleOcrRecognizeBatch(
     }
 }
 
-function handleOcrGetLanguages() {
+export function handleOcrGetLanguages() {
     return AVAILABLE_OCR_LANGUAGES;
 }
 
-async function handleOcrValidateTools() {
+export async function handleOcrValidateTools() {
     try {
         return await validateOcrTools();
     } catch (error) {
@@ -468,8 +482,8 @@ async function validateOcrSourcePdfPath(sourcePdfPath: string, senderWebContents
     return resolvedPath;
 }
 
-async function handleOcrCreateSearchablePdf(
-    event: IpcMainInvokeEvent,
+export async function handleOcrCreateSearchablePdf(
+    context: IOcrOperationContext,
     sourcePdfPathPayload: unknown,
     pagesPayload: unknown,
     requestIdPayload: unknown,
@@ -491,9 +505,10 @@ async function handleOcrCreateSearchablePdf(
         );
 
         jobId = payload.requestId;
-        const validatedSourcePdfPath = await validateOcrSourcePdfPath(payload.sourcePdfPath, event.sender.id);
+        const validatedSourcePdfPath = await validateOcrSourcePdfPath(payload.sourcePdfPath, context.senderId);
+        const jobManagerContext = createOcrJobManagerContext(context);
         const result = await handleOcrCreateSearchablePdfAsync(
-            event,
+            jobManagerContext,
             validatedSourcePdfPath,
             payload.pages,
             payload.requestId,
@@ -528,20 +543,20 @@ async function handleOcrCreateSearchablePdf(
     }
 }
 
-function handleOcrCancelValidated(
-    event: IpcMainInvokeEvent,
+export function handleOcrCancelValidated(
+    context: IOcrOperationContext,
     requestIdPayload: unknown,
 ): IOcrCancelResult {
     try {
         const requestId = validateCancelRequestId(requestIdPayload);
-        const scopedBatchId = toScopedPlainOcrBatchId(event.sender.id, requestId);
+        const scopedBatchId = toScopedPlainOcrBatchId(context.senderId, requestId);
         const plainBatchController = plainOcrBatchControllers.get(scopedBatchId);
         if (plainBatchController) {
             plainBatchController.abort();
             plainOcrBatchControllers.delete(scopedBatchId);
             return { canceled: true };
         }
-        return handleOcrCancel(event, requestId);
+        return handleOcrCancel(createOcrJobManagerContext(context), requestId);
     } catch (error) {
         const envelope = toOcrErrorEnvelope(error);
         log.warn(`ocr:cancel rejected: ${envelope.message}`);
@@ -554,14 +569,14 @@ function handleOcrCancelValidated(
     }
 }
 
-async function handleOcrAcknowledgeResultFileValidated(
-    event: IpcMainInvokeEvent,
+export async function handleOcrAcknowledgeResultFileValidated(
+    context: IOcrOperationContext,
     requestIdPayload: unknown,
     pdfPathPayload?: unknown,
 ) {
     try {
         return await handleOcrAcknowledgeResultFile(
-            event,
+            createOcrJobManagerContext(context),
             requestIdPayload,
             pdfPathPayload,
         );
@@ -574,16 +589,4 @@ async function handleOcrAcknowledgeResultFileValidated(
             errorEnvelope: envelope,
         };
     }
-}
-
-export function registerOcrHandlers(registrar: TOcrIpcMainRegistrar = ipcMain) {
-    registrar.handle(OCR_CHANNELS.recognize, handleOcrRecognize);
-    registrar.handle(OCR_CHANNELS.recognizeBatch, handleOcrRecognizeBatch);
-    registrar.handle(OCR_CHANNELS.createSearchablePdf, handleOcrCreateSearchablePdf);
-    registrar.handle(OCR_CHANNELS.cancel, handleOcrCancelValidated);
-    registrar.handle(OCR_CHANNELS.acknowledgeResultFile, handleOcrAcknowledgeResultFileValidated);
-    registrar.handle(OCR_CHANNELS.getLanguages, handleOcrGetLanguages);
-    registrar.handle(OCR_CHANNELS.validateTools, handleOcrValidateTools);
-    registrar.handle(OCR_CHANNELS.preprocessingValidate, handlePreprocessingValidate);
-    registrar.handle(OCR_CHANNELS.preprocessingPreprocessPage, handlePreprocessPage);
 }

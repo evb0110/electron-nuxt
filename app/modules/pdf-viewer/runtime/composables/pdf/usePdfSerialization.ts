@@ -26,7 +26,7 @@ import {
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { measureDevPerfAsync } from '@app/utils/devPerf';
 import { mergeAnnotationCommentSaveSnapshot } from '@app/modules/pdf-viewer/engine/annotation-comment-save-snapshot/mergeAnnotationCommentSaveSnapshot';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { toPdfDateString } from '@app/utils/pdfDate';
 import { getErrorMessage } from '@app/utils/error';
 
@@ -238,11 +238,11 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     ) {
         const workingPath = workingCopyPath.value;
         const nativeImage = toNativePlacedImagePayload(payload);
-        const documents = getDocumentsCapability();
+        const documentFiles = getDocumentFilesCapability();
         if (
             !workingPath
             || !nativeImage
-            || typeof documents.applyPdfNativeMutationsToWorkingCopy !== 'function'
+            || typeof documentFiles.applyPdfNativeMutationsToWorkingCopy !== 'function'
         ) {
             return null;
         }
@@ -253,7 +253,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                 BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Native placed image mutation skipped because base hashing is unavailable', {pageNumber: payload.pageNumber});
                 return null;
             }
-            const result = await documents.applyPdfNativeMutationsToWorkingCopy(
+            const result = await documentFiles.applyPdfNativeMutationsToWorkingCopy(
                 workingPath,
                 {placedImages: [nativeImage]},
                 toPdfDateString(),

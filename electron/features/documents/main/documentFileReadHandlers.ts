@@ -18,6 +18,7 @@ import {
     resolveReadablePath,
     resolveReadablePathSync,
 } from '@electron/features/documents/main/documentFilePathResolution';
+import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 
 const ALLOWED_READ_EXTENSIONS = new Set([
     '.json',
@@ -183,16 +184,15 @@ export async function clearCachedRangeReadHandlesForTests() {
     );
 }
 
-export async function handleFileRead(event: Electron.IpcMainInvokeEvent, filePath: unknown) {
+export async function handleFileRead(context: IDocumentsSenderIdContext, filePath: unknown) {
     const normalizedPath = normalizeNonEmptyPath(filePath);
     const extension = extname(normalizedPath).toLowerCase();
-    const senderId = event.sender?.id;
 
     if (!isAllowedBinaryReadExtension(extension)) {
         throw new Error('Invalid file type: only PDF and DjVu files are allowed');
     }
 
-    const resolvedPath = await resolveReadablePath(normalizedPath, extension, senderId);
+    const resolvedPath = await resolveReadablePath(normalizedPath, extension, context.senderId);
     if (!resolvedPath) {
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
@@ -207,21 +207,21 @@ export async function handleFileRead(event: Electron.IpcMainInvokeEvent, filePat
 }
 
 export async function handleFileStat(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     filePath: unknown,
 ): Promise<{ size: number }> {
-    const resolvedPath = await resolveExistingReadableBinaryPath(event, filePath);
+    const resolvedPath = await resolveExistingReadableBinaryPath(filePath, context.senderId);
     const s = statSync(resolvedPath);
     return { size: s.size };
 }
 
 export async function handleFileReadRange(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     filePath: unknown,
     offset: unknown,
     length: unknown,
 ) {
-    const resolvedPath = await resolveExistingReadableBinaryPath(event, filePath);
+    const resolvedPath = await resolveExistingReadableBinaryPath(filePath, context.senderId);
     const off = Number(offset);
     const len = Number(length);
     if (
@@ -242,7 +242,7 @@ export async function handleFileReadRange(
 }
 
 export async function handleFileReadText(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     filePath: unknown,
 ) {
     const normalizedPath = normalizeNonEmptyPath(filePath);
@@ -252,7 +252,7 @@ export async function handleFileReadText(
         throw new Error('Invalid file type: only .json, .txt, and .tsv files are allowed');
     }
 
-    const resolvedPath = await resolveReadablePath(normalizedPath, extension, event.sender?.id);
+    const resolvedPath = await resolveReadablePath(normalizedPath, extension, context.senderId);
     if (!resolvedPath) {
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
@@ -267,7 +267,7 @@ export async function handleFileReadText(
 }
 
 export function handleFileExists(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     filePath: unknown,
 ) {
     if (typeof filePath !== 'string') {
@@ -279,7 +279,7 @@ export function handleFileExists(
         return false;
     }
 
-    const resolvedPath = resolveReadablePathSync(normalizedPath, event.sender?.id);
+    const resolvedPath = resolveReadablePathSync(normalizedPath, context.senderId);
     if (!resolvedPath) {
         return false;
     }

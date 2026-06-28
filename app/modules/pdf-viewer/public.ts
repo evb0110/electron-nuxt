@@ -1,6 +1,12 @@
 export type {
     IDocumentViewerExpose,
+    IPdfViewerAnnotationCommandExpose,
+    IPdfViewerAnnotationCommentExpose,
+    IPdfViewerCropExpose,
     IPdfViewerExpose,
+    IPdfViewerRegionCaptureExpose,
+    IPdfViewerSaveExpose,
+    IPdfViewerShapeExpose,
     TAgentTextMarkupKind,
     TPdfSidebarTab,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';

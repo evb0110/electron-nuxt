@@ -1,5 +1,5 @@
 import { join } from 'path';
-import { resolveOcrResourcesBase } from '@electron/ocr/resolveOcrResourcesBase';
+import { resolveNativeResourcesBase } from '@electron/native-tools/resolveNativeResourcesBase';
 
 interface IResolveNativeToolsBaseOptions {
     platform?: NodeJS.Platform;
@@ -11,7 +11,7 @@ export function resolveNativeToolsBase(
     isPackaged: boolean,
     options: IResolveNativeToolsBaseOptions = {},
 ) {
-    const resourcesBase = options.resourcesBase ?? resolveOcrResourcesBase(moduleDir, isPackaged);
+    const resourcesBase = options.resourcesBase ?? resolveNativeResourcesBase(moduleDir, isPackaged);
     const platform = options.platform ?? process.platform;
 
     if (isPackaged && platform === 'darwin') {

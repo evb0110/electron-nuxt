@@ -1,4 +1,3 @@
-import type { IpcMainInvokeEvent } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { webContents } from 'electron';
 import { Worker } from 'worker_threads';
@@ -28,6 +27,10 @@ import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { parsePageNumber } from '@contracts/pageNumbers';
 import { isOcrWord } from '@contracts/shared';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
+import type {
+    ISearchOperationContext,
+    ISearchSenderContext,
+} from '@electron/features/search/searchService';
 
 interface IPendingSearchRequest {
     resolve: (response: ISearchResponse) => void;
@@ -427,12 +430,20 @@ export class SearchWorkerService {
 
     constructor(private readonly resolveWorkerPath: () => string) {}
 
+    private normalizeOperationContext(context: ISearchSenderContext): ISearchOperationContext {
+        return {
+            sender: context.sender,
+            senderId: context.senderId ?? context.sender.id,
+        };
+    }
+
     dispatchSearchRequest(
-        event: IpcMainInvokeEvent,
+        context: ISearchSenderContext,
         payload: IDispatchSearchRequestPayload,
     ): Promise<ISearchResponse> {
-        const senderId = event.sender.id;
-        const state = this.ensureSenderState(event, senderId);
+        const operationContext = this.normalizeOperationContext(context);
+        const senderId = operationContext.senderId;
+        const state = this.ensureSenderState(operationContext);
         const requestId = payload.requestId && payload.requestId.length > 0
             ? payload.requestId
             : `${payload.requestIdPrefix}-${randomUUID()}`;
@@ -507,8 +518,8 @@ export class SearchWorkerService {
         });
     }
 
-    cancel(event: IpcMainInvokeEvent, requestId?: unknown) {
-        const senderId = event.sender.id;
+    cancel(context: ISearchOperationContext, requestId?: unknown) {
+        const senderId = context.senderId;
         const normalizedRequestId = normalizeOptionalIpcRequestId(requestId);
         const state = this.senderSearchStates.get(senderId);
         if (!state) {
@@ -747,7 +758,11 @@ export class SearchWorkerService {
         });
     }
 
-    private registerSenderCleanup(event: IpcMainInvokeEvent, senderId: number) {
+    private registerSenderCleanup(context: ISearchOperationContext) {
+        const {
+            sender,
+            senderId,
+        } = context;
         if (this.registeredSenderCleanup.has(senderId)) {
             return;
         }
@@ -759,9 +774,9 @@ export class SearchWorkerService {
                 reason,
             });
             this.registeredSenderCleanup.delete(senderId);
-            event.sender.removeListener('destroyed', handleDestroyed);
-            event.sender.removeListener('render-process-gone', handleRenderProcessGone);
-            event.sender.removeListener('did-start-navigation', handleNavigation);
+            sender.removeListener('destroyed', handleDestroyed);
+            sender.removeListener('render-process-gone', handleRenderProcessGone);
+            sender.removeListener('did-start-navigation', handleNavigation);
         };
         const handleDestroyed = () => {
             cleanup('Renderer destroyed');
@@ -780,9 +795,9 @@ export class SearchWorkerService {
             }
         };
 
-        event.sender.once('destroyed', handleDestroyed);
-        event.sender.once('render-process-gone', handleRenderProcessGone);
-        event.sender.on('did-start-navigation', handleNavigation);
+        sender.once('destroyed', handleDestroyed);
+        sender.once('render-process-gone', handleRenderProcessGone);
+        sender.on('did-start-navigation', handleNavigation);
     }
 
     private handleWorkerMessage(
@@ -946,8 +961,9 @@ export class SearchWorkerService {
         return minBy(idleStates, state => state.lastActivityAtMs) ?? null;
     }
 
-    private ensureSenderState(event: IpcMainInvokeEvent, senderId: number) {
-        this.registerSenderCleanup(event, senderId);
+    private ensureSenderState(context: ISearchOperationContext) {
+        const senderId = context.senderId;
+        this.registerSenderCleanup(context);
 
         let state = this.senderSearchStates.get(senderId);
         if (state) {

@@ -22,11 +22,11 @@ import {
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
-import { collapseRepeatedPdfSearchPageText } from '@contracts/search';
 import { buildOcrTextLayerIndexText } from '@contracts/ocrText';
 import type { IPageText } from '@electron/search/pageText';
 import type { IOcrWord } from '@contracts/shared';
 import {
+    collapseRepeatedPdfSearchPageText,
     extractPdfjsWordBoxesFromOperatorList,
     getPdfjsPageViewBox,
 } from '@pdf-core';

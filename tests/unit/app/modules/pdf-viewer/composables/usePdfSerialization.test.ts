@@ -20,7 +20,7 @@ import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
 } from '@app/types/annotations';
-import type { IDocumentsFileCapability } from '@contracts/electronApiDocuments';
+import type { IDocumentsFileIoCapability } from '@contracts/electronApiDocuments';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
@@ -29,9 +29,17 @@ import { readDocumentBytes } from '@app/utils/documentBytes';
 
 vi.mock('@app/utils/documentBytes', () => ({ readDocumentBytes: vi.fn() }));
 
-const platformMocks = vi.hoisted(() => ({documentsCapability: {}}));
+const platformMocks = vi.hoisted(() => ({
+    documentFilesCapability: {},
+    getDocumentsCapability: vi.fn(() => {
+        throw new Error('usePdfSerialization should use getDocumentFilesCapability for native PDF mutations');
+    }),
+}));
 
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentsCapability: () => platformMocks.documentsCapability}));
+vi.mock('@app/utils/platformDocuments', () => ({
+    getDocumentFilesCapability: () => platformMocks.documentFilesCapability,
+    getDocumentsCapability: platformMocks.getDocumentsCapability,
+}));
 
 const ONE_PIXEL_PNG = Uint8Array.from(Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0ioAAAAASUVORK5CYII=',
@@ -39,7 +47,8 @@ const ONE_PIXEL_PNG = Uint8Array.from(Buffer.from(
 ));
 
 beforeEach(() => {
-    platformMocks.documentsCapability = {};
+    platformMocks.documentFilesCapability = {};
+    platformMocks.getDocumentsCapability.mockClear();
     vi.mocked(readDocumentBytes).mockReset();
 });
 
@@ -305,9 +314,9 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
             68,
             70,
         ]);
-        const nativeApply = deferred<Awaited<ReturnType<NonNullable<IDocumentsFileCapability['applyPdfNativeMutationsToWorkingCopy']>>>>();
-        const applyPdfNativeMutationsToWorkingCopy = vi.fn<NonNullable<IDocumentsFileCapability['applyPdfNativeMutationsToWorkingCopy']>>(async () => nativeApply.promise);
-        platformMocks.documentsCapability = {applyPdfNativeMutationsToWorkingCopy};
+        const nativeApply = deferred<Awaited<ReturnType<NonNullable<IDocumentsFileIoCapability['applyPdfNativeMutationsToWorkingCopy']>>>>();
+        const applyPdfNativeMutationsToWorkingCopy = vi.fn<NonNullable<IDocumentsFileIoCapability['applyPdfNativeMutationsToWorkingCopy']>>(async () => nativeApply.promise);
+        platformMocks.documentFilesCapability = {applyPdfNativeMutationsToWorkingCopy};
         vi.mocked(readDocumentBytes)
             .mockResolvedValueOnce(nativeBytes);
         const serializer = createSerializationHarness({workingCopyPath: '/tmp/work.pdf'});
@@ -379,11 +388,11 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
             800,
         ]);
         const baseBytes = await sourceDoc.save();
-        const applyPdfNativeMutationsToWorkingCopy = vi.fn<NonNullable<IDocumentsFileCapability['applyPdfNativeMutationsToWorkingCopy']>>(async () => ({
+        const applyPdfNativeMutationsToWorkingCopy = vi.fn<NonNullable<IDocumentsFileIoCapability['applyPdfNativeMutationsToWorkingCopy']>>(async () => ({
             applied: false,
             validation: null,
         }));
-        platformMocks.documentsCapability = {applyPdfNativeMutationsToWorkingCopy};
+        platformMocks.documentFilesCapability = {applyPdfNativeMutationsToWorkingCopy};
         const serializer = createSerializationHarness({workingCopyPath: '/tmp/work.pdf'});
 
         await expect(serializer.embedPlacedImageToPage(

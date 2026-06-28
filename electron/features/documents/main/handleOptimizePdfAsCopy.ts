@@ -2,7 +2,6 @@ import {
     basename,
     extname,
 } from 'path';
-import { BrowserWindow } from 'electron';
 import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import { getWorkingCopyOriginalPath } from '@electron/file-access/workingCopyStore';
@@ -24,6 +23,7 @@ import {
     normalizePdfOptimizeOptions,
     optimizePdfToFile,
 } from '@electron/features/documents/main/pdfOptimization';
+import type { IDocumentsDialogContext } from '@electron/features/documents/documentsService';
 
 const logger = createLogger('documents-pdfOptimization');
 
@@ -36,12 +36,12 @@ function getSuggestedOptimizeName(workingPath: string, senderWebContentsId: numb
 }
 
 function createOptimizeProgressReporter(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsDialogContext,
     requestId: string,
 ) {
     const pump = createIpcProgressPump<TPdfOptimizeProgressPayload>({
         channel: DOCUMENTS_EVENT_CHANNELS.pdfOptimizeProgress,
-        getTarget: () => event.sender,
+        getTarget: () => context.sender,
         getKey: payload => payload.requestId,
         isTerminal: payload => payload.phase === 'complete',
         onError: error => {
@@ -57,7 +57,7 @@ function createOptimizeProgressReporter(
 }
 
 export async function handleOptimizePdfAsCopy(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsDialogContext,
     workingPath: string,
     rawOptions: IPdfOptimizeOptions,
     rawRequestId?: string,
@@ -69,13 +69,13 @@ export async function handleOptimizePdfAsCopy(
     const options = normalizePdfOptimizeOptions(rawOptions);
     const requestId = normalizeOptionalIpcRequestId(rawRequestId) ?? `pdf-optimize-${Date.now()}`;
 
-    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
         throw new Error('Working copy path is not managed');
     }
 
-    const targetPath = await showSaveDialogWithExtension(event, {
+    const targetPath = await showSaveDialogWithExtension(context, {
         title: te('dialogs.saveOptimizedPdfAs'),
-        defaultPath: getSuggestedOptimizeName(normalizedWorkingPath, event.sender.id),
+        defaultPath: getSuggestedOptimizeName(normalizedWorkingPath, context.senderId),
         filterName: te('dialogs.pdfFiles'),
         extension: 'pdf',
     });
@@ -91,7 +91,7 @@ export async function handleOptimizePdfAsCopy(
     }
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
-        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
             throw new Error('Working copy path is not managed');
         }
 
@@ -101,20 +101,17 @@ export async function handleOptimizePdfAsCopy(
             options,
             {
                 requestId,
-                onProgress: createOptimizeProgressReporter(event, requestId),
+                onProgress: createOptimizeProgressReporter(context, requestId),
             },
         );
     });
 
     if (result.path) {
-        allowOpenPath(result.path, event.sender);
+        allowOpenPath(result.path, context.sender);
         await addRecentFile(result.path);
         updateRecentFilesMenu();
 
-        const window = BrowserWindow.fromWebContents(event.sender);
-        if (window) {
-            window.setRepresentedFilename?.(result.path);
-        }
+        context.parentWindow?.setRepresentedFilename?.(result.path);
     }
 
     return result;

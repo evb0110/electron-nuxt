@@ -45,6 +45,14 @@ const browserShellApi: IPlatformApi['shell'] = { openExternal(url: string) {
 
 export const browserPlatformApi = {
     documents: browserDocumentCapabilities.documents,
+    documentPicker: browserDocumentCapabilities.documentPicker,
+    documentOpen: browserDocumentCapabilities.documentOpen,
+    documentWorkingCopy: browserDocumentCapabilities.documentWorkingCopy,
+    documentFiles: browserDocumentCapabilities.documentFiles,
+    documentPdf: browserDocumentCapabilities.documentPdf,
+    documentRecentFiles: browserDocumentCapabilities.documentRecentFiles,
+    documentWindow: browserDocumentCapabilities.documentWindow,
+    documentMenu: browserDocumentCapabilities.documentMenu,
     pageOps: browserDocumentCapabilities.pageOps,
     imageExport: browserDocumentCapabilities.imageExport,
     ocr: browserOcrCapability,

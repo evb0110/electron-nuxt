@@ -24,7 +24,10 @@ const mocks = vi.hoisted(() => ({
     useEventListener: vi.fn(),
     shouldHandleRendererMenuAccelerators: vi.fn(),
     registerTabsMenuBindings: vi.fn(() => []),
-    getPlatformAPI: vi.fn(() => ({})),
+    documentMenuCapability: {},
+    settingsCapability: {},
+    updatesCapability: {},
+    djvuCapability: {},
     shouldPreferDesktopPlatform: vi.fn(() => false),
     waitForDesktopPlatformBridge: vi.fn(async () => true),
     claimPendingExternalOpenPaths: vi.fn(async (): Promise<string[]> => []),
@@ -36,10 +39,13 @@ vi.mock('@vueuse/core', () => ({useEventListener: mocks.useEventListener}));
 vi.mock('@app/utils/shouldHandleRendererMenuAccelerators', () => ({shouldHandleRendererMenuAccelerators: mocks.shouldHandleRendererMenuAccelerators}));
 vi.mock('@app/modules/workspace-shell/menu/registerTabsMenuBindings', () => ({registerTabsMenuBindings: mocks.registerTabsMenuBindings}));
 vi.mock('@app/utils/platform', () => ({
-    getPlatformAPI: mocks.getPlatformAPI,
     shouldPreferDesktopPlatform: mocks.shouldPreferDesktopPlatform,
     waitForDesktopPlatformBridge: mocks.waitForDesktopPlatformBridge,
 }));
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentMenuCapability: () => mocks.documentMenuCapability}));
+vi.mock('@app/utils/getSettingsCapability', () => ({getSettingsCapability: () => mocks.settingsCapability}));
+vi.mock('@app/utils/platformUpdates', () => ({getUpdatesCapability: () => mocks.updatesCapability}));
+vi.mock('@app/utils/getDjvuCapability', () => ({getDjvuCapability: () => mocks.djvuCapability}));
 vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({
     claimPendingExternalOpenPaths: mocks.claimPendingExternalOpenPaths,
     acknowledgePendingExternalOpenPaths: mocks.acknowledgePendingExternalOpenPaths,

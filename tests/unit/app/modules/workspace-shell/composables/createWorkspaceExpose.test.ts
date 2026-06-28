@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
+import type { IWorkspaceDocumentViewerNavigationPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { cast } from '@tests/helpers/cast';
 
 function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[0]> = {}) {
@@ -313,5 +314,62 @@ describe('createWorkspaceExpose', () => {
 
         expect(exposed.getToolbarSnapshot().isPreparingPrint).toBe(true);
         expect(exposed.getToolbarSnapshot().isPreparingCurrentPagePrint).toBe(true);
+    });
+
+    it('reads toolbar current page through narrow viewer snapshot ports', () => {
+        const documentViewerRef = ref<IWorkspaceDocumentViewerNavigationPort | null>(null);
+        const pdfToolbarSnapshotViewerRef = ref({ getCurrentPage: () => 6 });
+        const deps = createDeps({
+            currentPage: ref(2),
+            totalPages: ref(10),
+            pdfToolbarSnapshotViewerRef,
+            documentViewerRef,
+        });
+        const exposed = createWorkspaceExpose(deps);
+
+        expect(exposed.getToolbarSnapshot().currentPage).toBe(6);
+
+        documentViewerRef.value = {
+            getCurrentPage: () => 8,
+            scrollToPage: vi.fn(),
+        };
+
+        expect(exposed.getToolbarSnapshot().currentPage).toBe(8);
+    });
+
+    it('delegates public automation methods through the narrow PDF automation port', async () => {
+        const commentAtPoint = vi.fn(async () => true);
+        const highlightSelection = vi.fn(async () => true);
+        const shape = {
+            id: 'shape-1',
+            type: 'rectangle' as const,
+            pageIndex: 0,
+            x: 10,
+            y: 20,
+            width: 100,
+            height: 50,
+            color: '#ff0000',
+            opacity: 1,
+            strokeWidth: 2,
+        };
+        const pdfAutomationViewerRef = ref({
+            commentAtPoint,
+            getAllShapes: () => [shape],
+            getDeletedEmbeddedShapeAnnotationIds: () => ['44R'],
+            getDeletedEmbeddedShapeStableKeys: () => ['evb-shape:deleted'],
+            highlightSelection,
+        });
+        const deps = createDeps({pdfAutomationViewerRef});
+        const exposed = createWorkspaceExpose(deps);
+
+        expect(exposed.getAllShapes?.()).toEqual([shape]);
+        expect(exposed.getDeletedEmbeddedShapeAnnotationIds?.()).toEqual(['44R']);
+        expect(exposed.getDeletedEmbeddedShapeStableKeys?.()).toEqual(['evb-shape:deleted']);
+        await expect(exposed.highlightSelection?.()).resolves.toBe(true);
+        await expect(
+            exposed.commentAtPoint?.(1, 20, 30, {preferTextAnchor: true}),
+        ).resolves.toBe(true);
+        expect(highlightSelection).toHaveBeenCalledOnce();
+        expect(commentAtPoint).toHaveBeenCalledWith(1, 20, 30, {preferTextAnchor: true});
     });
 });

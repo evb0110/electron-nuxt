@@ -1,8 +1,66 @@
-import { registerOcrHandlers } from '@electron/features/ocr/main/registerOcrHandlers';
-import type { IOcrService } from '@electron/features/ocr/ports';
+import {
+    handleOcrAcknowledgeResultFileValidated,
+    handleOcrCancelValidated,
+    handleOcrCreateSearchablePdf,
+    handleOcrGetLanguages,
+    handleOcrRecognize,
+    handleOcrRecognizeBatch,
+    handleOcrValidateTools,
+} from '@electron/features/ocr/main/ocrOperations';
+import {
+    handlePreprocessingValidate,
+    handlePreprocessPage,
+} from '@electron/ocr/preprocessingHandlers';
+import type {
+    IOcrOperationContext,
+    IOcrService,
+} from '@electron/features/ocr/ports';
+
+type TPreprocessPageContext = Parameters<typeof handlePreprocessPage>[0];
+
+function createPreprocessPageContext(context: IOcrOperationContext): TPreprocessPageContext {
+    const {sender} = context;
+    const preprocessSender: TPreprocessPageContext['sender'] = {
+        isDestroyed: () => sender.isDestroyed(),
+        once: (event, listener) => {
+            if (event === 'destroyed') {
+                return sender.once('destroyed', listener);
+            }
+            return sender.once('render-process-gone', listener);
+        },
+        on: (event, listener) => sender.on(event, listener),
+        removeListener: (event, listener) => {
+            if (event === 'destroyed') {
+                return sender.removeListener('destroyed', listener as () => void);
+            }
+            if (event === 'render-process-gone') {
+                return sender.removeListener('render-process-gone', listener as () => void);
+            }
+            return sender.removeListener('did-start-navigation', listener);
+        },
+    };
+    return {sender: preprocessSender};
+}
 
 export function createOcrService(): IOcrService {
-    return {registerHandlers: (registrar) => {
-        registerOcrHandlers(registrar);
-    }};
+    return {
+        recognize: (context, request) =>
+            handleOcrRecognize(context, request),
+        recognizeBatch: (context, pages, requestId) =>
+            handleOcrRecognizeBatch(context, pages, requestId),
+        createSearchablePdf: (context, sourcePdfPath, pages, requestId, renderDpiOrOptions) =>
+            handleOcrCreateSearchablePdf(context, sourcePdfPath, pages, requestId, renderDpiOrOptions),
+        cancel: (context, requestId) =>
+            handleOcrCancelValidated(context, requestId),
+        acknowledgeResultFile: (context, requestId, pdfPath) =>
+            handleOcrAcknowledgeResultFileValidated(context, requestId, pdfPath),
+        getLanguages: () =>
+            handleOcrGetLanguages(),
+        validateTools: () =>
+            handleOcrValidateTools(),
+        preprocessingValidate: () =>
+            handlePreprocessingValidate(),
+        preprocessPage: (context, imageData, usePreprocessing) =>
+            handlePreprocessPage(createPreprocessPageContext(context), imageData, usePreprocessing),
+    };
 }

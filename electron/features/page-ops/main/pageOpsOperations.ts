@@ -1,8 +1,4 @@
-import {
-    BrowserWindow,
-    dialog,
-    ipcMain,
-} from 'electron';
+import { dialog } from 'electron';
 import { existsSync } from 'fs';
 import {
     basename,
@@ -11,7 +7,6 @@ import {
 import type { ICropMargins } from '@contracts/shared';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import type { TOpenBatchProgressOperation } from '@contracts/electronApiDocuments';
-import { PAGE_OPS_CHANNELS } from '@electron/features/page-ops/contract';
 import {
     DOCUMENTS_EVENT_CHANNELS,
     type TOpenBatchProgressPayload,
@@ -50,19 +45,19 @@ import {
     clearWorkingCopyOcrArtifacts,
     enqueueWorkingCopyMutation,
 } from '@electron/file-access/workingCopyMutationQueue';
-import type { TPageOpsIpcMainRegistrar } from '@electron/features/page-ops/ports';
+import type { IPageOpsOperationContext } from '@electron/features/page-ops/ports';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConversion';
 
 function createOpenBatchProgressReporter(
-    event: Electron.IpcMainInvokeEvent,
+    context: IPageOpsOperationContext,
     requestId: string,
     operation: TOpenBatchProgressOperation,
 ) {
     const pump = createIpcProgressPump<TOpenBatchProgressPayload>({
         channel: DOCUMENTS_EVENT_CHANNELS.openDocumentDirectBatchProgress,
-        getTarget: () => event.sender,
+        getTarget: () => context.sender,
         getKey: payload => payload.requestId,
         isTerminal: payload => payload.processed >= payload.total,
     });
@@ -147,17 +142,17 @@ function validateExpectedTotalPages(totalPages: unknown) {
     return totalPages;
 }
 
-async function handlePageOpsDelete(
-    event: Electron.IpcMainInvokeEvent,
+export async function handlePageOpsDelete(
+    context: IPageOpsOperationContext,
     workingCopyPath: string,
     pages: number[],
     totalPages: number,
 ) {
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath);
         if (mainTotalPages !== expectedTotalPages) {
             throw new Error('Renderer page count is stale');
@@ -166,7 +161,7 @@ async function handlePageOpsDelete(
             totalPages: mainTotalPages,
             requireUnique: true,
         });
-        const operationResult = await deletePages(queuedWorkingCopyPath, pages, expectedTotalPages, event.sender?.id);
+        const operationResult = await deletePages(queuedWorkingCopyPath, pages, expectedTotalPages, context.senderId);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
         return operationResult;
     });
@@ -176,18 +171,17 @@ async function handlePageOpsDelete(
     };
 }
 
-async function handlePageOpsExtract(
-    event: Electron.IpcMainInvokeEvent,
+export async function handlePageOpsExtract(
+    context: IPageOpsOperationContext,
     workingCopyPath: string,
     pages: number[],
 ) {
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     validatePageNumbers(pages, 'extractPages', {requireUnique: true});
 
     const baseName = basename(normalizedWorkingCopyPath, extname(normalizedWorkingCopyPath));
     const rangeLabel = formatPageRange(pages);
     const suggestedName = `${baseName} (${rangeLabel}).pdf`;
-    const parentWindow = BrowserWindow.fromWebContents(event.sender);
     const dialogOptions = {
         title: te('dialogs.extractPages'),
         defaultPath: suggestedName,
@@ -196,8 +190,8 @@ async function handlePageOpsExtract(
             extensions: ['pdf'],
         }],
     };
-    const result = parentWindow
-        ? await dialog.showSaveDialog(parentWindow, dialogOptions)
+    const result = context.parentWindow
+        ? await dialog.showSaveDialog(context.parentWindow, dialogOptions)
         : await dialog.showSaveDialog(dialogOptions);
 
     if (result.canceled || !result.filePath) {
@@ -213,34 +207,34 @@ async function handlePageOpsExtract(
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         await extractPages(queuedWorkingCopyPath, destPath, pages);
     });
-    allowOpenPath(destPath, event.sender);
+    allowOpenPath(destPath, context.sender);
     return {
         success: true,
         destPath,
     };
 }
 
-async function handlePageOpsReorder(
-    event: Electron.IpcMainInvokeEvent,
+export async function handlePageOpsReorder(
+    context: IPageOpsOperationContext,
     workingCopyPath: string,
     newOrder: number[],
 ) {
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     validatePageNumbers(newOrder, 'reorderPages', {requireUnique: true});
     validateReorderPermutation(newOrder);
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         const actualPageCount = await getPdfPageCount(queuedWorkingCopyPath);
         validatePageNumbers(newOrder, 'reorderPages', {
             requireUnique: true,
             totalPages: actualPageCount,
         });
         validateReorderPermutation(newOrder, actualPageCount);
-        const operationResult = await reorderPages(queuedWorkingCopyPath, newOrder, event.sender?.id);
+        const operationResult = await reorderPages(queuedWorkingCopyPath, newOrder, context.senderId);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
         return operationResult;
     });
@@ -250,16 +244,15 @@ async function handlePageOpsReorder(
     };
 }
 
-async function handlePageOpsInsert(
-    event: Electron.IpcMainInvokeEvent,
+export async function handlePageOpsInsert(
+    context: IPageOpsOperationContext,
     workingCopyPath: string,
     totalPages: number,
     afterPage: number,
 ) {
     const insertArgs = validateInsertPageArgs(workingCopyPath, totalPages, afterPage);
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath, event.sender?.id);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath, context.senderId);
 
-    const parentWindow = BrowserWindow.fromWebContents(event.sender);
     const dialogOptions = {
         title: te('dialogs.insertPagesFromPdf'),
         filters: [{
@@ -274,8 +267,8 @@ async function handlePageOpsInsert(
             'multiSelections',
         ] as Array<'openFile' | 'multiSelections'>,
     };
-    const result = parentWindow
-        ? await dialog.showOpenDialog(parentWindow, dialogOptions)
+    const result = context.parentWindow
+        ? await dialog.showOpenDialog(context.parentWindow, dialogOptions)
         : await dialog.showOpenDialog(dialogOptions);
 
     if (result.canceled || result.filePaths.length === 0) {
@@ -285,32 +278,32 @@ async function handlePageOpsInsert(
         };
     }
     assertOpenInputPathCount(result.filePaths);
-    allowOpenPaths(result.filePaths, event.sender);
+    allowOpenPaths(result.filePaths, context.sender);
     const trustedSourcePaths = normalizeNonEmptyStringPaths(result.filePaths)
-        .map(path => requireOpenPath(path, event.sender));
+        .map(path => requireOpenPath(path, context.sender));
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         await insertPagesFromSourcePaths(
             queuedWorkingCopyPath,
             insertArgs.totalPages,
             trustedSourcePaths,
             insertArgs.afterPage,
-            event.sender?.id,
+            context.senderId,
         );
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
     return {success: true};
 }
 
-async function handlePageOpsRotate(
-    event: Electron.IpcMainInvokeEvent,
+export async function handlePageOpsRotate(
+    context: IPageOpsOperationContext,
     workingCopyPath: string,
     pages: number[],
     totalPages: number,
     angle: TRotationAngle,
 ) {
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     validatePageNumbers(pages, 'rotatePages', {requireUnique: true});
 
@@ -323,7 +316,7 @@ async function handlePageOpsRotate(
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath);
         if (mainTotalPages !== expectedTotalPages) {
             throw new Error('Renderer page count is stale');
@@ -332,14 +325,14 @@ async function handlePageOpsRotate(
             totalPages: mainTotalPages,
             requireUnique: true,
         });
-        await rotatePages(queuedWorkingCopyPath, pages, angle, event.sender?.id);
+        await rotatePages(queuedWorkingCopyPath, pages, angle, context.senderId);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
     return {success: true};
 }
 
-async function handlePageOpsInsertFile(
-    event: Electron.IpcMainInvokeEvent,
+export async function handlePageOpsInsertFile(
+    context: IPageOpsOperationContext,
     workingCopyPath: string,
     totalPages: number,
     afterPage: number,
@@ -347,25 +340,25 @@ async function handlePageOpsInsertFile(
     requestId?: string,
 ) {
     const insertArgs = validateInsertPageArgs(workingCopyPath, totalPages, afterPage);
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath, event.sender?.id);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath, context.senderId);
     if (!Array.isArray(sourcePaths) || sourcePaths.length === 0) {
         throw new Error('Invalid source paths');
     }
     assertOpenInputPathCount(sourcePaths);
     const trustedSourcePaths = normalizeNonEmptyStringPaths(sourcePaths)
-        .map(path => requireOpenPath(path, event.sender));
+        .map(path => requireOpenPath(path, context.sender));
     const normalizedRequestId = normalizeOptionalIpcRequestId(requestId) ?? '';
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         await insertPagesFromSourcePaths(
             queuedWorkingCopyPath,
             insertArgs.totalPages,
             trustedSourcePaths,
             insertArgs.afterPage,
-            event.sender?.id,
+            context.senderId,
             normalizedRequestId
-                ? createOpenBatchProgressReporter(event, normalizedRequestId, 'page-insert')
+                ? createOpenBatchProgressReporter(context, normalizedRequestId, 'page-insert')
                 : undefined,
         );
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
@@ -373,14 +366,14 @@ async function handlePageOpsInsertFile(
     return {success: true};
 }
 
-async function handlePageOpsCrop(
-    event: Electron.IpcMainInvokeEvent,
+export async function handlePageOpsCrop(
+    context: IPageOpsOperationContext,
     workingCopyPath: string,
     pages: number[],
     totalPages: number,
     margins: ICropMargins,
 ) {
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     validatePageNumbers(pages, 'cropPages', {requireUnique: true});
     if (
@@ -398,7 +391,7 @@ async function handlePageOpsCrop(
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath);
         if (mainTotalPages !== expectedTotalPages) {
             throw new Error('Renderer page count is stale');
@@ -407,24 +400,24 @@ async function handlePageOpsCrop(
             totalPages: mainTotalPages,
             requireUnique: true,
         });
-        await cropPages(queuedWorkingCopyPath, pages, margins, event.sender?.id);
+        await cropPages(queuedWorkingCopyPath, pages, margins, context.senderId);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
     return {success: true};
 }
 
-async function handlePageOpsRemoveCrop(
-    event: Electron.IpcMainInvokeEvent,
+export async function handlePageOpsRemoveCrop(
+    context: IPageOpsOperationContext,
     workingCopyPath: string,
     pages: number[],
     totalPages: number,
 ) {
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     validatePageNumbers(pages, 'removeCrop', {requireUnique: true});
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath);
         if (mainTotalPages !== expectedTotalPages) {
             throw new Error('Renderer page count is stale');
@@ -433,33 +426,21 @@ async function handlePageOpsRemoveCrop(
             totalPages: mainTotalPages,
             requireUnique: true,
         });
-        await removeCropFromPages(queuedWorkingCopyPath, pages, event.sender?.id);
+        await removeCropFromPages(queuedWorkingCopyPath, pages, context.senderId);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
     return {success: true};
 }
 
-async function handlePageOpsGetPageGeometry(
-    event: Electron.IpcMainInvokeEvent,
+export async function handlePageOpsGetPageGeometry(
+    context: IPageOpsOperationContext,
     workingCopyPath: string,
     pageNumber: number,
 ) {
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
     if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
         throw new Error('Invalid page number');
     }
 
-    return getPageGeometry(normalizedWorkingCopyPath, pageNumber, event.sender?.id);
-}
-
-export function registerPageOpsHandlers(registrar: TPageOpsIpcMainRegistrar = ipcMain) {
-    registrar.handle(PAGE_OPS_CHANNELS.delete, handlePageOpsDelete);
-    registrar.handle(PAGE_OPS_CHANNELS.extract, handlePageOpsExtract);
-    registrar.handle(PAGE_OPS_CHANNELS.reorder, handlePageOpsReorder);
-    registrar.handle(PAGE_OPS_CHANNELS.insert, handlePageOpsInsert);
-    registrar.handle(PAGE_OPS_CHANNELS.insertFile, handlePageOpsInsertFile);
-    registrar.handle(PAGE_OPS_CHANNELS.rotate, handlePageOpsRotate);
-    registrar.handle(PAGE_OPS_CHANNELS.crop, handlePageOpsCrop);
-    registrar.handle(PAGE_OPS_CHANNELS.removeCrop, handlePageOpsRemoveCrop);
-    registrar.handle(PAGE_OPS_CHANNELS.getPageGeometry, handlePageOpsGetPageGeometry);
+    return getPageGeometry(normalizedWorkingCopyPath, pageNumber, context.senderId);
 }

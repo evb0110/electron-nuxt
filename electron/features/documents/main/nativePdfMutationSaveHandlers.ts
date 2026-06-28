@@ -21,7 +21,7 @@ import {
     normalizePdfNativeNoteTextUpdates,
     normalizePdfNativeWorkingCopyExpectation,
     type TPdfNativeMutationSetNativeToolPayload,
-} from '@contracts/nativePdfMutations';
+} from '@pdf-core';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
@@ -44,6 +44,7 @@ import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory'
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
+import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 
 const PDF_NATIVE_MUTATION_TIMEOUT_MS = 2 * 60 * 1000;
 const log = createLogger('native-note-text-save');
@@ -75,6 +76,13 @@ function createNativeValidationResult(): IPdfValidationResult {
         errors: [],
         warnings: [],
     };
+}
+
+function requireSenderId(context: IDocumentsSenderIdContext) {
+    if (typeof context.senderId !== 'number') {
+        throw new Error('Missing sender identity');
+    }
+    return context.senderId;
 }
 
 function normalizeWorkingPath(workingPath: unknown) {
@@ -186,11 +194,12 @@ async function syncNativeOutputToRequestingWorkingCopy(
 }
 
 async function runNativeNoteCommand(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     workingPath: unknown,
     rawModifiedAt: unknown,
     options: INativeNoteCommandOptions,
 ): Promise<IPdfNativeNoteTextSaveResult> {
+    const senderId = requireSenderId(context);
     const normalizedWorkingPath = normalizeWorkingPath(workingPath);
     const modifiedAt = normalizeModifiedAt(rawModifiedAt);
 
@@ -203,15 +212,15 @@ async function runNativeNoteCommand(
         return createNotAppliedResult();
     }
 
-    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, event.sender.id);
-    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
+    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
         throw new Error('Working copy path is not managed');
     }
 
     return enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
         const phaseTimings: INativeNotePhaseTiming[] = [];
         const operationStart = performance.now();
-        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
             throw new Error('Working copy path is not managed');
         }
 
@@ -245,7 +254,7 @@ async function runNativeNoteCommand(
                 assertNativeOutputReady(tempPath));
             const validation = createNativeValidationResult();
             const originalBaseMatches = await measureNativeNotePhase(phaseTimings, 'assert-original-base', () =>
-                originalPathSaveBaseMatches(normalizedWorkingPath, originalPath, event.sender.id));
+                originalPathSaveBaseMatches(normalizedWorkingPath, originalPath, senderId));
             if (!originalBaseMatches) {
                 log.debug(`Native note save skipped because original base expectation no longer matches: ${JSON.stringify({
                     command: options.command,
@@ -260,7 +269,7 @@ async function runNativeNoteCommand(
             committedValidation = validation;
             try {
                 await measureNativeNotePhase(phaseTimings, 'sync-requesting-working-copy', () =>
-                    syncNativeOutputToRequestingWorkingCopy(originalPath, normalizedWorkingPath, event.sender.id));
+                    syncNativeOutputToRequestingWorkingCopy(originalPath, normalizedWorkingPath, senderId));
             } catch (syncError) {
                 log.warn(`Native note save committed, but working copy sync failed: ${JSON.stringify({
                     command: options.command,
@@ -309,12 +318,13 @@ async function runNativeNoteCommand(
 }
 
 async function runNativeWorkingCopyCommand(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     workingPath: unknown,
     rawModifiedAt: unknown,
     rawExpectedBase: unknown,
     options: INativeNoteCommandOptions,
 ): Promise<IPdfNativeNoteTextSaveResult> {
+    const senderId = requireSenderId(context);
     const normalizedWorkingPath = normalizeWorkingPath(workingPath);
     const modifiedAt = normalizeModifiedAt(rawModifiedAt);
     const expectedBase = normalizeWorkingCopyExpectation(rawExpectedBase);
@@ -328,14 +338,14 @@ async function runNativeWorkingCopyCommand(
         return createNotAppliedResult();
     }
 
-    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
         throw new Error('Working copy path is not managed');
     }
 
     return enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
         const phaseTimings: INativeNotePhaseTiming[] = [];
         const operationStart = performance.now();
-        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
             throw new Error('Working copy path is not managed');
         }
         if (!await workingCopyMatchesExpectation(normalizedWorkingPath, expectedBase)) {
@@ -404,13 +414,13 @@ async function runNativeWorkingCopyCommand(
 }
 
 export async function handleNativeNoteTextSave(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     workingPath: unknown,
     rawUpdates: unknown,
     rawModifiedAt: unknown,
 ): Promise<IPdfNativeNoteTextSaveResult> {
     const updates = normalizePdfNativeNoteTextUpdates(rawUpdates, 'note text update list', {errorKind: 'error'});
-    return runNativeNoteCommand(event, workingPath, rawModifiedAt, {
+    return runNativeNoteCommand(context, workingPath, rawModifiedAt, {
         command: 'update-note-text',
         payloadFileName: 'updates.json',
         payloadFlag: '--updates-file',
@@ -420,13 +430,13 @@ export async function handleNativeNoteTextSave(
 }
 
 export async function handleNativeNoteChangesSave(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     workingPath: unknown,
     rawChanges: unknown,
     rawModifiedAt: unknown,
 ): Promise<IPdfNativeNoteTextSaveResult> {
     const changes = normalizePdfNativeNoteChanges(rawChanges, 'native note changes', {errorKind: 'error'});
-    return runNativeNoteCommand(event, workingPath, rawModifiedAt, {
+    return runNativeNoteCommand(context, workingPath, rawModifiedAt, {
         command: 'save-note-changes',
         payloadFileName: 'changes.json',
         payloadFlag: '--changes-file',
@@ -436,13 +446,13 @@ export async function handleNativeNoteChangesSave(
 }
 
 export async function handleNativePdfMutationsSave(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     workingPath: unknown,
     rawMutations: unknown,
     rawModifiedAt: unknown,
 ): Promise<IPdfNativeNoteTextSaveResult> {
     const mutations = normalizeNativeMutationSet(rawMutations);
-    return runNativeNoteCommand(event, workingPath, rawModifiedAt, {
+    return runNativeNoteCommand(context, workingPath, rawModifiedAt, {
         command: 'save-mutations',
         payloadFileName: 'mutations.json',
         payloadFlag: '--mutations-file',
@@ -452,14 +462,14 @@ export async function handleNativePdfMutationsSave(
 }
 
 export async function handleNativePdfMutationsApplyToWorkingCopy(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     workingPath: unknown,
     rawMutations: unknown,
     rawModifiedAt: unknown,
     rawExpectedBase: unknown,
 ): Promise<IPdfNativeNoteTextSaveResult> {
     const mutations = normalizeNativeMutationSet(rawMutations);
-    return runNativeWorkingCopyCommand(event, workingPath, rawModifiedAt, rawExpectedBase, {
+    return runNativeWorkingCopyCommand(context, workingPath, rawModifiedAt, rawExpectedBase, {
         command: 'save-mutations',
         payloadFileName: 'mutations.json',
         payloadFlag: '--mutations-file',

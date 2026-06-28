@@ -1,15 +1,9 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
-import {
-    useClipboard,
-    useEventListener,
-} from '@vueuse/core';
+import * as VueUse from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
-import type {
-    IPdfViewerExpose,
-    TPdfSidebarTab,
-} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type * as WorkspaceOrchestration from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
@@ -24,10 +18,7 @@ import {
     resolveAnnotationCommentTextMarkupColor,
     normalizeMarkerRect,
 } from '@app/modules/pdf-viewer/public';
-import {
-    normalizePdfJsAnnotationId,
-    parsePdfJsAnnotationRef,
-} from '@app/utils/pdfAnnotationRefs';
+import * as pdfAnnotationRefs from '@app/utils/pdfAnnotationRefs';
 import { commentsShareDeleteTarget as doCommentsShareDeleteTarget } from '@app/modules/workspace-shell/annotations/commentsShareDeleteTarget';
 import { getAnnotationPageNumber } from '@app/modules/workspace-shell/annotations/getAnnotationPageNumber';
 import { isFreshEditorNoteCreationForUndo } from '@app/modules/workspace-shell/annotations/isFreshEditorNoteCreationForUndo';
@@ -37,7 +28,7 @@ import { pickPageAnnotationImageFile } from '@app/modules/workspace-shell/annota
 import { readPageAnnotationImageFileFromClipboard } from '@app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard';
 import { resolveShapeAnnotationDefaultSettings } from '@app/modules/workspace-shell/annotations/resolveShapeAnnotationDefaultSettings';
 
-type TPdfViewerForAnnotationActions = Pick<IPdfViewerExpose,
+type TPdfViewerForAnnotationActions = Pick<WorkspaceOrchestration.IPdfViewerExpose,
     'cancelCommentPlacement'
     | 'commentAtPoint'
     | 'commentSelection'
@@ -61,7 +52,7 @@ type TPdfViewerForAnnotationActions = Pick<IPdfViewerExpose,
     | 'updateSelectedTextMarkupAnnotationColor'
     | 'updateTextMarkupAnnotationColor'
     | 'updateShape'
-> & Partial<Pick<IPdfViewerExpose,
+> & Partial<Pick<WorkspaceOrchestration.IPdfViewerExpose,
     'registerAnnotationHistoryCommand'
     | 'clearPendingImagePlacement'
     | 'restorePendingImagePlacement'
@@ -87,7 +78,7 @@ interface IPageAnnotationActionsDeps {
         pageY: number | null;
     }>;
     showSidebar: Ref<boolean>;
-    sidebarTab: Ref<TPdfSidebarTab>;
+    sidebarTab: Ref<WorkspaceOrchestration.TPdfSidebarTab>;
     dragMode: Ref<boolean>;
     currentPage: Ref<number>;
     workingCopyPath: Ref<TDocumentRef | null>;
@@ -137,7 +128,7 @@ interface IPageAnnotationActionsDeps {
 export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     const { t } = useTypedI18n();
     const { clampToViewport } = useContextMenuPosition();
-    const { copy: copyClipboardText } = useClipboard();
+    const { copy: copyClipboardText } = VueUse.useClipboard();
 
     const {
         pdfViewerRef,
@@ -860,10 +851,10 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         }
     }
 
-    useEventListener(viewerContainer, 'scroll', handleViewportChange, { passive: true });
-    useEventListener(windowTarget, 'resize', handleViewportChange);
-    useEventListener(viewerContainer, 'pointerup', () => setTimeout(refreshSelectedTextMarkupProperties, 0));
-    useEventListener(viewerContainer, 'keyup', refreshSelectedTextMarkupProperties);
+    VueUse.useEventListener(viewerContainer, 'scroll', handleViewportChange, { passive: true });
+    VueUse.useEventListener(windowTarget, 'resize', handleViewportChange);
+    VueUse.useEventListener(viewerContainer, 'pointerup', () => setTimeout(refreshSelectedTextMarkupProperties, 0));
+    VueUse.useEventListener(viewerContainer, 'keyup', refreshSelectedTextMarkupProperties);
 
     function handleViewerAnnotationContextMenu(payload: {
         comment: IAnnotationCommentSummary | null;
@@ -1148,14 +1139,14 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     const pendingAnnotationDeleteStableKeys = new Set<string>();
 
     function resolveEmbeddedPdfAnnotationId(comment: IAnnotationCommentSummary) {
-        const annotationId = normalizePdfJsAnnotationId(comment.annotationId);
-        if (parsePdfJsAnnotationRef(annotationId)) {
+        const annotationId = pdfAnnotationRefs.normalizePdfJsAnnotationId(comment.annotationId);
+        if (pdfAnnotationRefs.parsePdfJsAnnotationRef(annotationId)) {
             return annotationId;
         }
 
         const stableRef = comment.stableKey.trim().match(/^ann:\d+:(\d+R(?:\d+)?)$/iu)?.[1];
-        const stableAnnotationId = normalizePdfJsAnnotationId(stableRef);
-        if (parsePdfJsAnnotationRef(stableAnnotationId)) {
+        const stableAnnotationId = pdfAnnotationRefs.normalizePdfJsAnnotationId(stableRef);
+        if (pdfAnnotationRefs.parsePdfJsAnnotationRef(stableAnnotationId)) {
             return stableAnnotationId;
         }
 
@@ -1170,7 +1161,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     function isReplayableEditorOnlyFreeTextNote(comment: IAnnotationCommentSummary) {
         const subtype = comment.subtype?.trim().toLowerCase();
         return comment.source === 'editor'
-            && !parsePdfJsAnnotationRef(comment.annotationId)
+            && !pdfAnnotationRefs.parsePdfJsAnnotationRef(comment.annotationId)
             && Boolean(comment.hasNote)
             && Boolean(normalizeMarkerRect(comment.markerRect))
             && (subtype === 'freetext' || subtype === 'typewriter');

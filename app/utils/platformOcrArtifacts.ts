@@ -1,6 +1,6 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import { safeJsonParse } from '@contracts/safeJsonParse';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 
 function isAbsoluteOrDrivePath(value: string) {
     return value.startsWith('/')
@@ -52,7 +52,7 @@ export async function readOptionalOcrArtifactJson<T>(
     }
 
     const path = `${workingCopyPath}.ocr/${normalizedRelativePath}`;
-    const documents = getDocumentsCapability();
+    const documents = getDocumentFilesCapability();
     const exists = await documents.fileExists(path);
     if (!exists) {
         return null;
@@ -71,7 +71,7 @@ export async function readOptionalAdjacentJsonArtifact<T>(
     }
 
     const path = `${workingCopyPath}${normalizedSuffix}`;
-    const documents = getDocumentsCapability();
+    const documents = getDocumentFilesCapability();
     const exists = await documents.fileExists(path);
     if (!exists) {
         return null;

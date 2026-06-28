@@ -412,6 +412,98 @@ export interface IDocumentsFileCapability {
     getPathsForFiles: (files: File[]) => TDocumentRef[];
 }
 
+export interface IDocumentsPickerCapability extends Pick<
+    IDocumentsFileCapability,
+    | 'openDocumentDialog'
+    | 'openPdfDialog'
+    | 'openCombineDialog'
+    | 'openFolderDialog'
+    | 'openImageDialog'
+    | 'getPathForFile'
+    | 'getPathsForFiles'
+> {}
+
+export interface IDocumentsOpenCapability extends Pick<
+    IDocumentsFileCapability,
+    | 'openDocumentDirect'
+    | 'openPdfDirect'
+    | 'openDocumentDirectBatch'
+    | 'openPdfDirectBatch'
+> {}
+
+export interface IDocumentsWorkingCopyCapability extends Pick<
+    IDocumentsFileCapability,
+    | 'createWorkingCopyFromData'
+    | 'createWorkingCopyFromPath'
+    | 'cleanupFile'
+    | 'cleanupOcrTemp'
+> {}
+
+export interface IDocumentsReadCapability extends Pick<
+    IDocumentsFileCapability,
+    | 'readFile'
+    | 'statFile'
+    | 'readFileRange'
+    | 'readFileChunks'
+    | 'readTextFile'
+    | 'fileExists'
+> {}
+
+export interface IDocumentsPdfValidationCapability extends Pick<
+    IDocumentsFileCapability,
+    | 'analyzePdfConformance'
+    | 'validatePdfData'
+    | 'validatePdfPath'
+> {}
+
+export interface IDocumentsPdfExternalCapability extends Pick<
+    IDocumentsFileCapability,
+    | 'openPdfInDefaultAppData'
+    | 'openPdfInDefaultAppPath'
+    | 'printPdfData'
+    | 'printPdfPath'
+> {}
+
+export interface IDocumentsPdfPersistenceCapability extends Pick<
+    IDocumentsFileCapability,
+    | 'savePdfAs'
+    | 'savePdfDataAs'
+    | 'savePdfDialog'
+    | 'saveDocxAs'
+    | 'writeFile'
+    | 'replaceWorkingCopyFromPath'
+    | 'writeDocxFile'
+    | 'saveFile'
+    | 'savePdfData'
+    | 'savePdfDataChunks'
+    | 'repairPdf'
+    | 'optimizePdfForInteraction'
+    | 'optimizePdfAsCopy'
+    | 'savePdfNoteTextUpdates'
+    | 'savePdfNoteChanges'
+    | 'savePdfNativeMutations'
+    | 'applyPdfNativeMutationsToWorkingCopy'
+> {}
+
+export interface IDocumentsFileIoCapability extends
+    IDocumentsReadCapability,
+    IDocumentsPdfPersistenceCapability {}
+
+export interface IDocumentsPdfCapability extends
+    IDocumentsPdfValidationCapability,
+    IDocumentsPdfExternalCapability {}
+
+export interface IDocumentsRecentFilesCapability extends Pick<
+    IDocumentsFileCapability,
+    'recentFiles'
+> {}
+
+export interface IDocumentsWindowCapability extends Pick<
+    IDocumentsFileCapability,
+    | 'setWindowTitle'
+    | 'showItemInFolder'
+> {}
+
 export interface IDocumentsCapability extends
     IDocumentsFileCapability,
     IDocumentsMenuCapability {}

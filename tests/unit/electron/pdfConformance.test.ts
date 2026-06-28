@@ -163,7 +163,7 @@ vi.mock('pdf-lib', () => {
 vi.mock('electron', () => ({ app: { getPath: vi.fn(() => '/tmp') } }));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
-vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths: () => ({qpdf: '/mock/qpdf'})}));
+vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({qpdf: '/mock/qpdf'})}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: mocks.loggerWarn,
     error: vi.fn(),

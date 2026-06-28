@@ -64,24 +64,24 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 1/Stage 9 - Agent panel helper extraction',
     },
     'app/modules/pdf-viewer/components/PdfThumbnails.vue': {
-        maxLines: 2110,
-        reason: 'transitional PDF thumbnail render/layout hotspot',
-        stage: 'Worker 2 - PDF thumbnail render/layout seams',
+        maxLines: 1105,
+        reason: 'transitional PDF thumbnail UI/layout hotspot after render orchestration extraction',
+        stage: 'Finding 9 Stage A - PDF thumbnail render orchestration extraction',
     },
     'electron/features/agent/codexAssistant.ts': {
-        maxLines: 1900,
+        maxLines: 1899,
         reason: 'transitional Electron assistant backend hotspot after provider account extraction',
         stage: 'Worker 24 - Agent provider account extraction',
     },
-    'app/modules/workspace-shell/composables/useFileOperations.ts': {
-        maxLines: 1933,
+    'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts': {
+        maxLines: 448,
         reason: 'transitional workspace save orchestration hotspot',
-        stage: 'Worker 3 - Workspace save planning extraction',
+        stage: 'Finding 4 Stage D - Save controller port alignment',
     },
     'app/modules/djvu-viewer/components/DjvuViewer.vue': {
-        maxLines: 1719,
-        reason: 'transitional DjVu viewer component hotspot',
-        stage: 'Worker 25 - DjVu continuous scroll window extraction',
+        maxLines: 796,
+        reason: 'transitional DjVu viewer UI shell after preview runtime and scroll orchestration extraction',
+        stage: 'Finding 9 Stage B - DjVu preview runtime and scroll controller extraction',
     },
     'scripts/electron-run/sessionManager.ts': {
         maxLines: 1771,
@@ -94,7 +94,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1553,
+        maxLines: 1551,
         reason: 'transitional workspace component hotspot',
         stage: 'Future workspace component extraction',
     },
@@ -139,7 +139,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 23 - OCR worker resource-message extraction',
     },
     'app/modules/workspace-shell/components/AppShellRoot.vue': {
-        maxLines: 1254,
+        maxLines: 1253,
         reason: 'transitional app shell root hotspot',
         stage: 'Future workspace shell extraction',
     },
@@ -149,7 +149,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future PDF annotation extraction',
     },
     'app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts': {
-        maxLines: 1133,
+        maxLines: 1130,
         reason: 'transitional document workspace agent hotspot',
         stage: 'Future workspace agent extraction',
     },

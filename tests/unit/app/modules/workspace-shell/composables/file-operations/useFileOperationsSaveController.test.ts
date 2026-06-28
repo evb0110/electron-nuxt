@@ -14,13 +14,32 @@ import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
 } from '@app/types/annotations';
-import type { IFileOperationsDeps } from '@app/modules/workspace-shell/composables/useFileOperations';
+import type { IFileOperationsSaveAdapterPorts } from '@app/modules/workspace-shell/composables/file-operations/saveRolePorts';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
-import { useFileOperations } from '@app/modules/workspace-shell/composables/useFileOperations';
+import { useFileOperationsSaveController as useFileOperationsSaveControllerPublic } from '@app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController';
 import { cast } from '@tests/helpers/cast';
 
 const toastAddMock = vi.fn();
-type TPdfNativeMutationSave = NonNullable<IFileOperationsDeps['trySavePdfNativeMutations']>;
+type TFileOperationsSaveControllerTestDeps =
+    IFileOperationsSaveAdapterPorts['state']['status']
+    & IFileOperationsSaveAdapterPorts['state']['documentIdentity']
+    & IFileOperationsSaveAdapterPorts['state']['annotations']
+    & IFileOperationsSaveAdapterPorts['state']['metadata']
+    & IFileOperationsSaveAdapterPorts['state']['metadataCompletion']
+    & IFileOperationsSaveAdapterPorts['pdf']['source']
+    & IFileOperationsSaveAdapterPorts['pdf']['serialization']
+    & IFileOperationsSaveAdapterPorts['persistence']['file']
+    & NonNullable<IFileOperationsSaveAdapterPorts['persistence']['nativeWorkingCopy']>
+    & NonNullable<IFileOperationsSaveAdapterPorts['persistence']['nativeMutations']>
+    & IFileOperationsSaveAdapterPorts['annotationEdits']
+    & IFileOperationsSaveAdapterPorts['viewer']['markup']
+    & IFileOperationsSaveAdapterPorts['viewer']['shapes']
+    & IFileOperationsSaveAdapterPorts['viewer']['shapeState']
+    & IFileOperationsSaveAdapterPorts['lifecycle']
+    & NonNullable<IFileOperationsSaveAdapterPorts['operationLease']>;
+type TPdfNativeMutationSave = NonNullable<NonNullable<
+    IFileOperationsSaveAdapterPorts['persistence']['nativeMutations']
+>['trySavePdfNativeMutations']>;
 
 vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
 vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
@@ -39,7 +58,42 @@ function createDeferred<T>() {
     };
 }
 
-function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> = {}) {
+function createSaveControllerPorts(
+    deps: TFileOperationsSaveControllerTestDeps,
+): IFileOperationsSaveAdapterPorts {
+    return {
+        state: {
+            status: deps,
+            documentIdentity: deps,
+            annotations: deps,
+            metadata: deps,
+            metadataCompletion: deps,
+        },
+        pdf: {
+            source: deps,
+            serialization: deps,
+        },
+        persistence: {
+            file: deps,
+            nativeWorkingCopy: deps,
+            nativeMutations: deps,
+        },
+        annotationEdits: deps,
+        viewer: {
+            markup: deps,
+            shapes: deps,
+            shapeState: deps,
+        },
+        lifecycle: deps,
+        operationLease: deps,
+    };
+}
+
+function useFileOperationsSaveController(deps: TFileOperationsSaveControllerTestDeps) {
+    return useFileOperationsSaveControllerPublic(createSaveControllerPorts(deps));
+}
+
+function createDeps(overrides: Partial<Parameters<typeof useFileOperationsSaveController>[0]> = {}) {
     const resetModified = vi.fn();
     const saveFile = vi.fn(async (_data: Uint8Array) => ({
         success: true,
@@ -49,7 +103,7 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
     }));
     const saveWorkingCopyAs = vi.fn(async (
         _data?: Uint8Array,
-        _opts?: Parameters<IFileOperationsDeps['saveWorkingCopyAs']>[1],
+        _opts?: Parameters<IFileOperationsSaveAdapterPorts['persistence']['file']['saveWorkingCopyAs']>[1],
     ) => ({
         success: true,
         outPath: '/tmp/new.pdf',
@@ -58,7 +112,7 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
     }));
 
     return {
-        deps: cast<Parameters<typeof useFileOperations>[0]>({
+        deps: cast<Parameters<typeof useFileOperationsSaveController>[0]>({
             isSaving: ref(false),
             isSavingAs: ref(false),
             originalPath: ref('/tmp/source.pdf'),
@@ -230,7 +284,7 @@ function createShapeAnnotation(overrides: Partial<IShapeAnnotation> = {}): IShap
     };
 }
 
-describe('useFileOperations', () => {
+describe('useFileOperationsSaveController', () => {
     beforeEach(() => {
         toastAddMock.mockClear();
     });
@@ -241,7 +295,7 @@ describe('useFileOperations', () => {
             resetModified,
             saveFile,
         } = createDeps({annotationDirty: ref(true)});
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -266,7 +320,7 @@ describe('useFileOperations', () => {
 
     it('saves working copy directly when no serialization work is required', async () => {
         const { deps } = createDeps();
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -286,7 +340,7 @@ describe('useFileOperations', () => {
         }>();
         const validatePdfPath = vi.fn(() => validation.promise);
         const { deps } = createDeps({validatePdfPath});
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const savePromise = handleSave();
 
@@ -326,7 +380,7 @@ describe('useFileOperations', () => {
             persistAllAnnotationNotes: vi.fn(() => notePersistence.promise),
             trySaveEmbeddedNoteTextUpdates,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const savePromise = handleSave();
         await Promise.resolve();
@@ -354,7 +408,7 @@ describe('useFileOperations', () => {
             consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
             saveDocument: vi.fn(() => sourceBytes.promise),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const savePromise = handleSave();
 
@@ -382,7 +436,7 @@ describe('useFileOperations', () => {
             consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
             getSourcePdfData: vi.fn(() => sourceBytes.promise),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const savePromise = handleSave();
 
@@ -413,7 +467,7 @@ describe('useFileOperations', () => {
                 cancel,
             }),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const savePromise = handleSave();
 
@@ -450,7 +504,7 @@ describe('useFileOperations', () => {
             persistAllAnnotationNotes: vi.fn(() => notePersistence.promise),
             trySaveEmbeddedNoteTextUpdates,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const savePromise = handleSave();
         await Promise.resolve();
@@ -475,7 +529,7 @@ describe('useFileOperations', () => {
             return operation();
         });
         const { deps } = createDeps({ runWithDocumentOperationLease: cast(runWithDocumentOperationLease) });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const savePromise = handleSave();
         await Promise.resolve();
@@ -500,7 +554,7 @@ describe('useFileOperations', () => {
             hasSavedPdfJsAnnotationBaselineChanges: vi.fn(() => true),
             saveDocument: vi.fn(async () => new Uint8Array([9])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -519,7 +573,7 @@ describe('useFileOperations', () => {
             deps,
             saveFile,
         } = createDeps();
-        const { handleRepairSave } = useFileOperations(deps);
+        const { handleRepairSave } = useFileOperationsSaveController(deps);
 
         await handleRepairSave();
 
@@ -567,7 +621,7 @@ describe('useFileOperations', () => {
             commitPdfEditorsForSave,
             consumePendingEmbeddedTextUpdates,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -614,7 +668,7 @@ describe('useFileOperations', () => {
             getPageLabelsSaveStateToken: () => pageLabelsToken,
             getBookmarksSaveStateToken: () => bookmarksToken,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await expect(handleSave()).resolves.toBe(true);
 
@@ -640,7 +694,7 @@ describe('useFileOperations', () => {
             hasAnnotationChanges: vi.fn(() => true),
             saveDocument,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await expect(handleSave()).resolves.toBe(true);
 
@@ -669,7 +723,7 @@ describe('useFileOperations', () => {
             }),
             saveFile,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await expect(handleSave()).resolves.toBe(true);
 
@@ -688,7 +742,7 @@ describe('useFileOperations', () => {
             deps,
             saveFile,
         } = createDeps({repairWorkingCopy});
-        const { handleRepairSave } = useFileOperations(deps);
+        const { handleRepairSave } = useFileOperationsSaveController(deps);
 
         await handleRepairSave();
 
@@ -716,7 +770,7 @@ describe('useFileOperations', () => {
             deps,
             saveFile,
         } = createDeps({optimizeWorkingCopy});
-        const { handleOptimizePdfForInteraction } = useFileOperations(deps);
+        const { handleOptimizePdfForInteraction } = useFileOperationsSaveController(deps);
 
         await handleOptimizePdfForInteraction();
 
@@ -742,7 +796,7 @@ describe('useFileOperations', () => {
             annotationDirty: ref(true),
             getWorkingCopySize,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await expect(handleSave()).resolves.toBe(false);
 
@@ -764,7 +818,7 @@ describe('useFileOperations', () => {
             annotationDirty: ref(true),
             clearAnnotationHistory,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -777,7 +831,7 @@ describe('useFileOperations', () => {
             deps,
             saveWorkingCopyAs,
         } = createDeps();
-        const { handleSaveAs } = useFileOperations(deps);
+        const { handleSaveAs } = useFileOperationsSaveController(deps);
 
         await handleSaveAs();
 
@@ -799,7 +853,7 @@ describe('useFileOperations', () => {
             resetModified,
             saveWorkingCopyAs,
         } = createDeps({annotationDirty: ref(true)});
-        const { handleSaveAs } = useFileOperations(deps);
+        const { handleSaveAs } = useFileOperationsSaveController(deps);
 
         await handleSaveAs();
 
@@ -830,7 +884,7 @@ describe('useFileOperations', () => {
             annotationDirty: ref(true),
             optimizePdfOnSaveAs: ref(true),
         });
-        const { handleSaveAs } = useFileOperations(deps);
+        const { handleSaveAs } = useFileOperationsSaveController(deps);
 
         await handleSaveAs();
 
@@ -847,7 +901,7 @@ describe('useFileOperations', () => {
             annotationNoteWindowsCount: ref(2),
             persistAllAnnotationNotes: vi.fn(async () => false),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -865,7 +919,7 @@ describe('useFileOperations', () => {
             warnings: [],
         }));
         const { deps } = createDeps({ validatePdfPath });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -889,7 +943,7 @@ describe('useFileOperations', () => {
             saveDocument: vi.fn(async () => new Uint8Array([7])),
             getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -930,7 +984,7 @@ describe('useFileOperations', () => {
             saveDocument: vi.fn(async () => new Uint8Array([7])),
             getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -968,7 +1022,7 @@ describe('useFileOperations', () => {
             consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
             trySaveEmbeddedNoteTextUpdates,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1020,7 +1074,7 @@ describe('useFileOperations', () => {
             getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
             trySaveEmbeddedNoteTextUpdates,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1066,7 +1120,7 @@ describe('useFileOperations', () => {
             untitledBookmarkLabel: 'Untitled',
             trySavePdfNativeMutations,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1144,7 +1198,7 @@ describe('useFileOperations', () => {
             getPageLabelsSaveStateToken: () => pageLabelsToken,
             getBookmarksSaveStateToken: () => bookmarksToken,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1181,7 +1235,7 @@ describe('useFileOperations', () => {
             hasPreservedAnnotationSourceChanges: vi.fn(() => true),
             trySavePdfNativeMutations,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1237,7 +1291,7 @@ describe('useFileOperations', () => {
             hasPreservedAnnotationSourceChanges: vi.fn(() => true),
             trySavePdfNativeMutations,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1281,7 +1335,7 @@ describe('useFileOperations', () => {
             hasPreservedAnnotationSourceChanges: vi.fn(() => true),
             trySavePdfNativeMutations,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1312,7 +1366,7 @@ describe('useFileOperations', () => {
             hasPreservedAnnotationSourceChanges: vi.fn(() => true),
             trySavePdfNativeMutations,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1368,7 +1422,7 @@ describe('useFileOperations', () => {
             hasSavedPdfJsAnnotationBaselineChanges: vi.fn(() => true),
             trySavePdfNativeMutations,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1405,7 +1459,7 @@ describe('useFileOperations', () => {
             }]),
             trySavePdfNativeMutations,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1459,7 +1513,7 @@ describe('useFileOperations', () => {
             getSourcePdfData: vi.fn(async () => savedBytes),
             preparePersistedShapeStateForSave: vi.fn(async () => ({snapshot: true})),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1512,7 +1566,7 @@ describe('useFileOperations', () => {
             getSourcePdfData: vi.fn(async () => new Uint8Array([7])),
             preparePersistedShapeStateForSave: vi.fn(async () => ({snapshot: true})),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -1550,7 +1604,7 @@ describe('useFileOperations', () => {
             trySavePdfNativeMutations,
             getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1582,7 +1636,7 @@ describe('useFileOperations', () => {
             })),
             getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1615,7 +1669,7 @@ describe('useFileOperations', () => {
             markNativeFreeTextNotesSaved,
             trySaveEmbeddedNoteTextUpdates,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1686,7 +1740,7 @@ describe('useFileOperations', () => {
             markNativeFreeTextNotesSaved,
             trySaveEmbeddedNoteTextUpdates,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1718,7 +1772,7 @@ describe('useFileOperations', () => {
             markNativeFreeTextNotesDeleted,
             trySaveEmbeddedNoteTextUpdates,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1764,7 +1818,7 @@ describe('useFileOperations', () => {
             markNativeFreeTextNotesDeleted,
             trySaveEmbeddedNoteTextUpdates,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1800,7 +1854,7 @@ describe('useFileOperations', () => {
                 cancel: cancelReloadWaiter,
             }),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1843,7 +1897,7 @@ describe('useFileOperations', () => {
             consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
             trySaveEmbeddedNoteTextUpdates,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1876,7 +1930,7 @@ describe('useFileOperations', () => {
             consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
             trySaveEmbeddedNoteTextUpdates,
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1912,7 +1966,7 @@ describe('useFileOperations', () => {
             trySaveEmbeddedNoteTextUpdates,
             getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1939,7 +1993,7 @@ describe('useFileOperations', () => {
             trySaveEmbeddedNoteTextUpdates,
             getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -1971,7 +2025,7 @@ describe('useFileOperations', () => {
             consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
             trySaveEmbeddedNoteTextUpdates,
         });
-        const { handleSaveAs } = useFileOperations(deps);
+        const { handleSaveAs } = useFileOperationsSaveController(deps);
 
         const result = await handleSaveAs();
 
@@ -2003,7 +2057,7 @@ describe('useFileOperations', () => {
             saveDocument: vi.fn(async () => new Uint8Array([11])),
             getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -2051,7 +2105,7 @@ describe('useFileOperations', () => {
             saveDocument: vi.fn(async () => new Uint8Array([8])),
             getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -2099,7 +2153,7 @@ describe('useFileOperations', () => {
             saveDocument: vi.fn(async () => new Uint8Array([10])),
             getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -2130,7 +2184,7 @@ describe('useFileOperations', () => {
                 cancel,
             }),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         let settled = false;
         const savePromise = handleSave().then(() => {
@@ -2184,7 +2238,7 @@ describe('useFileOperations', () => {
                 };
             }),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -2216,7 +2270,7 @@ describe('useFileOperations', () => {
                 };
             }),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -2248,7 +2302,7 @@ describe('useFileOperations', () => {
                 cancel: vi.fn(),
             }),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -2266,7 +2320,7 @@ describe('useFileOperations', () => {
             getSourcePdfData: vi.fn(async () => new Uint8Array([13])),
             saveDocument: vi.fn(async () => new Uint8Array([99])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -2298,7 +2352,7 @@ describe('useFileOperations', () => {
                 cancel,
             }),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -2339,7 +2393,7 @@ describe('useFileOperations', () => {
                 didSaveAs: false,
             })),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -2361,7 +2415,7 @@ describe('useFileOperations', () => {
                 didSaveAs: false,
             })),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         await handleSave();
 
@@ -2386,7 +2440,7 @@ describe('useFileOperations', () => {
                 cancel,
             }),
         });
-        const { handleSaveAs } = useFileOperations(deps);
+        const { handleSaveAs } = useFileOperationsSaveController(deps);
 
         await handleSaveAs();
 
@@ -2407,7 +2461,7 @@ describe('useFileOperations', () => {
             pdfDocument: livePdfDocument,
             saveDocument: vi.fn(() => stalledSave),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         try {
             const savePromise = handleSave();
@@ -2436,7 +2490,7 @@ describe('useFileOperations', () => {
             annotationNoteWindowsCount: ref(1),
             persistAllAnnotationNotes: vi.fn(() => deferredNotes.promise),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const firstSave = handleSave();
         const secondSave = await handleSave();
@@ -2461,7 +2515,7 @@ describe('useFileOperations', () => {
             pdfDocument: livePdfDocument,
             saveDocument: vi.fn(async () => null),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -2497,7 +2551,7 @@ describe('useFileOperations', () => {
                 'persist me',
             ]])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         try {
             const result = await handleSave();
@@ -2556,7 +2610,7 @@ describe('useFileOperations', () => {
                 'persist me',
             ]])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -2642,7 +2696,7 @@ describe('useFileOperations', () => {
                 'persist me',
             ]])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -2697,7 +2751,7 @@ describe('useFileOperations', () => {
                 'persist me',
             ]])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -2770,7 +2824,7 @@ describe('useFileOperations', () => {
                 'persist me',
             ]])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 
@@ -2847,7 +2901,7 @@ describe('useFileOperations', () => {
                 'persist me',
             ]])),
         });
-        const { handleSave } = useFileOperations(deps);
+        const { handleSave } = useFileOperationsSaveController(deps);
 
         const result = await handleSave();
 

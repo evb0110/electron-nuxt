@@ -1,5 +1,13 @@
 import type {
     IDocumentsCapability,
+    IDocumentsFileIoCapability,
+    IDocumentsMenuCapability,
+    IDocumentsOpenCapability,
+    IDocumentsPdfCapability,
+    IDocumentsPickerCapability,
+    IDocumentsRecentFilesCapability,
+    IDocumentsWindowCapability,
+    IDocumentsWorkingCopyCapability,
     IImageExportCapability,
 } from '@contracts/electronApiDocuments';
 import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
@@ -43,6 +51,14 @@ interface ICreateBrowserDocumentsCapabilityOptions {clearSearchCaches: (pdfPath?
 
 export interface IBrowserDocumentCapabilities {
     documents: IDocumentsCapability;
+    documentPicker: IDocumentsPickerCapability;
+    documentOpen: IDocumentsOpenCapability;
+    documentWorkingCopy: IDocumentsWorkingCopyCapability;
+    documentFiles: IDocumentsFileIoCapability;
+    documentPdf: IDocumentsPdfCapability;
+    documentRecentFiles: IDocumentsRecentFilesCapability;
+    documentWindow: IDocumentsWindowCapability;
+    documentMenu: IDocumentsMenuCapability;
     imageExport: IImageExportCapability;
     pageOps: IPageOpsCapability;
 }
@@ -112,13 +128,93 @@ export function createBrowserDocumentsCapability(
         saveBytesToPickerOrDownload,
         writeBytesToHandle,
     });
+    const documentPicker = {
+        openDocumentDialog: fileCapability.openDocumentDialog,
+        openPdfDialog: fileCapability.openPdfDialog,
+        openCombineDialog: fileCapability.openCombineDialog,
+        openFolderDialog: fileCapability.openFolderDialog,
+        openImageDialog: fileCapability.openImageDialog,
+        getPathForFile: fileCapability.getPathForFile,
+        getPathsForFiles: fileCapability.getPathsForFiles,
+    } satisfies IDocumentsPickerCapability;
+    const documentOpen = {
+        openDocumentDirect: fileCapability.openDocumentDirect,
+        openPdfDirect: fileCapability.openPdfDirect,
+        openDocumentDirectBatch: fileCapability.openDocumentDirectBatch,
+        openPdfDirectBatch: fileCapability.openPdfDirectBatch,
+    } satisfies IDocumentsOpenCapability;
+    const documentWorkingCopy = {
+        createWorkingCopyFromData: fileCapability.createWorkingCopyFromData,
+        createWorkingCopyFromPath: fileCapability.createWorkingCopyFromPath,
+        cleanupFile: fileCapability.cleanupFile,
+        cleanupOcrTemp: fileCapability.cleanupOcrTemp,
+    } satisfies IDocumentsWorkingCopyCapability;
+    const optionalDocumentFileMethods = {
+        ...(fileCapability.repairPdf ? {repairPdf: fileCapability.repairPdf} : {}),
+        ...(fileCapability.optimizePdfForInteraction ? {optimizePdfForInteraction: fileCapability.optimizePdfForInteraction} : {}),
+        ...(fileCapability.optimizePdfAsCopy ? {optimizePdfAsCopy: fileCapability.optimizePdfAsCopy} : {}),
+        ...(fileCapability.savePdfNoteTextUpdates ? {savePdfNoteTextUpdates: fileCapability.savePdfNoteTextUpdates} : {}),
+        ...(fileCapability.savePdfNoteChanges ? {savePdfNoteChanges: fileCapability.savePdfNoteChanges} : {}),
+        ...(fileCapability.savePdfNativeMutations ? {savePdfNativeMutations: fileCapability.savePdfNativeMutations} : {}),
+        ...(fileCapability.applyPdfNativeMutationsToWorkingCopy
+            ? {applyPdfNativeMutationsToWorkingCopy: fileCapability.applyPdfNativeMutationsToWorkingCopy}
+            : {}),
+    };
+    const documentFiles = {
+        readFile: fileCapability.readFile,
+        statFile: fileCapability.statFile,
+        readFileRange: fileCapability.readFileRange,
+        readFileChunks: fileCapability.readFileChunks,
+        readTextFile: fileCapability.readTextFile,
+        fileExists: fileCapability.fileExists,
+        savePdfAs: fileCapability.savePdfAs,
+        savePdfDataAs: fileCapability.savePdfDataAs,
+        savePdfDialog: fileCapability.savePdfDialog,
+        saveDocxAs: fileCapability.saveDocxAs,
+        writeFile: fileCapability.writeFile,
+        replaceWorkingCopyFromPath: fileCapability.replaceWorkingCopyFromPath,
+        writeDocxFile: fileCapability.writeDocxFile,
+        saveFile: fileCapability.saveFile,
+        savePdfData: fileCapability.savePdfData,
+        savePdfDataChunks: fileCapability.savePdfDataChunks,
+        ...optionalDocumentFileMethods,
+    } satisfies IDocumentsFileIoCapability;
+    const documentPdf = {
+        analyzePdfConformance: fileCapability.analyzePdfConformance,
+        validatePdfData: fileCapability.validatePdfData,
+        validatePdfPath: fileCapability.validatePdfPath,
+        openPdfInDefaultAppData: fileCapability.openPdfInDefaultAppData,
+        openPdfInDefaultAppPath: fileCapability.openPdfInDefaultAppPath,
+        printPdfData: fileCapability.printPdfData,
+        printPdfPath: fileCapability.printPdfPath,
+    } satisfies IDocumentsPdfCapability;
+    const documentRecentFiles = {recentFiles: fileCapability.recentFiles} satisfies IDocumentsRecentFilesCapability;
+    const documentWindow = {
+        setWindowTitle: fileCapability.setWindowTitle,
+        showItemInFolder: fileCapability.showItemInFolder,
+    } satisfies IDocumentsWindowCapability;
+    const documentMenu = {...browserDocumentsMenuCapability} satisfies IDocumentsMenuCapability;
     const documentsCapability = {
-        ...fileCapability,
-        ...browserDocumentsMenuCapability,
+        ...documentPicker,
+        ...documentOpen,
+        ...documentWorkingCopy,
+        ...documentFiles,
+        ...documentPdf,
+        ...documentRecentFiles,
+        ...documentWindow,
+        ...documentMenu,
     };
 
     return {
         documents: documentsCapability,
+        documentPicker,
+        documentOpen,
+        documentWorkingCopy,
+        documentFiles,
+        documentPdf,
+        documentRecentFiles,
+        documentWindow,
+        documentMenu,
         imageExport: imageExportCapability,
         pageOps: pageOpsCapability,
     };

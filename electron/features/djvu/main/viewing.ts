@@ -1,5 +1,4 @@
 import { app } from 'electron';
-import type { IpcMainInvokeEvent } from 'electron';
 import {
     readdir,
     stat,
@@ -15,6 +14,7 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
+import type { IDjvuOperationContext } from '@electron/features/djvu/ports';
 
 const logger = createLogger('djvu-viewing');
 const allowedDjvuViewingPathsBySender = new Map<number, Map<string, number>>();
@@ -82,8 +82,11 @@ export async function cleanupDjvuTempPdfPath(tempPdfPath: string) {
     await safeDeleteDjvuTempPdf(tempPdfPath);
 }
 
-function registerSenderCleanup(event: IpcMainInvokeEvent) {
-    const senderId = event.sender.id;
+function registerSenderCleanup(context: IDjvuOperationContext) {
+    const {
+        sender,
+        senderId,
+    } = context;
     if (senderCleanupRegistered.has(senderId)) {
         return;
     }
@@ -91,9 +94,9 @@ function registerSenderCleanup(event: IpcMainInvokeEvent) {
     const cleanup = () => {
         allowedDjvuViewingPathsBySender.delete(senderId);
         senderCleanupRegistered.delete(senderId);
-        event.sender.removeListener('destroyed', cleanup);
-        event.sender.removeListener('render-process-gone', cleanup);
-        event.sender.removeListener('did-start-navigation', handleNavigation);
+        sender.removeListener('destroyed', cleanup);
+        sender.removeListener('render-process-gone', cleanup);
+        sender.removeListener('did-start-navigation', handleNavigation);
     };
     const handleNavigation = (
         _event: Electron.Event,
@@ -107,31 +110,31 @@ function registerSenderCleanup(event: IpcMainInvokeEvent) {
     };
 
     senderCleanupRegistered.add(senderId);
-    event.sender.once('destroyed', cleanup);
-    event.sender.once('render-process-gone', cleanup);
-    event.sender.on('did-start-navigation', handleNavigation);
+    sender.once('destroyed', cleanup);
+    sender.once('render-process-gone', cleanup);
+    sender.on('did-start-navigation', handleNavigation);
 }
 
-function addAllowedDjvuViewingPath(event: IpcMainInvokeEvent, djvuPath: string) {
+function addAllowedDjvuViewingPath(context: IDjvuOperationContext, djvuPath: string) {
     const normalizedPath = normalizeDjvuViewingPath(djvuPath);
     if (!normalizedPath) {
         return;
     }
 
-    registerSenderCleanup(event);
-    const senderId = event.sender.id;
+    registerSenderCleanup(context);
+    const { senderId } = context;
     const allowedPaths = allowedDjvuViewingPathsBySender.get(senderId) ?? new Map<string, number>();
     allowedPaths.set(normalizedPath, (allowedPaths.get(normalizedPath) ?? 0) + 1);
     allowedDjvuViewingPathsBySender.set(senderId, allowedPaths);
 }
 
-export function releaseDjvuViewingPath(event: IpcMainInvokeEvent, djvuPath: string) {
+export function releaseDjvuViewingPath(context: IDjvuOperationContext, djvuPath: string) {
     const normalizedPath = normalizeDjvuViewingPath(djvuPath);
     if (!normalizedPath) {
         return;
     }
 
-    const senderId = event.sender.id;
+    const { senderId } = context;
     const allowedPaths = allowedDjvuViewingPathsBySender.get(senderId);
     if (!allowedPaths) {
         return;
@@ -221,7 +224,7 @@ export async function sweepStaleDjvuTempPdfs(
 }
 
 export async function handleDjvuOpenForViewing(
-    event: IpcMainInvokeEvent,
+    context: IDjvuOperationContext,
     djvuPath: TOpenPath,
 ): Promise<{
     success: boolean;
@@ -237,7 +240,7 @@ export async function handleDjvuOpenForViewing(
             };
         }
 
-        addAllowedDjvuViewingPath(event, djvuPath);
+        addAllowedDjvuViewingPath(context, djvuPath);
 
         logger.info(`Native DjVu viewing ready: ${djvuPath} (${pageCount} pages)`);
         return {

@@ -9,7 +9,7 @@ import type {
     TImageExportProgressFormat,
 } from '@contracts/electronApiDocuments';
 import {
-    getDocumentsCapability,
+    getDocumentWorkingCopyCapability,
     getImageExportCapability,
 } from '@app/utils/platformDocuments';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
@@ -161,7 +161,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     }
 
     async function cleanupExportedOutputRefs(
-        documents: ReturnType<typeof getDocumentsCapability>,
+        documentWorkingCopy: ReturnType<typeof getDocumentWorkingCopyCapability>,
         outputPaths: string[],
     ) {
         const cleanupPaths = outputPaths.filter(isBrowserDocumentRef);
@@ -171,13 +171,13 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
 
         await Promise.allSettled(
             cleanupPaths.map(async (path) => {
-                await documents.cleanupFile(path);
+                await documentWorkingCopy.cleanupFile(path);
             }),
         );
     }
 
     async function handleImageExportResult(
-        documents: ReturnType<typeof getDocumentsCapability>,
+        documentWorkingCopy: ReturnType<typeof getDocumentWorkingCopyCapability>,
         result: Awaited<ReturnType<ReturnType<typeof getImageExportCapability>['exportPdfToImages']>>,
         selectedPageCount: number,
     ) {
@@ -190,7 +190,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         }
 
         if (result.outputPaths) {
-            await cleanupExportedOutputRefs(documents, result.outputPaths);
+            await cleanupExportedOutputRefs(documentWorkingCopy, result.outputPaths);
             showExportSuccess('images', result.outputPaths.length || selectedPageCount);
             return;
         }
@@ -259,7 +259,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             }
 
             showExportRunning('images', selectedPageCount);
-            const documents = getDocumentsCapability();
+            const documentWorkingCopy = getDocumentWorkingCopyCapability();
             const imageExport = getImageExportCapability();
             const requestId = createExportRequestId();
             subscribeExportProgress(imageExport, requestId, 'images');
@@ -274,7 +274,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                     status: result.success ? 'success' : 'canceled',
                 });
             }
-            await handleImageExportResult(documents, result, selectedPageCount);
+            await handleImageExportResult(documentWorkingCopy, result, selectedPageCount);
         } catch (error) {
             setExportOverlay(null);
             BrowserLogger.error('workspace', 'export images failed', error);
@@ -309,7 +309,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             }
 
             showExportRunning('multipage-tiff', selectedPageCount);
-            const documents = getDocumentsCapability();
+            const documentWorkingCopy = getDocumentWorkingCopyCapability();
             const imageExport = getImageExportCapability();
             const requestId = createExportRequestId();
             subscribeExportProgress(imageExport, requestId, 'multipage-tiff');
@@ -326,7 +326,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                 });
             }
             if (result.success && outputPaths.length > 0) {
-                await cleanupExportedOutputRefs(documents, outputPaths);
+                await cleanupExportedOutputRefs(documentWorkingCopy, outputPaths);
                 showExportSuccess('multipage-tiff', selectedPageCount);
             } else {
                 setExportOverlay(null);

@@ -18,9 +18,9 @@ import { isThumbnailRenderGenerationCurrent } from '@app/modules/pdf-viewer/thum
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../..');
 
-function readPdfThumbnailsSource() {
+function readSource(relativePath: string) {
     return readFileSync(
-        resolve(repoRoot, 'app/modules/pdf-viewer/components/PdfThumbnails.vue'),
+        resolve(repoRoot, relativePath),
         'utf8',
     );
 }
@@ -40,12 +40,12 @@ function createRenderTask(cancel = vi.fn()) {
 
 describe('PdfThumbnails inactive cancellation lifecycle', () => {
     it('keeps the inactive watcher wired to cancel refreshes, renders, and stale generations', () => {
-        const source = readPdfThumbnailsSource();
-        const inactiveWatcher = source.match(/watch\(\s*\(\) => isActive \?\? true,[\s\S]*?\{[\s\S]*?flush: 'post'/u)?.[0] ?? '';
+        const source = readSource('app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime.ts');
+        const inactiveWatcher = source.match(/watch\(\s*\(\) => source\.isActive\.value,[\s\S]*?\{[\s\S]*?flush: 'post'/u)?.[0] ?? '';
 
-        expect(inactiveWatcher).toContain('cancelActivePaneRefresh();');
+        expect(inactiveWatcher).toContain('effects.cancelActivePaneRefresh();');
         expect(inactiveWatcher).toContain('cancelAllRenders();');
-        expect(inactiveWatcher).toContain('renderRunId += 1;');
+        expect(inactiveWatcher).toContain('incrementRenderGeneration();');
     });
 
     it('cancels active render work through the thumbnail render state boundary', () => {

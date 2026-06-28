@@ -13,18 +13,22 @@ type TMockSettingsUpdater = (
     settings: TMockSettings,
 ) => Partial<TMockSettings> | undefined | Promise<Partial<TMockSettings> | undefined>;
 
-const mocks = vi.hoisted(() => ({
-    handlers: new Map<string, TRegisteredHandler>(),
-    logger: {
-        debug: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-    },
-    registeredWindowsById: new Map<number, unknown>(),
-    browserWindowFromWebContents: vi.fn(),
-    getWindowByIdFromRegistry: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+    const agentService = {shutdownAssistant: vi.fn(async () => undefined)};
+    return {
+        handlers: new Map<string, TRegisteredHandler>(),
+        logger: {
+            debug: vi.fn(),
+            info: vi.fn(),
+            warn: vi.fn(),
+            error: vi.fn(),
+        },
+        registeredWindowsById: new Map<number, unknown>(),
+        browserWindowFromWebContents: vi.fn(),
+        getWindowByIdFromRegistry: vi.fn(),
+        createAgentService: vi.fn(() => agentService),
+    };
+});
 
 vi.mock('electron', () => ({
     BrowserWindow: {fromWebContents: mocks.browserWindowFromWebContents},
@@ -39,6 +43,8 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('@contracts/externalUrl', () => ({sanitizeAllowedExternalUrl: (value: unknown) => value}));
+vi.mock('@electron/features/agent/createAgentService', () => ({createAgentService: mocks.createAgentService}));
+vi.mock('@electron/features/agent/registerAgentIpcAdapter', () => ({registerAgentIpcAdapter: vi.fn()}));
 vi.mock('@electron/features/documents/registerDocumentsIpcAdapter', () => ({registerDocumentsIpcAdapter: vi.fn()}));
 vi.mock('@electron/features/djvu/registerDjvuIpcAdapter', () => ({registerDjvuIpcAdapter: vi.fn()}));
 vi.mock('@electron/features/image-export/registerImageExportIpcAdapter', () => ({registerImageExportIpcAdapter: vi.fn()}));

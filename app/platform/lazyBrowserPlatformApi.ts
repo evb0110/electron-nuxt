@@ -3,6 +3,14 @@ import type { IAgentCapability } from '@contracts/agentCapability';
 import type { IDjvuCapability } from '@contracts/electronApiDjvu';
 import type {
     IDocumentsCapability,
+    IDocumentsFileIoCapability,
+    IDocumentsMenuCapability,
+    IDocumentsOpenCapability,
+    IDocumentsPdfCapability,
+    IDocumentsPickerCapability,
+    IDocumentsRecentFilesCapability,
+    IDocumentsWindowCapability,
+    IDocumentsWorkingCopyCapability,
     IImageExportCapability,
 } from '@contracts/electronApiDocuments';
 import type { IHostCapability } from '@contracts/electronApiHost';
@@ -176,92 +184,122 @@ function lazyVoid<TPath extends TBrowserPlatformVoidMethodPath>(
     }) as TMethodAtBrowserPlatformPath<TPath>;
 }
 
-const lazyDocumentsCapability: IDocumentsCapability = {
-    openDocumentDialog: lazyAsync(pathDescriptors.documents.openDocumentDialog.path),
-    openPdfDialog: lazyAsync(pathDescriptors.documents.openPdfDialog.path),
-    openCombineDialog: lazyAsync(pathDescriptors.documents.openCombineDialog.path),
-    openFolderDialog: lazyAsync(pathDescriptors.documents.openFolderDialog.path),
-    openImageDialog: lazyAsync(pathDescriptors.documents.openImageDialog.path),
-    openDocumentDirect: lazyAsync(pathDescriptors.documents.openDocumentDirect.path),
-    openPdfDirect: lazyAsync(pathDescriptors.documents.openPdfDirect.path),
-    openDocumentDirectBatch: lazyAsync(pathDescriptors.documents.openDocumentDirectBatch.path),
-    openPdfDirectBatch: lazyAsync(pathDescriptors.documents.openPdfDirectBatch.path),
-    savePdfAs: lazyAsync(pathDescriptors.documents.savePdfAs.path),
-    savePdfDataAs: lazyAsync(pathDescriptors.documents.savePdfDataAs.path),
-    savePdfDialog: lazyAsync(pathDescriptors.documents.savePdfDialog.path),
-    saveDocxAs: lazyAsync(pathDescriptors.documents.saveDocxAs.path),
-    readFile: lazyAsync(pathDescriptors.documents.readFile.path),
-    statFile: lazyAsync(pathDescriptors.documents.statFile.path),
-    readFileRange: lazyAsync(pathDescriptors.documents.readFileRange.path),
-    readFileChunks: lazyAsync(pathDescriptors.documents.readFileChunks.path),
-    readTextFile: lazyAsync(pathDescriptors.documents.readTextFile.path),
-    fileExists: lazyAsync(pathDescriptors.documents.fileExists.path),
-    analyzePdfConformance: lazyAsync(pathDescriptors.documents.analyzePdfConformance.path),
-    validatePdfData: lazyAsync(pathDescriptors.documents.validatePdfData.path),
-    validatePdfPath: lazyAsync(pathDescriptors.documents.validatePdfPath.path),
-    openPdfInDefaultAppData: lazyAsync(pathDescriptors.documents.openPdfInDefaultAppData.path),
-    openPdfInDefaultAppPath: lazyAsync(pathDescriptors.documents.openPdfInDefaultAppPath.path),
-    printPdfData: lazyAsync(pathDescriptors.documents.printPdfData.path),
-    printPdfPath: lazyAsync(pathDescriptors.documents.printPdfPath.path),
-    writeFile: lazyAsync(pathDescriptors.documents.writeFile.path),
-    replaceWorkingCopyFromPath: lazyAsync(pathDescriptors.documents.replaceWorkingCopyFromPath.path),
-    writeDocxFile: lazyAsync(pathDescriptors.documents.writeDocxFile.path),
-    createWorkingCopyFromData: lazyAsync(pathDescriptors.documents.createWorkingCopyFromData.path),
-    createWorkingCopyFromPath: lazyAsync(pathDescriptors.documents.createWorkingCopyFromPath.path),
-    saveFile: lazyAsync(pathDescriptors.documents.saveFile.path),
-    savePdfData: lazyAsync(pathDescriptors.documents.savePdfData.path),
-    savePdfDataChunks: lazyAsync(pathDescriptors.documents.savePdfDataChunks.path),
-    cleanupFile: lazyAsync(pathDescriptors.documents.cleanupFile.path),
-    cleanupOcrTemp: lazyAsync(pathDescriptors.documents.cleanupOcrTemp.path),
-    setWindowTitle: lazyAsync(pathDescriptors.documents.setWindowTitle.path),
-    showItemInFolder: lazyAsync(pathDescriptors.documents.showItemInFolder.path),
-    recentFiles: {
-        get: lazyAsync(pathDescriptors.documents.recentFiles.get.path),
-        remove: lazyAsync(pathDescriptors.documents.recentFiles.remove.path),
-        clear: lazyAsync(pathDescriptors.documents.recentFiles.clear.path),
-    },
+const lazyDocumentPickerCapability: IDocumentsPickerCapability = {
+    openDocumentDialog: lazyAsync(pathDescriptors.documentPicker.openDocumentDialog.path),
+    openPdfDialog: lazyAsync(pathDescriptors.documentPicker.openPdfDialog.path),
+    openCombineDialog: lazyAsync(pathDescriptors.documentPicker.openCombineDialog.path),
+    openFolderDialog: lazyAsync(pathDescriptors.documentPicker.openFolderDialog.path),
+    openImageDialog: lazyAsync(pathDescriptors.documentPicker.openImageDialog.path),
     getPathForFile(file) {
         return browserDocumentStore.getRefForFile(file);
     },
     getPathsForFiles(files) {
         return files.map(file => browserDocumentStore.getRefForFile(file));
     },
-    setMenuDocumentState: lazyAsync(pathDescriptors.documents.setMenuDocumentState.path),
-    setMenuTabCount: lazyAsync(pathDescriptors.documents.setMenuTabCount.path),
-    onMenuOpenPdf: lazyEvent(pathDescriptors.documents.onMenuOpenPdf.path),
-    onMenuInsertImageFromFile: lazyEvent(pathDescriptors.documents.onMenuInsertImageFromFile.path),
-    onMenuPasteImageFromClipboard: lazyEvent(pathDescriptors.documents.onMenuPasteImageFromClipboard.path),
-    onMenuSave: lazyEvent(pathDescriptors.documents.onMenuSave.path),
-    onMenuRepairSave: lazyEvent(pathDescriptors.documents.onMenuRepairSave.path),
-    onMenuOptimizePdfForInteraction: lazyEvent(pathDescriptors.documents.onMenuOptimizePdfForInteraction.path),
-    onMenuSaveAs: lazyEvent(pathDescriptors.documents.onMenuSaveAs.path),
-    onMenuPrint: lazyEvent(pathDescriptors.documents.onMenuPrint.path),
-    onMenuPrintCurrentPage: lazyEvent(pathDescriptors.documents.onMenuPrintCurrentPage.path),
-    onMenuExportDocx: lazyEvent(pathDescriptors.documents.onMenuExportDocx.path),
-    onMenuExportImages: lazyEvent(pathDescriptors.documents.onMenuExportImages.path),
-    onMenuExportMultiPageTiff: lazyEvent(pathDescriptors.documents.onMenuExportMultiPageTiff.path),
-    onMenuZoomIn: lazyEvent(pathDescriptors.documents.onMenuZoomIn.path),
-    onMenuZoomOut: lazyEvent(pathDescriptors.documents.onMenuZoomOut.path),
-    onMenuActualSize: lazyEvent(pathDescriptors.documents.onMenuActualSize.path),
-    onMenuFitWidth: lazyEvent(pathDescriptors.documents.onMenuFitWidth.path),
-    onMenuFitHeight: lazyEvent(pathDescriptors.documents.onMenuFitHeight.path),
-    onMenuViewModeSingle: lazyEvent(pathDescriptors.documents.onMenuViewModeSingle.path),
-    onMenuViewModeFacing: lazyEvent(pathDescriptors.documents.onMenuViewModeFacing.path),
-    onMenuViewModeFacingFirstSingle: lazyEvent(pathDescriptors.documents.onMenuViewModeFacingFirstSingle.path),
-    onMenuToggleAssistant: lazyEvent(pathDescriptors.documents.onMenuToggleAssistant.path),
-    onMenuUndo: lazyEvent(pathDescriptors.documents.onMenuUndo.path),
-    onMenuRedo: lazyEvent(pathDescriptors.documents.onMenuRedo.path),
-    onMenuDeletePages: lazyEvent(pathDescriptors.documents.onMenuDeletePages.path),
-    onMenuExtractPages: lazyEvent(pathDescriptors.documents.onMenuExtractPages.path),
-    onMenuRotateCw: lazyEvent(pathDescriptors.documents.onMenuRotateCw.path),
-    onMenuRotateCcw: lazyEvent(pathDescriptors.documents.onMenuRotateCcw.path),
-    onMenuInsertPages: lazyEvent(pathDescriptors.documents.onMenuInsertPages.path),
-    onMenuOpenRecentFile: lazyEvent(pathDescriptors.documents.onMenuOpenRecentFile.path),
-    onMenuOpenExternalPaths: lazyEvent(pathDescriptors.documents.onMenuOpenExternalPaths.path),
-    onMenuClearRecentFiles: lazyEvent(pathDescriptors.documents.onMenuClearRecentFiles.path),
-    onOpenDocumentDirectBatchProgress: lazyEvent(pathDescriptors.documents.onOpenDocumentDirectBatchProgress.path),
-    onPdfOptimizeProgress: lazyEvent(pathDescriptors.documents.onPdfOptimizeProgress.path),
-    onOpenPdfDirectBatchProgress: lazyEvent(pathDescriptors.documents.onOpenPdfDirectBatchProgress.path),
+};
+
+const lazyDocumentOpenCapability: IDocumentsOpenCapability = {
+    openDocumentDirect: lazyAsync(pathDescriptors.documentOpen.openDocumentDirect.path),
+    openPdfDirect: lazyAsync(pathDescriptors.documentOpen.openPdfDirect.path),
+    openDocumentDirectBatch: lazyAsync(pathDescriptors.documentOpen.openDocumentDirectBatch.path),
+    openPdfDirectBatch: lazyAsync(pathDescriptors.documentOpen.openPdfDirectBatch.path),
+};
+
+const lazyDocumentWorkingCopyCapability: IDocumentsWorkingCopyCapability = {
+    createWorkingCopyFromData: lazyAsync(pathDescriptors.documentWorkingCopy.createWorkingCopyFromData.path),
+    createWorkingCopyFromPath: lazyAsync(pathDescriptors.documentWorkingCopy.createWorkingCopyFromPath.path),
+    cleanupFile: lazyAsync(pathDescriptors.documentWorkingCopy.cleanupFile.path),
+    cleanupOcrTemp: lazyAsync(pathDescriptors.documentWorkingCopy.cleanupOcrTemp.path),
+};
+
+const lazyDocumentFilesCapability: IDocumentsFileIoCapability = {
+    readFile: lazyAsync(pathDescriptors.documentFiles.readFile.path),
+    statFile: lazyAsync(pathDescriptors.documentFiles.statFile.path),
+    readFileRange: lazyAsync(pathDescriptors.documentFiles.readFileRange.path),
+    readFileChunks: lazyAsync(pathDescriptors.documentFiles.readFileChunks.path),
+    readTextFile: lazyAsync(pathDescriptors.documentFiles.readTextFile.path),
+    fileExists: lazyAsync(pathDescriptors.documentFiles.fileExists.path),
+    savePdfAs: lazyAsync(pathDescriptors.documentFiles.savePdfAs.path),
+    savePdfDataAs: lazyAsync(pathDescriptors.documentFiles.savePdfDataAs.path),
+    savePdfDialog: lazyAsync(pathDescriptors.documentFiles.savePdfDialog.path),
+    saveDocxAs: lazyAsync(pathDescriptors.documentFiles.saveDocxAs.path),
+    writeFile: lazyAsync(pathDescriptors.documentFiles.writeFile.path),
+    replaceWorkingCopyFromPath: lazyAsync(pathDescriptors.documentFiles.replaceWorkingCopyFromPath.path),
+    writeDocxFile: lazyAsync(pathDescriptors.documentFiles.writeDocxFile.path),
+    saveFile: lazyAsync(pathDescriptors.documentFiles.saveFile.path),
+    savePdfData: lazyAsync(pathDescriptors.documentFiles.savePdfData.path),
+    savePdfDataChunks: lazyAsync(pathDescriptors.documentFiles.savePdfDataChunks.path),
+};
+
+const lazyDocumentPdfCapability: IDocumentsPdfCapability = {
+    analyzePdfConformance: lazyAsync(pathDescriptors.documentPdf.analyzePdfConformance.path),
+    validatePdfData: lazyAsync(pathDescriptors.documentPdf.validatePdfData.path),
+    validatePdfPath: lazyAsync(pathDescriptors.documentPdf.validatePdfPath.path),
+    openPdfInDefaultAppData: lazyAsync(pathDescriptors.documentPdf.openPdfInDefaultAppData.path),
+    openPdfInDefaultAppPath: lazyAsync(pathDescriptors.documentPdf.openPdfInDefaultAppPath.path),
+    printPdfData: lazyAsync(pathDescriptors.documentPdf.printPdfData.path),
+    printPdfPath: lazyAsync(pathDescriptors.documentPdf.printPdfPath.path),
+};
+
+const lazyDocumentRecentFilesCapability: IDocumentsRecentFilesCapability = {recentFiles: {
+    get: lazyAsync(pathDescriptors.documentRecentFiles.recentFiles.get.path),
+    remove: lazyAsync(pathDescriptors.documentRecentFiles.recentFiles.remove.path),
+    clear: lazyAsync(pathDescriptors.documentRecentFiles.recentFiles.clear.path),
+}};
+
+const lazyDocumentWindowCapability: IDocumentsWindowCapability = {
+    setWindowTitle: lazyAsync(pathDescriptors.documentWindow.setWindowTitle.path),
+    showItemInFolder: lazyAsync(pathDescriptors.documentWindow.showItemInFolder.path),
+};
+
+const lazyDocumentMenuCapability: IDocumentsMenuCapability = {
+    setMenuDocumentState: lazyAsync(pathDescriptors.documentMenu.setMenuDocumentState.path),
+    setMenuTabCount: lazyAsync(pathDescriptors.documentMenu.setMenuTabCount.path),
+    onMenuOpenPdf: lazyEvent(pathDescriptors.documentMenu.onMenuOpenPdf.path),
+    onMenuInsertImageFromFile: lazyEvent(pathDescriptors.documentMenu.onMenuInsertImageFromFile.path),
+    onMenuPasteImageFromClipboard: lazyEvent(pathDescriptors.documentMenu.onMenuPasteImageFromClipboard.path),
+    onMenuSave: lazyEvent(pathDescriptors.documentMenu.onMenuSave.path),
+    onMenuRepairSave: lazyEvent(pathDescriptors.documentMenu.onMenuRepairSave.path),
+    onMenuOptimizePdfForInteraction: lazyEvent(pathDescriptors.documentMenu.onMenuOptimizePdfForInteraction.path),
+    onMenuSaveAs: lazyEvent(pathDescriptors.documentMenu.onMenuSaveAs.path),
+    onMenuPrint: lazyEvent(pathDescriptors.documentMenu.onMenuPrint.path),
+    onMenuPrintCurrentPage: lazyEvent(pathDescriptors.documentMenu.onMenuPrintCurrentPage.path),
+    onMenuExportDocx: lazyEvent(pathDescriptors.documentMenu.onMenuExportDocx.path),
+    onMenuExportImages: lazyEvent(pathDescriptors.documentMenu.onMenuExportImages.path),
+    onMenuExportMultiPageTiff: lazyEvent(pathDescriptors.documentMenu.onMenuExportMultiPageTiff.path),
+    onMenuZoomIn: lazyEvent(pathDescriptors.documentMenu.onMenuZoomIn.path),
+    onMenuZoomOut: lazyEvent(pathDescriptors.documentMenu.onMenuZoomOut.path),
+    onMenuActualSize: lazyEvent(pathDescriptors.documentMenu.onMenuActualSize.path),
+    onMenuFitWidth: lazyEvent(pathDescriptors.documentMenu.onMenuFitWidth.path),
+    onMenuFitHeight: lazyEvent(pathDescriptors.documentMenu.onMenuFitHeight.path),
+    onMenuViewModeSingle: lazyEvent(pathDescriptors.documentMenu.onMenuViewModeSingle.path),
+    onMenuViewModeFacing: lazyEvent(pathDescriptors.documentMenu.onMenuViewModeFacing.path),
+    onMenuViewModeFacingFirstSingle: lazyEvent(pathDescriptors.documentMenu.onMenuViewModeFacingFirstSingle.path),
+    onMenuToggleAssistant: lazyEvent(pathDescriptors.documentMenu.onMenuToggleAssistant.path),
+    onMenuUndo: lazyEvent(pathDescriptors.documentMenu.onMenuUndo.path),
+    onMenuRedo: lazyEvent(pathDescriptors.documentMenu.onMenuRedo.path),
+    onMenuDeletePages: lazyEvent(pathDescriptors.documentMenu.onMenuDeletePages.path),
+    onMenuExtractPages: lazyEvent(pathDescriptors.documentMenu.onMenuExtractPages.path),
+    onMenuRotateCw: lazyEvent(pathDescriptors.documentMenu.onMenuRotateCw.path),
+    onMenuRotateCcw: lazyEvent(pathDescriptors.documentMenu.onMenuRotateCcw.path),
+    onMenuInsertPages: lazyEvent(pathDescriptors.documentMenu.onMenuInsertPages.path),
+    onMenuOpenRecentFile: lazyEvent(pathDescriptors.documentMenu.onMenuOpenRecentFile.path),
+    onMenuOpenExternalPaths: lazyEvent(pathDescriptors.documentMenu.onMenuOpenExternalPaths.path),
+    onMenuClearRecentFiles: lazyEvent(pathDescriptors.documentMenu.onMenuClearRecentFiles.path),
+    onOpenDocumentDirectBatchProgress: lazyEvent(pathDescriptors.documentMenu.onOpenDocumentDirectBatchProgress.path),
+    onPdfOptimizeProgress: lazyEvent(pathDescriptors.documentMenu.onPdfOptimizeProgress.path),
+    onOpenPdfDirectBatchProgress: lazyEvent(pathDescriptors.documentMenu.onOpenPdfDirectBatchProgress.path),
+};
+
+const lazyDocumentsCapability: IDocumentsCapability = {
+    ...lazyDocumentPickerCapability,
+    ...lazyDocumentOpenCapability,
+    ...lazyDocumentWorkingCopyCapability,
+    ...lazyDocumentFilesCapability,
+    ...lazyDocumentPdfCapability,
+    ...lazyDocumentRecentFilesCapability,
+    ...lazyDocumentWindowCapability,
+    ...lazyDocumentMenuCapability,
 };
 
 const lazyImageExportCapability: IImageExportCapability = {
@@ -392,6 +430,14 @@ const lazyHostCapability: IHostCapability = {
 
 export const lazyBrowserPlatformApi = {
     documents: lazyDocumentsCapability,
+    documentPicker: lazyDocumentPickerCapability,
+    documentOpen: lazyDocumentOpenCapability,
+    documentWorkingCopy: lazyDocumentWorkingCopyCapability,
+    documentFiles: lazyDocumentFilesCapability,
+    documentPdf: lazyDocumentPdfCapability,
+    documentRecentFiles: lazyDocumentRecentFilesCapability,
+    documentWindow: lazyDocumentWindowCapability,
+    documentMenu: lazyDocumentMenuCapability,
     pageOps: lazyPageOpsCapability,
     imageExport: lazyImageExportCapability,
     ocr: lazyOcrCapability,

@@ -2,11 +2,11 @@ import type {
     IPdfSearchExcerpt,
     IPdfSearchUtf16Range,
     IResolvedSearchMatchOptions,
-} from '@contracts/search';
+} from '@pdf-core';
 import {
     buildPdfSearchExcerpt,
     iteratePdfSearchMatches,
-} from '@contracts/search';
+} from '@pdf-core';
 import { EXCERPT_CONTEXT_CHARS } from '@electron/config/constants';
 
 export interface IPageSearchMatch extends IPdfSearchUtf16Range {}

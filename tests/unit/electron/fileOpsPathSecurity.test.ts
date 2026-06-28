@@ -99,7 +99,8 @@ const { handleAnalyzePdfConformance } = await import('@electron/features/documen
 const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
 
 describe('fileOps path security', () => {
-    const event = {sender: {id: 42}} as Electron.IpcMainInvokeEvent;
+    const readContext = {senderId: 42};
+    const writeContext = {senderId: 42};
 
     beforeEach(async () => {
         await clearCachedRangeReadHandlesForTests();
@@ -166,7 +167,7 @@ describe('fileOps path security', () => {
 
         await expect(
             handleFileRead(
-                {} as never,
+                {},
                 '/tmp/electron-test/symlink.pdf',
             ),
         ).rejects.toThrow('Invalid file path: reads only allowed within temp directory');
@@ -179,7 +180,7 @@ describe('fileOps path security', () => {
 
         await expect(
             handleFileWrite(
-                {} as never,
+                writeContext,
                 '/tmp/electron-test/symlink-output.pdf',
                 new Uint8Array([9]),
             ),
@@ -190,12 +191,12 @@ describe('fileOps path security', () => {
 
     it('ensures mapped working copy directories before writing temp PDF bytes', async () => {
         await handleFileWrite(
-            {} as never,
+            writeContext,
             '/tmp/electron-test/safe.pdf',
             new Uint8Array([9]),
         );
 
-        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/electron-test/safe.pdf', undefined);
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/electron-test/safe.pdf', 42);
         expect(mocks.open).toHaveBeenCalledWith(expect.stringMatching(/\/\.safe\.pdf\.\d+\..+\.tmp$/u), 'wx');
         expect(mocks.writeFile).toHaveBeenCalledWith(new Uint8Array([9]));
         expect(mocks.rename).toHaveBeenCalledWith(
@@ -209,7 +210,7 @@ describe('fileOps path security', () => {
         const queuedMutation = enqueueWorkingCopyMutation('/tmp/electron-test/safe.pdf', () => blockedMutation.promise);
 
         const writePromise = handleFileWrite(
-            {} as never,
+            writeContext,
             '/tmp/electron-test/safe.pdf',
             new Uint8Array([9]),
         );
@@ -228,7 +229,7 @@ describe('fileOps path security', () => {
         mocks.realpathSync.mockImplementation((path: string) => (path === '/var' ? '/private/var' : path));
 
         await handleFileWrite(
-            {} as never,
+            writeContext,
             '/var/folders/evb/safe.pdf',
             new Uint8Array([9]),
         );
@@ -245,7 +246,7 @@ describe('fileOps path security', () => {
 
         await expect(
             handleFileWrite(
-                {} as never,
+                writeContext,
                 '/tmp/electron-test/link/safe.pdf',
                 new Uint8Array([9]),
             ),
@@ -261,7 +262,7 @@ describe('fileOps path security', () => {
 
         await expect(
             handleFileWrite(
-                {} as never,
+                writeContext,
                 '/tmp/electron-test/safe.pdf',
                 new Uint8Array([9]),
             ),
@@ -278,7 +279,7 @@ describe('fileOps path security', () => {
             .mockResolvedValueOnce(undefined);
 
         await handleFileWrite(
-            {} as never,
+            writeContext,
             '/tmp/electron-test/safe.pdf',
             new Uint8Array([9]),
         );
@@ -292,7 +293,7 @@ describe('fileOps path security', () => {
         mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
 
         await handleReplaceWorkingCopyFromPath(
-            event,
+            writeContext,
             '/tmp/electron-test/work.pdf',
             '/tmp/electron-test/ocr-1-merged.pdf',
         );
@@ -318,7 +319,7 @@ describe('fileOps path security', () => {
         mocks.originalPathSaveBaseMatches.mockResolvedValue(true);
 
         await handleReplaceWorkingCopyFromPath(
-            event,
+            writeContext,
             '/tmp/electron-test/work.pdf',
             '/tmp/electron-test/ocr-1-merged.pdf',
         );
@@ -346,7 +347,7 @@ describe('fileOps path security', () => {
         mocks.originalPathSaveBaseMatches.mockResolvedValue(false);
 
         await handleReplaceWorkingCopyFromPath(
-            event,
+            writeContext,
             '/tmp/electron-test/work.pdf',
             '/tmp/electron-test/ocr-1-merged.pdf',
         );
@@ -361,7 +362,7 @@ describe('fileOps path security', () => {
 
         await expect(
             handleReplaceWorkingCopyFromPath(
-                event,
+                writeContext,
                 '/tmp/electron-test/work.pdf',
                 '/tmp/electron-test/unrelated.pdf',
             ),
@@ -377,7 +378,7 @@ describe('fileOps path security', () => {
 
         await expect(
             handleReplaceWorkingCopyFromPath(
-                event,
+                writeContext,
                 '/tmp/electron-test/work.pdf',
                 '/tmp/electron-test/ocr-1-merged.pdf',
             ),
@@ -390,7 +391,7 @@ describe('fileOps path security', () => {
     it('deletes legacy OCR temp files only when pending ownership matches the sender', async () => {
         mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
 
-        await handleCleanupOcrTemp(event, '/tmp/electron-test/ocr-1-merged.pdf');
+        await handleCleanupOcrTemp(readContext, '/tmp/electron-test/ocr-1-merged.pdf');
 
         expect(mocks.findPendingOcrResultFileForPath).toHaveBeenCalledWith(42, '/tmp/electron-test/ocr-1-merged.pdf');
         expect(mocks.unlink).toHaveBeenCalledWith('/tmp/electron-test/ocr-1-merged.pdf');
@@ -400,7 +401,7 @@ describe('fileOps path security', () => {
         mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
         mocks.findPendingOcrResultFileForPath.mockReturnValue(null);
 
-        await handleCleanupOcrTemp(event, '/tmp/electron-test/ocr-1-merged.pdf');
+        await handleCleanupOcrTemp(readContext, '/tmp/electron-test/ocr-1-merged.pdf');
 
         expect(mocks.findPendingOcrResultFileForPath).toHaveBeenCalledWith(42, '/tmp/electron-test/ocr-1-merged.pdf');
         expect(mocks.unlink).not.toHaveBeenCalled();
@@ -413,7 +414,7 @@ describe('fileOps path security', () => {
             .mockResolvedValueOnce('/tmp/electron-test/mapped.pdf');
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue('/tmp/electron-test/mapped.pdf');
 
-        const content = await handleFileRead(event, '/Users/alice/Documents/file.pdf');
+        const content = await handleFileRead(readContext, '/Users/alice/Documents/file.pdf');
 
         expect(mocks.findWorkingCopyPathByOriginalPath).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf', 42);
         expect(mocks.readFile).toHaveBeenCalledWith('/tmp/electron-test/mapped.pdf');
@@ -431,7 +432,7 @@ describe('fileOps path security', () => {
             .mockResolvedValueOnce('/tmp/electron-test/mapped.pdf');
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue('/tmp/electron-test/mapped.pdf');
 
-        const result = await handleFileStat(event, '/Users/alice/Documents/file.pdf');
+        const result = await handleFileStat(readContext, '/Users/alice/Documents/file.pdf');
 
         expect(mocks.findWorkingCopyPathByOriginalPath).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf', 42);
         expect(mocks.statSync).toHaveBeenCalledWith('/tmp/electron-test/mapped.pdf');
@@ -457,7 +458,7 @@ describe('fileOps path security', () => {
             read,
         });
 
-        const content = await handleFileReadRange(event, '/Users/alice/Documents/file.pdf', 10, 2);
+        const content = await handleFileReadRange(readContext, '/Users/alice/Documents/file.pdf', 10, 2);
 
         expect(mocks.findWorkingCopyPathByOriginalPath).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf', 42);
         expect(mocks.open).toHaveBeenCalledWith('/tmp/electron-test/mapped.pdf', 'r');
@@ -488,7 +489,7 @@ describe('fileOps path security', () => {
             read,
         });
 
-        const content = await handleFileReadRange(event, '/tmp/electron-test/work.pdf', 10, 2);
+        const content = await handleFileReadRange(readContext, '/tmp/electron-test/work.pdf', 10, 2);
 
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/electron-test/work.pdf', 42);
         expect(mocks.open).toHaveBeenCalledWith('/tmp/electron-test/work.pdf', 'r');
@@ -512,8 +513,8 @@ describe('fileOps path security', () => {
             read,
         });
 
-        await handleFileReadRange(event, '/tmp/electron-test/safe.pdf', 0, 2);
-        await handleFileReadRange(event, '/tmp/electron-test/safe.pdf', 2, 2);
+        await handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 0, 2);
+        await handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 2, 2);
 
         expect(mocks.open).toHaveBeenCalledTimes(1);
         expect(read).toHaveBeenCalledTimes(2);
@@ -550,8 +551,8 @@ describe('fileOps path security', () => {
                 }),
             });
 
-        await handleFileReadRange(event, '/tmp/electron-test/safe.pdf', 0, 2);
-        await handleFileReadRange(event, '/tmp/electron-test/safe.pdf', 2, 2);
+        await handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 0, 2);
+        await handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 2, 2);
 
         expect(mocks.open).toHaveBeenCalledTimes(2);
         expect(firstClose).toHaveBeenCalledTimes(1);
@@ -570,7 +571,7 @@ describe('fileOps path security', () => {
             }),
         });
 
-        await handleFileReadRange(event, '/tmp/electron-test/safe.pdf', 0, 2);
+        await handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 0, 2);
         await enqueueWorkingCopyMutation('/tmp/electron-test/safe.pdf', async () => undefined);
 
         await waitForSettledQueueTurn();
@@ -582,7 +583,7 @@ describe('fileOps path security', () => {
         mocks.isAllowedDjvuViewingPath.mockReturnValue(true);
         mocks.realpathSync.mockReturnValue('/Users/alice/Documents/file.djvu');
 
-        const content = await handleFileRead({} as never, '/Users/alice/Documents/file.djvu');
+        const content = await handleFileRead({}, '/Users/alice/Documents/file.djvu');
 
         expect(mocks.isAllowedDjvuViewingPath).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
         expect(mocks.readFile).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
@@ -598,7 +599,7 @@ describe('fileOps path security', () => {
         mocks.isAllowedDjvuViewingPath.mockReturnValue(true);
         mocks.realpathSync.mockReturnValue('/Users/alice/Documents/file.djvu');
 
-        const result = await handleFileStat({} as never, '/Users/alice/Documents/file.djvu');
+        const result = await handleFileStat({}, '/Users/alice/Documents/file.djvu');
 
         expect(mocks.isAllowedDjvuViewingPath).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
         expect(mocks.statSync).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
@@ -622,7 +623,7 @@ describe('fileOps path security', () => {
             read,
         });
 
-        const content = await handleFileReadRange({} as never, '/Users/alice/Documents/file.djvu', 10, 2);
+        const content = await handleFileReadRange({}, '/Users/alice/Documents/file.djvu', 10, 2);
 
         expect(mocks.isAllowedDjvuViewingPath).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
         expect(mocks.open).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu', 'r');
@@ -640,7 +641,7 @@ describe('fileOps path security', () => {
 
         await expect(
             handleFileRead(
-                {} as never,
+                {},
                 '/Users/alice/Documents/file.pdf',
             ),
         ).rejects.toThrow('Invalid file path: reads only allowed within temp directory');
@@ -649,7 +650,7 @@ describe('fileOps path security', () => {
     });
 
     it('routes PDF conformance checks through the worker-backed helper', async () => {
-        const result = await handleAnalyzePdfConformance(event, '/tmp/electron-test/safe.pdf');
+        const result = await handleAnalyzePdfConformance(readContext, '/tmp/electron-test/safe.pdf');
 
         expect(mocks.analyzePdfConformanceFile).toHaveBeenCalledWith('/tmp/electron-test/safe.pdf');
         expect(mocks.readFile).not.toHaveBeenCalled();
@@ -668,7 +669,7 @@ describe('fileOps path security', () => {
     it('rejects invalid DOCX write payloads before consuming the approved path', async () => {
         await expect(
             handleFileWriteDocx(
-                event,
+                writeContext,
                 '/tmp/electron-test/export.docx',
                 'not-bytes',
             ),
@@ -680,7 +681,7 @@ describe('fileOps path security', () => {
 
     it('consumes DOCX write grants for the invoking sender only', async () => {
         await handleFileWriteDocx(
-            event,
+            writeContext,
             '/tmp/electron-test/export.docx',
             new Uint8Array([9]),
         );
@@ -709,8 +710,8 @@ describe('fileOps path security', () => {
         });
         mocks.open.mockImplementationOnce(() => firstOpen.promise);
 
-        const firstRead = handleFileReadRange(event, '/tmp/electron-test/safe.pdf', 0, 2);
-        const secondRead = handleFileReadRange(event, '/tmp/electron-test/safe.pdf', 2, 2);
+        const firstRead = handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 0, 2);
+        const secondRead = handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 2, 2);
         await waitForSettledQueueTurn();
 
         expect(mocks.open).toHaveBeenCalledTimes(1);

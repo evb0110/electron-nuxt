@@ -1,24 +1,8 @@
-import { existsSync } from 'fs';
-import { join } from 'path';
-
-function hasExpectedOcrResources(resourcesBase: string) {
-    return existsSync(join(resourcesBase, 'tesseract'));
-}
+import { resolveNativeResourcesBase } from '@electron/native-tools/resolveNativeResourcesBase';
 
 export function resolveOcrResourcesBase(
     moduleDir: string,
     isPackaged: boolean,
 ) {
-    if (isPackaged) {
-        return process.resourcesPath;
-    }
-
-    const candidates = [
-        join(process.cwd(), 'resources'),
-        join(moduleDir, '..', 'resources'),
-        join(moduleDir, '..', '..', 'resources'),
-        join(moduleDir, '..', '..', '..', 'resources'),
-    ];
-    const resolved = candidates.find(hasExpectedOcrResources);
-    return resolved ?? candidates[0]!;
+    return resolveNativeResourcesBase(moduleDir, isPackaged, {expectedResourceNames: ['tesseract']});
 }

@@ -82,6 +82,52 @@ describe('createDjvuWorkerFromPath', () => {
         expect(mocks.unload).not.toHaveBeenCalled();
     });
 
+    it('prefers desktop documentFiles over legacy documents for desktop paths', async () => {
+        const bytes = new Uint8Array([
+            4,
+            5,
+            6,
+        ]);
+        const documentFiles = {
+            statFile: vi.fn(async () => ({size: bytes.byteLength})),
+            readFile: vi.fn(async () => bytes),
+            readFileRange: vi.fn(async () => {
+                throw new Error('split readFileRange should not be used for small files');
+            }),
+        };
+        const legacyDocuments = {
+            statFile: vi.fn(async () => {
+                throw new Error('legacy statFile should not be used');
+            }),
+            readFile: vi.fn(async () => {
+                throw new Error('legacy readFile should not be used');
+            }),
+            readFileRange: vi.fn(async () => {
+                throw new Error('legacy readFileRange should not be used');
+            }),
+        };
+        vi.stubGlobal('window', { electronAPI: {
+            documentFiles,
+            documents: legacyDocuments,
+        } });
+        const { createDjvuWorkerFromPath } =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+
+        await createDjvuWorkerFromPath('/Users/test/desktop-book.djvu');
+
+        expect(documentFiles.statFile).toHaveBeenCalledWith('/Users/test/desktop-book.djvu');
+        expect(documentFiles.readFile).toHaveBeenCalledWith('/Users/test/desktop-book.djvu');
+        expect(documentFiles.readFileRange).not.toHaveBeenCalled();
+        expect(legacyDocuments.statFile).not.toHaveBeenCalled();
+        expect(legacyDocuments.readFile).not.toHaveBeenCalled();
+        expect(legacyDocuments.readFileRange).not.toHaveBeenCalled();
+        expect(mocks.stat).not.toHaveBeenCalled();
+        expect(mocks.read).not.toHaveBeenCalled();
+        expect(mocks.readRange).not.toHaveBeenCalled();
+        expect(mocks.createDocument).toHaveBeenCalledWith(bytes.buffer, {});
+        expect(mocks.unload).not.toHaveBeenCalled();
+    });
+
     it('still unloads transient browser document refs after creating the worker', async () => {
         const { createDjvuWorkerFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');

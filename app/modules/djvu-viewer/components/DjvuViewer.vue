@@ -122,33 +122,22 @@ import type { IScrollSnapshot } from '@app/types/pdf';
 import type { IDjvuPageSize } from '@app/platform/browser-api/public';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import AppLoaderOverlay from '@app/components/AppLoaderOverlay.vue';
-import { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/public';
-import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';
 import {
     getSpreadStartForPage,
     getViewColumnCount,
     isStandaloneSpreadPage,
-    stepBySpread,
 } from '@app/utils/pdfViewMode';
-import { accumulateWheelForPageFlips } from '@app/utils/document-viewer/single-page-wheel/accumulateWheelForPageFlips';
-import { createWheelPageAccumulatorState } from '@app/utils/document-viewer/single-page-wheel/createWheelPageAccumulatorState';
-import type { IWheelPageAccumulatorState } from '@app/utils/document-viewer/single-page-wheel/singlePageWheelTypes';
-import { normalizePageWheelDelta } from '@app/utils/document-viewer/single-page-wheel/normalizePageWheelDelta';
-import { resolveWheelPageFlipStepDelta } from '@app/utils/document-viewer/single-page-wheel/resolveWheelPageFlipStepDelta';
+import {
+    useDjvuPreviewRuntime,
+    type IDjvuPageState,
+} from '@app/modules/djvu-viewer/runtime/useDjvuPreviewRuntime';
+import { useDjvuContinuousScrollController } from '@app/modules/djvu-viewer/runtime/useDjvuContinuousScrollController';
+import { useDjvuPageFlipWheelController } from '@app/modules/djvu-viewer/runtime/useDjvuPageFlipWheelController';
 import {
     capturePageAnchorScrollSnapshot,
     restorePageAnchorScrollSnapshot,
 } from '@app/utils/document-viewer/page-anchor-scroll-snapshot/pageAnchorScrollSnapshot';
-import { resolveDjvuPreviewResolutionPlan } from '@app/utils/djvuPreviewResolution';
-import {
-    createDjvuPageRenderList,
-    type TDjvuScrollDirection,
-} from '@app/modules/djvu-viewer/createDjvuPageRenderList';
-import {
-    resolveDjvuContinuousScrollWindow,
-    type IDjvuContinuousScrollWindow,
-} from '@app/modules/djvu-viewer/resolveDjvuContinuousScrollWindow';
 
 interface IProps {
     src: TDocumentRef | null;
@@ -159,14 +148,6 @@ interface IProps {
     continuousScroll?: boolean;
     dragMode?: boolean;
     isActive?: boolean;
-}
-
-interface IDjvuPageState {
-    failedRenderPx: number;
-    objectUrl: string | null;
-    renderedPx: number;
-    status: 'idle' | 'loading' | 'loaded' | 'error';
-    token: number;
 }
 
 const {
@@ -189,19 +170,9 @@ const emit = defineEmits<{
 
 const { t } = useTypedI18n();
 const DJVU_BASE_MARGIN = 16;
-const WHEEL_DELTA_EPSILON = 0.01;
-const HORIZONTAL_INTENT_REJECT_RATIO = 2.5;
-const PAGE_SCROLL_EDGE_EPSILON = 1;
-const DJVU_ZOOM_SETTLE_RERENDER_MS = 200;
 const DJVU_CONTINUOUS_OVERSCAN_VIEWPORTS = 2;
 const DJVU_CONTINUOUS_RENDER_MARGIN_PAGES = 3;
-const DJVU_CONTINUOUS_PREFETCH_PAGES = 4;
-const DJVU_PAGE_FLIP_PREFETCH_PAGES = 2;
 const DJVU_PREVIEW_DEVICE_PIXEL_RATIO_CAP = 1;
-const DJVU_SCROLLING_PREVIEW_HEADROOM = 0.9;
-const DJVU_SCROLL_SETTLE_PREVIEW_RERENDER_MS = 180;
-const DJVU_RENDER_QUEUE_TARGET_CONCURRENCY = 2;
-const DJVU_RENDER_QUEUE_MAX_CONCURRENCY = 4;
 const DJVU_PAGE_SNAPSHOT_SELECTOR = '[data-page-number]';
 
 const viewerContainer = ref<HTMLElement | null>(null);
@@ -209,9 +180,6 @@ const pageElements = new Map<number, HTMLElement>();
 const pageSizes = ref<IDjvuPageSize[]>([]);
 const pageStates = ref<IDjvuPageState[]>([]);
 const totalPages = computed(() => pageSizes.value.length);
-const scrollTop = ref(0);
-const scrollDirection = ref<TDjvuScrollDirection>(0);
-const isScrollingPreviewMode = ref(false);
 const currentPage = ref(1);
 const viewerError = ref<string | null>(null);
 const isLoading = ref(Boolean(src));
@@ -239,63 +207,6 @@ const renderedPagesLayoutClass = computed(() => (
         : 'flex-row items-start justify-center'
 ));
 
-interface IContinuousScrollWindowCacheEntry {
-    scrollTop: number;
-    containerHeight: number;
-    totalPages: number;
-    pageSizes: IDjvuPageSize[];
-    usesFallback: boolean;
-    result: IDjvuContinuousScrollWindow;
-}
-
-let continuousScrollWindowCache: IContinuousScrollWindowCacheEntry | null = null;
-
-function getContinuousScrollViewportHeight() {
-    const measuredHeight = containerHeight.value > 0
-        ? containerHeight.value
-        : viewerContainer.value?.clientHeight ?? 0;
-    return Math.max(0, measuredHeight);
-}
-
-function cacheContinuousScrollWindow(
-    result: IDjvuContinuousScrollWindow,
-    containerHeightValue: number,
-    usesFallback: boolean,
-) {
-    continuousScrollWindowCache = {
-        scrollTop: scrollTop.value,
-        containerHeight: containerHeightValue,
-        totalPages: totalPages.value,
-        pageSizes: pageSizes.value,
-        usesFallback,
-        result,
-    };
-    return result;
-}
-
-function getCachedContinuousScrollWindow(
-    containerHeightValue: number,
-    usesFallback: boolean,
-) {
-    const cached = continuousScrollWindowCache;
-    if (
-        cached &&
-        cached.scrollTop === scrollTop.value &&
-        cached.containerHeight === containerHeightValue &&
-        cached.totalPages === totalPages.value &&
-        cached.usesFallback === usesFallback &&
-        cached.pageSizes === pageSizes.value
-    ) {
-        if (usesFallback && cached.result.mostVisiblePage !== currentPage.value) {
-            // Fall through when the anchor page matters.
-        } else {
-            return cached.result;
-        }
-    }
-
-    return null;
-}
-
 function getFitHeightAvailableHeight() {
     return Math.max(1, containerHeight.value - DJVU_BASE_MARGIN * 2);
 }
@@ -309,119 +220,6 @@ function resolveFitHeightZoomForPageSize(pageSize: IDjvuPageSize | null | undefi
     return Math.max(0.1, getFitHeightAvailableHeight() / baseHeight);
 }
 
-function getContinuousPageHeight(pageNumber: number) {
-    const pageSize = pageSizes.value[pageNumber - 1];
-    if (!pageSize) {
-        return 0;
-    }
-
-    return Math.max(1, Math.round(pageSize.height * getPageDisplayScale(pageNumber)));
-}
-
-function getContinuousPagesHeight(startPage: number, endPage: number) {
-    if (startPage > endPage || totalPages.value <= 0) {
-        return 0;
-    }
-
-    const normalizedStart = clamp(startPage, 1, totalPages.value);
-    const normalizedEnd = clamp(endPage, 1, totalPages.value);
-    let height = 0;
-    for (let pageNumber = normalizedStart; pageNumber <= normalizedEnd; pageNumber += 1) {
-        height += getContinuousPageHeight(pageNumber);
-        if (pageNumber < normalizedEnd) {
-            height += DJVU_BASE_MARGIN;
-        }
-    }
-    return height;
-}
-
-function resolveContinuousScrollWindow(): IDjvuContinuousScrollWindow | null {
-    if (!isContinuousScroll.value || totalPages.value <= 0) {
-        return null;
-    }
-
-    const containerHeightValue = getContinuousScrollViewportHeight();
-    const usesFallback = containerHeightValue <= 0;
-    const cached = getCachedContinuousScrollWindow(containerHeightValue, usesFallback);
-    if (cached) {
-        return cached;
-    }
-
-    const result = resolveDjvuContinuousScrollWindow({
-        currentPage: currentPage.value,
-        pageGapPx: DJVU_BASE_MARGIN,
-        pageHeights: pageSizes.value.map((_, index) => getContinuousPageHeight(index + 1)),
-        renderMarginPages: DJVU_CONTINUOUS_RENDER_MARGIN_PAGES,
-        scrollTop: scrollTop.value,
-        totalPages: totalPages.value,
-        viewportHeight: containerHeightValue,
-        overscanViewports: DJVU_CONTINUOUS_OVERSCAN_VIEWPORTS,
-    });
-    if (!result) {
-        return null;
-    }
-
-    return cacheContinuousScrollWindow(
-        result,
-        containerHeightValue,
-        usesFallback,
-    );
-}
-
-function invalidateContinuousScrollWindowCache() {
-    continuousScrollWindowCache = null;
-}
-
-const renderedPageNumbers = computed(() => {
-    if (totalPages.value <= 0) {
-        return [] as number[];
-    }
-
-    if (isContinuousScroll.value) {
-        return resolveContinuousScrollWindow()?.pageNumbers ?? [];
-    }
-
-    const spreadStart = getSpreadStartForPage(
-        currentPage.value,
-        viewMode.value,
-        totalPages.value,
-    );
-
-    if (viewMode.value === 'single' || totalPages.value === 1) {
-        return [spreadStart];
-    }
-
-    if (isStandaloneSpreadPage(spreadStart, viewMode.value, totalPages.value)) {
-        return [spreadStart];
-    }
-
-    const nextPage = spreadStart + 1;
-    if (nextPage > totalPages.value) {
-        return [spreadStart];
-    }
-
-    return [
-        spreadStart,
-        nextPage,
-    ];
-});
-const continuousScrollTopSpacerHeight = computed(() => {
-    if (!isContinuousScroll.value || renderedPageNumbers.value.length === 0) {
-        return 0;
-    }
-
-    return getContinuousPagesHeight(1, renderedPageNumbers.value[0]! - 1);
-});
-const continuousScrollBottomSpacerHeight = computed(() => {
-    if (!isContinuousScroll.value || renderedPageNumbers.value.length === 0) {
-        return 0;
-    }
-
-    return getContinuousPagesHeight(
-        renderedPageNumbers.value[renderedPageNumbers.value.length - 1]! + 1,
-        totalPages.value,
-    );
-});
 const manualZoom = computed(() => {
     const candidate = zoom ?? 1;
     if (!Number.isFinite(candidate) || candidate <= 0) {
@@ -489,27 +287,8 @@ const effectiveZoom = computed(() => {
     return resolveFitWidthZoom();
 });
 
-let activeWorker: Awaited<ReturnType<typeof createDjvuPagePreviewSourceFromPath>> | null = null;
-let scrollRafId = 0;
-let loadGeneration = 0;
-const activeRenderPageNumbers = new Set<number>();
-let queuedPageNumbers: number[] = [];
-let lastRenderedPageSet = new Set<number>();
-let zoomSettleRerenderTimer: number | null = null;
-let scrollSettlePreviewTimer: number | null = null;
-let wheelAccumulator: IWheelPageAccumulatorState = createWheelPageAccumulatorState();
-
-function isCurrentLoadGeneration(generation: number) {
-    return generation === loadGeneration;
-}
-
-function emitLoading(nextLoading: boolean, options: { force?: boolean } = {}) {
-    if (!options.force && isLoading.value === nextLoading) {
-        return;
-    }
-
-    isLoading.value = nextLoading;
-    emit('loading', nextLoading);
+function syncRuntimeLoadedPages() {
+    djvuPreviewRuntime.syncLoadedPages();
 }
 
 function setPageElement(pageNumber: number, element: Element | ComponentPublicInstance | null) {
@@ -529,7 +308,7 @@ function measureContainer() {
 
     containerWidth.value = Math.max(0, element.clientWidth);
     containerHeight.value = Math.max(0, element.clientHeight);
-    invalidateContinuousScrollWindowCache();
+    continuousScrollController.invalidateContinuousScrollWindowCache();
 }
 
 function getPageShellStyle(pageNumber: number) {
@@ -577,651 +356,6 @@ function getNeededDeviceWidth(pageNumber: number) {
     return Math.max(1, Math.ceil(cssWidth * devicePixelRatio));
 }
 
-function getPreviewResolutionPlan(pageNumber: number) {
-    const pageSize = pageSizes.value[pageNumber - 1];
-    const headroom = isScrollingPreviewMode.value ? DJVU_SCROLLING_PREVIEW_HEADROOM : undefined;
-
-    return resolveDjvuPreviewResolutionPlan({
-        ...(headroom === undefined ? {} : { headroom }),
-        nativeWidth: pageSize?.width ?? 1,
-        neededDevicePx: getNeededDeviceWidth(pageNumber),
-    });
-}
-
-function revokePageUrl(pageNumber: number) {
-    const state = pageStates.value[pageNumber - 1];
-    if (!state?.objectUrl || !activeWorker) {
-        return;
-    }
-
-    try {
-        activeWorker.revokeObjectURL(state.objectUrl);
-    } catch (error) {
-        BrowserLogger.warn('djvu-viewer', 'Failed to revoke DjVu page URL', {
-            pageNumber,
-            error,
-        });
-    }
-
-    state.objectUrl = null;
-    state.failedRenderPx = 0;
-    state.renderedPx = 0;
-}
-
-function resetPageState(pageNumber: number) {
-    const state = pageStates.value[pageNumber - 1];
-    if (!state) {
-        return;
-    }
-
-    state.token += 1;
-    revokePageUrl(pageNumber);
-    state.failedRenderPx = 0;
-    state.status = 'idle';
-    state.renderedPx = 0;
-}
-
-function cleanupViewerState() {
-    clearScrollSettlePreviewTimer();
-    for (let pageNumber = 1; pageNumber <= pageStates.value.length; pageNumber += 1) {
-        revokePageUrl(pageNumber);
-    }
-    pageStates.value = [];
-    pageSizes.value = [];
-    pageElements.clear();
-    lastRenderedPageSet = new Set<number>();
-    activeRenderPageNumbers.clear();
-    queuedPageNumbers = [];
-    scrollTop.value = 0;
-    scrollDirection.value = 0;
-    isScrollingPreviewMode.value = false;
-    invalidateContinuousScrollWindowCache();
-    currentPage.value = 1;
-    viewerError.value = null;
-    emit('update:document', null);
-    emit('update:totalPages', 0);
-    emit('update:currentPage', 1);
-}
-
-function releaseRenderedPagePreviews() {
-    activeRenderPageNumbers.clear();
-    clearZoomSettleRerenderTimer();
-    clearScrollSettlePreviewTimer();
-    isScrollingPreviewMode.value = false;
-
-    for (let pageNumber = 1; pageNumber <= pageStates.value.length; pageNumber += 1) {
-        const state = pageStates.value[pageNumber - 1];
-        if (!state) {
-            continue;
-        }
-
-        state.token += 1;
-        revokePageUrl(pageNumber);
-        state.status = 'idle';
-    }
-
-    queuedPageNumbers = [];
-    lastRenderedPageSet = new Set<number>();
-}
-
-function stopWorker() {
-    clearZoomSettleRerenderTimer();
-    clearScrollSettlePreviewTimer();
-    isScrollingPreviewMode.value = false;
-    if (!activeWorker) {
-        return;
-    }
-
-    for (let pageNumber = 1; pageNumber <= pageStates.value.length; pageNumber += 1) {
-        revokePageUrl(pageNumber);
-    }
-
-    activeWorker.terminate();
-    activeWorker = null;
-    activeRenderPageNumbers.clear();
-    queuedPageNumbers = [];
-    lastRenderedPageSet = new Set<number>();
-    invalidateContinuousScrollWindowCache();
-}
-
-function suspendWorker() {
-    releaseRenderedPagePreviews();
-    clearScrollSettlePreviewTimer();
-    isScrollingPreviewMode.value = false;
-    if (!activeWorker) {
-        return;
-    }
-
-    activeWorker.terminate();
-    activeWorker = null;
-    activeRenderPageNumbers.clear();
-    queuedPageNumbers = [];
-    lastRenderedPageSet = new Set<number>();
-    invalidateContinuousScrollWindowCache();
-}
-
-function isPagePreviewUndersized(pageNumber: number, state: IDjvuPageState | undefined) {
-    const targetPx = getPreviewResolutionPlan(pageNumber).targetPx;
-
-    return Boolean(
-        state
-        && state.status === 'loaded'
-        && state.objectUrl
-        && state.renderedPx > 0
-        && targetPx > state.renderedPx
-        && targetPx > state.failedRenderPx,
-    );
-}
-
-function canLoadPagePreview(pageNumber: number, state: IDjvuPageState | undefined): state is IDjvuPageState {
-    return Boolean(
-        state
-        && state.status !== 'loading'
-        && (state.status !== 'loaded' || isPagePreviewUndersized(pageNumber, state)),
-    );
-}
-
-function shouldQueuePagePreview(pageNumber: number, state: IDjvuPageState | undefined) {
-    return Boolean(
-        state
-        && (
-            state.status === 'idle'
-            || isPagePreviewUndersized(pageNumber, state)
-        ),
-    );
-}
-
-function discardStalePageObjectUrl(
-    worker: Awaited<ReturnType<typeof createDjvuPagePreviewSourceFromPath>>,
-    url: string,
-) {
-    worker.revokeObjectURL(url);
-}
-
-function discardStaleWorker(
-    worker: Awaited<ReturnType<typeof createDjvuPagePreviewSourceFromPath>>,
-) {
-    if (worker === activeWorker) {
-        activeWorker = null;
-    }
-    worker.terminate();
-}
-
-function commitLoadedPagePreview(
-    pageNumber: number,
-    token: number,
-    generation: number,
-    worker: Awaited<ReturnType<typeof createDjvuPagePreviewSourceFromPath>>,
-    objectUrl: string,
-    renderedPx: number,
-) {
-    const currentState = pageStates.value[pageNumber - 1];
-    if (
-        !isActive.value
-        || !isCurrentLoadGeneration(generation)
-        || !currentState
-        || currentState.token !== token
-        || worker !== activeWorker
-    ) {
-        discardStalePageObjectUrl(worker, objectUrl);
-        return false;
-    }
-
-    const previousObjectUrl = currentState.objectUrl;
-    currentState.objectUrl = objectUrl;
-    currentState.failedRenderPx = 0;
-    currentState.renderedPx = renderedPx;
-    currentState.status = 'loaded';
-    if (previousObjectUrl && previousObjectUrl !== objectUrl) {
-        try {
-            worker.revokeObjectURL(previousObjectUrl);
-        } catch (error) {
-            BrowserLogger.warn('djvu-viewer', 'Failed to revoke previous DjVu page URL', {
-                pageNumber,
-                error,
-            });
-        }
-    }
-    finishInitialPreviewLoadIfSettled();
-    return true;
-}
-
-function markPagePreviewLoadFailed(
-    pageNumber: number,
-    token: number,
-    generation: number,
-    worker: Awaited<ReturnType<typeof createDjvuPagePreviewSourceFromPath>>,
-    error: unknown,
-) {
-    const currentState = pageStates.value[pageNumber - 1];
-    if (
-        !isActive.value
-        || !isCurrentLoadGeneration(generation)
-        || !currentState
-        || currentState.token !== token
-        || worker !== activeWorker
-    ) {
-        return;
-    }
-
-    if (currentState.objectUrl) {
-        currentState.failedRenderPx = Math.max(currentState.failedRenderPx, getPreviewResolutionPlan(pageNumber).targetPx);
-        currentState.status = 'loaded';
-        finishInitialPreviewLoadIfSettled();
-        BrowserLogger.warn('djvu-viewer', 'Failed to refresh DjVu page preview', {
-            pageNumber,
-            error,
-        });
-    } else {
-        currentState.status = 'error';
-        finishInitialPreviewLoadIfSettled();
-        BrowserLogger.warn('djvu-viewer', 'Failed to load DjVu page preview', {
-            pageNumber,
-            error,
-        });
-    }
-}
-
-function preloadPageObjectUrl(objectUrl: string) {
-    if (typeof Image === 'undefined') {
-        return Promise.resolve();
-    }
-
-    return new Promise<void>((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => resolve();
-        image.onerror = () => reject(new Error('Failed to decode DjVu page preview'));
-        image.src = objectUrl;
-    });
-}
-
-function finishInitialPreviewLoadIfSettled() {
-    if (!isActive.value) {
-        return;
-    }
-    if (!isLoading.value) {
-        return;
-    }
-
-    if (hasVisiblePagePreview.value) {
-        emitLoading(false);
-        return;
-    }
-
-    const desiredPageNumbers = getPreferredRenderedPageNumbers();
-    if (desiredPageNumbers.length === 0) {
-        return;
-    }
-
-    const desiredPagesSettled = desiredPageNumbers.every((pageNumber) => {
-        const state = pageStates.value[pageNumber - 1];
-        return state?.status === 'loaded' || state?.status === 'error';
-    });
-    if (desiredPagesSettled) {
-        emitLoading(false);
-    }
-}
-
-async function ensurePageLoaded(pageNumber: number) {
-    const state = pageStates.value[pageNumber - 1];
-    const worker = activeWorker;
-    const generation = loadGeneration;
-    if (!isActive.value || !worker || !canLoadPagePreview(pageNumber, state)) {
-        return;
-    }
-
-    state.status = 'loading';
-    state.token += 1;
-    const token = state.token;
-    const previewPlan = getPreviewResolutionPlan(pageNumber);
-
-    try {
-        const {
-            objectUrl,
-            renderedPx,
-        } = await worker.renderPageObjectUrl(pageNumber, { subsample: previewPlan.subsample });
-        await preloadPageObjectUrl(objectUrl);
-        commitLoadedPagePreview(pageNumber, token, generation, worker, objectUrl, renderedPx);
-    } catch (error) {
-        markPagePreviewLoadFailed(pageNumber, token, generation, worker, error);
-    }
-}
-
-function getPreferredRenderedPageNumbers() {
-    if (totalPages.value <= 0) {
-        return [] as number[];
-    }
-
-    if (isContinuousScroll.value) {
-        const scrollWindow = resolveContinuousScrollWindow();
-        if (!scrollWindow) {
-            return [] as number[];
-        }
-
-        return createDjvuPageRenderList({
-            anchorPage: scrollWindow.mostVisiblePage ?? currentPage.value,
-            direction: scrollDirection.value,
-            endPage: scrollWindow.end,
-            prefetchPages: DJVU_CONTINUOUS_PREFETCH_PAGES,
-            startPage: scrollWindow.start,
-            totalPages: totalPages.value,
-        });
-    }
-
-    return createDjvuPageRenderList({
-        anchorPage: currentPage.value,
-        direction: 0,
-        endPage: currentPage.value,
-        prefetchPages: DJVU_PAGE_FLIP_PREFETCH_PAGES,
-        startPage: currentPage.value,
-        totalPages: totalPages.value,
-    });
-}
-
-function queueDesiredPages(pageNumbers: number[]) {
-    queuedPageNumbers = pageNumbers.filter((pageNumber, index, list) => (
-        pageNumber >= 1
-        && pageNumber <= totalPages.value
-        && list.indexOf(pageNumber) === index
-    ));
-}
-
-function countActiveQueuedRenderPages() {
-    const queuedPages = new Set(queuedPageNumbers);
-    let count = 0;
-
-    for (const pageNumber of activeRenderPageNumbers) {
-        if (queuedPages.has(pageNumber)) {
-            count += 1;
-        }
-    }
-
-    return count;
-}
-
-function processRenderQueue() {
-    if (!isActive.value || !activeWorker) {
-        return;
-    }
-
-    let launchedRender = false;
-    let activeQueuedRenderCount = countActiveQueuedRenderPages();
-
-    while (
-        activeRenderPageNumbers.size < DJVU_RENDER_QUEUE_MAX_CONCURRENCY
-        && activeQueuedRenderCount < DJVU_RENDER_QUEUE_TARGET_CONCURRENCY
-    ) {
-        const nextPageNumber = queuedPageNumbers.find((pageNumber) => {
-            const state = pageStates.value[pageNumber - 1];
-            return !activeRenderPageNumbers.has(pageNumber) && shouldQueuePagePreview(pageNumber, state);
-        });
-
-        if (!nextPageNumber) {
-            break;
-        }
-
-        activeRenderPageNumbers.add(nextPageNumber);
-        activeQueuedRenderCount += 1;
-        launchedRender = true;
-        void ensurePageLoaded(nextPageNumber)
-            .finally(() => {
-                const wasTracked = activeRenderPageNumbers.delete(nextPageNumber);
-                if (wasTracked) {
-                    processRenderQueue();
-                }
-            });
-    }
-
-    if (!launchedRender && activeRenderPageNumbers.size === 0) {
-        finishInitialPreviewLoadIfSettled();
-    }
-}
-
-function syncLoadedPages() {
-    if (!isActive.value || !activeWorker || totalPages.value <= 0) {
-        return;
-    }
-
-    const desiredPageNumbers = getPreferredRenderedPageNumbers();
-    const activePages = new Set(desiredPageNumbers);
-    queueDesiredPages(desiredPageNumbers);
-
-    for (const pageNumber of lastRenderedPageSet) {
-        if (activePages.has(pageNumber)) {
-            continue;
-        }
-
-        const state = pageStates.value[pageNumber - 1];
-        if (state && state.status !== 'idle') {
-            resetPageState(pageNumber);
-        }
-    }
-
-    lastRenderedPageSet = activePages;
-    void processRenderQueue();
-}
-
-function clearZoomSettleRerenderTimer() {
-    if (zoomSettleRerenderTimer === null || typeof window === 'undefined') {
-        return;
-    }
-
-    window.clearTimeout(zoomSettleRerenderTimer);
-    zoomSettleRerenderTimer = null;
-}
-
-function clearScrollSettlePreviewTimer() {
-    if (scrollSettlePreviewTimer === null || typeof window === 'undefined') {
-        return;
-    }
-
-    window.clearTimeout(scrollSettlePreviewTimer);
-    scrollSettlePreviewTimer = null;
-}
-
-function scheduleSettledPreviewRerender() {
-    if (!import.meta.client || !isActive.value || totalPages.value <= 0 || typeof window === 'undefined') {
-        return;
-    }
-
-    clearZoomSettleRerenderTimer();
-    zoomSettleRerenderTimer = window.setTimeout(() => {
-        zoomSettleRerenderTimer = null;
-        syncLoadedPages();
-    }, DJVU_ZOOM_SETTLE_RERENDER_MS);
-}
-
-function scheduleScrollSettledPreviewRerender() {
-    if (!import.meta.client || !isActive.value || totalPages.value <= 0 || !isContinuousScroll.value || typeof window === 'undefined') {
-        return;
-    }
-
-    isScrollingPreviewMode.value = true;
-    clearScrollSettlePreviewTimer();
-    scrollSettlePreviewTimer = window.setTimeout(() => {
-        scrollSettlePreviewTimer = null;
-        isScrollingPreviewMode.value = false;
-        syncLoadedPages();
-    }, DJVU_SCROLL_SETTLE_PREVIEW_RERENDER_MS);
-}
-
-function detectCurrentPageFromViewport() {
-    if (!isContinuousScroll.value) {
-        emit('update:currentPage', currentPage.value);
-        return;
-    }
-
-    if (totalPages.value <= 0) {
-        return;
-    }
-
-    const window = resolveContinuousScrollWindow();
-    const bestPage = window?.mostVisiblePage ?? currentPage.value;
-
-    if (bestPage !== currentPage.value) {
-        currentPage.value = bestPage;
-        emit('update:currentPage', bestPage);
-    }
-}
-
-function scheduleViewportSync() {
-    if (scrollRafId !== 0) {
-        return;
-    }
-
-    scrollRafId = window.requestAnimationFrame(() => {
-        scrollRafId = 0;
-        detectCurrentPageFromViewport();
-    });
-}
-
-function handleViewerScroll() {
-    if (!import.meta.client || !isActive.value) {
-        return;
-    }
-
-    const nextScrollTop = viewerContainer.value?.scrollTop ?? 0;
-    if (nextScrollTop > scrollTop.value) {
-        scrollDirection.value = 1;
-    } else if (nextScrollTop < scrollTop.value) {
-        scrollDirection.value = -1;
-    }
-    scrollTop.value = nextScrollTop;
-    scheduleScrollSettledPreviewRerender();
-    scheduleViewportSync();
-}
-
-function shouldIgnorePageFlipWheel(event: WheelEvent) {
-    return (
-        isContinuousScroll.value ||
-        isLoading.value ||
-        totalPages.value <= 0 ||
-        event.ctrlKey ||
-        event.metaKey
-    );
-}
-
-function hasHorizontalWheelIntent(event: WheelEvent) {
-    return Math.abs(event.deltaX) > Math.abs(event.deltaY) * HORIZONTAL_INTENT_REJECT_RATIO;
-}
-
-function canScrollCurrentSpread(
-    container: HTMLElement,
-    direction: -1 | 1,
-    maxScrollTop: number,
-) {
-    return maxScrollTop > PAGE_SCROLL_EDGE_EPSILON
-        && (
-            direction > 0
-                ? container.scrollTop < maxScrollTop - PAGE_SCROLL_EDGE_EPSILON
-                : container.scrollTop > PAGE_SCROLL_EDGE_EPSILON
-        );
-}
-
-function scrollCurrentSpreadByWheelDelta(
-    container: HTMLElement,
-    delta: number,
-    direction: -1 | 1,
-    maxScrollTop: number,
-) {
-    clearWheelAccumulator();
-    container.scrollTop = direction > 0
-        ? Math.min(maxScrollTop, container.scrollTop + delta)
-        : Math.max(0, container.scrollTop + delta);
-}
-
-function resolvePageFlipWheelStep(event: WheelEvent, delta: number, direction: -1 | 1) {
-    const accumulationResult = accumulateWheelForPageFlips({
-        state: wheelAccumulator,
-        delta,
-        direction,
-        eventTimeMs: event.timeStamp,
-        stepDelta: resolveWheelPageFlipStepDelta(event, delta),
-        maxSteps: 1,
-    });
-    wheelAccumulator = accumulationResult.state;
-    return accumulationResult.stepsToFlip;
-}
-
-function flipPageFromWheel(direction: -1 | 1) {
-    const targetPage = stepBySpread(
-        currentPage.value,
-        viewMode.value,
-        totalPages.value,
-        direction,
-        1,
-    );
-    if (targetPage === currentPage.value) {
-        clearWheelAccumulator();
-        return;
-    }
-
-    scrollToPage(targetPage);
-}
-
-function resolvePageFlipWheelContext(event: WheelEvent) {
-    if (shouldIgnorePageFlipWheel(event) || hasHorizontalWheelIntent(event)) {
-        return null;
-    }
-
-    const container = viewerContainer.value;
-    if (!container) {
-        return null;
-    }
-
-    const delta = normalizePageWheelDelta(event.deltaY, event.deltaMode, container);
-    if (Math.abs(delta) < WHEEL_DELTA_EPSILON) {
-        return null;
-    }
-
-    const direction: -1 | 1 = delta > 0 ? 1 : -1;
-    return {
-        container,
-        delta,
-        direction,
-        maxScrollTop: Math.max(0, container.scrollHeight - container.clientHeight),
-    };
-}
-
-function handleViewerWheel(event: WheelEvent) {
-    if (!isActive.value) {
-        return;
-    }
-    const context = resolvePageFlipWheelContext(event);
-    if (!context) {
-        return;
-    }
-    event.preventDefault();
-
-    if (canScrollCurrentSpread(context.container, context.direction, context.maxScrollTop)) {
-        scrollCurrentSpreadByWheelDelta(
-            context.container,
-            context.delta,
-            context.direction,
-            context.maxScrollTop,
-        );
-        return;
-    }
-
-    if (resolvePageFlipWheelStep(event, context.delta, context.direction) === 0) {
-        return;
-    }
-
-    flipPageFromWheel(context.direction);
-}
-
-function retryPage(pageNumber: number) {
-    if (!isActive.value) {
-        return;
-    }
-    resetPageState(pageNumber);
-    void ensurePageLoaded(pageNumber);
-}
-
-function clearWheelAccumulator() {
-    wheelAccumulator = createWheelPageAccumulatorState();
-}
-
 function syncHorizontalScrollForZoomMode() {
     const container = viewerContainer.value;
     if (!container) {
@@ -1248,13 +382,146 @@ function scrollActiveSpreadIntoView() {
     syncHorizontalScrollForZoomMode();
 }
 
+const continuousScrollController = useDjvuContinuousScrollController({
+    containerHeight,
+    currentPage,
+    emitCurrentPage: pageNumber => emit('update:currentPage', pageNumber),
+    getPageDisplayScale,
+    isActive,
+    isContinuousScroll,
+    pageElements,
+    pageGapPx: DJVU_BASE_MARGIN,
+    pageSizes,
+    pageSnapshotSelector: DJVU_PAGE_SNAPSHOT_SELECTOR,
+    renderMarginPages: DJVU_CONTINUOUS_RENDER_MARGIN_PAGES,
+    overscanViewports: DJVU_CONTINUOUS_OVERSCAN_VIEWPORTS,
+    syncLoadedPages: syncRuntimeLoadedPages,
+    totalPages,
+    viewerContainer,
+});
+
+const renderedPageNumbers = computed(() => {
+    if (totalPages.value <= 0) {
+        return [] as number[];
+    }
+
+    if (isContinuousScroll.value) {
+        return continuousScrollController.resolveContinuousScrollWindow()?.pageNumbers ?? [];
+    }
+
+    const spreadStart = getSpreadStartForPage(
+        currentPage.value,
+        viewMode.value,
+        totalPages.value,
+    );
+
+    if (viewMode.value === 'single' || totalPages.value === 1) {
+        return [spreadStart];
+    }
+
+    if (isStandaloneSpreadPage(spreadStart, viewMode.value, totalPages.value)) {
+        return [spreadStart];
+    }
+
+    const nextPage = spreadStart + 1;
+    if (nextPage > totalPages.value) {
+        return [spreadStart];
+    }
+
+    return [
+        spreadStart,
+        nextPage,
+    ];
+});
+
+const continuousScrollTopSpacerHeight = computed(() => {
+    if (!isContinuousScroll.value || renderedPageNumbers.value.length === 0) {
+        return 0;
+    }
+
+    return continuousScrollController.getContinuousPagesHeight(1, renderedPageNumbers.value[0]! - 1);
+});
+
+const continuousScrollBottomSpacerHeight = computed(() => {
+    if (!isContinuousScroll.value || renderedPageNumbers.value.length === 0) {
+        return 0;
+    }
+
+    return continuousScrollController.getContinuousPagesHeight(
+        renderedPageNumbers.value[renderedPageNumbers.value.length - 1]! + 1,
+        totalPages.value,
+    );
+});
+
+const djvuPreviewRuntime = useDjvuPreviewRuntime({
+    state: {
+        currentPage,
+        isLoading,
+        pageSizes,
+        pageStates,
+        viewerError,
+    },
+    source: {
+        getNeededDeviceWidth,
+        getOpenErrorMessage: () => t('errors.djvu.open'),
+        getSrc: () => src,
+        isActive,
+        isContinuousScroll,
+        resolveContinuousScrollWindow: continuousScrollController.resolveContinuousScrollWindow,
+        scrollDirection: continuousScrollController.scrollDirection,
+        totalPages,
+    },
+    effects: {
+        clearPageElements: () => pageElements.clear(),
+        emitCurrentPage: pageNumber => emit('update:currentPage', pageNumber),
+        emitDocument: value => emit('update:document', value),
+        emitLoading: value => emit('loading', value),
+        emitTotalPages: value => emit('update:totalPages', value),
+        invalidateContinuousScrollWindowCache: continuousScrollController.invalidateContinuousScrollWindowCache,
+        measureContainer,
+        resetScrollState: continuousScrollController.resetScrollState,
+        resetViewerScrollPosition: continuousScrollController.resetContainerScrollPosition,
+        scheduleViewportSync: continuousScrollController.scheduleViewportSync,
+        syncHorizontalScrollForZoomMode,
+    },
+});
+
+const pageFlipWheelController = useDjvuPageFlipWheelController({
+    currentPage,
+    isActive,
+    isContinuousScroll,
+    isLoading,
+    scrollToPage,
+    totalPages,
+    viewMode,
+    viewerContainer,
+});
+
+function handleViewerScroll() {
+    if (!import.meta.client) {
+        return;
+    }
+
+    if (continuousScrollController.handleViewerScroll()) {
+        djvuPreviewRuntime.scheduleScrollSettledPreviewRerender();
+    }
+}
+
+function handleViewerWheel(event: WheelEvent) {
+    pageFlipWheelController.handleViewerWheel(event);
+}
+
+function retryPage(pageNumber: number) {
+    djvuPreviewRuntime.retryPage(pageNumber);
+}
+
 watch(effectiveZoom, (value) => {
-    invalidateContinuousScrollWindowCache();
+    continuousScrollController.invalidateContinuousScrollWindowCache();
     emit('update:effectiveZoom', value);
 }, { immediate: true });
 
 watch(zoomMode, () => {
-    invalidateContinuousScrollWindowCache();
+    continuousScrollController.invalidateContinuousScrollWindowCache();
 });
 
 watch(renderedPageNumbers, async () => {
@@ -1263,7 +530,7 @@ watch(renderedPageNumbers, async () => {
     }
 
     await nextTick();
-    syncLoadedPages();
+    djvuPreviewRuntime.syncLoadedPages();
 }, { flush: 'post' });
 
 watch([
@@ -1279,160 +546,14 @@ watch([
 }, { flush: 'post' });
 
 watch(
-    () => src,
-    async (src) => {
-        loadGeneration += 1;
-        const generation = loadGeneration;
-
-        stopWorker();
-        cleanupViewerState();
-
-        if (!src || !import.meta.client) {
-            emitLoading(false);
-            return;
-        }
-
-        if (!isActive.value) {
-            emitLoading(false);
-            return;
-        }
-
-        emitLoading(true, { force: true });
-
-        try {
-            const worker = await createDjvuPagePreviewSourceFromPath(src);
-            if (!isCurrentLoadGeneration(generation)) {
-                discardStaleWorker(worker);
-                return;
-            }
-
-            activeWorker = worker;
-            const sizes = await worker.getPageSizes();
-            if (!isCurrentLoadGeneration(generation) || worker !== activeWorker) {
-                if (worker === activeWorker && pageSizes.value.length === 0) {
-                    discardStaleWorker(worker);
-                }
-                return;
-            }
-
-            pageSizes.value = sizes;
-            pageStates.value = sizes.map(() => ({
-                failedRenderPx: 0,
-                objectUrl: null,
-                renderedPx: 0,
-                status: 'idle',
-                token: 0,
-            }));
-            invalidateContinuousScrollWindowCache();
-            currentPage.value = 1;
-            viewerError.value = null;
-            emit('update:document', null);
-            emit('update:totalPages', sizes.length);
-            emit('update:currentPage', 1);
-            if (sizes.length === 0) {
-                emitLoading(false);
-                return;
-            }
-
-            await nextTick();
-            measureContainer();
-            if (viewerContainer.value) {
-                viewerContainer.value.scrollTop = 0;
-                scrollTop.value = 0;
-                syncHorizontalScrollForZoomMode();
-            }
-            lastRenderedPageSet = new Set<number>();
-            syncLoadedPages();
-        } catch (error) {
-            if (!isCurrentLoadGeneration(generation)) {
-                return;
-            }
-
-            viewerError.value = error instanceof Error ? error.message : t('errors.djvu.open');
-            BrowserLogger.error('djvu-viewer', 'Failed to initialize native DjVu viewer', {
-                src,
-                error,
-            });
-            emitLoading(false);
-        } finally {
-            if (isCurrentLoadGeneration(generation)) {
-                finishInitialPreviewLoadIfSettled();
-            }
+    isActive,
+    (active) => {
+        if (!active) {
+            pageFlipWheelController.clearWheelAccumulator();
+            continuousScrollController.cancelViewportSync();
         }
     },
-    { immediate: true },
 );
-
-watch(isActive, async (active) => {
-    if (!active) {
-        loadGeneration += 1;
-        suspendWorker();
-        clearWheelAccumulator();
-        if (import.meta.client && scrollRafId !== 0) {
-            window.cancelAnimationFrame(scrollRafId);
-            scrollRafId = 0;
-        }
-        return;
-    }
-
-    if (src && import.meta.client && !activeWorker) {
-        loadGeneration += 1;
-        const generation = loadGeneration;
-        emitLoading(true, { force: true });
-
-        try {
-            const worker = await createDjvuPagePreviewSourceFromPath(src);
-            if (!isCurrentLoadGeneration(generation)) {
-                discardStaleWorker(worker);
-                return;
-            }
-
-            activeWorker = worker;
-            if (pageSizes.value.length === 0) {
-                const sizes = await worker.getPageSizes();
-                if (!isCurrentLoadGeneration(generation) || worker !== activeWorker) {
-                    if (worker === activeWorker && pageSizes.value.length === 0) {
-                        discardStaleWorker(worker);
-                    }
-                    return;
-                }
-
-                pageSizes.value = sizes;
-                pageStates.value = sizes.map(() => ({
-                    failedRenderPx: 0,
-                    objectUrl: null,
-                    renderedPx: 0,
-                    status: 'idle',
-                    token: 0,
-                }));
-                emit('update:totalPages', sizes.length);
-            }
-
-            invalidateContinuousScrollWindowCache();
-            viewerError.value = null;
-            await nextTick();
-            measureContainer();
-            syncLoadedPages();
-        } catch (error) {
-            if (!isCurrentLoadGeneration(generation)) {
-                return;
-            }
-
-            viewerError.value = error instanceof Error ? error.message : t('errors.djvu.open');
-            BrowserLogger.error('djvu-viewer', 'Failed to resume native DjVu viewer', {
-                src,
-                error,
-            });
-            emitLoading(false);
-        }
-        return;
-    }
-
-    await nextTick();
-    measureContainer();
-    syncLoadedPages();
-    scheduleViewportSync();
-});
 
 watch(
     [
@@ -1446,8 +567,8 @@ watch(
 
         await nextTick();
         syncHorizontalScrollForZoomMode();
-        scheduleSettledPreviewRerender();
-        scheduleViewportSync();
+        djvuPreviewRuntime.scheduleSettledPreviewRerender();
+        continuousScrollController.scheduleViewportSync();
     },
     { flush: 'post' },
 );
@@ -1457,8 +578,8 @@ function handleContainerResize() {
         return;
     }
     measureContainer();
-    scheduleSettledPreviewRerender();
-    scheduleViewportSync();
+    djvuPreviewRuntime.scheduleSettledPreviewRerender();
+    continuousScrollController.scheduleViewportSync();
 }
 
 onMounted(measureContainer);
@@ -1466,63 +587,25 @@ onMounted(measureContainer);
 useResizeObserver(viewerContainer, handleContainerResize);
 
 onBeforeUnmount(() => {
-    clearZoomSettleRerenderTimer();
-    if (scrollRafId !== 0) {
-        window.cancelAnimationFrame(scrollRafId);
-        scrollRafId = 0;
-    }
-    stopWorker();
+    continuousScrollController.cancelViewportSync();
+    djvuPreviewRuntime.dispose();
 });
 
 function scrollToPage(pageNumber: number) {
     const normalizedPage = clamp(pageNumber, 1, totalPages.value || 1);
-    const previousPage = currentPage.value;
 
     if (!isContinuousScroll.value) {
         currentPage.value = normalizedPage;
         emit('update:currentPage', normalizedPage);
-        clearWheelAccumulator();
+        pageFlipWheelController.clearWheelAccumulator();
         void nextTick().then(() => {
             scrollActiveSpreadIntoView();
-            syncLoadedPages();
+            djvuPreviewRuntime.syncLoadedPages();
         });
         return;
     }
 
-    if (normalizedPage !== currentPage.value) {
-        currentPage.value = normalizedPage;
-        emit('update:currentPage', normalizedPage);
-        invalidateContinuousScrollWindowCache();
-    }
-
-    const element = pageElements.get(normalizedPage);
-    if (element) {
-        scrollDirection.value = normalizedPage > previousPage ? 1 : normalizedPage < previousPage ? -1 : 0;
-        element.scrollIntoView({
-            block: 'start',
-            inline: 'nearest',
-        });
-        return;
-    }
-
-    const container = viewerContainer.value;
-    if (!container) {
-        return;
-    }
-
-    const targetScrollTop = DJVU_BASE_MARGIN
-        + getContinuousPagesHeight(1, normalizedPage - 1)
-        + (normalizedPage > 1 ? DJVU_BASE_MARGIN : 0);
-    scrollDirection.value = targetScrollTop > scrollTop.value ? 1 : targetScrollTop < scrollTop.value ? -1 : 0;
-    container.scrollTop = targetScrollTop;
-    scrollTop.value = targetScrollTop;
-    void nextTick(() => {
-        pageElements.get(normalizedPage)?.scrollIntoView({
-            block: 'start',
-            inline: 'nearest',
-        });
-        syncLoadedPages();
-    });
+    continuousScrollController.scrollToContinuousPage(normalizedPage);
 }
 
 function getSnapshotPage(value: number | null | undefined) {
@@ -1558,7 +641,7 @@ function restoreScrollSnapshot(
     if (anchorPage !== null && anchorPage !== currentPage.value) {
         currentPage.value = anchorPage;
         emit('update:currentPage', anchorPage);
-        invalidateContinuousScrollWindowCache();
+        continuousScrollController.invalidateContinuousScrollWindowCache();
     }
 
     void nextTick(() => {
@@ -1567,15 +650,9 @@ function restoreScrollSnapshot(
             snapshot,
             { pageSelector: DJVU_PAGE_SNAPSHOT_SELECTOR },
         );
-        const nextScrollTop = viewerContainer.value?.scrollTop ?? 0;
-        scrollDirection.value = nextScrollTop > scrollTop.value
-            ? 1
-            : nextScrollTop < scrollTop.value
-                ? -1
-                : 0;
-        scrollTop.value = nextScrollTop;
-        detectCurrentPageFromViewport();
-        syncLoadedPages();
+        continuousScrollController.updateScrollPositionFromContainer();
+        continuousScrollController.detectCurrentPageFromViewport();
+        djvuPreviewRuntime.syncLoadedPages();
     });
 }
 
@@ -1590,9 +667,9 @@ defineExpose<IDocumentViewerExpose>({
             if (pageNumber < 1 || pageNumber > totalPages.value) {
                 continue;
             }
-            resetPageState(pageNumber);
+            djvuPreviewRuntime.resetPageState(pageNumber);
         }
-        syncLoadedPages();
+        djvuPreviewRuntime.syncLoadedPages();
     },
     requestScrollToCurrentResult: () => {
         scrollToPage(currentPage.value);

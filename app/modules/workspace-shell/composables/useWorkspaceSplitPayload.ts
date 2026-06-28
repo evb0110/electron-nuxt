@@ -5,11 +5,11 @@ import type { TSplitPayload } from '@contracts/windowTabs';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import type {
-    IDocumentViewerExpose,
-    IPdfViewerExpose,
-} from '@app/modules/pdf-viewer/public';
+    IWorkspaceDocumentViewerSplitPort,
+    IWorkspacePdfViewerSplitPort,
+} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { TPdfSource } from '@app/types/pdf';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import { getDocumentWorkingCopyCapability } from '@app/utils/platformDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
@@ -24,8 +24,8 @@ interface IUseWorkspaceSplitPayloadOptions {
     originalPath: Ref<TDocumentRef | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     hasPendingTabChanges: Ref<boolean>;
-    pdfViewerRef: Ref<IPdfViewerExpose | null>;
-    documentViewerRef: Ref<IDocumentViewerExpose | null>;
+    pdfViewerRef: Ref<IWorkspacePdfViewerSplitPort | null>;
+    documentViewerRef: Ref<IWorkspaceDocumentViewerSplitPort | null>;
     pdfData: Ref<Uint8Array | null>;
     openFileWithDjvuCleanup: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     waitForPdfReload: (page: number) => Promise<void>;
@@ -77,7 +77,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
         }
 
         try {
-            const snapshotPath = await getDocumentsCapability().createWorkingCopyFromPath(
+            const snapshotPath = await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(
                 options.workingCopyPath.value,
                 options.originalPath.value ?? undefined,
             );
@@ -129,7 +129,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             return { kind: 'empty' };
         }
 
-        const snapshotPath = await getDocumentsCapability().createWorkingCopyFromData(
+        const snapshotPath = await getDocumentWorkingCopyCapability().createWorkingCopyFromData(
             options.fileName.value ?? 'document.pdf',
             snapshot,
             options.originalPath.value ?? undefined,

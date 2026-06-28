@@ -13,6 +13,7 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
 import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IFileOperationsSaveAdapterPorts } from '@app/modules/workspace-shell/composables/file-operations/saveRolePorts';
 import { cast } from '@tests/helpers/cast';
 
 const fileOperationMocks = vi.hoisted((): {
@@ -32,12 +33,14 @@ const platformMocks = vi.hoisted(() => ({
     replaceWorkingCopyFromPath: vi.fn(),
     cleanupOcrTemp: vi.fn(),
     statFile: vi.fn(),
+    legacyReplaceWorkingCopyFromPath: vi.fn(),
+    legacyStatFile: vi.fn(),
     acknowledgeResultFile: vi.fn(),
     warmIndex: vi.fn(),
     toastAdd: vi.fn(),
 }));
 
-vi.mock('@app/modules/workspace-shell/composables/useFileOperations', () => ({useFileOperations: vi.fn((deps: unknown) => {
+vi.mock('@app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController', () => ({useFileOperationsSaveController: vi.fn((deps: unknown) => {
     fileOperationMocks.capturedDeps = deps;
     return {
         handleSave: fileOperationMocks.handleSave,
@@ -46,11 +49,17 @@ vi.mock('@app/modules/workspace-shell/composables/useFileOperations', () => ({us
         handleSaveAs: fileOperationMocks.handleSaveAs,
     };
 })}));
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentsCapability: () => ({
-    replaceWorkingCopyFromPath: platformMocks.replaceWorkingCopyFromPath,
-    cleanupOcrTemp: platformMocks.cleanupOcrTemp,
-    statFile: platformMocks.statFile,
-})}));
+vi.mock('@app/utils/platformDocuments', () => ({
+    getDocumentFilesCapability: () => ({
+        replaceWorkingCopyFromPath: platformMocks.replaceWorkingCopyFromPath,
+        statFile: platformMocks.statFile,
+    }),
+    getDocumentsCapability: () => ({
+        replaceWorkingCopyFromPath: platformMocks.legacyReplaceWorkingCopyFromPath,
+        cleanupOcrTemp: platformMocks.cleanupOcrTemp,
+        statFile: platformMocks.legacyStatFile,
+    }),
+}));
 vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ({acknowledgeResultFile: platformMocks.acknowledgeResultFile})}));
 vi.mock('@app/utils/getSearchCapability', () => ({getSearchCapability: () => ({warmIndex: platformMocks.warmIndex})}));
 
@@ -72,6 +81,12 @@ describe('usePageSaveOrchestration', () => {
         platformMocks.replaceWorkingCopyFromPath.mockResolvedValue(true);
         platformMocks.cleanupOcrTemp.mockResolvedValue(undefined);
         platformMocks.statFile.mockResolvedValue({size: 1});
+        platformMocks.legacyReplaceWorkingCopyFromPath.mockRejectedValue(
+            new Error('legacy documents facade replaceWorkingCopyFromPath used'),
+        );
+        platformMocks.legacyStatFile.mockRejectedValue(
+            new Error('legacy documents facade statFile used'),
+        );
         platformMocks.acknowledgeResultFile.mockResolvedValue({ cleaned: true });
         platformMocks.warmIndex.mockResolvedValue(undefined);
         vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
@@ -172,10 +187,12 @@ describe('usePageSaveOrchestration', () => {
             })),
         }));
 
-        const capturedDeps = cast<{ preparePostSaveReload: () => { cancel: () => void }; }>(
+        const capturedPorts = cast<IFileOperationsSaveAdapterPorts>(
             fileOperationMocks.capturedDeps,
         );
-        const reloadWaiter = capturedDeps.preparePostSaveReload();
+        const preparePostSaveReload = capturedPorts.lifecycle.preparePostSaveReload;
+        expect(preparePostSaveReload).toBeDefined();
+        const reloadWaiter = preparePostSaveReload!();
         reloadWaiter.cancel();
 
         expect(currentPage.value).toBe(41);
@@ -185,6 +202,83 @@ describe('usePageSaveOrchestration', () => {
             scrollSnapshot,
             pageToRestore: 42,
         });
+    });
+
+    it('gets the working-copy size through the split file capability', async () => {
+        usePageSaveOrchestration(cast({
+            pdfData: ref(new Uint8Array([1])),
+            pdfDocument: shallowRef({ numPages: 1 } as PDFDocumentProxy),
+            pdfViewerRef: ref({
+                scrollToPage: vi.fn(),
+                saveDocument: vi.fn(async () => new Uint8Array([1])),
+                getMarkupSubtypeOverrides: vi.fn(() => undefined),
+                getAllShapes: vi.fn(() => []),
+                getDeletedEmbeddedShapeAnnotationIds: vi.fn(() => []),
+            }),
+            requestDocxExport: vi.fn(async () => true),
+            openOcrPopup: vi.fn(),
+            isExportingDocx: ref(false),
+            workingCopyPath: ref('/tmp/document.pdf'),
+            annotationComments: ref([]),
+            totalPages: ref(1),
+            pageLabelsDirty: ref(false),
+            pageLabelRanges: ref([]),
+            bookmarksDirty: ref(false),
+            bookmarkItems: ref([]),
+            isSaving: ref(false),
+            isSavingAs: ref(false),
+            annotationDirty: ref(false),
+            annotationNoteWindowsCount: ref(0),
+            hasAnnotationChanges: vi.fn(() => false),
+            markAnnotationSaved: vi.fn(),
+            markPageLabelsSaved: vi.fn(),
+            markBookmarksSaved: vi.fn(),
+            isDirty: ref(false),
+            hasPendingUnsavedChanges: computed(() => false),
+            persistAllAnnotationNotes: vi.fn(async () => true),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => null),
+            consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
+            loadRecentFiles: vi.fn(),
+            clearOcrCache: vi.fn(),
+            reloadWorkingCopyIntoHistory: vi.fn(async () => true),
+            currentPage: ref(1),
+            waitForPdfReload: vi.fn(async () => {}),
+            resetSearchCache: vi.fn(),
+            validatePdfPath: vi.fn(async () => ({
+                isValid: true,
+                tool: 'qpdf',
+                errors: [],
+                warnings: [],
+            })),
+            saveFile: vi.fn(async () => ({
+                success: true,
+                outPath: '/tmp/document.pdf',
+                saveMode: 'rewrite',
+                didSaveAs: false,
+            })),
+            saveWorkingCopy: vi.fn(async () => ({
+                success: true,
+                outPath: '/tmp/document.pdf',
+                saveMode: 'rewrite',
+                didSaveAs: false,
+            })),
+            saveWorkingCopyAs: vi.fn(async () => ({
+                success: true,
+                outPath: '/tmp/document-copy.pdf',
+                saveMode: 'save_as_rewrite',
+                didSaveAs: true,
+            })),
+        }));
+
+        const capturedPorts = cast<IFileOperationsSaveAdapterPorts>(
+            fileOperationMocks.capturedDeps,
+        );
+        const getWorkingCopySize = capturedPorts.persistence.nativeWorkingCopy?.getWorkingCopySize;
+        expect(getWorkingCopySize).toBeDefined();
+
+        await expect(getWorkingCopySize!('/tmp/document.pdf')).resolves.toBe(1);
+        expect(platformMocks.statFile).toHaveBeenCalledWith('/tmp/document.pdf');
+        expect(platformMocks.legacyStatFile).not.toHaveBeenCalled();
     });
 
     it('uses live annotation predicates in the canSave fallback', () => {

@@ -1,7 +1,10 @@
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { useOcrTextContent } from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import {
+    getDocumentFilesCapability,
+    getDocumentWorkingCopyCapability,
+} from '@app/utils/platformDocuments';
 import { createEpochGuard } from '@app/modules/workspace-shell/composables/document-session/createEpochGuard';
 import { createDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
 import { createDocumentConformance } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
@@ -70,7 +73,8 @@ export const usePdfFile = () => {
         clearPdfConformanceProfile,
         clearOcrCache,
         deferPdfConformanceProfile,
-        documents: getDocumentsCapability,
+        documentFiles: getDocumentFilesCapability,
+        documentWorkingCopy: getDocumentWorkingCopyCapability,
         getOpenEpoch: () => openEpoch.current(),
         isCurrentOpenEpoch: token => openEpoch.isCurrent(token),
         readPdfStateFromPath: (...args) => getDocumentOpenFlow().readPdfStateFromPath(...args),
@@ -138,7 +142,7 @@ export const usePdfFile = () => {
         incrementSessionVersion();
         clearHistory();
         if (pathToCleanup) {
-            getDocumentsCapability().cleanupFile(pathToCleanup).catch((cleanupError: unknown) => {
+            getDocumentWorkingCopyCapability().cleanupFile(pathToCleanup).catch((cleanupError: unknown) => {
                 BrowserLogger.warn(
                     'pdf-file',
                     'Failed to cleanup closed working copy',
@@ -159,6 +163,8 @@ export const usePdfFile = () => {
         }));
         isDirty.value = true;
     }
+
+    const documentFiles = getDocumentFilesCapability();
 
     return {
         pdfSrc,
@@ -185,9 +191,9 @@ export const usePdfFile = () => {
         persistPdfDataSilently,
         readWorkingCopyBytes,
         saveFile,
-        ...(typeof getDocumentsCapability().repairPdf === 'function' ? { repairWorkingCopy } : {}),
-        ...(typeof getDocumentsCapability().optimizePdfForInteraction === 'function' ? { optimizeWorkingCopy } : {}),
-        ...(typeof getDocumentsCapability().optimizePdfAsCopy === 'function' ? { optimizeWorkingCopyAsCopy } : {}),
+        ...(typeof documentFiles.repairPdf === 'function' ? { repairWorkingCopy } : {}),
+        ...(typeof documentFiles.optimizePdfForInteraction === 'function' ? { optimizeWorkingCopy } : {}),
+        ...(typeof documentFiles.optimizePdfAsCopy === 'function' ? { optimizeWorkingCopyAsCopy } : {}),
         saveWorkingCopy,
         trySavePdfNativeMutations,
         trySaveEmbeddedNoteTextUpdates,

@@ -16,11 +16,11 @@ function createHistoryHarness() {
     state.workingCopyPath.value = '/tmp/work.pdf';
     state.originalPath.value = '/tmp/original.pdf';
 
-    const documents = {
+    const documentFiles = {writeFile: vi.fn(async () => true)};
+    const documentWorkingCopy = {
         cleanupFile: vi.fn(async () => undefined),
         createWorkingCopyFromData: vi.fn(async () => '/tmp/history.pdf'),
         createWorkingCopyFromPath: vi.fn(async () => '/tmp/history.pdf'),
-        writeFile: vi.fn(async () => undefined),
     };
 
     const history = createDocumentHistory(state, {
@@ -28,7 +28,8 @@ function createHistoryHarness() {
         clearPdfConformanceProfile: vi.fn(),
         clearOcrCache: vi.fn(),
         deferPdfConformanceProfile: vi.fn(),
-        documents: () => documents,
+        documentFiles: () => documentFiles,
+        documentWorkingCopy: () => documentWorkingCopy,
         getOpenEpoch: () => 1,
         isCurrentOpenEpoch: () => true,
         readPdfStateFromPath: vi.fn(async (): Promise<IPdfLoadedState> => ({
@@ -43,7 +44,8 @@ function createHistoryHarness() {
     });
 
     return {
-        documents,
+        documentFiles,
+        documentWorkingCopy,
         history,
         state,
     };
@@ -52,7 +54,7 @@ function createHistoryHarness() {
 describe('createDocumentHistory', () => {
     it('keeps the undo cursor unchanged when restoring bytes fails', async () => {
         const {
-            documents,
+            documentFiles,
             history,
         } = createHistoryHarness();
 
@@ -60,7 +62,7 @@ describe('createDocumentHistory', () => {
         await history.pushHistorySnapshot(new Uint8Array([2]), { reuseSnapshot: true });
         expect(history.getHistoryDebugState().historyIndex).toBe(1);
 
-        documents.writeFile.mockRejectedValueOnce(new Error('write failed'));
+        documentFiles.writeFile.mockRejectedValueOnce(new Error('write failed'));
 
         await expect(history.undo()).rejects.toThrow('write failed');
         expect(history.getHistoryDebugState().historyIndex).toBe(1);

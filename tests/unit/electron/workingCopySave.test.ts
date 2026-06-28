@@ -35,7 +35,7 @@ const mocks = vi.hoisted(() => ({
     getWorkingCopyOriginalPath: vi.fn(),
     refreshWorkingCopyOriginalFileExpectation: vi.fn(),
     isAllowedOriginalSavePath: vi.fn(),
-    getNativeToolPaths: vi.fn(),
+    getPdfNativeToolPaths: vi.fn(),
     runNativeToolCommand: vi.fn(),
     optimizeLargePdfForSave: vi.fn(),
     optimizePdfForSave: vi.fn(),
@@ -60,7 +60,7 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
 }));
 vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args)}));
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
-vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths: (...args: unknown[]) => mocks.getNativeToolPaths(...args)}));
+vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args)}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 
 function createOriginalFileExpectationForTest(originalPath: string) {
@@ -75,7 +75,7 @@ function createOriginalFileExpectationForTest(originalPath: string) {
 
 describe('workingCopySave', () => {
     let tempRoot = '';
-    const event = {sender: {id: 42}} as Electron.IpcMainInvokeEvent;
+    const context = {senderId: 42};
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -94,7 +94,7 @@ describe('workingCopySave', () => {
                 : null;
         });
         mocks.isAllowedOriginalSavePath.mockReturnValue(true);
-        mocks.getNativeToolPaths.mockReturnValue({qpdf: '/mock/qpdf'});
+        mocks.getPdfNativeToolPaths.mockReturnValue({qpdf: '/mock/qpdf'});
         mocks.runNativeToolCommand.mockResolvedValue({
             code: 0,
             signal: null,
@@ -131,7 +131,7 @@ describe('workingCopySave', () => {
         const blockingMutation = enqueueWorkingCopyMutation(workingPath, () => queuedMutation.promise);
         const { handleFileSave } = await import('@electron/features/documents/main/workingCopySave');
 
-        const savePromise = handleFileSave(event, workingPath);
+        const savePromise = handleFileSave(context, workingPath);
         await waitForSettledQueueTurn();
 
         expect(readFileSyncUtf8(originalPath)).toBe('old-original');
@@ -159,7 +159,7 @@ describe('workingCopySave', () => {
         const blockingMutation = enqueueWorkingCopyMutation(workingPath, () => queuedMutation.promise);
         const { handleSerializedPdfSave } = await import('@electron/features/documents/main/workingCopySave');
 
-        const savePromise = handleSerializedPdfSave(event, workingPath, Buffer.from('serialized-pdf'));
+        const savePromise = handleSerializedPdfSave(context, workingPath, Buffer.from('serialized-pdf'));
         await waitForSettledQueueTurn();
 
         expect(readFileSyncUtf8(workingPath)).toBe('old-working');
@@ -189,7 +189,7 @@ describe('workingCopySave', () => {
         });
         const { handleSerializedPdfSave } = await import('@electron/features/documents/main/workingCopySave');
 
-        await expect(handleSerializedPdfSave(event, workingPath, Buffer.from('serialized-pdf')))
+        await expect(handleSerializedPdfSave(context, workingPath, Buffer.from('serialized-pdf')))
             .resolves.toMatchObject({
                 isValid: false,
                 errors: [expect.stringContaining('Original file changed on disk')],
@@ -210,7 +210,7 @@ describe('workingCopySave', () => {
         mocks.copyFileCopyOnWrite.mockRejectedValueOnce(new Error('copy-back failed'));
         const { handleSerializedPdfSave } = await import('@electron/features/documents/main/workingCopySave');
 
-        await expect(handleSerializedPdfSave(event, workingPath, Buffer.from('serialized-pdf')))
+        await expect(handleSerializedPdfSave(context, workingPath, Buffer.from('serialized-pdf')))
             .resolves
             .toMatchObject({
                 isValid: true,
@@ -239,7 +239,7 @@ describe('workingCopySave', () => {
         });
         const { handleRepairPdfSave } = await import('@electron/features/documents/main/workingCopySave');
 
-        await expect(handleRepairPdfSave(event, workingPath)).resolves.toMatchObject({isValid: true});
+        await expect(handleRepairPdfSave(context, workingPath)).resolves.toMatchObject({isValid: true});
 
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith('/mock/qpdf', [
             workingPath,
@@ -268,7 +268,7 @@ describe('workingCopySave', () => {
         const { handleOptimizePdfForInteraction } =
             await import('@electron/features/documents/main/workingCopySave');
 
-        await expect(handleOptimizePdfForInteraction(event, workingPath)).resolves.toMatchObject({isValid: true});
+        await expect(handleOptimizePdfForInteraction(context, workingPath)).resolves.toMatchObject({isValid: true});
 
         expect(mocks.optimizePdfForSave).toHaveBeenCalledWith(`${originalPath}.tmp`, {
             force: true,

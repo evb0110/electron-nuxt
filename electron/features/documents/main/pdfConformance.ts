@@ -22,7 +22,7 @@ import {
 } from '@pdf-core';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getAppTempDir } from '@electron/utils/appTempDir';
-import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
@@ -193,7 +193,7 @@ async function validatePdfFileWithStructuralFallback(
 
 export async function validatePdfFile(filePath: string): Promise<IPdfValidationResult> {
     try {
-        const qpdf = getNativeToolPaths().qpdf;
+        const qpdf = getPdfNativeToolPaths().qpdf;
         const result = await runNativeToolCommand(qpdf, [
             '--check',
             filePath,

@@ -75,15 +75,22 @@ describe('useExternalFileDrop', () => {
 
     it('opens supported dropped files', async () => {
         const openPathsInAppropriateTab = vi.fn(async (_paths: string[]) => {});
+        const legacyGetPathsForFiles = vi.fn(() => {
+            throw new Error('legacy drop path extraction should not be used');
+        });
+        const pickerGetPathsForFiles = vi.fn((files: Array<{ name: string }>) => files.map((file) => {
+            if (file.name === 'file-0') {
+                return '/docs/a.pdf';
+            }
+            return '/docs/b.djvu';
+        }));
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: { documents: { getPathsForFiles: vi.fn((files: Array<{ name: string }>) => files.map((file) => {
-                if (file.name === 'file-0') {
-                    return '/docs/a.pdf';
-                }
-                return '/docs/b.djvu';
-            })) } },
+            electronAPI: {
+                documentPicker: { getPathsForFiles: pickerGetPathsForFiles },
+                documents: { getPathsForFiles: legacyGetPathsForFiles },
+            },
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -98,6 +105,8 @@ describe('useExternalFileDrop', () => {
             '/docs/a.pdf',
             '/docs/b.djvu',
         ]);
+        expect(pickerGetPathsForFiles).toHaveBeenCalledOnce();
+        expect(legacyGetPathsForFiles).not.toHaveBeenCalled();
     });
 
     it('ignores unsupported extensions and non-file drags', async () => {

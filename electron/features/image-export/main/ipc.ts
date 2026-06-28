@@ -1,7 +1,5 @@
-import {
-    BrowserWindow,
-    dialog,
-} from 'electron';
+import { dialog } from 'electron';
+import type { BrowserWindow } from 'electron';
 import { existsSync } from 'fs';
 import { extname } from 'path';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
@@ -22,6 +20,7 @@ import { clamp } from 'es-toolkit/math';
 import { createLogger } from '@electron/utils/createLogger';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
+import type { IImageExportOperationContext } from '@electron/features/image-export/ports';
 
 const logger = createLogger('image-export');
 
@@ -175,7 +174,7 @@ function normalizeExportRequestId(requestId: unknown) {
 }
 
 function createImageExportProgressReporter(
-    event: Electron.IpcMainInvokeEvent,
+    sender: Electron.WebContents,
     format: TImageExportProgressFormat,
     requestId?: string,
 ) {
@@ -185,7 +184,7 @@ function createImageExportProgressReporter(
     }
     const progressPump = createIpcProgressPump<IImageExportProgress>({
         channel: IMAGE_EXPORT_EVENT_CHANNELS.progress,
-        getTarget: () => event.sender,
+        getTarget: () => sender,
         getKey: progress => progress.requestId,
         isTerminal: progress => progress.processed >= progress.total || progress.percent >= 100,
         onError: error => {
@@ -257,7 +256,7 @@ async function showMultiPageTiffDialog(parentWindow: BrowserWindow | null, defau
 }
 
 export async function handlePdfExportImages(
-    event: Electron.IpcMainInvokeEvent,
+    context: IImageExportOperationContext,
     workingCopyPath: string,
     pageNumbers?: number[],
     requestId?: string,
@@ -267,14 +266,13 @@ export async function handlePdfExportImages(
     outputPaths?: string[];
 }> {
     const normalizedRequestId = normalizeExportRequestId(requestId);
-    const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, event.sender.id);
+    const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, context.senderId);
     const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
     await validateRequestedPageNumbersWithinPdf(normalizedWorkingCopyPath, normalizedPageNumbers);
-    const parentWindow = BrowserWindow.fromWebContents(event.sender);
-    const lifecycle = createRendererLifecycleAbortController(event.sender);
+    const lifecycle = createRendererLifecycleAbortController(context.sender);
 
     try {
-        const result = await showExportImageDialog(parentWindow, buildImageSuggestedName(normalizedPageNumbers));
+        const result = await showExportImageDialog(context.parentWindow, buildImageSuggestedName(normalizedPageNumbers));
         if (result.canceled || !result.filePath || lifecycle.signal.aborted) {
             return {
                 success: false,
@@ -283,7 +281,7 @@ export async function handlePdfExportImages(
         }
 
         const { normalizedPath } = normalizeImageExportPath(result.filePath, 'jpeg');
-        const onProgress = createImageExportProgressReporter(event, 'images', normalizedRequestId);
+        const onProgress = createImageExportProgressReporter(context.sender, 'images', normalizedRequestId);
         const outputPaths = await exportPdfPagesAsImages(normalizedWorkingCopyPath, normalizedPath, {
             ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
             signal: lifecycle.signal,
@@ -314,7 +312,7 @@ export async function handlePdfExportImages(
 }
 
 export async function handlePdfExportMultiPageTiff(
-    event: Electron.IpcMainInvokeEvent,
+    context: IImageExportOperationContext,
     workingCopyPath: string,
     pageNumbers?: number[],
     requestId?: string,
@@ -325,14 +323,13 @@ export async function handlePdfExportMultiPageTiff(
     outputPaths?: string[];
 }> {
     const normalizedRequestId = normalizeExportRequestId(requestId);
-    const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, event.sender.id);
+    const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, context.senderId);
     const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
     await validateRequestedPageNumbersWithinPdf(normalizedWorkingCopyPath, normalizedPageNumbers);
-    const parentWindow = BrowserWindow.fromWebContents(event.sender);
-    const lifecycle = createRendererLifecycleAbortController(event.sender);
+    const lifecycle = createRendererLifecycleAbortController(context.sender);
 
     try {
-        const result = await showMultiPageTiffDialog(parentWindow, buildMultiPageTiffSuggestedName(normalizedPageNumbers));
+        const result = await showMultiPageTiffDialog(context.parentWindow, buildMultiPageTiffSuggestedName(normalizedPageNumbers));
         if (result.canceled || !result.filePath || lifecycle.signal.aborted) {
             return {
                 success: false,
@@ -340,7 +337,7 @@ export async function handlePdfExportMultiPageTiff(
             };
         }
 
-        const onProgress = createImageExportProgressReporter(event, 'multipage-tiff', normalizedRequestId);
+        const onProgress = createImageExportProgressReporter(context.sender, 'multipage-tiff', normalizedRequestId);
         const outputPaths = await exportPdfAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, {
             ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
             signal: lifecycle.signal,

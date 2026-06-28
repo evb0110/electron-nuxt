@@ -1,13 +1,13 @@
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
-import { collapseRepeatedPdfSearchPageText } from '@contracts/search';
 import { buildOcrTextLayerIndexText } from '@contracts/ocrText';
 import type { IOcrWord } from '@contracts/shared';
 import {
+    collapseRepeatedPdfSearchPageText,
     extractPdfjsWordBoxesFromOperatorList,
     getPdfjsPageViewBox,
+    type TPdfjsTextOps,
 } from '@pdf-core';
-import type { TPdfjsTextOps } from '@pdf-core';
 
 interface IBrowserSearchTextPageLike {
     getTextContent: PDFPageProxy['getTextContent'];

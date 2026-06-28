@@ -10,7 +10,10 @@ import type { TPdfSource } from '@app/types/pdf';
 import type { IRecentFile } from '@contracts/shared';
 import { waitUntilIdle } from '@app/utils/asyncHelpers';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import {
+    getDocumentFilesCapability,
+    getDocumentPickerCapability,
+} from '@app/utils/platformDocuments';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { didOpenDocument } from '@app/types/documentOpenOutcome';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
@@ -262,7 +265,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     async function pickCombineFiles() {
-        return getDocumentsCapability().openCombineDialog();
+        return getDocumentPickerCapability().openCombineDialog();
     }
 
     async function handleCombineImages() {
@@ -274,7 +277,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     async function pickFolderToOpen() {
-        return getDocumentsCapability().openFolderDialog();
+        return getDocumentPickerCapability().openFolderDialog();
     }
 
     async function handleOpenFolderFromUi() {
@@ -389,7 +392,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
     async function recentFilePathExists(path: TDocumentRef) {
         try {
-            await getDocumentsCapability().readFileRange(path, 0, 1);
+            await getDocumentFilesCapability().readFileRange(path, 0, 1);
             return {
                 exists: true,
                 permissionDenied: false,

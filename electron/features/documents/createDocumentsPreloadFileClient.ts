@@ -11,7 +11,7 @@ import {
     normalizePdfNativeNoteChanges,
     normalizePdfNativeNoteTextUpdates,
     normalizePdfNativeWorkingCopyExpectation,
-} from '@contracts/nativePdfMutations';
+} from '@pdf-core';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,

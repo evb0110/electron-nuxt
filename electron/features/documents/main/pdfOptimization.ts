@@ -18,7 +18,7 @@ import type {
     TPdfOptimizePreset,
 } from '@contracts/electronApiDocuments';
 import { isRecord } from '@contracts/runtimeGuards';
-import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
@@ -171,7 +171,7 @@ async function renderPdfRangeToJpegPages(
     range: IPdfOptimizePageRange,
     preset: IPdfRasterOptimizePreset,
 ) {
-    const paths = getNativeToolPaths();
+    const paths = getPdfNativeToolPaths();
     const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
         timeoutMs: PDF_OPTIMIZE_RENDER_TIMEOUT_MS,
         commandLabel: 'pdftoppm(pdf-optimize)',

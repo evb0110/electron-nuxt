@@ -7,7 +7,7 @@ import type {
     TUiScalePreference,
 } from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { getPlatformAPI } from '@app/utils/platform';
+import { getHostCapability } from '@app/utils/getHostCapability';
 import { resolveEffectiveUiScale } from '@app/utils/ui-scale/resolveEffectiveUiScale';
 
 const FALLBACK_PLATFORM: THostPlatform = typeof process !== 'undefined' && process.platform === 'darwin'
@@ -53,7 +53,7 @@ export const useUiScale = () => {
 
     async function refreshHostSnapshot() {
         try {
-            const next = await getPlatformAPI().host.getEnvironment();
+            const next = await getHostCapability().getEnvironment();
             setHostSnapshot(next);
         } catch (error) {
             BrowserLogger.warn('ui-scale', 'Failed to load host environment snapshot', error);
@@ -61,7 +61,7 @@ export const useUiScale = () => {
     }
 
     function attachHostEnvironmentListener() {
-        return getPlatformAPI().host.onEnvironmentChange((snapshot) => {
+        return getHostCapability().onEnvironmentChange((snapshot) => {
             setHostSnapshot(snapshot);
         });
     }

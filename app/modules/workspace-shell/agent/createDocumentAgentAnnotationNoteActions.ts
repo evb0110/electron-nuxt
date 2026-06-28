@@ -2,7 +2,7 @@ import type { Ref } from 'vue';
 import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/public';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type { IWorkspacePdfViewerAgentAnnotationNotePort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import {
     getAgentRawStringInput,
     getAgentStringInput,
@@ -21,7 +21,7 @@ interface IAgentUpdateNoteInput {
 interface ICreateDocumentAgentAnnotationNoteActionsOptions {
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     sortedAnnotationNoteWindows: Ref<IAnnotationNoteWindowState[]>;
-    pdfViewerRef: Ref<IPdfViewerExpose | null>;
+    pdfViewerRef: Ref<IWorkspacePdfViewerAgentAnnotationNotePort | null>;
     findAgentAnnotationComment: (input: Record<string, unknown>) => IAnnotationCommentSummary;
     normalizeAgentAnnotationComment: (comment: IAnnotationCommentSummary) => object;
     isSameAnnotationComment: (left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) => boolean;

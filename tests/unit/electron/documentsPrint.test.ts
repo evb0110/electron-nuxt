@@ -96,6 +96,7 @@ const {
 
 const tempRoot = '/tmp/evb-viewer';
 const validPdfBytes = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n');
+const windowContext = {window: null};
 
 describe('documents print', () => {
     beforeEach(() => {
@@ -133,7 +134,7 @@ describe('documents print', () => {
     it('creates the native print window with PDF plugins enabled', async () => {
         vi.useFakeTimers();
         const resultPromise = handlePrintPdfPath(
-            { sender: {} } as never,
+            windowContext,
             '/tmp/source.pdf',
             'source.pdf',
         );
@@ -162,7 +163,7 @@ describe('documents print', () => {
     it('writes temporary PDF bytes before opening the native print dialog', async () => {
         vi.useFakeTimers();
         const resultPromise = handlePrintPdfData(
-            { sender: {} } as never,
+            windowContext,
             validPdfBytes,
             'document.pdf',
         );
@@ -184,7 +185,7 @@ describe('documents print', () => {
     it('extracts requested pages to a temporary PDF before opening the native print dialog', async () => {
         vi.useFakeTimers();
         const resultPromise = handlePrintPdfPath(
-            { sender: {} } as never,
+            windowContext,
             '/tmp/source.pdf',
             'source.pdf',
             [4],
@@ -223,7 +224,7 @@ describe('documents print', () => {
         ) => callback(false, 'printer unavailable'));
 
         const resultPromise = handlePrintPdfData(
-            { sender: {} } as never,
+            windowContext,
             validPdfBytes,
             'document.pdf',
         );
@@ -242,7 +243,7 @@ describe('documents print', () => {
         mocks.printHandler.mockImplementationOnce(() => undefined);
 
         const resultPromise = handlePrintPdfData(
-            { sender: {} } as never,
+            windowContext,
             validPdfBytes,
             'document.pdf',
         );
@@ -264,7 +265,6 @@ describe('documents print', () => {
 
     it('opens an existing PDF path in the default desktop app', async () => {
         const result = await handleOpenPdfInDefaultAppPath(
-            { sender: {} } as never,
             '/tmp/source.pdf',
             'source.pdf',
         );
@@ -275,7 +275,6 @@ describe('documents print', () => {
 
     it('writes PDF bytes to a temp file before opening the default desktop app', async () => {
         const result = await handleOpenPdfInDefaultAppData(
-            { sender: {} } as never,
             validPdfBytes,
             'document.pdf',
         );

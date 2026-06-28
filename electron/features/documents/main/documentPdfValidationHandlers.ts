@@ -8,17 +8,17 @@ import {
     validatePdfFile,
 } from '@electron/features/documents/main/pdfConformance';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
+import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 
 export async function handleAnalyzePdfConformance(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     filePath: unknown,
 ): Promise<IPdfConformanceProfile> {
-    const resolvedPath = await resolveExistingReadablePdfPath(filePath, event.sender?.id);
+    const resolvedPath = await resolveExistingReadablePdfPath(filePath, context.senderId);
     return analyzePdfConformanceFile(resolvedPath);
 }
 
 export async function handleValidatePdfData(
-    _event: Electron.IpcMainInvokeEvent,
     data: unknown,
     fileName?: unknown,
 ): Promise<IPdfValidationResult> {
@@ -33,9 +33,9 @@ export async function handleValidatePdfData(
 }
 
 export async function handleValidatePdfPath(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     filePath: unknown,
 ): Promise<IPdfValidationResult> {
-    const resolvedPath = await resolveExistingReadablePdfPath(filePath, event.sender?.id);
+    const resolvedPath = await resolveExistingReadablePdfPath(filePath, context.senderId);
     return validatePdfFile(resolvedPath);
 }

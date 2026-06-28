@@ -239,8 +239,8 @@ describe('search IPC worker resource limits', () => {
     });
 
     it('rejects oversized search request ids before allocating a worker', async () => {
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const searchHandler = getSearchHandler();
         const oversizedRequestId = 'x'.repeat(129);
 
@@ -258,8 +258,8 @@ describe('search IPC worker resource limits', () => {
     });
 
     it('rejects oversized warm-index request ids before allocating a worker', async () => {
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const warmIndexHandler = getWarmIndexHandler();
         const oversizedRequestId = 'x'.repeat(129);
 
@@ -277,8 +277,8 @@ describe('search IPC worker resource limits', () => {
     });
 
     it('rejects oversized cancel request ids before looking up sender state', async () => {
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const cancelHandler = getCancelHandler();
         const oversizedRequestId = 'x'.repeat(129);
 
@@ -291,8 +291,8 @@ describe('search IPC worker resource limits', () => {
         process.env.EVB_SEARCH_WORKER_MAX_ACTIVE = '1';
         mocks.autoCompleteSearch = false;
 
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const searchHandler = getSearchHandler();
 
         const firstRequest = searchHandler(
@@ -336,8 +336,8 @@ describe('search IPC worker resource limits', () => {
     it('reuses an idle worker under cap pressure instead of spawning a new one', async () => {
         process.env.EVB_SEARCH_WORKER_MAX_ACTIVE = '1';
 
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const searchHandler = getSearchHandler();
 
         await expect(searchHandler(
@@ -382,8 +382,8 @@ describe('search IPC worker resource limits', () => {
     it('keeps normal per-sender search flow unchanged', async () => {
         process.env.EVB_SEARCH_WORKER_MAX_ACTIVE = '4';
 
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const searchHandler = getSearchHandler();
 
         const firstResponse = await searchHandler(
@@ -433,8 +433,8 @@ describe('search IPC worker resource limits', () => {
     }) => {
         mocks.autoCompleteSearch = false;
 
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const searchHandler = getSearchHandler();
         const requestId = `invalid-page-${label}`;
         const searchPromise = searchHandler(
@@ -463,8 +463,8 @@ describe('search IPC worker resource limits', () => {
     it('rejects complete messages with worker pageNumber above known pageCount', async () => {
         mocks.autoCompleteSearch = false;
 
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const searchHandler = getSearchHandler();
         const requestId = 'complete-page-number-above-count';
         const searchPromise = searchHandler(
@@ -494,8 +494,8 @@ describe('search IPC worker resource limits', () => {
     it('rejects progress messages with invalid result indices and offsets', async () => {
         mocks.autoCompleteSearch = false;
 
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const searchHandler = getSearchHandler();
         const event = createInvokeEvent(171);
         const requestId = 'invalid-progress-result';
@@ -535,8 +535,8 @@ describe('search IPC worker resource limits', () => {
     it('rejects progress messages with worker pageNumber above known pageCount', async () => {
         mocks.autoCompleteSearch = false;
 
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const searchHandler = getSearchHandler();
         const requestId = 'progress-page-number-above-count';
         const searchPromise = searchHandler(
@@ -573,8 +573,8 @@ describe('search IPC worker resource limits', () => {
     it('caps oversized worker search results before resolving to the renderer', async () => {
         mocks.autoCompleteSearch = false;
 
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const searchHandler = getSearchHandler();
         const requestId = 'oversized-complete-results';
         const searchPromise = searchHandler(
@@ -623,8 +623,8 @@ describe('search IPC worker resource limits', () => {
     it('cancels pending search work when the renderer main frame navigates', async () => {
         mocks.autoCompleteSearch = false;
 
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const searchHandler = getSearchHandler();
         const event = createInvokeEvent(174);
         const searchPromise = searchHandler(
@@ -678,8 +678,8 @@ describe('search IPC worker resource limits', () => {
         }
 
         try {
-            const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-            registerSearchHandlers();
+            const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+            registerSearchIpcAdapter();
             const searchHandler = getSearchHandler();
             const cancelHandler = getCancelHandler();
             const event = createInvokeEvent(senderId);
@@ -758,8 +758,8 @@ describe('search IPC worker resource limits', () => {
     });
 
     it('rejects oversized literal queries before resolving paths or spawning workers', async () => {
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const searchHandler = getSearchHandler();
 
         await expect(searchHandler(
@@ -776,8 +776,8 @@ describe('search IPC worker resource limits', () => {
     });
 
     it('precompiles regex queries before dispatching to a worker', async () => {
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const searchHandler = getSearchHandler();
 
         await expect(searchHandler(
@@ -795,8 +795,8 @@ describe('search IPC worker resource limits', () => {
     });
 
     it('rejects unsafe regex queries before resolving paths or spawning workers', async () => {
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const searchHandler = getSearchHandler();
 
         await expect(searchHandler(
@@ -816,8 +816,8 @@ describe('search IPC worker resource limits', () => {
     it('caps the default active worker budget at two concurrent senders', async () => {
         mocks.autoCompleteSearch = false;
 
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const searchHandler = getSearchHandler();
 
         const firstRequest = searchHandler(
@@ -875,8 +875,8 @@ describe('search IPC worker resource limits', () => {
         mocks.autoCompleteSearch = false;
 
         try {
-            const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-            registerSearchHandlers();
+            const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+            registerSearchIpcAdapter();
             const searchHandler = getSearchHandler();
             const cancelHandler = getCancelHandler();
             const event = createInvokeEvent(41);
@@ -915,8 +915,8 @@ describe('search IPC worker resource limits', () => {
     it('dispatches huge PDFs to the search worker instead of declaring search unavailable by file size', async () => {
         process.env.EVB_SEARCH_WORKER_MAX_ACTIVE = '4';
 
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const searchHandler = getSearchHandler();
 
         await expect(searchHandler(
@@ -938,8 +938,8 @@ describe('search IPC worker resource limits', () => {
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue('/tmp/work/large.pdf');
         mocks.resolveAllowedReadPath.mockImplementation(async (path: string) => path);
 
-        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
-        registerSearchHandlers();
+        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
+        registerSearchIpcAdapter();
         const searchHandler = getSearchHandler();
 
         await expect(searchHandler(

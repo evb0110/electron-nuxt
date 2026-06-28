@@ -7,18 +7,18 @@ type TCallablePlatformMember<TMember> =
         : never;
 
 type TCallableMemberKey<TTarget> = Extract<{
-    [TKey in keyof TTarget]: TCallablePlatformMember<TTarget[TKey]> extends never
+    [TKey in keyof NonNullable<TTarget>]: TCallablePlatformMember<NonNullable<TTarget>[TKey]> extends never
         ? never
         : TKey;
-}[keyof TTarget], string>;
+}[keyof NonNullable<TTarget>], string>;
 
 type TObjectMemberKey<TTarget> = Extract<{
-    [TKey in keyof TTarget]: TCallablePlatformMember<TTarget[TKey]> extends never
-        ? NonNullable<TTarget[TKey]> extends object
+    [TKey in keyof NonNullable<TTarget>]: TCallablePlatformMember<NonNullable<TTarget>[TKey]> extends never
+        ? NonNullable<NonNullable<TTarget>[TKey]> extends object
             ? TKey
             : never
         : never;
-}[keyof TTarget], string>;
+}[keyof NonNullable<TTarget>], string>;
 
 export type TBrowserPlatformMethodPath = {
     [TKey in TCapabilityKey]: readonly [
@@ -30,7 +30,7 @@ export type TBrowserPlatformMethodPath = {
         [TOwnerKey in TObjectMemberKey<IPlatformApi[TKey]>]: readonly [
             TKey,
             TOwnerKey,
-            TCallableMemberKey<NonNullable<IPlatformApi[TKey][TOwnerKey]>>,
+            TCallableMemberKey<NonNullable<NonNullable<IPlatformApi[TKey]>[TOwnerKey]>>,
         ];
     }[TObjectMemberKey<IPlatformApi[TKey]>];
 }[TCapabilityKey];
@@ -38,15 +38,15 @@ export type TBrowserPlatformMethodPath = {
 export type TMethodAtBrowserPlatformPath<TPath extends TBrowserPlatformMethodPath> =
     TPath extends readonly [infer TCapabilityKey, infer TMethodKey]
         ? TCapabilityKey extends keyof IPlatformApi
-            ? TMethodKey extends keyof IPlatformApi[TCapabilityKey]
-                ? TCallablePlatformMember<IPlatformApi[TCapabilityKey][TMethodKey]>
+            ? TMethodKey extends keyof NonNullable<IPlatformApi[TCapabilityKey]>
+                ? TCallablePlatformMember<NonNullable<IPlatformApi[TCapabilityKey]>[TMethodKey]>
                 : never
             : never
         : TPath extends readonly [infer TCapabilityKey, infer TOwnerKey, infer TMethodKey]
             ? TCapabilityKey extends keyof IPlatformApi
-                ? TOwnerKey extends keyof IPlatformApi[TCapabilityKey]
-                    ? TMethodKey extends keyof NonNullable<IPlatformApi[TCapabilityKey][TOwnerKey]>
-                        ? TCallablePlatformMember<NonNullable<IPlatformApi[TCapabilityKey][TOwnerKey]>[TMethodKey]>
+                ? TOwnerKey extends keyof NonNullable<IPlatformApi[TCapabilityKey]>
+                    ? TMethodKey extends keyof NonNullable<NonNullable<IPlatformApi[TCapabilityKey]>[TOwnerKey]>
+                        ? TCallablePlatformMember<NonNullable<NonNullable<IPlatformApi[TCapabilityKey]>[TOwnerKey]>[TMethodKey]>
                         : never
                     : never
                 : never
@@ -119,6 +119,99 @@ function collectBrowserPlatformPathDescriptors(
 }
 
 export const browserPlatformPathDescriptors = {
+    documentPicker: {
+        openDocumentDialog: asyncPath('documentPicker', 'openDocumentDialog'),
+        openPdfDialog: asyncPath('documentPicker', 'openPdfDialog'),
+        openCombineDialog: asyncPath('documentPicker', 'openCombineDialog'),
+        openFolderDialog: asyncPath('documentPicker', 'openFolderDialog'),
+        openImageDialog: asyncPath('documentPicker', 'openImageDialog'),
+    },
+    documentOpen: {
+        openDocumentDirect: asyncPath('documentOpen', 'openDocumentDirect'),
+        openPdfDirect: asyncPath('documentOpen', 'openPdfDirect'),
+        openDocumentDirectBatch: asyncPath('documentOpen', 'openDocumentDirectBatch'),
+        openPdfDirectBatch: asyncPath('documentOpen', 'openPdfDirectBatch'),
+    },
+    documentWorkingCopy: {
+        createWorkingCopyFromData: asyncPath('documentWorkingCopy', 'createWorkingCopyFromData'),
+        createWorkingCopyFromPath: asyncPath('documentWorkingCopy', 'createWorkingCopyFromPath'),
+        cleanupFile: asyncPath('documentWorkingCopy', 'cleanupFile'),
+        cleanupOcrTemp: asyncPath('documentWorkingCopy', 'cleanupOcrTemp'),
+    },
+    documentFiles: {
+        readFile: asyncPath('documentFiles', 'readFile'),
+        statFile: asyncPath('documentFiles', 'statFile'),
+        readFileRange: asyncPath('documentFiles', 'readFileRange'),
+        readFileChunks: asyncPath('documentFiles', 'readFileChunks'),
+        readTextFile: asyncPath('documentFiles', 'readTextFile'),
+        fileExists: asyncPath('documentFiles', 'fileExists'),
+        savePdfAs: asyncPath('documentFiles', 'savePdfAs'),
+        savePdfDataAs: asyncPath('documentFiles', 'savePdfDataAs'),
+        savePdfDialog: asyncPath('documentFiles', 'savePdfDialog'),
+        saveDocxAs: asyncPath('documentFiles', 'saveDocxAs'),
+        writeFile: asyncPath('documentFiles', 'writeFile'),
+        replaceWorkingCopyFromPath: asyncPath('documentFiles', 'replaceWorkingCopyFromPath'),
+        writeDocxFile: asyncPath('documentFiles', 'writeDocxFile'),
+        saveFile: asyncPath('documentFiles', 'saveFile'),
+        savePdfData: asyncPath('documentFiles', 'savePdfData'),
+        savePdfDataChunks: asyncPath('documentFiles', 'savePdfDataChunks'),
+    },
+    documentPdf: {
+        analyzePdfConformance: asyncPath('documentPdf', 'analyzePdfConformance'),
+        validatePdfData: asyncPath('documentPdf', 'validatePdfData'),
+        validatePdfPath: asyncPath('documentPdf', 'validatePdfPath'),
+        openPdfInDefaultAppData: asyncPath('documentPdf', 'openPdfInDefaultAppData'),
+        openPdfInDefaultAppPath: asyncPath('documentPdf', 'openPdfInDefaultAppPath'),
+        printPdfData: asyncPath('documentPdf', 'printPdfData'),
+        printPdfPath: asyncPath('documentPdf', 'printPdfPath'),
+    },
+    documentRecentFiles: {recentFiles: {
+        get: asyncPath('documentRecentFiles', 'recentFiles', 'get'),
+        remove: asyncPath('documentRecentFiles', 'recentFiles', 'remove'),
+        clear: asyncPath('documentRecentFiles', 'recentFiles', 'clear'),
+    }},
+    documentWindow: {
+        setWindowTitle: asyncPath('documentWindow', 'setWindowTitle'),
+        showItemInFolder: asyncPath('documentWindow', 'showItemInFolder'),
+    },
+    documentMenu: {
+        setMenuDocumentState: asyncPath('documentMenu', 'setMenuDocumentState'),
+        setMenuTabCount: asyncPath('documentMenu', 'setMenuTabCount'),
+        onMenuOpenPdf: eventPath('documentMenu', 'onMenuOpenPdf'),
+        onMenuInsertImageFromFile: eventPath('documentMenu', 'onMenuInsertImageFromFile'),
+        onMenuPasteImageFromClipboard: eventPath('documentMenu', 'onMenuPasteImageFromClipboard'),
+        onMenuSave: eventPath('documentMenu', 'onMenuSave'),
+        onMenuRepairSave: eventPath('documentMenu', 'onMenuRepairSave'),
+        onMenuOptimizePdfForInteraction: eventPath('documentMenu', 'onMenuOptimizePdfForInteraction'),
+        onMenuSaveAs: eventPath('documentMenu', 'onMenuSaveAs'),
+        onMenuPrint: eventPath('documentMenu', 'onMenuPrint'),
+        onMenuPrintCurrentPage: eventPath('documentMenu', 'onMenuPrintCurrentPage'),
+        onMenuExportDocx: eventPath('documentMenu', 'onMenuExportDocx'),
+        onMenuExportImages: eventPath('documentMenu', 'onMenuExportImages'),
+        onMenuExportMultiPageTiff: eventPath('documentMenu', 'onMenuExportMultiPageTiff'),
+        onMenuZoomIn: eventPath('documentMenu', 'onMenuZoomIn'),
+        onMenuZoomOut: eventPath('documentMenu', 'onMenuZoomOut'),
+        onMenuActualSize: eventPath('documentMenu', 'onMenuActualSize'),
+        onMenuFitWidth: eventPath('documentMenu', 'onMenuFitWidth'),
+        onMenuFitHeight: eventPath('documentMenu', 'onMenuFitHeight'),
+        onMenuViewModeSingle: eventPath('documentMenu', 'onMenuViewModeSingle'),
+        onMenuViewModeFacing: eventPath('documentMenu', 'onMenuViewModeFacing'),
+        onMenuViewModeFacingFirstSingle: eventPath('documentMenu', 'onMenuViewModeFacingFirstSingle'),
+        onMenuToggleAssistant: eventPath('documentMenu', 'onMenuToggleAssistant'),
+        onMenuUndo: eventPath('documentMenu', 'onMenuUndo'),
+        onMenuRedo: eventPath('documentMenu', 'onMenuRedo'),
+        onMenuDeletePages: eventPath('documentMenu', 'onMenuDeletePages'),
+        onMenuExtractPages: eventPath('documentMenu', 'onMenuExtractPages'),
+        onMenuRotateCw: eventPath('documentMenu', 'onMenuRotateCw'),
+        onMenuRotateCcw: eventPath('documentMenu', 'onMenuRotateCcw'),
+        onMenuInsertPages: eventPath('documentMenu', 'onMenuInsertPages'),
+        onMenuOpenRecentFile: eventPath('documentMenu', 'onMenuOpenRecentFile'),
+        onMenuOpenExternalPaths: eventPath('documentMenu', 'onMenuOpenExternalPaths'),
+        onMenuClearRecentFiles: eventPath('documentMenu', 'onMenuClearRecentFiles'),
+        onOpenDocumentDirectBatchProgress: eventPath('documentMenu', 'onOpenDocumentDirectBatchProgress'),
+        onPdfOptimizeProgress: eventPath('documentMenu', 'onPdfOptimizeProgress'),
+        onOpenPdfDirectBatchProgress: eventPath('documentMenu', 'onOpenPdfDirectBatchProgress'),
+    },
     documents: {
         openDocumentDialog: asyncPath('documents', 'openDocumentDialog'),
         openPdfDialog: asyncPath('documents', 'openPdfDialog'),
@@ -316,6 +409,14 @@ export const browserPlatformPathDescriptors = {
 } as const;
 
 export const directBrowserPlatformMemberPaths = [
+    [
+        'documentPicker',
+        'getPathForFile',
+    ],
+    [
+        'documentPicker',
+        'getPathsForFiles',
+    ],
     [
         'documents',
         'getPathForFile',

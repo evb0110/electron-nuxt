@@ -1,4 +1,3 @@
-import { getPlatformAPI } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/asyncGuard';
 import type {
     IUseWorkspaceShellStateOptions,
@@ -6,6 +5,7 @@ import type {
 } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
+import { getDocumentMenuCapability } from '@app/utils/platformDocuments';
 
 interface IUseMenuSyncDeps extends IUseWorkspaceShellStateOptions {shellState?: IWorkspaceShellState;}
 
@@ -38,7 +38,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             canRepairSave,
             canOptimizePdf,
         };
-        const setMenuDocumentState = getPlatformAPI().documents?.setMenuDocumentState;
+        const setMenuDocumentState = getDocumentMenuCapability().setMenuDocumentState;
         if (!setMenuDocumentState) {
             return;
         }
@@ -60,7 +60,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
         }
 
         lastSyncedMenuTabCount = tabCount;
-        const setMenuTabCount = getPlatformAPI().documents?.setMenuTabCount;
+        const setMenuTabCount = getDocumentMenuCapability().setMenuTabCount;
         if (!setMenuTabCount) {
             return;
         }

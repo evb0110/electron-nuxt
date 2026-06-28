@@ -97,7 +97,10 @@ class FakeSender extends EventEmitter {
 }
 
 function createInvokeEvent(sender: FakeSender) {
-    return {sender} as never;
+    return {
+        sender,
+        senderId: sender.id,
+    } as never;
 }
 
 function createPortEvent(sender: FakeSender, port: FakeMessagePort) {

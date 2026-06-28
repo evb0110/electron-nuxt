@@ -3,7 +3,14 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
+import { resolvePdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { getNativeToolBinaryPath } from '@electron/native-tools/nativeToolBinaryPath';
+import {
+    getNativeResourcesBaseCandidates,
+    resolveNativeResourcesBase,
+} from '@electron/native-tools/resolveNativeResourcesBase';
 import {
     getNativeToolPathCandidates,
     resolveNativeToolPath,
@@ -24,6 +31,124 @@ const baseOptions = {
     projectRoot: '/repo',
     resourcesBase: '/repo/resources',
 };
+
+vi.mock('electron', () => ({app: {isPackaged: false}}));
+
+describe('native resource base resolution', () => {
+    it('probes cwd resources before module-relative resources directories', () => {
+        expect(getNativeResourcesBaseCandidates('/repo/dist-electron', '/worktree')).toEqual([
+            path.join('/worktree', 'resources'),
+            path.join('/repo', 'resources'),
+            path.join('/', 'resources'),
+            path.join('/', 'resources'),
+        ]);
+    });
+
+    it('resolves a generic native resource root without requiring OCR resources', () => {
+        expect(resolveNativeResourcesBase('/repo/dist-electron', false, {
+            cwd: '/worktree',
+            exists: candidate => candidate === path.join('/repo', 'resources', 'qpdf'),
+        })).toBe(path.join('/repo', 'resources'));
+    });
+
+    it('keeps packaged resources on Electron resourcesPath', () => {
+        expect(resolveNativeResourcesBase('/app/Contents/Resources/app.asar/dist-electron', true, {resourcesPath: '/app/Contents/Resources'})).toBe('/app/Contents/Resources');
+    });
+});
+
+describe('PDF native tool path boundary', () => {
+    it('resolves Poppler and QPDF paths from the native tools base', () => {
+        const popplerBase = path.join('/repo/resources/poppler/darwin-arm64');
+        const existingPaths = new Set([
+            path.join(popplerBase, 'bin', 'pdftoppm'),
+            path.join(popplerBase, 'bin', 'pdftotext'),
+            path.join(popplerBase, 'bin', 'pdfimages'),
+            path.join(popplerBase, 'share', 'poppler'),
+            path.join(popplerBase, 'etc', 'fonts'),
+            path.join('/repo/resources/qpdf/darwin-arm64', 'bin', 'qpdf'),
+        ]);
+
+        expect(resolvePdfNativeToolPaths({
+            exists: candidate => existingPaths.has(candidate),
+            isPackaged: false,
+            nativeToolsBase: '/repo/resources',
+            platform: 'darwin',
+            platformArch: 'darwin-arm64',
+        })).toEqual({
+            pdftoppm: path.join(popplerBase, 'bin', 'pdftoppm'),
+            pdftotext: path.join(popplerBase, 'bin', 'pdftotext'),
+            pdfimages: path.join(popplerBase, 'bin', 'pdfimages'),
+            popplerDataDir: path.join(popplerBase, 'share', 'poppler'),
+            popplerFontConfigDir: path.join(popplerBase, 'etc', 'fonts'),
+            qpdf: path.join('/repo/resources/qpdf/darwin-arm64', 'bin', 'qpdf'),
+        });
+    });
+
+    it('keeps pdfimages and Poppler runtime directories optional', () => {
+        expect(resolvePdfNativeToolPaths({
+            exists: () => false,
+            isPackaged: false,
+            nativeToolsBase: '/repo/resources',
+            platform: 'linux',
+            platformArch: 'linux-x64',
+        })).toEqual({
+            pdftoppm: 'pdftoppm',
+            pdftotext: 'pdftotext',
+            qpdf: 'qpdf',
+        });
+    });
+});
+
+describe('native tool binary path primitives', () => {
+    it('uses bundled binaries before dev system fallbacks', () => {
+        expect(getNativeToolBinaryPath({
+            dir: '/repo/resources/qpdf/darwin-arm64',
+            exists: candidate => candidate === path.join('/repo/resources/qpdf/darwin-arm64', 'bin', 'qpdf'),
+            isPackaged: false,
+            name: 'qpdf',
+            platform: 'darwin',
+        })).toBe(path.join('/repo/resources/qpdf/darwin-arm64', 'bin', 'qpdf'));
+    });
+
+    it('keeps the existing macOS Homebrew fallback for development builds', () => {
+        expect(getNativeToolBinaryPath({
+            dir: '/repo/resources/qpdf/darwin-arm64',
+            exists: candidate => candidate === path.join('/opt/homebrew/bin', 'qpdf'),
+            isPackaged: false,
+            name: 'qpdf',
+            platform: 'darwin',
+        })).toBe(path.join('/opt/homebrew/bin', 'qpdf'));
+    });
+
+    it('returns the bundled path for required packaged tools even before the file exists', () => {
+        expect(getNativeToolBinaryPath({
+            dir: '/app/Contents/MacOS/native-tools/qpdf/darwin-arm64',
+            exists: () => false,
+            isPackaged: true,
+            name: 'qpdf',
+            platform: 'darwin',
+        })).toBe(path.join('/app/Contents/MacOS/native-tools/qpdf/darwin-arm64', 'bin', 'qpdf'));
+    });
+
+    it('keeps optional missing tools empty and Windows executables suffixed', () => {
+        expect(getNativeToolBinaryPath({
+            dir: '/repo/resources/tesseract/win32-x64',
+            exists: () => false,
+            isPackaged: false,
+            name: 'unpaper',
+            optional: true,
+            platform: 'win32',
+        })).toBe('');
+
+        expect(getNativeToolBinaryPath({
+            dir: '/repo/resources/qpdf/win32-x64',
+            exists: candidate => candidate === path.join('/repo/resources/qpdf/win32-x64', 'bin', 'qpdf.exe'),
+            isPackaged: false,
+            name: 'qpdf',
+            platform: 'win32',
+        })).toBe(path.join('/repo/resources/qpdf/win32-x64', 'bin', 'qpdf.exe'));
+    });
+});
 
 describe('native tool path resolution', () => {
     it('probes packaged resources, staged dev binaries, cross targets, and host release output', () => {

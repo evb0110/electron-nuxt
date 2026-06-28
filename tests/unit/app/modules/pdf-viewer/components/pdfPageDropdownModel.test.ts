@@ -7,7 +7,7 @@ import {
     getPdfPageDropdownIndicatorParts,
     getPdfPageDropdownInputLabel,
     resolvePdfPageDropdownDisplayPage,
-} from '@app/modules/pdf-viewer/components/pdfPageDropdownModel';
+} from '@app/modules/pdf-viewer/engine/pdfPageDropdownModel';
 
 function createPageLabels() {
     return Array.from({length: 584}, (_, index) => {

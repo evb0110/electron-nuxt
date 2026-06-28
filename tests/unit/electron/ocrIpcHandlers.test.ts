@@ -70,7 +70,7 @@ vi.mock('@electron/ocr/preprocessingHandlers', () => ({
     handlePreprocessPage: mocks.handlePreprocessPage,
 }));
 
-const { registerOcrHandlers } = await import('@electron/features/ocr/main/registerOcrHandlers');
+const { registerOcrIpcAdapter } = await import('@electron/features/ocr/registerOcrIpcAdapter');
 
 function createMockSender(id: number) {
     return {
@@ -90,7 +90,7 @@ function getHandler(channel: string) {
     return handler;
 }
 
-describe('registerOcrHandlers', () => {
+describe('registerOcrIpcAdapter', () => {
     beforeEach(() => {
         mocks.handlers.clear();
         vi.clearAllMocks();
@@ -127,7 +127,7 @@ describe('registerOcrHandlers', () => {
         });
         mocks.handleOcrCancel.mockReturnValue({ canceled: true });
         mocks.handleOcrAcknowledgeResultFile.mockResolvedValue({ cleaned: true });
-        registerOcrHandlers();
+        registerOcrIpcAdapter();
     });
 
     it('rejects malformed OCR batch payloads with stable typed envelope', async () => {

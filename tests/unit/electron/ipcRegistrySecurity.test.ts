@@ -16,26 +16,92 @@ import {
 
 const ipcRegistrySecurityImportTimeoutMs = 10_000;
 
-const mocks = vi.hoisted(() => ({
-    events: new Map<string, (event: IRegisteredEvent, ...args: unknown[]) => void>(),
-    handlers: new Map<string, TRegisteredHandler>(),
-    attachSerializedPdfPersistencePort: vi.fn(),
-    logger: {
-        debug: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-    },
-    registeredWindowsById: new Map<number, unknown>(),
-    browserWindowFromWebContents: vi.fn(),
-    getWindowByIdFromRegistry: vi.fn(),
-    loadSettings: vi.fn(async () => ({theme: 'system'})),
-    updateSettings: vi.fn(),
-    sanitizeAllowedExternalUrl: vi.fn((value: unknown) => value),
-    shellOpenExternal: vi.fn(),
-    acknowledgeWindowTabTransfer: vi.fn(),
-    requestWindowTabTransfer: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+    const agentState = {
+        scope: null,
+        status: {
+            provider: 'codex',
+            installState: 'missing',
+            authState: 'unknown',
+            runtimeState: 'stopped',
+            turnPhase: 'idle',
+            models: [],
+            providers: [],
+            mcp: {
+                running: false,
+                enabled: false,
+                toolCount: 0,
+            },
+        },
+        messages: [],
+    };
+    const agentService = {
+        getMcpIntegrationStatus: vi.fn(async () => ({
+            enabled: false,
+            running: false,
+            codexRegistrationState: 'unknown',
+            serverUrl: null,
+            error: null,
+        })),
+        setMcpIntegrationEnabled: vi.fn(async () => ({
+            ok: true,
+            status: {
+                enabled: false,
+                running: false,
+                codexRegistrationState: 'unknown',
+                serverUrl: null,
+                error: null,
+            },
+        })),
+        getAssistantState: vi.fn(async () => agentState),
+        installAssistantCodex: vi.fn(async () => ({
+            ok: true,
+            state: agentState,
+        })),
+        startAssistantLogin: vi.fn(async () => ({
+            ok: true,
+            state: agentState,
+        })),
+        cancelAssistantLogin: vi.fn(async () => agentState),
+        sendAssistantMessage: vi.fn(async () => ({
+            ok: true,
+            state: agentState,
+        })),
+        interruptAssistant: vi.fn(async () => agentState),
+        resetAssistantChat: vi.fn(async () => agentState),
+        submitWorkspaceSnapshot: vi.fn(async () => ({accepted: true})),
+        submitCommandResponse: vi.fn(async () => ({accepted: true})),
+        shutdownAssistant: vi.fn(async () => undefined),
+    };
+
+    return {
+        events: new Map<string, (event: IRegisteredEvent, ...args: unknown[]) => void>(),
+        handlers: new Map<string, TRegisteredHandler>(),
+        attachSerializedPdfPersistencePort: vi.fn(),
+        logger: {
+            debug: vi.fn(),
+            info: vi.fn(),
+            warn: vi.fn(),
+            error: vi.fn(),
+        },
+        registeredWindowsById: new Map<number, unknown>(),
+        browserWindowFromWebContents: vi.fn(),
+        getWindowByIdFromRegistry: vi.fn(),
+        loadSettings: vi.fn(async () => ({theme: 'system'})),
+        updateSettings: vi.fn(),
+        agentService,
+        createAgentService: vi.fn(() => agentService),
+        createDocumentsService: vi.fn(() => ({})),
+        allowOpenPath: vi.fn(),
+        isSupportedOpenPath: vi.fn((_path: unknown) => true),
+        requireOpenPath: vi.fn((..._args: unknown[]) => undefined),
+        requireManagedWorkingCopyPath: vi.fn((..._args: unknown[]) => undefined),
+        sanitizeAllowedExternalUrl: vi.fn((value: unknown) => value),
+        shellOpenExternal: vi.fn(),
+        acknowledgeWindowTabTransfer: vi.fn(),
+        requestWindowTabTransfer: vi.fn(),
+    };
+});
 
 vi.mock('electron', () => ({
     BrowserWindow: {fromWebContents: mocks.browserWindowFromWebContents},
@@ -53,8 +119,15 @@ vi.mock('electron', () => ({
 
 vi.mock('@contracts/externalUrl', () => ({sanitizeAllowedExternalUrl: mocks.sanitizeAllowedExternalUrl}));
 vi.mock('@electron/config', () => ({config: {renderer: {trustedUrl: 'http://127.0.0.1:41001/electron'}}}));
-vi.mock('@electron/features/documents/registerDocumentsIpcAdapter', () => ({registerDocumentsIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/agent/createAgentService', () => ({createAgentService: mocks.createAgentService}));
+vi.mock('@electron/features/documents/createDocumentsService', () => ({createDocumentsService: mocks.createDocumentsService}));
 vi.mock('@electron/features/documents/public', () => ({attachSerializedPdfPersistencePort: mocks.attachSerializedPdfPersistencePort}));
+vi.mock('@electron/file-access/openPathCapabilities', () => ({
+    allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args),
+    requireOpenPath: (...args: unknown[]) => mocks.requireOpenPath(...args),
+}));
+vi.mock('@electron/image/pdfConversion', () => ({isSupportedOpenPath: (path: unknown) => mocks.isSupportedOpenPath(path)}));
+vi.mock('@electron/file-access/workingCopyCreation', () => ({requireManagedWorkingCopyPath: (path: unknown, owner: unknown) => mocks.requireManagedWorkingCopyPath(path, owner)}));
 vi.mock('@electron/features/djvu/registerDjvuIpcAdapter', () => ({registerDjvuIpcAdapter: vi.fn()}));
 vi.mock('@electron/features/image-export/registerImageExportIpcAdapter', () => ({registerImageExportIpcAdapter: vi.fn()}));
 vi.mock('@electron/features/ocr/registerOcrIpcAdapter', () => ({registerOcrIpcAdapter: vi.fn()}));

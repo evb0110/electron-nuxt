@@ -9,7 +9,7 @@ import { getRectHeight } from '@app/utils/document-viewer/region-geometry/getRec
 import { getRectWidth } from '@app/utils/document-viewer/region-geometry/getRectWidth';
 import type { IClientRect } from '@app/utils/document-viewer/region-geometry/regionGeometryTypes';
 import { toClientRect } from '@app/utils/document-viewer/region-geometry/toClientRect';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type { IWorkspacePdfViewerAgentPageImageCapturePort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import {
     getAgentNumberInput,
     getAgentStringInput,
@@ -32,7 +32,7 @@ const AGENT_PAGE_IMAGE_RENDER_POLL_MS = 50;
 interface ICreateDocumentAgentPageImageCaptureOptions {
     currentPage: Ref<number>;
     handleGoToPage: (page: number) => void;
-    pdfViewerRef: Ref<IPdfViewerExpose | null>;
+    pdfViewerRef: Ref<IWorkspacePdfViewerAgentPageImageCapturePort | null>;
     totalPages: Ref<number>;
 }
 

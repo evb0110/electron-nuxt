@@ -12,7 +12,7 @@ import {
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
-import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
     analyzePdfConformanceFile,
@@ -76,7 +76,7 @@ function normalizeMinBytes(value: number | undefined) {
 }
 
 async function rewritePdfLosslessly(inputPath: string, outputPath: string, label: string) {
-    await runNativeToolCommand(getNativeToolPaths().qpdf, [
+    await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
         '--linearize',
         '--stream-data=preserve',
         '--object-streams=generate',

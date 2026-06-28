@@ -1,10 +1,22 @@
-import type { IPlatformApi } from '@contracts/platformApi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { Ref } from 'vue';
 import type { TPaneDirection } from '@contracts/editorPanes';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
+import type { IDocumentsMenuCapability } from '@contracts/electronApiDocuments';
+import type { ISettingsCapability } from '@contracts/settingsCapability';
+import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
+import type { IDjvuCapability } from '@contracts/electronApiDjvu';
+import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 import { BrowserLogger } from '@app/utils/browserLogger';
+
+export interface ITabsMenuBindingApi {
+    documentMenu: IDocumentsMenuCapability;
+    settings: ISettingsCapability;
+    updates: IUpdatesCapability;
+    djvu: IDjvuCapability;
+    windowTabs: IWindowTabsCapability;
+}
 
 export interface ITabsMenuBindingDeps {
     activeWorkspace: Ref<IWorkspaceExpose | null>;
@@ -29,7 +41,7 @@ export interface ITabsMenuBindingDeps {
 type TCleanup = () => void;
 type TMenuRunAction = (actionName: string, action: () => unknown) => void;
 type TNoArgMenuRegister = (handler: () => void) => unknown;
-type TDocumentMenuApi = NonNullable<IPlatformApi['documents']>;
+type TDocumentMenuApi = IDocumentsMenuCapability;
 interface IDocumentMenuAction {
     name: string;
     register: keyof TDocumentMenuApi;
@@ -211,10 +223,11 @@ function registerDocumentMenuActions(
  * mismatch) degrades gracefully rather than crashing the renderer.
  */
 export function registerTabsMenuBindings(
-    electronApi: IPlatformApi,
+    menuApi: ITabsMenuBindingApi,
     deps: ITabsMenuBindingDeps,
 ) {
-    const api = electronApi as Partial<IPlatformApi>;
+    const api = menuApi as Partial<ITabsMenuBindingApi>;
+    const documentMenu = api.documentMenu;
     let documentOpenQueue: Promise<void> = Promise.resolve();
     let disposed = false;
 
@@ -257,14 +270,14 @@ export function registerTabsMenuBindings(
     };
 
     const cleanups = [
-        ...registerDocumentMenuActions(api.documents, deps, runMenuAction),
-        api.documents?.onMenuOpenRecentFile?.((path) => {
+        ...registerDocumentMenuActions(documentMenu, deps, runMenuAction),
+        documentMenu?.onMenuOpenRecentFile?.((path) => {
             enqueueDocumentOpenAction('open-recent-file', () => deps.openPathInAppropriateTab(path));
         }),
-        api.documents?.onMenuOpenExternalPaths?.((paths) => {
+        documentMenu?.onMenuOpenExternalPaths?.((paths) => {
             enqueueDocumentOpenAction('open-external-paths', () => deps.openPathsInAppropriateTab(paths));
         }),
-        api.documents?.onMenuClearRecentFiles?.(() => {
+        documentMenu?.onMenuClearRecentFiles?.(() => {
             runMenuAction('clear-recentFiles', async () => {
                 await deps.clearRecentFiles();
                 await deps.loadRecentFiles();
@@ -273,7 +286,7 @@ export function registerTabsMenuBindings(
         api.settings?.onMenuOpenSettings?.(() => {
             runMenuAction('open-settings', () => deps.openSettings());
         }),
-        api.documents?.onMenuToggleAssistant?.(() => {
+        documentMenu?.onMenuToggleAssistant?.(() => {
             runMenuAction('toggle-assistant', () => deps.toggleAssistant());
         }),
         api.updates?.onMenuCheckForUpdates?.(() => {

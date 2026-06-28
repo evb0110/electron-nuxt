@@ -38,7 +38,7 @@ const reportRuntimeError = vi.fn();
 
 vi.mock('@app/utils/platformDocuments', () => ({
     getPageOpsCapability: () => pageOpsApi,
-    getDocumentsCapability: () => {
+    getDocumentMenuCapability: () => {
         const onOpenDocumentDirectBatchProgress = (callback: TBatchProgressListener) => {
             progressListeners.add(callback);
             return () => {

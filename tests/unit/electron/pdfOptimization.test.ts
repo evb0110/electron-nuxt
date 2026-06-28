@@ -37,7 +37,7 @@ const mocks = vi.hoisted(() => ({
     copyFileCopyOnWrite: vi.fn(),
 }));
 
-vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths: () => ({
+vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
     pdftoppm: '/native/pdftoppm',
     qpdf: '/native/qpdf',
 })}));

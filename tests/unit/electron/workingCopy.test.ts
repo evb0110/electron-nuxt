@@ -131,9 +131,9 @@ describe('workingCopy', () => {
         const workingPath = join(workingDir, 'missing-original.pdf');
         setWorkingCopyOriginalPath(workingPath, originalPath);
 
-        const event = {sender: {id: 1}} as Electron.IpcMainInvokeEvent;
-        await expect(handleFileSave(event, workingPath)).rejects.toBeInstanceOf(WorkingCopyMissingError);
-        await expect(handleFileSave(event, workingPath)).rejects.toMatchObject({ code: 'WORKING_COPY_MISSING' });
+        const context = {senderId: 1};
+        await expect(handleFileSave(context, workingPath)).rejects.toBeInstanceOf(WorkingCopyMissingError);
+        await expect(handleFileSave(context, workingPath)).rejects.toMatchObject({ code: 'WORKING_COPY_MISSING' });
 
         await clearAllWorkingCopies();
     });

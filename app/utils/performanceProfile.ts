@@ -1,4 +1,4 @@
-import { getPlatformAPI } from '@app/utils/platform';
+import { getSystemCapability } from '@app/utils/getSystemCapability';
 
 export const PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT = 2 ** 25;
 export const PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY = 2 ** 26;
@@ -48,7 +48,7 @@ function readNavigatorPerformanceEnvironment(): IPerformanceProfileEnvironment {
     if (typeof runtimeNavigator.hardwareConcurrency === 'number') {
         environment.hardwareConcurrency = runtimeNavigator.hardwareConcurrency;
     }
-    const memoryInfo = getPlatformAPI().system?.getMemoryInfo?.();
+    const memoryInfo = getSystemCapability().getMemoryInfo?.();
     if (typeof memoryInfo?.totalBytes === 'number') {
         environment.totalMemoryBytes = memoryInfo.totalBytes;
     }

@@ -16,13 +16,28 @@ const createDocxFromTextAsyncMock = vi.hoisted(() => vi.fn(async () => new Uint8
 ])));
 const loadOcrTextMock = vi.hoisted(() => vi.fn<() => Promise<string | null>>(async () => null));
 const extractPdfTextMock = vi.hoisted(() => vi.fn<() => Promise<string | null>>(async () => 'pdf text'));
-const electronApiMock = vi.hoisted(() => ({documents: {
+const documentFilesMock = vi.hoisted(() => ({
     saveDocxAs: vi.fn(async () => '/tmp/export.docx'),
     writeDocxFile: vi.fn(async () => {}),
-    cleanupFile: vi.fn(async () => {}),
-}}));
+}));
+const documentWorkingCopyMock = vi.hoisted(() => ({cleanupFile: vi.fn(async () => {})}));
+const legacyDocumentsMock = vi.hoisted(() => ({
+    saveDocxAs: vi.fn(() => {
+        throw new Error('Legacy documents.saveDocxAs should not be used for DOCX export');
+    }),
+    writeDocxFile: vi.fn(() => {
+        throw new Error('Legacy documents.writeDocxFile should not be used for DOCX export');
+    }),
+    cleanupFile: vi.fn(() => {
+        throw new Error('Legacy documents.cleanupFile should not be used for DOCX export');
+    }),
+}));
 
-vi.mock('@app/utils/platformDocuments', () => ({ getDocumentsCapability: () => electronApiMock.documents }));
+vi.mock('@app/utils/platformDocuments', () => ({
+    getDocumentsCapability: () => legacyDocumentsMock,
+    getDocumentFilesCapability: () => documentFilesMock,
+    getDocumentWorkingCopyCapability: () => documentWorkingCopyMock,
+}));
 vi.mock('@app/composables/useAnalytics', () => ({useAnalytics: () => ({track: trackMock})}));
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
 vi.mock('@app/utils/ocr/loadOcrText', () => ({ loadOcrText: loadOcrTextMock }));
@@ -37,7 +52,7 @@ beforeEach(() => {
 describe('useDocxExport', () => {
     it('uses the async docx builder without cleaning filesystem output paths', async () => {
         const callOrder: string[] = [];
-        electronApiMock.documents.saveDocxAs.mockImplementationOnce(async () => {
+        documentFilesMock.saveDocxAs.mockImplementationOnce(async () => {
             callOrder.push('save');
             return '/tmp/export.docx';
         });
@@ -67,8 +82,8 @@ describe('useDocxExport', () => {
         expect(loadOcrTextMock).toHaveBeenCalledTimes(1);
         expect(extractPdfTextMock).toHaveBeenCalledTimes(1);
         expect(createDocxFromTextAsyncMock).toHaveBeenCalledWith('pdf text', true);
-        expect(electronApiMock.documents.saveDocxAs).toHaveBeenCalledWith('/tmp/work.pdf');
-        expect(electronApiMock.documents.writeDocxFile).toHaveBeenCalledWith(
+        expect(documentFilesMock.saveDocxAs).toHaveBeenCalledWith('/tmp/work.pdf');
+        expect(documentFilesMock.writeDocxFile).toHaveBeenCalledWith(
             '/tmp/export.docx',
             new Uint8Array([
                 1,
@@ -76,7 +91,10 @@ describe('useDocxExport', () => {
                 3,
             ]),
         );
-        expect(electronApiMock.documents.cleanupFile).not.toHaveBeenCalled();
+        expect(documentWorkingCopyMock.cleanupFile).not.toHaveBeenCalled();
+        expect(legacyDocumentsMock.saveDocxAs).not.toHaveBeenCalled();
+        expect(legacyDocumentsMock.writeDocxFile).not.toHaveBeenCalled();
+        expect(legacyDocumentsMock.cleanupFile).not.toHaveBeenCalled();
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'success',
             title: expect.any(String),
@@ -91,7 +109,7 @@ describe('useDocxExport', () => {
     });
 
     it('does not cleanup filesystem output paths when no DOCX text is available', async () => {
-        electronApiMock.documents.saveDocxAs.mockResolvedValueOnce('/tmp/empty.docx');
+        documentFilesMock.saveDocxAs.mockResolvedValueOnce('/tmp/empty.docx');
         loadOcrTextMock.mockResolvedValueOnce(null);
         extractPdfTextMock.mockResolvedValueOnce(null);
 
@@ -105,13 +123,16 @@ describe('useDocxExport', () => {
 
         expect(result).toBe(false);
         expect(exportState.docxExportError.value).toBe('errors.ocr.noText');
-        expect(electronApiMock.documents.writeDocxFile).not.toHaveBeenCalled();
-        expect(electronApiMock.documents.cleanupFile).not.toHaveBeenCalled();
+        expect(documentFilesMock.writeDocxFile).not.toHaveBeenCalled();
+        expect(documentWorkingCopyMock.cleanupFile).not.toHaveBeenCalled();
+        expect(legacyDocumentsMock.saveDocxAs).not.toHaveBeenCalled();
+        expect(legacyDocumentsMock.writeDocxFile).not.toHaveBeenCalled();
+        expect(legacyDocumentsMock.cleanupFile).not.toHaveBeenCalled();
         expect(toastAddMock).not.toHaveBeenCalled();
     });
 
     it('cleans up browser output refs when no DOCX text is available', async () => {
-        electronApiMock.documents.saveDocxAs.mockResolvedValueOnce('browser://documents/output/empty.docx');
+        documentFilesMock.saveDocxAs.mockResolvedValueOnce('browser://documents/output/empty.docx');
         loadOcrTextMock.mockResolvedValueOnce(null);
         extractPdfTextMock.mockResolvedValueOnce(null);
 
@@ -124,7 +145,10 @@ describe('useDocxExport', () => {
         });
 
         expect(result).toBe(false);
-        expect(electronApiMock.documents.writeDocxFile).not.toHaveBeenCalled();
-        expect(electronApiMock.documents.cleanupFile).toHaveBeenCalledWith('browser://documents/output/empty.docx');
+        expect(documentFilesMock.writeDocxFile).not.toHaveBeenCalled();
+        expect(documentWorkingCopyMock.cleanupFile).toHaveBeenCalledWith('browser://documents/output/empty.docx');
+        expect(legacyDocumentsMock.saveDocxAs).not.toHaveBeenCalled();
+        expect(legacyDocumentsMock.writeDocxFile).not.toHaveBeenCalled();
+        expect(legacyDocumentsMock.cleanupFile).not.toHaveBeenCalled();
     });
 });

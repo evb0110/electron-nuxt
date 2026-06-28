@@ -7,7 +7,7 @@ import { readFileSync } from 'fs';
 import {
     buildPdfSearchExcerpt,
     findPdfSearchMatches,
-} from '@contracts/search';
+} from '@pdf-core';
 import { EXCERPT_CONTEXT_CHARS } from '@electron/config/constants';
 import {
     buildExcerpt,
@@ -131,7 +131,7 @@ describe('search worker page match iteration', () => {
         );
     });
 
-    it('delegates excerpt construction to the contract helper', () => {
+    it('delegates excerpt construction to the pdf-core helper', () => {
         const text = 'alpha \n beta target gamma \t delta';
         const startOffset = 13;
         const endOffset = 19;

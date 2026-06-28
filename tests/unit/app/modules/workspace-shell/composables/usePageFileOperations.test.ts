@@ -19,18 +19,35 @@ import { cast } from '@tests/helpers/cast';
 const {
     mockHasElectronAPI,
     mockOpenCombineDialog,
+    mockOpenFolderDialog,
+    mockLegacyOpenCombineDialog,
+    mockLegacyOpenFolderDialog,
     mockReadFileRange,
 } = vi.hoisted(() => ({
     mockHasElectronAPI: vi.fn(() => true),
     mockOpenCombineDialog: vi.fn<() => Promise<TOpenFileResult | null>>(async () => null),
+    mockOpenFolderDialog: vi.fn<() => Promise<TOpenFileResult | null>>(async () => null),
+    mockLegacyOpenCombineDialog: vi.fn(() => {
+        throw new Error('legacy combine picker should not be used');
+    }),
+    mockLegacyOpenFolderDialog: vi.fn(() => {
+        throw new Error('legacy folder picker should not be used');
+    }),
     mockReadFileRange: vi.fn(async (_path: string, _offset: number, _length: number) => new Uint8Array([0])),
 }));
 
 vi.mock('@app/utils/platform', () => ({hasElectronAPI: () => mockHasElectronAPI()}));
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentsCapability: () => ({
-    openCombineDialog: mockOpenCombineDialog,
-    readFileRange: mockReadFileRange,
-})}));
+vi.mock('@app/utils/platformDocuments', () => ({
+    getDocumentFilesCapability: () => ({readFileRange: mockReadFileRange}),
+    getDocumentPickerCapability: () => ({
+        openCombineDialog: mockOpenCombineDialog,
+        openFolderDialog: mockOpenFolderDialog,
+    }),
+    getDocumentsCapability: () => ({
+        openCombineDialog: mockLegacyOpenCombineDialog,
+        openFolderDialog: mockLegacyOpenFolderDialog,
+    }),
+}));
 
 function openedOutcome(path = '/tmp/working.pdf'): TDocumentOpenOutcome {
     return {
@@ -88,6 +105,10 @@ describe('usePageFileOperations', () => {
         mockHasElectronAPI.mockReturnValue(true);
         mockOpenCombineDialog.mockReset();
         mockOpenCombineDialog.mockResolvedValue(null);
+        mockOpenFolderDialog.mockReset();
+        mockOpenFolderDialog.mockResolvedValue(null);
+        mockLegacyOpenCombineDialog.mockClear();
+        mockLegacyOpenFolderDialog.mockClear();
         mockReadFileRange.mockReset();
         mockReadFileRange.mockResolvedValue(new Uint8Array([0]));
     });
@@ -352,6 +373,21 @@ describe('usePageFileOperations', () => {
         await handleCombineImages();
 
         expect(mockOpenCombineDialog).toHaveBeenCalledOnce();
+        expect(mockLegacyOpenCombineDialog).not.toHaveBeenCalled();
+        expect(deps.openFile).not.toHaveBeenCalled();
+        expect(deps.emitOpenInNewTab).not.toHaveBeenCalled();
+        expect(deps.closeAllDropdowns).not.toHaveBeenCalled();
+    });
+
+    it('returns early without closing dropdowns when folder picker is cancelled', async () => {
+        mockOpenFolderDialog.mockResolvedValue(null);
+        const deps = createDeps();
+        const { handleOpenFolderFromUi } = usePageFileOperations(deps);
+
+        await handleOpenFolderFromUi();
+
+        expect(mockOpenFolderDialog).toHaveBeenCalledOnce();
+        expect(mockLegacyOpenFolderDialog).not.toHaveBeenCalled();
         expect(deps.openFile).not.toHaveBeenCalled();
         expect(deps.emitOpenInNewTab).not.toHaveBeenCalled();
         expect(deps.closeAllDropdowns).not.toHaveBeenCalled();

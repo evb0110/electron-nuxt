@@ -58,8 +58,8 @@ const { handleReplaceWorkingCopyFromPath } = await import('@electron/features/do
 type TPendingResultFileStore = ReturnType<typeof createPendingResultFileStore>;
 
 describe('OCR replacement ownership path aliases', () => {
-    const ownerEvent = {sender: {id: 42}} as Electron.IpcMainInvokeEvent;
-    const otherEvent = {sender: {id: 43}} as Electron.IpcMainInvokeEvent;
+    const ownerContext = {senderId: 42};
+    const otherContext = {senderId: 43};
     const workingCopyPath = '/var/folders/app/T/evb-viewer/pdf-work-1/book.pdf';
     const resolvedWorkingCopyPath = '/private/var/folders/app/T/evb-viewer/pdf-work-1/book.pdf';
     const rendererOcrPath = '/var/folders/app/T/evb-viewer/ocr-1-merged.pdf';
@@ -109,7 +109,7 @@ describe('OCR replacement ownership path aliases', () => {
         store?.track('42:ocr-1', 'ocr-1', 42, rendererOcrPath, true);
 
         await expect(handleReplaceWorkingCopyFromPath(
-            ownerEvent,
+            ownerContext,
             workingCopyPath,
             rendererOcrPath,
         )).resolves.toBe(true);
@@ -127,7 +127,7 @@ describe('OCR replacement ownership path aliases', () => {
         mocks.rename.mockClear();
 
         await expect(handleReplaceWorkingCopyFromPath(
-            otherEvent,
+            otherContext,
             workingCopyPath,
             rendererOcrPath,
         )).rejects.toThrow('Invalid source path: OCR result is not owned by this renderer');

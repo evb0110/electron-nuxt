@@ -48,10 +48,8 @@ import type {
     IOcrPdfPageRequest,
     TWorkerLog,
 } from '@electron/ocr/worker/types';
-import {
-    clampDpi,
-    detectSourceDpiDetails,
-} from '@electron/ocr/worker/dpiDetection';
+import { detectSourceDpiDetails } from '@electron/ocr/worker/dpiDetection';
+import { clampDpi } from '@electron/image/imageDpi';
 import {
     getPngDimensionsFromFile,
     runOcrFileBased,

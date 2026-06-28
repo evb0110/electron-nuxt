@@ -1,9 +1,5 @@
-import type { IpcMainInvokeEvent } from 'electron';
 import { BrowserWindow } from 'electron';
-import {
-    stat,
-    unlink,
-} from 'fs/promises';
+import * as fsPromises from 'fs/promises';
 import type { Worker } from 'worker_threads';
 import { remove } from 'es-toolkit/array';
 import { sumBy } from 'es-toolkit/math';
@@ -46,6 +42,7 @@ import type {
     IOcrPreparingJob,
     IOcrQueuedJob,
 } from '@electron/ocr/jobManager.types';
+import type { IOcrJobOperationContext } from '@electron/ocr/ocrJobOperationContext';
 import type {
     IOcrPdfPageRequest,
     TOcrWorkerInboundMessage,
@@ -215,7 +212,7 @@ function evictStaleQueuedJobs(nowMs = Date.now()) {
 
 async function removeResultFile(path: string) {
     try {
-        await unlink(path);
+        await fsPromises.unlink(path);
         return true;
     } catch (err) {
         const code = isErrnoException(err) ? err.code : undefined;
@@ -271,7 +268,7 @@ async function estimateRequestBytes(
     const averagePageOverhead = 32 * 1024;
     let sourcePdfBytes = 0;
     try {
-        sourcePdfBytes = (await stat(sourcePdfPath)).size;
+        sourcePdfBytes = (await fsPromises.stat(sourcePdfPath)).size;
     } catch (err) {
         const errMsg = getErrorMessage(err);
         log.warn(`Failed to stat OCR source PDF "${sourcePdfPath}" for queue estimation: ${errMsg}`);
@@ -460,8 +457,11 @@ function cancelJobsForSender(webContentsId: number, reason: string) {
     void pendingResultFileStore.cleanupForSender(webContentsId);
 }
 
-function registerSenderCleanup(event: IpcMainInvokeEvent) {
-    const senderId = event.sender.id;
+function registerSenderCleanup(context: IOcrJobOperationContext) {
+    const {
+        sender,
+        senderId,
+    } = context;
     if (registeredSenderCleanupIds.has(senderId)) {
         return;
     }
@@ -476,9 +476,9 @@ function registerSenderCleanup(event: IpcMainInvokeEvent) {
         cancelJobsForSender(senderId, reason);
         registeredSenderCleanupIds.delete(senderId);
 
-        event.sender.removeListener('destroyed', handleDestroyed);
-        event.sender.removeListener('render-process-gone', handleRenderProcessGone);
-        event.sender.removeListener('did-start-navigation', handleNavigation);
+        sender.removeListener('destroyed', handleDestroyed);
+        sender.removeListener('render-process-gone', handleRenderProcessGone);
+        sender.removeListener('did-start-navigation', handleNavigation);
     };
 
     const handleDestroyed = () => {
@@ -498,11 +498,11 @@ function registerSenderCleanup(event: IpcMainInvokeEvent) {
         }
     };
 
-    event.sender.once('destroyed', handleDestroyed);
-    event.sender.once('render-process-gone', handleRenderProcessGone);
+    sender.once('destroyed', handleDestroyed);
+    sender.once('render-process-gone', handleRenderProcessGone);
     // Navigation can happen repeatedly during one renderer lifetime; this is
     // registered once per sender and removed by the shared cleanup handler.
-    event.sender.on('did-start-navigation', handleNavigation);
+    sender.on('did-start-navigation', handleNavigation);
 }
 
 function createTerminalOcrErrorEnvelope(
@@ -891,12 +891,12 @@ function createQueueFailure(
 }
 
 function findQueueBlockingResult(
-    event: IpcMainInvokeEvent,
+    context: IOcrJobOperationContext,
     scopedJobId: string,
     requestId: string,
     options: { includePreparing: boolean },
 ): IOcrQueueStartResult | null {
-    if (event.sender.isDestroyed()) {
+    if (context.sender.isDestroyed()) {
         return createQueueFailure(requestId, 'Renderer disconnected before OCR request could be queued');
     }
 
@@ -911,7 +911,7 @@ function findQueueBlockingResult(
         );
     }
 
-    if (pendingResultFileStore.find(event.sender.id, requestId)) {
+    if (pendingResultFileStore.find(context.senderId, requestId)) {
         return createQueueFailure(
             requestId,
             `OCR job with id "${requestId}" is waiting for result-file acknowledgement`,
@@ -923,7 +923,7 @@ function findQueueBlockingResult(
 }
 
 function createPreparingJob(
-    event: IpcMainInvokeEvent,
+    context: IOcrJobOperationContext,
     scopedJobId: string,
     requestId: string,
 ): IOcrPreparingJob {
@@ -931,7 +931,7 @@ function createPreparingJob(
         lifecycleState: 'preparing',
         scopedJobId,
         requestId,
-        webContentsId: event.sender.id,
+        webContentsId: context.senderId,
         requestedBytes: 0,
         startedAtMs: Date.now(),
         abortController: new AbortController(),
@@ -939,7 +939,7 @@ function createPreparingJob(
 }
 
 function getAbortedPreparationResult(
-    event: IpcMainInvokeEvent,
+    context: IOcrJobOperationContext,
     scopedJobId: string,
     requestId: string,
     signal: AbortSignal,
@@ -951,14 +951,14 @@ function getAbortedPreparationResult(
     if (cancelledJobs.has(scopedJobId)) {
         return createQueueFailure(requestId, 'OCR job was cancelled before it started');
     }
-    if (event.sender.isDestroyed()) {
+    if (context.sender.isDestroyed()) {
         return createQueueFailure(requestId, 'Renderer disconnected before OCR request could be queued');
     }
     return null;
 }
 
 async function prepareLanguageModelsForQueueJob(
-    event: IpcMainInvokeEvent,
+    context: IOcrJobOperationContext,
     preparingJob: IOcrPreparingJob,
     scopedJobId: string,
     requestId: string,
@@ -974,7 +974,7 @@ async function prepareLanguageModelsForQueueJob(
     } catch (error) {
         if (preparingJob.abortController.signal.aborted) {
             const result = getAbortedPreparationResult(
-                event,
+                context,
                 scopedJobId,
                 requestId,
                 preparingJob.abortController.signal,
@@ -994,7 +994,7 @@ function getCancelledBeforeStartResult(scopedJobId: string, requestId: string) {
 }
 
 function enqueuePreparedOcrJob(
-    event: IpcMainInvokeEvent,
+    context: IOcrJobOperationContext,
     scopedJobId: string,
     sourcePdfPath: string,
     pages: IOcrPdfPageRequest[],
@@ -1011,7 +1011,7 @@ function enqueuePreparedOcrJob(
         ),
         scopedJobId,
         requestId,
-        webContentsId: event.sender.id,
+        webContentsId: context.senderId,
         sourcePdfPath,
         pages,
         options,
@@ -1037,23 +1037,23 @@ function cleanupCancelledPreparation(scopedJobId: string) {
 }
 
 export async function handleOcrCreateSearchablePdfAsync(
-    event: IpcMainInvokeEvent,
+    context: IOcrJobOperationContext,
     sourcePdfPath: string,
     pages: IOcrPdfPageRequest[],
     requestId: string,
     options: IOcrSearchablePdfOptions = {},
 ): Promise<IOcrQueueStartResult> {
     log.debug(`handleOcrCreateSearchablePdfAsync called: sourcePdfPath=${sourcePdfPath}, pages=${pages.length}, reqId=${requestId}, dpi=${options.renderDpi}, profile=${options.qualityProfile ?? 'balanced'}, preprocessing=${options.preprocessingMode ?? 'off'}`);
-    const scopedJobId = toScopedOcrJobId(event.sender.id, requestId);
+    const scopedJobId = toScopedOcrJobId(context.senderId, requestId);
     let isPreparingReserved = false;
 
     try {
-        registerSenderCleanup(event);
+        registerSenderCleanup(context);
 
         evictStaleQueuedJobs();
         await pendingResultFileStore.evictStale();
 
-        const initialBlock = findQueueBlockingResult(event, scopedJobId, requestId, { includePreparing: true });
+        const initialBlock = findQueueBlockingResult(context, scopedJobId, requestId, { includePreparing: true });
         if (initialBlock) {
             return initialBlock;
         }
@@ -1061,10 +1061,10 @@ export async function handleOcrCreateSearchablePdfAsync(
 
         // Reserve the scoped id before long async prep to avoid duplicate in-flight
         // requests racing into the queue with the same requestId.
-        const preparingJob = createPreparingJob(event, scopedJobId, requestId);
+        const preparingJob = createPreparingJob(context, scopedJobId, requestId);
         preparingJobs.set(scopedJobId, preparingJob);
         isPreparingReserved = true;
-        sendOcrProgressStage(event.sender.id, requestId, pages, 'model-prep');
+        sendOcrProgressStage(context.senderId, requestId, pages, 'model-prep');
 
         const requestBytes = await estimateRequestBytes(sourcePdfPath, pages);
         preparingJob.requestedBytes = requestBytes;
@@ -1074,7 +1074,7 @@ export async function handleOcrCreateSearchablePdfAsync(
         }
 
         const modelPrepResult = await prepareLanguageModelsForQueueJob(
-            event,
+            context,
             preparingJob,
             scopedJobId,
             requestId,
@@ -1088,7 +1088,7 @@ export async function handleOcrCreateSearchablePdfAsync(
         if (canceledBeforeRecheck) {
             return canceledBeforeRecheck;
         }
-        const recheckBlock = findQueueBlockingResult(event, scopedJobId, requestId, { includePreparing: false });
+        const recheckBlock = findQueueBlockingResult(context, scopedJobId, requestId, { includePreparing: false });
         if (recheckBlock) {
             return recheckBlock;
         }
@@ -1102,7 +1102,7 @@ export async function handleOcrCreateSearchablePdfAsync(
         }
 
         enqueuePreparedOcrJob(
-            event,
+            context,
             scopedJobId,
             sourcePdfPath,
             pages,
@@ -1143,14 +1143,14 @@ export async function handleOcrCreateSearchablePdfAsync(
 }
 
 export async function handleOcrAcknowledgeResultFile(
-    event: IpcMainInvokeEvent,
+    context: IOcrJobOperationContext,
     requestIdPayload: unknown,
     pdfPathPayload?: unknown,
 ): Promise<{
     cleaned: boolean;
     error?: string; 
 }> {
-    registerSenderCleanup(event);
+    registerSenderCleanup(context);
     await pendingResultFileStore.evictStale();
 
     const requestId = typeof requestIdPayload === 'string' ? requestIdPayload.trim() : '';
@@ -1162,17 +1162,17 @@ export async function handleOcrAcknowledgeResultFile(
     }
 
     return pendingResultFileStore.acknowledge(
-        event.sender.id,
+        context.senderId,
         requestId,
         typeof pdfPathPayload === 'string' ? pdfPathPayload : undefined,
     );
 }
 
 export function handleOcrCancel(
-    event: IpcMainInvokeEvent,
+    context: IOcrJobOperationContext,
     requestId: string,
 ): IOcrCancelResult {
-    const scopedJobId = toScopedOcrJobId(event.sender.id, requestId);
+    const scopedJobId = toScopedOcrJobId(context.senderId, requestId);
     log.info(`[${requestId}] Cancel requested`);
 
     if (preparingJobs.has(scopedJobId)) {

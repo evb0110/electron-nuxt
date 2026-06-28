@@ -2,6 +2,10 @@ import { uniq } from 'es-toolkit/array';
 import type { TPdfSource } from '@app/types/pdf';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
+    IDocumentsFileIoCapability,
+    IDocumentsWorkingCopyCapability,
+} from '@contracts/electronApiDocuments';
+import type {
     IByteHistoryEntry,
     IPathHistoryEntry,
     TPdfHistoryEntry,
@@ -23,6 +27,13 @@ interface IApplyLoadedPdfStateOptions {
     previousPath?: TDocumentRef | null;
 }
 
+type TDocumentHistoryFileDeps = Pick<IDocumentsFileIoCapability, 'writeFile'>;
+
+type TDocumentHistoryWorkingCopyDeps = Pick<
+    IDocumentsWorkingCopyCapability,
+    'cleanupFile' | 'createWorkingCopyFromData' | 'createWorkingCopyFromPath'
+>;
+
 interface ICreateDocumentHistoryDeps {
     applyLoadedPdfState: (
         path: TDocumentRef,
@@ -32,19 +43,8 @@ interface ICreateDocumentHistoryDeps {
     clearPdfConformanceProfile: () => void;
     clearOcrCache: (path: TDocumentRef) => void;
     deferPdfConformanceProfile: (path: TDocumentRef) => void;
-    documents: () => {
-        cleanupFile: (path: TDocumentRef) => Promise<void>;
-        createWorkingCopyFromData: (
-            fileName: string,
-            data: Uint8Array,
-            originalPath?: TDocumentRef,
-        ) => Promise<TDocumentRef>;
-        createWorkingCopyFromPath: (
-            path: TDocumentRef,
-            originalPath?: TDocumentRef,
-        ) => Promise<TDocumentRef>;
-        writeFile: (path: TDocumentRef, data: Uint8Array) => Promise<unknown>;
-    };
+    documentFiles: () => TDocumentHistoryFileDeps;
+    documentWorkingCopy: () => TDocumentHistoryWorkingCopyDeps;
     getOpenEpoch: () => number;
     isCurrentOpenEpoch: (token: number) => boolean;
     readPdfStateFromPath: (path: TDocumentRef) => Promise<IPdfLoadedState>;
@@ -83,7 +83,7 @@ export function createDocumentHistory(
         }
 
         for (const snapshotPath of snapshotPaths) {
-            deps.documents().cleanupFile(snapshotPath).catch((cleanupError: unknown) => {
+            deps.documentWorkingCopy().cleanupFile(snapshotPath).catch((cleanupError: unknown) => {
                 BrowserLogger.warn(
                     'pdf-file',
                     'Failed to cleanup history snapshot',
@@ -139,7 +139,7 @@ export function createDocumentHistory(
 
         deps.clearOcrCache(path);
         try {
-            await deps.documents().cleanupFile(path);
+            await deps.documentWorkingCopy().cleanupFile(path);
         } catch (cleanupError) {
             BrowserLogger.warn(
                 'pdf-file',
@@ -156,7 +156,7 @@ export function createDocumentHistory(
         path: TDocumentRef,
         size: number,
     ): Promise<IPathHistoryEntry> {
-        const snapshotPath = await deps.documents().createWorkingCopyFromPath(
+        const snapshotPath = await deps.documentWorkingCopy().createWorkingCopyFromPath(
             path,
             state.originalPath.value ?? undefined,
         );
@@ -172,7 +172,7 @@ export function createDocumentHistory(
         return (
             state.isElectron.value
             && snapshot.byteLength > MAX_IN_MEMORY_HISTORY_SNAPSHOT_BYTES
-            && typeof deps.documents().createWorkingCopyFromData === 'function'
+            && typeof deps.documentWorkingCopy().createWorkingCopyFromData === 'function'
         );
     }
 
@@ -184,13 +184,13 @@ export function createDocumentHistory(
         snapshot: Uint8Array,
         expectedWorkingPath: TDocumentRef,
     ): Promise<IPathHistoryEntry | null> {
-        const snapshotPath = await deps.documents().createWorkingCopyFromData(
+        const snapshotPath = await deps.documentWorkingCopy().createWorkingCopyFromData(
             getHistorySnapshotFileName(),
             snapshot,
             state.originalPath.value ?? undefined,
         );
         if (!state.isActiveWorkingCopy(expectedWorkingPath)) {
-            void deps.documents().cleanupFile(snapshotPath);
+            void deps.documentWorkingCopy().cleanupFile(snapshotPath);
             return null;
         }
         return {
@@ -311,7 +311,7 @@ export function createDocumentHistory(
 
         const entry = await createPathHistoryEntry(path, nextState.pdfSrc.size);
         if (!state.isActiveWorkingCopy(path)) {
-            void deps.documents().cleanupFile(entry.path);
+            void deps.documentWorkingCopy().cleanupFile(entry.path);
             return false;
         }
         replaceHistory([entry], 0, 0);
@@ -338,7 +338,7 @@ export function createDocumentHistory(
         } else {
             const snapshotEntry = await createPathHistoryEntry(path, nextState.pdfSrc.size);
             if (!state.isActiveWorkingCopy(path)) {
-                void deps.documents().cleanupFile(snapshotEntry.path);
+                void deps.documentWorkingCopy().cleanupFile(snapshotEntry.path);
                 return false;
             }
             state.pdfData.value = nextState.pdfData;
@@ -403,7 +403,7 @@ export function createDocumentHistory(
             }
             const workingPath = state.workingCopyPath.value;
             if (workingPath) {
-                await deps.documents().writeFile(workingPath, entry.snapshot);
+                await deps.documentFiles().writeFile(workingPath, entry.snapshot);
             }
             if (!canApplyRestore()) {
                 return false;
@@ -423,18 +423,18 @@ export function createDocumentHistory(
             return false;
         }
 
-        const nextWorkingPath = await deps.documents().createWorkingCopyFromPath(
+        const nextWorkingPath = await deps.documentWorkingCopy().createWorkingCopyFromPath(
             entry.path,
             state.originalPath.value ?? entry.originalPath ?? undefined,
         );
         if (!canApplyRestore()) {
-            void deps.documents().cleanupFile(nextWorkingPath);
+            void deps.documentWorkingCopy().cleanupFile(nextWorkingPath);
             return false;
         }
         const previousPath = state.workingCopyPath.value;
         const nextState = await deps.readPdfStateFromPath(nextWorkingPath);
         if (!canApplyRestore()) {
-            void deps.documents().cleanupFile(nextWorkingPath);
+            void deps.documentWorkingCopy().cleanupFile(nextWorkingPath);
             return false;
         }
         await deps.applyLoadedPdfState(nextWorkingPath, nextState, {

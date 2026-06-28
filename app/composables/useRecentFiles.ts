@@ -11,7 +11,10 @@ import {
 } from '@app/utils/recentFilesPersistence';
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
-import { getDocumentsCapability as getPlatformDocumentsCapability } from '@app/utils/platformDocuments';
+import {
+    getDocumentOpenCapability as getPlatformDocumentOpenCapability,
+    getDocumentRecentFilesCapability as getPlatformDocumentRecentFilesCapability,
+} from '@app/utils/platformDocuments';
 
 const ELECTRON_BRIDGE_RETRY_DELAY_MS = 25;
 const ELECTRON_BRIDGE_RETRY_ATTEMPTS = 20;
@@ -39,7 +42,7 @@ export const useRecentFiles = () => {
         !shouldPreferElectronRuntime.value && hasResolvedCookieSnapshot
     ));
 
-    async function getDocumentsCapability() {
+    async function waitForDocumentsCapabilityBridge() {
         if (shouldPreferElectronRuntime.value) {
             const bridgeReady = await waitForDesktopPlatformBridge({
                 shouldWait: shouldPreferElectronRuntime.value,
@@ -51,8 +54,18 @@ export const useRecentFiles = () => {
                 throw new Error('Electron API unavailable');
             }
         }
+    }
 
-        return getPlatformDocumentsCapability();
+    async function getDocumentOpenCapability() {
+        await waitForDocumentsCapabilityBridge();
+
+        return getPlatformDocumentOpenCapability();
+    }
+
+    async function getDocumentRecentFilesCapability() {
+        await waitForDocumentsCapabilityBridge();
+
+        return getPlatformDocumentRecentFilesCapability();
     }
 
     const {
@@ -67,7 +80,7 @@ export const useRecentFiles = () => {
         initialValue: () => initialCookieSnapshot.recentFiles,
         initialResolved: !isDesktopRuntime.value && hasResolvedCookieSnapshot,
         async loadValue() {
-            return (await getDocumentsCapability()).recentFiles.get();
+            return (await getDocumentRecentFilesCapability()).recentFiles.get();
         },
         getErrorMessage(loadError) {
             return loadError instanceof Error ? loadError.message : t('errors.recent.load');
@@ -91,7 +104,7 @@ export const useRecentFiles = () => {
         }
 
         try {
-            await (await getDocumentsCapability()).recentFiles.get();
+            await (await getDocumentRecentFilesCapability()).recentFiles.get();
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.recent.load');
         }
@@ -100,7 +113,7 @@ export const useRecentFiles = () => {
     async function openRecentFile(file: IRecentFile) {
         error.value = null;
         try {
-            await (await getDocumentsCapability()).openDocumentDirect(file.originalPath);
+            await (await getDocumentOpenCapability()).openDocumentDirect(file.originalPath);
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.file.open');
         }
@@ -109,7 +122,7 @@ export const useRecentFiles = () => {
     async function removeRecentFile(file: IRecentFile) {
         error.value = null;
         try {
-            await (await getDocumentsCapability()).recentFiles.remove(file.originalPath);
+            await (await getDocumentRecentFilesCapability()).recentFiles.remove(file.originalPath);
             await loadRecentFiles();
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.recent.remove');
@@ -119,7 +132,7 @@ export const useRecentFiles = () => {
     async function clearRecentFiles() {
         error.value = null;
         try {
-            await (await getDocumentsCapability()).recentFiles.clear();
+            await (await getDocumentRecentFilesCapability()).recentFiles.clear();
             recentFiles.value = [];
             isResolved.value = true;
             clearRetryTimer();

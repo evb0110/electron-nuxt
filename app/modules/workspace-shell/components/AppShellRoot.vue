@@ -222,10 +222,9 @@ import type { TStartSection } from '@app/types/startSection';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IHostZenModeState } from '@contracts/electronApiHost';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import {
-    getPlatformAPI,
-    waitForDesktopPlatformBridge,
-} from '@app/utils/platform';
+import { getHostCapability } from '@app/utils/getHostCapability';
+import { waitForDesktopPlatformBridge } from '@app/utils/platform';
+import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 
 traceRendererStartup('index.vue script setup start');
 
@@ -579,7 +578,7 @@ function setZenMode(active: boolean) {
     zenModeRequestInFlight = true;
 
     guardAsync(
-        getPlatformAPI().host.setZenMode(active)
+        getHostCapability().setZenMode(active)
             .then(applyZenModeState)
             .catch((error: unknown) => {
                 isFullscreen.value = previousActive;
@@ -616,11 +615,11 @@ onMounted(() => {
             if (isShellRootDisposed) {
                 return;
             }
-            await getPlatformAPI().host.getZenModeState().then(applyZenModeState);
+            await getHostCapability().getZenModeState().then(applyZenModeState);
             if (isShellRootDisposed) {
                 return;
             }
-            const unsubscribe = getPlatformAPI().host.onZenModeChange(applyZenModeState);
+            const unsubscribe = getHostCapability().onZenModeChange(applyZenModeState);
             if (isShellRootDisposed) {
                 unsubscribe();
                 return;
@@ -1012,7 +1011,7 @@ watch(windowTitle, (nextTitle) => {
         if (generation !== windowTitleSyncGeneration || nextTitle !== windowTitle.value) {
             return;
         }
-        await getPlatformAPI().documents.setWindowTitle(nextTitle);
+        await getDocumentWindowCapability().setWindowTitle(nextTitle);
     })(), {
         scope: 'window-title',
         message: 'Failed to sync window title',

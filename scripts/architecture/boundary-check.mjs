@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { buildDependencyGraph } from './dep-graph.mjs';
 import {
     checkAnnotationDependencyEdge,
@@ -135,17 +136,50 @@ const PUBLIC_ONLY_INTERNAL_ENTRYPOINTS = [ {
     message: 'Browser platform API consumers must import through app/platform/browser-api/public.',
 } ];
 
-const PLATFORM_API_ALLOWED_CONSUMERS = new Set(`
-app/modules/workspace-shell/menu/registerTabsMenuBindings.ts
-app/platform/browserPlatformPathDescriptors.ts
+const PLATFORM_API_AGGREGATE_COMPOSITION_FILES = new Set(`
 app/platform/browserPlatformApi.ts
 app/platform/lazyBrowserPlatformApi.ts
-app/types/electron.d.ts
-app/utils/getViewerHostApi.ts
 app/utils/platform.ts
+`.trim().split('\n'));
+
+const PLATFORM_API_AGGREGATE_TYPE_BOUNDARY_FILES = new Set(`
+app/platform/browserPlatformPathDescriptors.ts
+app/types/electron.d.ts
 packages/contracts/electronApi.ts
 packages/contracts/index.ts
 `.trim().split('\n'));
+
+const PLATFORM_API_AGGREGATE_IMPORT_BOUNDARY_FILES = new Set([
+    ...PLATFORM_API_AGGREGATE_COMPOSITION_FILES,
+    ...PLATFORM_API_AGGREGATE_TYPE_BOUNDARY_FILES,
+]);
+
+const PLATFORM_API_RUNTIME_GETTER_ALLOWED_FILES = new Set(`
+app/utils/platformDocuments.ts
+app/utils/getShellCapability.ts
+app/utils/getSettingsCapability.ts
+app/utils/getDjvuCapability.ts
+app/utils/getOcrCapability.ts
+app/utils/getSearchCapability.ts
+app/utils/platformUpdates.ts
+app/utils/platformWindowTabs.ts
+app/utils/getAgentCapability.ts
+app/utils/getHostCapability.ts
+app/utils/getSystemCapability.ts
+`.trim().split('\n'));
+
+const PLATFORM_API_RUNTIME_HELPER_MODULE_PATH = 'app/utils/platform';
+const APP_PRODUCTION_SOURCE_EXTENSIONS = [
+    '.ts',
+    '.tsx',
+    '.mts',
+    '.cts',
+    '.js',
+    '.jsx',
+    '.mjs',
+    '.cjs',
+    '.vue',
+];
 
 const ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES = new Set(['app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges.ts']);
 
@@ -184,6 +218,56 @@ const ELECTRON_LEGACY_FEATURE_REEXPORT_SHIMS = new Map([
         },
     ],
 ]);
+
+const NATIVE_TOOL_COMPATIBILITY_AGGREGATE_FILE = 'electron/native-tools/getNativeToolPaths.ts';
+const NATIVE_TOOL_DOMAIN_ROOTS = [
+    'electron/ocr',
+    'electron/pdf',
+    'electron/djvu',
+];
+const NATIVE_TOOL_COMPATIBILITY_AGGREGATE_TEST_FILES = new Set(['tests/unit/electron/nativeToolPathResolution.test.ts']);
+const OCR_NATIVE_TOOL_BOUNDARY_TARGETS = new Set(`
+electron/ocr/paths.ts
+electron/ocr/nativeToolPaths.ts
+electron/ocr/resolveOcrResourcesBase.ts
+electron/ocr/worker/dpiDetection.ts
+`.trim().split('\n'));
+
+const CONTRACT_COMPATIBILITY_POLICY_IMPORTS = new Map([
+    [
+        '@contracts/search',
+        new Set([
+            'assertSafePdfSearchRegex',
+            'buildPdfSearchExcerpt',
+            'buildPdfSearchRegex',
+            'collapseRepeatedPdfSearchPageText',
+            'escapeSearchRegex',
+            'findPdfSearchMatches',
+            'iteratePdfSearchMatches',
+            'normalizePdfSearchRequestPayload',
+            'validateSearchQuery',
+        ]),
+    ],
+    [
+        '@contracts/nativePdfMutations',
+        new Set([
+            'normalizePdfNativeModifiedAt',
+            'normalizePdfNativeMutationSet',
+            'normalizePdfNativeNoteChanges',
+            'normalizePdfNativeNoteTextUpdates',
+            'normalizePdfNativeWorkingCopyExpectation',
+        ]),
+    ],
+]);
+
+const CONTRACT_COMPATIBILITY_POLICY_AGGREGATE_IMPORTS = new Set(
+    Array.from(CONTRACT_COMPATIBILITY_POLICY_IMPORTS.values(), names => Array.from(names)).flat(),
+);
+
+const CONTRACT_COMPATIBILITY_POLICY_ALLOWED_ROOTS = [
+    'tests',
+    'packages/contracts',
+];
 
 const FEATURE_BOUNDARY_RULES = [
     {
@@ -339,7 +423,7 @@ function checkPlatformApiAggregateImport(edge) {
     if (edge.target !== 'packages/contracts/platformApi.ts') {
         return null;
     }
-    if (PLATFORM_API_ALLOWED_CONSUMERS.has(edge.source)) {
+    if (PLATFORM_API_AGGREGATE_IMPORT_BOUNDARY_FILES.has(edge.source)) {
         return null;
     }
 
@@ -367,6 +451,78 @@ function checkPdfViewerEngineLayer(edge) {
         target: edge.target,
         specifier: edge.specifier,
         message: 'PDF viewer engine code must not import runtime, component, tool, or public module layers; move pure contracts/helpers into engine.',
+    });
+}
+
+function isCompatibilityTestSource(filePath) {
+    return NATIVE_TOOL_COMPATIBILITY_AGGREGATE_TEST_FILES.has(filePath);
+}
+
+function isTestSource(filePath) {
+    return matchesRoot(filePath, 'tests');
+}
+
+function isOcrNativeToolBoundaryOwner(filePath) {
+    return matchesRoot(filePath, 'electron/ocr')
+        || matchesRoot(filePath, 'electron/features/ocr');
+}
+
+function checkNativeToolsDomainImport(edge) {
+    if (!matchesRoot(edge.source, 'electron/native-tools')) {
+        return null;
+    }
+    if (!NATIVE_TOOL_DOMAIN_ROOTS.some(root => matchesRoot(edge.target, root))) {
+        return null;
+    }
+
+    return createViolation({
+        rule: 'native-tools-domain-import',
+        source: edge.source,
+        target: edge.target,
+        specifier: edge.specifier,
+        message: 'Generic native-tool code must not import OCR, PDF, or DjVu domain modules.',
+    });
+}
+
+function checkNativeToolCompatibilityAggregateImport(edge) {
+    if (edge.target !== NATIVE_TOOL_COMPATIBILITY_AGGREGATE_FILE) {
+        return null;
+    }
+    if (
+        edge.source === NATIVE_TOOL_COMPATIBILITY_AGGREGATE_FILE
+        || isCompatibilityTestSource(edge.source)
+        || !matchesRoot(edge.source, 'electron')
+    ) {
+        return null;
+    }
+
+    return createViolation({
+        rule: 'native-tool-compat-aggregate-import',
+        source: edge.source,
+        target: edge.target,
+        specifier: edge.specifier,
+        message: 'Electron runtime code must import domain-owned native-tool path boundaries instead of the broad compatibility aggregate.',
+    });
+}
+
+function checkOcrNativeToolBoundaryImport(edge) {
+    if (!OCR_NATIVE_TOOL_BOUNDARY_TARGETS.has(edge.target)) {
+        return null;
+    }
+    if (
+        isOcrNativeToolBoundaryOwner(edge.source)
+        || isTestSource(edge.source)
+        || matchesRoot(edge.source, 'electron/native-tools')
+    ) {
+        return null;
+    }
+
+    return createViolation({
+        rule: 'ocr-native-tool-boundary-import',
+        source: edge.source,
+        target: edge.target,
+        specifier: edge.specifier,
+        message: 'Non-OCR Electron code must not import OCR-owned native-tool, resource, or DPI helpers.',
     });
 }
 
@@ -422,6 +578,345 @@ function checkAnnotationStoragePrivateAccess(filePath, sourceText = '') {
         specifier: 'source',
         message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
     })];
+}
+
+function hasAppProductionSourceExtension(filePath) {
+    return APP_PRODUCTION_SOURCE_EXTENSIONS.some(extension => filePath.endsWith(extension));
+}
+
+function isAppProductionSource(filePath) {
+    return matchesRoot(filePath, 'app')
+        && hasAppProductionSourceExtension(filePath)
+        && !filePath.endsWith('.d.ts')
+        && !filePath.endsWith('.d.mts')
+        && !filePath.endsWith('.d.cts')
+        && !filePath.includes('/__tests__/')
+        && !/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(filePath);
+}
+
+function isProductionAppOrElectronSource(filePath) {
+    return (
+        matchesRoot(filePath, 'app')
+        || matchesRoot(filePath, 'electron')
+    )
+        && hasAppProductionSourceExtension(filePath)
+        && !filePath.endsWith('.d.ts')
+        && !filePath.endsWith('.d.mts')
+        && !filePath.endsWith('.d.cts')
+        && !filePath.includes('/__tests__/')
+        && !/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(filePath);
+}
+
+function isContractCompatibilityPolicyAllowedSource(filePath) {
+    return CONTRACT_COMPATIBILITY_POLICY_ALLOWED_ROOTS.some(root => matchesRoot(filePath, root));
+}
+
+function stripSourceExtension(filePath) {
+    return filePath.replace(/\.[cm]?[jt]sx?$/u, '');
+}
+
+function resolveSourceImportPath(sourceFile, specifier) {
+    if (specifier.startsWith('@app/')) {
+        return `app/${specifier.slice('@app/'.length)}`;
+    }
+    if (specifier.startsWith('~/') && matchesRoot(sourceFile, 'app')) {
+        return `app/${specifier.slice(2)}`;
+    }
+    if (specifier.startsWith('~~/')) {
+        return specifier.slice(3);
+    }
+    if (specifier.startsWith('app/')) {
+        return specifier;
+    }
+    if (specifier.startsWith('./') || specifier.startsWith('../')) {
+        return path.posix.normalize(path.posix.join(path.posix.dirname(sourceFile), specifier));
+    }
+    return null;
+}
+
+function resolvesToPlatformRuntimeHelper(sourceFile, specifier) {
+    const resolvedPath = resolveSourceImportPath(sourceFile, specifier);
+    return resolvedPath !== null && stripSourceExtension(resolvedPath) === PLATFORM_API_RUNTIME_HELPER_MODULE_PATH;
+}
+
+function getScriptKind(filePath, attributes = '') {
+    if (attributes.includes('lang="jsx"') || attributes.includes('lang=\'jsx\'') || filePath.endsWith('.jsx')) {
+        return ts.ScriptKind.JSX;
+    }
+    if (
+        attributes.includes('lang="tsx"')
+        || attributes.includes('lang=\'tsx\'')
+        || filePath.endsWith('.tsx')
+    ) {
+        return ts.ScriptKind.TSX;
+    }
+    if (filePath.endsWith('.js') || filePath.endsWith('.mjs') || filePath.endsWith('.cjs')) {
+        return ts.ScriptKind.JS;
+    }
+    return ts.ScriptKind.TS;
+}
+
+function collectParsableSourceTexts(filePath, sourceText) {
+    if (!filePath.endsWith('.vue')) {
+        return [{
+            sourceText,
+            scriptKind: getScriptKind(filePath),
+        }];
+    }
+
+    const scriptBlocks = [];
+    const scriptPattern = /<script\b([^>]*)>([\s\S]*?)<\/script>/giu;
+    for (const match of sourceText.matchAll(scriptPattern)) {
+        scriptBlocks.push({
+            sourceText: match[2] ?? '',
+            scriptKind: getScriptKind(filePath, match[1] ?? ''),
+        });
+    }
+    return scriptBlocks;
+}
+
+function collectPlatformRuntimeGetterImports(filePath, sourceFile) {
+    const directBindings = new Set();
+    const namespaceBindings = new Set();
+
+    sourceFile.forEachChild(node => {
+        if (!ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier)) {
+            return;
+        }
+        if (!resolvesToPlatformRuntimeHelper(filePath, node.moduleSpecifier.text)) {
+            return;
+        }
+
+        const importClause = node.importClause;
+        if (!importClause || importClause.isTypeOnly) {
+            return;
+        }
+
+        const namedBindings = importClause.namedBindings;
+        if (!namedBindings) {
+            return;
+        }
+
+        if (ts.isNamespaceImport(namedBindings)) {
+            namespaceBindings.add(namedBindings.name.text);
+            return;
+        }
+
+        for (const element of namedBindings.elements) {
+            if (element.isTypeOnly) {
+                continue;
+            }
+            const importedName = element.propertyName?.text ?? element.name.text;
+            if (importedName === 'getPlatformAPI') {
+                directBindings.add(element.name.text);
+            }
+        }
+    });
+
+    return {
+        directBindings,
+        namespaceBindings,
+    };
+}
+
+function isImportedPlatformRuntimeGetterCall(expression, directBindings, namespaceBindings) {
+    if (ts.isIdentifier(expression)) {
+        return directBindings.has(expression.text);
+    }
+    if (
+        ts.isPropertyAccessExpression(expression)
+        && expression.name.text === 'getPlatformAPI'
+        && ts.isIdentifier(expression.expression)
+    ) {
+        return namespaceBindings.has(expression.expression.text);
+    }
+    return false;
+}
+
+function hasPlatformRuntimeGetterCall(sourceFile, directBindings, namespaceBindings) {
+    let hasCall = false;
+
+    function visit(node) {
+        if (hasCall) {
+            return;
+        }
+        if (
+            ts.isCallExpression(node)
+            && isImportedPlatformRuntimeGetterCall(node.expression, directBindings, namespaceBindings)
+        ) {
+            hasCall = true;
+            return;
+        }
+        ts.forEachChild(node, visit);
+    }
+
+    visit(sourceFile);
+    return hasCall;
+}
+
+function checkPlatformApiRuntimeGetterCall(filePath, sourceText = '') {
+    if (
+        !isAppProductionSource(filePath)
+        || PLATFORM_API_RUNTIME_GETTER_ALLOWED_FILES.has(filePath)
+    ) {
+        return [];
+    }
+
+    const sourceBlocks = collectParsableSourceTexts(filePath, sourceText);
+    for (const [
+        index,
+        sourceBlock,
+    ] of sourceBlocks.entries()) {
+        const sourceFile = ts.createSourceFile(
+            `${filePath}#${index}`,
+            sourceBlock.sourceText,
+            ts.ScriptTarget.Latest,
+            true,
+            sourceBlock.scriptKind,
+        );
+        const {
+            directBindings,
+            namespaceBindings,
+        } = collectPlatformRuntimeGetterImports(filePath, sourceFile);
+
+        if (directBindings.size === 0 && namespaceBindings.size === 0) {
+            continue;
+        }
+        if (!hasPlatformRuntimeGetterCall(sourceFile, directBindings, namespaceBindings)) {
+            continue;
+        }
+
+        return [createViolation({
+            rule: 'platform-api-runtime-getter',
+            source: filePath,
+            target: 'app/utils/platform.ts',
+            specifier: '@app/utils/platform#getPlatformAPI',
+            message: 'App code must use a narrow platform capability getter instead of calling getPlatformAPI() directly.',
+        })];
+    }
+
+    return [];
+}
+
+function getContractCompatibilityPolicyNamesForSpecifier(specifier) {
+    if (specifier === '@contracts' || specifier === '@contracts/index') {
+        return CONTRACT_COMPATIBILITY_POLICY_AGGREGATE_IMPORTS;
+    }
+    return CONTRACT_COMPATIBILITY_POLICY_IMPORTS.get(specifier) ?? null;
+}
+
+function collectContractCompatibilityPolicyImportViolations(filePath, sourceFile) {
+    const violations = [];
+
+    sourceFile.forEachChild(node => {
+        if (
+            !(
+                ts.isImportDeclaration(node)
+                || ts.isExportDeclaration(node)
+            )
+            || !node.moduleSpecifier
+            || !ts.isStringLiteral(node.moduleSpecifier)
+        ) {
+            return;
+        }
+
+        const bannedNames = getContractCompatibilityPolicyNamesForSpecifier(node.moduleSpecifier.text);
+        if (!bannedNames) {
+            return;
+        }
+
+        if (ts.isExportDeclaration(node)) {
+            if (!node.exportClause || !ts.isNamedExports(node.exportClause)) {
+                violations.push(createViolation({
+                    rule: 'contract-compat-policy-import',
+                    source: filePath,
+                    target: node.moduleSpecifier.text,
+                    specifier: '*',
+                    message: 'Production app/electron code must import moved search and native PDF policy from @pdf-core or the owning Electron feature, not contract compatibility modules.',
+                }));
+                return;
+            }
+
+            for (const element of node.exportClause.elements) {
+                const exportedName = element.propertyName?.text ?? element.name.text;
+                if (!bannedNames.has(exportedName)) {
+                    continue;
+                }
+                violations.push(createViolation({
+                    rule: 'contract-compat-policy-import',
+                    source: filePath,
+                    target: node.moduleSpecifier.text,
+                    specifier: exportedName,
+                    message: 'Production app/electron code must import moved search and native PDF policy from @pdf-core or the owning Electron feature, not contract compatibility modules.',
+                }));
+            }
+            return;
+        }
+
+        const importClause = node.importClause;
+        if (!importClause || importClause.isTypeOnly) {
+            return;
+        }
+
+        const namedBindings = importClause.namedBindings;
+        if (!namedBindings) {
+            return;
+        }
+
+        if (ts.isNamespaceImport(namedBindings)) {
+            violations.push(createViolation({
+                rule: 'contract-compat-policy-import',
+                source: filePath,
+                target: node.moduleSpecifier.text,
+                specifier: '*',
+                message: 'Production app/electron code must import moved search and native PDF policy from @pdf-core or the owning Electron feature, not contract compatibility modules.',
+            }));
+            return;
+        }
+
+        if (!ts.isNamedImports(namedBindings)) {
+            return;
+        }
+
+        for (const element of namedBindings.elements) {
+            if (element.isTypeOnly) {
+                continue;
+            }
+            const importedName = element.propertyName?.text ?? element.name.text;
+            if (!bannedNames.has(importedName)) {
+                continue;
+            }
+            violations.push(createViolation({
+                rule: 'contract-compat-policy-import',
+                source: filePath,
+                target: node.moduleSpecifier.text,
+                specifier: importedName,
+                message: 'Production app/electron code must import moved search and native PDF policy from @pdf-core or the owning Electron feature, not contract compatibility modules.',
+            }));
+        }
+    });
+
+    return violations;
+}
+
+function checkContractCompatibilityPolicyImports(filePath, sourceText = '') {
+    if (
+        !isProductionAppOrElectronSource(filePath)
+        || isContractCompatibilityPolicyAllowedSource(filePath)
+    ) {
+        return [];
+    }
+
+    return collectParsableSourceTexts(filePath, sourceText).flatMap((sourceBlock, index) => {
+        const sourceFile = ts.createSourceFile(
+            `${filePath}#${index}`,
+            sourceBlock.sourceText,
+            ts.ScriptTarget.Latest,
+            true,
+            sourceBlock.scriptKind,
+        );
+        return collectContractCompatibilityPolicyImportViolations(filePath, sourceFile);
+    });
 }
 
 function checkElectronLegacyFeatureReexportShim(filePath, sourceText = '') {
@@ -536,6 +1031,9 @@ function checkEdge(edge) {
         ...collectViolationsFromRules(edge, PUBLIC_ONLY_INTERNAL_ENTRYPOINTS, checkPublicOnlyInternalEntrypoint),
         checkAppPagesModulePublicEntrypoint(edge),
         checkPlatformApiAggregateImport(edge),
+        checkNativeToolsDomainImport(edge),
+        checkNativeToolCompatibilityAggregateImport(edge),
+        checkOcrNativeToolBoundaryImport(edge),
         checkElectronFeatureMainPrivacy(edge),
         checkPdfViewerEngineLayer(edge),
         ...checkAnnotationDependencyEdge(edge),
@@ -554,6 +1052,8 @@ function checkNode(filePath) {
 function checkSource(filePath, sourceText) {
     return [
         ...checkAnnotationStoragePrivateAccess(filePath, sourceText),
+        ...checkPlatformApiRuntimeGetterCall(filePath, sourceText),
+        ...checkContractCompatibilityPolicyImports(filePath, sourceText),
         ...checkElectronLegacyFeatureReexportShim(filePath, sourceText),
     ];
 }

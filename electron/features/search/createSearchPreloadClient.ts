@@ -12,7 +12,7 @@ import {
     normalizeOptionalSearchRequestId,
     normalizePdfSearchRequestPayload,
     normalizePdfSearchWarmIndexPayload,
-} from '@contracts/search';
+} from '@electron/features/search/searchRequestPayload';
 import { toPageNumber } from '@contracts/pageNumbers';
 import { isRecord } from '@contracts/runtimeGuards';
 import {

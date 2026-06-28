@@ -108,7 +108,7 @@ import {
     getPdfPageDropdownIndicatorParts,
     getPdfPageDropdownInputLabel,
     resolvePdfPageDropdownDisplayPage,
-} from '@app/modules/pdf-viewer/components/pdfPageDropdownModel';
+} from '@app/modules/pdf-viewer/engine/pdfPageDropdownModel';
 
 const { t } = useTypedI18n();
 

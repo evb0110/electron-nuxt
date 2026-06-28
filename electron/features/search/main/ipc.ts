@@ -1,32 +1,26 @@
-import type { IpcMainInvokeEvent } from 'electron';
-import {
-    app,
-    ipcMain,
-} from 'electron';
+import { app } from 'electron';
 import {
     dirname,
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
-import { SEARCH_CHANNELS } from '@electron/features/search/contract';
 import type { ISearchResponse } from '@electron/features/search/protocol';
 import {
     type INormalizedPdfSearchRequest,
     type INormalizedPdfSearchWarmIndexRequest,
     normalizePdfSearchRequestPayload,
     normalizePdfSearchWarmIndexPayload,
-} from '@contracts/search';
+} from '@electron/features/search/searchRequestPayload';
 import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/workingCopyStore';
-import { createLogger } from '@electron/utils/createLogger';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
-import {
-    getSearchWorkerServiceConfig,
-    SearchWorkerService,
-} from '@electron/features/search/main/searchWorkerService';
+import { SearchWorkerService } from '@electron/features/search/main/searchWorkerService';
 import { SEARCH_PAGE_COUNT_MAX } from '@electron/features/search/main/searchRequestValidation';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
-import type { TSearchIpcMainRegistrar } from '@electron/features/search/searchService';
+import type {
+    ISearchOperationContext,
+    ISearchSenderContext,
+} from '@electron/features/search/searchService';
 import {
     buildSearchErrorEnvelope,
     SearchIpcError,
@@ -35,8 +29,6 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const log = createLogger('search-ipc');
-let appCleanupRegistered = false;
 
 function isWorkingCopyPathCandidate(pdfPath: string) {
     return /(?:^|[/\\])pdf-work-[^/\\]+[/\\]/u.test(pdfPath);
@@ -90,12 +82,20 @@ export async function resolveSearchablePdfPath(pdfPath: string, senderWebContent
     return null;
 }
 
-const searchWorkerService = new SearchWorkerService(resolveSearchWorkerPath);
+export const searchWorkerService = new SearchWorkerService(resolveSearchWorkerPath);
 
-async function handlePdfSearch(
-    event: IpcMainInvokeEvent,
+function normalizeSearchOperationContext(context: ISearchSenderContext): ISearchOperationContext {
+    return {
+        sender: context.sender,
+        senderId: context.senderId ?? context.sender.id,
+    };
+}
+
+export async function handlePdfSearch(
+    context: ISearchSenderContext,
     request: unknown,
 ): Promise<ISearchResponse> {
+    const operationContext = normalizeSearchOperationContext(context);
     const parsedRequest = parseSearchRequestPayload(request);
     const {
         pdfPath,
@@ -118,7 +118,7 @@ async function handlePdfSearch(
         throw new SearchIpcError(buildSearchErrorEnvelope('SEARCH_INVALID_PAYLOAD', 'Invalid PDF path'));
     }
 
-    const resolvedPdfPath = await resolveSearchablePdfPath(normalizedPdfPath, event.sender?.id);
+    const resolvedPdfPath = await resolveSearchablePdfPath(normalizedPdfPath, operationContext.senderId);
     if (!resolvedPdfPath) {
         throw new SearchIpcError(buildSearchErrorEnvelope(
             'SEARCH_PATH_DENIED',
@@ -147,20 +147,21 @@ async function handlePdfSearch(
         dispatchPayload.useRegex = useRegex;
     }
 
-    return searchWorkerService.dispatchSearchRequest(event, dispatchPayload);
+    return searchWorkerService.dispatchSearchRequest(operationContext, dispatchPayload);
 }
 
-async function handlePdfSearchWarmIndex(
-    event: IpcMainInvokeEvent,
+export async function handlePdfSearchWarmIndex(
+    context: ISearchSenderContext,
     request: unknown,
 ) {
+    const operationContext = normalizeSearchOperationContext(context);
     const parsedRequest = parseWarmIndexPayload(request);
     const normalizedPdfPath = parsedRequest.pdfPath.trim();
     if (!normalizedPdfPath) {
         throw new SearchIpcError(buildSearchErrorEnvelope('SEARCH_INVALID_PAYLOAD', 'Invalid PDF path'));
     }
 
-    const resolvedPdfPath = await resolveSearchablePdfPath(normalizedPdfPath, event.sender?.id);
+    const resolvedPdfPath = await resolveSearchablePdfPath(normalizedPdfPath, operationContext.senderId);
     if (!resolvedPdfPath) {
         throw new SearchIpcError(buildSearchErrorEnvelope(
             'SEARCH_PATH_DENIED',
@@ -181,28 +182,7 @@ async function handlePdfSearchWarmIndex(
         dispatchPayload.requestId = parsedRequest.requestId;
     }
 
-    await searchWorkerService.dispatchSearchRequest(event, dispatchPayload);
+    await searchWorkerService.dispatchSearchRequest(operationContext, dispatchPayload);
 
     return true;
-}
-
-export function registerSearchHandlers(registrar: TSearchIpcMainRegistrar = ipcMain) {
-    const serviceConfig = getSearchWorkerServiceConfig();
-    log.info(
-        'Registering search IPC handlers '
-        + `(requestTimeoutMs=${serviceConfig.requestTimeoutMs}, idleTtlMs=${serviceConfig.idleTtlMs}, maxActive=${serviceConfig.maxActive})`,
-    );
-    registrar.handle(SEARCH_CHANNELS.search, handlePdfSearch);
-    registrar.handle(SEARCH_CHANNELS.warmIndex, handlePdfSearchWarmIndex);
-    registrar.handle(SEARCH_CHANNELS.cancel, (event, requestId?: unknown) =>
-        searchWorkerService.cancel(event, requestId),
-    );
-    registrar.handle(SEARCH_CHANNELS.resetCache, () => searchWorkerService.resetCache());
-
-    if (!appCleanupRegistered) {
-        appCleanupRegistered = true;
-        app.on('before-quit', () => {
-            searchWorkerService.cleanupAll('App shutting down');
-        });
-    }
 }

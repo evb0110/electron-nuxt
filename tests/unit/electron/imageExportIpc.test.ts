@@ -78,6 +78,14 @@ function createSender(): ITestSender {
     return sender;
 }
 
+function createContext(sender: ITestSender) {
+    return {
+        sender: sender as never,
+        senderId: sender.id,
+        parentWindow: null,
+    };
+}
+
 function triggerRenderProcessGone(sender: ITestSender) {
     const handler = sender.once.mock.calls
         .find(call => call[0] === 'render-process-gone')?.[1] as (() => void) | undefined;
@@ -118,7 +126,7 @@ describe('image export IPC lifecycle', () => {
         const sender = createSender();
 
         await expect(handlePdfExportImages(
-            { sender } as never,
+            createContext(sender),
             '/tmp/working.pdf',
             [7],
         )).resolves.toEqual({
@@ -163,7 +171,7 @@ describe('image export IPC lifecycle', () => {
         mocks.exportPdfPagesAsImages.mockResolvedValueOnce(['/tmp/export.jpg']);
 
         await expect(handlePdfExportImages(
-            { sender } as never,
+            createContext(sender),
             '/tmp/working.pdf',
         )).resolves.toEqual({
             success: true,
@@ -182,7 +190,7 @@ describe('image export IPC lifecycle', () => {
         const sender = createSender();
 
         await expect(handlePdfExportImages(
-            { sender } as never,
+            createContext(sender),
             '/tmp/working.pdf',
             [
                 1,
@@ -198,7 +206,7 @@ describe('image export IPC lifecycle', () => {
         const sender = createSender();
 
         await expect(handlePdfExportImages(
-            { sender } as never,
+            createContext(sender),
             '/tmp/working.pdf',
             [
                 2,
@@ -215,7 +223,7 @@ describe('image export IPC lifecycle', () => {
         mocks.getPdfPageCount.mockResolvedValueOnce(3);
 
         await expect(handlePdfExportImages(
-            { sender } as never,
+            createContext(sender),
             '/tmp/working.pdf',
             [4],
         )).rejects.toThrow('Page number 4 exceeds PDF page count (3)');
@@ -241,7 +249,7 @@ describe('image export IPC lifecycle', () => {
         });
 
         const resultPromise = handlePdfExportImages(
-            { sender } as never,
+            createContext(sender),
             '/tmp/working.pdf',
             [1],
         );
@@ -278,7 +286,7 @@ describe('image export IPC lifecycle', () => {
         });
 
         const resultPromise = handlePdfExportImages(
-            { sender } as never,
+            createContext(sender),
             '/tmp/working.pdf',
             [1],
         );
@@ -312,7 +320,7 @@ describe('image export IPC lifecycle', () => {
         });
 
         await expect(handlePdfExportMultiPageTiff(
-            { sender } as never,
+            createContext(sender),
             '/tmp/working.pdf',
         )).resolves.toEqual({
             success: true,
@@ -338,7 +346,7 @@ describe('image export IPC lifecycle', () => {
         ]);
 
         await expect(handlePdfExportMultiPageTiff(
-            { sender } as never,
+            createContext(sender),
             '/tmp/working.pdf',
         )).resolves.toEqual({
             success: true,
@@ -371,7 +379,7 @@ describe('image export IPC lifecycle', () => {
         });
 
         await expect(handlePdfExportMultiPageTiff(
-            { sender } as never,
+            createContext(sender),
             '/tmp/working.pdf',
             undefined,
             'export-1',
@@ -396,7 +404,7 @@ describe('image export IPC lifecycle', () => {
         const oversizedRequestId = 'x'.repeat(129);
 
         await expect(handlePdfExportMultiPageTiff(
-            { sender } as never,
+            createContext(sender),
             '/tmp/working.pdf',
             undefined,
             oversizedRequestId,

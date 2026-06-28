@@ -24,6 +24,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import { extractPages } from '@electron/features/page-ops/public';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { getAppTempDir } from '@electron/utils/appTempDir';
+import type { IDocumentsWindowContext } from '@electron/features/documents/documentsService';
 
 const logger = createLogger('documents-print');
 // Low-end Windows machines can report the PDF plugin as loaded before it has painted.
@@ -401,13 +402,13 @@ async function openNativePrintDialogForPath(
 }
 
 export async function handlePrintPdfData(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsWindowContext,
     data: Uint8Array,
     fileName?: string,
 ): Promise<IPrintPdfResult> {
     validatePdfBytesForHandoff(data, 'print');
 
-    const ownerWindow = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    const ownerWindow = context.window ?? undefined;
     const tempFileName = `${PRINT_DATA_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(fileName)}`;
     const tempPath = join(getAppTempDir(), tempFileName);
     let shouldRetainTempPdf = false;
@@ -428,7 +429,6 @@ export async function handlePrintPdfData(
 }
 
 export async function handleOpenPdfInDefaultAppData(
-    _event: Electron.IpcMainInvokeEvent,
     data: Uint8Array,
     fileName?: string,
 ): Promise<IOpenPdfInDefaultAppResult> {
@@ -453,7 +453,6 @@ export async function handleOpenPdfInDefaultAppData(
 }
 
 export async function handleOpenPdfInDefaultAppPath(
-    _event: Electron.IpcMainInvokeEvent,
     filePath: string,
     _fileName?: string,
 ): Promise<IOpenPdfInDefaultAppResult> {
@@ -462,12 +461,12 @@ export async function handleOpenPdfInDefaultAppPath(
 }
 
 export async function handlePrintPdfPath(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsWindowContext,
     filePath: string,
     _fileName?: string,
     pageNumbers?: number[],
 ): Promise<IPrintPdfResult> {
-    const ownerWindow = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    const ownerWindow = context.window ?? undefined;
     const resolvedPath = await resolveAllowedPdfPath(filePath);
     const normalizedPageNumbers = normalizePrintPageNumbers(pageNumbers);
     if (!normalizedPageNumbers) {

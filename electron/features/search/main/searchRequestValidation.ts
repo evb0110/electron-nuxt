@@ -1,7 +1,5 @@
-import {
-    normalizeOptionalSearchPageCount,
-    validateSearchQuery as validateSharedSearchQuery,
-} from '@contracts/search';
+import { validateSearchQuery as validateSharedSearchQuery } from '@pdf-core';
+import { normalizeOptionalSearchPageCount } from '@electron/features/search/searchRequestPayload';
 
 export const SEARCH_PAGE_COUNT_MAX = (() => {
     const parsed = Number.parseInt(process.env.EVB_SEARCH_PAGE_COUNT_MAX ?? '20000', 10);

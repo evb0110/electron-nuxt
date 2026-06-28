@@ -54,6 +54,7 @@ import {
     optimizeLargePdfForSave,
     optimizePdfForSaveAs,
 } from '@electron/features/documents/main/pdfSaveAsOptimization';
+import type { IDocumentsWebContentsContext } from '@electron/features/documents/documentsService';
 
 const SERIALIZED_PDF_SESSION_TIMEOUT_MS = 10 * 60_000;
 const SERIALIZED_PDF_MAX_CHUNK_BYTES = PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES;
@@ -349,20 +350,20 @@ async function createSession(options: {
 }
 
 export async function beginSerializedPdfSaveToOriginal(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsWebContentsContext,
     workingPath: unknown,
     totalBytes: unknown,
 ): Promise<IBeginSerializedPdfPersistenceResult> {
     const normalizedWorkingPath = normalizeWorkingPath(workingPath);
     const normalizedTotalBytes = normalizeTotalBytes(totalBytes);
-    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, event.sender.id);
+    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, context.senderId);
 
-    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
         throw new Error('Working copy path is not managed');
     }
     const session = await createSession({
         mode: 'save',
-        sender: event.sender,
+        sender: context.sender,
         workingPath: normalizedWorkingPath,
         targetPath: originalPath,
         totalBytes: normalizedTotalBytes,
@@ -375,7 +376,7 @@ export async function beginSerializedPdfSaveToOriginal(
 }
 
 export async function beginSerializedPdfSaveAs(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsWebContentsContext,
     workingPath: unknown,
     totalBytes: unknown,
     targetPath: string | null,
@@ -390,13 +391,13 @@ export async function beginSerializedPdfSaveAs(
             ...getSerializedPdfPersistenceLimits(),
         };
     }
-    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
         throw new Error('Working copy path is not managed');
     }
 
     const session = await createSession({
         mode: 'save_as',
-        sender: event.sender,
+        sender: context.sender,
         workingPath: normalizedWorkingPath,
         targetPath,
         saveAsOptions,

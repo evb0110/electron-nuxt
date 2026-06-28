@@ -1,4 +1,5 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
@@ -7,9 +8,20 @@ import {
 import { ref } from 'vue';
 import { usePageStatusBar } from '@app/modules/workspace-shell/composables/usePageStatusBar';
 
-const showItemInFolderMock = vi.hoisted(() => vi.fn(async () => true));
+const {
+    legacyShowItemInFolderMock,
+    showItemInFolderMock,
+} = vi.hoisted(() => ({
+    legacyShowItemInFolderMock: vi.fn(() => {
+        throw new Error('legacy documents window capability should not be used');
+    }),
+    showItemInFolderMock: vi.fn(async () => true),
+}));
 
-vi.mock('@app/utils/platformDocuments', () => ({ getDocumentsCapability: () => ({ showItemInFolder: showItemInFolderMock }) }));
+vi.mock('@app/utils/platformDocuments', () => ({
+    getDocumentWindowCapability: () => ({ showItemInFolder: showItemInFolderMock }),
+    getDocumentsCapability: () => ({ showItemInFolder: legacyShowItemInFolderMock }),
+}));
 
 function createDeps(overrides: Partial<Parameters<typeof usePageStatusBar>[0]> = {}) {
     return {
@@ -28,6 +40,11 @@ function createDeps(overrides: Partial<Parameters<typeof usePageStatusBar>[0]> =
 }
 
 describe('usePageStatusBar', () => {
+    beforeEach(() => {
+        showItemInFolderMock.mockClear();
+        legacyShowItemInFolderMock.mockClear();
+    });
+
     it('shows the folder action only for filesystem-backed document refs', async () => {
         vi.stubGlobal('useTypedI18n', () => ({ t: (key: string, params?: {
             size?: string;
@@ -56,6 +73,17 @@ describe('usePageStatusBar', () => {
         await statusBar.handleStatusShowInFolderClick();
 
         expect(showItemInFolderMock).not.toHaveBeenCalled();
+        expect(legacyShowItemInFolderMock).not.toHaveBeenCalled();
+    });
+
+    it('reveals filesystem-backed refs through the window capability', async () => {
+        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        const statusBar = usePageStatusBar(createDeps({ originalPath: ref('/tmp/example.pdf') }));
+
+        await statusBar.handleStatusShowInFolderClick();
+
+        expect(showItemInFolderMock).toHaveBeenCalledWith('/tmp/example.pdf');
+        expect(legacyShowItemInFolderMock).not.toHaveBeenCalled();
     });
 
     it('explains browser-backed documents instead of saying no file is open', () => {

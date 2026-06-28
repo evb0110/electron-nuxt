@@ -7,7 +7,10 @@ import {
 } from '@app/utils/documentRef';
 import { extractPdfText } from '@app/utils/ocr/extractPdfText';
 import { loadOcrText } from '@app/utils/ocr/loadOcrText';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import {
+    getDocumentFilesCapability,
+    getDocumentWorkingCopyCapability,
+} from '@app/utils/platformDocuments';
 
 type TDocxBuilder = (text: string, hasRtl: boolean) => Uint8Array | Promise<Uint8Array>;
 
@@ -23,9 +26,10 @@ export async function exportTextAsDocx(params: {
     onSuccess?: () => void;
 }) {
     try {
-        const documents = getDocumentsCapability();
+        const documentFiles = getDocumentFilesCapability();
+        const documentWorkingCopy = getDocumentWorkingCopyCapability();
         const workingPath = params.workingCopyPath ?? '';
-        const outPath = await documents.saveDocxAs(workingPath);
+        const outPath = await documentFiles.saveDocxAs(workingPath);
         if (!outPath) {
             return false;
         }
@@ -41,7 +45,7 @@ export async function exportTextAsDocx(params: {
             }
 
             const docxBytes = await params.buildDocx(text, params.hasRtl);
-            await documents.writeDocxFile(outPath, docxBytes);
+            await documentFiles.writeDocxFile(outPath, docxBytes);
             params.onSuccess?.();
             params.toast.add({
                 color: 'success',
@@ -51,7 +55,7 @@ export async function exportTextAsDocx(params: {
             return true;
         } finally {
             if (isBrowserDocumentRef(outPath)) {
-                await documents.cleanupFile(outPath).catch(() => {});
+                await documentWorkingCopy.cleanupFile(outPath).catch(() => {});
             }
         }
     } catch (error) {

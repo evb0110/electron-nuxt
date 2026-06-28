@@ -15,11 +15,19 @@ import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHas
 const mocks = vi.hoisted(() => ({
     setMenuDocumentState: vi.fn(async () => {}),
     setMenuTabCount: vi.fn(async () => {}),
+    legacySetMenuDocumentState: vi.fn(async () => {}),
+    legacySetMenuTabCount: vi.fn(async () => {}),
 }));
-const mockPlatformApi = { documents: {
-    setMenuDocumentState: mocks.setMenuDocumentState,
-    setMenuTabCount: mocks.setMenuTabCount,
-} };
+const mockPlatformApi = {
+    documents: {
+        setMenuDocumentState: mocks.legacySetMenuDocumentState,
+        setMenuTabCount: mocks.legacySetMenuTabCount,
+    },
+    documentMenu: {
+        setMenuDocumentState: mocks.setMenuDocumentState,
+        setMenuTabCount: mocks.setMenuTabCount,
+    },
+};
 
 vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => mockPlatformApi }));
 
@@ -70,6 +78,8 @@ describe('useMenuSync', () => {
             canOptimizePdf: true,
         });
         expect(mocks.setMenuTabCount).toHaveBeenLastCalledWith(2);
+        expect(mocks.legacySetMenuDocumentState).not.toHaveBeenCalled();
+        expect(mocks.legacySetMenuTabCount).not.toHaveBeenCalled();
     });
 
     it('syncs save availability separately from document presence', async () => {

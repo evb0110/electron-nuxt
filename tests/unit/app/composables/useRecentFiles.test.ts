@@ -21,28 +21,48 @@ const routePath = ref('/electron');
 const electronRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
 const electronRecentFilesRemove = vi.fn<(path: string) => Promise<void>>();
 const electronRecentFilesClear = vi.fn<() => Promise<void>>();
-const electronOpenPdfDirect = vi.fn<(path: string) => Promise<void>>();
+const legacyElectronRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
+const legacyElectronRecentFilesRemove = vi.fn<(path: string) => Promise<void>>();
+const legacyElectronRecentFilesClear = vi.fn<() => Promise<void>>();
+const electronOpenDocumentDirect = vi.fn<(path: string) => Promise<void>>();
+const legacyElectronOpenDocumentDirect = vi.fn<(path: string) => Promise<void>>();
 const browserRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
+const legacyBrowserRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
 
 vi.mock('@app/utils/platform', () => ({
     isDesktopPlatformActive: (electronApiAvailable = electronBridgeReady.value) => electronApiAvailable,
     getPlatformAPI: () => electronBridgeReady.value
-        ? {documents: {
-            recentFiles: {
+        ? {
+            documents: {
+                recentFiles: {
+                    get: legacyElectronRecentFilesGet,
+                    remove: legacyElectronRecentFilesRemove,
+                    clear: legacyElectronRecentFilesClear,
+                },
+                openDocumentDirect: legacyElectronOpenDocumentDirect,
+            },
+            documentOpen: {openDocumentDirect: electronOpenDocumentDirect},
+            documentRecentFiles: {recentFiles: {
                 get: electronRecentFilesGet,
                 remove: electronRecentFilesRemove,
                 clear: electronRecentFilesClear,
+            }},
+        }
+        : {
+            documents: {
+                recentFiles: {
+                    get: legacyBrowserRecentFilesGet,
+                    remove: vi.fn(),
+                    clear: vi.fn(),
+                },
+                openDocumentDirect: vi.fn(),
             },
-            openPdfDirect: electronOpenPdfDirect,
-        }}
-        : {documents: {
-            recentFiles: {
+            documentRecentFiles: {recentFiles: {
                 get: browserRecentFilesGet,
                 remove: vi.fn(),
                 clear: vi.fn(),
-            },
-            openPdfDirect: vi.fn(),
-        }},
+            }},
+        },
     hasElectronAPI: () => electronBridgeReady.value,
     isElectronRoutePath: (path: string | null | undefined) => path === '/electron' || path?.startsWith('/electron/') === true,
     shouldPreferDesktopPlatform: (
@@ -77,6 +97,17 @@ vi.mock('@app/utils/platform', () => ({
     },
 }));
 
+function recentFile(path: string, timestamp = 1): IRecentFile {
+    const fileName = path.split('/').at(-1) ?? path;
+
+    return {
+        originalPath: path,
+        fileName,
+        timestamp,
+        fileSize: timestamp * 42,
+    };
+}
+
 function installRecentFilesStubs() {
     installNuxtStateTestStubs(cookieStore, stateStore);
     vi.stubGlobal('useRoute', () => ({path: routePath.value}));
@@ -97,19 +128,19 @@ describe('useRecentFiles', () => {
         electronRecentFilesGet.mockResolvedValue([]);
         electronRecentFilesRemove.mockResolvedValue();
         electronRecentFilesClear.mockResolvedValue();
-        electronOpenPdfDirect.mockResolvedValue();
+        legacyElectronRecentFilesGet.mockRejectedValue(new Error('legacy documents recent files get should not be used'));
+        legacyElectronRecentFilesRemove.mockRejectedValue(new Error('legacy documents recent files remove should not be used'));
+        legacyElectronRecentFilesClear.mockRejectedValue(new Error('legacy documents recent files clear should not be used'));
+        electronOpenDocumentDirect.mockResolvedValue();
+        legacyElectronOpenDocumentDirect.mockRejectedValue(new Error('legacy documents direct open should not be used'));
         browserRecentFilesGet.mockResolvedValue([]);
+        legacyBrowserRecentFilesGet.mockRejectedValue(new Error('legacy browser documents recent files get should not be used'));
         installRecentFilesStubs();
     });
 
     it('keeps desktop recent files unresolved until Electron results load', async () => {
         cookieStore.set('evb_viewer_recent_files', ref(encodeURIComponent('[]')));
-        electronRecentFilesGet.mockResolvedValue([{
-            originalPath: '/tmp/example.pdf',
-            fileName: 'example.pdf',
-            timestamp: 1,
-            fileSize: 42,
-        }]);
+        electronRecentFilesGet.mockResolvedValue([recentFile('/tmp/example.pdf')]);
 
         const { useRecentFiles } = await import('@app/composables/useRecentFiles');
         const {
@@ -126,16 +157,12 @@ describe('useRecentFiles', () => {
         expect(isResolved.value).toBe(true);
         expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/example.pdf'})]);
         expect(electronRecentFilesGet).toHaveBeenCalledOnce();
+        expect(legacyElectronRecentFilesGet).not.toHaveBeenCalled();
     });
 
     it('waits for the Electron bridge instead of falling back to browser recent files', async () => {
         electronBridgeReady.value = false;
-        electronRecentFilesGet.mockResolvedValue([{
-            originalPath: '/tmp/delayed.pdf',
-            fileName: 'delayed.pdf',
-            timestamp: 2,
-            fileSize: 84,
-        }]);
+        electronRecentFilesGet.mockResolvedValue([recentFile('/tmp/delayed.pdf', 2)]);
 
         const { useRecentFiles } = await import('@app/composables/useRecentFiles');
         const {
@@ -158,12 +185,7 @@ describe('useRecentFiles', () => {
         desktopRuntime.value = false;
         electronBridgeReady.value = false;
         routePath.value = '/electron';
-        electronRecentFilesGet.mockResolvedValue([{
-            originalPath: '/tmp/route-electron.pdf',
-            fileName: 'route-electron.pdf',
-            timestamp: 3,
-            fileSize: 126,
-        }]);
+        electronRecentFilesGet.mockResolvedValue([recentFile('/tmp/route-electron.pdf', 3)]);
 
         const { useRecentFiles } = await import('@app/composables/useRecentFiles');
         const {
@@ -182,16 +204,67 @@ describe('useRecentFiles', () => {
         expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/route-electron.pdf'})]);
     });
 
+    it('removes recent files through the split recent-files capability', async () => {
+        const file = recentFile('/tmp/remove-me.pdf');
+        electronRecentFilesGet.mockResolvedValue([recentFile('/tmp/remaining.pdf', 2)]);
+
+        const { useRecentFiles } = await import('@app/composables/useRecentFiles');
+        const {
+            recentFiles,
+            removeRecentFile,
+        } = useRecentFiles();
+
+        await removeRecentFile(file);
+
+        expect(electronRecentFilesRemove).toHaveBeenCalledWith('/tmp/remove-me.pdf');
+        expect(electronRecentFilesGet).toHaveBeenCalledOnce();
+        expect(legacyElectronRecentFilesRemove).not.toHaveBeenCalled();
+        expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/remaining.pdf'})]);
+    });
+
+    it('clears recent files through the split recent-files capability', async () => {
+        cookieStore.set('evb_viewer_recent_files', ref(JSON.stringify({
+            v: 1,
+            t: false,
+            f: [[
+                '/tmp/clear-me.pdf',
+                'clear-me.pdf',
+                1,
+                10,
+            ]],
+        })));
+
+        const { useRecentFiles } = await import('@app/composables/useRecentFiles');
+        const {
+            clearRecentFiles,
+            isResolved,
+            recentFiles,
+        } = useRecentFiles();
+
+        await clearRecentFiles();
+
+        expect(electronRecentFilesClear).toHaveBeenCalledOnce();
+        expect(legacyElectronRecentFilesClear).not.toHaveBeenCalled();
+        expect(recentFiles.value).toEqual([]);
+        expect(isResolved.value).toBe(true);
+    });
+
+    it('opens recent files through the split open capability', async () => {
+        const { useRecentFiles } = await import('@app/composables/useRecentFiles');
+        const { openRecentFile } = useRecentFiles();
+
+        await openRecentFile(recentFile('/tmp/open-me.pdf'));
+
+        expect(electronOpenDocumentDirect).toHaveBeenCalledWith('/tmp/open-me.pdf');
+        expect(legacyElectronOpenDocumentDirect).not.toHaveBeenCalled();
+        expect(electronRecentFilesGet).not.toHaveBeenCalled();
+    });
+
     it('keeps Electron recent files unresolved and retries after a startup failure', async () => {
         vi.useFakeTimers();
         electronRecentFilesGet
             .mockRejectedValueOnce(new Error('temporary startup failure'))
-            .mockResolvedValueOnce([{
-                originalPath: '/tmp/retried.pdf',
-                fileName: 'retried.pdf',
-                timestamp: 4,
-                fileSize: 168,
-            }]);
+            .mockResolvedValueOnce([recentFile('/tmp/retried.pdf', 4)]);
 
         const { useRecentFiles } = await import('@app/composables/useRecentFiles');
         const {
@@ -217,12 +290,7 @@ describe('useRecentFiles', () => {
         vi.useFakeTimers();
         electronRecentFilesGet
             .mockRejectedValueOnce(new Error('temporary startup failure'))
-            .mockResolvedValueOnce([{
-                originalPath: '/tmp/should-not-load.pdf',
-                fileName: 'should-not-load.pdf',
-                timestamp: 5,
-                fileSize: 210,
-            }]);
+            .mockResolvedValueOnce([recentFile('/tmp/should-not-load.pdf', 5)]);
 
         const { useRecentFiles } = await import('@app/composables/useRecentFiles');
         const scope = effectScope();
@@ -255,12 +323,7 @@ describe('useRecentFiles', () => {
                 10,
             ]],
         })));
-        browserRecentFilesGet.mockResolvedValue([{
-            originalPath: '/tmp/full.pdf',
-            fileName: 'full.pdf',
-            timestamp: 10,
-            fileSize: 10,
-        }]);
+        browserRecentFilesGet.mockResolvedValue([recentFile('/tmp/full.pdf', 10)]);
 
         const { useRecentFiles } = await import('@app/composables/useRecentFiles');
         const {
@@ -275,6 +338,7 @@ describe('useRecentFiles', () => {
         await loadRecentFiles();
 
         expect(browserRecentFilesGet).toHaveBeenCalledOnce();
+        expect(legacyBrowserRecentFilesGet).not.toHaveBeenCalled();
         expect(isResolved.value).toBe(true);
         expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/full.pdf'})]);
     });

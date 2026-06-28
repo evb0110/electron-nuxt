@@ -20,19 +20,27 @@ import { validatePdfFile } from '@electron/features/documents/main/pdfConformanc
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
-import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import {
     optimizeLargePdfForSave,
     optimizePdfForSave,
 } from '@electron/features/documents/main/pdfSaveAsOptimization';
+import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 
 const QPDF_REPAIR_SAVE_TIMEOUT_MS = parseIntegerEnv(
     'EVB_QPDF_REPAIR_SAVE_TIMEOUT_MS',
     10 * 60 * 1000,
     1_000,
 );
+
+function requireSenderId(context: IDocumentsSenderIdContext) {
+    if (typeof context.senderId !== 'number') {
+        throw new Error('Missing sender identity');
+    }
+    return context.senderId;
+}
 
 function createOriginalChangedValidationResult(): IPdfValidationResult {
     return {
@@ -108,7 +116,7 @@ async function repairPdfWithQpdf(
     inputPath: string,
     outputPath: string,
 ) {
-    await runNativeToolCommand(getNativeToolPaths().qpdf, [
+    await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
         inputPath,
         outputPath,
     ], {
@@ -122,31 +130,32 @@ async function repairPdfWithQpdf(
 }
 
 export async function handleFileSave(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     workingPath: string,
 ) {
+    const senderId = requireSenderId(context);
     if (!workingPath || workingPath.trim() === '') {
         throw new Error('Invalid file path');
     }
 
     const normalizedWorkingPath = workingPath.trim();
-    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, event.sender.id);
+    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
 
     try {
         const validation = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
-            if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+            if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
                 throw new Error('Working copy path is not managed');
             }
 
             const queuedValidation = await replaceOriginalWithValidatedTemp(
                 originalPath,
                 normalizedWorkingPath,
-                event.sender.id,
+                senderId,
                 tempPath => copyFileCopyOnWrite(normalizedWorkingPath, tempPath),
                 { optimize: 'large' },
             );
             if (queuedValidation.isValid) {
-                refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, event.sender.id);
+                refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
             }
             return queuedValidation;
         });
@@ -163,35 +172,36 @@ export async function handleFileSave(
 }
 
 export async function handleSerializedPdfSave(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     workingPath: string,
     data: unknown,
 ): Promise<IPdfValidationResult> {
+    const senderId = requireSenderId(context);
     if (!workingPath || workingPath.trim() === '') {
         throw new Error('Invalid file path');
     }
 
     const normalizedWorkingPath = workingPath.trim();
-    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, event.sender.id);
+    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
     const payload = normalizeIpcWritePayload(data);
 
     try {
         const validation = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
-            if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+            if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
                 throw new Error('Working copy path is not managed');
             }
 
             const queuedValidation = await replaceOriginalWithValidatedTemp(
                 originalPath,
                 normalizedWorkingPath,
-                event.sender.id,
+                senderId,
                 tempPath => writeFile(tempPath, payload),
                 { optimize: 'large' },
             );
             if (queuedValidation.isValid) {
                 try {
                     await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
-                    refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, event.sender.id);
+                    refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
                 } catch (syncError) {
                     return withWorkingCopySyncWarning(queuedValidation, syncError);
                 }
@@ -213,33 +223,34 @@ export async function handleSerializedPdfSave(
 }
 
 export async function handleRepairPdfSave(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     workingPath: string,
 ): Promise<IPdfValidationResult> {
+    const senderId = requireSenderId(context);
     if (!workingPath || workingPath.trim() === '') {
         throw new Error('Invalid file path');
     }
 
     const normalizedWorkingPath = workingPath.trim();
-    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, event.sender.id);
+    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
 
     try {
         const validation = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
-            if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+            if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
                 throw new Error('Working copy path is not managed');
             }
 
             const queuedValidation = await replaceOriginalWithValidatedTemp(
                 originalPath,
                 normalizedWorkingPath,
-                event.sender.id,
+                senderId,
                 tempPath => repairPdfWithQpdf(normalizedWorkingPath, tempPath),
                 { optimize: 'large' },
             );
             if (queuedValidation.isValid) {
                 try {
                     await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
-                    refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, event.sender.id);
+                    refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
                 } catch (syncError) {
                     return withWorkingCopySyncWarning(queuedValidation, syncError);
                 }
@@ -261,33 +272,34 @@ export async function handleRepairPdfSave(
 }
 
 export async function handleOptimizePdfForInteraction(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsSenderIdContext,
     workingPath: string,
 ): Promise<IPdfValidationResult> {
+    const senderId = requireSenderId(context);
     if (!workingPath || workingPath.trim() === '') {
         throw new Error('Invalid file path');
     }
 
     const normalizedWorkingPath = workingPath.trim();
-    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, event.sender.id);
+    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
 
     try {
         const validation = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
-            if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+            if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
                 throw new Error('Working copy path is not managed');
             }
 
             const queuedValidation = await replaceOriginalWithValidatedTemp(
                 originalPath,
                 normalizedWorkingPath,
-                event.sender.id,
+                senderId,
                 tempPath => copyFileCopyOnWrite(normalizedWorkingPath, tempPath),
                 { optimize: 'force' },
             );
             if (queuedValidation.isValid) {
                 try {
                     await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
-                    refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, event.sender.id);
+                    refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
                 } catch (syncError) {
                     return withWorkingCopySyncWarning(queuedValidation, syncError);
                 }

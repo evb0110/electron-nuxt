@@ -1,17 +1,15 @@
 import type {
     IAgentAssistantChatMessage,
     IAgentAssistantErrorEnvelope,
-    IAgentAssistantEvent,
     IAgentAssistantImageAttachment,
     IAgentAssistantState,
-    IAgentCommandRequest,
-    IAgentWorkspaceSnapshotRequest,
     TAgentAssistantErrorCode,
     TAgentAssistantEventType,
     TAgentAssistantMessageRole,
     TAgentCommand,
 } from '@contracts/agent';
 import { isRecord } from '@contracts/runtimeGuards';
+import type { IAgentEventMap } from '@electron/features/agent/contract';
 
 const AGENT_ASSISTANT_EVENT_TYPES = [
     'state',
@@ -301,7 +299,7 @@ function decodeAssistantState(value: unknown): IAgentAssistantState | null {
     };
 }
 
-export function decodeAgentWorkspaceSnapshotRequest(value: unknown): IAgentWorkspaceSnapshotRequest | null {
+export function decodeAgentWorkspaceSnapshotRequest(value: unknown): IAgentEventMap['agent:workspaceSnapshotRequest'] | null {
     if (!isRecord(value)) {
         return null;
     }
@@ -320,7 +318,7 @@ export function decodeAgentWorkspaceSnapshotRequest(value: unknown): IAgentWorks
     };
 }
 
-export function decodeAgentCommandRequest(value: unknown): IAgentCommandRequest | null {
+export function decodeAgentCommandRequest(value: unknown): IAgentEventMap['agent:commandRequest'] | null {
     if (!isRecord(value)) {
         return null;
     }
@@ -339,12 +337,12 @@ export function decodeAgentCommandRequest(value: unknown): IAgentCommandRequest 
     };
 }
 
-export function decodeAgentAssistantEvent(value: unknown): IAgentAssistantEvent | null {
+export function decodeAgentAssistantEvent(value: unknown): IAgentEventMap['agent:assistantEvent'] | null {
     if (!isRecord(value) || !isAssistantEventType(value.type)) {
         return null;
     }
 
-    const event: IAgentAssistantEvent = {type: value.type};
+    const event: IAgentEventMap['agent:assistantEvent'] = {type: value.type};
     if (value.state !== undefined) {
         const state = decodeAssistantState(value.state);
         if (state === null) {

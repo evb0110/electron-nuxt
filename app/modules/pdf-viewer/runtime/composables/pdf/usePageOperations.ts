@@ -8,7 +8,7 @@ import type { TTranslationKey } from '@i18n-app';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import {
-    getDocumentsCapability,
+    getDocumentMenuCapability,
     getPageOpsCapability,
 } from '@app/utils/platformDocuments';
 import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
@@ -394,7 +394,7 @@ export const usePageOperations = (deps: {
             ? `browser-page-op-insert-${crypto.randomUUID()}`
             : undefined;
         const stopProgress = requestId
-            ? getDocumentsCapability().onOpenDocumentDirectBatchProgress((progress) => {
+            ? getDocumentMenuCapability().onOpenDocumentDirectBatchProgress((progress) => {
                 if (
                     progress.operation !== 'page-insert'
                     || progress.requestId !== requestId

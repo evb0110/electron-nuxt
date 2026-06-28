@@ -1,4 +1,5 @@
 import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
+import type { IpcMainEvent } from 'electron';
 import {
     beforeEach,
     describe,
@@ -16,10 +17,13 @@ import { tmpdir } from 'os';
 import { EventEmitter } from 'node:events';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 
+type TRegisteredEventHandler = (event: IpcMainEvent, ...args: unknown[]) => void;
 
 const mocks = vi.hoisted(() => ({
+    attachSerializedPdfPersistencePort: vi.fn(),
     allowOpenPath: vi.fn(),
     createDocumentsService: vi.fn(() => ({})),
+    fromWebContents: vi.fn(),
     isSupportedOpenPath: vi.fn((_path: unknown) => true),
     requireOpenPath: vi.fn((..._args: unknown[]) => undefined),
     requireManagedWorkingCopyPath: vi.fn((..._args: unknown[]) => undefined),
@@ -29,7 +33,30 @@ function makeUuid(index: number) {
     return `00000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`;
 }
 
+function createRegistrationHarness() {
+    const handlers = new Map<string, TRegisteredHandler>();
+    const eventHandlers = new Map<string, TRegisteredEventHandler>();
+    const registrations: string[] = [];
+    const registrar = {handle: vi.fn((channel: string, handler: TRegisteredHandler) => {
+        registrations.push(channel);
+        handlers.set(channel, handler);
+    })};
+    const eventRegistrar = {on: vi.fn((channel: string, handler: TRegisteredEventHandler) => {
+        registrations.push(channel);
+        eventHandlers.set(channel, handler);
+    })};
+    return {
+        eventHandlers,
+        eventRegistrar,
+        handlers,
+        registrar,
+        registrations,
+    };
+}
+
 vi.mock('@electron/features/documents/createDocumentsService', () => ({createDocumentsService: mocks.createDocumentsService}));
+vi.mock('electron', () => ({BrowserWindow: {fromWebContents: (...args: unknown[]) => mocks.fromWebContents(...args)}}));
+vi.mock('@electron/features/documents/public', () => ({attachSerializedPdfPersistencePort: (...args: unknown[]) => mocks.attachSerializedPdfPersistencePort(...args)}));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({
     allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args),
     requireOpenPath: (...args: unknown[]) => mocks.requireOpenPath(...args),
@@ -42,21 +69,135 @@ describe('documents ipc adapter', () => {
         vi.clearAllMocks();
     });
 
+    it('registers every distinct documents channel value exactly once', async () => {
+        const {
+            eventHandlers,
+            eventRegistrar,
+            handlers,
+            registrar,
+            registrations,
+        } = createRegistrationHarness();
+        const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
+
+        registerDocumentsIpcAdapter(registrar as never, undefined, {eventRegistrar});
+
+        const expectedChannels = [...new Set(Object.values(DOCUMENTS_CHANNELS))];
+        expect(registrations).toHaveLength(expectedChannels.length);
+        for (const channel of expectedChannels) {
+            expect(registrations.filter(registeredChannel => registeredChannel === channel)).toHaveLength(1);
+        }
+        expect(handlers.has(DOCUMENTS_CHANNELS.fileSavePdfDataPort)).toBe(false);
+        expect(eventHandlers.has(DOCUMENTS_CHANNELS.fileSavePdfDataPort)).toBe(true);
+    });
+
+    it('fails the documents ipc invariant for duplicate channel values', async () => {
+        const { assertDocumentsIpcSingleRegistrationInvariant } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
+        const registeredChannels = [...new Set(Object.values(DOCUMENTS_CHANNELS))];
+
+        expect(() => assertDocumentsIpcSingleRegistrationInvariant([
+            ...registeredChannels,
+            DOCUMENTS_CHANNELS.openDocumentDirect,
+        ])).toThrow(/Duplicate documents IPC channel registration/u);
+    });
+
+    it('fails the documents ipc invariant for omitted channel values', async () => {
+        const { assertDocumentsIpcSingleRegistrationInvariant } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
+        const registeredChannels = [...new Set(Object.values(DOCUMENTS_CHANNELS))]
+            .filter(channel => channel !== DOCUMENTS_CHANNELS.fileSavePdfDataPort);
+
+        expect(() => assertDocumentsIpcSingleRegistrationInvariant(registeredChannels))
+            .toThrow(/Missing documents IPC channel registration/u);
+    });
+
+    it('keeps documents ipc aliases explicit while counting shared channel values once', async () => {
+        const { DOCUMENTS_IPC_CHANNEL_ALIASES } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
+
+        expect(DOCUMENTS_IPC_CHANNEL_ALIASES).toEqual([
+            {
+                aliasKey: 'openPdfDialog',
+                ownerKey: 'openDocumentDialog',
+            },
+            {
+                aliasKey: 'openPdfDirect',
+                ownerKey: 'openDocumentDirect',
+            },
+            {
+                aliasKey: 'openPdfDirectBatch',
+                ownerKey: 'openDocumentDirectBatch',
+            },
+        ]);
+        for (const {
+            aliasKey,
+            ownerKey,
+        } of DOCUMENTS_IPC_CHANNEL_ALIASES) {
+            expect(DOCUMENTS_CHANNELS[aliasKey]).toBe(DOCUMENTS_CHANNELS[ownerKey]);
+        }
+    });
+
+    it('attaches serialized pdf persistence ports from the documents raw event channel', async () => {
+        const {
+            eventHandlers,
+            eventRegistrar,
+            registrar,
+        } = createRegistrationHarness();
+        const event = {sender: {id: 47}} as IpcMainEvent;
+        const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
+
+        registerDocumentsIpcAdapter(registrar as never, undefined, {eventRegistrar});
+        eventHandlers.get(DOCUMENTS_CHANNELS.fileSavePdfDataPort)?.(event, 'session-1');
+
+        expect(mocks.attachSerializedPdfPersistencePort).toHaveBeenCalledWith(event, 'session-1');
+    });
+
+    it('translates invoke events to open/menu/recent service contexts at the adapter edge', async () => {
+        const {
+            eventRegistrar,
+            handlers,
+            registrar,
+        } = createRegistrationHarness();
+        const window = {id: 7};
+        const sender = {id: 48};
+        const service = {
+            getRecentFiles: vi.fn(async () => []),
+            openDocumentDirect: vi.fn(async () => null),
+            setMenuTabCount: vi.fn(),
+        };
+        mocks.fromWebContents.mockReturnValue(window);
+        const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
+
+        registerDocumentsIpcAdapter(registrar as never, service as never, {eventRegistrar});
+        await handlers.get(DOCUMENTS_CHANNELS.openDocumentDirect)?.({sender}, '/tmp/open.pdf');
+        await handlers.get(DOCUMENTS_CHANNELS.recentFilesGet)?.({sender});
+        handlers.get(DOCUMENTS_CHANNELS.menuSetTabCount)?.({sender}, 3);
+
+        expect(service.openDocumentDirect).toHaveBeenCalledWith({
+            sender,
+            senderId: 48,
+        }, '/tmp/open.pdf');
+        expect(service.getRecentFiles).toHaveBeenCalledWith({
+            sender,
+            senderId: 48,
+        });
+        expect(service.setMenuTabCount).toHaveBeenCalledWith({window}, 3);
+        expect(mocks.fromWebContents).toHaveBeenCalledWith(sender);
+    });
+
     it('grants renderer file-open paths to the sender webContents owner', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-documents-ipc-adapter-test-'));
         const filePath = join(tempRoot, 'opened.pdf');
         writeFileSync(filePath, new Uint8Array([1]));
         mocks.allowOpenPath.mockReturnValue(filePath);
-        const handlers = new Map<string, TRegisteredHandler>();
+        const {
+            eventRegistrar,
+            handlers,
+            registrar,
+        } = createRegistrationHarness();
         const sender = new EventEmitter() as EventEmitter & { id: number; };
         sender.id = 42;
-        const registrar = {handle: vi.fn((channel: string, handler: TRegisteredHandler) => {
-            handlers.set(channel, handler);
-        })};
         const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
 
         try {
-            registerDocumentsIpcAdapter(registrar as never);
+            registerDocumentsIpcAdapter(registrar as never, undefined, {eventRegistrar});
 
             expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenToken)?.(
                 {sender},
@@ -85,16 +226,17 @@ describe('documents ipc adapter', () => {
         writeFileSync(firstFilePath, new Uint8Array([1]));
         const tokenCount = 128;
         mocks.allowOpenPath.mockImplementation((filePath: string) => filePath);
-        const handlers = new Map<string, TRegisteredHandler>();
+        const {
+            eventRegistrar,
+            handlers,
+            registrar,
+        } = createRegistrationHarness();
         const sender = new EventEmitter() as EventEmitter & { id: number; };
         sender.id = 43;
-        const registrar = {handle: vi.fn((channel: string, handler: TRegisteredHandler) => {
-            handlers.set(channel, handler);
-        })};
         const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
 
         try {
-            registerDocumentsIpcAdapter(registrar as never);
+            registerDocumentsIpcAdapter(registrar as never, undefined, {eventRegistrar});
 
             expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenToken)?.(
                 {sender},
@@ -136,16 +278,17 @@ describe('documents ipc adapter', () => {
         writeFileSync(firstFilePath, new Uint8Array([1]));
         writeFileSync(secondFilePath, new Uint8Array([2]));
         mocks.allowOpenPath.mockImplementation((filePath: string) => filePath);
-        const handlers = new Map<string, TRegisteredHandler>();
+        const {
+            eventRegistrar,
+            handlers,
+            registrar,
+        } = createRegistrationHarness();
         const sender = new EventEmitter() as EventEmitter & { id: number; };
         sender.id = 46;
-        const registrar = {handle: vi.fn((channel: string, handler: TRegisteredHandler) => {
-            handlers.set(channel, handler);
-        })};
         const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
 
         try {
-            registerDocumentsIpcAdapter(registrar as never);
+            registerDocumentsIpcAdapter(registrar as never, undefined, {eventRegistrar});
 
             expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenTokens)?.(
                 {sender},
@@ -183,17 +326,18 @@ describe('documents ipc adapter', () => {
         const filePath = join(tempRoot, 'opened-after-navigation.pdf');
         writeFileSync(filePath, new Uint8Array([1]));
         mocks.allowOpenPath.mockReturnValue(filePath);
-        const handlers = new Map<string, TRegisteredHandler>();
+        const {
+            eventRegistrar,
+            handlers,
+            registrar,
+        } = createRegistrationHarness();
         const sender = new EventEmitter() as EventEmitter & { id: number; };
         sender.id = 44;
         const removeListenerSpy = vi.spyOn(sender, 'removeListener');
-        const registrar = {handle: vi.fn((channel: string, handler: TRegisteredHandler) => {
-            handlers.set(channel, handler);
-        })};
         const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
 
         try {
-            registerDocumentsIpcAdapter(registrar as never);
+            registerDocumentsIpcAdapter(registrar as never, undefined, {eventRegistrar});
 
             expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenToken)?.(
                 {sender},

@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { readFileSync } from 'fs';
-import { buildPdfSearchExcerpt } from '@contracts/search';
+import { buildPdfSearchExcerpt } from '@pdf-core';
 import { cast } from '@tests/helpers/cast';
 
 interface ISearchConformanceCase {

@@ -285,11 +285,7 @@ function assertSearchQueryWithinLimit(query: string, useRegex: boolean) {
     }
 }
 
-export function validateSearchQuery(query: string, options: {
-    matchCase?: boolean | undefined;
-    wholeWord?: boolean | undefined;
-    useRegex?: boolean | undefined;
-}) {
+export function validateSearchQuery(query: string, options: ISearchMatchOptions) {
     const useRegex = options.useRegex === true;
     assertSearchQueryWithinLimit(query, useRegex);
     if (useRegex && query.length > 0) {

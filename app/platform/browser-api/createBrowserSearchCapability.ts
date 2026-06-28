@@ -8,8 +8,9 @@ import type {
 import {
     buildPdfSearchExcerpt,
     buildPdfSearchRegex,
+    collectSearchMatchWords,
     iteratePdfSearchMatches,
-} from '@contracts/search';
+} from '@pdf-core';
 import { toPageNumber } from '@contracts/pageNumbers';
 import type { ISearchCapability } from '@contracts/searchCapability';
 import {
@@ -28,7 +29,6 @@ import {
 } from '@app/platform/browser-api/browserSearchCore';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
-import { collectSearchMatchWords } from '@pdf-core';
 import type { IOcrWord } from '@contracts/shared';
 import {
     clearStore,

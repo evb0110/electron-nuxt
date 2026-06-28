@@ -5,7 +5,7 @@ import {
     unlink,
 } from 'fs/promises';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
@@ -46,7 +46,7 @@ export async function decryptPdfFileIfNeeded(filePath: string) {
             return false;
         }
 
-        const qpdf = getNativeToolPaths().qpdf;
+        const qpdf = getPdfNativeToolPaths().qpdf;
         const tempPath = `${filePath}.decrypted`;
 
         try {

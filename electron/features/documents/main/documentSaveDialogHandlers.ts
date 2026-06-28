@@ -16,17 +16,18 @@ import { getWorkingCopyOriginalPath } from '@electron/file-access/workingCopySto
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import { te } from '@electron/te';
 import { normalizePdfSaveAsOptions } from '@electron/features/documents/main/pdfSaveAsOptimization';
+import type { IDocumentsDialogContext } from '@electron/features/documents/documentsService';
 
 export async function handleSavePdfAs(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsDialogContext,
     workingPath: string,
     options?: unknown,
 ) {
-    return savePdfAs(event, workingPath, normalizePdfSaveAsOptions(options), showSaveDialogWithExtension);
+    return savePdfAs(context, workingPath, normalizePdfSaveAsOptions(options), showSaveDialogWithExtension);
 }
 
 export async function handleSavePdfDataAs(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsDialogContext,
     workingPath: string,
     data: unknown,
     options?: unknown,
@@ -34,11 +35,11 @@ export async function handleSavePdfDataAs(
     path: string | null;
     validation: IPdfValidationResult | null;
 }> {
-    return savePdfDataAs(event, workingPath, data, normalizePdfSaveAsOptions(options), showSaveDialogWithExtension);
+    return savePdfDataAs(context, workingPath, data, normalizePdfSaveAsOptions(options), showSaveDialogWithExtension);
 }
 
 export async function handleBeginSavePdfDataAs(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsDialogContext,
     workingPath: string,
     totalBytes: number,
     options?: unknown,
@@ -50,35 +51,35 @@ export async function handleBeginSavePdfDataAs(
             path: null,
         };
     }
-    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
         throw new Error('Working copy path is not managed');
     }
-    const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, event.sender.id)?.originalPath;
+    const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, context.senderId)?.originalPath;
     const suggestedName = originalPath
         ? basename(originalPath)
         : normalizedWorkingPath
             ? basename(normalizedWorkingPath, extname(normalizedWorkingPath))
             : 'document.pdf';
-    const targetPath = await showSaveDialogWithExtension(event, {
+    const targetPath = await showSaveDialogWithExtension(context, {
         title: te('dialogs.savePdfAs'),
         defaultPath: suggestedName.endsWith('.pdf') ? suggestedName : `${suggestedName}.pdf`,
         filterName: te('dialogs.pdfFiles'),
         extension: 'pdf',
     });
 
-    return beginSerializedPdfSaveAs(event, workingPath, totalBytes, targetPath, normalizePdfSaveAsOptions(options));
+    return beginSerializedPdfSaveAs(context, workingPath, totalBytes, targetPath, normalizePdfSaveAsOptions(options));
 }
 
 export async function handleSavePdfDialog(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsDialogContext,
     suggestedName: string,
 ) {
-    return savePdfDialog(event, suggestedName, showSaveDialogWithExtension);
+    return savePdfDialog(context, suggestedName, showSaveDialogWithExtension);
 }
 
 export async function handleSaveDocxAs(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsDialogContext,
     workingPath: string,
 ) {
-    return saveDocxAs(event, workingPath, showSaveDialogWithExtension);
+    return saveDocxAs(context, workingPath, showSaveDialogWithExtension);
 }

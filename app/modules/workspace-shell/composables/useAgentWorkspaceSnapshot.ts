@@ -14,10 +14,8 @@ import type {
 import type { ITab } from '@app/types/tabs';
 import type { IRecentFile } from '@contracts/shared';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import {
-    getPlatformAPI,
-    waitForDesktopPlatformBridge,
-} from '@app/utils/platform';
+import { getAgentCapability } from '@app/utils/getAgentCapability';
+import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
@@ -159,12 +157,12 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     }
 
     async function submitWorkspaceSnapshotWithAck(response: IAgentWorkspaceSnapshotResponse) {
-        const ack = await getPlatformAPI().agent.submitWorkspaceSnapshot(response);
+        const ack = await getAgentCapability().submitWorkspaceSnapshot(response);
         logRejectedAck('snapshot', response.requestId, ack);
     }
 
     async function submitCommandResponseWithAck(response: IAgentCommandResponse) {
-        const ack = await getPlatformAPI().agent.submitCommandResponse(response);
+        const ack = await getAgentCapability().submitCommandResponse(response);
         logRejectedAck('command', response.requestId, ack);
     }
 
@@ -291,9 +289,9 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
                 if (isDisposed) {
                     return;
                 }
-                const platform = getPlatformAPI();
-                const unsubscribeSnapshot = platform.agent.onWorkspaceSnapshotRequest(submitSnapshot);
-                const unsubscribeCommand = platform.agent.onCommandRequest(submitCommandResult);
+                const agent = getAgentCapability();
+                const unsubscribeSnapshot = agent.onWorkspaceSnapshotRequest(submitSnapshot);
+                const unsubscribeCommand = agent.onCommandRequest(submitCommandResult);
                 if (isDisposed) {
                     unsubscribeSnapshot();
                     unsubscribeCommand();

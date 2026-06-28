@@ -8,7 +8,7 @@ import {
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { isErrnoException } from '@contracts/runtimeGuards';
@@ -28,7 +28,7 @@ export const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [
 ];
 
 function getQpdfBinary() {
-    return getNativeToolPaths().qpdf;
+    return getPdfNativeToolPaths().qpdf;
 }
 
 function formatPageList(pages: number[]) {

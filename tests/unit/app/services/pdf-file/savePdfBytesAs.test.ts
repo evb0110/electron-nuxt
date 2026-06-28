@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -7,29 +8,83 @@ import {
 } from 'vitest';
 import { savePdfBytesAs } from '@app/services/pdf-file/savePdfBytesAs';
 
-const mocks = vi.hoisted(() => ({documentsCapability: {
-    cleanupFile: vi.fn(),
-    createWorkingCopyFromData: vi.fn(),
-    savePdfAs: vi.fn(),
-    savePdfDataAs: undefined,
-    validatePdfData: vi.fn(),
-    writeFile: vi.fn(),
-}}));
+const mocks = vi.hoisted(() => ({
+    documentFiles: {
+        savePdfAs: vi.fn(),
+        savePdfDataAs: undefined as undefined | ReturnType<typeof vi.fn>,
+        writeFile: vi.fn(),
+    },
+    documentPdf: { validatePdfData: vi.fn() },
+    documentWorkingCopy: {
+        cleanupFile: vi.fn(),
+        createWorkingCopyFromData: vi.fn(),
+    },
+    legacyDocuments: {
+        cleanupFile: vi.fn(() => {
+            throw new Error('legacy cleanupFile should not be used');
+        }),
+        createWorkingCopyFromData: vi.fn(() => {
+            throw new Error('legacy createWorkingCopyFromData should not be used');
+        }),
+        savePdfAs: vi.fn(() => {
+            throw new Error('legacy savePdfAs should not be used');
+        }),
+        savePdfDataAs: vi.fn(() => {
+            throw new Error('legacy savePdfDataAs should not be used');
+        }),
+        validatePdfData: vi.fn(() => {
+            throw new Error('legacy validatePdfData should not be used');
+        }),
+        writeFile: vi.fn(() => {
+            throw new Error('legacy writeFile should not be used');
+        }),
+    },
+}));
 
-vi.mock('@app/utils/platformDocuments', () => ({ getDocumentsCapability: () => mocks.documentsCapability }));
+vi.mock('@app/utils/platformDocuments', () => ({
+    getDocumentFilesCapability: () => mocks.documentFiles,
+    getDocumentPdfCapability: () => mocks.documentPdf,
+    getDocumentWorkingCopyCapability: () => mocks.documentWorkingCopy,
+    getDocumentsCapability: () => mocks.legacyDocuments,
+}));
 
 describe('savePdfBytesAs', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.documentsCapability.cleanupFile.mockResolvedValue(undefined);
-        mocks.documentsCapability.createWorkingCopyFromData.mockResolvedValue('/tmp/staged.pdf');
-        mocks.documentsCapability.savePdfAs.mockResolvedValue('/tmp/saved.pdf');
-        mocks.documentsCapability.savePdfDataAs = undefined;
-        mocks.documentsCapability.validatePdfData.mockResolvedValue({
+        mocks.documentFiles.savePdfAs.mockResolvedValue('/tmp/saved.pdf');
+        mocks.documentFiles.savePdfDataAs = undefined;
+        mocks.documentFiles.writeFile.mockResolvedValue(undefined);
+        mocks.documentPdf.validatePdfData.mockResolvedValue({
             isValid: true,
             errors: [],
         });
-        mocks.documentsCapability.writeFile.mockResolvedValue(undefined);
+        mocks.documentWorkingCopy.cleanupFile.mockResolvedValue(undefined);
+        mocks.documentWorkingCopy.createWorkingCopyFromData.mockResolvedValue('/tmp/staged.pdf');
+    });
+
+    afterEach(() => {
+        mocks.documentFiles.savePdfDataAs = undefined;
+    });
+
+    it('uses split file save-data fast path when available', async () => {
+        const savePdfDataAs = vi.fn(async () => ({
+            path: '/tmp/fast.pdf',
+            validation: {
+                isValid: true,
+                errors: [],
+            },
+        }));
+        mocks.documentFiles.savePdfDataAs = savePdfDataAs;
+        const data = new Uint8Array([1]);
+        const options = { optimizeLossless: true };
+
+        const result = await savePdfBytesAs('/tmp/active.pdf', data, options);
+
+        expect(result.path).toBe('/tmp/fast.pdf');
+        expect(savePdfDataAs).toHaveBeenCalledWith('/tmp/active.pdf', data, options);
+        expect(mocks.documentPdf.validatePdfData).not.toHaveBeenCalled();
+        expect(mocks.documentWorkingCopy.createWorkingCopyFromData).not.toHaveBeenCalled();
+        expect(mocks.legacyDocuments.savePdfDataAs).not.toHaveBeenCalled();
     });
 
     it('stages fallback Save As bytes without mutating the active working copy', async () => {
@@ -42,21 +97,46 @@ describe('savePdfBytesAs', () => {
         const result = await savePdfBytesAs('/tmp/active.pdf', data);
 
         expect(result.path).toBe('/tmp/saved.pdf');
-        expect(mocks.documentsCapability.writeFile).not.toHaveBeenCalled();
-        expect(mocks.documentsCapability.createWorkingCopyFromData).toHaveBeenCalledWith(
+        expect(mocks.documentFiles.writeFile).not.toHaveBeenCalled();
+        expect(mocks.documentPdf.validatePdfData).toHaveBeenCalledWith(data);
+        expect(mocks.documentWorkingCopy.createWorkingCopyFromData).toHaveBeenCalledWith(
             'active.pdf',
             data,
         );
-        expect(mocks.documentsCapability.savePdfAs).toHaveBeenCalledWith('/tmp/staged.pdf');
-        expect(mocks.documentsCapability.cleanupFile).toHaveBeenCalledWith('/tmp/staged.pdf');
+        expect(mocks.documentFiles.savePdfAs).toHaveBeenCalledWith('/tmp/staged.pdf');
+        expect(mocks.documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/staged.pdf');
+        expect(mocks.legacyDocuments.createWorkingCopyFromData).not.toHaveBeenCalled();
+        expect(mocks.legacyDocuments.savePdfAs).not.toHaveBeenCalled();
+        expect(mocks.legacyDocuments.cleanupFile).not.toHaveBeenCalled();
+    });
+
+    it('returns invalid fallback validation without staging or saving', async () => {
+        mocks.documentPdf.validatePdfData.mockResolvedValueOnce({
+            isValid: false,
+            errors: ['broken'],
+        });
+        const data = new Uint8Array([9]);
+
+        const result = await savePdfBytesAs('/tmp/active.pdf', data);
+
+        expect(result).toEqual({
+            path: null,
+            validation: {
+                isValid: false,
+                errors: ['broken'],
+            },
+        });
+        expect(mocks.documentWorkingCopy.createWorkingCopyFromData).not.toHaveBeenCalled();
+        expect(mocks.documentFiles.savePdfAs).not.toHaveBeenCalled();
+        expect(mocks.documentWorkingCopy.cleanupFile).not.toHaveBeenCalled();
     });
 
     it('leaves the active working copy untouched when fallback Save As fails', async () => {
-        mocks.documentsCapability.savePdfAs.mockRejectedValueOnce(new Error('canceled'));
+        mocks.documentFiles.savePdfAs.mockRejectedValueOnce(new Error('canceled'));
 
         await expect(savePdfBytesAs('/tmp/active.pdf', new Uint8Array([1]))).rejects.toThrow('canceled');
 
-        expect(mocks.documentsCapability.writeFile).not.toHaveBeenCalled();
-        expect(mocks.documentsCapability.cleanupFile).toHaveBeenCalledWith('/tmp/staged.pdf');
+        expect(mocks.documentFiles.writeFile).not.toHaveBeenCalled();
+        expect(mocks.documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/staged.pdf');
     });
 });

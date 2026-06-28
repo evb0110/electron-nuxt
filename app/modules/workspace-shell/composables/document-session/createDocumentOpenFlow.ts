@@ -18,7 +18,12 @@ import {
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import { getErrorMessage } from '@app/utils/error';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import {
+    getDocumentFilesCapability,
+    getDocumentMenuCapability,
+    getDocumentOpenCapability,
+    getDocumentPickerCapability,
+} from '@app/utils/platformDocuments';
 
 type TAnalytics = ReturnType<typeof useAnalytics>;
 type TEpochGuard = ReturnType<typeof createEpochGuard>;
@@ -94,7 +99,7 @@ export function createDocumentOpenFlow(
     }
 
     async function pickFileToOpen() {
-        return getDocumentsCapability().openDocumentDialog();
+        return getDocumentPickerCapability().openDocumentDialog();
     }
 
     async function trackOpenedDocument(
@@ -105,7 +110,7 @@ export function createDocumentOpenFlow(
         let fileSizeBucket: string | null = null;
 
         try {
-            const { size } = await getDocumentsCapability().statFile(result.originalPath);
+            const { size } = await getDocumentFilesCapability().statFile(result.originalPath);
             fileSizeBucket = bucketFileSize(size);
         } catch {
             fileSizeBucket = null;
@@ -217,7 +222,7 @@ export function createDocumentOpenFlow(
         state.openBatchProgress.value = null;
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect started', {path});
         try {
-            const result = await getDocumentsCapability().openDocumentDirect(path);
+            const result = await getDocumentOpenCapability().openDocumentDirect(path);
             if (!isCurrentOpenRequest(openRequestId)) {
                 if (result) {
                     return {
@@ -335,7 +340,8 @@ export function createDocumentOpenFlow(
         state.pendingDjvu.value = null;
         state.openBatchProgress.value = null;
         try {
-            const documents = getDocumentsCapability();
+            const documentOpen = getDocumentOpenCapability();
+            const documentMenu = getDocumentMenuCapability();
             const normalizedPaths = paths
                 .map((path) => path.trim())
                 .filter((path) => path.length > 0);
@@ -360,7 +366,7 @@ export function createDocumentOpenFlow(
                 estimatedRemainingMs: null,
             };
 
-            const stopProgress = documents.onOpenDocumentDirectBatchProgress(
+            const stopProgress = documentMenu.onOpenDocumentDirectBatchProgress(
                 (progress) => {
                     if (
                         progress.operation !== 'document-open'
@@ -385,7 +391,7 @@ export function createDocumentOpenFlow(
 
             let result: TOpenFileResult | null = null;
             try {
-                result = await documents.openDocumentDirectBatch(
+                result = await documentOpen.openDocumentDirectBatch(
                     normalizedPaths,
                     requestId,
                 );
@@ -479,7 +485,7 @@ export function createDocumentOpenFlow(
     }
 
     async function readPdfStateFromPath(path: TDocumentRef): Promise<IPdfLoadedState> {
-        const { size } = await getDocumentsCapability().statFile(path);
+        const { size } = await getDocumentFilesCapability().statFile(path);
         assertPdfHasBytes(size);
 
         if (size > MAX_IN_MEMORY_PDF_BYTES) {
@@ -560,7 +566,7 @@ export function createDocumentOpenFlow(
             return false;
         }
         if (persist && expectedWorkingPath) {
-            await getDocumentsCapability().writeFile(expectedWorkingPath, snapshot);
+            await getDocumentFilesCapability().writeFile(expectedWorkingPath, snapshot);
             if (!state.isActiveWorkingCopy(expectedWorkingPath)) {
                 return false;
             }

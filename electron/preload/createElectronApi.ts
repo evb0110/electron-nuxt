@@ -3,16 +3,22 @@ import type {
     webUtils,
 } from 'electron';
 import type { IElectronAPI } from '@contracts/electronApi';
+import type {
+    IDocumentsFileIoCapability,
+    IDocumentsMenuCapability,
+    IDocumentsOpenCapability,
+    IDocumentsPdfCapability,
+    IDocumentsPickerCapability,
+    IDocumentsRecentFilesCapability,
+    IDocumentsWindowCapability,
+    IDocumentsWorkingCopyCapability,
+} from '@contracts/electronApiDocuments';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import { sanitizeSettings } from '@contracts/settings';
 import { decodeWindowTabIncomingTransfer } from '@contracts/windowTabsValidation';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import { decodeDebugLogEntry } from '@electron/preload/installDebugLogListener';
-import {
-    decodeAgentAssistantEvent,
-    decodeAgentCommandRequest,
-    decodeAgentWorkspaceSnapshotRequest,
-} from '@electron/preload/agentIpcDecoders';
+import { createAgentPreloadClient } from '@electron/features/agent/createAgentPreloadClient';
 import {createDocumentsPreloadClient} from '@electron/features/documents/createDocumentsPreloadClient';
 import { createDocumentsPreloadPageOpsClient } from '@electron/features/documents/createDocumentsPreloadPageOpsClient';
 import { createImageExportPreloadClient } from '@electron/features/image-export/createImageExportPreloadClient';
@@ -187,34 +193,150 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         return baseDocuments.openDocumentDirectBatch(paths, requestId);
     };
 
-    const documents = {
-        ...baseDocuments,
+    const recentFiles = {
+        ...baseDocuments.recentFiles,
+        get: () => invokeWithStartupTrace('recentFiles:get', () => baseDocuments.recentFiles.get()),
+    };
+    const getPathForFile = (file: File) => {
+        const filePath = electronWebUtils.getPathForFile(file);
+        if (filePath) {
+            void allowRendererFileOpen(filePath);
+        }
+        return filePath;
+    };
+    const getPathsForFiles = (files: File[]) => {
+        const filePaths = files
+            .map(file => electronWebUtils.getPathForFile(file))
+            .filter(filePath => filePath.length > 0);
+        void allowRendererFileOpenBatch(filePaths);
+        return filePaths;
+    };
+
+    const documentPicker = {
+        openDocumentDialog: baseDocuments.openDocumentDialog,
+        openPdfDialog: baseDocuments.openPdfDialog,
+        openCombineDialog: baseDocuments.openCombineDialog,
+        openFolderDialog: baseDocuments.openFolderDialog,
+        openImageDialog: baseDocuments.openImageDialog,
+        getPathForFile,
+        getPathsForFiles,
+    } satisfies IDocumentsPickerCapability;
+    const documentOpen = {
         openDocumentDirect,
         openPdfDirect: openDocumentDirect,
         openDocumentDirectBatch,
         openPdfDirectBatch: openDocumentDirectBatch,
-        recentFiles: {
-            ...baseDocuments.recentFiles,
-            get: () => invokeWithStartupTrace('recentFiles:get', () => baseDocuments.recentFiles.get()),
-        },
-        getPathForFile: (file: File) => {
-            const filePath = electronWebUtils.getPathForFile(file);
-            if (filePath) {
-                void allowRendererFileOpen(filePath);
-            }
-            return filePath;
-        },
-        getPathsForFiles: (files: File[]) => {
-            const filePaths = files
-                .map(file => electronWebUtils.getPathForFile(file))
-                .filter(filePath => filePath.length > 0);
-            void allowRendererFileOpenBatch(filePaths);
-            return filePaths;
-        },
+    } satisfies IDocumentsOpenCapability;
+    const documentWorkingCopy = {
+        createWorkingCopyFromData: baseDocuments.createWorkingCopyFromData,
+        createWorkingCopyFromPath: baseDocuments.createWorkingCopyFromPath,
+        cleanupFile: baseDocuments.cleanupFile,
+        cleanupOcrTemp: baseDocuments.cleanupOcrTemp,
+    } satisfies IDocumentsWorkingCopyCapability;
+    const optionalDocumentFileMethods = {
+        ...(baseDocuments.repairPdf ? {repairPdf: baseDocuments.repairPdf} : {}),
+        ...(baseDocuments.optimizePdfForInteraction ? {optimizePdfForInteraction: baseDocuments.optimizePdfForInteraction} : {}),
+        ...(baseDocuments.optimizePdfAsCopy ? {optimizePdfAsCopy: baseDocuments.optimizePdfAsCopy} : {}),
+        ...(baseDocuments.savePdfNoteTextUpdates ? {savePdfNoteTextUpdates: baseDocuments.savePdfNoteTextUpdates} : {}),
+        ...(baseDocuments.savePdfNoteChanges ? {savePdfNoteChanges: baseDocuments.savePdfNoteChanges} : {}),
+        ...(baseDocuments.savePdfNativeMutations ? {savePdfNativeMutations: baseDocuments.savePdfNativeMutations} : {}),
+        ...(baseDocuments.applyPdfNativeMutationsToWorkingCopy
+            ? {applyPdfNativeMutationsToWorkingCopy: baseDocuments.applyPdfNativeMutationsToWorkingCopy}
+            : {}),
+    };
+    const documentFiles = {
+        readFile: baseDocuments.readFile,
+        statFile: baseDocuments.statFile,
+        readFileRange: baseDocuments.readFileRange,
+        readFileChunks: baseDocuments.readFileChunks,
+        readTextFile: baseDocuments.readTextFile,
+        fileExists: baseDocuments.fileExists,
+        savePdfAs: baseDocuments.savePdfAs,
+        savePdfDataAs: baseDocuments.savePdfDataAs,
+        savePdfDialog: baseDocuments.savePdfDialog,
+        saveDocxAs: baseDocuments.saveDocxAs,
+        writeFile: baseDocuments.writeFile,
+        replaceWorkingCopyFromPath: baseDocuments.replaceWorkingCopyFromPath,
+        writeDocxFile: baseDocuments.writeDocxFile,
+        saveFile: baseDocuments.saveFile,
+        savePdfData: baseDocuments.savePdfData,
+        savePdfDataChunks: baseDocuments.savePdfDataChunks,
+        ...optionalDocumentFileMethods,
+    } satisfies IDocumentsFileIoCapability;
+    const documentPdf = {
+        analyzePdfConformance: baseDocuments.analyzePdfConformance,
+        validatePdfData: baseDocuments.validatePdfData,
+        validatePdfPath: baseDocuments.validatePdfPath,
+        openPdfInDefaultAppData: baseDocuments.openPdfInDefaultAppData,
+        openPdfInDefaultAppPath: baseDocuments.openPdfInDefaultAppPath,
+        printPdfData: baseDocuments.printPdfData,
+        printPdfPath: baseDocuments.printPdfPath,
+    } satisfies IDocumentsPdfCapability;
+    const documentRecentFiles = {recentFiles} satisfies IDocumentsRecentFilesCapability;
+    const documentWindow = {
+        setWindowTitle: baseDocuments.setWindowTitle,
+        showItemInFolder: baseDocuments.showItemInFolder,
+    } satisfies IDocumentsWindowCapability;
+    const documentMenu = {
+        setMenuDocumentState: baseDocuments.setMenuDocumentState,
+        setMenuTabCount: baseDocuments.setMenuTabCount,
+        onPdfOptimizeProgress: baseDocuments.onPdfOptimizeProgress,
+        onMenuOpenPdf: baseDocuments.onMenuOpenPdf,
+        onMenuInsertImageFromFile: baseDocuments.onMenuInsertImageFromFile,
+        onMenuPasteImageFromClipboard: baseDocuments.onMenuPasteImageFromClipboard,
+        onMenuSave: baseDocuments.onMenuSave,
+        onMenuRepairSave: baseDocuments.onMenuRepairSave,
+        onMenuOptimizePdfForInteraction: baseDocuments.onMenuOptimizePdfForInteraction,
+        onMenuSaveAs: baseDocuments.onMenuSaveAs,
+        onMenuPrint: baseDocuments.onMenuPrint,
+        onMenuPrintCurrentPage: baseDocuments.onMenuPrintCurrentPage,
+        onMenuExportDocx: baseDocuments.onMenuExportDocx,
+        onMenuExportImages: baseDocuments.onMenuExportImages,
+        onMenuExportMultiPageTiff: baseDocuments.onMenuExportMultiPageTiff,
+        onMenuZoomIn: baseDocuments.onMenuZoomIn,
+        onMenuZoomOut: baseDocuments.onMenuZoomOut,
+        onMenuActualSize: baseDocuments.onMenuActualSize,
+        onMenuFitWidth: baseDocuments.onMenuFitWidth,
+        onMenuFitHeight: baseDocuments.onMenuFitHeight,
+        onMenuViewModeSingle: baseDocuments.onMenuViewModeSingle,
+        onMenuViewModeFacing: baseDocuments.onMenuViewModeFacing,
+        onMenuViewModeFacingFirstSingle: baseDocuments.onMenuViewModeFacingFirstSingle,
+        onMenuToggleAssistant: baseDocuments.onMenuToggleAssistant,
+        onMenuUndo: baseDocuments.onMenuUndo,
+        onMenuRedo: baseDocuments.onMenuRedo,
+        onMenuDeletePages: baseDocuments.onMenuDeletePages,
+        onMenuExtractPages: baseDocuments.onMenuExtractPages,
+        onMenuRotateCw: baseDocuments.onMenuRotateCw,
+        onMenuRotateCcw: baseDocuments.onMenuRotateCcw,
+        onMenuInsertPages: baseDocuments.onMenuInsertPages,
+        onMenuOpenRecentFile: baseDocuments.onMenuOpenRecentFile,
+        onMenuOpenExternalPaths: baseDocuments.onMenuOpenExternalPaths,
+        onMenuClearRecentFiles: baseDocuments.onMenuClearRecentFiles,
+        onOpenDocumentDirectBatchProgress: baseDocuments.onOpenDocumentDirectBatchProgress,
+        onOpenPdfDirectBatchProgress: baseDocuments.onOpenPdfDirectBatchProgress,
+    } satisfies IDocumentsMenuCapability;
+
+    const documents = {
+        ...documentPicker,
+        ...documentOpen,
+        ...documentWorkingCopy,
+        ...documentFiles,
+        ...documentPdf,
+        ...documentRecentFiles,
+        ...documentWindow,
+        ...documentMenu,
     };
 
     const api = {
         documents,
+        documentPicker,
+        documentOpen,
+        documentWorkingCopy,
+        documentFiles,
+        documentPdf,
+        documentRecentFiles,
+        documentWindow,
+        documentMenu,
         pageOps,
         imageExport,
 
@@ -264,54 +386,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.hostZenModeChanged, callback),
         },
 
-        agent: {
-            onWorkspaceSnapshotRequest: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onDecodedPayload(
-                    CORE_IPC_EVENT_CHANNELS.agentWorkspaceSnapshotRequest,
-                    decodeAgentWorkspaceSnapshotRequest,
-                    callback,
-                ),
-            submitWorkspaceSnapshot: response =>
-                invokeCore(CORE_IPC_CHANNELS.agentSubmitWorkspaceSnapshot, response),
-            onCommandRequest: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onDecodedPayload(
-                    CORE_IPC_EVENT_CHANNELS.agentCommandRequest,
-                    decodeAgentCommandRequest,
-                    callback,
-                ),
-            submitCommandResponse: response =>
-                invokeCore(CORE_IPC_CHANNELS.agentSubmitCommandResponse, response),
-            getMcpIntegrationStatus: () =>
-                invokeCore(CORE_IPC_CHANNELS.agentGetMcpIntegrationStatus),
-            setMcpIntegrationEnabled: enabled =>
-                invokeCore(CORE_IPC_CHANNELS.agentSetMcpIntegrationEnabled, enabled),
-            getAssistantState: request =>
-                request === undefined
-                    ? invokeCore(CORE_IPC_CHANNELS.agentGetAssistantState)
-                    : invokeCore(CORE_IPC_CHANNELS.agentGetAssistantState, request),
-            installAssistantCodex: () =>
-                invokeCore(CORE_IPC_CHANNELS.agentInstallAssistantCodex),
-            startAssistantLogin: request =>
-                invokeCore(CORE_IPC_CHANNELS.agentStartAssistantLogin, request),
-            cancelAssistantLogin: () =>
-                invokeCore(CORE_IPC_CHANNELS.agentCancelAssistantLogin),
-            sendAssistantMessage: request =>
-                invokeCore(CORE_IPC_CHANNELS.agentSendAssistantMessage, request),
-            interruptAssistant: request =>
-                request === undefined
-                    ? invokeCore(CORE_IPC_CHANNELS.agentInterruptAssistant)
-                    : invokeCore(CORE_IPC_CHANNELS.agentInterruptAssistant, request),
-            resetAssistantChat: request =>
-                request === undefined
-                    ? invokeCore(CORE_IPC_CHANNELS.agentResetAssistantChat)
-                    : invokeCore(CORE_IPC_CHANNELS.agentResetAssistantChat, request),
-            onAssistantEvent: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onDecodedPayload(
-                    CORE_IPC_EVENT_CHANNELS.agentAssistantEvent,
-                    decodeAgentAssistantEvent,
-                    callback,
-                ),
-        },
+        agent: createAgentPreloadClient(ipcRenderer),
 
         windowTabs: {
             closeCurrentWindow: () => invokeCore(CORE_IPC_CHANNELS.windowCloseCurrent),

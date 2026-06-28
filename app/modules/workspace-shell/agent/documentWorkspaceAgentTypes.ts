@@ -14,7 +14,7 @@ import type {
 } from '@app/types/annotations';
 import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
 import type { IOcrPopupAgentExpose } from '@app/types/ocrAgent';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type { IWorkspacePdfViewerAgentPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 
 export type {
     IAgentOcrRunOptions,
@@ -90,7 +90,7 @@ export interface IUseDocumentWorkspaceAgentOptions {
     pageOpsInsert: (totalPages: number, afterPage: number) => Promise<unknown>;
     handleCropPages: (pages: number[], margins: ICropMargins) => Promise<unknown>;
     handleRemoveCrop: (pages: number[]) => Promise<unknown>;
-    pdfViewerRef: Ref<IPdfViewerExpose | null>;
+    pdfViewerRef: Ref<IWorkspacePdfViewerAgentPort | null>;
     selectedThumbnailPages: Ref<number[]>;
     showConvertDialog: Ref<boolean>;
     showSidebar: Ref<boolean>;

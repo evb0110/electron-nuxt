@@ -23,7 +23,7 @@ import {
     iteratePageMatches,
 } from '@electron/search/worker/searchMatch';
 import { parsePageNumber } from '@contracts/pageNumbers';
-import type { IResolvedSearchMatchOptions } from '@contracts/search';
+import type { IResolvedSearchMatchOptions } from '@pdf-core';
 import type { ICachedIndex } from '@electron/search/worker/ensureSearchIndex';
 import { ensureSearchIndex } from '@electron/search/worker/ensureSearchIndex';
 import { collectSearchMatchWords } from '@pdf-core';

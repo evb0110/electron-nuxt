@@ -11,7 +11,7 @@ const documentsMock = vi.hoisted(() => ({
     readTextFile: vi.fn(),
 }));
 
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentsCapability: () => documentsMock}));
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => documentsMock}));
 
 describe('platform OCR artifacts', () => {
     beforeEach(() => {

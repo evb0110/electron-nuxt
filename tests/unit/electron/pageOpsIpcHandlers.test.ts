@@ -60,7 +60,6 @@ const mocks = vi.hoisted(() => ({
     showOpenDialog: vi.fn(),
     getFocusedWindow: vi.fn(),
     runCommand: vi.fn(),
-    getNativeToolPaths: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn(),
     findWorkingCopyPathByOriginalPath: vi.fn(),
     allowOpenPath: vi.fn(),
@@ -134,7 +133,6 @@ vi.mock('@electron/image/pdfCombineShared', () => ({ PDF_COMBINE_SUPPORTED_IMAGE
 ] }));
 vi.mock('@electron/te', () => ({te: (key: string) => key}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runCommand(...args)}));
-vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths: () => mocks.getNativeToolPaths()}));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({
     allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args),
     allowOpenPaths: (...args: unknown[]) => mocks.allowOpenPaths(...args),
@@ -147,7 +145,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 
-const { registerPageOpsHandlers } = await import('@electron/features/page-ops/main/registerPageOpsHandlers');
+const { registerPageOpsIpcAdapter } = await import('@electron/features/page-ops/registerPageOpsIpcAdapter');
 
 function getHandler(channel: string) {
     const handler = mocks.handlers.get(channel);
@@ -157,7 +155,7 @@ function getHandler(channel: string) {
     return handler;
 }
 
-describe('registerPageOpsHandlers', () => {
+describe('registerPageOpsIpcAdapter', () => {
     beforeEach(() => {
         mocks.handlers.clear();
         vi.clearAllMocks();
@@ -175,7 +173,6 @@ describe('registerPageOpsHandlers', () => {
         });
         mocks.createPdfFromInputPaths.mockResolvedValue(new Uint8Array([1]));
         mocks.isPdfOrImagePath.mockReturnValue(true);
-        mocks.getNativeToolPaths.mockReturnValue({qpdf: '/mock/qpdf'});
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
         mocks.writeFile.mockResolvedValue(undefined);
@@ -202,7 +199,7 @@ describe('registerPageOpsHandlers', () => {
             exitCode: 0,
         });
 
-        registerPageOpsHandlers();
+        registerPageOpsIpcAdapter();
     });
 
     it('serializes mutating operations for the same workingCopyPath', async () => {

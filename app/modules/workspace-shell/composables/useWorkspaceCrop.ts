@@ -6,12 +6,12 @@ import type {
 import type { TDocumentRef } from '@contracts/documentRef';
 import { screenRectToMargins } from '@app/utils/pdfCropCoordinates';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type { IWorkspacePdfViewerCropPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { getPageOpsCapability } from '@app/utils/platformDocuments';
 import { getErrorMessage } from '@app/utils/error';
 
 interface IUseWorkspaceCropOptions {
-    pdfViewerRef: Ref<IPdfViewerExpose | null>;
+    pdfViewerRef: Ref<IWorkspacePdfViewerCropPort | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
 }
 
@@ -39,7 +39,7 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
 
     function isCurrentCropRequest(
         requestToken: number,
-        viewer: IPdfViewerExpose,
+        viewer: IWorkspacePdfViewerCropPort,
         workingCopyPath: TDocumentRef,
     ) {
         return requestToken === cropRequestToken

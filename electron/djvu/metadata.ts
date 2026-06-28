@@ -1,7 +1,5 @@
-import {
-    buildDjvuRuntimeEnv,
-    getDjvuToolPaths,
-} from '@electron/djvu/paths';
+import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
+import { getDjvuNativeToolPaths } from '@electron/djvu/nativeToolPaths';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { createLogger } from '@electron/utils/createLogger';
 import { isAbortError } from '@electron/utils/abort';
@@ -46,7 +44,7 @@ const DJVU_MAX_PAGES = (() => {
 interface IDjvuMetadataOptions {signal?: AbortSignal;}
 
 async function runDjvused(args: string[], options: IDjvuMetadataOptions = {}): Promise<IRunResult> {
-    const { djvused } = getDjvuToolPaths();
+    const { djvused } = getDjvuNativeToolPaths();
     const commandOptions = {
         env: buildDjvuRuntimeEnv(),
         timeoutMs: DJVU_METADATA_TIMEOUT_MS,

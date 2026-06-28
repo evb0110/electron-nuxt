@@ -100,6 +100,44 @@ async function waitForCondition(condition: () => boolean, timeoutMs = 300) {
     }
 }
 
+function installSplitImagePickerPlatform(imagePath: string, options: { cleanupError?: Error } = {}) {
+    const legacyDocuments = {
+        openImageDialog: vi.fn(() => Promise.reject(new Error('legacy image dialog should not be used'))),
+        readFile: vi.fn(() => Promise.reject(new Error('legacy image read should not be used'))),
+        cleanupFile: vi.fn(() => Promise.reject(new Error('legacy image cleanup should not be used'))),
+    };
+    const imageBytes = Uint8Array.from([
+        1,
+        2,
+        3,
+    ]);
+    const cleanupFile = vi.fn(() => (
+        options.cleanupError
+            ? Promise.reject(options.cleanupError)
+            : Promise.resolve()
+    ));
+    const documentPicker = { openImageDialog: vi.fn(() => Promise.resolve(imagePath)) };
+    const documentFiles = { readFile: vi.fn(() => Promise.resolve(imageBytes)) };
+    const documentWorkingCopy = { cleanupFile };
+
+    vi.stubGlobal('window', {
+        ...globalThis,
+        electronAPI: {
+            documentFiles,
+            documentPicker,
+            documentWorkingCopy,
+            documents: legacyDocuments,
+        },
+    });
+
+    return {
+        documentFiles,
+        documentPicker,
+        documentWorkingCopy,
+        legacyDocuments,
+    };
+}
+
 interface ITestViewerRect {
     left: number;
     top: number;
@@ -147,7 +185,14 @@ function createHarness() {
             9,
             9,
         ])),
-        startImagePlacement: vi.fn(async () => true),
+        startImagePlacement: vi.fn(async (
+            _file?: File,
+            _placement?: {
+                pageNumber?: number | null;
+                pageX?: number | null;
+                pageY?: number | null;
+            },
+        ) => true),
         clearPendingImagePlacement: vi.fn(),
         restorePendingImagePlacement: vi.fn(),
         restoreAnnotationToInternalCache: vi.fn(),
@@ -832,32 +877,26 @@ describe('usePageAnnotationActions', () => {
             viewer,
             actions,
         } = createHarness();
-        const documents = {
-            openImageDialog: vi.fn(async () => '/tmp/test.png'),
-            readFile: vi.fn(async () => [
-                1,
-                2,
-                3,
-            ]),
-            cleanupFile: vi.fn(async () => {}),
-        };
-
-        Object.defineProperty(globalThis, 'window', {
-            value: globalThis,
-            configurable: true,
-            writable: true,
-        });
-        Object.defineProperty(globalThis, 'electronAPI', {
-            value: { documents },
-            configurable: true,
-            writable: true,
-        });
+        const {
+            documentFiles,
+            documentPicker,
+            documentWorkingCopy,
+            legacyDocuments,
+        } = installSplitImagePickerPlatform('/tmp/test.png');
 
         await actions.insertImageFromFileAt(2, 0.25, 0.5);
 
         expect(deps.handleAnnotationToolChange).not.toHaveBeenCalledWith('stamp');
         expect(deps.annotationTool.value).toBe('highlight');
         expect(viewer.startImagePlacement).toHaveBeenCalledOnce();
+        const placedFile = viewer.startImagePlacement.mock.calls[0]?.[0] as File;
+        expect(placedFile.name).toBe('test.png');
+        expect(placedFile.type).toBe('image/png');
+        expect(Array.from(new Uint8Array(await placedFile.arrayBuffer()))).toEqual([
+            1,
+            2,
+            3,
+        ]);
         expect(viewer.startImagePlacement).toHaveBeenCalledWith(
             expect.any(File),
             {
@@ -866,7 +905,39 @@ describe('usePageAnnotationActions', () => {
                 pageY: 0.5,
             },
         );
-        expect(documents.cleanupFile).not.toHaveBeenCalled();
+        expect(documentPicker.openImageDialog).toHaveBeenCalledOnce();
+        expect(documentFiles.readFile).toHaveBeenCalledWith('/tmp/test.png');
+        expect(documentWorkingCopy.cleanupFile).not.toHaveBeenCalled();
+        expect(legacyDocuments.openImageDialog).not.toHaveBeenCalled();
+        expect(legacyDocuments.readFile).not.toHaveBeenCalled();
+        expect(legacyDocuments.cleanupFile).not.toHaveBeenCalled();
+    });
+
+    it('cleans up browser image refs through the split working-copy capability', async () => {
+        const {
+            viewer,
+            actions,
+        } = createHarness();
+        const imagePath = 'browser://documents/image-picker/test.webp';
+        const {
+            documentFiles,
+            documentPicker,
+            documentWorkingCopy,
+            legacyDocuments,
+        } = installSplitImagePickerPlatform(imagePath, { cleanupError: new Error('cleanup failed') });
+
+        await expect(actions.insertImageFromFileAt(2, 0.25, 0.5)).resolves.toBeUndefined();
+
+        expect(viewer.startImagePlacement).toHaveBeenCalledOnce();
+        const placedFile = viewer.startImagePlacement.mock.calls[0]?.[0] as File;
+        expect(placedFile.name).toBe('test.webp');
+        expect(placedFile.type).toBe('image/webp');
+        expect(documentPicker.openImageDialog).toHaveBeenCalledOnce();
+        expect(documentFiles.readFile).toHaveBeenCalledWith(imagePath);
+        expect(documentWorkingCopy.cleanupFile).toHaveBeenCalledWith(imagePath);
+        expect(legacyDocuments.openImageDialog).not.toHaveBeenCalled();
+        expect(legacyDocuments.readFile).not.toHaveBeenCalled();
+        expect(legacyDocuments.cleanupFile).not.toHaveBeenCalled();
     });
 
     it('finalizes a placed image by embedding it into the reloaded PDF', async () => {

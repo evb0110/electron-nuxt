@@ -858,7 +858,7 @@ import { getAgentAssistantPanelView } from '@app/modules/workspace-shell/public'
 import { guardAsync } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
-import { getPlatformAPI } from '@app/utils/platform';
+import { getAgentCapability } from '@app/utils/getAgentCapability';
 import {
     defaultDocument,
     defaultWindow,
@@ -1425,7 +1425,7 @@ function handleAssistantEvent(event: IAgentAssistantEvent) {
 async function refreshState() {
     const generation = ++stateGeneration;
     lastRefreshStartedAt = Date.now();
-    const nextState = await getPlatformAPI().agent.getAssistantState(createAssistantStateRequest());
+    const nextState = await getAgentCapability().getAssistantState(createAssistantStateRequest());
     if (generation === stateGeneration) {
         applyState(nextState);
     }
@@ -1534,7 +1534,7 @@ async function installCodex() {
     isInstalling.value = true;
     installProgress.value = '';
     try {
-        const result = await getPlatformAPI().agent.installAssistantCodex();
+        const result = await getAgentCapability().installAssistantCodex();
         applyState(result.state);
     } finally {
         isInstalling.value = false;
@@ -1546,7 +1546,7 @@ async function startLogin(mode: TAgentAssistantLoginMode) {
     loginMode.value = mode;
     deviceCode.value = '';
     try {
-        const result = await getPlatformAPI().agent.startAssistantLogin({ mode });
+        const result = await getAgentCapability().startAssistantLogin({ mode });
         applyState(result.state);
         deviceCode.value = result.userCode ?? '';
     } finally {
@@ -1556,7 +1556,7 @@ async function startLogin(mode: TAgentAssistantLoginMode) {
 }
 
 async function cancelLogin() {
-    applyState(await getPlatformAPI().agent.cancelAssistantLogin());
+    applyState(await getAgentCapability().cancelAssistantLogin());
     deviceCode.value = '';
 }
 
@@ -1688,7 +1688,7 @@ async function submitAssistantPayload(
     const attachments = payload.attachments ?? [];
     isSending.value = true;
     try {
-        const result = await getPlatformAPI().agent.sendAssistantMessage({
+        const result = await getAgentCapability().sendAssistantMessage({
             text: payload.text,
             scope: cloneAssistantScope(chatScope),
             provider: selectedProvider.value,
@@ -1776,7 +1776,7 @@ async function interrupt() {
         return;
     }
     sendGeneration += 1;
-    applyState(await getPlatformAPI().agent.interruptAssistant(createAssistantStateRequest()));
+    applyState(await getAgentCapability().interruptAssistant(createAssistantStateRequest()));
 }
 
 function handleInterrupt() {
@@ -1793,7 +1793,7 @@ async function resetChat() {
     composerError.value = '';
     isResetting.value = true;
     try {
-        applyState(await getPlatformAPI().agent.resetAssistantChat(createAssistantStateRequest()));
+        applyState(await getAgentCapability().resetAssistantChat(createAssistantStateRequest()));
     } finally {
         isResetting.value = false;
         isSending.value = status.value.runtimeState === 'busy';
@@ -1833,7 +1833,7 @@ let unsubscribe: (() => void) | null = null;
 useAssistantComposerAutofocus(composerInputRef, canFocusComposerInput);
 
 onMounted(() => {
-    unsubscribe = getPlatformAPI().agent.onAssistantEvent(handleAssistantEvent);
+    unsubscribe = getAgentCapability().onAssistantEvent(handleAssistantEvent);
     guardAsync(refreshState(), {
         scope: 'assistant',
         message: 'Failed to load assistant state',

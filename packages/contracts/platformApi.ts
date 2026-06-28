@@ -2,7 +2,15 @@ import type { IAgentCapability } from '@contracts/agentCapability';
 import type { IDjvuCapability } from '@contracts/electronApiDjvu';
 import type {
     IDocumentsCapability,
+    IDocumentsFileIoCapability,
     IImageExportCapability,
+    IDocumentsMenuCapability,
+    IDocumentsOpenCapability,
+    IDocumentsPdfCapability,
+    IDocumentsPickerCapability,
+    IDocumentsRecentFilesCapability,
+    IDocumentsWindowCapability,
+    IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
 import type { IHostCapability } from '@contracts/electronApiHost';
 import type { IOcrCapability } from '@contracts/electronApiOcr';
@@ -16,6 +24,14 @@ import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 
 export interface IPlatformApi {
     documents: IDocumentsCapability;
+    documentPicker?: IDocumentsPickerCapability;
+    documentOpen?: IDocumentsOpenCapability;
+    documentWorkingCopy?: IDocumentsWorkingCopyCapability;
+    documentFiles?: IDocumentsFileIoCapability;
+    documentPdf?: IDocumentsPdfCapability;
+    documentRecentFiles?: IDocumentsRecentFilesCapability;
+    documentWindow?: IDocumentsWindowCapability;
+    documentMenu?: IDocumentsMenuCapability;
     pageOps: IPageOpsCapability;
     imageExport: IImageExportCapability;
     ocr: IOcrCapability;

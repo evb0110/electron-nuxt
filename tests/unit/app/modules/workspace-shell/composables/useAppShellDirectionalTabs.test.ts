@@ -14,9 +14,17 @@ import type { TSplitPayload } from '@contracts/windowTabs';
 import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
 import type { ITab } from '@app/types/tabs';
 
-const mocks = vi.hoisted(() => ({ createWorkingCopyFromPath: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+    createWorkingCopyFromPath: vi.fn(),
+    legacyCreateWorkingCopyFromPath: vi.fn(() => {
+        throw new Error('legacy createWorkingCopyFromPath should not be used');
+    }),
+}));
 
-vi.mock('@app/utils/platformDocuments', () => ({ getDocumentsCapability: () => ({ createWorkingCopyFromPath: mocks.createWorkingCopyFromPath }) }));
+vi.mock('@app/utils/platformDocuments', () => ({
+    getDocumentWorkingCopyCapability: () => ({ createWorkingCopyFromPath: mocks.createWorkingCopyFromPath }),
+    getDocumentsCapability: () => ({ createWorkingCopyFromPath: mocks.legacyCreateWorkingCopyFromPath }),
+}));
 
 function createPayload(): TSplitPayload {
     return {
@@ -88,6 +96,8 @@ describe('useAppShellDirectionalTabs', () => {
         });
 
         await expect(tabs.splitEditor('right')).rejects.toThrow('copy failed');
+        expect(mocks.createWorkingCopyFromPath).toHaveBeenCalledWith('/tmp/snapshot.pdf', '/tmp/sample.pdf');
+        expect(mocks.legacyCreateWorkingCopyFromPath).not.toHaveBeenCalled();
         expect(splitPane).not.toHaveBeenCalled();
         expect(createTab).not.toHaveBeenCalled();
     });

@@ -18,11 +18,9 @@ import { join } from 'path';
 import { PDFDocument } from 'pdf-lib';
 import { limitAsync } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
-import {
-    buildDjvuRuntimeEnv,
-    getDjvuToolPaths,
-} from '@electron/djvu/paths';
-import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
+import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
+import { getDjvuNativeToolPaths } from '@electron/djvu/nativeToolPaths';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import { describeProcessExitCode } from '@electron/utils/describeProcessExitCode';
 import { getErrorMessage } from '@electron/utils/error';
@@ -238,7 +236,7 @@ async function _convertDjvuToPdfSingleProcess(
     const pageProgressSeen = new Set<number>();
     const result = await runProcess(
         jobId,
-        getDjvuToolPaths().ddjvu,
+        getDjvuNativeToolPaths().ddjvu,
         args,
         {
             env: buildDjvuRuntimeEnv(),
@@ -346,7 +344,7 @@ async function convertPageRangeToPdf(
     );
     const result = await runProcess(
         pageJobId,
-        getDjvuToolPaths().ddjvu,
+        getDjvuNativeToolPaths().ddjvu,
         args,
         { env: buildDjvuRuntimeEnv() },
     );
@@ -366,7 +364,7 @@ async function mergePdfChunks(
     outputPath: string,
     mergeJobId: string,
 ) {
-    const { qpdf } = getNativeToolPaths();
+    const { qpdf } = getPdfNativeToolPaths();
     const qpdfResult = await runProcess(
         mergeJobId,
         qpdf,
@@ -460,10 +458,10 @@ export async function convertDjvuPageToImage(
     jobId: string,
     options: {
         subsample?: number;
-        format?: TImageFormat 
+        format?: TImageFormat;
     } = {},
 ): Promise<IDjvuConversionResult> {
-    const { ddjvu } = getDjvuToolPaths();
+    const { ddjvu } = getDjvuNativeToolPaths();
     const format = options.format ?? 'ppm';
 
     const args = [

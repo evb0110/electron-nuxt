@@ -51,7 +51,10 @@ const pdfjsState: {
 
 vi.mock('pdfjs-dist', () => pdfjsState);
 
-const electronApi = {documents: {readFileRange: vi.fn()}};
+const electronApi = {
+    documents: {readFileRange: vi.fn()},
+    documentFiles: {readFileRange: vi.fn()},
+};
 
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
@@ -63,6 +66,9 @@ const rangePreloadTestTimeoutMs = 15_000;
 describe('usePdfDocument range loading', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        electronApi.documentFiles.readFileRange.mockReset();
+        electronApi.documents.readFileRange.mockReset();
+        electronApi.documents.readFileRange.mockRejectedValue(new Error('Legacy documents readFileRange should not be used'));
         vi.stubGlobal('URL', {
             ...URL,
             createObjectURL: createObjectURLMock,
@@ -84,7 +90,7 @@ describe('usePdfDocument range loading', () => {
 
     it('loads a PDF through range transport and populates document state', async () => {
         const size = (1024 * 1024 * 2) + 13;
-        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,
             3,
@@ -112,6 +118,7 @@ describe('usePdfDocument range loading', () => {
 
         const { getPdfjsAssetDir } = await import('@app/utils/viewerAssets');
         expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+        expect(electronApi.documents.readFileRange).not.toHaveBeenCalled();
         expect(pdfjsState.getDocument).toHaveBeenCalledWith(expect.objectContaining({
             range: expect.any(MockPdfDataRangeTransport),
             length: size,
@@ -156,7 +163,7 @@ describe('usePdfDocument range loading', () => {
             };
         });
 
-        electronApi.documents.readFileRange.mockImplementation(async (
+        electronApi.documentFiles.readFileRange.mockImplementation(async (
             _path: string,
             offset: number,
             length: number,
@@ -200,7 +207,7 @@ describe('usePdfDocument range loading', () => {
         range.requestDataRange(tailStart, size);
         const deliveredRange = await dataRangeDelivered.promise;
 
-        expect(electronApi.documents.readFileRange).toHaveBeenCalledTimes(2);
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledTimes(2);
         expect(range.onDataRange).toHaveBeenCalledTimes(1);
         const rangeChunk = deliveredRange.chunk as Uint8Array | undefined;
         expect(deliveredRange.begin).toBe(tailStart);
@@ -243,7 +250,7 @@ describe('usePdfDocument range loading', () => {
             }),
             destroy: vi.fn(),
         });
-        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,
             3,
@@ -300,7 +307,7 @@ describe('usePdfDocument range loading', () => {
             }),
             destroy: vi.fn(),
         });
-        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,
             3,
@@ -369,7 +376,7 @@ describe('usePdfDocument range loading', () => {
             }),
             destroy: vi.fn(),
         });
-        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,
             3,
@@ -392,7 +399,7 @@ describe('usePdfDocument range loading', () => {
 
     it('returns null and clears loading when PDF.js range transport API is unavailable', async () => {
         delete pdfjsState.PDFDataRangeTransport;
-        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,
             3,
@@ -415,7 +422,7 @@ describe('usePdfDocument range loading', () => {
     });
 
     it('returns null and clears loading when initial range read fails', async () => {
-        electronApi.documents.readFileRange.mockRejectedValue(new Error('read failed'));
+        electronApi.documentFiles.readFileRange.mockRejectedValue(new Error('read failed'));
 
         const documentState = usePdfDocument();
         const result = await documentState.loadPdf({
@@ -449,7 +456,7 @@ describe('usePdfDocument range loading', () => {
             destroy,
         });
 
-        electronApi.documents.readFileRange
+        electronApi.documentFiles.readFileRange
             .mockResolvedValueOnce(new Uint8Array([
                 1,
                 2,
@@ -506,7 +513,7 @@ describe('usePdfDocument range loading', () => {
 
         const requestedStart = 5 * 1024 * 1024;
         const requestedEnd = requestedStart + 12;
-        electronApi.documents.readFileRange.mockImplementation(async (
+        electronApi.documentFiles.readFileRange.mockImplementation(async (
             _path: string,
             offset: number,
             length: number,
@@ -543,12 +550,12 @@ describe('usePdfDocument range loading', () => {
             expect(range?.onDataRange).toHaveBeenCalledTimes(1);
         });
 
-        expect(electronApi.documents.readFileRange).toHaveBeenCalledWith(
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith(
             '/tmp/short-range-read.pdf',
             requestedStart,
             12,
         );
-        expect(electronApi.documents.readFileRange).toHaveBeenCalledWith(
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith(
             '/tmp/short-range-read.pdf',
             requestedStart + 8,
             4,
@@ -583,7 +590,7 @@ describe('usePdfDocument range loading', () => {
             promise: deferred.promise,
             destroy,
         });
-        electronApi.documents.readFileRange.mockImplementation(async (
+        electronApi.documentFiles.readFileRange.mockImplementation(async (
             _path: string,
             _offset: number,
             length: number,
@@ -603,20 +610,20 @@ describe('usePdfDocument range loading', () => {
         const range = (pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined)?.range;
         expect(range).toBeInstanceOf(MockPdfDataRangeTransport);
 
-        electronApi.documents.readFileRange.mockClear();
+        electronApi.documentFiles.readFileRange.mockClear();
         range?.onDataRange.mockClear();
         range?.requestDataRange?.(2 * 1024 * 1024, 12 * 1024 * 1024);
 
         await vi.waitFor(() => {
             expect(range?.onDataRange).toHaveBeenCalledTimes(1);
         });
-        expect(electronApi.documents.readFileRange).toHaveBeenNthCalledWith(
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenNthCalledWith(
             1,
             '/tmp/large-range.pdf',
             2 * 1024 * 1024,
             8 * 1024 * 1024,
         );
-        expect(electronApi.documents.readFileRange).toHaveBeenNthCalledWith(
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenNthCalledWith(
             2,
             '/tmp/large-range.pdf',
             10 * 1024 * 1024,
@@ -655,7 +662,7 @@ describe('usePdfDocument range loading', () => {
             promise: deferred.promise,
             destroy,
         });
-        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,
             3,
@@ -676,11 +683,11 @@ describe('usePdfDocument range loading', () => {
         const range = (pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined)?.range;
         expect(range).toBeInstanceOf(MockPdfDataRangeTransport);
 
-        electronApi.documents.readFileRange.mockClear();
+        electronApi.documentFiles.readFileRange.mockClear();
         range?.requestDataRange?.(0, 1024 * 1024 * 1024 + 1);
 
         await expect(loadPromise).resolves.toBeNull();
-        expect(electronApi.documents.readFileRange).not.toHaveBeenCalled();
+        expect(electronApi.documentFiles.readFileRange).not.toHaveBeenCalled();
         expect(range?.onDataRange).not.toHaveBeenCalled();
         expect(destroy).toHaveBeenCalledTimes(1);
     });
@@ -702,7 +709,7 @@ describe('usePdfDocument range loading', () => {
             }),
             destroy: taskDestroy,
         });
-        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,
             3,
@@ -719,7 +726,7 @@ describe('usePdfDocument range loading', () => {
         const range = (pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined)?.range;
         expect(documentState.pdfDocument.value).not.toBeNull();
 
-        electronApi.documents.readFileRange.mockRejectedValue(new Error('post-load read failed'));
+        electronApi.documentFiles.readFileRange.mockRejectedValue(new Error('post-load read failed'));
         range?.requestDataRange?.(1024 * 1024, (1024 * 1024) + 512);
 
         await vi.waitFor(() => {
@@ -745,7 +752,7 @@ describe('usePdfDocument range loading', () => {
             }),
             destroy: taskDestroy,
         });
-        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,
             3,
@@ -773,7 +780,7 @@ describe('usePdfDocument range loading', () => {
             promise: Promise.reject(new Error('parse failed')),
             destroy,
         });
-        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,
             3,
@@ -854,7 +861,7 @@ describe('usePdfDocument range loading', () => {
             }),
             destroy: vi.fn(),
         });
-        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,
             3,

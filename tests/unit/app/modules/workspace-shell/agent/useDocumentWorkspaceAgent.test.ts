@@ -15,7 +15,7 @@ import type {
 } from '@app/types/annotations';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
 import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type { IWorkspacePdfViewerAgentPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import {
     DOCUMENT_WORKSPACE_AGENT_ACTION_IDS,
     DOCUMENT_WORKSPACE_AGENT_ALIAS_ACTION_IDS,
@@ -154,7 +154,7 @@ function createAgentOptions(
         pageOpsInsert: vi.fn(async () => undefined),
         handleCropPages: vi.fn(async () => true),
         handleRemoveCrop: vi.fn(async () => true),
-        pdfViewerRef: ref<IPdfViewerExpose | null>(null),
+        pdfViewerRef: ref<IWorkspacePdfViewerAgentPort | null>(null),
         selectedThumbnailPages: ref([]),
         showConvertDialog: ref(false),
         showSidebar,
@@ -467,7 +467,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const agent = useDocumentWorkspaceAgent(createAgentOptions({
             annotationComments: ref([comment]),
             updateTextMarkupColorWithHistory,
-            pdfViewerRef: ref(cast<IPdfViewerExpose>({updateTextMarkupAnnotationColor: rawViewerColorUpdate})),
+            pdfViewerRef: ref(cast<IWorkspacePdfViewerAgentPort>({updateTextMarkupAnnotationColor: rawViewerColorUpdate})),
         }));
 
         await expect(agent.runAgentAction('annotation.update_text_markup_color', {
@@ -508,7 +508,7 @@ describe('useDocumentWorkspaceAgent', () => {
         });
         const agent = useDocumentWorkspaceAgent(createAgentOptions({
             annotationComments: ref([comment]),
-            pdfViewerRef: ref(cast<IPdfViewerExpose>({
+            pdfViewerRef: ref(cast<IWorkspacePdfViewerAgentPort>({
                 updateAnnotationComment,
                 registerAnnotationHistoryCommand,
             })),

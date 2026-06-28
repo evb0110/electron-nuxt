@@ -12,13 +12,13 @@ import { useAnnotationContextMenu } from '@app/modules/workspace-shell/composabl
 import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type { IWorkspacePdfViewerAnnotationSessionPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { hasAnnotationChanges as detectAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
 import { hasLivePdfJsAnnotationChanges as detectLivePdfJsAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasLivePdfJsAnnotationChanges';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 
 interface IWorkspaceAnnotationSessionOptions {
-    pdfViewerRef: Ref<IPdfViewerExpose | null>;
+    pdfViewerRef: Ref<IWorkspacePdfViewerAnnotationSessionPort | null>;
     pdfDocument: Ref<PDFDocumentProxy | null>;
     dragMode: Ref<boolean>;
 }

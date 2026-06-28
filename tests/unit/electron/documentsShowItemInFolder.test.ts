@@ -78,7 +78,7 @@ describe('documents show item in folder', () => {
 
         allowOpenPath(filePath);
 
-        await expect(handleShowItemInFolder({ sender: {} } as never, filePath)).resolves.toBe(true);
+        await expect(handleShowItemInFolder({}, filePath)).resolves.toBe(true);
 
         expect(mocks.showItemInFolder).toHaveBeenCalledWith(realpathSync.native(filePath));
     });
@@ -89,18 +89,17 @@ describe('documents show item in folder', () => {
 
         const { handleShowItemInFolder } = await import('@electron/features/documents/main/documentWindowHandlers');
 
-        await expect(handleShowItemInFolder({ sender: {} } as never, filePath)).resolves.toBe(false);
+        await expect(handleShowItemInFolder({}, filePath)).resolves.toBe(false);
 
         expect(mocks.showItemInFolder).not.toHaveBeenCalled();
     });
 
     it('trims and clamps window titles before setting the native title', async () => {
         const setTitle = vi.fn();
-        mocks.fromWebContents.mockReturnValue({setTitle});
         const { handleSetWindowTitle } = await import('@electron/features/documents/main/documentWindowHandlers');
 
         handleSetWindowTitle(
-            { sender: {id: 9} } as never,
+            {window: {setTitle} as never},
             `  ${'Document'.repeat(100)}  `,
         );
 

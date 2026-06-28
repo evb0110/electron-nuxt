@@ -31,12 +31,12 @@ import {
 import { encode as encodePng } from 'fast-png';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import type { TImageExportProgressPhase } from '@contracts/electronApiDocuments';
-import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import {
     buildPopplerEnv,
     type IPopplerRuntimePaths,
 } from '@electron/native-tools/buildPopplerEnv';
-import { clampDpi } from '@electron/ocr/worker/dpiDetection';
+import { clampDpi } from '@electron/image/imageDpi';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
@@ -479,7 +479,7 @@ async function detectExportDpi(
 }
 
 export async function getPdfPageCount(pdfPath: string) {
-    const result = await runNativeToolCommand(getNativeToolPaths().qpdf, [
+    const result = await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
         '--show-npages',
         pdfPath,
     ], {
@@ -521,7 +521,7 @@ async function renderPdfToTempPages(
 ): Promise<IRenderedPageFile[]> {
     const tempDir = await mkdtemp(join(tmpdir(), 'pdfExport-'));
     const prefix = join(tempDir, 'page');
-    const paths = getNativeToolPaths();
+    const paths = getPdfNativeToolPaths();
     throwIfAborted(signal);
 
     try {
@@ -681,7 +681,7 @@ async function prepareSourcePdfForExport(pdfPath: string, options: IExportPdfOpt
 
     const tempDir = await mkdtemp(join(tmpdir(), 'pdfExport-scope-'));
     const subsetPdfPath = join(tempDir, 'subset.pdf');
-    const qpdf = getNativeToolPaths().qpdf;
+    const qpdf = getPdfNativeToolPaths().qpdf;
 
     try {
         throwIfAborted(options.signal);

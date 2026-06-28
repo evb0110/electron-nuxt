@@ -12,7 +12,6 @@ import type {
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
 import {
-    getPlatformAPI,
     shouldPreferDesktopPlatform,
     waitForDesktopPlatformBridge,
 } from '@app/utils/platform';
@@ -20,6 +19,10 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
 import type { ITabsMenuBindingDeps } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
+import { getDocumentMenuCapability } from '@app/utils/platformDocuments';
+import { getSettingsCapability } from '@app/utils/getSettingsCapability';
+import { getUpdatesCapability } from '@app/utils/platformUpdates';
+import { getDjvuCapability } from '@app/utils/getDjvuCapability';
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { shouldHandleRendererMenuAccelerators } from '@app/utils/shouldHandleRendererMenuAccelerators';
 import { guardAsync } from '@app/utils/asyncGuard';
@@ -391,8 +394,14 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 shouldWaitForDesktopBridge,
             });
 
-            const platformApi = getPlatformAPI();
-            const registeredMenuCleanups = registerTabsMenuBindings(platformApi, {
+            const windowTabsCapability = getWindowTabsCapability();
+            const registeredMenuCleanups = registerTabsMenuBindings({
+                documentMenu: getDocumentMenuCapability(),
+                settings: getSettingsCapability(),
+                updates: getUpdatesCapability(),
+                djvu: getDjvuCapability(),
+                windowTabs: windowTabsCapability,
+            }, {
                 activeWorkspace,
                 activeTabId,
                 createTab,
@@ -418,7 +427,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             menuCleanups.push(...registeredMenuCleanups);
             traceRendererStartup('tabs shell menu bindings registered');
 
-            const startupExternalPaths = await getWindowTabsCapability().claimPendingExternalOpenPaths();
+            const startupExternalPaths = await windowTabsCapability.claimPendingExternalOpenPaths();
             if (isDisposed) {
                 return;
             }
@@ -426,7 +435,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             if (startupExternalPaths.length > 0) {
                 traceRendererStartup('tabs shell claimed startup external paths', {pathCount: startupExternalPaths.length});
                 const failedPaths = await beginOpenPathsInAppropriateTab(startupExternalPaths);
-                await getWindowTabsCapability().acknowledgePendingExternalOpenPaths(failedPaths);
+                await windowTabsCapability.acknowledgePendingExternalOpenPaths(failedPaths);
                 if (isDisposed) {
                     return;
                 }
@@ -437,7 +446,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 return;
             }
             traceRendererStartup('tabs shell dispatching app:rendererReady');
-            getWindowTabsCapability().notifyRendererReady();
+            windowTabsCapability.notifyRendererReady();
         })().catch((error) => {
             if (isDisposed) {
                 return;

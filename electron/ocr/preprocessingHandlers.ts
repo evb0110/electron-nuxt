@@ -1,4 +1,3 @@
-import type { IpcMainInvokeEvent } from 'electron';
 import { randomUUID } from 'crypto';
 import {
     readFile,
@@ -41,6 +40,29 @@ interface IImageDimensions {
     width: number;
     height: number;
 }
+
+type TPreprocessSenderNavigationListener = (
+    event: Electron.Event,
+    url: string,
+    isInPlace: boolean,
+    isMainFrame: boolean,
+) => void;
+type TPreprocessSenderLifecycleListener = () => void;
+
+interface IPreprocessPageSender {
+    isDestroyed: () => boolean;
+    once: (event: 'destroyed' | 'render-process-gone', listener: TPreprocessSenderLifecycleListener) => unknown;
+    on: (
+        event: 'did-start-navigation',
+        listener: TPreprocessSenderNavigationListener,
+    ) => unknown;
+    removeListener: (
+        event: 'destroyed' | 'render-process-gone' | 'did-start-navigation',
+        listener: TPreprocessSenderLifecycleListener | TPreprocessSenderNavigationListener,
+    ) => unknown;
+}
+
+interface IPreprocessPageContext {sender: IPreprocessPageSender;}
 
 function readPngDimensions(bytes: Uint8Array<ArrayBufferLike>): IImageDimensions | null {
     const pngSignature = [
@@ -163,7 +185,7 @@ export async function handlePreprocessingValidate() {
 }
 
 export async function handlePreprocessPage(
-    event: IpcMainInvokeEvent,
+    context: IPreprocessPageContext,
     imageData: unknown,
     usePreprocessing: unknown,
 ) {
@@ -189,11 +211,11 @@ export async function handlePreprocessPage(
             throw new Error('Invalid preprocessing payload: usePreprocessing must be a boolean');
         }
 
-        event.sender.once('destroyed', handleSenderGone);
-        event.sender.once('render-process-gone', handleSenderGone);
-        event.sender.on('did-start-navigation', handleNavigation);
+        context.sender.once('destroyed', handleSenderGone);
+        context.sender.once('render-process-gone', handleSenderGone);
+        context.sender.on('did-start-navigation', handleNavigation);
 
-        if (event.sender.isDestroyed()) {
+        if (context.sender.isDestroyed()) {
             return createPreprocessingAbortResult(normalizedImageData, 'Renderer disconnected before preprocessing started');
         }
 
@@ -276,8 +298,8 @@ export async function handlePreprocessPage(
             error: errMsg,
         };
     } finally {
-        event.sender.removeListener('destroyed', handleSenderGone);
-        event.sender.removeListener('render-process-gone', handleSenderGone);
-        event.sender.removeListener('did-start-navigation', handleNavigation);
+        context.sender.removeListener('destroyed', handleSenderGone);
+        context.sender.removeListener('render-process-gone', handleSenderGone);
+        context.sender.removeListener('did-start-navigation', handleNavigation);
     }
 }

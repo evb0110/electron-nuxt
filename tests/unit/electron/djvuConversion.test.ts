@@ -119,14 +119,12 @@ vi.mock('os', () => ({
     cpus: () => Array.from({length: 5}, () => ({})),
     tmpdir: () => '/tmp',
 }));
-vi.mock('@electron/djvu/paths', () => ({
-    buildDjvuRuntimeEnv: () => ({PATH: '/bin'}),
-    getDjvuToolPaths: () => ({
-        ddjvu: '/tools/ddjvu',
-        djvused: '/tools/djvused',
-    }),
-}));
-vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths: () => ({qpdf: '/tools/qpdf'})}));
+vi.mock('@electron/djvu/paths', () => ({buildDjvuRuntimeEnv: () => ({PATH: '/bin'})}));
+vi.mock('@electron/djvu/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({
+    ddjvu: '/tools/ddjvu',
+    djvused: '/tools/djvused',
+})}));
+vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({qpdf: '/tools/qpdf'})}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     error: vi.fn(),

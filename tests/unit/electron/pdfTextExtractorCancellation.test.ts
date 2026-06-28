@@ -8,14 +8,14 @@ import {
 
 const mocks = vi.hoisted(() => ({
     runCommand: vi.fn(),
-    getOcrToolPaths: vi.fn(),
+    getPdfNativeToolPaths: vi.fn(),
 }));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({debug: vi.fn()})}));
 
 vi.mock('@electron/utils/runElectronCommand', () => ({runElectronCommand: mocks.runCommand}));
 
-vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: mocks.getOcrToolPaths}));
+vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: mocks.getPdfNativeToolPaths}));
 
 function createAbortError() {
     const error = new Error('The operation was aborted');
@@ -26,7 +26,7 @@ function createAbortError() {
 describe('extractTextFromPdf cancellation', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.getOcrToolPaths.mockReturnValue({pdftotext: 'pdftotext'});
+        mocks.getPdfNativeToolPaths.mockReturnValue({pdftotext: 'pdftotext'});
     });
 
     it('returns AbortError immediately when signal is already aborted', async () => {
@@ -83,7 +83,7 @@ describe('extractTextFromPdf cancellation', () => {
 
     it('passes bundled Poppler runtime environment to pdftotext', async () => {
         const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
-        mocks.getOcrToolPaths.mockReturnValue({
+        mocks.getPdfNativeToolPaths.mockReturnValue({
             pdftotext: 'pdftotext',
             popplerDataDir: '/mock/poppler/share/poppler',
             popplerFontConfigDir: '/mock/poppler/etc/fonts',

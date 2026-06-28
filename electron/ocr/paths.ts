@@ -2,91 +2,35 @@ import {
     existsSync,
     readdirSync,
 } from 'fs';
-import {
-    dirname,
-    join,
-} from 'path';
-import { fileURLToPath } from 'url';
 import type { App } from 'electron';
 import * as electron from 'electron';
-import {
-    ensureRuntimeTessdataSeeded,
-    getRuntimeTessdataDir,
-} from '@electron/ocr/languageModels';
+import { ensureRuntimeTessdataSeeded } from '@electron/ocr/languageModels';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/availableLanguages';
-import { resolveNativeToolsBase } from '@electron/native-tools/resolveNativeToolsBase';
-import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import type { IOcrToolValidationResult } from '@contracts/electronApiOcr';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    getOcrNativeToolPaths,
+    type IOcrNativeToolPaths,
+} from '@electron/ocr/nativeToolPaths';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
 interface IOcrPaths {
     binary: string;
     tessdata: string;
 }
 
-export interface IOcrToolPaths {
-    tesseract: string;
-    tessdata: string;
+export interface IOcrToolPaths extends IOcrNativeToolPaths {
     pdftoppm: string;
     pdftotext: string;
     pdfimages?: string;
     popplerDataDir?: string;
     popplerFontConfigDir?: string;
     qpdf: string;
-    unpaper?: string;
 }
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function isElectronAppPackaged() {
     return (electron as {app?: Pick<App, 'isPackaged'>}).app?.isPackaged === true;
-}
-
-function getNativeToolsBase() {
-    return resolveNativeToolsBase(__dirname, isElectronAppPackaged());
-}
-
-function findOnSystemPath(name: string) {
-    const ext = process.platform === 'win32' ? '.exe' : '';
-    const fullName = `${name}${ext}`;
-
-    if (process.platform === 'darwin') {
-        // macOS apps launched from Finder don't inherit shell PATH,
-        // so Homebrew binaries aren't found via bare name lookup.
-        // Check common Homebrew locations explicitly.
-        const brewPaths = [
-            join('/opt/homebrew/bin', fullName),  // Apple Silicon
-            join('/usr/local/bin', fullName),      // Intel
-        ];
-        for (const p of brewPaths) {
-            if (existsSync(p)) {
-                return p;
-            }
-        }
-    }
-
-    return fullName;
-}
-
-function getBinaryPath(dir: string, name: string, optional = false) {
-    const ext = process.platform === 'win32' ? '.exe' : '';
-    const binPath = join(dir, 'bin', `${name}${ext}`);
-
-    if (existsSync(binPath)) {
-        return binPath;
-    }
-
-    if (optional) {
-        return '';
-    }
-
-    // Packaged app must rely on bundled binaries only.
-    if (isElectronAppPackaged()) {
-        return binPath;
-    }
-
-    return findOnSystemPath(name);
 }
 
 function createAwaitablePaths<T extends object>(paths: T): T & PromiseLike<T> {
@@ -140,67 +84,35 @@ async function getToolVersion(path: string, versionFlag = '--version'): Promise<
 }
 
 export function getOcrPaths(): IOcrPaths & PromiseLike<IOcrPaths> {
-    const platformArch = resolvePlatformArchTag();
-    const nativeToolsBase = getNativeToolsBase();
-
-    const tesseractDir = join(nativeToolsBase, 'tesseract');
-    const platformDir = join(tesseractDir, platformArch);
-
-    const binary = getBinaryPath(platformDir, 'tesseract');
-
-    const tessdata = getRuntimeTessdataDir();
+    const ocrPaths = getOcrNativeToolPaths();
 
     return createAwaitablePaths({
-        binary,
-        tessdata,
+        binary: ocrPaths.tesseract,
+        tessdata: ocrPaths.tessdata,
     });
 }
 
 export function getOcrToolPaths(): IOcrToolPaths & PromiseLike<IOcrToolPaths> {
-    const platformArch = resolvePlatformArchTag();
-    const nativeToolsBase = getNativeToolsBase();
-
-    // Tesseract paths
-    const tesseractDir = join(nativeToolsBase, 'tesseract');
-    const tesseractPlatformDir = join(tesseractDir, platformArch);
-    const tesseract = getBinaryPath(tesseractPlatformDir, 'tesseract');
-    const tessdata = getRuntimeTessdataDir();
-
-    // Poppler paths
-    const popplerDir = join(nativeToolsBase, 'poppler', platformArch);
-    const pdftoppm = getBinaryPath(popplerDir, 'pdftoppm');
-    const pdftotext = getBinaryPath(popplerDir, 'pdftotext');
-    const pdfimages = getBinaryPath(popplerDir, 'pdfimages', true) || undefined;
-    const popplerDataDirCandidate = join(popplerDir, 'share', 'poppler');
-    const popplerFontConfigDirCandidate = join(popplerDir, 'etc', 'fonts');
-    const popplerDataDir = existsSync(popplerDataDirCandidate) ? popplerDataDirCandidate : undefined;
-    const popplerFontConfigDir = existsSync(popplerFontConfigDirCandidate) ? popplerFontConfigDirCandidate : undefined;
-
-    // qpdf path
-    const qpdfDir = join(nativeToolsBase, 'qpdf', platformArch);
-    const qpdf = getBinaryPath(qpdfDir, 'qpdf');
-
-    // unpaper (optional, currently in tesseract dir alongside tesseract)
-    const unpaper = getBinaryPath(tesseractPlatformDir, 'unpaper', true) || undefined;
-
+    const ocrPaths = getOcrNativeToolPaths();
+    const pdfPaths = getPdfNativeToolPaths();
     const paths: IOcrToolPaths = {
-        tesseract,
-        tessdata,
-        pdftoppm,
-        pdftotext,
-        qpdf,
+        tesseract: ocrPaths.tesseract,
+        tessdata: ocrPaths.tessdata,
+        pdftoppm: pdfPaths.pdftoppm,
+        pdftotext: pdfPaths.pdftotext,
+        qpdf: pdfPaths.qpdf,
     };
-    if (pdfimages !== undefined) {
-        paths.pdfimages = pdfimages;
+    if (pdfPaths.pdfimages !== undefined) {
+        paths.pdfimages = pdfPaths.pdfimages;
     }
-    if (popplerDataDir !== undefined) {
-        paths.popplerDataDir = popplerDataDir;
+    if (pdfPaths.popplerDataDir !== undefined) {
+        paths.popplerDataDir = pdfPaths.popplerDataDir;
     }
-    if (popplerFontConfigDir !== undefined) {
-        paths.popplerFontConfigDir = popplerFontConfigDir;
+    if (pdfPaths.popplerFontConfigDir !== undefined) {
+        paths.popplerFontConfigDir = pdfPaths.popplerFontConfigDir;
     }
-    if (unpaper !== undefined) {
-        paths.unpaper = unpaper;
+    if (ocrPaths.unpaper !== undefined) {
+        paths.unpaper = ocrPaths.unpaper;
     }
 
     return createAwaitablePaths(paths);

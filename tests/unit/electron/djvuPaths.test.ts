@@ -1,9 +1,70 @@
+import path from 'node:path';
 import {
     describe,
     expect,
     it,
 } from 'vitest';
 import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
+import {
+    getDjvuNativeToolsBase,
+    resolveDjvuNativeToolPaths,
+} from '@electron/djvu/nativeToolPaths';
+
+describe('DjVu native tool path boundary', () => {
+    it('resolves ddjvu and djvused from the DjVuLibre resource root', () => {
+        const djvuBase = path.join('/repo/resources/djvulibre/darwin-arm64');
+        const existingPaths = new Set([
+            path.join(djvuBase, 'bin', 'ddjvu'),
+            path.join(djvuBase, 'bin', 'djvused'),
+        ]);
+
+        expect(resolveDjvuNativeToolPaths({
+            exists: candidate => existingPaths.has(candidate),
+            isPackaged: false,
+            nativeToolsBase: '/repo/resources',
+            platform: 'darwin',
+            platformArch: 'darwin-arm64',
+        })).toEqual({
+            ddjvu: path.join(djvuBase, 'bin', 'ddjvu'),
+            djvused: path.join(djvuBase, 'bin', 'djvused'),
+        });
+    });
+
+    it('keeps the existing development fallback to command names when bundled tools are absent', () => {
+        expect(resolveDjvuNativeToolPaths({
+            exists: () => false,
+            isPackaged: false,
+            nativeToolsBase: '/repo/resources',
+            platform: 'linux',
+            platformArch: 'linux-x64',
+        })).toEqual({
+            ddjvu: 'ddjvu',
+            djvused: 'djvused',
+        });
+    });
+
+    it('keeps packaged DjVu binaries on the native-tools root', () => {
+        expect(getDjvuNativeToolsBase('/app/Contents/Resources/app.asar/dist-electron/djvu', true, {
+            platform: 'darwin',
+            resourcesPath: '/app/Contents/Resources',
+        })).toBe(path.join('/app/Contents/MacOS/native-tools'));
+    });
+
+    it('keeps the previous development DjVuLibre resource lookup order', () => {
+        const currentDirectoryResource = path.join('/worktree/resources/djvulibre');
+        const repoResource = path.join('/repo/resources/djvulibre');
+        const skippedElectronResource = path.join('/repo/electron/resources/djvulibre');
+
+        expect(getDjvuNativeToolsBase('/repo/electron/djvu', false, {
+            cwd: '/worktree',
+            exists: candidate => candidate === skippedElectronResource || candidate === repoResource,
+        })).toBe(path.join('/repo/resources'));
+        expect(getDjvuNativeToolsBase('/repo/electron/djvu', false, {
+            cwd: '/worktree',
+            exists: candidate => candidate === currentDirectoryResource,
+        })).toBe(path.join('/worktree/resources'));
+    });
+});
 
 describe('buildDjvuRuntimeEnv', () => {
     it('prepends DjVu bin and lib directories to PATH on Windows', () => {

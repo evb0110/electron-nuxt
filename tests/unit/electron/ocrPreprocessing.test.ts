@@ -183,7 +183,7 @@ describe('handlePreprocessPage', () => {
         const sender = createMockSender();
 
         const result = await handlePreprocessPage(
-            {sender} as Electron.IpcMainInvokeEvent,
+            {sender},
             createPngBytes(100_000, 100_000),
             true,
         );
@@ -208,7 +208,7 @@ describe('handlePreprocessPage', () => {
 
         const image = createPngBytes(100, 100);
         const result = await handlePreprocessPage(
-            {sender} as Electron.IpcMainInvokeEvent,
+            {sender},
             image,
             true,
         );

@@ -1,7 +1,4 @@
-import {
-    BrowserWindow,
-    shell,
-} from 'electron';
+import { shell } from 'electron';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { refreshMenu } from '@electron/menu';
@@ -15,6 +12,10 @@ import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
+import type {
+    IDocumentsOpenPathContext,
+    IDocumentsWindowContext,
+} from '@electron/features/documents/documentsService';
 
 const logger = createLogger('documents-dialogs');
 const MAX_WINDOW_TITLE_LENGTH = 512;
@@ -27,11 +28,10 @@ function normalizeWindowTitle(title: unknown) {
     return title.trim().slice(0, MAX_WINDOW_TITLE_LENGTH);
 }
 
-export function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: string) {
-    const window = BrowserWindow.fromWebContents(event.sender);
-    if (window) {
+export function handleSetWindowTitle(context: IDocumentsWindowContext, title: string) {
+    if (context.window) {
         const normalizedTitle = normalizeWindowTitle(title);
-        window.setTitle(normalizedTitle || te('app.title'));
+        context.window.setTitle(normalizedTitle || te('app.title'));
         refreshMenu();
     }
 }
@@ -62,7 +62,7 @@ async function resolveRevealablePath(filePath: string, owner?: TOpenPathOwner) {
 }
 
 export async function handleShowItemInFolder(
-    event: Electron.IpcMainInvokeEvent,
+    context: IDocumentsOpenPathContext,
     filePath: string,
 ) {
     const normalizedPath = typeof filePath === 'string' ? filePath.trim() : '';
@@ -71,7 +71,7 @@ export async function handleShowItemInFolder(
     }
 
     try {
-        const revealablePath = await resolveRevealablePath(normalizedPath, event.sender);
+        const revealablePath = await resolveRevealablePath(normalizedPath, context.owner);
         if (!revealablePath) {
             return false;
         }

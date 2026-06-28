@@ -1,14 +1,14 @@
 import { existsSync } from 'fs';
 import { createLogger } from '@electron/utils/createLogger';
 import { runElectronCommand } from '@electron/utils/runElectronCommand';
-import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 import {
     abortErrorFromSignal,
     isAbortError,
 } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
-import { collapseRepeatedPdfSearchPageText } from '@contracts/search';
+import { collapseRepeatedPdfSearchPageText } from '@pdf-core';
 import type { IPageText } from '@electron/search/pageText';
 
 const log = createLogger('pdfTextExtractor');
@@ -50,7 +50,7 @@ export async function extractTextFromPdf(
     const { signal } = options;
     throwIfAborted(signal);
 
-    const paths = getNativeToolPaths();
+    const paths = getPdfNativeToolPaths();
     const { pdftotext } = paths;
     const popplerEnv = buildPopplerEnv(paths);
     log.debug(`Using pdftotext at: ${pdftotext}`);

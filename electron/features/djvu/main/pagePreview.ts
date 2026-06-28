@@ -14,10 +14,8 @@ import type {
 } from '@contracts/electronApiDjvu';
 import { getDjvuResolution } from '@electron/djvu/metadata';
 import { parseNetpbm } from '@electron/djvu/netpbm';
-import {
-    buildDjvuRuntimeEnv,
-    getDjvuToolPaths,
-} from '@electron/djvu/paths';
+import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
+import { getDjvuNativeToolPaths } from '@electron/djvu/nativeToolPaths';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { convertDjvuPageToImage } from '@electron/features/djvu/main/ddjvuConversion';
 
@@ -90,7 +88,7 @@ export function parseDjvuPageSizeOutput(stdout: string, dpi: number): IDjvuPageS
 
 export async function getDjvuPageSizesForViewing(djvuPath: string, expectedPageCount: number): Promise<IDjvuPageSize[]> {
     const dpi = await getDjvuResolution(djvuPath);
-    const { djvused } = getDjvuToolPaths();
+    const { djvused } = getDjvuNativeToolPaths();
     const result = await runNativeCommand(djvused, [
         djvuPath,
         '-e',

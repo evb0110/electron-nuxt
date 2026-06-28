@@ -118,7 +118,7 @@ import {
     type IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { getPlatformAPI } from '@app/utils/platform';
+import * as platformDocuments from '@app/utils/platformDocuments';
 import { getAsyncChunkLoadErrorMessage } from '@app/modules/workspace-shell/host/getAsyncChunkLoadErrorMessage';
 import { shouldRetryAsyncChunkLoad } from '@app/modules/workspace-shell/host/shouldRetryAsyncChunkLoad';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
@@ -936,7 +936,7 @@ async function pickFileFromUi() {
                 requestAnimationFrame(() => resolve());
             });
         });
-        return await getPlatformAPI().documents.openDocumentDialog();
+        return await platformDocuments.getDocumentPickerCapability().openDocumentDialog();
     } finally {
         filePickerInFlightCount.value = Math.max(0, filePickerInFlightCount.value - 1);
     }
@@ -1188,7 +1188,7 @@ async function handleRemoveRecentFromPlaceholder(file: IRecentFile) {
 
 async function handleRevealRecentFromPlaceholder(file: IRecentFile) {
     try {
-        await getPlatformAPI().documents.showItemInFolder(file.originalPath);
+        await platformDocuments.getDocumentWindowCapability().showItemInFolder(file.originalPath);
     } catch {
         // Best-effort; ignore failures (path may have moved or permissions changed).
     }

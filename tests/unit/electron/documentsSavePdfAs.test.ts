@@ -111,6 +111,12 @@ vi.mock('@electron/features/documents/main/pdfSaveAsOptimization', () => ({
 
 describe('handleSavePdfAs', () => {
     let tempRoot = '';
+    const sender = {id: 42};
+    const dialogContext = {
+        parentWindow: null,
+        sender,
+        senderId: 42,
+    } as never;
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -154,7 +160,7 @@ describe('handleSavePdfAs', () => {
 
         const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
 
-        await expect(handleSavePdfAs({sender: {id: 42}} as never, workingPath)).resolves.toBe(targetPath);
+        await expect(handleSavePdfAs(dialogContext, workingPath)).resolves.toBe(targetPath);
 
         expect(mocks.makeSiblingTempPath).toHaveBeenCalledWith(targetPath);
         expect(mocks.validatePdfFile).toHaveBeenCalledWith(workingPath);
@@ -188,7 +194,7 @@ describe('handleSavePdfAs', () => {
         const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
 
         await expect(handleSavePdfAs(
-            {sender: {id: 42}} as never,
+            dialogContext,
             workingPath,
             { optimizeLossless: true },
         )).resolves.toBe(targetPath);
@@ -218,7 +224,7 @@ describe('handleSavePdfAs', () => {
 
         const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
 
-        await expect(handleSavePdfAs({sender: {id: 42}} as never, workingPath))
+        await expect(handleSavePdfAs(dialogContext, workingPath))
             .rejects
             .toThrow('Working copy is not a valid PDF');
 
@@ -245,7 +251,7 @@ describe('handleSavePdfAs', () => {
 
         const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
 
-        await expect(handleSavePdfAs({sender: {id: 42}} as never, workingPath))
+        await expect(handleSavePdfAs(dialogContext, workingPath))
             .rejects
             .toThrow('replace failed');
 
@@ -263,7 +269,7 @@ describe('handleSavePdfAs', () => {
 
         const { handleBeginSavePdfDataAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
 
-        await expect(handleBeginSavePdfDataAs({sender: {id: 42}} as never, workingPath, 128))
+        await expect(handleBeginSavePdfDataAs(dialogContext, workingPath, 128))
             .rejects
             .toThrow('Working copy path is not managed');
 

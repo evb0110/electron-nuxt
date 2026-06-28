@@ -1,8 +1,4 @@
-import { ipcMain } from 'electron';
-import type {
-    IpcMainInvokeEvent,
-    WebContents,
-} from 'electron';
+import type { WebContents } from 'electron';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { estimateSizes } from '@electron/djvu/estimateSizes';
@@ -24,7 +20,6 @@ import {
     handleDjvuOpenForViewing,
     isAllowedDjvuViewingPath,
     releaseDjvuViewingPath,
-    sweepStaleDjvuTempPdfs,
 } from '@electron/features/djvu/main/viewing';
 import {
     getDjvuPageSizesForViewing,
@@ -36,11 +31,10 @@ import {
     type TOpenPath,
 } from '@electron/file-access/openPathCapabilities';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
-import type { TDjvuIpcMainRegistrar } from '@electron/features/djvu/ports';
-import { DJVU_CHANNELS } from '@electron/features/djvu/contract';
+import type { IDjvuOperationContext } from '@electron/features/djvu/ports';
 import type { IDjvuPagePreviewOptions } from '@contracts/electronApiDjvu';
 
-const logger = createLogger('djvu-ipc');
+const logger = createLogger('djvu-operations');
 
 function requireDjvuOpenPath(
     path: unknown,
@@ -79,8 +73,52 @@ function normalizeDjvuReleasePath(path: unknown, owner?: WebContents) {
     return resolve(normalizedPath);
 }
 
-async function handleDjvuGetInfo(
-    event: IpcMainInvokeEvent,
+export function handleDjvuOpenForViewingOperation(
+    context: IDjvuOperationContext,
+    djvuPath: string,
+) {
+    return handleDjvuOpenForViewing(
+        context,
+        requireDjvuOpenPath(djvuPath, context.sender),
+    );
+}
+
+export function handleDjvuReleaseViewingPath(
+    context: IDjvuOperationContext,
+    djvuPath: string,
+) {
+    releaseDjvuViewingPath(
+        context,
+        normalizeDjvuReleasePath(djvuPath, context.sender),
+    );
+}
+
+export function handleDjvuConvertToPdfOperation(
+    context: IDjvuOperationContext,
+    djvuPath: string,
+    outputPath: string,
+    options: {
+        subsample?: number;
+        preserveBookmarks?: boolean;
+    },
+) {
+    return handleDjvuConvertToPdf(
+        context,
+        requireDjvuOpenPath(djvuPath, context.sender),
+        outputPath,
+        options,
+    );
+}
+
+export function handleDjvuCancelOperation(
+    context: IDjvuOperationContext,
+    jobId: string,
+) {
+    return handleDjvuCancel(context, jobId);
+}
+
+export async function handleDjvuGetInfo(
+    context: IDjvuOperationContext,
     djvuPath: string,
 ): Promise<{
     pageCount: number;
@@ -89,7 +127,7 @@ async function handleDjvuGetInfo(
     hasText: boolean;
     metadata: Record<string, string>;
 }> {
-    const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, event.sender);
+    const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, context.sender);
     const [
         pageCount,
         sourceDpi,
@@ -115,35 +153,35 @@ async function handleDjvuGetInfo(
     };
 }
 
-async function handleDjvuEstimateSizes(
-    event: IpcMainInvokeEvent,
+export async function handleDjvuEstimateSizes(
+    context: IDjvuOperationContext,
     djvuPath: string,
 ) {
-    const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, event.sender);
+    const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, context.sender);
     const pageCount = await getDjvuPageCount(normalizedDjvuPath);
     return estimateSizes(normalizedDjvuPath, pageCount);
 }
 
-async function handleDjvuGetPageSizes(
-    event: IpcMainInvokeEvent,
+export async function handleDjvuGetPageSizes(
+    context: IDjvuOperationContext,
     djvuPath: string,
 ) {
-    const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, event.sender);
-    if (!isAllowedDjvuViewingPath(normalizedDjvuPath, event.sender.id)) {
+    const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, context.sender);
+    if (!isAllowedDjvuViewingPath(normalizedDjvuPath, context.senderId)) {
         throw new Error('DjVu viewing path is not active');
     }
     const pageCount = await getDjvuPageCount(normalizedDjvuPath);
     return getDjvuPageSizesForViewing(normalizedDjvuPath, pageCount);
 }
 
-async function handleDjvuRenderPagePreview(
-    event: IpcMainInvokeEvent,
+export async function handleDjvuRenderPagePreview(
+    context: IDjvuOperationContext,
     djvuPath: string,
     pageNumber: number,
     options?: IDjvuPagePreviewOptions,
 ) {
-    const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, event.sender);
-    if (!isAllowedDjvuViewingPath(normalizedDjvuPath, event.sender.id)) {
+    const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, context.sender);
+    if (!isAllowedDjvuViewingPath(normalizedDjvuPath, context.senderId)) {
         throw new Error('DjVu viewing path is not active');
     }
     if (!Number.isInteger(pageNumber) || pageNumber < 1) {
@@ -152,8 +190,8 @@ async function handleDjvuRenderPagePreview(
     return renderDjvuPagePreview(normalizedDjvuPath, pageNumber, options);
 }
 
-async function handleDjvuCleanupTemp(
-    _event: IpcMainInvokeEvent,
+export async function handleDjvuCleanupTemp(
+    _context: IDjvuOperationContext,
     tempPdfPath: string,
 ) {
     if (!tempPdfPath) {
@@ -164,34 +202,5 @@ async function handleDjvuCleanupTemp(
         await cleanupDjvuTempPdfPath(tempPdfPath);
     } catch (error) {
         logger.warn(`Failed to cleanup temporary DjVu PDF: ${String(error)}`);
-    }
-}
-
-export function registerDjvuHandlers(registrar: TDjvuIpcMainRegistrar = ipcMain) {
-    registrar.handle(DJVU_CHANNELS.openForViewing, (event, djvuPath) =>
-        handleDjvuOpenForViewing(event, requireDjvuOpenPath(djvuPath, event.sender)),
-    );
-    registrar.handle(DJVU_CHANNELS.releaseViewingPath, (event, djvuPath) => {
-        releaseDjvuViewingPath(event, normalizeDjvuReleasePath(djvuPath, event.sender));
-    });
-    registrar.handle(DJVU_CHANNELS.convertToPdf, (event, djvuPath, outputPath, options) =>
-        handleDjvuConvertToPdf(
-            event,
-            requireDjvuOpenPath(djvuPath, event.sender),
-            outputPath,
-            options,
-        ),
-    );
-    registrar.handle(DJVU_CHANNELS.cancel, handleDjvuCancel);
-    registrar.handle(DJVU_CHANNELS.getInfo, handleDjvuGetInfo);
-    registrar.handle(DJVU_CHANNELS.getPageSizes, handleDjvuGetPageSizes);
-    registrar.handle(DJVU_CHANNELS.renderPagePreview, handleDjvuRenderPagePreview);
-    registrar.handle(DJVU_CHANNELS.estimateSizes, handleDjvuEstimateSizes);
-    registrar.handle(DJVU_CHANNELS.cleanupTemp, handleDjvuCleanupTemp);
-
-    if (process.env.EVB_DJVU_SWEEP_STALE_TEMP !== '0') {
-        void sweepStaleDjvuTempPdfs().catch((error: unknown) => {
-            logger.warn(`DjVu stale temp cleanup failed: ${String(error)}`);
-        });
     }
 }

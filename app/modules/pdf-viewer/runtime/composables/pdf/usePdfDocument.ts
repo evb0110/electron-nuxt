@@ -11,7 +11,7 @@ import type {
 } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { guardAsync } from '@app/utils/asyncGuard';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import {
     getPdfjsAssetDir,
     getViewerAssetResolver,
@@ -535,6 +535,7 @@ export const usePdfDocument = () => {
             return;
         }
 
+        const documentFiles = getDocumentFilesCapability();
         let cursor = begin;
         let outputOffset = 0;
         let output: Uint8Array | null = null;
@@ -551,7 +552,7 @@ export const usePdfDocument = () => {
             }
 
             const requestedLength = Math.min(PDF_RANGE_SUBREAD_BYTES, end - cursor);
-            const chunk = await getDocumentsCapability().readFileRange(src.path, cursor, requestedLength);
+            const chunk = await documentFiles.readFileRange(src.path, cursor, requestedLength);
             if (version !== renderVersion) {
                 logPdfRenderTrace('pdf-document-range-request-stale-after-read', {
                     begin,
@@ -689,13 +690,14 @@ export const usePdfDocument = () => {
         // in parallel so both are available before getDocument starts.
         const tailStart = Math.max(initialLen, length - CHUNK);
         const needsTail = tailStart > initialLen;
+        const documentFiles = getDocumentFilesCapability();
         const [
             initialData,
             tailData,
         ] = await Promise.all([
-            getDocumentsCapability().readFileRange(src.path, 0, initialLen),
+            documentFiles.readFileRange(src.path, 0, initialLen),
             needsTail
-                ? getDocumentsCapability().readFileRange(src.path, tailStart, length - tailStart)
+                ? documentFiles.readFileRange(src.path, tailStart, length - tailStart)
                 : Promise.resolve(null),
         ]);
 

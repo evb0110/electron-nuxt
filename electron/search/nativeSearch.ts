@@ -11,7 +11,7 @@ import type {
 import type {
     IPdfSearchExcerpt,
     IResolvedSearchMatchOptions,
-} from '@contracts/search';
+} from '@pdf-core';
 import { toPageNumber } from '@contracts/pageNumbers';
 import {
     EXCERPT_CONTEXT_CHARS,

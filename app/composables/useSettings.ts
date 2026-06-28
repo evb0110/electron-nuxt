@@ -14,7 +14,7 @@ import {
     serializeBrowserSettingsPayload,
 } from '@app/utils/browserSettingsPersistence';
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
-import { getPlatformAPI } from '@app/utils/platform';
+import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
 import {
     createSettingsPersistenceQueue,
@@ -87,7 +87,7 @@ export const useSettings = () => {
         initialValue: () => initialSettings,
         initialResolved: hasSettingsCookieSnapshot.value,
         async loadValue() {
-            const loadedSettings = await getPlatformAPI().settings.get();
+            const loadedSettings = await getSettingsCapability().get();
             return sanitizeSettings(loadedSettings);
         },
         onLoaded(nextSettings) {
@@ -117,7 +117,7 @@ export const useSettings = () => {
         settingsPersistenceQueue = createSettingsPersistenceQueue({
             getSettingsSnapshot: () => toRaw(settings.value),
             getLastSavedSettings: () => lastSavedSettings.value,
-            savePatch: patch => getPlatformAPI().settings.save(patch),
+            savePatch: patch => getSettingsCapability().save(patch),
             onSaved(nextSettings) {
                 rememberSavedSettings(nextSettings);
                 syncSettingsCookies(nextSettings);

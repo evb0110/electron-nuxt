@@ -1,5 +1,13 @@
 import type {
     IDocumentsCapability,
+    IDocumentsFileIoCapability,
+    IDocumentsMenuCapability,
+    IDocumentsOpenCapability,
+    IDocumentsPdfCapability,
+    IDocumentsPickerCapability,
+    IDocumentsRecentFilesCapability,
+    IDocumentsWindowCapability,
+    IDocumentsWorkingCopyCapability,
     IImageExportCapability,
 } from '@contracts/electronApiDocuments';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -13,6 +21,46 @@ export function getDocumentsCapability(): IDocumentsCapability {
     return getPlatformAPI().documents;
 }
 
+export function getDocumentPickerCapability(): IDocumentsPickerCapability {
+    const platform = getPlatformAPI();
+    return platform.documentPicker ?? platform.documents;
+}
+
+export function getDocumentOpenCapability(): IDocumentsOpenCapability {
+    const platform = getPlatformAPI();
+    return platform.documentOpen ?? platform.documents;
+}
+
+export function getDocumentWorkingCopyCapability(): IDocumentsWorkingCopyCapability {
+    const platform = getPlatformAPI();
+    return platform.documentWorkingCopy ?? platform.documents;
+}
+
+export function getDocumentFilesCapability(): IDocumentsFileIoCapability {
+    const platform = getPlatformAPI();
+    return platform.documentFiles ?? platform.documents;
+}
+
+export function getDocumentPdfCapability(): IDocumentsPdfCapability {
+    const platform = getPlatformAPI();
+    return platform.documentPdf ?? platform.documents;
+}
+
+export function getDocumentRecentFilesCapability(): IDocumentsRecentFilesCapability {
+    const platform = getPlatformAPI();
+    return platform.documentRecentFiles ?? platform.documents;
+}
+
+export function getDocumentWindowCapability(): IDocumentsWindowCapability {
+    const platform = getPlatformAPI();
+    return platform.documentWindow ?? platform.documents;
+}
+
+export function getDocumentMenuCapability(): IDocumentsMenuCapability {
+    const platform = getPlatformAPI();
+    return platform.documentMenu ?? platform.documents;
+}
+
 export function getPageOpsCapability(): IPageOpsCapability {
     return getPlatformAPI().pageOps;
 }
@@ -24,7 +72,7 @@ export function getImageExportCapability(): IImageExportCapability {
 const FULL_READ_FALLBACK_CHUNK_SIZE = 4 * 1024 * 1024;
 
 export async function readDocumentFileFully(path: TDocumentRef) {
-    const documents = getDocumentsCapability();
+    const documents = getDocumentFilesCapability();
     try {
         return await documents.readFile(path);
     } catch (error) {

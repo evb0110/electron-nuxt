@@ -4,7 +4,7 @@ import { usePageOpsHandlers } from '@app/modules/workspace-shell/composables/use
 import type { IPageOpsHandlersDeps } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import type { IPageFileOperationsDeps } from '@app/modules/workspace-shell/composables/usePageFileOperations';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type { IWorkspacePdfViewerDocumentControlsPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
@@ -28,7 +28,7 @@ interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps
     canSave: Ref<boolean>;
     handleSave: () => Promise<unknown>;
     requestThumbnailInvalidation: (pages: number[]) => void;
-    pdfViewerRef: Ref<IPdfViewerExpose | null>;
+    pdfViewerRef: Ref<IWorkspacePdfViewerDocumentControlsPort | null>;
     handleExportImages: (pages: number[]) => Promise<void>;
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
     openFileWithDjvuCleanup: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;

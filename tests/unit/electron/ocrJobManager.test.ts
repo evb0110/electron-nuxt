@@ -95,14 +95,18 @@ vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: mocks.getOcrToolPaths}))
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('@electron/utils/sendToLiveWindow', () => ({sendToLiveWindow: mocks.sendToLiveWindow}));
 
-function createEvent(senderId: number) {
-    return {sender: {
+function createContext(senderId: number) {
+    const sender = {
         id: senderId,
         isDestroyed: vi.fn(() => false),
         once: vi.fn(),
         on: vi.fn(),
         removeListener: vi.fn(),
-    }};
+    };
+    return {
+        sender,
+        senderId,
+    };
 }
 
 function getResourceAcquiredMessages(worker: { postMessage: ReturnType<typeof vi.fn> }) {
@@ -170,7 +174,7 @@ describe('ocr job manager preparing-stage robustness', () => {
     });
 
     it('counts preparing jobs toward queue capacity', async () => {
-        const firstEvent = createEvent(11);
+        const firstContext = createContext(11);
         let resolvePreparation!: () => void;
 
         mocks.ensureTessdataLanguages.mockImplementationOnce((_languages, options?: { signal?: AbortSignal }) => {
@@ -188,7 +192,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         } = await import('@electron/ocr/jobManager');
 
         const firstPromise = handleOcrCreateSearchablePdfAsync(
-            firstEvent as never,
+            firstContext,
             '/tmp/work-1.pdf',
             [{
                 pageNumber: 1,
@@ -202,7 +206,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         });
 
         const secondResult = await handleOcrCreateSearchablePdfAsync(
-            createEvent(22) as never,
+            createContext(22),
             '/tmp/work-2.pdf',
             [{
                 pageNumber: 1,
@@ -216,7 +220,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             error: 'OCR queue is full (1 jobs)',
         });
 
-        expect(handleOcrCancel(firstEvent as never, 'job-1')).toEqual({ canceled: true });
+        expect(handleOcrCancel(firstContext, 'job-1')).toEqual({ canceled: true });
         await expect(firstPromise).resolves.toMatchObject({
             started: false,
             error: 'OCR job was cancelled before it started',
@@ -235,7 +239,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
         const result = await handleOcrCreateSearchablePdfAsync(
-            createEvent(23) as never,
+            createContext(23),
             '/tmp/work-large.pdf',
             [{
                 pageNumber: 1,
@@ -252,7 +256,7 @@ describe('ocr job manager preparing-stage robustness', () => {
     });
 
     it('aborts preparing jobs on cancel and frees the slot for a later job', async () => {
-        const firstEvent = createEvent(33);
+        const firstContext = createContext(33);
 
         mocks.ensureTessdataLanguages.mockImplementationOnce((_languages, options?: { signal?: AbortSignal }) => {
             return new Promise<void>((_resolve, reject) => {
@@ -269,7 +273,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         } = await import('@electron/ocr/jobManager');
 
         const firstPromise = handleOcrCreateSearchablePdfAsync(
-            firstEvent as never,
+            firstContext,
             '/tmp/work-3.pdf',
             [{
                 pageNumber: 1,
@@ -283,7 +287,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         });
 
         const firstSignal = mocks.ensureTessdataLanguages.mock.calls[0]?.[1]?.signal as AbortSignal;
-        expect(handleOcrCancel(firstEvent as never, 'job-3')).toEqual({ canceled: true });
+        expect(handleOcrCancel(firstContext, 'job-3')).toEqual({ canceled: true });
         await expect(firstPromise).resolves.toMatchObject({
             started: false,
             error: 'OCR job was cancelled before it started',
@@ -291,7 +295,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         expect(firstSignal.aborted).toBe(true);
 
         const secondResult = await handleOcrCreateSearchablePdfAsync(
-            createEvent(44) as never,
+            createContext(44),
             '/tmp/work-4.pdf',
             [{
                 pageNumber: 1,
@@ -314,7 +318,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
         const result = await handleOcrCreateSearchablePdfAsync(
-            createEvent(55) as never,
+            createContext(55),
             '/tmp/work-5.pdf',
             [
                 {
@@ -382,7 +386,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
         await handleOcrCreateSearchablePdfAsync(
-            createEvent(56) as never,
+            createContext(56),
             '/tmp/work-6.pdf',
             [{
                 pageNumber: 1,
@@ -421,7 +425,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
         await handleOcrCreateSearchablePdfAsync(
-            createEvent(57) as never,
+            createContext(57),
             '/tmp/work-7.pdf',
             [{
                 pageNumber: 1,
@@ -472,9 +476,9 @@ describe('ocr job manager preparing-stage robustness', () => {
             handleOcrCreateSearchablePdfAsync,
         } = await import('@electron/ocr/jobManager');
 
-        const event = createEvent(66);
+        const context = createContext(66);
         const result = await handleOcrCreateSearchablePdfAsync(
-            event as never,
+            context,
             '/tmp/work-6.pdf',
             [{
                 pageNumber: 1,
@@ -491,7 +495,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         expect(worker).toBeDefined();
         mocks.sendToLiveWindow.mockClear();
 
-        expect(handleOcrCancel(event as never, 'job-6')).toEqual({ canceled: true });
+        expect(handleOcrCancel(context, 'job-6')).toEqual({ canceled: true });
 
         worker?.emit('message', {
             type: 'progress',
@@ -524,9 +528,9 @@ describe('ocr job manager preparing-stage robustness', () => {
             handleOcrCreateSearchablePdfAsync,
         } = await import('@electron/ocr/jobManager');
 
-        const firstEvent = createEvent(67);
+        const firstContext = createContext(67);
         await expect(handleOcrCreateSearchablePdfAsync(
-            firstEvent as never,
+            firstContext,
             '/tmp/work-67.pdf',
             [{
                 pageNumber: 1,
@@ -546,7 +550,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         }));
 
         const secondPromise = handleOcrCreateSearchablePdfAsync(
-            createEvent(68) as never,
+            createContext(68),
             '/tmp/work-68.pdf',
             [{
                 pageNumber: 1,
@@ -556,7 +560,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         );
         await Promise.resolve();
 
-        expect(handleOcrCancel(firstEvent as never, 'job-67')).toEqual({ canceled: true });
+        expect(handleOcrCancel(firstContext, 'job-67')).toEqual({ canceled: true });
         await Promise.resolve();
         expect(mocks.workerInstances).toHaveLength(1);
 
@@ -576,7 +580,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
         const result = await handleOcrCreateSearchablePdfAsync(
-            createEvent(77) as never,
+            createContext(77),
             '/tmp/work-7.pdf',
             [{
                 pageNumber: 1,
@@ -628,7 +632,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
         const result = await handleOcrCreateSearchablePdfAsync(
-            createEvent(79) as never,
+            createContext(79),
             '/tmp/work-79.pdf',
             [{
                 pageNumber: 1,
@@ -678,7 +682,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
         await expect(handleOcrCreateSearchablePdfAsync(
-            createEvent(177) as never,
+            createContext(177),
             '/tmp/work-177.pdf',
             [{
                 pageNumber: 1,
@@ -733,7 +737,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
         await expect(handleOcrCreateSearchablePdfAsync(
-            createEvent(178) as never,
+            createContext(178),
             '/tmp/work-178.pdf',
             [{
                 pageNumber: 1,
@@ -779,7 +783,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
         await expect(handleOcrCreateSearchablePdfAsync(
-            createEvent(179) as never,
+            createContext(179),
             '/tmp/work-179.pdf',
             [{
                 pageNumber: 1,
@@ -824,7 +828,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
         await expect(handleOcrCreateSearchablePdfAsync(
-            createEvent(180) as never,
+            createContext(180),
             '/tmp/work-180.pdf',
             [{
                 pageNumber: 1,
@@ -874,9 +878,9 @@ describe('ocr job manager preparing-stage robustness', () => {
             handleOcrCreateSearchablePdfAsync,
         } = await import('@electron/ocr/jobManager');
 
-        const firstEvent = createEvent(181);
+        const firstContext = createContext(181);
         await expect(handleOcrCreateSearchablePdfAsync(
-            firstEvent as never,
+            firstContext,
             '/tmp/work-181.pdf',
             [{
                 pageNumber: 1,
@@ -927,7 +931,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             resolveTerminate = () => resolve(0);
         }));
 
-        expect(handleOcrCancel(firstEvent as never, 'job-181')).toEqual({ canceled: true });
+        expect(handleOcrCancel(firstContext, 'job-181')).toEqual({ canceled: true });
         firstWorker.emit('message', {
             type: 'resource-release',
             jobId: 'job-181',
@@ -935,7 +939,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         });
 
         await expect(handleOcrCreateSearchablePdfAsync(
-            createEvent(182) as never,
+            createContext(182),
             '/tmp/work-182.pdf',
             [{
                 pageNumber: 1,
@@ -975,9 +979,9 @@ describe('ocr job manager preparing-stage robustness', () => {
             handleOcrCreateSearchablePdfAsync,
         } = await import('@electron/ocr/jobManager');
 
-        const event = createEvent(78);
+        const context = createContext(78);
         const result = await handleOcrCreateSearchablePdfAsync(
-            event as never,
+            context,
             '/tmp/work-78.pdf',
             [{
                 pageNumber: 1,
@@ -1004,13 +1008,13 @@ describe('ocr job manager preparing-stage robustness', () => {
             },
         });
 
-        expect(handleOcrCancel(event as never, 'job-78')).toEqual({ canceled: true });
+        expect(handleOcrCancel(context, 'job-78')).toEqual({ canceled: true });
         expect(mocks.unlink).not.toHaveBeenCalledWith('/tmp/work-78-ocr.pdf');
     });
 
     it('clears preparing progress pump timers when canceling before queueing', async () => {
         vi.useFakeTimers();
-        const event = createEvent(80);
+        const context = createContext(80);
 
         mocks.ensureTessdataLanguages.mockImplementationOnce((_languages, options?: { signal?: AbortSignal }) => {
             return new Promise<void>((_resolve, reject) => {
@@ -1026,7 +1030,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         } = await import('@electron/ocr/jobManager');
 
         const startPromise = handleOcrCreateSearchablePdfAsync(
-            event as never,
+            context,
             '/tmp/work-80.pdf',
             [{
                 pageNumber: 1,
@@ -1040,7 +1044,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         });
         expect(vi.getTimerCount()).toBeGreaterThan(0);
 
-        expect(handleOcrCancel(event as never, 'job-80')).toEqual({ canceled: true });
+        expect(handleOcrCancel(context, 'job-80')).toEqual({ canceled: true });
         await expect(startPromise).resolves.toMatchObject({
             started: false,
             error: 'OCR job was cancelled before it started',
@@ -1059,7 +1063,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         } = await import('@electron/ocr/jobManager');
 
         const result = await handleOcrCreateSearchablePdfAsync(
-            createEvent(88) as never,
+            createContext(88),
             '/tmp/work-8.pdf',
             [{
                 pageNumber: 1,
@@ -1092,9 +1096,9 @@ describe('ocr job manager preparing-stage robustness', () => {
             handleOcrCreateSearchablePdfAsync,
         } = await import('@electron/ocr/jobManager');
 
-        const firstEvent = createEvent(99);
+        const firstContext = createContext(99);
         const firstResult = await handleOcrCreateSearchablePdfAsync(
-            firstEvent as never,
+            firstContext,
             '/tmp/work-99.pdf',
             [{
                 pageNumber: 1,
@@ -1135,14 +1139,14 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         expect(getResourceAcquiredMessages(firstWorker)).toEqual([expect.objectContaining({ requestId: 'page-1' })]);
 
-        expect(handleOcrCancel(firstEvent as never, 'job-99')).toEqual({ canceled: true });
+        expect(handleOcrCancel(firstContext, 'job-99')).toEqual({ canceled: true });
         await vi.waitFor(() => {
             expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('OCR resource request cancelled for job 99:job-99'));
         });
         expect(getResourceDeniedMessages(firstWorker)).toEqual([expect.objectContaining({ requestId: 'page-2' })]);
 
         const secondResult = await handleOcrCreateSearchablePdfAsync(
-            createEvent(100) as never,
+            createContext(100),
             '/tmp/work-100.pdf',
             [{
                 pageNumber: 1,

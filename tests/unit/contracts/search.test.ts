@@ -4,13 +4,52 @@ import {
     it,
 } from 'vitest';
 import { readFileSync } from 'fs';
-import { collectSearchMatchWords } from '@pdf-core';
-import {
+import * as contractsSearch from '@contracts/search';
+import * as pdfSearchCore from '@pdf-core';
+
+const {
     buildPdfSearchExcerpt,
     collapseRepeatedPdfSearchPageText,
+    collectSearchMatchWords,
     findPdfSearchMatches,
     iteratePdfSearchMatches,
-} from '@contracts/search';
+} = pdfSearchCore;
+
+describe('contracts search compatibility exports', () => {
+    it('keeps compatibility helpers behaviorally aligned with pdf-core', () => {
+        const options = {
+            matchCase: false,
+            wholeWord: true,
+            useRegex: false,
+        };
+
+        expect(contractsSearch.escapeSearchRegex('a.b')).toBe(pdfSearchCore.escapeSearchRegex('a.b'));
+        expect(contractsSearch.buildPdfSearchRegex('foo', options).source)
+            .toBe(pdfSearchCore.buildPdfSearchRegex('foo', options).source);
+        expect(() => contractsSearch.assertSafePdfSearchRegex('(a+)+$', options))
+            .toThrow('pattern is too complex');
+        expect(() => pdfSearchCore.assertSafePdfSearchRegex('(a+)+$', options))
+            .toThrow('pattern is too complex');
+        expect(() => contractsSearch.validateSearchQuery('x'.repeat(513), {
+            matchCase: false,
+            wholeWord: false,
+            useRegex: true,
+        })).toThrow('maximum length is 512');
+        expect(() => pdfSearchCore.validateSearchQuery('x'.repeat(513), {
+            matchCase: false,
+            wholeWord: false,
+            useRegex: true,
+        })).toThrow('maximum length is 512');
+        expect(contractsSearch.collapseRepeatedPdfSearchPageText('alpha '.repeat(32)))
+            .toBe(pdfSearchCore.collapseRepeatedPdfSearchPageText('alpha '.repeat(32)));
+        expect(contractsSearch.findPdfSearchMatches('Foo foo', 'foo'))
+            .toEqual(pdfSearchCore.findPdfSearchMatches('Foo foo', 'foo'));
+        expect(Array.from(contractsSearch.iteratePdfSearchMatches('foo foo', 'foo')))
+            .toEqual(Array.from(pdfSearchCore.iteratePdfSearchMatches('foo foo', 'foo')));
+        expect(contractsSearch.buildPdfSearchExcerpt('alpha beta gamma', 6, 10, 3))
+            .toEqual(pdfSearchCore.buildPdfSearchExcerpt('alpha beta gamma', 6, 10, 3));
+    });
+});
 
 describe('collapseRepeatedPdfSearchPageText', () => {
     it('collapses large exact repeated PDF page text streams', () => {
