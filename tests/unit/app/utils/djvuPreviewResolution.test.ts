@@ -32,6 +32,17 @@ describe('resolveDjvuPreviewResolutionPlan', () => {
         });
     });
 
+    it('caps the target width before choosing a subsample', () => {
+        expect(resolveDjvuPreviewResolutionPlan({
+            nativeWidth: 2_400,
+            neededDevicePx: 2_000,
+            maxTargetPx: 1_024,
+        })).toEqual({
+            targetPx: 1_024,
+            subsample: 2,
+        });
+    });
+
     it('caps extreme subsampling for tiny previews', () => {
         expect(resolveDjvuPreviewResolutionPlan({
             nativeWidth: 10_000,

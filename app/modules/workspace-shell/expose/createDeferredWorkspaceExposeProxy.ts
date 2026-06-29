@@ -152,6 +152,9 @@ export function createDeferredWorkspaceExposeProxy(
         handleFitWidth: mountWaitSyncVoid('handleFitWidth', workspace => workspace.handleFitWidth()),
         handleFitHeight: mountWaitSyncVoid('handleFitHeight', workspace => workspace.handleFitHeight()),
         handleActualSize: mountWaitSyncVoid('handleActualSize', workspace => workspace.handleActualSize()),
+        setCustomZoomFromDisplay: (displayZoom: number) => {
+            void deps.withLoadedWorkspace('setCustomZoomFromDisplay', workspace => workspace.setCustomZoomFromDisplay(displayZoom));
+        },
         handleGoToPage: (page: number) => {
             void deps.withLoadedWorkspace('handleGoToPage', workspace => workspace.handleGoToPage(page));
         },

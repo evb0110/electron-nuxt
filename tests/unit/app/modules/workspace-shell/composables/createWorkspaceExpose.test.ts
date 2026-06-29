@@ -191,6 +191,21 @@ describe('createWorkspaceExpose', () => {
         expect(deps.zoomMode.value).toBe('custom');
     });
 
+    it('exposes exact custom display zoom for automation', () => {
+        const deps = createDeps({
+            zoom: ref(1),
+            effectiveZoom: ref(1),
+            zoomMode: ref('fit-width'),
+        });
+        const exposed = createWorkspaceExpose(deps);
+
+        exposed.setCustomZoomFromDisplay(0.29);
+
+        expect(deps.zoom.value).toBeCloseTo(0.29, 6);
+        expect(deps.effectiveZoom.value).toBeCloseTo(0.29, 6);
+        expect(deps.zoomMode.value).toBe('custom');
+    });
+
     it('does not jump upward when zooming out from fit below the manual minimum', () => {
         const deps = createDeps({
             zoom: ref(1),

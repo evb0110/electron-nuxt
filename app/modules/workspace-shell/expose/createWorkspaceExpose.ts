@@ -310,6 +310,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         handleActualSize: () => {
             setCustomZoomFromDisplay(1);
         },
+        setCustomZoomFromDisplay,
         handleGoToPage: deps.handleGoToPage,
         handleToggleSidebar: deps.handleToggleSidebar,
         handleToggleContinuousScroll: deps.handleToggleContinuousScroll,

@@ -52,6 +52,7 @@ export const workspaceExposeMethodDescriptors = {
         'handleFitWidth',
         'handleFitHeight',
         'handleActualSize',
+        'setCustomZoomFromDisplay',
         'handleGoToPage',
         'handleToggleSidebar',
         'handleToggleContinuousScroll',

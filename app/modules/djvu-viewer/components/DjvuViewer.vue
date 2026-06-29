@@ -24,7 +24,7 @@
 
         <div
             ref="viewerContainer"
-            class="h-full w-full overflow-auto app-scrollbar"
+            class="djvu-viewer-container h-full w-full overflow-auto app-scrollbar"
             :class="{
                 'cursor-grab': dragMode,
                 'cursor-default': !dragMode,
@@ -34,20 +34,16 @@
             @wheel="handleViewerWheel"
         >
             <div
-                class="mx-auto flex min-h-full min-w-full w-fit gap-4 p-4"
-                :class="renderedPagesLayoutClass"
+                class="mx-auto min-w-full"
+                :class="renderedPagesSurfaceClass"
+                :style="renderedPagesSurfaceStyle"
             >
-                <div
-                    v-if="continuousScrollTopSpacerHeight > 0"
-                    class="djvu-page-virtual-spacer"
-                    :style="{ height: `${continuousScrollTopSpacerHeight}px` }"
-                    aria-hidden="true"
-                />
                 <section
                     v-for="pageNumber in renderedPageNumbers"
                     :key="pageNumber"
                     :ref="(element) => setPageElement(pageNumber, element)"
                     class="djvu-page-shell"
+                    :class="{ 'djvu-page-shell--continuous': isContinuousScroll }"
                     :style="getPageShellStyle(pageNumber)"
                     :data-page-number="pageNumber"
                 >
@@ -56,6 +52,7 @@
                         :src="pageStates[pageNumber - 1]?.objectUrl ?? undefined"
                         :alt="t('djvu.pageAlt', { page: pageNumber })"
                         class="h-full w-full select-none object-contain"
+                        decoding="async"
                         draggable="false"
                     >
                     <div
@@ -102,12 +99,6 @@
                         {{ pageNumber }}
                     </div>
                 </section>
-                <div
-                    v-if="continuousScrollBottomSpacerHeight > 0"
-                    class="djvu-page-virtual-spacer"
-                    :style="{ height: `${continuousScrollBottomSpacerHeight}px` }"
-                    aria-hidden="true"
-                />
             </div>
         </div>
     </div>
@@ -206,6 +197,37 @@ const renderedPagesLayoutClass = computed(() => (
         ? 'flex-col items-center'
         : 'flex-row items-start justify-center'
 ));
+const renderedPagesSurfaceClass = computed(() => {
+    if (isContinuousScroll.value) {
+        return 'djvu-continuous-surface';
+    }
+
+    return [
+        'flex',
+        'min-h-full',
+        'w-fit',
+        'gap-4',
+        'p-4',
+        renderedPagesLayoutClass.value,
+    ];
+});
+
+const continuousScrollSurfaceWidth = computed(() => {
+    if (!isContinuousScroll.value) {
+        return 0;
+    }
+
+    const maxPageWidth = pageSizes.value.reduce((maxWidth, pageSize, index) => {
+        const scale = getPageDisplayScale(index + 1);
+        return Math.max(maxWidth, Math.round(pageSize.width * scale));
+    }, 0);
+
+    return Math.max(
+        containerWidth.value,
+        maxPageWidth + DJVU_BASE_MARGIN * 2,
+        1,
+    );
+});
 
 function getFitHeightAvailableHeight() {
     return Math.max(1, containerHeight.value - DJVU_BASE_MARGIN * 2);
@@ -318,10 +340,18 @@ function getPageShellStyle(pageNumber: number) {
     }
 
     const scale = getPageDisplayScale(pageNumber);
+    const width = Math.max(1, Math.round(pageSize.width * scale));
+    const height = Math.max(1, Math.round(pageSize.height * scale));
 
     return {
-        width: `${Math.max(1, Math.round(pageSize.width * scale))}px`,
-        height: `${Math.max(1, Math.round(pageSize.height * scale))}px`,
+        width: `${width}px`,
+        height: `${height}px`,
+        ...(isContinuousScroll.value
+            ? {
+                left: `${Math.max(DJVU_BASE_MARGIN, Math.round((continuousScrollSurfaceWidth.value - width) / 2))}px`,
+                top: `${continuousScrollController.getContinuousPageTop(pageNumber)}px`,
+            }
+            : {}),
     };
 }
 
@@ -389,7 +419,6 @@ const continuousScrollController = useDjvuContinuousScrollController({
     getPageDisplayScale,
     isActive,
     isContinuousScroll,
-    pageElements,
     pageGapPx: DJVU_BASE_MARGIN,
     pageSizes,
     pageSnapshotSelector: DJVU_PAGE_SNAPSHOT_SELECTOR,
@@ -434,23 +463,15 @@ const renderedPageNumbers = computed(() => {
     ];
 });
 
-const continuousScrollTopSpacerHeight = computed(() => {
-    if (!isContinuousScroll.value || renderedPageNumbers.value.length === 0) {
-        return 0;
+const renderedPagesSurfaceStyle = computed(() => {
+    if (!isContinuousScroll.value) {
+        return {};
     }
 
-    return continuousScrollController.getContinuousPagesHeight(1, renderedPageNumbers.value[0]! - 1);
-});
-
-const continuousScrollBottomSpacerHeight = computed(() => {
-    if (!isContinuousScroll.value || renderedPageNumbers.value.length === 0) {
-        return 0;
-    }
-
-    return continuousScrollController.getContinuousPagesHeight(
-        renderedPageNumbers.value[renderedPageNumbers.value.length - 1]! + 1,
-        totalPages.value,
-    );
+    return {
+        height: `${Math.max(containerHeight.value, continuousScrollController.getContinuousDocumentHeight(), 1)}px`,
+        width: `${continuousScrollSurfaceWidth.value}px`,
+    };
 });
 
 const djvuPreviewRuntime = useDjvuPreviewRuntime({
@@ -508,6 +529,11 @@ function handleViewerScroll() {
 }
 
 function handleViewerWheel(event: WheelEvent) {
+    if (
+        continuousScrollController.handleProjectedWheelScroll(event)
+    ) {
+        djvuPreviewRuntime.scheduleScrollSettledPreviewRerender();
+    }
     pageFlipWheelController.handleViewerWheel(event);
 }
 
@@ -587,7 +613,7 @@ onMounted(measureContainer);
 useResizeObserver(viewerContainer, handleContainerResize);
 
 onBeforeUnmount(() => {
-    continuousScrollController.cancelViewportSync();
+    continuousScrollController.dispose();
     djvuPreviewRuntime.dispose();
 });
 
@@ -645,6 +671,7 @@ function restoreScrollSnapshot(
     }
 
     void nextTick(() => {
+        continuousScrollController.beginProgrammaticScrollGuard();
         restorePageAnchorScrollSnapshot(
             viewerContainer.value,
             snapshot,
@@ -678,8 +705,19 @@ defineExpose<IDocumentViewerExpose>({
 </script>
 
 <style scoped>
+.djvu-viewer-container,
+.djvu-continuous-surface,
+.djvu-page-shell {
+    overflow-anchor: none;
+}
+
+.djvu-continuous-surface {
+    position: relative;
+}
+
 .djvu-page-shell {
     position: relative;
+    box-sizing: border-box;
     overflow: hidden;
     border: 1px solid var(--ui-border);
     border-radius: var(--app-radius-lg);
@@ -687,9 +725,8 @@ defineExpose<IDocumentViewerExpose>({
     box-shadow: var(--shadow-popup);
 }
 
-.djvu-page-virtual-spacer {
-    flex: 0 0 auto;
-    width: 1px;
+.djvu-page-shell--continuous {
+    position: absolute;
 }
 
 .djvu-page-placeholder {

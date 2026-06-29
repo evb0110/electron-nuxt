@@ -12,8 +12,21 @@ export interface IDjvuContinuousScrollWindow {
     pageNumbers: number[];
 }
 
+export interface IDjvuContinuousScrollGeometry {
+    pageHeights: number[];
+    pageTops: number[];
+    totalHeight: number;
+}
+
+export interface IResolveDjvuContinuousScrollGeometryOptions {
+    pageGapPx: number;
+    pageHeights: readonly number[];
+    totalPages: number;
+}
+
 export interface IResolveDjvuContinuousScrollWindowOptions {
     currentPage: number;
+    geometry?: IDjvuContinuousScrollGeometry;
     pageGapPx: number;
     pageHeights: readonly number[];
     renderMarginPages: number;
@@ -131,19 +144,74 @@ function getPageHeight(pageHeights: readonly number[], pageNumber: number) {
         : 0;
 }
 
+function getGeometryPageTop(
+    geometry: IDjvuContinuousScrollGeometry,
+    pageGapPx: number,
+    pageNumber: number,
+) {
+    return geometry.pageTops[pageNumber - 1] ?? normalizeGapPx(pageGapPx);
+}
+
+function normalizeGapPx(value: number) {
+    return Number.isFinite(value)
+        ? Math.max(0, value)
+        : 0;
+}
+
+export function resolveDjvuContinuousScrollGeometry(
+    options: IResolveDjvuContinuousScrollGeometryOptions,
+): IDjvuContinuousScrollGeometry {
+    if (options.totalPages <= 0) {
+        return {
+            pageHeights: [],
+            pageTops: [],
+            totalHeight: 0,
+        };
+    }
+
+    const pageGapPx = normalizeGapPx(options.pageGapPx);
+    const pageHeights: number[] = [];
+    const pageTops: number[] = [];
+    let nextPageTop = pageGapPx;
+
+    for (let pageNumber = 1; pageNumber <= options.totalPages; pageNumber += 1) {
+        const pageHeight = getPageHeight(options.pageHeights, pageNumber);
+        pageHeights.push(pageHeight);
+        pageTops.push(nextPageTop);
+        nextPageTop += pageHeight;
+        if (pageNumber < options.totalPages) {
+            nextPageTop += pageGapPx;
+        }
+    }
+
+    return {
+        pageHeights,
+        pageTops,
+        totalHeight: nextPageTop + pageGapPx,
+    };
+}
+
 function resolveContinuousScrollBounds(
     options: IResolveDjvuContinuousScrollWindowOptions,
     anchorPage: number,
+    geometry: IDjvuContinuousScrollGeometry,
     viewportTop: number,
     viewportBottom: number,
     overscanTop: number,
     overscanBottom: number,
 ) {
     const state = createContinuousScrollBoundsState(anchorPage);
-    let pageTop = options.pageGapPx;
+    const pageGapPx = normalizeGapPx(options.pageGapPx);
+    const firstPage = findFirstPageWithBottomAfter(geometry, pageGapPx, overscanTop, options.totalPages);
+    const lastPage = findLastPageWithTopBefore(geometry, overscanBottom, options.totalPages);
 
-    for (let pageNumber = 1; pageNumber <= options.totalPages; pageNumber += 1) {
-        const pageHeight = getPageHeight(options.pageHeights, pageNumber);
+    if (firstPage > lastPage) {
+        return state;
+    }
+
+    for (let pageNumber = firstPage; pageNumber <= lastPage; pageNumber += 1) {
+        const pageTop = getGeometryPageTop(geometry, pageGapPx, pageNumber);
+        const pageHeight = geometry.pageHeights[pageNumber - 1] ?? 0;
         const pageBottom = pageTop + pageHeight;
         const visibleHeight = measureIntersectionHeight(pageTop, pageBottom, viewportTop, viewportBottom);
         const overscanHeight = measureIntersectionHeight(pageTop, pageBottom, overscanTop, overscanBottom);
@@ -154,11 +222,55 @@ function resolveContinuousScrollBounds(
             visibleHeight,
             overscanHeight,
         );
-
-        pageTop = pageBottom + (pageNumber < options.totalPages ? options.pageGapPx : 0);
     }
 
     return state;
+}
+
+function findFirstPageWithBottomAfter(
+    geometry: IDjvuContinuousScrollGeometry,
+    pageGapPx: number,
+    boundary: number,
+    totalPages: number,
+) {
+    let low = 1;
+    let high = totalPages + 1;
+
+    while (low < high) {
+        const middle = Math.floor((low + high) / 2);
+        const pageTop = getGeometryPageTop(geometry, pageGapPx, middle);
+        const pageBottom = pageTop + (geometry.pageHeights[middle - 1] ?? 0);
+
+        if (pageBottom > boundary) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+
+    return low;
+}
+
+function findLastPageWithTopBefore(
+    geometry: IDjvuContinuousScrollGeometry,
+    boundary: number,
+    totalPages: number,
+) {
+    let low = 1;
+    let high = totalPages + 1;
+
+    while (low < high) {
+        const middle = Math.floor((low + high) / 2);
+        const pageTop = geometry.pageTops[middle - 1] ?? 0;
+
+        if (pageTop < boundary) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+
+    return low - 1;
 }
 
 export function resolveDjvuContinuousScrollWindow(options: IResolveDjvuContinuousScrollWindowOptions): IDjvuContinuousScrollWindow | null {
@@ -167,6 +279,7 @@ export function resolveDjvuContinuousScrollWindow(options: IResolveDjvuContinuou
     }
 
     const anchorPage = clamp(options.currentPage, 1, options.totalPages);
+    const geometry = options.geometry ?? resolveDjvuContinuousScrollGeometry(options);
     if (options.viewportHeight <= 0) {
         const {
             start,
@@ -186,6 +299,7 @@ export function resolveDjvuContinuousScrollWindow(options: IResolveDjvuContinuou
     const bounds = resolveContinuousScrollBounds(
         options,
         anchorPage,
+        geometry,
         viewportTop,
         viewportBottom,
         overscanTop,
@@ -203,4 +317,3 @@ export function resolveDjvuContinuousScrollWindow(options: IResolveDjvuContinuou
 
     return createContinuousScrollWindow(start, end, bounds.mostVisiblePage);
 }
-

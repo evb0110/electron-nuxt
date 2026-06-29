@@ -117,6 +117,7 @@ export interface IWorkspaceViewPort {
     handleFitWidth: () => void;
     handleFitHeight: () => void;
     handleActualSize: () => void;
+    setCustomZoomFromDisplay: (displayZoom: number) => void;
     handleGoToPage: (page: number) => void;
     handleToggleSidebar: () => void;
     handleToggleContinuousScroll: () => void;

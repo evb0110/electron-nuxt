@@ -85,4 +85,27 @@ describe('createDjvuPageRenderList', () => {
             5,
         ]);
     });
+
+    it('can prefetch farther along the projected scroll direction', () => {
+        expect(createDjvuPageRenderList({
+            anchorPage: 10,
+            direction: 1,
+            directionalPrefetchPages: 4,
+            endPage: 12,
+            prefetchPages: 1,
+            startPage: 8,
+            totalPages: 20,
+        })).toEqual([
+            10,
+            11,
+            9,
+            12,
+            13,
+            14,
+            15,
+            16,
+            8,
+            7,
+        ]);
+    });
 });

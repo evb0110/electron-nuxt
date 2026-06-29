@@ -5,6 +5,7 @@ export interface IDjvuPreviewResolutionRequest {
     nativeWidth: number;
     neededDevicePx: number;
     headroom?: number;
+    maxTargetPx?: number;
     maxSubsample?: number;
 }
 
@@ -34,7 +35,12 @@ export function resolveDjvuPreviewResolutionPlan(
         && request.maxSubsample > 0
         ? Math.max(1, Math.trunc(request.maxSubsample))
         : DJVU_PREVIEW_SUBSAMPLE_MAX;
-    const targetPx = Math.min(nativeWidth, Math.ceil(neededDevicePx * headroom));
+    const maxTargetPx = typeof request.maxTargetPx === 'number'
+        && Number.isFinite(request.maxTargetPx)
+        && request.maxTargetPx > 0
+        ? Math.max(1, Math.round(request.maxTargetPx))
+        : nativeWidth;
+    const targetPx = Math.min(nativeWidth, maxTargetPx, Math.ceil(neededDevicePx * headroom));
     const subsample = Math.max(1, Math.min(maxSubsample, Math.floor(nativeWidth / targetPx)));
 
     return {
