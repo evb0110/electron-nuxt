@@ -27,7 +27,6 @@ import { toMarkerRectFromEditor } from '@app/modules/pdf-viewer/engine/pdf-annot
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import { clamp01 } from '@app/modules/pdf-viewer/engine/annotation-geometry/clamp01';
 import { errorToLogText } from '@app/modules/pdf-viewer/engine/annotation-css-utils/errorToLogText';
-import { SELECTION_CACHE_TTL_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import {
@@ -54,6 +53,7 @@ import {
     markCommentMarkerAnchorEditor,
     syncCommentMarkerAnchorEditor,
 } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
+import { useAnnotationTextSelectionCache } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache';
 
 const ANNOTATION_EDITOR_RETRY_ATTEMPTS = 12;
 const ANNOTATION_EDITOR_RETRY_DELAY_MS = 80;
@@ -164,19 +164,27 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         resolvePagePointTarget,
         findPageContainerFromClientPoint,
     } = pagePointResolver;
+    const {
+        cacheCurrentTextSelection,
+        clearSelectionCache,
+        getPageNumberForTextLayer,
+        getSelectionRangeForCommentAction,
+        resolveTextLayerForRange,
+        restoreSelectionRange,
+    } = useAnnotationTextSelectionCache({
+        viewerContainer,
+        currentPage,
+    });
 
     function isAnnotationUiManagerCurrent(uiManager: AnnotationEditorUIManager) {
         return annotationUiManager.value === uiManager;
     }
 
-    let cachedSelectionRange: Range | null = null;
-    let cachedSelectionTimestamp = 0;
     const subtypeRetryTimers = new Set<ReturnType<typeof setTimeout>>();
 
     tryOnScopeDispose(() => {
         subtypeRetryTimers.forEach(timer => clearTimeout(timer));
         subtypeRetryTimers.clear();
-        cachedSelectionRange = null;
     });
 
     function scheduleSubtypeRetry(run: () => void, delayMs: number) {
@@ -189,115 +197,6 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
 
     function cloneHighlightBoxes(boxes: readonly IPdfjsHighlightBox[]) {
         return boxes.map(box => ({ ...box }));
-    }
-
-    function cacheCurrentTextSelection() {
-        const container = viewerContainer.value;
-        if (!container) {
-            cachedSelectionRange = null;
-            return;
-        }
-
-        const selection = document.getSelection();
-        if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-            return;
-        }
-
-        const range = selection.getRangeAt(0);
-        const commonAncestor = range.commonAncestorContainer;
-        const element = commonAncestor.nodeType === Node.TEXT_NODE
-            ? commonAncestor.parentElement
-            : commonAncestor as HTMLElement | null;
-
-        if (!element?.closest('.text-layer, .textLayer') || !container.contains(element)) {
-            cachedSelectionRange = null;
-            cachedSelectionTimestamp = 0;
-            return;
-        }
-
-        cachedSelectionRange = range.cloneRange();
-        cachedSelectionTimestamp = Date.now();
-    }
-
-    function isRangeWithinViewerTextLayer(range: Range) {
-        const container = viewerContainer.value;
-        if (!container) {
-            return false;
-        }
-        const commonAncestor = range.commonAncestorContainer;
-        const element = commonAncestor.nodeType === Node.TEXT_NODE
-            ? commonAncestor.parentElement
-            : commonAncestor as HTMLElement | null;
-        if (!element) {
-            return false;
-        }
-        const textLayer = element.closest('.text-layer, .textLayer');
-        return Boolean(textLayer && container.contains(textLayer));
-    }
-
-    function getSelectionRangeFromDocument() {
-        const selection = document.getSelection();
-        if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-            return null;
-        }
-        const range = selection.getRangeAt(0);
-        if (!isRangeWithinViewerTextLayer(range)) {
-            return null;
-        }
-        return range.cloneRange();
-    }
-
-    function getSelectionRangeForCommentAction() {
-        const direct = getSelectionRangeFromDocument();
-        if (direct) {
-            return direct;
-        }
-        if (!cachedSelectionRange) {
-            return null;
-        }
-        if ((Date.now() - cachedSelectionTimestamp) > SELECTION_CACHE_TTL_MS) {
-            return null;
-        }
-        if (!isRangeWithinViewerTextLayer(cachedSelectionRange)) {
-            return null;
-        }
-        return cachedSelectionRange.cloneRange();
-    }
-
-    function clearSelectionCache() {
-        cachedSelectionRange = null;
-        cachedSelectionTimestamp = 0;
-    }
-
-    function restoreSelectionRange(activeRange: Range) {
-        const selection = document.getSelection();
-        try {
-            selection?.removeAllRanges();
-            selection?.addRange(activeRange.cloneRange());
-        } catch (error) {
-            BrowserLogger.debug('annotations', `Failed to restore current text selection: ${errorToLogText(error)}`);
-        }
-        return selection;
-    }
-
-    function getElementFromRangeNode(node: Node) {
-        return node.nodeType === Node.TEXT_NODE
-            ? node.parentElement
-            : (node as HTMLElement | null);
-    }
-
-    function resolveTextLayerForRange(activeRange: Range) {
-        const anchorElement = getElementFromRangeNode(activeRange.startContainer);
-        const commonAncestorElement = getElementFromRangeNode(activeRange.commonAncestorContainer);
-        return (anchorElement?.closest('.text-layer, .textLayer')
-            ?? commonAncestorElement?.closest('.text-layer, .textLayer')) as HTMLElement | null;
-    }
-
-    function getPageNumberForTextLayer(textLayer: HTMLElement) {
-        const pageContainer = textLayer.closest<HTMLElement>('.page_container');
-        return pageContainer?.dataset.page
-            ? Number(pageContainer.dataset.page)
-            : currentPage.value;
     }
 
     function createModeRestoredDeferred() {
@@ -422,8 +321,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         const getEditorsForPage = (editorPageIndex: number) => getEditorsOnPage(uiManager, editorPageIndex);
 
         selection?.removeAllRanges();
-        cachedSelectionRange = null;
-        cachedSelectionTimestamp = 0;
+        clearSelectionCache();
 
         const previousMode = uiManager.getMode();
         const markupSubtypeOverride = selectionOptions.markupSubtype
@@ -484,7 +382,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             }
             clearSelectedEditorState(uiManager);
 
-            const activeElement = document.activeElement as HTMLElement | null;
+            const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
             if (activeElement && activeElement !== document.body) {
                 const insidePdfViewer = activeElement.closest(
                     '.annotationEditorLayer, .annotation-editor-layer, .pdfViewer, .pdf-viewer',
@@ -677,7 +575,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
 
     function keepFreeTextEditorAlive(editor: IPdfjsEditor) {
         const editorDiv = editor.div?.querySelector<HTMLElement>('[contenteditable]')
-            ?? (editor as { editorDiv?: HTMLElement }).editorDiv;
+            ?? ('editorDiv' in editor && editor.editorDiv instanceof HTMLElement ? editor.editorDiv : undefined);
         if (editorDiv) {
             editorDiv.textContent = '\u200B';
         }

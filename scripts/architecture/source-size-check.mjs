@@ -54,14 +54,14 @@ const EXCLUDED_PATH_SEGMENTS = new Set([
 
 export const SOURCE_SIZE_ALLOWLIST = {
     'app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageScroll.ts': {
-        maxLines: 2404,
-        reason: 'transitional PDF navigation controller hotspot after visual readiness extraction',
-        stage: 'Worker 4/Stage 11 - PDF navigation visual readiness extraction',
+        maxLines: 2144,
+        reason: 'transitional PDF navigation controller facade after single-page scroll geometry extraction',
+        stage: 'Worker 2/Stage 5 - Single-page scroll geometry extraction',
     },
     'app/modules/agent-panel/components/AgentAssistantPanel.vue': {
-        maxLines: 1857,
-        reason: 'transitional assistant panel hotspot after selection and image helper extraction',
-        stage: 'Worker 1/Stage 9 - Agent panel helper extraction',
+        maxLines: 919,
+        reason: 'assistant panel entrypoint after controller ownership extraction',
+        stage: 'Worker 2/Stage 2 - Assistant panel controller split',
     },
     'app/modules/pdf-viewer/components/PdfThumbnails.vue': {
         maxLines: 1105,
@@ -69,9 +69,9 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Finding 9 Stage A - PDF thumbnail render orchestration extraction',
     },
     'electron/features/agent/codexAssistant.ts': {
-        maxLines: 1899,
-        reason: 'transitional Electron assistant backend hotspot after provider account extraction',
-        stage: 'Worker 24 - Agent provider account extraction',
+        maxLines: 1388,
+        reason: 'transitional Electron assistant backend facade after session store and runtime lifecycle extraction',
+        stage: 'Worker 2/Stage 1 - Assistant backend session/runtime split',
     },
     'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts': {
         maxLines: 448,
@@ -98,30 +98,15 @@ export const SOURCE_SIZE_ALLOWLIST = {
         reason: 'transitional workspace component hotspot',
         stage: 'Future workspace component extraction',
     },
-    'app/platform/browser/browserDocumentRepository.ts': {
-        maxLines: 1394,
-        reason: 'transitional browser document repository hotspot',
-        stage: 'Future platform repository extraction',
-    },
     'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts': {
-        maxLines: 1366,
-        reason: 'transitional PDF annotation highlight hotspot',
-        stage: 'Future PDF annotation extraction',
+        maxLines: 1264,
+        reason: 'transitional PDF annotation highlight facade after text-selection cache extraction',
+        stage: 'Worker 2/Stage 4 - Annotation action/runtime contract split',
     },
     'app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue': {
         maxLines: 1357,
         reason: 'transitional deferred workspace host hotspot',
         stage: 'Future workspace host extraction',
-    },
-    'app/modules/workspace-shell/composables/usePageAnnotationActions.ts': {
-        maxLines: 1354,
-        reason: 'transitional page annotation actions hotspot',
-        stage: 'Future workspace annotation extraction',
-    },
-    'app/modules/pdf-viewer/tools/useAnnotationShapes.ts': {
-        maxLines: 1334,
-        reason: 'transitional PDF annotation shape tool hotspot',
-        stage: 'Future PDF annotation tools extraction',
     },
     'app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts': {
         maxLines: 1325,
@@ -134,9 +119,9 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future PDF rendering extraction',
     },
     'electron/ocr/jobManager.ts': {
-        maxLines: 1247,
-        reason: 'transitional OCR job manager hotspot',
-        stage: 'Worker 23 - OCR worker resource-message extraction',
+        maxLines: 1013,
+        reason: 'OCR job manager facade after worker lifecycle extraction',
+        stage: 'Worker 2/Stage 3 - OCR job manager lifecycle split',
     },
     'app/modules/workspace-shell/components/AppShellRoot.vue': {
         maxLines: 1253,

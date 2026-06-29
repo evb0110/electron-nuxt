@@ -14,10 +14,7 @@ import { runGuardedTask } from '@app/utils/asyncGuard';
 import { logPdfNav } from '@app/utils/logPdfNav';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
-import { getPageScrollBounds as getPageScrollBoundsForContainer } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageScrollBounds';
-import type { IPageScrollBounds } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/pdfScrollVisibilityTypes';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
-import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type {
     IWheelPageAccumulatorState,
@@ -50,6 +47,12 @@ import {
     isMountedPageRowCanvasUsable as isMountedPageRowCanvasUsableForRange,
 } from '@app/modules/pdf-viewer/runtime/navigation/singlePageVisualReadiness';
 import type { IMountedPageVisualState } from '@app/modules/pdf-viewer/runtime/navigation/singlePageVisualReadiness';
+import {
+    getPageScrollBounds as getSinglePageScrollBounds,
+    resolveContinuousNavigationTargetLeft as resolveContinuousNavigationTargetLeftForContainer,
+    resolveContinuousNavigationTargetTop as resolveContinuousNavigationTargetTopForContainer,
+    resolveMountedPageSnapTarget,
+} from '@app/modules/pdf-viewer/runtime/navigation/singlePageScrollGeometry';
 
 const WHEEL_DELTA_EPSILON = 0.01;
 const CONTINUOUS_PROGRAMMATIC_RENDER_SETTLE_DELAYS_MS = [
@@ -78,11 +81,6 @@ const WHEEL_FLIP_SNAP_SUPPRESSION_MS = 250;
 const CONTINUOUS_NAVIGATION_HOLD_WITH_METRICS_MS = 1_200;
 const CONTINUOUS_NAVIGATION_HOLD_FALLBACK_MS = 220;
 const PROGRAMMATIC_NAVIGATION_RELEASE_RETRY_MS = 40;
-
-interface IPageRowGeometry {
-    top: number;
-    height: number;
-}
 
 interface IPagedRowRenderRequest {
     allowSuppressedRender?: boolean;
@@ -327,7 +325,7 @@ export const usePdfSinglePageScroll = (
                     return;
                 }
 
-                const hold = pagedNavigationAuthority.expireHold(runId);
+                const hold: { startedAtMs: number } | null = pagedNavigationAuthority.expireHold(runId);
                 logPdfRenderTrace('single-page-paged-target-abandoned', {
                     runId,
                     targetPage,
@@ -629,44 +627,12 @@ export const usePdfSinglePageScroll = (
             return null;
         }
 
-        const pageHeight = targetPageElement.offsetHeight || targetPageElement.clientHeight;
-        const pageYRatio = typeof scrollOptions?.pageYRatio === 'number'
-            && Number.isFinite(scrollOptions.pageYRatio)
-            ? clamp(scrollOptions.pageYRatio, 0, 1)
-            : 0;
-        const maxTop = Math.max(0, container.scrollHeight - container.clientHeight);
-        if (typeof scrollOptions?.pageYRatio === 'number' && Number.isFinite(scrollOptions.pageYRatio)) {
-            return Math.min(
-                maxTop,
-                Math.max(
-                    0,
-                    targetPageElement.offsetTop + pageYRatio * pageHeight - scaledMargin.value,
-                ),
-            );
-        }
-
-        if (scrollOptions?.markerRect) {
-            const markerCenterY = clamp(
-                scrollOptions.markerRect.top + scrollOptions.markerRect.height / 2,
-                0,
-                1,
-            );
-            return clampMarkerScrollTopToPageBounds({
-                desiredTop: Math.max(
-                    0,
-                    targetPageElement.offsetTop + markerCenterY * pageHeight - container.clientHeight / 2,
-                ),
-                maxTop,
-                pageTop: targetPageElement.offsetTop,
-                pageHeight,
-                containerHeight: container.clientHeight,
-            });
-        }
-
-        return Math.min(
-            maxTop,
-            Math.max(0, targetPageElement.offsetTop - scaledMargin.value),
-        );
+        return resolveContinuousNavigationTargetTopForContainer({
+            container,
+            scaledMargin: scaledMargin.value,
+            scrollOptions,
+            targetPageElement,
+        });
     }
 
     function isContinuousNavigationTargetAligned(
@@ -704,28 +670,6 @@ export const usePdfSinglePageScroll = (
         return !isContinuousNavigationTargetAligned(
             targetPage,
             continuousNavigationTargetScrollOptions,
-        );
-    }
-
-    function clampMarkerScrollTopToPageBounds(options: {
-        desiredTop: number;
-        maxTop: number;
-        pageTop: number;
-        pageHeight: number;
-        containerHeight: number;
-    }) {
-        const minTop = Math.max(0, options.pageTop - scaledMargin.value);
-        const pageMaxTop = Math.max(
-            minTop,
-            options.pageTop + options.pageHeight + scaledMargin.value - options.containerHeight,
-        );
-        const boundedMaxTop = Math.min(options.maxTop, pageMaxTop);
-        const boundedMinTop = Math.min(minTop, boundedMaxTop);
-
-        return clamp(
-            options.desiredTop,
-            boundedMinTop,
-            Math.max(boundedMinTop, boundedMaxTop),
         );
     }
 
@@ -1541,72 +1485,13 @@ export const usePdfSinglePageScroll = (
             return null;
         }
 
-        const targetPage = clamp(pageNumber, 1, numPages.value);
-        const rowGeometry = getPageRowGeometry(container, targetPage);
-        if (rowGeometry) {
-            return getPageScrollBoundsFromGeometry(container, rowGeometry);
-        }
-
-        return getPageScrollBoundsForContainer(
+        return getSinglePageScrollBounds({
             container,
-            targetPage,
-            scaledMargin.value,
-        );
-    }
-
-    function getPageRowGeometry(
-        container: HTMLElement,
-        pageNumber: number,
-    ): IPageRowGeometry | null {
-        const rowBounds = getPageRowBoundsForViewMode({
             pageNumber,
-            viewMode: viewMode.value,
+            scaledMargin: scaledMargin.value,
             totalPages: numPages.value,
+            viewMode: viewMode.value,
         });
-        let rowTop = Number.POSITIVE_INFINITY;
-        let rowBottom = Number.NEGATIVE_INFINITY;
-        let foundAnyPage = false;
-
-        for (let rowPage = rowBounds.start; rowPage <= rowBounds.end; rowPage += 1) {
-            const pageElement = getPageContainerByNumber(container, rowPage);
-            if (!pageElement) {
-                continue;
-            }
-            foundAnyPage = true;
-            rowTop = Math.min(rowTop, pageElement.offsetTop);
-            rowBottom = Math.max(rowBottom, pageElement.offsetTop + pageElement.offsetHeight);
-        }
-
-        if (!foundAnyPage) {
-            return null;
-        }
-
-        return {
-            top: rowTop,
-            height: Math.max(0, rowBottom - rowTop),
-        };
-    }
-
-    function getPageScrollBoundsFromGeometry(
-        container: HTMLElement,
-        geometry: IPageRowGeometry,
-    ): IPageScrollBounds {
-        const maxScrollTop = Math.max(
-            0,
-            container.scrollHeight - container.clientHeight,
-        );
-        const unclampedMin = Math.max(0, geometry.top - scaledMargin.value);
-        const unclampedMax = unclampedMin + Math.max(
-            0,
-            geometry.height - container.clientHeight,
-        );
-        const min = Math.min(maxScrollTop, unclampedMin);
-        const max = Math.min(maxScrollTop, Math.max(min, unclampedMax));
-
-        return {
-            min,
-            max,
-        };
     }
 
     function isWithinTallPageInterior(pageNumber: number) {
@@ -1622,115 +1507,6 @@ export const usePdfSinglePageScroll = (
     function isTallPage(pageNumber: number) {
         const bounds = getPageScrollBounds(pageNumber);
         return !!bounds && hasScrollablePageBounds(bounds);
-    }
-
-    function resolveMountedPageSnapTop(options: {
-        anchor: TPageSnapAnchor;
-        baseTop: number;
-        maxTop: number;
-        targetHeight: number;
-        containerHeight: number;
-        pageYRatio?: number | null | undefined;
-        markerRect?: IScrollToPageOptions['markerRect'];
-        markerPageTop?: number | undefined;
-        markerPageHeight?: number | undefined;
-        pageYBaseTop?: number | undefined;
-        pageYPageHeight?: number | undefined;
-    }) {
-        if (typeof options.pageYRatio === 'number' && Number.isFinite(options.pageYRatio)) {
-            const pageYBaseTop = typeof options.pageYBaseTop === 'number'
-                && Number.isFinite(options.pageYBaseTop)
-                ? options.pageYBaseTop
-                : options.baseTop;
-            const pageYPageHeight = typeof options.pageYPageHeight === 'number'
-                && Number.isFinite(options.pageYPageHeight)
-                && options.pageYPageHeight > 0
-                ? options.pageYPageHeight
-                : options.targetHeight;
-            return Math.min(
-                options.maxTop,
-                Math.max(0, pageYBaseTop + clamp(options.pageYRatio, 0, 1) * pageYPageHeight),
-            );
-        }
-
-        if (
-            options.markerRect
-            && typeof options.markerPageTop === 'number'
-            && Number.isFinite(options.markerPageTop)
-            && typeof options.markerPageHeight === 'number'
-            && Number.isFinite(options.markerPageHeight)
-            && options.markerPageHeight > 0
-        ) {
-            const markerCenterY = clamp(
-                options.markerRect.top + options.markerRect.height / 2,
-                0,
-                1,
-            );
-            return clampMarkerScrollTopToPageBounds({
-                desiredTop: Math.max(
-                    0,
-                    options.markerPageTop + markerCenterY * options.markerPageHeight - options.containerHeight / 2,
-                ),
-                maxTop: options.maxTop,
-                pageTop: options.markerPageTop,
-                pageHeight: options.markerPageHeight,
-                containerHeight: options.containerHeight,
-            });
-        }
-
-        const topTarget = Math.min(options.maxTop, Math.max(0, options.baseTop));
-        const centerOffset = Math.max(0, (options.containerHeight - options.targetHeight) / 2);
-        const centerTarget = Math.min(options.maxTop, Math.max(0, options.baseTop - centerOffset));
-        const bottomTarget = Math.min(
-            options.maxTop,
-            Math.max(0, options.baseTop + options.targetHeight - options.containerHeight),
-        );
-
-        if (options.anchor === 'top') {
-            return topTarget;
-        }
-        if (options.anchor === 'bottom') {
-            return bottomTarget;
-        }
-        return centerTarget;
-    }
-
-    function resolveMountedPageMarkerScrollLeft(options: {
-        containerWidth: number;
-        maxLeft: number;
-        markerRect?: IScrollToPageOptions['markerRect'];
-        pageLeft: number;
-        pageWidth: number;
-    }) {
-        if (
-            !options.markerRect
-            || !Number.isFinite(options.pageWidth)
-            || options.pageWidth <= 0
-        ) {
-            return null;
-        }
-
-        const markerCenterX = clamp(
-            options.markerRect.left + options.markerRect.width / 2,
-            0,
-            1,
-        );
-        const markerTargetLeft = Math.max(
-            0,
-            options.pageLeft + markerCenterX * options.pageWidth - options.containerWidth / 2,
-        );
-        const scrollClamp = resolvePageBoundedHorizontalScroll({
-            scrollLeft: markerTargetLeft,
-            viewportWidth: options.containerWidth,
-            pageLeft: options.pageLeft,
-            pageWidth: options.pageWidth,
-            margin: scaledMargin.value,
-        });
-
-        return Math.min(
-            options.maxLeft,
-            Math.max(0, scrollClamp?.scrollLeft ?? markerTargetLeft),
-        );
     }
 
     function resolveContinuousNavigationTargetLeft(
@@ -1750,20 +1526,11 @@ export const usePdfSinglePageScroll = (
             return null;
         }
 
-        const containerWidth = Number.isFinite(container.clientWidth) && container.clientWidth > 0
-            ? container.clientWidth
-            : 0;
-        const scrollWidth = Number.isFinite(container.scrollWidth) && container.scrollWidth > 0
-            ? container.scrollWidth
-            : containerWidth;
-        const maxLeft = Math.max(0, scrollWidth - containerWidth);
-        const pageWidth = targetPageElement.offsetWidth || targetPageElement.clientWidth || 0;
-        return resolveMountedPageMarkerScrollLeft({
-            containerWidth,
-            maxLeft,
-            markerRect: scrollOptions.markerRect,
-            pageLeft: targetPageElement.offsetLeft,
-            pageWidth,
+        return resolveContinuousNavigationTargetLeftForContainer({
+            container,
+            scaledMargin: scaledMargin.value,
+            scrollOptions,
+            targetPageElement,
         });
     }
 
@@ -1787,47 +1554,20 @@ export const usePdfSinglePageScroll = (
         }
 
         const container = viewerContainer.value;
-        const containerHeight = container.clientHeight;
-        const containerWidth = Number.isFinite(container.clientWidth) && container.clientWidth > 0
-            ? container.clientWidth
-            : 0;
-        const targetGeometry = getPageRowGeometry(container, targetPage) ?? {
-            top: targetEl.offsetTop,
-            height: targetEl.offsetHeight,
-        };
-        const targetPageHeight = targetEl.offsetHeight || targetEl.clientHeight || targetGeometry.height;
-        const targetPageWidth = targetEl.offsetWidth || targetEl.clientWidth || 0;
-        const targetHeight = targetGeometry.height;
-        const baseTop = targetGeometry.top - scaledMargin.value;
-        const maxTop = Math.max(0, container.scrollHeight - containerHeight);
-        const scrollWidth = Number.isFinite(container.scrollWidth) && container.scrollWidth > 0
-            ? container.scrollWidth
-            : containerWidth;
-        const maxLeft = Math.max(0, scrollWidth - containerWidth);
-        const targetTop = resolveMountedPageSnapTop({
+        const target = resolveMountedPageSnapTarget({
             anchor,
-            baseTop,
-            maxTop,
-            targetHeight,
-            containerHeight,
-            pageYRatio: options?.pageYRatio,
-            markerRect: options?.markerRect,
-            markerPageTop: targetEl.offsetTop,
-            markerPageHeight: targetPageHeight,
-            pageYBaseTop: targetEl.offsetTop - scaledMargin.value,
-            pageYPageHeight: targetPageHeight,
-        });
-        const targetLeft = resolveMountedPageMarkerScrollLeft({
-            containerWidth,
-            maxLeft,
-            markerRect: options?.markerRect,
-            pageLeft: targetEl.offsetLeft,
-            pageWidth: targetPageWidth,
+            container,
+            scaledMargin: scaledMargin.value,
+            scrollOptions: options,
+            targetPage,
+            targetPageElement: targetEl,
+            totalPages: numPages.value,
+            viewMode: viewMode.value,
         });
         isSnapping.value = true;
-        container.scrollTop = targetTop;
-        if (targetLeft !== null) {
-            container.scrollLeft = targetLeft;
+        container.scrollTop = target.top;
+        if (target.left !== null) {
+            container.scrollLeft = target.left;
         }
         if (commitOptions?.commitCurrentPage !== false && currentPage.value !== targetPage) {
             currentPage.value = targetPage;

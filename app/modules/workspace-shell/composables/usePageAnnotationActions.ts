@@ -16,9 +16,7 @@ import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacemen
 import {
     getShapeRect,
     resolveAnnotationCommentTextMarkupColor,
-    normalizeMarkerRect,
 } from '@app/modules/pdf-viewer/public';
-import * as pdfAnnotationRefs from '@app/utils/pdfAnnotationRefs';
 import { commentsShareDeleteTarget as doCommentsShareDeleteTarget } from '@app/modules/workspace-shell/annotations/commentsShareDeleteTarget';
 import { getAnnotationPageNumber } from '@app/modules/workspace-shell/annotations/getAnnotationPageNumber';
 import { isFreshEditorNoteCreationForUndo } from '@app/modules/workspace-shell/annotations/isFreshEditorNoteCreationForUndo';
@@ -27,6 +25,7 @@ import { withOpenedAnnotationNoteCreationTimestamp } from '@app/modules/workspac
 import { pickPageAnnotationImageFile } from '@app/modules/workspace-shell/annotations/pickPageAnnotationImageFile';
 import { readPageAnnotationImageFileFromClipboard } from '@app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard';
 import { resolveShapeAnnotationDefaultSettings } from '@app/modules/workspace-shell/annotations/resolveShapeAnnotationDefaultSettings';
+import { createPageAnnotationDeleteActions } from '@app/modules/workspace-shell/composables/createPageAnnotationDeleteActions';
 
 type TPdfViewerForAnnotationActions = Pick<WorkspaceOrchestration.IPdfViewerExpose,
     'cancelCommentPlacement'
@@ -789,32 +788,30 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         closeShapeProperties();
     }
 
-    watch(
-        () => selectedShapeId.value,
-        (shapeId, previousShapeId) => {
-            if (!shapeId) {
-                dismissedShapePropertiesId.value = null;
-                shapePropertiesPopover.value = {
-                    visible: false,
-                    x: 0,
-                    y: 0,
-                };
-                return;
-            }
+    watch((): string | null => selectedShapeId.value, (shapeId: string | null, previousShapeId: string | null | undefined) => {
+        if (!shapeId) {
+            dismissedShapePropertiesId.value = null;
+            shapePropertiesPopover.value = {
+                visible: false,
+                x: 0,
+                y: 0,
+            };
+            return;
+        }
 
-            if (shapeId === previousShapeId && shapePropertiesPopover.value.visible) {
-                return;
-            }
+        if (shapeId === previousShapeId && shapePropertiesPopover.value.visible) {
+            return;
+        }
 
-            if (dismissedShapePropertiesId.value === shapeId) {
-                return;
-            }
+        if (dismissedShapePropertiesId.value === shapeId) {
+            return;
+        }
 
-            if (selectedShape.value) {
-                updateShapePropertiesPopoverPosition(selectedShape.value);
-            }
-        },
-        { immediate: true },
+        if (selectedShape.value) {
+            updateShapePropertiesPopoverPosition(selectedShape.value);
+        }
+    },
+    { immediate: true },
     );
 
     watch(
@@ -1026,15 +1023,14 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             return;
         }
 
-        const {
-            pageNumber,
-            pageX,
-            pageY,
-        } = annotationContextMenu.value;
+        const contextMenu = annotationContextMenu.value;
+        const pageNumber = typeof contextMenu.pageNumber === 'number' && Number.isFinite(contextMenu.pageNumber) ? contextMenu.pageNumber : null;
+        const pageX = typeof contextMenu.pageX === 'number' && Number.isFinite(contextMenu.pageX) ? contextMenu.pageX : null;
+        const pageY = typeof contextMenu.pageY === 'number' && Number.isFinite(contextMenu.pageY) ? contextMenu.pageY : null;
         if (
-            !Number.isFinite(pageNumber)
-            || !Number.isFinite(pageX)
-            || !Number.isFinite(pageY)
+            pageNumber === null
+            || pageX === null
+            || pageY === null
         ) {
             closeAnnotationContextMenu();
             return;
@@ -1044,9 +1040,9 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         closeAnnotationContextMenu();
         try {
             await pdfViewerRef.value.commentAtPoint(
-                pageNumber as number,
-                pageX as number,
-                pageY as number,
+                pageNumber,
+                pageX,
+                pageY,
                 { preferTextAnchor: false },
             );
         } catch (error) {
@@ -1135,173 +1131,20 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         }
     }
 
-    let annotationDeleteQueue: Promise<void> = Promise.resolve();
-    const pendingAnnotationDeleteStableKeys = new Set<string>();
-
-    function resolveEmbeddedPdfAnnotationId(comment: IAnnotationCommentSummary) {
-        const annotationId = pdfAnnotationRefs.normalizePdfJsAnnotationId(comment.annotationId);
-        if (pdfAnnotationRefs.parsePdfJsAnnotationRef(annotationId)) {
-            return annotationId;
-        }
-
-        const stableRef = comment.stableKey.trim().match(/^ann:\d+:(\d+R(?:\d+)?)$/iu)?.[1];
-        const stableAnnotationId = pdfAnnotationRefs.normalizePdfJsAnnotationId(stableRef);
-        if (pdfAnnotationRefs.parsePdfJsAnnotationRef(stableAnnotationId)) {
-            return stableAnnotationId;
-        }
-
-        return null;
-    }
-
-    function shouldUseEmbeddedDeletePath(comment: IAnnotationCommentSummary) {
-        return comment.source !== 'shape'
-            && (comment.source === 'pdf' || Boolean(resolveEmbeddedPdfAnnotationId(comment)));
-    }
-
-    function isReplayableEditorOnlyFreeTextNote(comment: IAnnotationCommentSummary) {
-        const subtype = comment.subtype?.trim().toLowerCase();
-        return comment.source === 'editor'
-            && !pdfAnnotationRefs.parsePdfJsAnnotationRef(comment.annotationId)
-            && Boolean(comment.hasNote)
-            && Boolean(normalizeMarkerRect(comment.markerRect))
-            && (subtype === 'freetext' || subtype === 'typewriter');
-    }
-
-    function shouldQueueNativeSavedFreeTextDelete(comment: IAnnotationCommentSummary) {
-        return isReplayableEditorOnlyFreeTextNote(comment)
-            && deps.isNativeFreeTextNoteSaved?.(comment) === true;
-    }
-
-    function shouldUseEmbeddedDeleteFallback(comment: IAnnotationCommentSummary, deleted: boolean) {
-        return !deleted && shouldUseEmbeddedDeletePath(comment);
-    }
-
-    function queueDeferredEmbeddedDelete(comment: IAnnotationCommentSummary) {
-        const viewer = pdfViewerRef.value;
-        if (!viewer) {
-            return false;
-        }
-        const embeddedAnnotationId = resolveEmbeddedPdfAnnotationId(comment);
-        const deletionComment: IAnnotationCommentSummary = embeddedAnnotationId && embeddedAnnotationId !== comment.annotationId
-            ? {
-                ...comment,
-                annotationId: embeddedAnnotationId,
-            }
-            : comment;
-
-        const applyDelete = () => {
-            viewer.suppressAnnotationStableKey(comment.stableKey);
-            deps.queuePendingEmbeddedAnnotationDelete(deletionComment);
-            if (embeddedAnnotationId) {
-                viewer.suppressAnnotationId(embeddedAnnotationId);
-            }
-            viewer.removeAnnotationFromDom(deletionComment);
-            viewer.removeAnnotationFromInternalCache(comment.stableKey);
-            deps.removeAnnotationFromCache(comment.stableKey);
-            invalidateAnnotationPage(comment);
-        };
-        const undoDelete = () => {
-            deps.unqueuePendingEmbeddedAnnotationDelete(comment.stableKey);
-            viewer.unsuppressAnnotationStableKey?.(comment.stableKey);
-            if (embeddedAnnotationId) {
-                viewer.unsuppressAnnotationId?.(embeddedAnnotationId);
-            }
-            viewer.restoreAnnotationToInternalCache?.(comment);
-            deps.restoreAnnotationToCache(comment);
-            invalidateAnnotationPage(comment);
-        };
-
-        // Keep embedded annotation deletes local until the user saves.
-        // This matches note text edits and avoids an immediate rewrite/reload.
-        applyDelete();
-        viewer.registerAnnotationHistoryCommand?.({
-            cmd: applyDelete,
-            undo: undoDelete,
-        });
-        return true;
-    }
-
-    function handleAnnotationDeleteFailure(comment: IAnnotationCommentSummary) {
-        BrowserLogger.warn('annotations', 'Delete annotation comment failed after all fallbacks', {
-            stableKey: comment.stableKey,
-            source: comment.source,
-            annotationId: comment.annotationId ?? null,
-            uid: comment.uid ?? null,
-            id: comment.id,
-        });
-        setAnnotationNoteWindowError(comment.stableKey, t('errors.annotation.delete'));
-    }
-
-    function deleteAnnotationCommentWithFallbacks(comment: IAnnotationCommentSummary, deleted: boolean) {
-        if (!shouldUseEmbeddedDeleteFallback(comment, deleted)) {
-            return deleted;
-        }
-        return queueDeferredEmbeddedDelete(comment);
-    }
-
-    async function performDeleteAnnotationComment(comment: IAnnotationCommentSummary) {
-        closeAnnotationContextMenu();
-        const viewer = pdfViewerRef.value;
-        if (!viewer) {
-            return;
-        }
-        BrowserLogger.debug('annotations', 'Delete annotation comment requested', {
-            stableKey: comment.stableKey,
-            source: comment.source,
-            annotationId: comment.annotationId ?? null,
-            uid: comment.uid ?? null,
-            pageNumber: comment.pageNumber,
-        });
-        setAnnotationNoteWindowError(comment.stableKey, null);
-        const commentsBeforeDelete = getAnnotationCommentsSnapshot();
-        if (shouldUseEmbeddedDeletePath(comment)) {
-            const deleted = deleteAnnotationCommentWithFallbacks(comment, false);
-            if (!deleted) {
-                handleAnnotationDeleteFailure(comment);
-                return;
-            }
-            removeDeletedAnnotationState(comment, commentsBeforeDelete);
-            return;
-        }
-
-        const shouldQueueNativeFreeTextDelete = shouldQueueNativeSavedFreeTextDelete(comment);
-        const viewerDeleted = await viewer.deleteAnnotationComment(comment);
-        BrowserLogger.debug('annotations', 'Delete annotation comment viewer result', {
-            stableKey: comment.stableKey,
-            deleted: viewerDeleted,
-            shouldQueueNativeFreeTextDelete,
-        });
-
-        const queuedNativeFreeTextDelete = shouldQueueNativeFreeTextDelete
-            ? queueDeferredEmbeddedDelete(comment)
-            : false;
-        const deleted = shouldQueueNativeFreeTextDelete
-            ? viewerDeleted || queuedNativeFreeTextDelete
-            : deleteAnnotationCommentWithFallbacks(comment, viewerDeleted);
-        if (!deleted) {
-            handleAnnotationDeleteFailure(comment);
-            return;
-        }
-        removeDeletedAnnotationState(comment, commentsBeforeDelete);
-        invalidateAnnotationPage(comment);
-    }
-
-    async function handleDeleteAnnotationComment(comment: IAnnotationCommentSummary) {
-        if (pendingAnnotationDeleteStableKeys.has(comment.stableKey)) {
-            return;
-        }
-        pendingAnnotationDeleteStableKeys.add(comment.stableKey);
-        annotationDeleteQueue = annotationDeleteQueue
-            .catch(() => undefined)
-            .then(async () => {
-                try {
-                    await performDeleteAnnotationComment(comment);
-                } finally {
-                    pendingAnnotationDeleteStableKeys.delete(comment.stableKey);
-                }
-            });
-        await annotationDeleteQueue;
-    }
+    const { handleDeleteAnnotationComment } = createPageAnnotationDeleteActions({
+        pdfViewerRef,
+        closeAnnotationContextMenu,
+        getAnnotationCommentsSnapshot,
+        getDeleteErrorMessage: () => t('errors.annotation.delete'),
+        invalidateAnnotationPage,
+        removeAnnotationFromCache,
+        removeDeletedAnnotationState,
+        restoreAnnotationToCache,
+        queuePendingEmbeddedAnnotationDelete: deps.queuePendingEmbeddedAnnotationDelete,
+        unqueuePendingEmbeddedAnnotationDelete: deps.unqueuePendingEmbeddedAnnotationDelete,
+        setAnnotationNoteWindowError,
+        isNativeFreeTextNoteSaved: deps.isNativeFreeTextNoteSaved,
+    });
 
     async function undoLatestFreshAnnotationNoteCreation() {
         const note = [...annotationNoteWindows.value]

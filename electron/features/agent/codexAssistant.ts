@@ -1,14 +1,10 @@
-import * as fsPromises from 'fs/promises';
-import { randomUUID } from 'crypto';
-import { join } from 'path';
 import * as electron from 'electron';
 import { sanitizeAllowedExternalUrl } from '@contracts/externalUrl';
 import { config } from '@electron/config';
 import type {
-    IAgentAssistantChatScope,
     IAgentAssistantChatMessage,
+    IAgentAssistantChatScope,
     IAgentAssistantEvent,
-    IAgentAssistantImageAttachment,
     IAgentAssistantInstallResult,
     IAgentAssistantLoginRequest,
     IAgentAssistantLoginResult,
@@ -22,21 +18,17 @@ import type {
     TAgentAssistantEffort,
     TAgentAssistantProviderId,
     TAgentAssistantSpeedMode,
-    TAgentAssistantTurnPhase,
 } from '@contracts/agent';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     ASSISTANT_DEFAULT_EFFORT,
     ASSISTANT_DEFAULT_SPEED_MODE,
-    CODEX_ASSISTANT_DEFAULT_MODEL,
     CODEX_ASSISTANT_FALLBACK_MODELS,
 } from '@contracts/agentModels';
 import {
     CODEX_APP_INSTALL_URL,
     CODEX_STANDALONE_INSTALL_URL,
-    getCodexCliInfo,
     installManagedCodex,
-    type ICodexCliInfo,
 } from '@electron/features/agent/codexCli';
 import {
     CLAUDE_AGENT_MODELS,
@@ -50,21 +42,10 @@ import {
 } from '@electron/features/agent/claudeAgentSdkAssistant';
 import {
     ASSISTANT_IMAGE_ONLY_PROMPT,
-    ASSISTANT_MCP_CONTRACT_VERSION,
     ASSISTANT_MCP_SERVER_NAME,
-    ASSISTANT_MCP_TOKEN_ENV,
-    ASSISTANT_MODEL_CONFIG_DIR,
-    ASSISTANT_ROLE_PROMPT,
-    createAssistantCodexConfig,
 } from '@electron/features/agent/codexAssistantConfig';
-import {
-    CodexAppServerClient,
-    type ICodexAppServerNotification,
-} from '@electron/features/agent/codexAppServerClient';
-import {
-    normalizeCodexModelListResponse,
-    type TCodexAssistantModelOption,
-} from '@electron/features/agent/assistantModelCatalog';
+import type { ICodexAppServerNotification } from '@electron/features/agent/codexAppServerClient';
+import type { TCodexAssistantModelOption } from '@electron/features/agent/assistantModelCatalog';
 import {
     codexDefaultModelId,
     getProviderEfforts,
@@ -84,17 +65,23 @@ import {
     createAssistantProviderRuntimeStates,
     getAssistantProviderRuntimeState,
 } from '@electron/features/agent/assistantProviderState';
-import {
-    normalizeClaudeAssistantAccount,
-    refreshCodexAuthState,
-    refreshCodexAuthStateAndRuntimeAvailability,
-    syncCodexRuntimeStateAfterAuthCheck,
-} from '@electron/features/agent/assistantProviderAccounts';
+import { normalizeClaudeAssistantAccount } from '@electron/features/agent/assistantProviderAccounts';
 import {
     createAssistantErrorEnvelope,
     withAssistantErrorEnvelope,
 } from '@electron/features/agent/assistantErrorEnvelope';
 import { normalizeOutgoingMessageRequest } from '@electron/features/agent/assistantOutgoingMessage';
+import {
+    cloneAssistantScope,
+    createAssistantChatSessionStore,
+    normalizeAssistantScope,
+    type IAssistantChatSession,
+} from '@electron/features/agent/assistantChatSessionStore';
+import {
+    createAssistantRuntimeLifecycle,
+    createBaseAssistantMcpStatus,
+    ensureAssistantCwd,
+} from '@electron/features/agent/assistantRuntimeLifecycle';
 import { resolveAssistantPresetInstructions } from '@electron/features/agent/assistantPresetWorkflows';
 import {
     focusAssistantReturnWindow,
@@ -102,8 +89,6 @@ import {
     type TAssistantReturnWindow,
 } from '@electron/features/agent/assistantReturnWindow';
 import {
-    getEmbeddedMcpServerDescriptor,
-    isEmbeddedMcpServerRunning,
     shutdownEmbeddedMcpServer,
     startEmbeddedMcpServer,
 } from '@electron/features/agent/mcpServer';
@@ -115,78 +100,56 @@ import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('agent-codex-assistant');
 
-interface IAssistantRuntime {
-    client: CodexAppServerClient;
-    codexPath: string;
-    codeHome: string;
-    cwd: string;
-    mcpToken: string;
-    mcpServerName: string;
-    mcpContractVersion: number;
-}
-
-interface IAssistantChatSession {
-    provider: TAgentAssistantProviderId;
-    scope: IAgentAssistantChatScope;
-    model: string;
-    effort: TAgentAssistantEffort;
-    speedMode: TAgentAssistantSpeedMode;
-    threadId: string | null;
-    activeTurnId: string | null;
-    turnPhase: TAgentAssistantTurnPhase;
-    messages: IAgentAssistantChatMessage[];
-    lastAccessedAtMs: number;
-    claudeSession: ClaudeAgentAssistantSession | undefined;
-    lastError?: string;
-}
-
 let codexAssistantModels: readonly TCodexAssistantModelOption[] = CODEX_ASSISTANT_FALLBACK_MODELS;
 let claudeAssistantModels: readonly IAgentAssistantModelOption[] = CLAUDE_AGENT_MODELS;
 const providerRuntimeStates = createAssistantProviderRuntimeStates();
 const codexProviderRuntime = getAssistantProviderRuntimeState(providerRuntimeStates, 'codex');
 const claudeProviderRuntime = getAssistantProviderRuntimeState(providerRuntimeStates, 'claude');
 
-const ASSISTANT_CHAT_SESSION_MAX_ENTRIES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_ASSISTANT_CHAT_SESSION_MAX_ENTRIES ?? '32', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 32;
-    }
-    return Math.min(parsed, 512);
-})();
-const ASSISTANT_CHAT_SESSION_TTL_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_ASSISTANT_CHAT_SESSION_TTL_MS ?? `${60 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 60_000) {
-        return 60 * 60 * 1000;
-    }
-    return parsed;
-})();
-
-let codexInfoCache: ICodexCliInfo | null = null;
-let runtime: IAssistantRuntime | null = null;
-let runtimeStartPromise: Promise<IAssistantRuntime> | null = null;
 let claudeInfoCache: IClaudeAssistantProviderInfo | null = null;
-let activeChatKey: string | null = null;
-let lastStateScope: IAgentAssistantChatScope | null = null;
-let lastStateProvider: TAgentAssistantProviderId = 'codex';
-let lastStateModel = CODEX_ASSISTANT_DEFAULT_MODEL;
-let lastStateEffort: TAgentAssistantEffort = ASSISTANT_DEFAULT_EFFORT;
-let lastStateSpeedMode: TAgentAssistantSpeedMode = ASSISTANT_DEFAULT_SPEED_MODE;
 let pendingLoginId: string | null = null;
 let authReturnWindow: TAssistantReturnWindow = null;
 let installPromise: Promise<IAgentAssistantInstallResult> | null = null;
-const chatSessions = new Map<string, IAssistantChatSession>();
+const sessionStore = createAssistantChatSessionStore({
+    onSessionDeleted: (session: IAssistantChatSession, reason: string) => {
+        const currentRuntime = runtimeLifecycle.getRuntime();
+        if (session.provider === 'codex' && currentRuntime && session.threadId) {
+            void currentRuntime.client.request('thread/archive', { threadId: session.threadId }).catch((error: unknown) => {
+                logger.warn(`Failed to archive ${reason} assistant thread: ${getErrorMessage(error)}`);
+            });
+        }
+        if (session.provider === 'claude' && session.claudeSession) {
+            void session.claudeSession.close().catch((error: unknown) => {
+                logger.warn(`Failed to close ${reason} Claude assistant session: ${getErrorMessage(error)}`);
+            });
+        }
+    },
+    onSessionMessageEvent: (event: IAgentAssistantEvent, session: IAssistantChatSession) => {
+        publishAssistantEvent(event, session.scope, session);
+    },
+});
 
-function getAssistantBaseDir() {
-    return join(electron.app.getPath('userData'), ASSISTANT_MODEL_CONFIG_DIR);
-}
-
-function getAssistantCodexHome() {
-    return join(getAssistantBaseDir(), 'codex-home');
-}
-
-function getAssistantCwd() {
-    return join(getAssistantBaseDir(), 'cwd');
-}
+const runtimeLifecycle = createAssistantRuntimeLifecycle({
+    providerRuntime: codexProviderRuntime,
+    sessionStore,
+    getCodexModels: () => codexAssistantModels,
+    setCodexModels: (models: readonly TCodexAssistantModelOption[]) => {
+        codexAssistantModels = models;
+    },
+    isAssistantFeatureEnabled,
+    createAssistantDisabledError,
+    shutdownAssistant: () => shutdownAgentAssistant(),
+    publishCodexState: (
+        scope: IAgentAssistantChatScope | null | undefined,
+        selection: IAssistantSelection | undefined,
+    ) => publishState(
+        scope === undefined ? sessionStore.getRememberedScope() : scope,
+        selection ?? currentCodexSelection(),
+    ),
+    handleNotification: handleAppServerNotification,
+    handleExit: handleAppServerExit,
+    logger,
+});
 
 function ensureSharedEmbeddedMcp() {
     return startEmbeddedMcpServer();
@@ -218,32 +181,12 @@ async function stopAssistantForDisabledFeature() {
 async function shutdownCodexAssistantRuntime(options: { shutdownMcp?: boolean } = {}) {
     authReturnWindow = null;
     pendingLoginId = null;
-    runtimeStartPromise = null;
-    runtime?.client.shutdown();
-    runtime = null;
-    codexProviderRuntime.runtimeState = 'stopped';
-    codexProviderRuntime.turnPhase = 'idle';
-    codexProviderRuntime.activeTurnId = null;
-    if (activeChatKey && chatSessions.get(activeChatKey)?.provider === 'codex') {
-        activeChatKey = null;
-    }
-    for (const session of chatSessions.values()) {
-        if (session.provider !== 'codex') {
-            continue;
-        }
-        session.threadId = null;
-        session.activeTurnId = null;
-        session.turnPhase = 'idle';
-    }
-    mcpToolCount = 0;
-    if (options.shutdownMcp === true) {
-        await shutdownEmbeddedMcpServer();
-    }
+    await runtimeLifecycle.shutdownCodexRuntime(options);
 }
 
 async function shutdownClaudeAssistantRuntime(options: { shutdownMcp?: boolean } = {}) {
     const closePromises: Array<Promise<void>> = [];
-    for (const session of chatSessions.values()) {
+    for (const session of sessionStore.listSessions()) {
         if (session.provider !== 'claude') {
             continue;
         }
@@ -260,229 +203,52 @@ async function shutdownClaudeAssistantRuntime(options: { shutdownMcp?: boolean }
     claudeProviderRuntime.turnPhase = 'idle';
     claudeProviderRuntime.activeTurnId = null;
     claudeMcpToolCount = 0;
-    if (activeChatKey && chatSessions.get(activeChatKey)?.provider === 'claude') {
-        activeChatKey = null;
-    }
+    sessionStore.clearActiveSessionForProvider('claude');
     if (options.shutdownMcp === true) {
         await shutdownEmbeddedMcpServer();
     }
 }
 
-function cloneAssistantScope(scope: IAgentAssistantChatScope): IAgentAssistantChatScope {
-    return {
-        kind: scope.kind,
-        key: scope.key,
-        title: scope.title,
-        ...(scope.tabId == null ? {} : { tabId: scope.tabId }),
-        ...(scope.documentRef == null ? {} : { documentRef: scope.documentRef }),
-    };
-}
-
-function normalizeAssistantScope(scope: IAgentAssistantChatScope | null | undefined) {
-    if (!scope || scope.kind !== 'document') {
-        return null;
-    }
-
-    const key = scope.key.trim();
-    if (!key) {
-        return null;
-    }
-
-    const title = scope.title?.trim();
-    return {
-        kind: 'document',
-        key,
-        title: title && title.length > 0 ? title : null,
-        ...(scope.tabId?.trim() ? { tabId: scope.tabId.trim() } : {}),
-        ...(scope.documentRef?.trim() ? { documentRef: scope.documentRef.trim() } : {}),
-    } satisfies IAgentAssistantChatScope;
-}
-
-function createChatSessionKey(provider: TAgentAssistantProviderId, scopeKey: string) {
-    return `${provider}:${scopeKey}`;
-}
-
-function resolveRequestedScope(request?: IAgentAssistantStateRequest | IAgentAssistantScopedRequest | null) {
-    return normalizeAssistantScope(request?.scope);
-}
-
 function rememberStateScope(
     scope: IAgentAssistantChatScope | null,
-    selection: IAssistantSelection = {
-        provider: lastStateProvider,
-        model: lastStateModel,
-        effort: lastStateEffort,
-        speedMode: lastStateSpeedMode,
-    },
+    selection: IAssistantSelection = sessionStore.getRememberedSelection(),
 ) {
-    lastStateScope = scope ? cloneAssistantScope(scope) : null;
-    lastStateProvider = selection.provider;
-    lastStateModel = selection.model;
-    lastStateEffort = selection.effort;
-    lastStateSpeedMode = selection.speedMode;
-}
-
-function touchChatSession(session: IAssistantChatSession, now = Date.now()) {
-    session.lastAccessedAtMs = now;
-    return session;
-}
-
-function isEvictableChatSession(session: IAssistantChatSession) {
-    return session.activeTurnId === null
-        && session.turnPhase !== 'starting'
-        && session.turnPhase !== 'running'
-        && session.turnPhase !== 'interrupting';
-}
-
-function deleteChatSession(key: string, reason: string) {
-    const session = chatSessions.get(key);
-    if (!session) {
-        return;
-    }
-
-    chatSessions.delete(key);
-    if (activeChatKey === key) {
-        activeChatKey = null;
-    }
-    if (lastStateScope?.key === session.scope.key && lastStateProvider === session.provider) {
-        lastStateScope = null;
-    }
-
-    if (session.provider === 'codex' && runtime && session.threadId) {
-        void runtime.client.request('thread/archive', { threadId: session.threadId }).catch((error: unknown) => {
-            logger.warn(`Failed to archive ${reason} assistant thread: ${getErrorMessage(error)}`);
-        });
-    }
-    if (session.provider === 'claude' && session.claudeSession) {
-        void session.claudeSession.close().catch((error: unknown) => {
-            logger.warn(`Failed to close ${reason} Claude assistant session: ${getErrorMessage(error)}`);
-        });
-    }
-}
-
-function pruneChatSessions(now = Date.now()) {
-    for (const [
-        key,
-        session,
-    ] of chatSessions.entries()) {
-        if (
-            isEvictableChatSession(session)
-            && now - session.lastAccessedAtMs > ASSISTANT_CHAT_SESSION_TTL_MS
-        ) {
-            deleteChatSession(key, 'expired');
-        }
-    }
-
-    if (chatSessions.size <= ASSISTANT_CHAT_SESSION_MAX_ENTRIES) {
-        return;
-    }
-
-    const evictableSessions = [...chatSessions.entries()]
-        .filter((entry) => isEvictableChatSession(entry[1]))
-        .sort((left, right) => left[1].lastAccessedAtMs - right[1].lastAccessedAtMs);
-    const overflowCount = chatSessions.size - ASSISTANT_CHAT_SESSION_MAX_ENTRIES;
-    for (let index = 0; index < overflowCount; index += 1) {
-        const entry = evictableSessions[index];
-        if (!entry) {
-            break;
-        }
-        deleteChatSession(entry[0], 'evicted');
-    }
+    sessionStore.rememberStateScope(scope, selection);
 }
 
 function getChatSession(scope: IAgentAssistantChatScope, selection: IAssistantSelection, options: { create: true }): IAssistantChatSession;
 function getChatSession(scope: IAgentAssistantChatScope | null, selection?: IAssistantSelection, options?: { create?: false }): IAssistantChatSession | null;
 function getChatSession(
     scope: IAgentAssistantChatScope | null,
-    selection: IAssistantSelection = {
-        provider: lastStateProvider,
-        model: lastStateModel,
-        effort: lastStateEffort,
-        speedMode: lastStateSpeedMode,
-    },
+    selection: IAssistantSelection = sessionStore.getRememberedSelection(),
     options: { create?: boolean } = {},
 ) {
-    const now = Date.now();
-    pruneChatSessions(now);
-    if (!scope) {
-        return null;
+    if (options.create === true) {
+        if (!scope) {
+            throw new Error('Cannot create assistant chat session without a scope.');
+        }
+        return sessionStore.getSession(scope, selection, { create: true });
     }
-
-    const normalizedScope = normalizeAssistantScope(scope);
-    if (!normalizedScope) {
-        return null;
-    }
-
-    const sessionKey = createChatSessionKey(selection.provider, normalizedScope.key);
-    const existing = chatSessions.get(sessionKey);
-    if (existing) {
-        existing.scope = normalizedScope;
-        existing.model = selection.model;
-        existing.effort = selection.effort;
-        existing.speedMode = selection.speedMode;
-        return touchChatSession(existing, now);
-    }
-
-    if (!options.create) {
-        return null;
-    }
-
-    const session = {
-        provider: selection.provider,
-        scope: normalizedScope,
-        model: selection.model,
-        effort: selection.effort,
-        speedMode: selection.speedMode,
-        threadId: null,
-        activeTurnId: null,
-        turnPhase: 'idle',
-        messages: [],
-        lastAccessedAtMs: now,
-        claudeSession: undefined,
-    } satisfies IAssistantChatSession;
-    chatSessions.set(sessionKey, session);
-    pruneChatSessions(now);
-    return session;
+    return sessionStore.getSession(scope, selection);
 }
 
 function getActiveChatSession(provider?: TAgentAssistantProviderId) {
-    const session = activeChatKey ? chatSessions.get(activeChatKey) ?? null : null;
-    if (provider && session?.provider !== provider) {
-        return null;
-    }
-    return session ? touchChatSession(session) : null;
+    return sessionStore.getActiveSession(provider);
 }
 
 function getChatSessionByThreadId(candidateThreadId: string | null) {
-    if (!candidateThreadId) {
-        return null;
-    }
-
-    const session = Array.from(chatSessions.values())
-        .find(candidate => candidate.provider === 'codex' && candidate.threadId === candidateThreadId) ?? null;
-    return session ? touchChatSession(session) : null;
+    return sessionStore.getSessionByThreadId(candidateThreadId);
 }
 
 function getRequestChatSession(request?: IAgentAssistantStateRequest | IAgentAssistantScopedRequest | null) {
-    const scope = resolveRequestedScope(request);
+    const scope = sessionStore.resolveRequestedScope(request);
     const selection = resolveAssistantSelection(codexAssistantModels, request);
     rememberStateScope(scope, selection);
     return scope ? getChatSession(scope, selection, { create: true }) : null;
 }
 
-async function writeAssistantConfig(codeHome: string, serverUrl: string, reasoningEffort: TAgentAssistantEffort) {
-    await fsPromises.mkdir(codeHome, { recursive: true });
-    await fsPromises.writeFile(join(codeHome, 'config.toml'), createAssistantCodexConfig(serverUrl, reasoningEffort), 'utf-8');
-}
-
 function createBaseMcpStatus() {
-    const descriptor = getEmbeddedMcpServerDescriptor();
-    return {
-        serverName: descriptor?.name ?? ASSISTANT_MCP_SERVER_NAME,
-        serverUrl: descriptor?.url ?? '',
-        serverRunning: isEmbeddedMcpServerRunning(),
-        toolCount: 0,
-    };
+    return createBaseAssistantMcpStatus();
 }
 
 function decodeRecordResponse(value: unknown): Record<PropertyKey, unknown> | null {
@@ -494,7 +260,8 @@ function getCodexAppServerModel(model: string | null | undefined) {
 }
 
 function currentCodexSelection(): IAssistantSelection {
-    const model = lastStateProvider === 'codex' ? lastStateModel : codexDefaultModelId(codexAssistantModels);
+    const selection = sessionStore.getRememberedSelection();
+    const model = selection.provider === 'codex' ? selection.model : codexDefaultModelId(codexAssistantModels);
     return {
         provider: 'codex',
         model,
@@ -502,13 +269,13 @@ function currentCodexSelection(): IAssistantSelection {
             codexAssistantModels,
             'codex',
             model,
-            lastStateProvider === 'codex' ? lastStateEffort : ASSISTANT_DEFAULT_EFFORT,
+            selection.provider === 'codex' ? selection.effort : ASSISTANT_DEFAULT_EFFORT,
         ),
         speedMode: normalizeAssistantSpeedMode(
             codexAssistantModels,
             'codex',
             model,
-            lastStateProvider === 'codex' ? lastStateSpeedMode : ASSISTANT_DEFAULT_SPEED_MODE,
+            selection.provider === 'codex' ? selection.speedMode : ASSISTANT_DEFAULT_SPEED_MODE,
         ),
     };
 }
@@ -518,15 +285,10 @@ function getSessionForStatus(scope: IAgentAssistantChatScope | null, selection: 
 }
 
 function currentStatus(
-    scope: IAgentAssistantChatScope | null = lastStateScope,
-    selection: IAssistantSelection = {
-        provider: lastStateProvider,
-        model: lastStateModel,
-        effort: lastStateEffort,
-        speedMode: lastStateSpeedMode,
-    },
+    scope: IAgentAssistantChatScope | null = sessionStore.getRememberedScope(),
+    selection: IAssistantSelection = sessionStore.getRememberedSelection(),
 ): IAgentAssistantStatus {
-    const codexInfo = codexInfoCache;
+    const codexInfo = runtimeLifecycle.getCodexInfo();
     const installed = codexInfo?.installed === true;
     const versionSupported = codexInfo?.isVersionSupported === true;
     const supported = process.platform === 'darwin' || process.platform === 'win32' || process.platform === 'linux';
@@ -556,7 +318,13 @@ function currentStatus(
         effort: effortInput,
         speedMode: speedModeInput,
     });
-    const activeProvider = providerStatuses.find(provider => provider.id === normalizedSelection.provider) ?? providerStatuses[0]!;
+    const fallbackProvider = providerStatuses[0];
+    if (!fallbackProvider) {
+        throw new Error('No assistant providers are available.');
+    }
+    const activeProvider = providerStatuses.find((
+        provider: IAgentAssistantStatus['providers'][number],
+    ) => provider.id === normalizedSelection.provider) ?? fallbackProvider;
     const model = normalizeAssistantModel(
         codexAssistantModels,
         normalizedSelection.provider,
@@ -609,39 +377,16 @@ function currentStatus(
     };
 }
 
-function cloneAssistantAttachment(attachment: IAgentAssistantImageAttachment): IAgentAssistantImageAttachment {
-    return { ...attachment };
-}
-
-function cloneAssistantMessage(message: IAgentAssistantChatMessage): IAgentAssistantChatMessage {
-    return withAssistantErrorEnvelope({
-        ...message,
-        ...(message.attachments === undefined
-            ? {}
-            : { attachments: message.attachments.map(cloneAssistantAttachment) }),
-    });
-}
-
 function cloneMessages(
-    scope: IAgentAssistantChatScope | null = lastStateScope,
-    selection: IAssistantSelection = {
-        provider: lastStateProvider,
-        model: lastStateModel,
-        effort: lastStateEffort,
-        speedMode: lastStateSpeedMode,
-    },
+    scope: IAgentAssistantChatScope | null = sessionStore.getRememberedScope(),
+    selection: IAssistantSelection = sessionStore.getRememberedSelection(),
 ) {
-    return getChatSession(scope, selection)?.messages.map(cloneAssistantMessage) ?? [];
+    return sessionStore.getMessages(scope, selection);
 }
 
 function currentState(
-    scope: IAgentAssistantChatScope | null = lastStateScope,
-    selection: IAssistantSelection = {
-        provider: lastStateProvider,
-        model: lastStateModel,
-        effort: lastStateEffort,
-        speedMode: lastStateSpeedMode,
-    },
+    scope: IAgentAssistantChatScope | null = sessionStore.getRememberedScope(),
+    selection: IAssistantSelection = sessionStore.getRememberedSelection(),
 ): IAgentAssistantState {
     return {
         scope: scope ? cloneAssistantScope(scope) : null,
@@ -661,13 +406,8 @@ function shouldAttachStateToAssistantEvent(event: IAgentAssistantEvent) {
 
 function publishAssistantEvent(
     event: IAgentAssistantEvent,
-    scope: IAgentAssistantChatScope | null = lastStateScope,
-    selection: IAssistantSelection = {
-        provider: lastStateProvider,
-        model: lastStateModel,
-        effort: lastStateEffort,
-        speedMode: lastStateSpeedMode,
-    },
+    scope: IAgentAssistantChatScope | null = sessionStore.getRememberedScope(),
+    selection: IAssistantSelection = sessionStore.getRememberedSelection(),
 ) {
     const normalizedEvent = withAssistantErrorEnvelope(event);
     const payload = {
@@ -685,13 +425,8 @@ function publishAssistantEvent(
 }
 
 function publishState(
-    scope: IAgentAssistantChatScope | null = lastStateScope,
-    selection: IAssistantSelection = {
-        provider: lastStateProvider,
-        model: lastStateModel,
-        effort: lastStateEffort,
-        speedMode: lastStateSpeedMode,
-    },
+    scope: IAgentAssistantChatScope | null = sessionStore.getRememberedScope(),
+    selection: IAssistantSelection = sessionStore.getRememberedSelection(),
 ) {
     publishAssistantEvent({
         type: 'state',
@@ -701,70 +436,21 @@ function publishState(
 
 function addMessage(
     session: IAssistantChatSession,
-    message: Omit<IAgentAssistantChatMessage, 'id' | 'createdAt'> & { id?: string },
+    message: Parameters<typeof sessionStore.addMessage>[1],
 ) {
-    touchChatSession(session);
-    const nextMessage = {
-        id: message.id ?? randomUUID(),
-        role: message.role,
-        text: message.text,
-        createdAt: new Date().toISOString(),
-        ...(message.attachments === undefined
-            ? {}
-            : { attachments: message.attachments.map(cloneAssistantAttachment) }),
-        ...(message.pending === undefined ? {} : { pending: message.pending }),
-        ...(message.error === undefined ? {} : { error: message.error }),
-    } satisfies IAgentAssistantChatMessage;
-    session.messages.push(nextMessage);
-    publishAssistantEvent({
-        type: 'message',
-        message: nextMessage,
-    }, session.scope, session);
-    return nextMessage;
+    return sessionStore.addMessage(session, message);
 }
 
 function upsertAssistantMessage(
     session: IAssistantChatSession,
     id: string,
-    patch: Partial<IAgentAssistantChatMessage>,
+    patch: Parameters<typeof sessionStore.upsertAssistantMessage>[2],
 ) {
-    touchChatSession(session);
-    const existing = session.messages.find(message => message.id === id);
-    if (existing) {
-        Object.assign(existing, patch);
-        publishAssistantEvent({
-            type: 'message',
-            message: cloneAssistantMessage(existing),
-        }, session.scope, session);
-        return existing;
-    }
-
-    return addMessage(session, {
-        id,
-        role: 'assistant',
-        text: patch.text ?? '',
-        ...(patch.attachments === undefined ? {} : { attachments: patch.attachments }),
-        ...(patch.pending === undefined ? {} : { pending: patch.pending }),
-        ...(patch.error === undefined ? {} : { error: patch.error }),
-    });
+    return sessionStore.upsertAssistantMessage(session, id, patch);
 }
 
 function appendAssistantDelta(session: IAssistantChatSession, messageId: string, delta: string) {
-    touchChatSession(session);
-    const message = session.messages.find(candidate => candidate.id === messageId)
-        ?? addMessage(session, {
-            id: messageId,
-            role: 'assistant',
-            text: '',
-            pending: true,
-        });
-    message.pending = true;
-    message.text += delta;
-    publishAssistantEvent({
-        type: 'message-delta',
-        messageId,
-        delta,
-    }, session.scope, session);
+    sessionStore.appendAssistantDelta(session, messageId, delta);
 }
 
 function getStringParam(params: unknown, key: string) {
@@ -841,7 +527,7 @@ function handleAppServerNotification(notification: ICodexAppServerNotification) 
         session.activeTurnId = isRecord(params) && isRecord(params.turn) && typeof params.turn.id === 'string'
             ? params.turn.id
             : session.activeTurnId;
-        activeChatKey = createChatSessionKey(session.provider, session.scope.key);
+        sessionStore.setActiveSession(session);
         codexProviderRuntime.activeTurnId = session.activeTurnId;
         codexProviderRuntime.runtimeState = 'busy';
         codexProviderRuntime.turnPhase = 'running';
@@ -928,17 +614,17 @@ function handleAppServerNotification(notification: ICodexAppServerNotification) 
         publishAssistantEvent({
             type: 'error',
             error: codexProviderRuntime.lastError,
-        }, session?.scope ?? lastStateScope, session ?? currentCodexSelection());
+        }, session?.scope ?? sessionStore.getRememberedScope(), session ?? currentCodexSelection());
     }
 }
 
 function handleAppServerExit(message: string) {
     const session = getActiveChatSession('codex');
-    runtime = null;
+    runtimeLifecycle.clearRuntimeForExit();
     codexProviderRuntime.runtimeState = 'error';
     codexProviderRuntime.turnPhase = 'error';
     codexProviderRuntime.activeTurnId = null;
-    for (const chatSession of chatSessions.values()) {
+    for (const chatSession of sessionStore.listSessions()) {
         if (chatSession.provider !== 'codex') {
             continue;
         }
@@ -953,16 +639,15 @@ function handleAppServerExit(message: string) {
     publishAssistantEvent({
         type: 'error',
         error: message,
-    }, session?.scope ?? lastStateScope, session ?? currentCodexSelection());
+    }, session?.scope ?? sessionStore.getRememberedScope(), session ?? currentCodexSelection());
 }
 
 async function refreshCodexInfo() {
-    codexInfoCache = await getCodexCliInfo();
-    return codexInfoCache;
+    return runtimeLifecycle.refreshCodexInfo();
 }
 
 function hasActiveClaudeSession() {
-    for (const session of chatSessions.values()) {
+    for (const session of sessionStore.listSessions()) {
         if (session.provider === 'claude' && session.claudeSession) {
             return true;
         }
@@ -1004,226 +689,31 @@ async function refreshClaudeInfo() {
 }
 
 async function refreshAuthState() {
-    await refreshCodexAuthState(codexProviderRuntime, runtime?.client ?? null, {warn: message => logger.warn(message)});
+    await runtimeLifecycle.refreshAuthState();
 }
 
 async function refreshAuthStateAndRuntimeAvailability(options: { recoverFromError?: boolean } = {}) {
-    await refreshCodexAuthStateAndRuntimeAvailability({
-        providerRuntime: codexProviderRuntime,
-        client: runtime?.client ?? null,
-        hasRuntime: Boolean(runtime),
-        ...(options.recoverFromError === undefined ? {} : { recoverFromError: options.recoverFromError }),
-        warn: message => logger.warn(message),
-    });
+    await runtimeLifecycle.refreshAuthStateAndRuntimeAvailability(options);
 }
 
 async function ensureAssistantRuntime() {
-    if (!(await isAssistantFeatureEnabled())) {
-        await shutdownAgentAssistant();
-        throw new Error(createAssistantDisabledError());
-    }
-
-    if (runtimeStartPromise) {
-        return runtimeStartPromise;
-    }
-
-    if (runtime) {
-        if (
-            runtime.mcpServerName === ASSISTANT_MCP_SERVER_NAME
-            && runtime.mcpContractVersion === ASSISTANT_MCP_CONTRACT_VERSION
-        ) {
-            return runtime;
-        }
-        logger.info('Restarting Codex assistant runtime for updated embedded MCP contract.');
-        await shutdownCodexAssistantRuntime();
-    }
-
-    if (runtime) {
-        return runtime;
-    }
-
-    const startPromise = startAssistantRuntime().finally(() => {
-        if (runtimeStartPromise === startPromise) {
-            runtimeStartPromise = null;
-        }
-    });
-    runtimeStartPromise = startPromise;
-    return startPromise;
+    return runtimeLifecycle.ensureRuntime();
 }
 
-async function startAssistantRuntime() {
-    codexProviderRuntime.runtimeState = 'starting';
-    codexProviderRuntime.turnPhase = 'idle';
-    delete codexProviderRuntime.lastError;
-    publishState(lastStateScope, currentCodexSelection());
-
-    const codexInfo = await refreshCodexInfo();
-    if (!codexInfo.installed || !codexInfo.path) {
-        codexProviderRuntime.runtimeState = 'stopped';
-        codexProviderRuntime.turnPhase = 'idle';
-        codexProviderRuntime.authState = 'unknown';
-        publishState(lastStateScope, currentCodexSelection());
-        throw new Error('Codex is not installed.');
-    }
-    if (!codexInfo.isVersionSupported) {
-        codexProviderRuntime.runtimeState = 'error';
-        codexProviderRuntime.turnPhase = 'error';
-        codexProviderRuntime.lastError = `Codex ${codexInfo.version ?? ''} is too old. EVB Assistant requires Codex ${codexInfo.minimumVersion} or newer.`;
-        publishState(lastStateScope, currentCodexSelection());
-        throw new Error(codexProviderRuntime.lastError);
-    }
-
-    const codeHome = getAssistantCodexHome();
-    const cwd = getAssistantCwd();
-    await fsPromises.mkdir(cwd, { recursive: true });
-    const codexModel = lastStateProvider === 'codex' ? lastStateModel : codexDefaultModelId(codexAssistantModels);
-    const codexEffort = normalizeAssistantEffort(
-        codexAssistantModels,
-        'codex',
-        codexModel,
-        lastStateProvider === 'codex' ? lastStateEffort : ASSISTANT_DEFAULT_EFFORT,
-    );
-    const {
-        descriptor,
-        token: mcpToken,
-    } = await ensureSharedEmbeddedMcp();
-    await writeAssistantConfig(codeHome, descriptor.url, codexEffort);
-
-    const client = new CodexAppServerClient(
-        codexInfo.path,
-        {
-            ...process.env,
-            CODEX_HOME: codeHome,
-            [ASSISTANT_MCP_TOKEN_ENV]: mcpToken,
-            NO_COLOR: '1',
-        },
-        cwd,
-        handleAppServerNotification,
-        handleAppServerExit,
-    );
-    const nextRuntime = {
-        client,
-        codexPath: codexInfo.path,
-        codeHome,
-        cwd,
-        mcpToken,
-        mcpServerName: ASSISTANT_MCP_SERVER_NAME,
-        mcpContractVersion: ASSISTANT_MCP_CONTRACT_VERSION,
-    } satisfies IAssistantRuntime;
-    runtime = nextRuntime;
-
-    try {
-        await client.initialize();
-        await refreshAuthState();
-        syncCodexRuntimeStateAfterAuthCheck(codexProviderRuntime, { hasRuntime: true });
-        await refreshCodexModelList();
-        await refreshMcpToolCount();
-        publishState(lastStateScope, currentCodexSelection());
-        return nextRuntime;
-    } catch (error) {
-        client.shutdown();
-        runtime = null;
-        codexProviderRuntime.runtimeState = 'error';
-        codexProviderRuntime.turnPhase = 'error';
-        codexProviderRuntime.lastError = getErrorMessage(error);
-        publishState(lastStateScope, currentCodexSelection());
-        throw error;
-    }
-}
-
-async function refreshMcpToolCount() {
-    if (!runtime) {
-        return;
-    }
-
-    try {
-        const response = await runtime.client.requestDecoded(
-            'mcpServerStatus/list',
-            {detail: 'toolsAndAuthOnly'},
-            decodeRecordResponse,
-        );
-        if (!Array.isArray(response.data)) {
-            return;
-        }
-        const servers: unknown[] = response.data;
-        const server = servers.find(candidate => isRecord(candidate) && candidate.name === ASSISTANT_MCP_SERVER_NAME);
-        if (!isRecord(server) || !isRecord(server.tools)) {
-            return;
-        }
-        const descriptor = getEmbeddedMcpServerDescriptor();
-        if (!descriptor) {
-            return;
-        }
-        // Store the count on the next state snapshot through a lightweight cache.
-        mcpToolCount = Object.keys(server.tools).length;
-    } catch (error) {
-        logger.warn(`Failed to read embedded MCP status: ${getErrorMessage(error)}`);
-    }
-}
-
-async function refreshCodexModelList() {
-    if (!runtime) {
-        return;
-    }
-
-    try {
-        const response = await runtime.client.requestDecoded(
-            'model/list',
-            { includeHidden: false },
-            normalizeCodexModelListResponse,
-        );
-        if (response.length > 0) {
-            codexAssistantModels = response;
-            lastStateModel = normalizeAssistantModel(codexAssistantModels, lastStateProvider, lastStateModel);
-        }
-    } catch (error) {
-        logger.warn(`Failed to read Codex model list: ${getErrorMessage(error)}`);
-    }
-}
-
-let mcpToolCount = 0;
 let claudeMcpToolCount = 0;
 
-function createBaseMcpStatusWithToolCount(provider: TAgentAssistantProviderId = lastStateProvider) {
+function createBaseMcpStatusWithToolCount(
+    provider: TAgentAssistantProviderId = sessionStore.getRememberedSelection().provider,
+): IAgentAssistantStatus['mcp'] {
     const base = createBaseMcpStatus();
     return {
         ...base,
-        toolCount: provider === 'claude' ? claudeMcpToolCount : mcpToolCount,
+        toolCount: provider === 'claude' ? claudeMcpToolCount : runtimeLifecycle.getMcpToolCount(),
     };
 }
 
 async function ensureAssistantThread(session: IAssistantChatSession) {
-    const currentRuntime = await ensureAssistantRuntime();
-    if (codexProviderRuntime.authState !== 'signed-in') {
-        throw new Error('Sign in with ChatGPT before using EVB Assistant.');
-    }
-    if (session.threadId) {
-        return session.threadId;
-    }
-
-    const codexModel = getCodexAppServerModel(session.model);
-    const response = await currentRuntime.client.requestDecoded('thread/start', {
-        ...(codexModel ? { model: codexModel } : {}),
-        cwd: currentRuntime.cwd,
-        approvalPolicy: 'never',
-        sandbox: 'read-only',
-        serviceName: 'EVB Assistant',
-        developerInstructions: ASSISTANT_ROLE_PROMPT,
-        personality: 'friendly',
-        ephemeral: true,
-        threadSource: 'user',
-    }, decodeRecordResponse);
-    if (!isRecord(response.thread) || typeof response.thread.id !== 'string') {
-        throw new Error('Codex did not return an assistant thread.');
-    }
-    session.threadId = response.thread.id;
-    session.activeTurnId = null;
-    session.turnPhase = 'idle';
-    activeChatKey = createChatSessionKey(session.provider, session.scope.key);
-    codexProviderRuntime.runtimeState = 'ready';
-    codexProviderRuntime.turnPhase = 'idle';
-    publishState(session.scope, session);
-    return session.threadId;
+    return runtimeLifecycle.ensureThread(session);
 }
 
 function markClaudeTurnCompleted(session: IAssistantChatSession, turnId: string | null) {
@@ -1246,7 +736,7 @@ function markClaudeTurnCompleted(session: IAssistantChatSession, turnId: string 
 
 function reconcileFailedTurnMessages(session: IAssistantChatSession, errorMessage: string) {
     const normalizedError = errorMessage.trim();
-    session.messages = session.messages.filter((message) => {
+    session.messages = session.messages.filter((message: IAgentAssistantChatMessage) => {
         if (message.role !== 'assistant' || !message.pending) {
             return true;
         }
@@ -1306,7 +796,7 @@ function createClaudeCallbacks(session: IAssistantChatSession) {
             publishState(session.scope, session);
         },
         onTurnStarted: (turnId: string) => {
-            activeChatKey = createChatSessionKey(session.provider, session.scope.key);
+            sessionStore.setActiveSession(session);
             session.activeTurnId = turnId;
             session.turnPhase = 'running';
             claudeProviderRuntime.activeTurnId = turnId;
@@ -1391,8 +881,7 @@ async function ensureClaudeAssistantSession(
     claudeProviderRuntime.turnPhase = 'idle';
     delete claudeProviderRuntime.lastError;
     publishState(session.scope, session);
-    const cwd = getAssistantCwd();
-    await fsPromises.mkdir(cwd, { recursive: true });
+    const cwd = await ensureAssistantCwd();
     const {
         descriptor,
         token: mcpToken,
@@ -1434,8 +923,8 @@ export async function getAgentAssistantState(
     }
 
     if (selection.provider === 'codex') {
-        await refreshCodexInfo();
-        if (codexInfoCache?.installed && codexInfoCache.isVersionSupported) {
+        const codexInfo = await refreshCodexInfo();
+        if (codexInfo.installed && codexInfo.isVersionSupported) {
             try {
                 await ensureAssistantRuntime();
                 await refreshAuthStateAndRuntimeAvailability();
@@ -1468,10 +957,11 @@ export async function installAgentAssistantCodex(): Promise<IAgentAssistantInsta
                 type: 'install-progress',
                 progress: 'Starting Codex installation.',
             });
-            codexInfoCache = await installManagedCodex({onProgress: (progress) => publishAssistantEvent({
+            const codexInfo = await installManagedCodex({onProgress: (progress: string) => publishAssistantEvent({
                 type: 'install-progress',
                 progress,
             })});
+            runtimeLifecycle.setCodexInfo(codexInfo);
             publishAssistantEvent({
                 type: 'install-progress',
                 progress: 'Codex installation complete.',
@@ -1554,8 +1044,9 @@ export async function startAgentAssistantLogin(
 
 export async function cancelAgentAssistantLogin(): Promise<IAgentAssistantState> {
     authReturnWindow = null;
-    if (runtime && pendingLoginId) {
-        await runtime.client.request('account/login/cancel', { loginId: pendingLoginId }).catch((error: unknown) => {
+    const currentRuntime = runtimeLifecycle.getRuntime();
+    if (currentRuntime && pendingLoginId) {
+        await currentRuntime.client.request('account/login/cancel', { loginId: pendingLoginId }).catch((error: unknown) => {
             logger.warn(`Failed to cancel assistant login: ${getErrorMessage(error)}`);
         });
     }
@@ -1640,7 +1131,7 @@ export async function sendAgentAssistantMessage(
                 selection.effort,
                 selection.speedMode,
             );
-            activeChatKey = createChatSessionKey(session.provider, session.scope.key);
+            sessionStore.setActiveSession(session);
             claudeProviderRuntime.runtimeState = 'busy';
             claudeProviderRuntime.turnPhase = 'starting';
             session.turnPhase = 'starting';
@@ -1679,7 +1170,7 @@ export async function sendAgentAssistantMessage(
         session.effort = selection.effort;
         session.speedMode = selection.speedMode;
         currentThreadId = await ensureAssistantThread(session);
-        activeChatKey = createChatSessionKey(session.provider, session.scope.key);
+        sessionStore.setActiveSession(session);
         codexProviderRuntime.runtimeState = 'busy';
         codexProviderRuntime.turnPhase = 'starting';
         codexProviderRuntime.activeTurnId = null;
@@ -1700,7 +1191,7 @@ export async function sendAgentAssistantMessage(
                     text: modelText || ASSISTANT_IMAGE_ONLY_PROMPT,
                     text_elements: [],
                 },
-                ...attachments.map(attachment => ({
+                ...attachments.map((attachment: NonNullable<IAgentAssistantSendMessageRequest['attachments']>[number]) => ({
                     type: 'image',
                     url: attachment.dataUrl,
                 })),
@@ -1792,11 +1283,12 @@ export async function interruptAgentAssistant(
         return currentState(session.scope, session);
     }
 
-    if (runtime && session?.threadId && session.activeTurnId) {
+    const currentRuntime = runtimeLifecycle.getRuntime();
+    if (currentRuntime && session?.threadId && session.activeTurnId) {
         codexProviderRuntime.turnPhase = 'interrupting';
         session.turnPhase = 'interrupting';
         publishState(session.scope, session);
-        await runtime.client.request('turn/interrupt', {
+        await currentRuntime.client.request('turn/interrupt', {
             threadId: session.threadId,
             turnId: session.activeTurnId,
         }).catch((error: unknown) => {
@@ -1844,9 +1336,7 @@ export async function resetAgentAssistantChat(
         session.turnPhase = 'idle';
         session.messages.length = 0;
         delete session.lastError;
-        if (activeChatKey === createChatSessionKey(session.provider, session.scope.key)) {
-            activeChatKey = null;
-        }
+        sessionStore.clearActiveSessionIfMatches(session);
         claudeProviderRuntime.activeTurnId = null;
         delete claudeProviderRuntime.lastError;
         claudeProviderRuntime.runtimeState = claudeInfoCache?.installed ? 'ready' : 'stopped';
@@ -1857,11 +1347,12 @@ export async function resetAgentAssistantChat(
 
     const previousThreadId = session.threadId;
     const previousTurnId = session.activeTurnId;
-    if (runtime && previousThreadId && previousTurnId) {
+    const currentRuntime = runtimeLifecycle.getRuntime();
+    if (currentRuntime && previousThreadId && previousTurnId) {
         codexProviderRuntime.turnPhase = 'interrupting';
         session.turnPhase = 'interrupting';
         publishState(session.scope, session);
-        await runtime.client.request('turn/interrupt', {
+        await currentRuntime.client.request('turn/interrupt', {
             threadId: previousThreadId,
             turnId: previousTurnId,
         }).catch((error: unknown) => {
@@ -1869,8 +1360,8 @@ export async function resetAgentAssistantChat(
         });
     }
 
-    if (runtime && previousThreadId) {
-        void runtime.client.request('thread/archive', { threadId: previousThreadId }).catch((error: unknown) => {
+    if (currentRuntime && previousThreadId) {
+        void currentRuntime.client.request('thread/archive', { threadId: previousThreadId }).catch((error: unknown) => {
             logger.warn(`Failed to archive reset assistant thread: ${getErrorMessage(error)}`);
         });
     }
@@ -1880,9 +1371,7 @@ export async function resetAgentAssistantChat(
     session.turnPhase = 'idle';
     session.messages.length = 0;
     delete session.lastError;
-    if (activeChatKey === createChatSessionKey(session.provider, session.scope.key)) {
-        activeChatKey = null;
-    }
+    sessionStore.clearActiveSessionIfMatches(session);
     codexProviderRuntime.activeTurnId = null;
     delete codexProviderRuntime.lastError;
     codexProviderRuntime.turnPhase = 'idle';
@@ -1894,6 +1383,6 @@ export async function resetAgentAssistantChat(
 export async function shutdownAgentAssistant() {
     await shutdownCodexAssistantRuntime({ shutdownMcp: false });
     await shutdownClaudeAssistantRuntime({ shutdownMcp: false });
-    activeChatKey = null;
+    sessionStore.clearActiveSession();
     await shutdownEmbeddedMcpServer();
 }

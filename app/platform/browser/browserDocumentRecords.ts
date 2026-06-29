@@ -104,6 +104,19 @@ function normalizePersistedSaveKind(
     return undefined;
 }
 
+function isFileSystemFileHandleLike(value: unknown): value is FileSystemFileHandle {
+    return isRecord(value)
+        && value.kind === 'file'
+        && typeof value.name === 'string';
+}
+
+function normalizePersistedSaveHandle(value: unknown): FileSystemFileHandle | null | undefined {
+    if (value === null || value === undefined) {
+        return value;
+    }
+    return isFileSystemFileHandleLike(value) ? value : undefined;
+}
+
 function normalizePersistedSaveTarget(
     value: Record<string, unknown>,
 ): IPersistedSaveTarget {
@@ -111,7 +124,7 @@ function normalizePersistedSaveTarget(
         typeof value.saveName === 'string' ? value.saveName : undefined;
     const saveKind = normalizePersistedSaveKind(value.saveKind);
     const saveHandle = 'saveHandle' in value
-        ? (value.saveHandle as FileSystemFileHandle | null | undefined)
+        ? normalizePersistedSaveHandle(value.saveHandle)
         : undefined;
 
     return {
