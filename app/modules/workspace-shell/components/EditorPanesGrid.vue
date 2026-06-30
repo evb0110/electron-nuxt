@@ -213,7 +213,12 @@ const emit = defineEmits<{
     'close-tab': [paneId: string, tabId: string];
     'new-tab': [paneId: string];
     'reorder-tab': [paneId: string, fromIndex: number, toIndex: number];
-    'move-tab-direction': [paneId: string, tabId: string, direction: 'left' | 'right'];
+    'move-tab-direction': [
+        paneId: string,
+        tabId: string,
+        direction: 'left' | 'right',
+        targetIndex?: number | null,
+    ];
     'tab-context-command': [paneId: string, tabId: string, command: TTabContextCommand];
     'set-workspace-ref': [tabId: string, el: unknown];
     'update-tab': [tabId: string, updates: TTabUpdate];
@@ -338,10 +343,14 @@ function handleLeafTabReorder(fromIndex: number, toIndex: number) {
     }
 }
 
-function handleLeafTabMoveDirection(tabId: string, direction: 'left' | 'right') {
+function handleLeafTabMoveDirection(
+    tabId: string,
+    direction: 'left' | 'right',
+    targetIndex?: number | null,
+) {
     const paneId = currentLeafPaneId();
     if (paneId) {
-        emit('move-tab-direction', paneId, tabId, direction);
+        emit('move-tab-direction', paneId, tabId, direction, targetIndex);
     }
 }
 
@@ -398,8 +407,13 @@ function handleReorderTab(paneId: string, fromIndex: number, toIndex: number) {
     emit('reorder-tab', paneId, fromIndex, toIndex);
 }
 
-function handleMoveTabDirection(paneId: string, tabId: string, direction: 'left' | 'right') {
-    emit('move-tab-direction', paneId, tabId, direction);
+function handleMoveTabDirection(
+    paneId: string,
+    tabId: string,
+    direction: 'left' | 'right',
+    targetIndex?: number | null,
+) {
+    emit('move-tab-direction', paneId, tabId, direction, targetIndex);
 }
 
 function handleTabContextCommand(paneId: string, tabId: string, command: TTabContextCommand) {

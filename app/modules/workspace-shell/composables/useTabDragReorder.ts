@@ -7,15 +7,38 @@ interface ISlot {
     centerX: number;
 }
 
+interface IRectSnapshot {
+    left: number;
+    right: number;
+}
+
+interface ITabSlotSnapshot extends ISlot { element: HTMLElement; }
+
+interface ITabListSnapshot {
+    tabList: HTMLElement;
+    rect: IRectSnapshot;
+    tabs: ITabSlotSnapshot[];
+}
+
+interface IOutsideMoveTarget {
+    insertionIndex: number | null;
+    tabElements: HTMLElement[];
+}
+
 const THRESHOLD = 5;
 const CLICK_SUPPRESS_MS = 300;
 const OUTSIDE_MOVE_THRESHOLD = 16;
+const DRAG_PREVIEW_Z_INDEX = '2147483647';
 
 export const useTabDragReorder = (
     containerRef: Ref<HTMLElement | null>,
     onReorder: (fromIndex: number, toIndex: number) => void,
     onDragStart?: (index: number) => void,
-    onMoveToDirection?: (fromIndex: number, direction: 'left' | 'right') => void,
+    onMoveToDirection?: (
+        fromIndex: number,
+        direction: 'left' | 'right',
+        targetIndex: number | null,
+    ) => void,
 ) => {
     const isDragging = ref(false);
     const dragIndex = ref(-1);
@@ -26,12 +49,30 @@ export const useTabDragReorder = (
     let tabElements: HTMLElement[] = [];
     const activePointerTarget = ref<HTMLElement | null>(null);
     let lastDragEndTime = 0;
+    let dragPreviewEl: HTMLElement | null = null;
+    let draggedSourceEl: HTMLElement | null = null;
+    let draggedSourceVisibility = '';
+    let externalShiftElements: HTMLElement[] = [];
+    let externalShiftDistance = 0;
+    let sourceTabList: HTMLElement | null = null;
+    let sourceTabListRect: IRectSnapshot | null = null;
+    let tabListSnapshots: ITabListSnapshot[] = [];
+
+    function toRectSnapshot(rect: Pick<DOMRect, 'left' | 'right'>) {
+        return {
+            left: rect.left,
+            right: rect.right,
+        };
+    }
 
     function captureSlots() {
         const el = containerRef.value;
         if (!el) {
             tabElements = [];
             slots = [];
+            sourceTabList = null;
+            sourceTabListRect = null;
+            tabListSnapshots = [];
             return;
         }
         tabElements = Array.from(el.querySelectorAll<HTMLElement>('[data-tab-id]'));
@@ -43,6 +84,28 @@ export const useTabDragReorder = (
                 centerX: rect.left + rect.width / 2,
             };
         });
+        sourceTabList = getSourceTabList();
+        sourceTabListRect = sourceTabList
+            ? toRectSnapshot(sourceTabList.getBoundingClientRect())
+            : null;
+        tabListSnapshots = Array.from(document.querySelectorAll<HTMLElement>('[data-tab-list]'))
+            .map((tabList) => {
+                const rect = tabList.getBoundingClientRect();
+                return {
+                    tabList,
+                    rect: toRectSnapshot(rect),
+                    tabs: Array.from(tabList.querySelectorAll<HTMLElement>('[data-tab-id]'))
+                        .map((tab) => {
+                            const tabRect = tab.getBoundingClientRect();
+                            return {
+                                element: tab,
+                                left: tabRect.left,
+                                width: tabRect.width,
+                                centerX: tabRect.left + tabRect.width / 2,
+                            };
+                        }),
+                };
+            });
     }
 
     function isBetween(i: number, from: number, to: number) {
@@ -108,6 +171,175 @@ export const useTabDragReorder = (
         }
     }
 
+    function clearExternalShifts() {
+        for (const el of externalShiftElements) {
+            el.style.transform = '';
+            el.style.transition = '';
+        }
+        externalShiftElements = [];
+        externalShiftDistance = 0;
+    }
+
+    function getSourceTabList() {
+        return containerRef.value?.querySelector<HTMLElement>('[data-tab-list]') ?? containerRef.value;
+    }
+
+    function resolveInsertionIndex(snapshot: ITabListSnapshot, pointerX: number) {
+        for (let i = 0; i < snapshot.tabs.length; i++) {
+            if (pointerX < snapshot.tabs[i]!.centerX) {
+                return i;
+            }
+        }
+        return snapshot.tabs.length;
+    }
+
+    function resolveOutsideMoveTarget(direction: 'left' | 'right', pointerX: number): IOutsideMoveTarget {
+        const sourceList = sourceTabList;
+        const sourceRect = sourceTabListRect;
+        if (!sourceList || !sourceRect) {
+            return {
+                insertionIndex: null,
+                tabElements: [],
+            };
+        }
+
+        const candidateLists = tabListSnapshots
+            .filter(snapshot => snapshot.tabList !== sourceList)
+            .filter(candidate => direction === 'right'
+                ? candidate.rect.left >= sourceRect.right - 1
+                : candidate.rect.right <= sourceRect.left + 1);
+
+        const containingList = candidateLists.find(candidate => (
+            pointerX >= candidate.rect.left && pointerX <= candidate.rect.right
+        ));
+        const nearestList = containingList ?? [...candidateLists]
+            .sort((a, b) => {
+                const aDistance = direction === 'right'
+                    ? Math.abs(a.rect.left - pointerX)
+                    : Math.abs(a.rect.right - pointerX);
+                const bDistance = direction === 'right'
+                    ? Math.abs(b.rect.left - pointerX)
+                    : Math.abs(b.rect.right - pointerX);
+                return aDistance - bDistance;
+            })[0] ?? null;
+
+        if (!nearestList) {
+            return {
+                insertionIndex: null,
+                tabElements: [],
+            };
+        }
+
+        return {
+            insertionIndex: resolveInsertionIndex(nearestList, pointerX),
+            tabElements: nearestList.tabs.map(tab => tab.element),
+        };
+    }
+
+    function areSameElements(left: HTMLElement[], right: HTMLElement[]) {
+        return left.length === right.length
+            && left.every((element, index) => element === right[index]);
+    }
+
+    function applyExternalShifts(elements: HTMLElement[], shiftDistance: number) {
+        if (externalShiftDistance === shiftDistance && areSameElements(externalShiftElements, elements)) {
+            return;
+        }
+
+        clearExternalShifts();
+        externalShiftElements = elements;
+        externalShiftDistance = shiftDistance;
+
+        for (const el of externalShiftElements) {
+            el.style.transform = `translateX(${shiftDistance}px)`;
+            el.style.transition = 'transform 200ms ease';
+        }
+    }
+
+    function applyExternalTargetShifts(pointerX: number) {
+        const moveDirection = resolveOutsideMoveDirection(pointerX, isDragging.value);
+        const dragSlot = slots[dragIndex.value];
+        if (!moveDirection || !dragSlot) {
+            clearExternalShifts();
+            return;
+        }
+
+        const target = resolveOutsideMoveTarget(moveDirection, pointerX);
+        if (target.insertionIndex === null) {
+            clearExternalShifts();
+            return;
+        }
+
+        applyExternalShifts(target.tabElements.slice(target.insertionIndex), dragSlot.width);
+    }
+
+    function restoreDraggedSourceVisibility() {
+        if (!draggedSourceEl) {
+            return;
+        }
+
+        draggedSourceEl.style.visibility = draggedSourceVisibility;
+        draggedSourceEl = null;
+        draggedSourceVisibility = '';
+    }
+
+    function hideDraggedSource(el: HTMLElement) {
+        if (draggedSourceEl === el) {
+            return;
+        }
+
+        restoreDraggedSourceVisibility();
+        draggedSourceEl = el;
+        draggedSourceVisibility = el.style.visibility;
+        el.style.visibility = 'hidden';
+    }
+
+    function createDragPreview(el: HTMLElement) {
+        const rect = el.getBoundingClientRect();
+        const preview = el.cloneNode(true) as HTMLElement;
+        preview.removeAttribute('data-tab-id');
+        preview.setAttribute('data-tab-drag-preview', 'true');
+        preview.setAttribute('aria-hidden', 'true');
+        preview.style.position = 'fixed';
+        preview.style.left = `${rect.left}px`;
+        preview.style.top = `${rect.top}px`;
+        preview.style.width = `${rect.width}px`;
+        preview.style.height = `${rect.height}px`;
+        preview.style.margin = '0';
+        preview.style.pointerEvents = 'none';
+        preview.style.transition = 'none';
+        preview.style.zIndex = DRAG_PREVIEW_Z_INDEX;
+        preview.style.boxSizing = 'border-box';
+        preview.style.setProperty('-webkit-app-region', 'no-drag');
+        document.body.append(preview);
+        dragPreviewEl = preview;
+    }
+
+    function updateDragPreview(deltaX: number) {
+        const draggedEl = tabElements[dragIndex.value];
+        if (!draggedEl) {
+            return false;
+        }
+
+        if (!dragPreviewEl) {
+            createDragPreview(draggedEl);
+            hideDraggedSource(draggedEl);
+        }
+
+        if (!dragPreviewEl) {
+            return false;
+        }
+
+        dragPreviewEl.style.transform = `translate3d(${deltaX}px, 0, 0)`;
+        return true;
+    }
+
+    function clearDragPreview() {
+        dragPreviewEl?.remove();
+        dragPreviewEl = null;
+        restoreDraggedSourceVisibility();
+    }
+
     function onPointerMove(e: PointerEvent) {
         const deltaX = e.clientX - pointerStartX;
 
@@ -121,7 +353,7 @@ export const useTabDragReorder = (
         }
 
         const draggedEl = tabElements[dragIndex.value];
-        if (draggedEl) {
+        if (draggedEl && !updateDragPreview(deltaX)) {
             draggedEl.style.transform = `translateX(${deltaX}px)`;
         }
 
@@ -130,6 +362,7 @@ export const useTabDragReorder = (
             targetIndex = newTarget;
             applyShifts();
         }
+        applyExternalTargetShifts(e.clientX);
     }
 
     function clearAllTransforms() {
@@ -137,6 +370,7 @@ export const useTabDragReorder = (
             el.style.transform = '';
             el.style.transition = '';
         }
+        clearExternalShifts();
     }
 
     function detachListeners() {
@@ -162,19 +396,28 @@ export const useTabDragReorder = (
 
     function resetDragState() {
         clearAllTransforms();
+        clearDragPreview();
         isDragging.value = false;
         dragIndex.value = -1;
         targetIndex = -1;
         document.body.style.cursor = '';
         tabElements = [];
         slots = [];
+        sourceTabList = null;
+        sourceTabListRect = null;
+        tabListSnapshots = [];
         detachListeners();
     }
 
-    function completeMoveToDirection(wasDragging: boolean, from: number, moveDirection: 'left' | 'right' | null) {
+    function completeMoveToDirection(
+        wasDragging: boolean,
+        from: number,
+        moveDirection: 'left' | 'right' | null,
+        targetInsertionIndex: number | null,
+    ) {
         if (wasDragging && moveDirection && from >= 0) {
             lastDragEndTime = Date.now();
-            onMoveToDirection?.(from, moveDirection);
+            onMoveToDirection?.(from, moveDirection, targetInsertionIndex);
             return true;
         }
 
@@ -193,10 +436,13 @@ export const useTabDragReorder = (
         const from = dragIndex.value;
         const to = targetIndex;
         const moveDirection = resolveOutsideMoveDirection(pointerX, wasDragging);
+        const targetInsertionIndex = moveDirection && pointerX !== null
+            ? resolveOutsideMoveTarget(moveDirection, pointerX).insertionIndex
+            : null;
 
         resetDragState();
 
-        if (!completeMoveToDirection(wasDragging, from, moveDirection)) {
+        if (!completeMoveToDirection(wasDragging, from, moveDirection, targetInsertionIndex)) {
             completeReorder(wasDragging, from, to);
         }
     }
@@ -242,6 +488,7 @@ export const useTabDragReorder = (
 
     onUnmounted(() => {
         clearAllTransforms();
+        clearDragPreview();
         detachListeners();
         document.body.style.cursor = '';
     });

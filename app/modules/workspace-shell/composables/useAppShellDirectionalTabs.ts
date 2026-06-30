@@ -44,7 +44,12 @@ interface IUseAppShellDirectionalTabsOptions {
     findDirectionalPane: (sourcePaneId: string, direction: TPaneDirection, wrap?: boolean) => IEditorPaneState | null;
     focusPane: (direction: TPaneDirection, wrap?: boolean) => string | null;
     splitPane: (sourcePaneId: string, direction: TPaneDirection) => string | null;
-    moveTabToPane: (tabId: string, targetPaneId: string, activate?: boolean) => boolean;
+    moveTabToPane: (
+        tabId: string,
+        targetPaneId: string,
+        activate?: boolean,
+        targetIndex?: number | null,
+    ) => boolean;
     createTab: (options: {
         paneId?: string | null;
         activate?: boolean;
@@ -349,44 +354,25 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         };
     }
 
-    async function moveActiveTab(direction: TPaneDirection) {
-        await enqueueTabTransition(async () => {
+    async function moveActiveTab(direction: TPaneDirection, targetIndex?: number | null) {
+        await enqueueTabTransition(() => {
             const sourcePane = getPaneById(activePaneId.value);
             const sourceTabId = sourcePane?.activeTabId ?? null;
             if (!sourcePane || !sourceTabId) {
-                return;
+                return Promise.resolve();
             }
 
             const route = ensureTargetPaneForDirection(direction);
             if (!route) {
-                return;
+                return Promise.resolve();
             }
 
-            const remainingSourceTabIds = sourcePane.tabIds.filter(id => id !== sourceTabId);
-            const sourceTabIndex = sourcePane.tabIds.indexOf(sourceTabId);
-            const sourceReplacementTabId = remainingSourceTabIds[sourceTabIndex]
-                ?? remainingSourceTabIds[sourceTabIndex - 1]
-                ?? null;
-            if (sourceReplacementTabId) {
-                activateTab(sourcePane.paneId, sourceReplacementTabId);
-                await nextTick();
+            if (targetIndex === undefined) {
+                moveTabToPane(sourceTabId, route.targetPaneId, true);
+            } else {
+                moveTabToPane(sourceTabId, route.targetPaneId, true, targetIndex);
             }
-
-            const payload = await captureWorkspacePayload(sourceTabId);
-            if (!payload) {
-                return;
-            }
-
-            if ((payload as { kind?: string }).kind !== 'empty') {
-                const cacheEntryId = workspaceSplitCache.set(sourceTabId, payload);
-                scheduleSplitCacheCleanup(sourceTabId, cacheEntryId);
-            }
-
-            const moved = moveTabToPane(sourceTabId, route.targetPaneId, true);
-            if (moved) {
-                activateTab(route.targetPaneId, sourceTabId);
-            }
-            cleanupEmptyPanes();
+            return Promise.resolve();
         });
     }
 
@@ -567,6 +553,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         paneId: string,
         tabId: string,
         direction: 'left' | 'right',
+        targetIndex?: number | null,
     ) {
         const pane = getPaneById(paneId);
         if (!pane || !pane.tabIds.includes(tabId)) {
@@ -575,7 +562,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
 
         activatePane(paneId);
         activateTab(paneId, tabId);
-        void moveActiveTab(direction);
+        void moveActiveTab(direction, targetIndex);
     }
 
     function cleanup() {

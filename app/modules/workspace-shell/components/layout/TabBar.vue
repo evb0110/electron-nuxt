@@ -1,6 +1,6 @@
 <template>
     <div ref="tabBarRef" class="tab-bar">
-        <div class="tab-list" role="tablist">
+        <div class="tab-list" role="tablist" data-tab-list>
             <div
                 v-for="(tab, index) in tabs"
                 :key="tab.id"
@@ -131,7 +131,11 @@ const emit = defineEmits<{
     close: [id: string];
     'new-tab': [];
     reorder: [fromIndex: number, toIndex: number];
-    'move-direction': [tabId: string, direction: 'left' | 'right'];
+    'move-direction': [
+        tabId: string,
+        direction: 'left' | 'right',
+        targetIndex?: number | null,
+    ];
     'tab-context-command': [tabId: string, command: TTabContextCommand];
 }>();
 
@@ -418,13 +422,13 @@ const {
         const tab = tabs[index];
         if (tab) emit('activate', tab.id);
     },
-    (index, direction) => {
+    (index, direction, targetIndex) => {
         if (!isDirectionEnabled('move', direction)) {
             return;
         }
         const tab = tabs[index];
         if (tab) {
-            emit('move-direction', tab.id, direction);
+            emit('move-direction', tab.id, direction, targetIndex);
         }
     },
 );

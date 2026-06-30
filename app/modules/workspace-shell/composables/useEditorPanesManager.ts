@@ -18,6 +18,7 @@ import {
     isEditorPanesStateNormalized,
     normalizeEditorPanesState,
 } from '@app/modules/workspace-shell/editor-panes/normalization';
+import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 
 interface ICreateTabOptions {
     paneId?: string | null;
@@ -198,6 +199,44 @@ export const useEditorPanesManager = () => {
             const tab = getTabById(tabId);
             return tab ? [tab] : [];
         });
+    }
+
+    function isPlaceholderTab(tab: ITab | null | undefined) {
+        return Boolean(tab && !tabHasDocumentHint(tab) && !tab.isDirty);
+    }
+
+    function insertTabId(
+        tabIds: string[],
+        tabId: string,
+        targetIndex: number | null | undefined,
+    ) {
+        const insertionIndex = targetIndex === null || targetIndex === undefined
+            ? tabIds.length
+            : clamp(targetIndex, 0, tabIds.length);
+
+        return [
+            ...tabIds.slice(0, insertionIndex),
+            tabId,
+            ...tabIds.slice(insertionIndex),
+        ];
+    }
+
+    function resolveTargetTabIdsForMove(
+        targetPane: IEditorPaneState,
+        tabId: string,
+        targetIndex: number | null | undefined,
+    ) {
+        const placeholderTabId = targetPane.tabIds.length === 1 ? targetPane.tabIds[0] : null;
+        if (!placeholderTabId || placeholderTabId === tabId) {
+            return insertTabId(targetPane.tabIds, tabId, targetIndex);
+        }
+
+        if (!isPlaceholderTab(getTabById(placeholderTabId))) {
+            return insertTabId(targetPane.tabIds, tabId, targetIndex);
+        }
+
+        tabs.value = tabs.value.filter((candidate: ITab) => candidate.id !== placeholderTabId);
+        return [tabId];
     }
 
     function ensureLayoutInitialized() {
@@ -510,7 +549,12 @@ export const useEditorPanesManager = () => {
         return target.paneId;
     }
 
-    function moveTabToPane(tabId: string, targetPaneId: string, activate = true) {
+    function moveTabToPane(
+        tabId: string,
+        targetPaneId: string,
+        activate = true,
+        targetIndex?: number | null,
+    ) {
         const sourcePane = getPaneByTabId(tabId);
         const targetPane = getPaneById(targetPaneId);
         if (!sourcePane || !targetPane) {
@@ -537,10 +581,7 @@ export const useEditorPanesManager = () => {
         );
         updatePaneTabIds(
             targetPane.paneId,
-            tabIds => [
-                ...tabIds,
-                tabId,
-            ],
+            () => resolveTargetTabIdsForMove(targetPane, tabId, targetIndex),
             () => tabId,
         );
 

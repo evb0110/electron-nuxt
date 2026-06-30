@@ -176,6 +176,85 @@ describe('useEditorPanesManager', () => {
         expect(manager.getPaneById(sourcePane.paneId)?.activeTabId).toBe(firstTabId);
     });
 
+    it('replaces a singleton destination placeholder when moving a tab between panes', async () => {
+        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
+        const manager = useEditorPanesManager();
+        manager.ensureAtLeastOneTab();
+
+        const sourcePane = manager.activePane.value!;
+        const movedTabId = sourcePane.activeTabId!;
+        Object.assign(manager.getTabById(movedTabId)!, {
+            fileName: 'moved.pdf',
+            originalPath: '/tmp/moved.pdf',
+        });
+        const remainingTab = manager.createTab({
+            paneId: sourcePane.paneId,
+            activate: false,
+            initial: {
+                fileName: 'remaining.pdf',
+                originalPath: '/tmp/remaining.pdf',
+            },
+        });
+        const targetPaneId = manager.splitPane(sourcePane.paneId, 'right');
+        expect(targetPaneId).toBeTruthy();
+        const placeholder = manager.createTab({
+            paneId: targetPaneId,
+            activate: true,
+        });
+        manager.activateTab(sourcePane.paneId, movedTabId);
+
+        expect(manager.moveTabToPane(movedTabId, targetPaneId!, true)).toBe(true);
+
+        expect(manager.getPaneById(sourcePane.paneId)?.activeTabId).toBe(remainingTab.id);
+        expect(manager.getPaneById(targetPaneId)?.tabIds).toEqual([movedTabId]);
+        expect(manager.getPaneById(targetPaneId)?.activeTabId).toBe(movedTabId);
+        expect(manager.getTabById(placeholder.id)).toBeNull();
+        expect(manager.tabs.value.map(tab => tab.id)).not.toContain(placeholder.id);
+        expect(manager.activePaneId.value).toBe(targetPaneId);
+    });
+
+    it('inserts a moved tab at the requested destination index', async () => {
+        const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
+        const manager = useEditorPanesManager();
+        manager.ensureAtLeastOneTab();
+
+        const sourcePane = manager.activePane.value!;
+        const movedTabId = sourcePane.activeTabId!;
+        const sourceRemainingTab = manager.createTab({
+            paneId: sourcePane.paneId,
+            activate: false,
+        });
+        const targetPaneId = manager.splitPane(sourcePane.paneId, 'right');
+        expect(targetPaneId).toBeTruthy();
+        const targetFirstTab = manager.createTab({
+            paneId: targetPaneId,
+            activate: true,
+            initial: {
+                fileName: 'target-1.pdf',
+                originalPath: '/tmp/target-1.pdf',
+            },
+        });
+        const targetSecondTab = manager.createTab({
+            paneId: targetPaneId,
+            activate: false,
+            initial: {
+                fileName: 'target-2.pdf',
+                originalPath: '/tmp/target-2.pdf',
+            },
+        });
+        manager.activateTab(sourcePane.paneId, movedTabId);
+
+        expect(manager.moveTabToPane(movedTabId, targetPaneId!, true, 0)).toBe(true);
+
+        expect(manager.getPaneById(sourcePane.paneId)?.activeTabId).toBe(sourceRemainingTab.id);
+        expect(manager.getPaneById(targetPaneId)?.tabIds).toEqual([
+            movedTabId,
+            targetFirstTab.id,
+            targetSecondTab.id,
+        ]);
+        expect(manager.getPaneById(targetPaneId)?.activeTabId).toBe(movedTabId);
+    });
+
     it('reorders tabs within a pane without changing the active tab', async () => {
         const { useEditorPanesManager } = await import('@app/modules/workspace-shell/composables/useEditorPanesManager');
         const manager = useEditorPanesManager();

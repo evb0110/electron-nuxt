@@ -454,7 +454,7 @@ describe('useAppShellDirectionalTabs', () => {
         expect(directionalTabs.tabContextAvailabilityByPane.value['pane-1']?.canCreate).toBe(true);
     });
 
-    it('switches the source pane to its remaining tab before capturing the moved payload', async () => {
+    it('moves the active tab without split payload capture or eager source activation', async () => {
         const sourcePane = {
             paneId: 'pane-1',
             activeTabId: 'tab-1',
@@ -470,13 +470,8 @@ describe('useAppShellDirectionalTabs', () => {
         };
         const activateTab = vi.fn();
         const moveTabToPane = vi.fn(() => true);
-        const activationsBeforeCapture: string[] = [];
-        const captureWorkspacePayload = vi.fn(async () => {
-            for (const call of activateTab.mock.calls) {
-                activationsBeforeCapture.push(`${call[0]}:${call[1]}`);
-            }
-            return createPayload();
-        });
+        const captureWorkspacePayload = vi.fn(async () => createPayload());
+        const workspaceSplitCacheSet = vi.fn(() => 'cache-entry');
 
         const directionalTabs = useAppShellDirectionalTabs({
             activePaneId: ref('pane-1'),
@@ -506,7 +501,7 @@ describe('useAppShellDirectionalTabs', () => {
                 consume: vi.fn(),
                 has: vi.fn(),
                 peek: vi.fn(),
-                set: vi.fn(() => 'cache-entry'),
+                set: workspaceSplitCacheSet,
             },
             isSingletonPlaceholderCloseBlocked: vi.fn(() => false),
             enqueueTabTransition: vi.fn(async task => task()),
@@ -517,10 +512,11 @@ describe('useAppShellDirectionalTabs', () => {
             handleCloseTab: vi.fn(),
         });
 
-        await directionalTabs.moveActiveTab('right');
+        await directionalTabs.moveActiveTab('right', 0);
 
-        expect(activationsBeforeCapture).toContain('pane-1:tab-2');
-        expect(moveTabToPane).toHaveBeenCalledWith('tab-1', 'pane-2', true);
-        expect(activateTab).toHaveBeenCalledWith('pane-2', 'tab-1');
+        expect(moveTabToPane).toHaveBeenCalledWith('tab-1', 'pane-2', true, 0);
+        expect(activateTab).not.toHaveBeenCalled();
+        expect(captureWorkspacePayload).not.toHaveBeenCalled();
+        expect(workspaceSplitCacheSet).not.toHaveBeenCalled();
     });
 });
