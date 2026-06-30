@@ -11,15 +11,18 @@ import { usePageStatusBar } from '@app/modules/workspace-shell/composables/usePa
 const {
     legacyShowItemInFolderMock,
     showItemInFolderMock,
+    statFileMock,
 } = vi.hoisted(() => ({
     legacyShowItemInFolderMock: vi.fn(() => {
         throw new Error('legacy documents window capability should not be used');
     }),
     showItemInFolderMock: vi.fn(async () => true),
+    statFileMock: vi.fn(async () => ({ size: 0 })),
 }));
 
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentWindowCapability: () => ({ showItemInFolder: showItemInFolderMock }),
+    getDocumentFilesCapability: () => ({ statFile: statFileMock }),
     getDocumentsCapability: () => ({ showItemInFolder: legacyShowItemInFolderMock }),
 }));
 
@@ -43,6 +46,8 @@ describe('usePageStatusBar', () => {
     beforeEach(() => {
         showItemInFolderMock.mockClear();
         legacyShowItemInFolderMock.mockClear();
+        statFileMock.mockClear();
+        statFileMock.mockResolvedValue({ size: 0 });
     });
 
     it('shows the folder action only for filesystem-backed document refs', async () => {
@@ -93,5 +98,27 @@ describe('usePageStatusBar', () => {
         expect(statusBar.statusFilePath.value).toBe('Труд.pdf');
         expect(statusBar.statusShowInFolderTooltip.value).toBe('status.showInFolderUnavailableWeb');
         expect(statusBar.statusShowInFolderAriaLabel.value).toBe('status.showInFolderUnavailableWeb');
+    });
+
+    it('shows the file name for display while keeping the full path available', () => {
+        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        const statusBar = usePageStatusBar(createDeps({ originalPath: ref('/Users/evb/Desktop/To/book.djvu') }));
+
+        expect(statusBar.statusFileName.value).toBe('book.djvu');
+        expect(statusBar.statusFilePath.value).toBe('/Users/evb/Desktop/To/book.djvu');
+    });
+
+    it('falls back to the on-disk size when the document has no in-memory bytes', async () => {
+        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string, params?: { size?: string }) => (
+            key === 'status.fileSizeValue' ? `size:${params?.size ?? ''}` : key
+        ) }));
+        statFileMock.mockResolvedValue({ size: 2048 });
+
+        const statusBar = usePageStatusBar(createDeps({ originalPath: ref('/tmp/book.djvu') }));
+
+        await vi.waitFor(() => {
+            expect(statusBar.statusFileSizeLabel.value).toContain('2.00 KB');
+        });
+        expect(statFileMock).toHaveBeenCalledWith('/tmp/book.djvu');
     });
 });

@@ -2,11 +2,15 @@ import type { Ref } from 'vue';
 import type { TPdfSource } from '@app/types/pdf';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
+    getDocumentRefBaseName,
     getDocumentRefDisplayLabel,
     isBrowserDocumentRef,
 } from '@app/utils/documentRef';
 import { formatBytes } from '@app/utils/formatters';
-import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
+import {
+    getDocumentFilesCapability,
+    getDocumentWindowCapability,
+} from '@app/utils/platformDocuments';
 
 type TSaveDotState = 'idle' | 'saving' | 'dirty' | 'clean';
 
@@ -45,6 +49,10 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
     } = deps;
     const { t } = useTypedI18n();
 
+    const statusFileName = computed(() => {
+        const path = originalPath.value ?? workingCopyPath.value;
+        return getDocumentRefBaseName(path) ?? t('status.noFileOpen');
+    });
     const statusFilePath = computed(() => {
         const path = originalPath.value ?? workingCopyPath.value;
         return getDocumentRefDisplayLabel(path) ?? t('status.noFileOpen');
@@ -58,7 +66,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         const normalizedPath = path.trim();
         return normalizedPath.length > 0 ? normalizedPath : null;
     });
-    const statusFileSizeBytes = computed(() => {
+    const inMemoryFileSizeBytes = computed(() => {
         if (pdfData.value) {
             return pdfData.value.byteLength;
         }
@@ -67,6 +75,31 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         }
         return null;
     });
+    const measurableFilePath = computed(() => {
+        if (inMemoryFileSizeBytes.value !== null) {
+            return null;
+        }
+        const path = originalPath.value ?? workingCopyPath.value;
+        return typeof path === 'string' && path.trim().length > 0 ? path : null;
+    });
+    const statFileSizeBytes = ref<number | null>(null);
+    watch(measurableFilePath, async (path) => {
+        if (!path) {
+            statFileSizeBytes.value = null;
+            return;
+        }
+        try {
+            const { size } = await getDocumentFilesCapability().statFile(path);
+            if (measurableFilePath.value === path) {
+                statFileSizeBytes.value = size;
+            }
+        } catch {
+            if (measurableFilePath.value === path) {
+                statFileSizeBytes.value = null;
+            }
+        }
+    }, { immediate: true });
+    const statusFileSizeBytes = computed(() => inMemoryFileSizeBytes.value ?? statFileSizeBytes.value);
     const statusFileSizeLabel = computed(() => {
         if (statusFileSizeBytes.value === null) {
             return t('status.fileSizeUnknown');
@@ -160,6 +193,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
     }
 
     return {
+        statusFileName,
         statusFilePath,
         statusFileSizeLabel,
         statusZoomLabel,

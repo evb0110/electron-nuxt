@@ -144,7 +144,10 @@ export default {
     'tabs': {
         'newTab': 'New Tab',
         'unsavedChanges': 'Unsaved changes',
-        'closeTab': 'Close tab',
+        'closeTab': 'Close Tab',
+        'closeOthers': 'Close Others',
+        'closeToRight': 'Close Tabs to the Right',
+        'copyPath': 'Copy Path',
         'preparingBatch': 'Preparing {processed}/{total}',
         'confirmCloseDirtyTitle': 'Close tab with unsaved changes?',
         'confirmCloseDirtyDescription': '"{name}" has unsaved changes. Changes will be discarded when closing.',
@@ -857,7 +860,7 @@ export default {
         'fileSizeValue': 'Size: {size}',
         'zoomUnknown': 'Zoom: -',
         'zoomValue': 'Zoom: {zoom}%',
-        'showInFolder': 'Reveal in folder',
+        'showInFolder': 'Reveal in Folder',
         'showInFolderUnavailableWeb': 'Stored in this browser',
     },
     'relativeTime': {

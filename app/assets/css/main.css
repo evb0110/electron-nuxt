@@ -179,6 +179,7 @@
     --app-floating-panel-viewport-width: calc(100vw - var(--app-floating-panel-viewport-gutter));
     --app-floating-panel-max-width: 28rem;
     --app-floating-panel-max-inline-size: min(var(--app-floating-panel-max-width), var(--app-floating-panel-viewport-width));
+    --app-tooltip-max-inline-size: min(22rem, var(--app-floating-panel-viewport-width));
     --app-overlay-viewport-gutter: 2rem;
     --app-overlay-viewport-width: calc(100vw - var(--app-overlay-viewport-gutter));
     --app-install-hint-gap: var(--app-space-sm);
@@ -398,7 +399,6 @@
     --app-combine-compact-text-size: var(--app-text-size-fine);
     --app-combine-small-row-columns: var(--app-combine-drag-handle-width) 1.5rem 1.75rem minmax(0, 1fr);
     --app-tab-context-menu-min-width: 13.125rem;
-    --app-tab-context-menu-max-width: 560px;
     --app-assistant-panel-default-width: 24rem;
     --app-assistant-panel-max-viewport-width: 45vw;
     --app-assistant-image-preview-z-index: 100;

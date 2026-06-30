@@ -74,7 +74,10 @@ import { useEventListener } from '@vueuse/core';
 import type { ITab } from '@app/types/tabs';
 import { useTabDragReorder } from '@app/modules/workspace-shell/composables/useTabDragReorder';
 import type { TPaneDirection } from '@contracts/editorPanes';
-import { getDocumentRefDisplayLabel } from '@app/utils/documentRef';
+import {
+    getDocumentRefBaseName,
+    isBrowserDocumentRef,
+} from '@app/utils/documentRef';
 import type {
     ITabContextAvailability,
     TDirectionalTabContextCommand,
@@ -87,10 +90,8 @@ import {
 } from '@app/utils/platformWindowTabs';
 
 const { t } = useTypedI18n();
-const DIRECTION_ORDER = [
+const SPLIT_DIRECTION_ORDER = [
     'right',
-    'left',
-    'up',
     'down',
 ] as const satisfies readonly TPaneDirection[];
 type TDirectionalAvailabilityKind = 'split' | 'splitEmpty' | 'focus' | 'move' | 'copy';
@@ -99,22 +100,20 @@ type TStaticCommandKind = Exclude<TTabContextCommand['kind'], 'split' | 'split-e
 interface IContextMenuAction {
     key: string;
     label: string;
+    icon: string;
     command: TTabContextCommand;
 }
 
 interface IContextMenuSection {
     key: string;
-    title?: string;
     actions: IContextMenuAction[];
 }
 
 type TTabContextMenuItem =
-    | {
-        type: 'label' | 'separator';
-        label?: string;
-    }
+    | { type: 'separator' }
     | {
         label: string;
+        icon: string;
         onSelect: () => void;
     };
 
@@ -177,15 +176,28 @@ const contextMenuContentOptions = {
     updatePositionStrategy: 'always' as const,
 };
 const contextMenuUi = {
-    content: 'tab-context-menu',
-    label: 'tab-context-menu-section',
-    separator: 'tab-context-menu-divider',
-    item: 'tab-context-menu-action',
+    content: 'tab-context-menu toolbar-menu-panel',
+    separator: 'toolbar-menu-divider',
+    item: 'toolbar-menu-item',
+    itemLeadingIcon: 'toolbar-menu-icon',
+    itemLabel: 'toolbar-menu-label',
 };
 const canCloseTabs = computed(() => contextAvailability?.canClose ?? true);
+const clickedTab = computed(() => tabs.find(tab => tab.id === contextMenu.value.tabId) ?? null);
+const clickedTabIndex = computed(() => tabs.findIndex(tab => tab.id === contextMenu.value.tabId));
+const canCloseOthers = computed(() => canCloseTabs.value && tabs.length > 1);
+const canCloseToRight = computed(() =>
+    canCloseTabs.value && clickedTabIndex.value >= 0 && clickedTabIndex.value < tabs.length - 1);
+const clickedTabFilePath = computed(() => {
+    const path = clickedTab.value?.originalPath ?? null;
+    return typeof path === 'string' && path.trim().length > 0 && !isBrowserDocumentRef(path)
+        ? path
+        : null;
+});
+const canRevealClickedPath = computed(() => clickedTabFilePath.value !== null);
 
 function resolveTabTitle(tab: ITab) {
-    return getDocumentRefDisplayLabel(tab.originalPath) ?? tab.fileName ?? t('tabs.newTab');
+    return getDocumentRefBaseName(tab.originalPath) ?? tab.fileName ?? t('tabs.newTab');
 }
 
 function isDirectionEnabled(kind: TDirectionalAvailabilityKind, direction: TPaneDirection) {
@@ -208,6 +220,10 @@ function isStaticCommandEnabled(command: Exclude<TTabContextCommand, TDirectiona
     const staticAvailabilityByKind = {
         'new-tab': contextAvailability?.canCreate ?? true,
         'close-tab': contextAvailability?.canClose ?? true,
+        'close-others': canCloseOthers.value,
+        'close-right': canCloseToRight.value,
+        'reveal-in-folder': canRevealClickedPath.value,
+        'copy-path': canRevealClickedPath.value,
         'move-to-new-window': canUseNativeWindowTransfers.value && (contextAvailability?.canMoveToNewWindow ?? tabs.length > 1),
         'move-to-window': canUseNativeWindowTransfers.value && (contextAvailability?.canMoveToWindow ?? true),
     } satisfies Record<TStaticCommandKind, boolean>;
@@ -224,8 +240,9 @@ function isCommandEnabled(command: TTabContextCommand) {
 function buildDirectionalActions(
     kind: 'split' | 'split-empty' | 'focus' | 'move' | 'copy',
     labels: Record<TPaneDirection, string>,
+    icons: Record<TPaneDirection, string>,
 ) {
-    return DIRECTION_ORDER.flatMap((direction) => {
+    return SPLIT_DIRECTION_ORDER.flatMap((direction) => {
         const command: TTabContextCommand = {
             kind,
             direction,
@@ -237,6 +254,7 @@ function buildDirectionalActions(
         return [{
             key: `${kind}-${direction}`,
             label: labels[direction],
+            icon: icons[direction],
             command,
         } satisfies IContextMenuAction];
     });
@@ -248,6 +266,7 @@ const primaryActions = computed(() => {
         actions.push({
             key: 'new-tab',
             label: t('tabs.newTab'),
+            icon: 'i-ph-plus',
             command: {kind: 'new-tab'},
         });
     }
@@ -255,7 +274,45 @@ const primaryActions = computed(() => {
         actions.push({
             key: 'close-tab',
             label: t('tabs.closeTab'),
+            icon: 'i-ph-x',
             command: {kind: 'close-tab'},
+        });
+    }
+    if (isCommandEnabled({kind: 'close-others'})) {
+        actions.push({
+            key: 'close-others',
+            label: t('tabs.closeOthers'),
+            icon: 'i-ph-x-circle',
+            command: {kind: 'close-others'},
+        });
+    }
+    if (isCommandEnabled({kind: 'close-right'})) {
+        actions.push({
+            key: 'close-right',
+            label: t('tabs.closeToRight'),
+            icon: 'i-ph-arrow-line-right',
+            command: {kind: 'close-right'},
+        });
+    }
+    return actions;
+});
+
+const fileActions = computed(() => {
+    const actions: IContextMenuAction[] = [];
+    if (isCommandEnabled({kind: 'reveal-in-folder'})) {
+        actions.push({
+            key: 'reveal-in-folder',
+            label: t('status.showInFolder'),
+            icon: 'i-ph-folder-open',
+            command: {kind: 'reveal-in-folder'},
+        });
+    }
+    if (isCommandEnabled({kind: 'copy-path'})) {
+        actions.push({
+            key: 'copy-path',
+            label: t('tabs.copyPath'),
+            icon: 'i-ph-copy',
+            command: {kind: 'copy-path'},
         });
     }
     return actions;
@@ -267,6 +324,7 @@ const windowActions = computed(() => {
         actions.push({
             key: 'move-to-new-window',
             label: t('menu.moveTabToNewWindow'),
+            icon: 'i-ph-arrow-square-out',
             command: {kind: 'move-to-new-window'},
         });
     }
@@ -283,6 +341,7 @@ const windowActions = computed(() => {
         return [{
             key: `move-to-window-${targetWindow.windowId}`,
             label: `${t('menu.moveTabToWindow')}: ${targetWindow.label}`,
+            icon: 'i-ph-arrow-square-out',
             command,
         }];
     }));
@@ -295,34 +354,11 @@ const splitActions = computed(() => buildDirectionalActions('split', {
     left: t('menu.splitEditorLeft'),
     up: t('menu.splitEditorUp'),
     down: t('menu.splitEditorDown'),
-}));
-
-const splitEmptyActions = computed(() => buildDirectionalActions('split-empty', {
-    right: t('menu.newPaneRight'),
-    left: t('menu.newPaneLeft'),
-    up: t('menu.newPaneUp'),
-    down: t('menu.newPaneDown'),
-}));
-
-const focusActions = computed(() => buildDirectionalActions('focus', {
-    right: t('menu.focusPaneRight'),
-    left: t('menu.focusPaneLeft'),
-    up: t('menu.focusPaneUp'),
-    down: t('menu.focusPaneDown'),
-}));
-
-const moveActions = computed(() => buildDirectionalActions('move', {
-    right: t('menu.moveTabRight'),
-    left: t('menu.moveTabLeft'),
-    up: t('menu.moveTabUp'),
-    down: t('menu.moveTabDown'),
-}));
-
-const copyActions = computed(() => buildDirectionalActions('copy', {
-    right: t('menu.copyTabRight'),
-    left: t('menu.copyTabLeft'),
-    up: t('menu.copyTabUp'),
-    down: t('menu.copyTabDown'),
+}, {
+    right: 'i-ph-square-split-horizontal',
+    left: 'i-ph-square-split-horizontal',
+    up: 'i-ph-square-split-vertical',
+    down: 'i-ph-square-split-vertical',
 }));
 
 const menuSections = computed(() => {
@@ -333,46 +369,22 @@ const menuSections = computed(() => {
             actions: primaryActions.value,
         });
     }
-    if (windowActions.value.length > 0) {
-        sections.push({
-            key: 'window',
-            title: t('menu.window'),
-            actions: windowActions.value,
-        });
-    }
     if (splitActions.value.length > 0) {
         sections.push({
             key: 'split',
-            title: t('menu.splitEditor'),
             actions: splitActions.value,
         });
     }
-    if (splitEmptyActions.value.length > 0) {
+    if (fileActions.value.length > 0) {
         sections.push({
-            key: 'split-empty',
-            title: t('menu.newPane'),
-            actions: splitEmptyActions.value,
+            key: 'file',
+            actions: fileActions.value,
         });
     }
-    if (focusActions.value.length > 0) {
+    if (windowActions.value.length > 0) {
         sections.push({
-            key: 'focus',
-            title: t('menu.focusEditorPane'),
-            actions: focusActions.value,
-        });
-    }
-    if (moveActions.value.length > 0) {
-        sections.push({
-            key: 'move',
-            title: t('menu.moveTabToPane'),
-            actions: moveActions.value,
-        });
-    }
-    if (copyActions.value.length > 0) {
-        sections.push({
-            key: 'copy',
-            title: t('menu.copyTabToPane'),
-            actions: copyActions.value,
+            key: 'window',
+            actions: windowActions.value,
         });
     }
     return sections;
@@ -385,15 +397,9 @@ const contextMenuItems = computed(() => {
             items.push({ type: 'separator' });
         }
 
-        if (section.title) {
-            items.push({
-                type: 'label',
-                label: section.title,
-            });
-        }
-
         items.push(...section.actions.map(action => ({
             label: action.label,
+            icon: action.icon,
             onSelect: () => runContextCommand(action.command),
         })));
     }
@@ -510,46 +516,11 @@ useEventListener(window, 'keydown', (event) => {
 
 </script>
 
-<style>
+<style lang="scss">
+@use '@app/assets/css/toolbar-menu-shared';
+
 .tab-context-menu {
     min-width: min(var(--app-tab-context-menu-min-width), var(--app-floating-panel-viewport-width));
-    max-width: min(var(--app-tab-context-menu-max-width), var(--app-floating-panel-viewport-width));
-    padding: 0;
-    border: 1px solid var(--ui-border);
-    border-radius: var(--app-radius-md);
-    overflow: hidden;
-    background: var(--ui-border);
-}
-
-.tab-context-menu-divider {
-    height: 1px;
-    margin: 0;
-    background: var(--ui-border);
-}
-
-.tab-context-menu-section {
-    margin: 0;
-    padding: var(--app-space-2xl) var(--app-space-5xl) var(--app-space-md);
-    background: var(--ui-bg-muted);
-    color: var(--ui-text-dimmed);
-    font-size: 0.64rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    font-weight: var(--app-font-weight-semibold);
-    overflow-wrap: anywhere;
-}
-
-.tab-context-menu-action {
-    width: 100%;
-    min-width: 0;
-    min-height: var(--app-control-height-sm);
-    padding: var(--app-space-xl) var(--app-space-5xl);
-    border-radius: 0;
-    background: var(--ui-bg);
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body-sm);
-    white-space: normal;
-    overflow-wrap: anywhere;
 }
 </style>
 

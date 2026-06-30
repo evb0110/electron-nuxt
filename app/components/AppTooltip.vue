@@ -75,6 +75,10 @@ const tooltipProps = computed(() => {
     if (disableClosingTrigger !== undefined) props.disableClosingTrigger = disableClosingTrigger;
     if (ignoreNonKeyboardFocus !== undefined) props.ignoreNonKeyboardFocus = ignoreNonKeyboardFocus;
     if (referenceElement.value !== undefined) props.reference = referenceElement.value;
+    props.ui = {
+        content: 'app-tooltip-content',
+        text: 'app-tooltip-text',
+    };
     return props;
 });
 
@@ -135,5 +139,19 @@ onUpdated(refreshReferenceElement);
 <style scoped>
 .app-tooltip-trigger {
     display: contents;
+}
+</style>
+
+<style>
+.app-tooltip-content {
+    max-inline-size: var(--app-tooltip-max-inline-size);
+    block-size: auto;
+    align-items: start;
+}
+
+.app-tooltip-text {
+    white-space: normal;
+    overflow: visible;
+    overflow-wrap: anywhere;
 }
 </style>

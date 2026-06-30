@@ -17,6 +17,10 @@ export interface ITabContextAvailability {
 export type TTabContextCommand =
     | { kind: 'new-tab' }
     | { kind: 'close-tab' }
+    | { kind: 'close-others' }
+    | { kind: 'close-right' }
+    | { kind: 'reveal-in-folder' }
+    | { kind: 'copy-path' }
     | { kind: 'move-to-new-window'; }
     | {
         kind: 'move-to-window';

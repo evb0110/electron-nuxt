@@ -36,6 +36,51 @@ function createPayload(): TSplitPayload {
     };
 }
 
+function createCloseHarness(pane: {
+    paneId: string;
+    activeTabId: string;
+    tabIds: string[];
+}, handleCloseTab: (paneId: string, tabId: string) => Promise<void>) {
+    return useAppShellDirectionalTabs({
+        activePaneId: ref(pane.paneId),
+        panes: ref([pane]),
+        tabs: ref(pane.tabIds.map(id => ({
+            id,
+            fileName: null,
+            originalPath: null,
+            isDirty: false,
+            isDjvu: false,
+        }))),
+        workspaceRefs: ref(new Map()),
+        isTabTransitionBusy: computed(() => false),
+        getPaneById: vi.fn((paneId: string | null | undefined) => paneId === pane.paneId ? pane : null),
+        getTabById: vi.fn(() => null),
+        findDirectionalPane: vi.fn(() => null),
+        focusPane: vi.fn(),
+        splitPane: vi.fn(),
+        moveTabToPane: vi.fn(),
+        createTab: vi.fn(),
+        activatePane: vi.fn(),
+        activateTab: vi.fn(),
+        removeTabFromState: vi.fn(),
+        cleanupEmptyPanes: vi.fn(),
+        workspaceSplitCache: {
+            clear: vi.fn(),
+            consume: vi.fn(),
+            has: vi.fn(),
+            peek: vi.fn(),
+            set: vi.fn(() => 'cache-entry'),
+        },
+        isSingletonPlaceholderCloseBlocked: vi.fn(() => false),
+        enqueueTabTransition: vi.fn(async task => task()),
+        captureWorkspacePayload: vi.fn(async () => createPayload()),
+        restoreWorkspacePayload: vi.fn(),
+        moveTabToNewWindow: vi.fn(),
+        moveTabToWindow: vi.fn(),
+        handleCloseTab,
+    });
+}
+
 describe('useAppShellDirectionalTabs', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -320,5 +365,162 @@ describe('useAppShellDirectionalTabs', () => {
 
         expect(enqueueTabTransition).toHaveBeenCalledOnce();
         expect(moveTabToWindow).toHaveBeenCalledWith(42, 'tab-1');
+    });
+
+    it('closes every other tab in the pane while keeping the target tab', async () => {
+        const handleCloseTab = vi.fn(async () => {});
+        const directionalTabs = createCloseHarness({
+            paneId: 'pane-1',
+            activeTabId: 'tab-2',
+            tabIds: [
+                'tab-1',
+                'tab-2',
+                'tab-3',
+            ],
+        }, handleCloseTab);
+
+        await directionalTabs.handleTabContextCommand('pane-1', 'tab-2', { kind: 'close-others' });
+
+        expect(handleCloseTab).toHaveBeenCalledTimes(2);
+        expect(handleCloseTab).toHaveBeenNthCalledWith(1, 'pane-1', 'tab-1');
+        expect(handleCloseTab).toHaveBeenNthCalledWith(2, 'pane-1', 'tab-3');
+        expect(handleCloseTab).not.toHaveBeenCalledWith('pane-1', 'tab-2');
+    });
+
+    it('closes only the tabs to the right of the target tab', async () => {
+        const handleCloseTab = vi.fn(async () => {});
+        const directionalTabs = createCloseHarness({
+            paneId: 'pane-1',
+            activeTabId: 'tab-1',
+            tabIds: [
+                'tab-1',
+                'tab-2',
+                'tab-3',
+            ],
+        }, handleCloseTab);
+
+        await directionalTabs.handleTabContextCommand('pane-1', 'tab-1', { kind: 'close-right' });
+
+        expect(handleCloseTab).toHaveBeenCalledTimes(2);
+        expect(handleCloseTab).toHaveBeenNthCalledWith(1, 'pane-1', 'tab-2');
+        expect(handleCloseTab).toHaveBeenNthCalledWith(2, 'pane-1', 'tab-3');
+    });
+
+    it('keeps new-tab creation available even while a tab transition is in flight', () => {
+        const pane = {
+            paneId: 'pane-1',
+            activeTabId: 'tab-1',
+            tabIds: ['tab-1'],
+        };
+        const handleCloseTab = vi.fn(async () => {});
+        const isTabTransitionBusy = ref(true);
+        const directionalTabs = useAppShellDirectionalTabs({
+            activePaneId: ref('pane-1'),
+            panes: ref([pane]),
+            tabs: ref([]),
+            workspaceRefs: ref(new Map()),
+            isTabTransitionBusy: computed(() => isTabTransitionBusy.value),
+            getPaneById: vi.fn((paneId: string | null | undefined) => paneId === pane.paneId ? pane : null),
+            getTabById: vi.fn(() => null),
+            findDirectionalPane: vi.fn(() => null),
+            focusPane: vi.fn(),
+            splitPane: vi.fn(),
+            moveTabToPane: vi.fn(),
+            createTab: vi.fn(),
+            activatePane: vi.fn(),
+            activateTab: vi.fn(),
+            removeTabFromState: vi.fn(),
+            cleanupEmptyPanes: vi.fn(),
+            workspaceSplitCache: {
+                clear: vi.fn(),
+                consume: vi.fn(),
+                has: vi.fn(),
+                peek: vi.fn(),
+                set: vi.fn(() => 'cache-entry'),
+            },
+            isSingletonPlaceholderCloseBlocked: vi.fn(() => false),
+            enqueueTabTransition: vi.fn(async task => task()),
+            captureWorkspacePayload: vi.fn(async () => createPayload()),
+            restoreWorkspacePayload: vi.fn(),
+            moveTabToNewWindow: vi.fn(),
+            moveTabToWindow: vi.fn(),
+            handleCloseTab,
+        });
+
+        expect(directionalTabs.tabContextAvailabilityByPane.value['pane-1']?.canCreate).toBe(true);
+
+        isTabTransitionBusy.value = false;
+
+        expect(directionalTabs.tabContextAvailabilityByPane.value['pane-1']?.canCreate).toBe(true);
+    });
+
+    it('switches the source pane to its remaining tab before capturing the moved payload', async () => {
+        const sourcePane = {
+            paneId: 'pane-1',
+            activeTabId: 'tab-1',
+            tabIds: [
+                'tab-1',
+                'tab-2',
+            ],
+        };
+        const targetPane = {
+            paneId: 'pane-2',
+            activeTabId: 'tab-3',
+            tabIds: ['tab-3'],
+        };
+        const activateTab = vi.fn();
+        const moveTabToPane = vi.fn(() => true);
+        const activationsBeforeCapture: string[] = [];
+        const captureWorkspacePayload = vi.fn(async () => {
+            for (const call of activateTab.mock.calls) {
+                activationsBeforeCapture.push(`${call[0]}:${call[1]}`);
+            }
+            return createPayload();
+        });
+
+        const directionalTabs = useAppShellDirectionalTabs({
+            activePaneId: ref('pane-1'),
+            panes: ref([
+                sourcePane,
+                targetPane,
+            ]),
+            tabs: ref([]),
+            workspaceRefs: ref(new Map()),
+            isTabTransitionBusy: computed(() => false),
+            getPaneById: vi.fn((paneId: string | null | undefined) => [
+                sourcePane,
+                targetPane,
+            ].find(pane => pane.paneId === paneId) ?? null),
+            getTabById: vi.fn(() => null),
+            findDirectionalPane: vi.fn((_paneId: string, direction: string) => direction === 'right' ? targetPane : null),
+            focusPane: vi.fn(),
+            splitPane: vi.fn(),
+            moveTabToPane,
+            createTab: vi.fn(),
+            activatePane: vi.fn(),
+            activateTab,
+            removeTabFromState: vi.fn(),
+            cleanupEmptyPanes: vi.fn(),
+            workspaceSplitCache: {
+                clear: vi.fn(),
+                consume: vi.fn(),
+                has: vi.fn(),
+                peek: vi.fn(),
+                set: vi.fn(() => 'cache-entry'),
+            },
+            isSingletonPlaceholderCloseBlocked: vi.fn(() => false),
+            enqueueTabTransition: vi.fn(async task => task()),
+            captureWorkspacePayload,
+            restoreWorkspacePayload: vi.fn(),
+            moveTabToNewWindow: vi.fn(),
+            moveTabToWindow: vi.fn(),
+            handleCloseTab: vi.fn(),
+        });
+
+        await directionalTabs.moveActiveTab('right');
+
+        expect(activationsBeforeCapture).toContain('pane-1:tab-2');
+        expect(moveTabToPane).toHaveBeenCalledWith('tab-1', 'pane-2', true);
+        expect(activateTab).toHaveBeenCalledWith('pane-2', 'tab-1');
     });
 });

@@ -18,7 +18,11 @@ import type {
     TTabContextCommand,
 } from '@app/types/tabContextMenu';
 import { hasElectronAPI } from '@app/utils/platform';
-import { getDocumentWorkingCopyCapability } from '@app/utils/platformDocuments';
+import { isBrowserDocumentRef } from '@app/utils/documentRef';
+import {
+    getDocumentWindowCapability,
+    getDocumentWorkingCopyCapability,
+} from '@app/utils/platformDocuments';
 import type { IWorkspaceSplitCacheLike } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 
 const TAB_TRANSITION_CACHE_GRACE_MS = 1200;
@@ -160,7 +164,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             move,
             copy,
             canClose: hasActiveTab && !transitionsBusy && !closeBlocked,
-            canCreate: !transitionsBusy,
+            canCreate: true,
             canMoveToNewWindow: canTransferTabsAcrossWindows.value && tabs.value.length > 1 && !transitionsBusy,
             canMoveToWindow: canTransferTabsAcrossWindows.value && !transitionsBusy,
         };
@@ -358,6 +362,16 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                 return;
             }
 
+            const remainingSourceTabIds = sourcePane.tabIds.filter(id => id !== sourceTabId);
+            const sourceTabIndex = sourcePane.tabIds.indexOf(sourceTabId);
+            const sourceReplacementTabId = remainingSourceTabIds[sourceTabIndex]
+                ?? remainingSourceTabIds[sourceTabIndex - 1]
+                ?? null;
+            if (sourceReplacementTabId) {
+                activateTab(sourcePane.paneId, sourceReplacementTabId);
+                await nextTick();
+            }
+
             const payload = await captureWorkspacePayload(sourceTabId);
             if (!payload) {
                 return;
@@ -417,6 +431,63 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         });
     }
 
+    async function closeOtherTabs(paneId: string, tabId: string) {
+        const pane = getPaneById(paneId);
+        if (!pane) {
+            return;
+        }
+        const targetIds = pane.tabIds.filter(id => id !== tabId);
+        for (const id of targetIds) {
+            await handleCloseTab(paneId, id);
+        }
+    }
+
+    async function closeTabsToRight(paneId: string, tabId: string) {
+        const pane = getPaneById(paneId);
+        if (!pane) {
+            return;
+        }
+        const index = pane.tabIds.indexOf(tabId);
+        if (index < 0) {
+            return;
+        }
+        const targetIds = pane.tabIds.slice(index + 1);
+        for (const id of targetIds) {
+            await handleCloseTab(paneId, id);
+        }
+    }
+
+    function getTabFilePath(tabId: string) {
+        const path = getTabById(tabId)?.originalPath ?? null;
+        return typeof path === 'string' && path.trim().length > 0 && !isBrowserDocumentRef(path)
+            ? path
+            : null;
+    }
+
+    async function revealTabInFolder(tabId: string) {
+        const path = getTabFilePath(tabId);
+        if (!path) {
+            return;
+        }
+        try {
+            await getDocumentWindowCapability().showItemInFolder(path);
+        } catch {
+            // Best-effort; revealing in the file manager can fail if the file moved.
+        }
+    }
+
+    async function copyTabPath(tabId: string) {
+        const path = getTabFilePath(tabId);
+        if (!path) {
+            return;
+        }
+        try {
+            await globalThis.navigator?.clipboard?.writeText(path);
+        } catch {
+            // Best-effort; clipboard access can be denied.
+        }
+    }
+
     function isDirectionalContextCommand(command: TTabContextCommand): command is TDirectionalTabContextCommand {
         return 'direction' in command;
     }
@@ -439,6 +510,10 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                 return Promise.resolve();
             },
             'close-tab': () => handleCloseTab(paneId, tabId),
+            'close-others': () => closeOtherTabs(paneId, tabId),
+            'close-right': () => closeTabsToRight(paneId, tabId),
+            'reveal-in-folder': () => revealTabInFolder(tabId),
+            'copy-path': () => copyTabPath(tabId),
             'move-to-new-window': () => enqueueTabTransition(() => moveTabToNewWindow(tabId)),
         } satisfies Record<TStaticTabContextCommandWithoutTargetWindow['kind'], () => Promise<void>>;
 

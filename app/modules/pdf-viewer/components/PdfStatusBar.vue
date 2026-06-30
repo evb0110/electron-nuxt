@@ -15,7 +15,7 @@
             </AppTooltip>
             <AppTooltip :text="filePath" :delay-duration="800">
                 <div class="status-bar-path">
-                    {{ filePath }}
+                    {{ fileName }}
                 </div>
             </AppTooltip>
         </div>
@@ -40,6 +40,7 @@
 
 <script setup lang="ts">
 defineProps<{
+    fileName: string;
     filePath: string;
     fileSizeLabel: string;
     zoomLabel: string;
