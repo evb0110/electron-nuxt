@@ -88,8 +88,9 @@ function onSave() {
 }
 
 .status-bar-path {
-    flex: 1;
+    flex: 0 1 auto;
     min-width: 0;
+    max-width: var(--app-statusbar-path-max-width);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

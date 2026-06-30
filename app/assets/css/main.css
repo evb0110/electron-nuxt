@@ -85,6 +85,7 @@
     --app-statusbar-padding: 0.3rem 0.75rem;
     --app-statusbar-font-size: 0.74rem;
     --app-statusbar-file-gap: 0.45rem;
+    --app-statusbar-path-max-width: 32rem;
     --app-statusbar-metrics-gap: 0.875rem;
     --app-statusbar-divider-offset: -0.5rem;
     --app-statusbar-divider-height: 0.76rem;

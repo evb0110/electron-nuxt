@@ -44,6 +44,29 @@ describe('resolveAppWindowTitle', () => {
             isBrowserRuntime: true,
         })).toBe('notes.pdf - EVB Viewer Web');
     });
+
+    it('caps an overly long document name in the desktop window title', () => {
+        const result = resolveAppWindowTitle({
+            appTitle: 'EVB Viewer',
+            webTitle: 'EVB Viewer Web',
+            fileName: `${'a'.repeat(120)}.pdf`,
+            isBrowserRuntime: false,
+        });
+
+        expect(result.length).toBe(60);
+        expect(result.endsWith('…')).toBe(true);
+    });
+
+    it('caps the document name before composing the browser window title', () => {
+        const result = resolveAppWindowTitle({
+            appTitle: 'EVB Viewer',
+            webTitle: 'EVB Viewer Web',
+            fileName: `${'a'.repeat(120)}.pdf`,
+            isBrowserRuntime: true,
+        });
+
+        expect(result.endsWith('… - EVB Viewer Web')).toBe(true);
+    });
 });
 
 describe('formatWebTitleTemplate', () => {
