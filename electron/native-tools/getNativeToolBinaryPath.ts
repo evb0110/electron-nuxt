@@ -15,7 +15,7 @@ interface IFindNativeToolOnSystemPathOptions {
     platform?: NodeJS.Platform;
 }
 
-export function getNativeToolExecutableName(
+function getNativeToolExecutableName(
     name: string,
     platform: NodeJS.Platform = process.platform,
 ) {
@@ -23,7 +23,7 @@ export function getNativeToolExecutableName(
     return `${name}${ext}`;
 }
 
-export function findNativeToolOnSystemPath(
+function findNativeToolOnSystemPath(
     name: string,
     options: IFindNativeToolOnSystemPathOptions = {},
 ) {

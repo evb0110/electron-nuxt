@@ -55,7 +55,7 @@ export interface IFileOperationsSaveExecutionConfig {
     forceRewrite?: boolean;
 }
 
-export interface IFileOperationsOptimizeCopyExecutionConfig {
+interface IFileOperationsOptimizeCopyExecutionConfig {
     expectedWorkingPath: TDocumentRef | null;
     options: IPdfOptimizeOptions;
     requestId?: string | undefined;

@@ -517,27 +517,15 @@ describe('dependency graph', () => {
         }]);
 
         expect(checkArchitectureBoundaryEdge({
-            source: 'electron/native-tools/getNativeToolPaths.ts',
+            source: 'electron/native-tools/getNativeToolBinaryPath.ts',
             target: 'electron/pdf/nativeToolPaths.ts',
             specifier: '@electron/pdf/nativeToolPaths',
         })).toEqual([{
             rule: 'native-tools-domain-import',
-            source: 'electron/native-tools/getNativeToolPaths.ts',
+            source: 'electron/native-tools/getNativeToolBinaryPath.ts',
             target: 'electron/pdf/nativeToolPaths.ts',
             specifier: '@electron/pdf/nativeToolPaths',
             message: 'Generic native-tool code must not import OCR, PDF, or DjVu domain modules.',
-        }]);
-
-        expect(checkArchitectureBoundaryEdge({
-            source: 'electron/search/extractTextFromPdf.ts',
-            target: 'electron/native-tools/getNativeToolPaths.ts',
-            specifier: '@electron/native-tools/getNativeToolPaths',
-        })).toEqual([{
-            rule: 'native-tool-compat-aggregate-import',
-            source: 'electron/search/extractTextFromPdf.ts',
-            target: 'electron/native-tools/getNativeToolPaths.ts',
-            specifier: '@electron/native-tools/getNativeToolPaths',
-            message: 'Electron runtime code must import domain-owned native-tool path boundaries instead of the broad compatibility aggregate.',
         }]);
 
         expect(checkArchitectureBoundaryEdge({
@@ -563,12 +551,6 @@ describe('dependency graph', () => {
             target: 'electron/image/imageDpi.ts',
             specifier: '@electron/image/imageDpi',
         })).toEqual([]);
-
-        expect(checkArchitectureBoundaryEdge({
-            source: 'tests/unit/electron/nativeToolPathResolution.test.ts',
-            target: 'electron/native-tools/getNativeToolPaths.ts',
-            specifier: '@electron/native-tools/getNativeToolPaths',
-        })).toEqual([]);
     });
 
     it('keeps current Electron native-tool ownership imports clean', async () => {
@@ -578,7 +560,6 @@ describe('dependency graph', () => {
         });
         const nativeToolOwnershipRules = new Set([
             'native-tools-domain-import',
-            'native-tool-compat-aggregate-import',
             'ocr-native-tool-boundary-import',
         ]);
         const violations = graph.edges

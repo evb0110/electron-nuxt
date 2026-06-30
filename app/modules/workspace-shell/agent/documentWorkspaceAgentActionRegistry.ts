@@ -1,6 +1,6 @@
 export type TAgentActionHandlerRunResult = object | Promise<object>;
 
-export interface IAgentActionHandler {
+interface IAgentActionHandler {
     parse: (input: Record<string, unknown>, actionId: string) => unknown;
     run: (parsedInput: unknown, actionId: string) => TAgentActionHandlerRunResult;
 }

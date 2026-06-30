@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { resolvePdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { getNativeToolBinaryPath } from '@electron/native-tools/nativeToolBinaryPath';
+import { getNativeToolBinaryPath } from '@electron/native-tools/getNativeToolBinaryPath';
 import {
     getNativeResourcesBaseCandidates,
     resolveNativeResourcesBase,

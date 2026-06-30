@@ -219,13 +219,11 @@ const ELECTRON_LEGACY_FEATURE_REEXPORT_SHIMS = new Map([
     ],
 ]);
 
-const NATIVE_TOOL_COMPATIBILITY_AGGREGATE_FILE = 'electron/native-tools/getNativeToolPaths.ts';
 const NATIVE_TOOL_DOMAIN_ROOTS = [
     'electron/ocr',
     'electron/pdf',
     'electron/djvu',
 ];
-const NATIVE_TOOL_COMPATIBILITY_AGGREGATE_TEST_FILES = new Set(['tests/unit/electron/nativeToolPathResolution.test.ts']);
 const OCR_NATIVE_TOOL_BOUNDARY_TARGETS = new Set(`
 electron/ocr/paths.ts
 electron/ocr/nativeToolPaths.ts
@@ -454,10 +452,6 @@ function checkPdfViewerEngineLayer(edge) {
     });
 }
 
-function isCompatibilityTestSource(filePath) {
-    return NATIVE_TOOL_COMPATIBILITY_AGGREGATE_TEST_FILES.has(filePath);
-}
-
 function isTestSource(filePath) {
     return matchesRoot(filePath, 'tests');
 }
@@ -481,27 +475,6 @@ function checkNativeToolsDomainImport(edge) {
         target: edge.target,
         specifier: edge.specifier,
         message: 'Generic native-tool code must not import OCR, PDF, or DjVu domain modules.',
-    });
-}
-
-function checkNativeToolCompatibilityAggregateImport(edge) {
-    if (edge.target !== NATIVE_TOOL_COMPATIBILITY_AGGREGATE_FILE) {
-        return null;
-    }
-    if (
-        edge.source === NATIVE_TOOL_COMPATIBILITY_AGGREGATE_FILE
-        || isCompatibilityTestSource(edge.source)
-        || !matchesRoot(edge.source, 'electron')
-    ) {
-        return null;
-    }
-
-    return createViolation({
-        rule: 'native-tool-compat-aggregate-import',
-        source: edge.source,
-        target: edge.target,
-        specifier: edge.specifier,
-        message: 'Electron runtime code must import domain-owned native-tool path boundaries instead of the broad compatibility aggregate.',
     });
 }
 
@@ -1032,7 +1005,6 @@ function checkEdge(edge) {
         checkAppPagesModulePublicEntrypoint(edge),
         checkPlatformApiAggregateImport(edge),
         checkNativeToolsDomainImport(edge),
-        checkNativeToolCompatibilityAggregateImport(edge),
         checkOcrNativeToolBoundaryImport(edge),
         checkElectronFeatureMainPrivacy(edge),
         checkPdfViewerEngineLayer(edge),

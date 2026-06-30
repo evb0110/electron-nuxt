@@ -52,8 +52,9 @@ function normalizeRecentFilesCollection(value: unknown) {
 
     const recentFiles: IRecentFile[] = [];
     const seenPaths = new Set<string>();
+    const values: unknown[] = value;
 
-    for (const candidateValue of value) {
+    for (const candidateValue of values) {
         const candidate = normalizeRecentFile(candidateValue) ?? normalizeRecentFileTuple(candidateValue);
         if (!candidate || seenPaths.has(candidate.originalPath)) {
             continue;

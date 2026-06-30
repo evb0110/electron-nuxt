@@ -5,6 +5,7 @@
   "dependencies": {
     "es-toolkit": "^1.47.0",
     "pdf-lib": "^1.17.1",
+    "type-fest": "^5.7.0",
     "utif": "^3.1.0"
   },
   "exports": {

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import type { App } from 'electron';
 import * as electron from 'electron';
 import type { IPopplerRuntimePaths } from '@electron/native-tools/buildPopplerEnv';
-import { getNativeToolBinaryPath } from '@electron/native-tools/nativeToolBinaryPath';
+import { getNativeToolBinaryPath } from '@electron/native-tools/getNativeToolBinaryPath';
 import { resolveNativeToolsBase } from '@electron/native-tools/resolveNativeToolsBase';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 

@@ -10,7 +10,7 @@ export interface IPdfPageDropdownIndicatorOptions {
     totalPages: number;
 }
 
-export function normalizePdfPageDropdownPage(page: number, totalPages: number) {
+function normalizePdfPageDropdownPage(page: number, totalPages: number) {
     const maxPage = Number.isFinite(totalPages)
         ? Math.max(Math.trunc(totalPages), 1)
         : 1;

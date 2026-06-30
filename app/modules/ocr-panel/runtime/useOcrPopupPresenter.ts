@@ -27,7 +27,7 @@ import {
     resolveQualityProfileSettings,
 } from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
 
-export type TOcrViewState = 'configure' | 'running' | 'results' | 'error';
+type TOcrViewState = 'configure' | 'running' | 'results' | 'error';
 
 export interface IOcrPopupCompletePayload extends IOcrSearchablePdfResult {
     sourceWorkingCopyPath: TDocumentRef;

@@ -10,19 +10,19 @@ import type {
 
 export const OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE = '__automatic_page_segmentation__';
 
-export function isOcrPageRange(value: unknown): value is TOcrPageRange {
+function isOcrPageRange(value: unknown): value is TOcrPageRange {
     return value === 'all' || value === 'current' || value === 'custom';
 }
 
-export function isOcrQualityProfile(value: unknown): value is TOcrQualityProfile {
+function isOcrQualityProfile(value: unknown): value is TOcrQualityProfile {
     return value === 'balanced' || value === 'accurate' || value === 'poor-scan';
 }
 
-export function isOcrPreprocessingMode(value: unknown): value is TOcrPreprocessingMode {
+function isOcrPreprocessingMode(value: unknown): value is TOcrPreprocessingMode {
     return value === 'off' || value === 'clean';
 }
 
-export function isOcrPageSegmentationMode(value: unknown): value is number {
+function isOcrPageSegmentationMode(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 13;
 }
 
@@ -30,7 +30,7 @@ export function normalizeSelectedOcrLanguages(selectedLanguages: string[]) {
     return Array.from(new Set(selectedLanguages));
 }
 
-export function normalizeAgentLanguages(
+function normalizeAgentLanguages(
     value: unknown,
     availableLanguageCodes: ReadonlySet<string>,
 ) {

@@ -61,6 +61,25 @@ function workflowJob(workflow: string, jobName: string) {
         : workflow.slice(start, start + 1 + nextJob);
 }
 
+const splitValidateCommands = [
+    'pnpm run lint',
+    'pnpm run typecheck',
+    'pnpm run typecheck:coverage',
+    'pnpm run build:strict',
+    'pnpm run fallow',
+    'pnpm run fallow:dupes',
+    'pnpm run check:architecture:dep-graph',
+    'pnpm run check:architecture:boundaries',
+    'pnpm run check:architecture:source-size',
+];
+
+function expectSplitValidateSteps(job: string) {
+    expect(job).not.toContain('run: pnpm run validate');
+    for (const command of splitValidateCommands) {
+        expect(job).toContain(`run: ${command}`);
+    }
+}
+
 async function collectTestFiles(directory: string): Promise<string[]> {
     const entries = await readdir(directory, { withFileTypes: true });
     const nestedFiles: string[][] = await Promise.all(entries.map(async (entry) => {
@@ -92,7 +111,7 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'manual_quality')).toContain('if: ${{ github.event_name == \'workflow_dispatch\' }}');
         expect(workflowJob(workflow, 'manual_quality')).toContain('run: rustup target add wasm32-unknown-unknown');
         expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm run check:wasm:portable');
-        expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm run validate');
+        expectSplitValidateSteps(workflowJob(workflow, 'manual_quality'));
         expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm run test:coverage');
         expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm run test:release');
         expect(releaseWorkflow).not.toContain('test:coverage');
@@ -175,7 +194,7 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('github.event_name == \'schedule\'');
         expect(workflow).toContain('name: Nightly Maintenance Gates');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: rustup target add wasm32-unknown-unknown');
-        expect(workflow).toContain('run: pnpm run validate');
+        expectSplitValidateSteps(workflowJob(workflow, 'nightly_maintenance'));
         expect(workflow).toContain('run: pnpm run test:rust');
         expect(workflow).toContain('run: pnpm run test:coverage');
         expect(workflow).toContain('run: pnpm run check:ocr-language-model-registry');
@@ -204,10 +223,14 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('EVB_E2E_REQUIRE_DJVU_FIXTURE: \'1\'');
         expect(workflow).toContain('run: pnpm run test:e2e:electron');
         expect(workflow).toContain('name: Nightly Electron E2E Rapid Navigation');
+        expect(workflowJob(workflow, 'nightly_electron_e2e')).toContain('run: pnpm run check:electron:install');
+        expect(workflowJob(workflow, 'nightly_electron_e2e_rapid_navigation')).toContain('run: pnpm run check:electron:install');
         expect(workflow).toMatch(/nightly_electron_e2e_rapid_navigation:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run test:e2e:electron:rapid-navigation/u);
         expect(workflow).toContain('name: Nightly Electron E2E Quarantine');
+        expect(workflowJob(workflow, 'nightly_electron_e2e_quarantine')).toContain('run: pnpm run check:electron:install');
         expect(workflow).toContain('run: pnpm run test:e2e:electron:quarantine');
         expect(workflow).toContain('name: Nightly PDF Tab Diagnostics');
+        expect(workflowJob(workflow, 'nightly_pdf_tabs_diagnostics')).toContain('run: pnpm run check:electron:install');
         expect(workflow).toMatch(/nightly_pdf_tabs_diagnostics:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run diag:pdf-tabs:ci/u);
         expect(workflow).toContain('run: pnpm run diag:pdf-tabs:ci');
         expect(packageJson).toContain('"test:e2e:electron:smoke:no-build": "vitest run --project e2e-smoke --reporter verbose"');

@@ -413,6 +413,7 @@ import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout
 import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout/WorkspaceToolbarHost.vue';
 import WorkspaceViewerHost from '@app/modules/workspace-shell/components/layout/WorkspaceViewerHost.vue';
 import { useDocumentWorkspaceSplitRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore';
+import { useDocumentWorkspaceOptimizeDialog } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceOptimizeDialog';
 import { useDocumentWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceToolbar';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import {
@@ -425,11 +426,7 @@ import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composa
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    IPdfOptimizeOptions,
-    IPdfOptimizeProgress,
-    TOpenFileResult,
-} from '@contracts/electronApiDocuments';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TStartSection } from '@app/types/startSection';
 import type { IPdfPageMatches } from '@app/types/pdf';
@@ -880,72 +877,25 @@ const canRepairSave = computed(() => (
     && !isDjvuMode.value
 ));
 const canOptimizePdf = computed(() => canRepairSave.value);
-const optimizeDialogOpen = ref(false);
-const optimizeProgress = ref<IPdfOptimizeProgress | null>(null);
-const optimizeDialogError = ref<string | null>(null);
-const optimizeRequestId = ref<string | null>(null);
-const isOptimizeDialogRunning = computed(() => optimizeRequestId.value !== null);
-
-function createOptimizeRequestId() {
-    const randomId = globalThis.crypto?.randomUUID?.();
-    return randomId
-        ? `pdf-optimize-${randomId}`
-        : `pdf-optimize-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function openOptimizePdfForInteractionDialog() {
-    if (!canOptimizePdf.value) {
-        return false;
-    }
-
-    optimizeDialogError.value = null;
-    optimizeProgress.value = null;
-    optimizeDialogOpen.value = true;
-    return true;
-}
-
-function handleOptimizeDialogOpenChange(value: boolean) {
-    if (!value && isOptimizeDialogRunning.value) {
-        return;
-    }
-
-    optimizeDialogOpen.value = value;
-    if (value) {
-        optimizeDialogError.value = null;
-        optimizeProgress.value = null;
-    }
-}
-
-async function handleOptimizeDialogSubmit(options: IPdfOptimizeOptions) {
-    if (isOptimizeDialogRunning.value) {
-        return;
-    }
-
-    const requestId = createOptimizeRequestId();
-    optimizeRequestId.value = requestId;
-    optimizeDialogError.value = null;
-    optimizeProgress.value = {
-        requestId,
-        preset: options.preset,
-        phase: 'preparing',
-        processed: 0,
-        total: 1,
-        percent: 0,
-    };
-
-    const success = await handleOptimizePdfAsCopy(options, requestId);
-    if (success) {
-        optimizeDialogOpen.value = false;
+const {
+    handleOptimizeDialogOpenChange,
+    handleOptimizeDialogSubmit,
+    handleOptimizeProgress,
+    isOptimizeDialogRunning,
+    openOptimizePdfForInteractionDialog,
+    optimizeDialogError,
+    optimizeDialogOpen,
+    optimizeProgress,
+} = useDocumentWorkspaceOptimizeDialog({
+    canOptimizePdf,
+    handleOptimizePdfAsCopy,
+    onOptimizeSuccess: () => {
         toast.add({
             color: 'success',
             title: t('optimizePdf.successTitle'),
         });
-    } else {
-        optimizeProgress.value = null;
-    }
-
-    optimizeRequestId.value = null;
-}
+    },
+});
 const documentMetadataAvailable = computed(() => (
     toolbarHasPdf.value
     && totalPages.value > 0
@@ -1534,11 +1484,7 @@ let unsubscribeOptimizeProgress: (() => void) | null = null;
 
 onMounted(() => {
     unsubscribeOptimizeProgress = getDocumentMenuCapability().onPdfOptimizeProgress?.((progress) => {
-        if (progress.requestId !== optimizeRequestId.value) {
-            return;
-        }
-
-        optimizeProgress.value = progress;
+        handleOptimizeProgress(progress);
     }) ?? null;
     emit('expose-ready', workspaceExpose);
 });

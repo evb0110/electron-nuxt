@@ -46,8 +46,32 @@ jobs:
       - name: WASM portable build
         run: pnpm run check:wasm:portable
 
-      - name: Validate
-        run: pnpm run validate
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Type coverage
+        run: pnpm run typecheck:coverage
+
+      - name: Strict build
+        run: pnpm run build:strict
+
+      - name: Fallow dead code
+        run: pnpm run fallow
+
+      - name: Fallow duplicates
+        run: pnpm run fallow:dupes
+
+      - name: Architecture dependency graph
+        run: pnpm run check:architecture:dep-graph
+
+      - name: Architecture boundaries
+        run: pnpm run check:architecture:boundaries
+
+      - name: Architecture source size
+        run: pnpm run check:architecture:source-size
 
       - name: Unit and integration tests
         run: pnpm run test:release
@@ -142,8 +166,32 @@ jobs:
       - name: Install page processor smoke dependencies
         run: python -m pip install 'numpy>=2.0.0' 'opencv-python-headless>=4.10.0' 'img2pdf>=0.6.3' 'Pillow>=10.0.0'
 
-      - name: Validate
-        run: pnpm run validate
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Type coverage
+        run: pnpm run typecheck:coverage
+
+      - name: Strict build
+        run: pnpm run build:strict
+
+      - name: Fallow dead code
+        run: pnpm run fallow
+
+      - name: Fallow duplicates
+        run: pnpm run fallow:dupes
+
+      - name: Architecture dependency graph
+        run: pnpm run check:architecture:dep-graph
+
+      - name: Architecture boundaries
+        run: pnpm run check:architecture:boundaries
+
+      - name: Architecture source size
+        run: pnpm run check:architecture:source-size
 
       - name: Rust tests
         run: pnpm run test:rust
@@ -180,6 +228,9 @@ jobs:
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
+      - name: Verify Electron install
+        run: pnpm run check:electron:install
+
       - name: Electron E2E smoke
         env:
           EVB_E2E_REQUIRE_DJVU_FIXTURE: '1'
@@ -208,6 +259,9 @@ jobs:
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
+      - name: Verify Electron install
+        run: pnpm run check:electron:install
+
       - name: Electron E2E rapid navigation
         run: pnpm run test:e2e:electron:rapid-navigation
 
@@ -234,6 +288,9 @@ jobs:
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
+      - name: Verify Electron install
+        run: pnpm run check:electron:install
+
       - name: Electron E2E quarantine
         run: pnpm run test:e2e:electron:quarantine
 
@@ -259,6 +316,9 @@ jobs:
 
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Verify Electron install
+        run: pnpm run check:electron:install
 
       - name: PDF tab diagnostics
         run: pnpm run diag:pdf-tabs:ci
