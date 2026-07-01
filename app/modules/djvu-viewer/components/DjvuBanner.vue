@@ -19,23 +19,29 @@
         <span class="djvu-banner-text">
             {{ bannerText }}
         </span>
-        <UButton
-            v-if="!isBusy"
-            :label="t('djvu.convertToPdf')"
-            variant="soft"
-            color="primary"
-            size="xs"
-            @click="convert"
-        />
-        <UButton
-            v-if="!isBusy"
-            icon="i-ph-x"
-            variant="ghost"
-            color="neutral"
-            size="xs"
-            class="djvu-banner-close"
-            @click="dismiss"
-        />
+        <div
+            class="djvu-banner-actions"
+            :class="{'djvu-banner-actions--reserved': isBusy}"
+            :aria-hidden="isBusy ? 'true' : undefined"
+        >
+            <UButton
+                :label="t('djvu.convertToPdf')"
+                variant="soft"
+                color="primary"
+                size="xs"
+                :tabindex="isBusy ? -1 : undefined"
+                @click="convert"
+            />
+            <UButton
+                icon="i-ph-x"
+                variant="ghost"
+                color="neutral"
+                size="xs"
+                class="djvu-banner-close"
+                :tabindex="isBusy ? -1 : undefined"
+                @click="dismiss"
+            />
+        </div>
     </div>
 </template>
 
@@ -110,8 +116,24 @@ function dismiss() {
 
 .djvu-banner-text {
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
     color: var(--ui-text-muted);
     font-variant-numeric: tabular-nums;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.djvu-banner-actions {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--app-space-sm);
+}
+
+.djvu-banner-actions--reserved {
+    pointer-events: none;
+    visibility: hidden;
 }
 
 .djvu-banner-close {

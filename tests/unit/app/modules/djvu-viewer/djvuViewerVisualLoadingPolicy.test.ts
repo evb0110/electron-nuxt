@@ -45,7 +45,10 @@ describe('DjVu viewer visual loading policy', () => {
         expect(bannerSource).toContain('isOpening?: boolean');
         expect(bannerSource).toContain('return t(\'djvu.opening\')');
         expect(bannerSource).toContain('isLoadingPages && !hasPageProgress.value');
-        expect(bannerSource).toContain('v-if="!isBusy"');
+        expect(bannerSource).toContain('djvu-banner-actions--reserved');
+        expect(bannerSource).toContain(':aria-hidden="isBusy ? \'true\' : undefined"');
+        expect(bannerSource).toContain(':tabindex="isBusy ? -1 : undefined"');
+        expect(bannerSource).toContain('white-space: nowrap');
         expect(bannerSource).toContain(':aria-busy="isBusy ? \'true\' : undefined"');
     });
 });
