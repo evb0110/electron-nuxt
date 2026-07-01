@@ -430,4 +430,25 @@ describe('useDjvu', () => {
             expect(djvu.viewingError.value).toBe('Background conversion failed');
         });
     });
+
+    describe('openConvertDialog', () => {
+        it('does not open the convert dialog outside DjVu mode', () => {
+            const djvu = useDjvu();
+
+            expect(mockDjvuModeState.isDjvuMode.value).toBe(false);
+
+            djvu.openConvertDialog();
+
+            expect(djvu.showConvertDialog.value).toBe(false);
+        });
+
+        it('opens the convert dialog while in DjVu mode', () => {
+            mockDjvuModeState.isDjvuMode.value = true;
+            const djvu = useDjvu();
+
+            djvu.openConvertDialog();
+
+            expect(djvu.showConvertDialog.value).toBe(true);
+        });
+    });
 });

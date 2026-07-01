@@ -5,6 +5,10 @@
         aria-live="polite"
         :aria-label="t('common.loading')"
     >
+        <DjvuBanner
+            v-if="isPendingDjvuPath"
+            visible
+        />
         <WorkspaceDocumentTransitionSkeleton />
     </div>
 
@@ -31,11 +35,16 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPdfSource } from '@app/types/pdf';
 import { PdfStatusBar } from '@app/modules/pdf-viewer/public/component-exports/pdfStatusBar';
+import { DjvuBanner } from '@app/modules/djvu-viewer/public/component-exports/djvuBanner';
 import { usePageStatusBar } from '@app/modules/workspace-shell/composables/usePageStatusBar';
 import WorkspaceDocumentTransitionSkeleton from '@app/modules/workspace-shell/components/WorkspaceDocumentTransitionSkeleton.vue';
+import { getDocumentKindFromPath } from '@app/utils/supportedDocumentPaths';
 
 const props = defineProps<{path: TDocumentRef | null;}>();
 const { t } = useTypedI18n();
+const isPendingDjvuPath = computed(() => (
+    props.path !== null && getDocumentKindFromPath(props.path) === 'djvu'
+));
 const canTeleportStatus = ref(false);
 const statusPath = computed(() => props.path);
 const statusHasDocument = ref(false);
@@ -94,6 +103,7 @@ onMounted(() => {
     inset: 0;
     z-index: 20;
     display: flex;
+    flex-direction: column;
     width: 100%;
     height: 100%;
     min-width: 0;

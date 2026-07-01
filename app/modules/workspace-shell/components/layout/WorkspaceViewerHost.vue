@@ -32,7 +32,7 @@ defineProps<{
 .workspace-viewer-host__transition-overlay {
     position: absolute;
     inset: 0;
-    z-index: 10;
+    z-index: var(--app-workspace-transition-overlay-z-index);
     pointer-events: auto;
 }
 </style>

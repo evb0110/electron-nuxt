@@ -81,6 +81,7 @@
             :pdf-error="pdfError"
             :can-use-djvu="canUseDjvu"
             :is-djvu-mode="isDjvuMode"
+            :djvu-pending-open="pendingDjvuDocumentOpen"
             :djvu-error="djvuError"
             :djvu-show-banner="djvuShowBanner"
             :djvu-is-loading-pages="djvuIsLoadingPages"
@@ -470,6 +471,7 @@ import {
 } from '@app/utils/platformDocuments';
 import { formatEtaDuration } from '@app/utils/progressFormatting';
 import { getErrorMessage } from '@app/utils/error';
+import { getDocumentKindFromPath } from '@app/utils/supportedDocumentPaths';
 import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
 import type { IRecentFile } from '@contracts/shared';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
@@ -571,6 +573,11 @@ const navigationFeedbackPage = ref<number | null>(null);
 const pendingDocumentOpen = computed(() => pendingDocumentOpenProp === true);
 const pendingDocumentStatusPath = computed<TDocumentRef | null>(() => (
     pendingDocumentOpen.value ? pendingDocumentPath : null
+));
+const pendingDjvuDocumentOpen = computed(() => (
+    pendingDocumentOpen.value
+    && typeof pendingDocumentPath === 'string'
+    && getDocumentKindFromPath(pendingDocumentPath) === 'djvu'
 ));
 const isActiveRef = computed({
     get: () => isActive,

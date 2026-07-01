@@ -422,6 +422,8 @@
     --app-pdf-annotation-style-popover-z-index: 1400;
     --app-pdf-annotation-style-popover-width: 18rem;
     --app-pdf-context-menu-z-index: 70;
+    --app-pdf-initial-surface-z-index: 50;
+    --app-workspace-transition-overlay-z-index: 60;
     --app-pdf-zoom-menu-width: 22rem;
     --app-pdf-note-window-z-index: 55;
     --app-pdf-note-window-viewport-gutter: 18px;

@@ -58,8 +58,43 @@ describe('DocumentWorkspace native initial visual contract', () => {
         expect(viewerHostSource).toContain('<template v-if="hasDocument">');
         expect(viewerHostSource).toContain('v-if="showTransitionOverlay"');
         expect(viewerHostSource).toContain('workspace-viewer-host__transition-overlay');
+        expect(viewerHostSource).toContain('z-index: var(--app-workspace-transition-overlay-z-index)');
+        expect(viewerHostSource).not.toContain('z-index: 10');
         expect(transitionSkeletonSource).toContain('PdfPageSkeleton');
         expect(transitionSkeletonSource).not.toContain('PdfInitialSurfacePlaceholder');
+    });
+
+    it('reserves the DjVu banner row for the whole pending DjVu open window', async () => {
+        const [
+            workspaceSource,
+            alertsSource,
+            fallbackSource,
+        ] = await Promise.all([
+            readFile(
+                join(process.cwd(), 'app/modules/workspace-shell/components/DocumentWorkspace.vue'),
+                'utf8',
+            ),
+            readFile(
+                join(process.cwd(), 'app/modules/workspace-shell/components/WorkspaceDocumentAlerts.vue'),
+                'utf8',
+            ),
+            readFile(
+                join(process.cwd(), 'app/modules/workspace-shell/components/WorkspaceHostDocumentOpenFallback.vue'),
+                'utf8',
+            ),
+        ]);
+
+        expect(workspaceSource).toContain('pendingDjvuDocumentOpen');
+        expect(workspaceSource).toContain(':djvu-pending-open="pendingDjvuDocumentOpen"');
+        expect(workspaceSource).toContain('getDocumentKindFromPath');
+        expect(alertsSource).toContain('isDjvuMode || djvuPendingOpen');
+        expect(alertsSource).toContain('djvuShowBanner || djvuPendingOpen');
+        expect(alertsSource).not.toContain('defineAsyncComponent');
+        expect(alertsSource).toContain('from \'@app/modules/djvu-viewer/public/component-exports/djvuBanner\'');
+        expect(fallbackSource).toContain('DjvuBanner');
+        expect(fallbackSource).toContain('isPendingDjvuPath');
+        expect(fallbackSource).toContain('getDocumentKindFromPath');
+        expect(fallbackSource).toContain('flex-direction: column');
     });
 
     it('keeps the deferred workspace host from painting a detached opening surface', async () => {

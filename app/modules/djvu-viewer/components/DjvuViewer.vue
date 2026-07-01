@@ -18,8 +18,6 @@
         <PdfInitialSurfacePlaceholder
             v-if="showInitialSurfacePlaceholder"
             class="djvu-viewer-initial-placeholder"
-            :page-width="initialPlaceholderPageSize.width"
-            :page-height="initialPlaceholderPageSize.height"
         />
 
         <div
@@ -69,7 +67,6 @@ import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import { PdfInitialSurfacePlaceholder } from '@app/modules/pdf-viewer/public/component-exports/pdfInitialSurfacePlaceholder';
 import DjvuPageContent from '@app/modules/djvu-viewer/components/DjvuPageContent.vue';
 import { clamp } from 'es-toolkit/math';
-import { useInitialSurfacePlaceholderLayout } from '@app/utils/document-viewer/initial-surface-placeholder/useInitialSurfacePlaceholderLayout';
 import {
     getSpreadStartForPage,
     getViewColumnCount,
@@ -423,11 +420,6 @@ const renderedPagesSurfaceStyle = computed(() => {
     };
 });
 const showInitialSurfacePlaceholder = computed(() => isLoading.value && !viewerError.value);
-const { pageSize: initialPlaceholderPageSize } = useInitialSurfacePlaceholderLayout({
-    containerHeight,
-    containerWidth,
-    horizontalMargin: DJVU_BASE_MARGIN,
-});
 
 const djvuPreviewRuntime = useDjvuPreviewRuntime({
     state: {

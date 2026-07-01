@@ -28,6 +28,9 @@ describe('DjVu viewer visual loading policy', () => {
         expect(viewerSource).toContain('.djvu-viewer-container--initial-visual-pending > div');
         expect(viewerSource).not.toContain('suppressInitialPlaceholder');
         expect(viewerSource).not.toContain('suppress-initial-placeholder');
+        expect(viewerSource).not.toContain('useInitialSurfacePlaceholderLayout');
+        expect(viewerSource).not.toContain(':page-width');
+        expect(viewerSource).not.toContain(':page-height');
         expect(pageContentSource).toContain('PdfPageSkeleton');
         expect(pageContentSource).not.toContain('suppressInitialPlaceholder');
         expect(pageContentSource).not.toContain('djvu-page-skeleton');

@@ -545,6 +545,9 @@ export const useDjvu = () => {
     }
 
     function openConvertDialog() {
+        if (!isDjvuMode.value) {
+            return;
+        }
         showConvertDialog.value = true;
     }
 

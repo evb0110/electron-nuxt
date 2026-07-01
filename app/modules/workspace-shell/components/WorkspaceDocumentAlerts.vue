@@ -21,8 +21,8 @@
     />
 
     <DjvuBanner
-        v-if="canUseDjvu && isDjvuMode"
-        :visible="djvuShowBanner"
+        v-if="canUseDjvu && (isDjvuMode || djvuPendingOpen)"
+        :visible="djvuShowBanner || djvuPendingOpen"
         :is-loading-pages="djvuIsLoadingPages"
         :loading-current="djvuLoadingCurrent"
         :loading-total="djvuLoadingTotal"
@@ -32,15 +32,13 @@
 </template>
 
 <script setup lang="ts">
-const DjvuBanner = defineAsyncComponent(
-    () => import('@app/modules/djvu-viewer/public')
-        .then(componentModule => componentModule.DjvuBanner),
-);
+import { DjvuBanner } from '@app/modules/djvu-viewer/public/component-exports/djvuBanner';
 
 defineProps<{
     pdfError: unknown;
     canUseDjvu: boolean;
     isDjvuMode: boolean;
+    djvuPendingOpen: boolean;
     djvuError: unknown;
     djvuShowBanner: boolean;
     djvuIsLoadingPages: boolean;
