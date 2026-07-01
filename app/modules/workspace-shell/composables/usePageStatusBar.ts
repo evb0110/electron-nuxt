@@ -1,4 +1,7 @@
-import type { Ref } from 'vue';
+import type {
+    ComputedRef,
+    Ref,
+} from 'vue';
 import type { TPdfSource } from '@app/types/pdf';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
@@ -13,6 +16,7 @@ import {
 } from '@app/utils/platformDocuments';
 
 type TSaveDotState = 'idle' | 'saving' | 'dirty' | 'clean';
+type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
 function isPathPdfSource(value: TPdfSource | null): value is Extract<TPdfSource, { kind: 'path' }> {
     return typeof value === 'object'
@@ -25,9 +29,10 @@ interface IPageStatusBarDeps {
     hasDocument: Ref<boolean>;
     pdfSrc: Ref<TPdfSource | null>;
     pdfData: Ref<Uint8Array | null>;
-    originalPath: Ref<TDocumentRef | null>;
+    originalPath: TReadableRef<TDocumentRef | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     effectiveZoom: Ref<number>;
+    isDocumentVisualPending?: Ref<boolean>;
     canSave: Ref<boolean>;
     isAnySaving: Ref<boolean>;
     isHistoryBusy: Ref<boolean>;
@@ -42,6 +47,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         originalPath,
         workingCopyPath,
         effectiveZoom,
+        isDocumentVisualPending,
         canSave,
         isAnySaving,
         isHistoryBusy,
@@ -107,7 +113,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         return t('status.fileSizeValue', { size: formatBytes(statusFileSizeBytes.value) });
     });
     const statusZoomLabel = computed(() => {
-        if (!hasDocument.value) {
+        if (!hasDocument.value || isDocumentVisualPending?.value) {
             return t('status.zoomUnknown');
         }
         return t('status.zoomValue', { zoom: Math.round(effectiveZoom.value * 100) });

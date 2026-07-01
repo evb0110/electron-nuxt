@@ -3,33 +3,33 @@ import type {
     Ref,
 } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IDjvuPageSize } from '@app/platform/browser-api/public';
 import { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { resolveDjvuPreviewResolutionPlan } from '@app/utils/djvuPreviewResolution';
+import type {
+    IDocumentPreviewPageState,
+    IPagePreviewSource,
+    IPreviewPageSize,
+} from '@app/utils/document-viewer/pagePreviewSource';
 import {
     createDjvuPageRenderList,
     type TDjvuScrollDirection,
 } from '@app/modules/djvu-viewer/createDjvuPageRenderList';
 import type { IDjvuContinuousScrollWindow } from '@app/modules/djvu-viewer/resolveDjvuContinuousScrollWindow';
 
-export interface IDjvuPageState {
-    failedRenderPx: number;
-    objectUrl: string | null;
-    renderedPx: number;
-    status: 'idle' | 'loading' | 'loaded' | 'error';
-    token: number;
-}
+export interface IDjvuPageState extends IDocumentPreviewPageState {}
+
 
 interface IDjvuPreviewRuntimeState {
     currentPage: Ref<number>;
     isLoading: Ref<boolean>;
-    pageSizes: Ref<IDjvuPageSize[]>;
+    pageSizes: Ref<IPreviewPageSize[]>;
     pageStates: Ref<IDjvuPageState[]>;
     viewerError: Ref<string | null>;
 }
 
 interface IDjvuPreviewRuntimeSource {
+    getInitialVisualPageNumbers?: (() => number[]) | undefined;
     getNeededDeviceWidth: (pageNumber: number) => number;
     getOpenErrorMessage: () => string;
     getSrc: () => TDocumentRef | null;
@@ -40,10 +40,19 @@ interface IDjvuPreviewRuntimeSource {
     totalPages: ComputedRef<number>;
 }
 
+interface IPagePreviewRenderPlan {
+    subsample: number;
+    targetPx: number;
+}
+
+type TCreatePagePreviewSourceFromPath = (src: TDocumentRef) => Promise<IPagePreviewSource>;
+
 interface IDjvuPreviewRuntimeEffects {
     clearPageElements: () => void;
     emitCurrentPage: (pageNumber: number) => void;
     emitDocument: (value: null) => void;
+    emitInitialVisualPending: () => void;
+    emitInitialVisualReady: (payload: {pageNumber: number;}) => void;
     emitLoading: (value: boolean) => void;
     emitTotalPages: (value: number) => void;
     invalidateContinuousScrollWindowCache: () => void;
@@ -60,8 +69,15 @@ interface IDjvuPreviewRuntimeEnvironment {
 }
 
 interface IUseDjvuPreviewRuntimeOptions {
+    createPagePreviewSourceFromPath?: TCreatePagePreviewSourceFromPath;
+    documentLabel?: string;
     effects: IDjvuPreviewRuntimeEffects;
     environment?: IDjvuPreviewRuntimeEnvironment;
+    getPagePreviewRenderOptions?: (
+        pageNumber: number,
+        plan: IPagePreviewRenderPlan,
+    ) => unknown;
+    logScope?: string;
     source: IDjvuPreviewRuntimeSource;
     state: IDjvuPreviewRuntimeState;
 }
@@ -84,19 +100,24 @@ const DJVU_RENDER_QUEUE_MAX_CONCURRENCY = 4;
 const DJVU_SCROLLING_RENDER_QUEUE_TARGET_CONCURRENCY = 1;
 const DJVU_SCROLLING_RENDER_QUEUE_MAX_CONCURRENCY = 2;
 
-type TDjvuPagePreviewSource = Awaited<ReturnType<typeof createDjvuPagePreviewSourceFromPath>>;
-
 export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) => {
     const {
         effects,
         source,
         state,
     } = options;
+    const createPagePreviewSource = options.createPagePreviewSourceFromPath ?? createDjvuPagePreviewSourceFromPath;
+    const documentLabel = options.documentLabel ?? 'DjVu';
+    const logScope = options.logScope ?? 'djvu-viewer';
 
     const isScrollingPreviewMode = ref(false);
 
-    let activeWorker: TDjvuPagePreviewSource | null = null;
+    let activeWorker: IPagePreviewSource | null = null;
     let loadGeneration = 0;
+    let pendingInitialVisualGeneration: number | null = null;
+    let readyInitialVisualGeneration: number | null = null;
+    let initialVisualSettlePromise: Promise<void> | null = null;
+    let resolveInitialVisualSettlePromise: (() => void) | null = null;
     let queuedPageNumbers: number[] = [];
     let lastRenderedPageSet = new Set<number>();
     let retainedPageEpochs = new Map<number, number>();
@@ -116,6 +137,55 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
 
     function isCurrentLoadGeneration(generation: number) {
         return generation === loadGeneration;
+    }
+
+    function resolveInitialVisualSettle() {
+        resolveInitialVisualSettlePromise?.();
+        initialVisualSettlePromise = null;
+        resolveInitialVisualSettlePromise = null;
+    }
+
+    function ensureInitialVisualSettlePromise() {
+        initialVisualSettlePromise ??= new Promise<void>((resolve) => {
+            resolveInitialVisualSettlePromise = resolve;
+        });
+
+        return initialVisualSettlePromise;
+    }
+
+    function beginInitialVisualWait(generation: number) {
+        resolveInitialVisualSettle();
+        pendingInitialVisualGeneration = generation;
+        readyInitialVisualGeneration = null;
+        effects.emitInitialVisualPending();
+    }
+
+    function markInitialVisualReady(generation: number, pageNumber: number) {
+        if (
+            !isCurrentLoadGeneration(generation)
+            || pendingInitialVisualGeneration !== generation
+            || readyInitialVisualGeneration === generation
+        ) {
+            return;
+        }
+
+        pendingInitialVisualGeneration = null;
+        readyInitialVisualGeneration = generation;
+        effects.emitInitialVisualReady({ pageNumber });
+        resolveInitialVisualSettle();
+    }
+
+    function waitForViewerLoadSettled() {
+        if (
+            !source.isActive.value
+            || !state.isLoading.value
+            || state.viewerError.value
+            || readyInitialVisualGeneration === loadGeneration
+        ) {
+            return Promise.resolve();
+        }
+
+        return ensureInitialVisualSettlePromise();
     }
 
     function emitLoading(nextLoading: boolean, emitOptions: { force?: boolean } = {}) {
@@ -183,7 +253,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         try {
             activeWorker.revokeObjectURL(pageState.objectUrl);
         } catch (error) {
-            BrowserLogger.warn('djvu-viewer', 'Failed to revoke DjVu page URL', {
+            BrowserLogger.warn(logScope, `Failed to revoke ${documentLabel} page URL`, {
                 pageNumber,
                 error,
             });
@@ -256,6 +326,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
     }
 
     function stopWorker() {
+        resolveInitialVisualSettle();
         clearZoomSettleRerenderTimer();
         clearScrollSettlePreviewTimer();
         isScrollingPreviewMode.value = false;
@@ -274,6 +345,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
     }
 
     function suspendWorker() {
+        resolveInitialVisualSettle();
         releaseRenderedPagePreviews();
         clearScrollSettlePreviewTimer();
         isScrollingPreviewMode.value = false;
@@ -319,21 +391,17 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
     }
 
     function discardStalePageObjectUrl(
-        worker: TDjvuPagePreviewSource,
+        worker: IPagePreviewSource,
         url: string,
     ) {
         worker.revokeObjectURL(url);
     }
 
-    function discardStaleWorker(worker: TDjvuPagePreviewSource) {
+    function discardStaleWorker(worker: IPagePreviewSource) {
         if (worker === activeWorker) {
             activeWorker = null;
         }
         worker.terminate();
-    }
-
-    function hasVisiblePagePreview() {
-        return state.pageStates.value.some(pageState => Boolean(pageState.objectUrl));
     }
 
     function getPreferredRenderedPageNumbers() {
@@ -374,6 +442,15 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         });
     }
 
+    function getInitialVisualPageNumbers() {
+        const pageNumbers = source.getInitialVisualPageNumbers?.() ?? getPreferredRenderedPageNumbers();
+        return pageNumbers.filter((pageNumber, index, list) => (
+            pageNumber >= 1
+            && pageNumber <= source.totalPages.value
+            && list.indexOf(pageNumber) === index
+        ));
+    }
+
     function finishInitialPreviewLoadIfSettled() {
         if (!source.isActive.value) {
             return;
@@ -382,21 +459,27 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
             return;
         }
 
-        if (hasVisiblePagePreview()) {
+        const initialPageNumbers = getInitialVisualPageNumbers();
+        if (initialPageNumbers.length === 0) {
+            return;
+        }
+
+        const loadedPageNumber = initialPageNumbers.find((pageNumber) => {
+            const pageState = state.pageStates.value[pageNumber - 1];
+            return Boolean(pageState?.objectUrl);
+        });
+        if (loadedPageNumber !== undefined) {
+            markInitialVisualReady(loadGeneration, loadedPageNumber);
             emitLoading(false);
             return;
         }
 
-        const desiredPageNumbers = getPreferredRenderedPageNumbers();
-        if (desiredPageNumbers.length === 0) {
-            return;
-        }
-
-        const desiredPagesSettled = desiredPageNumbers.every((pageNumber) => {
+        const initialPagesSettled = initialPageNumbers.every((pageNumber) => {
             const pageState = state.pageStates.value[pageNumber - 1];
-            return pageState?.status === 'loaded' || pageState?.status === 'error';
+            return pageState?.status === 'error';
         });
-        if (desiredPagesSettled) {
+        if (initialPagesSettled) {
+            markInitialVisualReady(loadGeneration, initialPageNumbers[0] ?? state.currentPage.value);
             emitLoading(false);
         }
     }
@@ -405,7 +488,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         pageNumber: number,
         token: number,
         generation: number,
-        worker: TDjvuPagePreviewSource,
+        worker: IPagePreviewSource,
     ) {
         const currentState = state.pageStates.value[pageNumber - 1];
         if (
@@ -442,7 +525,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         pageNumber: number,
         token: number,
         generation: number,
-        worker: TDjvuPagePreviewSource,
+        worker: IPagePreviewSource,
         objectUrl: string,
         renderedPx: number,
     ) {
@@ -461,7 +544,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
             try {
                 worker.revokeObjectURL(previousObjectUrl);
             } catch (error) {
-                BrowserLogger.warn('djvu-viewer', 'Failed to revoke previous DjVu page URL', {
+                BrowserLogger.warn(logScope, `Failed to revoke previous ${documentLabel} page URL`, {
                     pageNumber,
                     error,
                 });
@@ -475,7 +558,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         pageNumber: number,
         token: number,
         generation: number,
-        worker: TDjvuPagePreviewSource,
+        worker: IPagePreviewSource,
         error: unknown,
     ) {
         const currentState = state.pageStates.value[pageNumber - 1];
@@ -493,14 +576,14 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
             currentState.failedRenderPx = Math.max(currentState.failedRenderPx, getPreviewResolutionPlan(pageNumber).targetPx);
             currentState.status = 'loaded';
             finishInitialPreviewLoadIfSettled();
-            BrowserLogger.warn('djvu-viewer', 'Failed to refresh DjVu page preview', {
+            BrowserLogger.warn(logScope, `Failed to refresh ${documentLabel} page preview`, {
                 pageNumber,
                 error,
             });
         } else {
             currentState.status = 'error';
             finishInitialPreviewLoadIfSettled();
-            BrowserLogger.warn('djvu-viewer', 'Failed to load DjVu page preview', {
+            BrowserLogger.warn(logScope, `Failed to load ${documentLabel} page preview`, {
                 pageNumber,
                 error,
             });
@@ -515,7 +598,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         return new Promise<void>((resolve, reject) => {
             const image = new Image();
             image.onload = () => resolve();
-            image.onerror = () => reject(new Error('Failed to decode DjVu page preview'));
+            image.onerror = () => reject(new Error(`Failed to decode ${documentLabel} page preview`));
             image.src = objectUrl;
         });
     }
@@ -534,10 +617,13 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         const previewPlan = getPreviewResolutionPlan(pageNumber);
 
         try {
+            const renderOptions = options.getPagePreviewRenderOptions
+                ? options.getPagePreviewRenderOptions(pageNumber, previewPlan)
+                : { subsample: previewPlan.subsample };
             const {
                 objectUrl,
                 renderedPx,
-            } = await worker.renderPageObjectUrl(pageNumber, { subsample: previewPlan.subsample });
+            } = await worker.renderPageObjectUrl(pageNumber, renderOptions);
             const currentState = getCurrentPagePreviewLoadState(pageNumber, token, generation, worker);
             if (!currentState) {
                 discardStalePageObjectUrl(worker, objectUrl);
@@ -775,7 +861,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
     }
 
     async function loadSource(src: TDocumentRef, generation: number) {
-        const worker = await createDjvuPagePreviewSourceFromPath(src);
+        const worker = await createPagePreviewSource(src);
         if (!isCurrentLoadGeneration(generation)) {
             discardStaleWorker(worker);
             return;
@@ -813,6 +899,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
                 return;
             }
 
+            beginInitialVisualWait(generation);
             emitLoading(true, { force: true });
 
             try {
@@ -828,6 +915,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
                 effects.emitTotalPages(state.pageSizes.value.length);
                 effects.emitCurrentPage(1);
                 if (state.pageSizes.value.length === 0) {
+                    markInitialVisualReady(generation, 1);
                     emitLoading(false);
                     return;
                 }
@@ -844,10 +932,11 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
                 }
 
                 state.viewerError.value = error instanceof Error ? error.message : source.getOpenErrorMessage();
-                BrowserLogger.error('djvu-viewer', 'Failed to initialize native DjVu viewer', {
+                BrowserLogger.error(logScope, `Failed to initialize native ${documentLabel} viewer`, {
                     src,
                     error,
                 });
+                markInitialVisualReady(generation, state.currentPage.value);
                 emitLoading(false);
             } finally {
                 if (isCurrentLoadGeneration(generation)) {
@@ -871,6 +960,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
             if (src && isClientRuntime() && !activeWorker) {
                 loadGeneration += 1;
                 const generation = loadGeneration;
+                beginInitialVisualWait(generation);
                 emitLoading(true, { force: true });
 
                 try {
@@ -882,6 +972,11 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
                     effects.invalidateContinuousScrollWindowCache();
                     effects.emitTotalPages(state.pageSizes.value.length);
                     state.viewerError.value = null;
+                    if (state.pageSizes.value.length === 0) {
+                        markInitialVisualReady(generation, 1);
+                        emitLoading(false);
+                        return;
+                    }
                     await nextTick();
                     effects.measureContainer();
                     syncLoadedPages();
@@ -891,10 +986,11 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
                     }
 
                     state.viewerError.value = error instanceof Error ? error.message : source.getOpenErrorMessage();
-                    BrowserLogger.error('djvu-viewer', 'Failed to resume native DjVu viewer', {
+                    BrowserLogger.error(logScope, `Failed to resume native ${documentLabel} viewer`, {
                         src,
                         error,
                     });
+                    markInitialVisualReady(generation, state.currentPage.value);
                     emitLoading(false);
                 }
                 return;
@@ -920,5 +1016,6 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         scheduleScrollSettledPreviewRerender,
         scheduleSettledPreviewRerender,
         syncLoadedPages,
+        waitForViewerLoadSettled,
     };
 };

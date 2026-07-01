@@ -22,8 +22,14 @@ import {
 import {
     getDjvuOutline,
     getDjvuPageCount,
+    getDjvuResolution,
 } from '@electron/djvu/metadata';
 import { parseDjvuOutline } from '@electron/djvu/parseDjvuOutline';
+import {
+    evaluateDjvuPdfConversionPolicy,
+    type IDjvuConversionPageMetrics,
+    type IDjvuPdfConversionPolicyDecision,
+} from '@contracts/djvuConversionPolicy';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import { safeSendToWindow } from '@electron/djvu/safeSendToWindow';
@@ -45,6 +51,7 @@ import { optimizeGeneratedPdfForInteraction } from '@electron/features/documents
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { DJVU_EVENT_CHANNELS } from '@electron/features/djvu/contract';
 import type { IDjvuOperationContext } from '@electron/features/djvu/ports';
+import { getDjvuPageSizesForViewing } from '@electron/features/djvu/main/pagePreview';
 
 const logger = createLogger('djvu-pdfExport');
 const canceledJobIds = new Set<string>();
@@ -305,6 +312,45 @@ function clearActivePdfWorker(jobId: string, worker: Worker) {
     }
 }
 
+function formatEffectivePixels(pixels: number) {
+    if (pixels >= 1_000_000_000) {
+        return `${(pixels / 1_000_000_000).toFixed(1)}B`;
+    }
+    if (pixels >= 1_000_000) {
+        return `${Math.round(pixels / 1_000_000)}M`;
+    }
+    return String(Math.max(0, Math.round(pixels)));
+}
+
+function describeRecommendedSubsample(subsample: number) {
+    if (subsample <= 1) {
+        return 'Full Quality';
+    }
+    if (subsample === 2) {
+        return 'Good Quality';
+    }
+    if (subsample === 4) {
+        return 'Compact';
+    }
+    return `subsample ${subsample}`;
+}
+
+function createDjvuConversionPolicyError(decision: IDjvuPdfConversionPolicyDecision) {
+    return `Selected DjVu PDF quality is blocked because direct conversion would preserve about ${
+        formatEffectivePixels(decision.effectivePixels)
+    } effective pixels. Choose ${describeRecommendedSubsample(decision.recommendedSubsample)} or higher.`;
+}
+
+async function getDjvuConversionPageSizes(jobId: string, djvuPath: string, pageCount: number) {
+    try {
+        const pageSizes: IDjvuConversionPageMetrics[] = await getDjvuPageSizesForViewing(djvuPath, pageCount);
+        return pageSizes;
+    } catch (error) {
+        logger.debug(`[${jobId}] Failed to read DjVu page sizes before conversion policy check: ${getErrorMessage(error)}`);
+        return null;
+    }
+}
+
 async function replaceFileAtomically(sourcePath: string, targetPath: string) {
     const stagedPath = makeSiblingTempPath(targetPath);
     let replaced = false;
@@ -434,10 +480,30 @@ export async function handleDjvuConvertToPdf(
 
     try {
         return await runDjvuConversionJobWithSlot(jobId, async () => {
-            const [pageCount] = await Promise.all([getDjvuPageCount(djvuPath, { signal: abortController.signal })]);
+            const [
+                pageCount,
+                sourceDpi,
+            ] = await Promise.all([
+                getDjvuPageCount(djvuPath, { signal: abortController.signal }),
+                getDjvuResolution(djvuPath, { signal: abortController.signal }),
+            ]);
 
             const subsample = resolveSubsample(options.subsample);
             throwIfCanceled(jobId);
+            const pageSizes = await getDjvuConversionPageSizes(jobId, djvuPath, pageCount);
+            throwIfCanceled(jobId);
+            const policy = evaluateDjvuPdfConversionPolicy({
+                pageCount,
+                sourceDpi,
+                pageSizes,
+            }, subsample);
+            if (!policy.isAllowed) {
+                return {
+                    success: false,
+                    jobId,
+                    error: createDjvuConversionPolicyError(policy),
+                };
+            }
 
             const convertResult = await convertDjvuToPdfFile(djvuPath, tempPdfPath, jobId, {
                 ...(subsample > 1 ? { subsample } : {}),

@@ -1,4 +1,7 @@
-import type { Ref } from 'vue';
+import type {
+    ComputedRef,
+    Ref,
+} from 'vue';
 import { usePageStatusBar } from '@app/modules/workspace-shell/composables/usePageStatusBar';
 import { usePageOpsHandlers } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
 import type { IPageOpsHandlersDeps } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
@@ -8,6 +11,8 @@ import type { IWorkspacePdfViewerDocumentControlsPort } from '@app/modules/works
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+
+type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
 interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps,
     'closeFile'
@@ -23,8 +28,9 @@ interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps
     > {
     hasDocument: Ref<boolean>;
     pdfData: Ref<Uint8Array | null>;
-    originalPath: Ref<TDocumentRef | null>;
+    originalPath: TReadableRef<TDocumentRef | null>;
     effectiveZoom: Ref<number>;
+    isDocumentVisualPending?: Ref<boolean>;
     canSave: Ref<boolean>;
     handleSave: () => Promise<unknown>;
     requestThumbnailInvalidation: (pages: number[]) => void;
@@ -46,6 +52,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         workingCopyPath,
         currentPage,
         effectiveZoom,
+        isDocumentVisualPending,
         canSave,
         isAnySaving,
         isHistoryBusy,
@@ -93,6 +100,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         originalPath,
         workingCopyPath,
         effectiveZoom,
+        ...(isDocumentVisualPending ? { isDocumentVisualPending } : {}),
         canSave,
         isAnySaving,
         isHistoryBusy,

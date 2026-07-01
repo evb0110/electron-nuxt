@@ -14,6 +14,7 @@ interface IUseDocumentOpenVisualSettleOptions {
     pdfError: Ref<unknown>;
     djvuError: Ref<unknown>;
     showNativeDjvuViewer: Ref<boolean>;
+    showNativePdfViewer?: Ref<boolean>;
     markAnnotationCommentsLoading: () => void;
 }
 
@@ -45,8 +46,11 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
             return true;
         }
 
-        if (options.showNativeDjvuViewer.value) {
-            return true;
+        if (options.showNativeDjvuViewer.value || options.showNativePdfViewer?.value) {
+            return Boolean(
+                !options.isLoading.value
+                && initialDocumentVisualReady.value,
+            );
         }
 
         return Boolean(
@@ -126,6 +130,7 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
             pageLabelsResolved: options.pageLabelsResolved.value,
             isLoading: options.isLoading.value,
             showNativeDjvuViewer: options.showNativeDjvuViewer.value,
+            showNativePdfViewer: options.showNativePdfViewer?.value ?? false,
             hasPdfError: Boolean(options.pdfError.value),
             hasDjvuError: Boolean(options.djvuError.value),
         });
@@ -140,6 +145,7 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         options.pdfError,
         options.djvuError,
         options.showNativeDjvuViewer,
+        ...(options.showNativePdfViewer ? [options.showNativePdfViewer] : []),
         initialDocumentVisualReady,
     ], () => {
         resolveDocumentOpenVisualSettleIfReady();
@@ -148,6 +154,7 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
     return {
         handlePdfInitialVisualPending,
         handlePdfInitialVisualReady,
+        initialDocumentVisualReady,
         resetDocumentOpenVisualSettleWaiter,
         resolveDocumentOpenVisualSettleIfReady,
         waitForDocumentOpenSettled,

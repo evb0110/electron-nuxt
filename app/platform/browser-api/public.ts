@@ -12,6 +12,7 @@ export { createBrowserDocumentsCapability } from '@app/platform/browser-api/crea
 export { createBrowserCombinedPdfFromPaths as createCombinedPdfFromPaths } from '@app/platform/browser-api/createBrowserDocumentsFileCapability';
 export { createBrowserSearchCapability } from '@app/platform/browser-api/createBrowserSearchCapability';
 export { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/createDjvuWorkerFromPath';
+export { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/createNativePdfPreviewSourceFromPath';
 export { decodeBrowserImageBlob } from '@app/platform/browser-api/decodeBrowserImageBlob';
 export { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 export type { IDjvuPageSize } from '@app/platform/browser-api/djvujsLoader';

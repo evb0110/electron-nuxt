@@ -436,6 +436,20 @@ export function registerDocumentsIpcAdapter(
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileReadRange>
     ) =>
         service.readFileRange(createSenderIdContext(event), filePath, offset, length));
+    register(DOCUMENTS_CHANNELS.pdfNativePageSizes, (
+        event: IpcMainInvokeEvent,
+        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfNativePageSizes>
+    ) =>
+        service.getPdfNativePageSizes(createSenderIdContext(event), filePath));
+    register(DOCUMENTS_CHANNELS.pdfNativePagePreview, (
+        event: IpcMainInvokeEvent,
+        ...[
+            filePath,
+            pageNumber,
+            options,
+        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfNativePagePreview>
+    ) =>
+        service.renderPdfNativePagePreview(createSenderIdContext(event), filePath, pageNumber, options));
     register(DOCUMENTS_CHANNELS.fileReadText, (
         event: IpcMainInvokeEvent,
         ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileReadText>

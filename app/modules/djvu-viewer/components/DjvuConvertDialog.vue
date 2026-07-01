@@ -100,6 +100,10 @@
 <script setup lang="ts">
 
 import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    evaluateDjvuPdfConversionPolicy,
+    resolveRecommendedDjvuPdfSubsample,
+} from '@contracts/djvuConversionPolicy';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
@@ -127,7 +131,10 @@ interface IEstimate {
     estimatedBytes: number;
 }
 
-interface IResolvedEstimate extends IEstimate { value: number; }
+interface IResolvedEstimate extends IEstimate {
+    value: number;
+    disabled?: boolean;
+}
 
 const info = ref<IInfo | null>(null);
 const estimates = ref<IEstimate[]>([]);
@@ -142,16 +149,25 @@ const presetRadioGroupUi = {
     description: 'text-xs',
 } as const;
 
-const resolvedEstimates = computed<IResolvedEstimate[]>(() => estimates.value.map((estimate) => ({
-    ...estimate,
-    value: estimate.subsample,
-    label: estimate.label || resolveEstimateLabel(estimate.subsample),
-    description:
-        estimate.description || resolveEstimateDescription(estimate.subsample),
-})));
+const resolvedEstimates = computed<IResolvedEstimate[]>(() => estimates.value.map((estimate) => {
+    const policy = resolvePolicyForSubsample(estimate.subsample);
+    return {
+        ...estimate,
+        value: estimate.subsample,
+        label: estimate.label || resolveEstimateLabel(estimate.subsample),
+        description:
+            estimate.description || resolveEstimateDescription(estimate.subsample),
+        ...(policy && !policy.isAllowed ? { disabled: true } : {}),
+    };
+}));
+const selectedConversionPolicy = computed(() => resolvePolicyForSubsample(selectedSubsample.value));
 const largeDocumentWarning = computed(() => {
     if (!info.value) {
         return null;
+    }
+
+    if (selectedConversionPolicy.value && !selectedConversionPolicy.value.isAllowed) {
+        return t('djvu.convertDialog.largeDocumentHigh');
     }
 
     if (info.value.pageCount >= 700) {
@@ -199,7 +215,18 @@ function resolveEstimateDescription(subsample: number) {
     }
 }
 
-function resolveDefaultSubsample(pageCount: number) {
+function resolvePolicyForSubsample(subsample: number) {
+    if (!info.value) {
+        return null;
+    }
+
+    return evaluateDjvuPdfConversionPolicy({
+        pageCount: info.value.pageCount,
+        sourceDpi: info.value.sourceDpi,
+    }, subsample);
+}
+
+function resolvePageCountDefaultSubsample(pageCount: number) {
     if (pageCount >= 700) {
         return 4;
     }
@@ -209,6 +236,16 @@ function resolveDefaultSubsample(pageCount: number) {
     }
 
     return 1;
+}
+
+function resolveDefaultSubsample(pageCount: number, sourceDpi: number) {
+    return Math.max(
+        resolvePageCountDefaultSubsample(pageCount),
+        resolveRecommendedDjvuPdfSubsample({
+            pageCount,
+            sourceDpi,
+        }),
+    );
 }
 
 watch(open, async (isOpen, _wasOpen, onCleanup) => {
@@ -234,7 +271,7 @@ watch(open, async (isOpen, _wasOpen, onCleanup) => {
             return;
         }
         info.value = djvuInfo;
-        selectedSubsample.value = resolveDefaultSubsample(djvuInfo.pageCount);
+        selectedSubsample.value = resolveDefaultSubsample(djvuInfo.pageCount, djvuInfo.sourceDpi);
 
         estimatesLoading.value = true;
         const sizeEstimates = await djvu.estimateSizes(requestPath);
@@ -258,6 +295,10 @@ watch(open, async (isOpen, _wasOpen, onCleanup) => {
 });
 
 function handleConvert() {
+    const policy = selectedConversionPolicy.value;
+    if (policy && !policy.isAllowed) {
+        selectedSubsample.value = policy.recommendedSubsample;
+    }
     open.value = false;
     emit('convert', selectedSubsample.value, preserveBookmarks.value);
 }

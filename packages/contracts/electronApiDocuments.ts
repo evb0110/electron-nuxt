@@ -104,6 +104,19 @@ export interface IPdfOptimizeResult {
     pageCount: number | null;
 }
 
+export interface IPdfNativePageSize {
+    width: number;
+    height: number;
+}
+
+export interface IPdfNativePagePreviewOptions {targetWidthPx?: number;}
+
+export interface IPdfNativePagePreview {
+    bytes: Uint8Array;
+    width: number;
+    height: number;
+}
+
 export interface IPdfNoteTextUpdate {
     objectNumber: number;
     generationNumber: number;
@@ -325,6 +338,12 @@ export interface IDocumentsFileCapability {
     readFile: (path: TDocumentRef) => Promise<Uint8Array>;
     statFile: (path: TDocumentRef) => Promise<{ size: number }>;
     readFileRange: (path: TDocumentRef, offset: number, length: number) => Promise<Uint8Array>;
+    getPdfNativePageSizes?: (path: TDocumentRef) => Promise<IPdfNativePageSize[]>;
+    renderPdfNativePagePreview?: (
+        path: TDocumentRef,
+        pageNumber: number,
+        options?: IPdfNativePagePreviewOptions,
+    ) => Promise<IPdfNativePagePreview>;
     readFileChunks: (
         path: TDocumentRef,
         options: IDocumentChunkReadOptions,
@@ -444,6 +463,8 @@ export interface IDocumentsReadCapability extends Pick<
     | 'readFile'
     | 'statFile'
     | 'readFileRange'
+    | 'getPdfNativePageSizes'
+    | 'renderPdfNativePagePreview'
     | 'readFileChunks'
     | 'readTextFile'
     | 'fileExists'

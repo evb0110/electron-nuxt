@@ -118,6 +118,29 @@ describe('useShellWorkspaceToolbar', () => {
         expect(toolbar.shellToolbarSnapshot.value.isOpeningDocument).toBe(true);
     });
 
+    it('suppresses page and zoom metadata while the active workspace snapshot is opening', () => {
+        const activeWorkspace = ref<IWorkspaceExpose | null>(createWorkspace(createSnapshot({
+            hasPdf: true,
+            isOpeningDocument: true,
+            currentPage: 42,
+            totalPages: 564,
+            zoom: 2.38,
+            effectiveZoom: 2.38,
+        })));
+        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({
+            activeWorkspace,
+            shellState: createShellState(activeWorkspace),
+        }));
+
+        expect(toolbar.shellToolbarSnapshot.value).toMatchObject({
+            isOpeningDocument: true,
+            currentPage: 1,
+            totalPages: 0,
+            zoom: 1,
+            effectiveZoom: 1,
+        });
+    });
+
     it('defaults isOpeningDocument to false without an active workspace', () => {
         const activeWorkspace = ref<IWorkspaceExpose | null>(null);
         const toolbar = useShellWorkspaceToolbar(createToolbarOptions({

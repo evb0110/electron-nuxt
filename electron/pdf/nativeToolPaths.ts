@@ -12,6 +12,7 @@ import { resolveNativeToolsBase } from '@electron/native-tools/resolveNativeTool
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 
 export interface IPdfNativeToolPaths extends IPopplerRuntimePaths {
+    pdfinfo: string;
     pdftoppm: string;
     pdftotext: string;
     pdfimages?: string;
@@ -60,6 +61,13 @@ function getPdfToolBinaryPath(options: IPdfToolBinaryPathOptions) {
 export function resolvePdfNativeToolPaths(options: IResolvePdfNativeToolPathsOptions): IPdfNativeToolPaths {
     const pathExists = options.exists ?? existsSync;
     const popplerDir = join(options.nativeToolsBase, 'poppler', options.platformArch);
+    const pdfinfo = getPdfToolBinaryPath({
+        dir: popplerDir,
+        exists: pathExists,
+        isPackaged: options.isPackaged,
+        name: 'pdfinfo',
+        platform: options.platform,
+    });
     const pdftoppm = getPdfToolBinaryPath({
         dir: popplerDir,
         exists: pathExists,
@@ -97,6 +105,7 @@ export function resolvePdfNativeToolPaths(options: IResolvePdfNativeToolPathsOpt
     });
 
     const paths: IPdfNativeToolPaths = {
+        pdfinfo,
         pdftoppm,
         pdftotext,
         qpdf,

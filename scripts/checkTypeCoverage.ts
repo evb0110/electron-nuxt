@@ -139,7 +139,7 @@ function runProject(project: ITypeCoverageProject): ITypeCoverageRunResult {
         ],
     });
     const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
-    const parsed = parseJsonResult(output);
+    const parsed = parseJsonResult(result.stdout ?? '');
 
     return {
         covered: parsed?.correctCount ?? null,

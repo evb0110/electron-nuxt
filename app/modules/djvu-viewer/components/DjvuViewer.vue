@@ -1,7 +1,5 @@
 <template>
-    <div
-        class="relative h-full w-full"
-    >
+    <div class="relative h-full w-full">
         <div
             v-if="viewerError"
             class="absolute inset-0 flex items-center justify-center bg-muted/30"
@@ -17,9 +15,11 @@
             </div>
         </div>
 
-        <AppLoaderOverlay
-            :visible="isInitialPreviewPending"
-            :label="t('common.loading')"
+        <PdfInitialSurfacePlaceholder
+            v-if="showInitialSurfacePlaceholder"
+            class="djvu-viewer-initial-placeholder"
+            :page-width="initialPlaceholderPageSize.width"
+            :page-height="initialPlaceholderPageSize.height"
         />
 
         <div
@@ -28,7 +28,7 @@
             :class="{
                 'cursor-grab': dragMode,
                 'cursor-default': !dragMode,
-                'djvu-viewer-container--pending': isInitialPreviewPending,
+                'djvu-viewer-container--initial-visual-pending': showInitialSurfacePlaceholder,
             }"
             @scroll="handleViewerScroll"
             @wheel="handleViewerWheel"
@@ -66,9 +66,10 @@ import type { TPdfViewMode } from '@contracts/shared';
 import type { IScrollSnapshot } from '@app/types/pdf';
 import type { IDjvuPageSize } from '@app/platform/browser-api/public';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
-import AppLoaderOverlay from '@app/components/AppLoaderOverlay.vue';
+import { PdfInitialSurfacePlaceholder } from '@app/modules/pdf-viewer/public/component-exports/pdfInitialSurfacePlaceholder';
 import DjvuPageContent from '@app/modules/djvu-viewer/components/DjvuPageContent.vue';
 import { clamp } from 'es-toolkit/math';
+import { useInitialSurfacePlaceholderLayout } from '@app/utils/document-viewer/initial-surface-placeholder/useInitialSurfacePlaceholderLayout';
 import {
     getSpreadStartForPage,
     getViewColumnCount,
@@ -112,6 +113,8 @@ const emit = defineEmits<{
     'update:totalPages': [value: number];
     'update:document': [value: null];
     loading: [value: boolean];
+    'initial-visual-pending': [];
+    'initial-visual-ready': [payload: {pageNumber: number;}];
 }>();
 
 const { t } = useTypedI18n();
@@ -129,15 +132,6 @@ const totalPages = computed(() => pageSizes.value.length);
 const currentPage = ref(1);
 const viewerError = ref<string | null>(null);
 const isLoading = ref(Boolean(src));
-const hasVisiblePagePreview = computed(() => (
-    pageStates.value.some(state => Boolean(state.objectUrl))
-));
-const isInitialPreviewPending = computed(() => (
-    Boolean(src)
-    && isLoading.value
-    && !viewerError.value
-    && !hasVisiblePagePreview.value
-));
 const containerWidth = ref(0);
 const containerHeight = ref(0);
 const dragMode = computed(() => dragModeProp ?? false);
@@ -428,6 +422,12 @@ const renderedPagesSurfaceStyle = computed(() => {
         width: `${continuousScrollSurfaceWidth.value}px`,
     };
 });
+const showInitialSurfacePlaceholder = computed(() => isLoading.value && !viewerError.value);
+const { pageSize: initialPlaceholderPageSize } = useInitialSurfacePlaceholderLayout({
+    containerHeight,
+    containerWidth,
+    horizontalMargin: DJVU_BASE_MARGIN,
+});
 
 const djvuPreviewRuntime = useDjvuPreviewRuntime({
     state: {
@@ -446,11 +446,14 @@ const djvuPreviewRuntime = useDjvuPreviewRuntime({
         resolveContinuousScrollWindow: continuousScrollController.resolveContinuousScrollWindow,
         scrollDirection: continuousScrollController.scrollDirection,
         totalPages,
+        getInitialVisualPageNumbers: () => renderedPageNumbers.value,
     },
     effects: {
         clearPageElements: () => pageElements.clear(),
         emitCurrentPage: pageNumber => emit('update:currentPage', pageNumber),
         emitDocument: value => emit('update:document', value),
+        emitInitialVisualPending: () => emit('initial-visual-pending'),
+        emitInitialVisualReady: payload => emit('initial-visual-ready', payload),
         emitLoading: value => emit('loading', value),
         emitTotalPages: value => emit('update:totalPages', value),
         invalidateContinuousScrollWindowCache: continuousScrollController.invalidateContinuousScrollWindowCache,
@@ -641,6 +644,7 @@ function restoreScrollSnapshot(
 defineExpose<IDocumentViewerExpose>({
     getViewerContainer: () => viewerContainer.value,
     getCurrentPage: () => currentPage.value,
+    waitForViewerLoadSettled: djvuPreviewRuntime.waitForViewerLoadSettled,
     scrollToPage,
     captureScrollSnapshot,
     restoreScrollSnapshot,
@@ -670,6 +674,15 @@ defineExpose<IDocumentViewerExpose>({
     position: relative;
 }
 
+.djvu-viewer-container--initial-visual-pending {
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.djvu-viewer-container--initial-visual-pending > div {
+    visibility: hidden;
+}
+
 .djvu-page-shell {
     position: relative;
     box-sizing: border-box;
@@ -682,11 +695,6 @@ defineExpose<IDocumentViewerExpose>({
 
 .djvu-page-shell--continuous {
     position: absolute;
-}
-
-.djvu-viewer-container--pending {
-    pointer-events: none;
-    visibility: hidden;
 }
 
 </style>

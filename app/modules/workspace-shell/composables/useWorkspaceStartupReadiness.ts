@@ -5,13 +5,9 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 
 const STARTUP_OPEN_VISUAL_READY_EVENT_NAME = 'evb:startup-open-visual-ready';
 const STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS = 15_000;
-const STARTUP_OPEN_VISUAL_READY_POLL_MS = 50;
-const STARTUP_OPEN_VISUAL_READY_FRAME_COUNT = 2;
+const STARTUP_OPEN_VIEWER_REF_POLL_MS = 50;
 
-interface IWorkspaceStartupReadinessOptions {
-    documentViewerRef: Ref<(IDocumentViewerExpose & { waitForViewerLoadSettled?: () => Promise<void>; }) | null>;
-    showNativeDjvuViewer: Ref<boolean>;
-}
+interface IWorkspaceStartupReadinessOptions {documentViewerRef: Ref<IDocumentViewerExpose | null>;}
 
 function dispatchStartupOpenVisualReady(reason: string, timedOut = false) {
     if (typeof window === 'undefined') {
@@ -22,18 +18,6 @@ function dispatchStartupOpenVisualReady(reason: string, timedOut = false) {
         reason,
         timedOut,
     }}));
-}
-
-function waitForStartupAnimationFrame() {
-    return new Promise<void>((resolve) => {
-        requestAnimationFrame(() => resolve());
-    });
-}
-
-async function waitForStartupVisualFrames() {
-    for (let index = 0; index < STARTUP_OPEN_VISUAL_READY_FRAME_COUNT; index += 1) {
-        await waitForStartupAnimationFrame();
-    }
 }
 
 function createStartupTimeout(timeoutMs: number) {
@@ -57,22 +41,8 @@ function createStartupTimeout(timeoutMs: number) {
 }
 
 export const useWorkspaceStartupReadiness = (options: IWorkspaceStartupReadinessOptions) => {
-    const {
-        documentViewerRef,
-        showNativeDjvuViewer,
-    } = options;
+    const { documentViewerRef } = options;
     let startupOpenVisualReadyToken = 0;
-
-    function hasRenderedStartupDocument() {
-        const viewer = documentViewerRef.value;
-        const container = viewer?.getViewerContainer?.() ?? null;
-        if (container?.querySelector('.page_container--rendered .page_canvas canvas')) {
-            return true;
-        }
-
-        return Boolean(showNativeDjvuViewer.value)
-            && Boolean(container?.querySelector('canvas, img'));
-    }
 
     function scheduleStartupOpenVisualReady(reason: string) {
         const token = ++startupOpenVisualReadyToken;
@@ -104,20 +74,14 @@ export const useWorkspaceStartupReadiness = (options: IWorkspaceStartupReadiness
 
                         if (settleTimedOut) {
                             timedOut = true;
-                            break;
                         }
-                    }
-
-                    await nextTick();
-                    await waitForStartupVisualFrames();
-                    if (hasRenderedStartupDocument()) {
                         break;
                     }
 
-                    await delay(STARTUP_OPEN_VISUAL_READY_POLL_MS);
+                    await delay(STARTUP_OPEN_VIEWER_REF_POLL_MS);
                 }
 
-                if (!hasRenderedStartupDocument()) {
+                if (!documentViewerRef.value?.waitForViewerLoadSettled) {
                     timedOut = true;
                 }
             } catch (error) {
@@ -135,7 +99,6 @@ export const useWorkspaceStartupReadiness = (options: IWorkspaceStartupReadiness
 
     return {
         scheduleStartupOpenVisualReady,
-        hasRenderedStartupDocument,
         dispatchStartupOpenVisualReady,
     };
 };

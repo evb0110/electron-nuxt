@@ -52,6 +52,10 @@ describe('native tool smoke policy', () => {
                 new Set([0]),
             ],
             [
+                'pdfinfo',
+                new Set([0]),
+            ],
+            [
                 'pdftoppm',
                 new Set([0]),
             ],
@@ -84,6 +88,7 @@ describe('native tool smoke policy', () => {
 
     it('requires both an allowed exit code and recognizable output', () => {
         expect(() => assertMacPackagedToolSmoke('qpdf', 0, 'qpdf version 12.0.0')).not.toThrow();
+        expect(() => assertMacPackagedToolSmoke('pdfinfo', 0, 'pdfinfo version 25.0.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('pdftoppm', 0, 'pdftoppm version 25.0.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('pdftotext', 0, 'pdftotext version 25.0.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('tesseract', 0, 'tesseract 5.5.0')).not.toThrow();

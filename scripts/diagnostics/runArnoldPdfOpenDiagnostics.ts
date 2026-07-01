@@ -502,7 +502,7 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
                 loadingText: document.querySelector<HTMLElement>('.document-loading, .pdf-loading, .pdf-loading-overlay')?.textContent?.trim() ?? null,
                 hostClassName: activeHost?.className ?? null,
                 hostRect: rectSnapshot(activeHost),
-                openingSkeletonRect: rectSnapshot(document.querySelector('.workspace-host__opening-skeleton')),
+                openingSkeletonRect: rectSnapshot(document.querySelector('.workspace-host-document-open-fallback')),
             },
             viewer: {
                 className: viewer?.className ?? null,

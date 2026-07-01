@@ -79,8 +79,8 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Finding 4 Stage D - Save controller port alignment',
     },
     'app/modules/djvu-viewer/components/DjvuViewer.vue': {
-        maxLines: 692,
-        reason: 'transitional DjVu viewer UI shell after preview runtime and scroll orchestration extraction',
+        maxLines: 700,
+        reason: 'transitional DjVu viewer UI shell after preview runtime, scroll orchestration, and viewer-owned initial placeholder extraction',
         stage: 'Finding 9 Stage B - DjVu preview runtime and scroll controller extraction',
     },
     'scripts/electron-run/sessionManager.ts': {
@@ -94,7 +94,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1499,
+        maxLines: 1531,
         reason: 'transitional workspace component hotspot',
         stage: 'Future workspace component extraction',
     },
@@ -104,7 +104,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 2/Stage 4 - Annotation action/runtime contract split',
     },
     'app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue': {
-        maxLines: 1357,
+        maxLines: 1108,
         reason: 'transitional deferred workspace host hotspot',
         stage: 'Future workspace host extraction',
     },

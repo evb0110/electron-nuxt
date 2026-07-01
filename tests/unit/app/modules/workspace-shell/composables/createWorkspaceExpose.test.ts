@@ -352,6 +352,31 @@ describe('createWorkspaceExpose', () => {
         expect(exposed.getToolbarSnapshot().currentPage).toBe(8);
     });
 
+    it('keeps toolbar page and zoom metadata pending while the document visual is opening', () => {
+        const documentViewerRef = ref<IWorkspaceDocumentViewerNavigationPort | null>({
+            getCurrentPage: () => 99,
+            scrollToPage: vi.fn(),
+        });
+        const deps = createDeps({
+            hasPdf: ref(true),
+            isOpeningDocument: ref(true),
+            currentPage: ref(42),
+            totalPages: ref(564),
+            zoom: ref(2.38),
+            effectiveZoom: ref(2.38),
+            documentViewerRef,
+        });
+        const exposed = createWorkspaceExpose(deps);
+
+        expect(exposed.getToolbarSnapshot()).toMatchObject({
+            isOpeningDocument: true,
+            currentPage: 1,
+            totalPages: 0,
+            zoom: 1,
+            effectiveZoom: 1,
+        });
+    });
+
     it('delegates public automation methods through the narrow PDF automation port', async () => {
         const commentAtPoint = vi.fn(async () => true);
         const highlightSelection = vi.fn(async () => true);

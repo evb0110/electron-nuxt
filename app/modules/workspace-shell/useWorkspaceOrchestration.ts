@@ -1,4 +1,7 @@
-import type { Ref } from 'vue';
+import type {
+    ComputedRef,
+    Ref,
+} from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
@@ -39,6 +42,7 @@ import { WORKSPACE_PAGE_NAVIGATION_LOCK_MS } from '@app/modules/workspace-shell/
 interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;
     initialViewState?: ITabViewSessionState | null;
+    pendingDocumentPath?: TReadableRef<TDocumentRef | null> | undefined;
     emit: {
         (e: 'update-tab', updates: TTabUpdate): void;
         (e: 'open-in-new-tab', result: TDocumentRef | TOpenFileResult): void;
@@ -46,6 +50,8 @@ interface IWorkspaceOrchestrationDeps {
         (e: 'open-settings'): void;
     };
 }
+
+type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 
@@ -423,6 +429,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         || preservedAnnotationSourceDirty.value
     ));
     const hasPendingTabChanges = hasPendingUnsavedChanges;
+    const statusOriginalPath = computed(() => deps.pendingDocumentPath?.value ?? originalPath.value);
 
     const pageSaveOrchestration = usePageSaveOrchestration({
         pdfData,
@@ -721,7 +728,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasDocument: hasOpenDocument,
         pdfData,
         pdfSrc,
-        originalPath,
+        originalPath: statusOriginalPath,
         workingCopyPath,
         currentPage,
         effectiveZoom,

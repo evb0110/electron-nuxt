@@ -182,6 +182,52 @@ describe('documents ipc adapter', () => {
         expect(mocks.fromWebContents).toHaveBeenCalledWith(sender);
     });
 
+    it('registers native PDF preview handlers and delegates them with sender-id context', async () => {
+        const {
+            eventRegistrar,
+            handlers,
+            registrar,
+        } = createRegistrationHarness();
+        const sender = {id: 49};
+        const service = {
+            getPdfNativePageSizes: vi.fn(async () => [{
+                width: 612,
+                height: 792,
+            }]),
+            renderPdfNativePagePreview: vi.fn(async () => ({
+                bytes: new Uint8Array([1]),
+                width: 900,
+                height: 1200,
+            })),
+        };
+        const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
+
+        registerDocumentsIpcAdapter(registrar as never, service as never, {eventRegistrar});
+        await expect(handlers.get(DOCUMENTS_CHANNELS.pdfNativePageSizes)?.({sender}, '/tmp/huge.pdf'))
+            .resolves
+            .toEqual([{
+                width: 612,
+                height: 792,
+            }]);
+        await expect(handlers.get(DOCUMENTS_CHANNELS.pdfNativePagePreview)?.(
+            {sender},
+            '/tmp/huge.pdf',
+            7,
+            {targetWidthPx: 900},
+        )).resolves.toMatchObject({
+            width: 900,
+            height: 1200,
+        });
+
+        expect(service.getPdfNativePageSizes).toHaveBeenCalledWith({senderId: 49}, '/tmp/huge.pdf');
+        expect(service.renderPdfNativePagePreview).toHaveBeenCalledWith(
+            {senderId: 49},
+            '/tmp/huge.pdf',
+            7,
+            {targetWidthPx: 900},
+        );
+    });
+
     it('grants renderer file-open paths to the sender webContents owner', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-documents-ipc-adapter-test-'));
         const filePath = join(tempRoot, 'opened.pdf');

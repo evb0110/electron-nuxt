@@ -337,11 +337,10 @@ PACMAN_CONF
   echo "  Setting up Poppler (arm64)..."
   clean_dir "$POPPLER_DIR"
   mkdir -p "$POPPLER_DIR/bin"
-  for tool in pdftoppm.exe pdftotext.exe pdfimages.exe pdftocairo.exe; do
+  for tool in pdfinfo.exe pdftoppm.exe pdftotext.exe pdfimages.exe pdftocairo.exe; do
     require_file "$arm64_bin/$tool" "$tool (arm64)"
     cp "$arm64_bin/$tool" "$POPPLER_DIR/bin/"
   done
-  [ -f "$arm64_bin/pdfinfo.exe" ] && cp "$arm64_bin/pdfinfo.exe" "$POPPLER_DIR/bin/"
   copy_msys2_runtime_dlls "$arm64_bin" "$POPPLER_DIR/bin"
   # Poppler on Windows also relies on runtime data/config directories.
   # Without these, pdftoppm can crash on some PDFs with access violations.
@@ -443,13 +442,9 @@ POPPLER_BIN="$(dirname "$POPPLER_PDFTOPPM")"
 POPPLER_ROOT="$(dirname "$(dirname "$POPPLER_BIN")")"
 
 echo "  Copying binaries and DLLs..."
-for tool in pdftoppm.exe pdftotext.exe pdfimages.exe pdftocairo.exe; do
+for tool in pdfinfo.exe pdftoppm.exe pdftotext.exe pdfimages.exe pdftocairo.exe; do
   copy_required_tool "$POPPLER_BIN/$tool" "$POPPLER_DIR/bin" "$tool"
 done
-# Optional utility
-if [ -f "$POPPLER_BIN/pdfinfo.exe" ]; then
-  cp "$POPPLER_BIN/pdfinfo.exe" "$POPPLER_DIR/bin/"
-fi
 # Copy all DLLs
 find "$(dirname "$POPPLER_BIN")" -name '*.dll' -exec cp {} "$POPPLER_DIR/bin/" \; 2>/dev/null || true
 # Also check directly in bin dir
@@ -592,6 +587,7 @@ verify_dir() {
 missing_count=0
 
 verify_tool "$TESSERACT_DIR/bin/tesseract.exe" "tesseract"
+verify_tool "$POPPLER_DIR/bin/pdfinfo.exe" "pdfinfo"
 verify_tool "$POPPLER_DIR/bin/pdftoppm.exe" "pdftoppm"
 verify_tool "$POPPLER_DIR/bin/pdftocairo.exe" "pdftocairo"
 verify_tool "$POPPLER_DIR/bin/pdftotext.exe" "pdftotext"

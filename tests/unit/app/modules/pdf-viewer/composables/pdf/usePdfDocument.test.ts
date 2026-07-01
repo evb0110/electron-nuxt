@@ -123,6 +123,8 @@ describe('usePdfDocument range loading', () => {
             range: expect.any(MockPdfDataRangeTransport),
             length: size,
             rangeChunkSize: 1024 * 1024,
+            disableAutoFetch: true,
+            disableStream: true,
             verbosity: pdfjsState.VerbosityLevel.ERRORS,
             standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
             cMapUrl: getPdfjsAssetDir('cmaps'),
@@ -647,6 +649,31 @@ describe('usePdfDocument range loading', () => {
         await expect(loadPromise).resolves.not.toBeNull();
     });
 
+    it('rejects files above the PDF.js-safe native preview threshold before invoking PDF.js', async () => {
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        const documentState = usePdfDocument();
+        const result = await documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/native-preview-required.pdf',
+            size: 2 * 1024 * 1024 * 1024,
+        });
+
+        expect(result).toBeNull();
+        expect(pdfjsState.getDocument).not.toHaveBeenCalled();
+        expect(electronApi.documentFiles.readFileRange).not.toHaveBeenCalled();
+        expect(loggerError).toHaveBeenCalledWith(
+            'pdf-document',
+            'Failed to load PDF',
+            expect.any(Error),
+        );
+    });
+
     it('rejects pathological aggregate PDF.js range requests before reading or allocating them', async () => {
         const deferred = Promise.withResolvers<{
             numPages: number;
@@ -673,7 +700,7 @@ describe('usePdfDocument range loading', () => {
         const loadPromise = documentState.loadPdf({
             kind: 'path',
             path: '/tmp/pathological-range.pdf',
-            size: 2 * 1024 * 1024 * 1024,
+            size: 128 * 1024 * 1024,
         });
 
         await vi.waitFor(() => {
@@ -684,7 +711,7 @@ describe('usePdfDocument range loading', () => {
         expect(range).toBeInstanceOf(MockPdfDataRangeTransport);
 
         electronApi.documentFiles.readFileRange.mockClear();
-        range?.requestDataRange?.(0, 1024 * 1024 * 1024 + 1);
+        range?.requestDataRange?.(0, 64 * 1024 * 1024 + 1);
 
         await expect(loadPromise).resolves.toBeNull();
         expect(electronApi.documentFiles.readFileRange).not.toHaveBeenCalled();

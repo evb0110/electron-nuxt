@@ -284,7 +284,7 @@ function readDjvuWheelMetricSampleFromPage(): IDjvuWheelMetricSample {
             } else {
                 unloadedVisibleShellArea += visibleArea;
             }
-            if (pageElement.querySelector('.djvu-page-skeleton')) {
+            if (pageElement.querySelector('.pdf-page-skeleton')) {
                 visibleSkeletonCount += 1;
             }
         }

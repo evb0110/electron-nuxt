@@ -35,7 +35,9 @@ const mocks = vi.hoisted(() => {
         unlink: vi.fn(),
         atomicReplace: vi.fn(),
         getDjvuPageCount: vi.fn(),
+        getDjvuResolution: vi.fn(),
         getDjvuOutline: vi.fn(),
+        getDjvuPageSizesForViewing: vi.fn(),
         parseDjvuOutline: vi.fn(),
         convertDjvuToPdfFile: vi.fn(),
         cancelConversion: vi.fn(),
@@ -74,7 +76,10 @@ vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
 vi.mock('@electron/djvu/metadata', () => ({
     getDjvuOutline: mocks.getDjvuOutline,
     getDjvuPageCount: mocks.getDjvuPageCount,
+    getDjvuResolution: mocks.getDjvuResolution,
 }));
+
+vi.mock('@electron/features/djvu/main/pagePreview', () => ({getDjvuPageSizesForViewing: mocks.getDjvuPageSizesForViewing}));
 
 vi.mock('@electron/djvu/parseDjvuOutline', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
 vi.mock('@electron/djvu/embedBookmarksIntoPdfFile', () => ({embedBookmarksIntoPdfFile: mocks.embedBookmarksIntoPdfFile}));
@@ -162,6 +167,19 @@ describe('handleDjvuConvertToPdf', () => {
         mocks.unlink.mockResolvedValue(undefined);
         mocks.atomicReplace.mockResolvedValue(undefined);
         mocks.getDjvuPageCount.mockResolvedValue(2);
+        mocks.getDjvuResolution.mockResolvedValue(300);
+        mocks.getDjvuPageSizesForViewing.mockResolvedValue([
+            {
+                width: 1200,
+                height: 1600,
+                dpi: 300,
+            },
+            {
+                width: 1200,
+                height: 1600,
+                dpi: 300,
+            },
+        ]);
         mocks.getDjvuOutline.mockResolvedValue('(bookmarks)');
         mocks.parseDjvuOutline.mockReturnValue([{
             title: 'Chapter 1',
@@ -255,6 +273,34 @@ describe('handleDjvuConvertToPdf', () => {
             error: 'DjVu bookmark embedding requires the PDF worker for files larger than 64MB',
         });
         expect(mocks.embedBookmarksIntoPdfFile).not.toHaveBeenCalled();
+    });
+
+    it('rejects unsafe full-resolution direct PDF conversion before spawning ddjvu', async () => {
+        mocks.getDjvuPageCount.mockResolvedValue(564);
+        mocks.getDjvuResolution.mockResolvedValue(600);
+        mocks.getDjvuPageSizesForViewing.mockResolvedValue(Array.from({length: 564}, () => ({
+            width: 5100,
+            height: 6600,
+            dpi: 600,
+        })));
+
+        const result = await handleDjvuConvertToPdf(
+            createOperationContext(7) as never,
+            trustedDjvuPath,
+            '/tmp/output.pdf',
+            {
+                preserveBookmarks: true,
+                subsample: 1,
+            },
+        );
+
+        expect(result).toEqual({
+            success: false,
+            jobId: 'djvu-convert-convert-123',
+            error: expect.stringContaining('Choose Good Quality or higher'),
+        });
+        expect(mocks.convertDjvuToPdfFile).not.toHaveBeenCalled();
+        expect(mocks.getDjvuOutline).not.toHaveBeenCalled();
     });
 
     it('terminates the active bookmark worker when cancel is requested', async () => {

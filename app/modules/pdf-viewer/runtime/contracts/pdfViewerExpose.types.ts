@@ -86,6 +86,7 @@ export interface IDocumentViewerExpose {
     getViewerContainer: () => HTMLElement | null;
     getCurrentPage?: () => number;
     getPendingNavigationTargetPage?: () => number | null;
+    waitForViewerLoadSettled?: () => Promise<void>;
     scrollToPage: (page: number, options?: IScrollToPageOptions) => void;
     cancelProgrammaticNavigation?: () => void;
     getUserViewportInteractionEpoch?: () => number;

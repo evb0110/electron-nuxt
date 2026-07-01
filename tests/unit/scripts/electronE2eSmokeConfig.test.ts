@@ -50,7 +50,10 @@ const electronE2ESmokeTestFiles = [
 ];
 
 const electronE2EDrawShapeTestFiles = ['tests/e2e/electron/drawShapeLifecycle.e2e.test.ts'];
-const electronE2ELargePdfTestFiles = ['tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts'];
+const electronE2ELargePdfTestFiles = [
+    'tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts',
+    'tests/e2e/electron/largePdfNativePreview.e2e.test.ts',
+];
 const electronE2ERapidNavigationTestFiles = ['tests/e2e/electron/rapidPdfNavigation.e2e.test.ts'];
 const electronE2EQuarantineTestFiles = ['tests/e2e/electron/quarantine/**/*.e2e.test.ts'];
 

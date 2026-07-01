@@ -1,6 +1,7 @@
 import type {
     IDocumentsFileCapability,
     IDocumentsMenuCapability,
+    IPdfNativePagePreviewOptions,
     IPdfSaveAsOptions,
     IPdfOptimizeOptions,
     IPdfOptimizeProgress,
@@ -37,6 +38,8 @@ export const DOCUMENTS_CHANNELS = {
     fileRead: 'file:read',
     fileStat: 'file:stat',
     fileReadRange: 'file:readRange',
+    pdfNativePageSizes: 'pdf:nativePageSizes',
+    pdfNativePagePreview: 'pdf:nativePagePreview',
     fileReadText: 'file:readText',
     fileExists: 'file:exists',
     pdfAnalyzeConformance: 'pdf:analyzeConformance',
@@ -201,6 +204,14 @@ export interface IDocumentsInvokeMap {
     [DOCUMENTS_CHANNELS.fileReadRange]: {
         args: [path: string, offset: number, length: number];
         result: Awaited<ReturnType<IDocumentsFileCapability['readFileRange']>>;
+    };
+    [DOCUMENTS_CHANNELS.pdfNativePageSizes]: {
+        args: [path: string];
+        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['getPdfNativePageSizes']>>>;
+    };
+    [DOCUMENTS_CHANNELS.pdfNativePagePreview]: {
+        args: [path: string, pageNumber: number, options?: IPdfNativePagePreviewOptions];
+        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['renderPdfNativePagePreview']>>>;
     };
     [DOCUMENTS_CHANNELS.fileReadText]: {
         args: [path: string];

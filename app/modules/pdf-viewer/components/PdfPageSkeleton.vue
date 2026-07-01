@@ -117,7 +117,12 @@ const repeatParagraphs = computed(() => {
     inset: 0;
     border-radius: 2px;
     box-shadow: var(--shadow-sm);
-    background: var(--ui-bg);
+    background:
+        linear-gradient(
+            180deg,
+            color-mix(in oklab, var(--ui-bg) 86%, var(--ui-bg-muted) 14%),
+            color-mix(in oklab, var(--ui-bg) 78%, var(--ui-bg-muted) 22%)
+        );
     display: flex;
     justify-content: center;
     align-items: flex-start;
@@ -153,11 +158,13 @@ const repeatParagraphs = computed(() => {
 .formula,
 .formula-inline {
     border-radius: var(--app-radius-full);
+    background: color-mix(in oklab, var(--ui-text-muted) 18%, var(--ui-bg-muted) 82%);
 }
 
 .title-line {
     width: 60%;
     height: 1.2rem;
+    background: color-mix(in oklab, var(--ui-text-muted) 24%, var(--ui-bg-muted) 76%);
 }
 
 .subtitle-line {
@@ -214,11 +221,17 @@ const repeatParagraphs = computed(() => {
 @keyframes pdf-page-skeleton-pulse {
     0%,
     100% {
-        opacity: 0.45;
+        opacity: 0.72;
     }
 
     50% {
         opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .inner {
+        animation: none;
     }
 }
 </style>

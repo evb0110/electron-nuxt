@@ -165,7 +165,7 @@ bundle_lib_deps "$TESSERACT_DIR/lib"
 fix_lib_rpaths "$TESSERACT_DIR/lib"
 
 # ==========================================
-# 2. Poppler (pdftoppm, pdftotext, pdfimages)
+# 2. Poppler (pdfinfo, pdftoppm, pdftotext, pdfimages)
 # ==========================================
 echo ""
 echo "=========================================="
@@ -173,7 +173,7 @@ echo "2. Bundling Poppler tools..."
 echo "=========================================="
 
 POPPLER_DIR="$RESOURCES_DIR/poppler/$PLATFORM_ARCH"
-for tool in pdftoppm pdftotext pdfimages; do
+for tool in pdfinfo pdftoppm pdftotext pdfimages; do
   bundle_tool "$tool" "$POPPLER_DIR"
 done
 if [ -d /usr/share/poppler ]; then
@@ -268,6 +268,7 @@ missing_count=0
 
 verify_tool "$TESSERACT_DIR/bin/tesseract" "tesseract"
 verify_tool "$TESSERACT_DIR/bin/unpaper" "unpaper"
+verify_tool "$POPPLER_DIR/bin/pdfinfo" "pdfinfo"
 verify_tool "$POPPLER_DIR/bin/pdftoppm" "pdftoppm"
 verify_tool "$POPPLER_DIR/bin/pdftotext" "pdftotext"
 verify_tool "$POPPLER_DIR/bin/pdfimages" "pdfimages"

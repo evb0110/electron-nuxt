@@ -60,6 +60,7 @@ describe('PDF native tool path boundary', () => {
     it('resolves Poppler and QPDF paths from the native tools base', () => {
         const popplerBase = path.join('/repo/resources/poppler/darwin-arm64');
         const existingPaths = new Set([
+            path.join(popplerBase, 'bin', 'pdfinfo'),
             path.join(popplerBase, 'bin', 'pdftoppm'),
             path.join(popplerBase, 'bin', 'pdftotext'),
             path.join(popplerBase, 'bin', 'pdfimages'),
@@ -75,6 +76,7 @@ describe('PDF native tool path boundary', () => {
             platform: 'darwin',
             platformArch: 'darwin-arm64',
         })).toEqual({
+            pdfinfo: path.join(popplerBase, 'bin', 'pdfinfo'),
             pdftoppm: path.join(popplerBase, 'bin', 'pdftoppm'),
             pdftotext: path.join(popplerBase, 'bin', 'pdftotext'),
             pdfimages: path.join(popplerBase, 'bin', 'pdfimages'),
@@ -92,6 +94,7 @@ describe('PDF native tool path boundary', () => {
             platform: 'linux',
             platformArch: 'linux-x64',
         })).toEqual({
+            pdfinfo: 'pdfinfo',
             pdftoppm: 'pdftoppm',
             pdftotext: 'pdftotext',
             qpdf: 'qpdf',

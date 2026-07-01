@@ -14,9 +14,10 @@ import type {
 
 export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState | null) => {
     const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
+    const nativePdfViewerRef = ref<IDocumentViewerExpose | null>(null);
     const djvuViewerRef = ref<IDocumentViewerExpose | null>(null);
     const documentViewerRef = computed<IDocumentViewerExpose | null>(() => (
-        pdfViewerRef.value ?? djvuViewerRef.value
+        pdfViewerRef.value ?? nativePdfViewerRef.value ?? djvuViewerRef.value
     ));
     const zoomDropdownOpen = ref(false);
     const pageDropdownOpen = ref(false);
@@ -80,6 +81,7 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
 
     return {
         pdfViewerRef,
+        nativePdfViewerRef,
         djvuViewerRef,
         documentViewerRef,
         zoomDropdownOpen,

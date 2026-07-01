@@ -39,6 +39,8 @@ interface ICreateWorkspaceExposeDeps extends
     isPreparingPrint: Ref<boolean>;
     isPreparingCurrentPagePrint: Ref<boolean>;
     canSave: Ref<boolean>;
+    canRepairSave?: Ref<boolean>;
+    canOptimizePdf?: Ref<boolean>;
     canUndo: Ref<boolean>;
     canRedo: Ref<boolean>;
     canExportDocx: Ref<boolean>;
@@ -133,6 +135,23 @@ function clampZoomLevel(level: number) {
  * Keeping this mapping centralized avoids duplicating command wiring in component files.
  */
 export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorkspaceExpose {
+    const canRepairSave = () => deps.canRepairSave?.value ?? (
+        deps.hasPdf.value
+        && !deps.isOpeningDocument.value
+        && !deps.hasOpenError.value
+        && !deps.isAnySaving.value
+        && !deps.isHistoryBusy.value
+        && !deps.isDjvuMode.value
+    );
+    const canOptimizePdf = () => deps.canOptimizePdf?.value ?? (
+        deps.hasPdf.value
+        && !deps.isOpeningDocument.value
+        && !deps.hasOpenError.value
+        && !deps.isAnySaving.value
+        && !deps.isHistoryBusy.value
+        && !deps.isDjvuMode.value
+    );
+
     async function handleSaveFromCommandSurface() {
         const hasSaveableOpenNotes = deps.hasOpenAnnotationNotes?.value === true;
         if (
@@ -149,14 +168,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
     }
 
     async function handleRepairSaveFromCommandSurface() {
-        if (
-            !deps.hasPdf.value
-            || deps.isOpeningDocument.value
-            || deps.hasOpenError.value
-            || deps.isAnySaving.value
-            || deps.isHistoryBusy.value
-            || deps.isDjvuMode.value
-        ) {
+        if (!canRepairSave()) {
             return false;
         }
 
@@ -164,14 +176,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
     }
 
     async function handleOptimizePdfForInteractionFromCommandSurface() {
-        if (
-            !deps.hasPdf.value
-            || deps.isOpeningDocument.value
-            || deps.hasOpenError.value
-            || deps.isAnySaving.value
-            || deps.isHistoryBusy.value
-            || deps.isDjvuMode.value
-        ) {
+        if (!canOptimizePdf()) {
             return false;
         }
 
@@ -179,31 +184,28 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
     }
 
     function getToolbarSnapshot(): IWorkspaceToolbarSnapshot {
-        const currentPage = normalizeToolbarSnapshotPage(
-            deps.documentViewerRef?.value?.getCurrentPage?.()
-                ?? deps.pdfToolbarSnapshotViewerRef?.value?.getCurrentPage?.()
-                ?? deps.currentPage.value,
-        );
-        const totalPages = normalizeToolbarSnapshotTotalPages(deps.totalPages.value, currentPage);
+        const isOpeningDocument = deps.isOpeningDocument.value;
+        const currentPage = isOpeningDocument
+            ? 1
+            : normalizeToolbarSnapshotPage(
+                deps.documentViewerRef?.value?.getCurrentPage?.()
+                    ?? deps.pdfToolbarSnapshotViewerRef?.value?.getCurrentPage?.()
+                    ?? deps.currentPage.value,
+            );
+        const totalPages = isOpeningDocument
+            ? 0
+            : normalizeToolbarSnapshotTotalPages(deps.totalPages.value, currentPage);
+        const zoom = isOpeningDocument ? 1 : deps.zoom.value;
+        const effectiveZoom = isOpeningDocument ? 1 : deps.effectiveZoom.value;
         return {
             hasPdf: deps.hasPdf.value,
-            isOpeningDocument: deps.isOpeningDocument.value,
+            isOpeningDocument,
             hasOpenError: deps.hasOpenError.value,
             isPreparingPrint: deps.isPreparingPrint.value,
             isPreparingCurrentPagePrint: deps.isPreparingCurrentPagePrint.value,
             canSave: deps.canSave.value,
-            canRepairSave: deps.hasPdf.value
-                && !deps.isOpeningDocument.value
-                && !deps.hasOpenError.value
-                && !deps.isAnySaving.value
-                && !deps.isHistoryBusy.value
-                && !deps.isDjvuMode.value,
-            canOptimizePdf: deps.hasPdf.value
-                && !deps.isOpeningDocument.value
-                && !deps.hasOpenError.value
-                && !deps.isAnySaving.value
-                && !deps.isHistoryBusy.value
-                && !deps.isDjvuMode.value,
+            canRepairSave: canRepairSave(),
+            canOptimizePdf: canOptimizePdf(),
             canUndo: deps.canUndo.value,
             canRedo: deps.canRedo.value,
             canExportDocx: deps.canExportDocx.value,
@@ -221,8 +223,8 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             isCapturingRegion: deps.isCapturingRegion.value,
             isCropSelecting: deps.isCropSelecting.value,
             isPlacingPageNote: deps.isPlacingPageNote.value,
-            zoom: deps.zoom.value,
-            effectiveZoom: deps.effectiveZoom.value,
+            zoom,
+            effectiveZoom,
             zoomMode: deps.zoomMode.value,
             fitMode: deps.fitMode.value,
             viewMode: deps.viewMode.value,

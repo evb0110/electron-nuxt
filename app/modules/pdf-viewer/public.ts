@@ -53,3 +53,7 @@ export { getShapeRect } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/ge
 export { findPdfPageContainer } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/findPdfPageContainer';
 export { pdfViewerDomSelectors } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomSelectors';
 export { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
+export {
+    isPathPdfSource,
+    shouldUseNativePdfPreview,
+} from '@app/modules/pdf-viewer/runtime/pdfNativePreviewRouting';

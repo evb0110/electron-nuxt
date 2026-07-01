@@ -2,6 +2,7 @@ import type { IpcRenderer } from 'electron';
 import type {
     IDocumentsFileCapability,
     IDocumentChunkReadOptions,
+    IPdfNativePagePreviewOptions,
     IPdfOptimizeOptions,
     IPdfSaveAsOptions,
 } from '@contracts/electronApiDocuments';
@@ -110,6 +111,32 @@ function assertPdfOptimizeOptions(value: unknown, label: string): IPdfOptimizeOp
     }
 
     return { preset: value.preset as IPdfOptimizeOptions['preset'] };
+}
+
+function assertPdfNativePagePreviewOptions(
+    value: unknown,
+    label: string,
+): IPdfNativePagePreviewOptions | undefined {
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+    if (!isRecord(value)) {
+        throw new TypeError(`${label} must be an object`);
+    }
+    if (
+        value.targetWidthPx !== undefined
+        && (
+            typeof value.targetWidthPx !== 'number'
+            || !Number.isFinite(value.targetWidthPx)
+            || value.targetWidthPx < 1
+        )
+    ) {
+        throw new TypeError(`${label}.targetWidthPx must be a positive finite number`);
+    }
+
+    return value.targetWidthPx === undefined
+        ? undefined
+        : { targetWidthPx: Math.trunc(value.targetWidthPx) };
 }
 
 function assertPersistenceData(value: unknown, fieldName: string) {
@@ -374,6 +401,18 @@ export function createDocumentsPreloadFileClient(
         statFile: (path) => invoke(DOCUMENTS_CHANNELS.fileStat, path),
         readFileRange: (path, offset, length) =>
             invoke(DOCUMENTS_CHANNELS.fileReadRange, path, offset, length),
+        getPdfNativePageSizes: (path) =>
+            invoke(
+                DOCUMENTS_CHANNELS.pdfNativePageSizes,
+                assertAbsolutePath(path, 'getPdfNativePageSizes.path'),
+            ),
+        renderPdfNativePagePreview: (path, pageNumber, options) =>
+            invoke(
+                DOCUMENTS_CHANNELS.pdfNativePagePreview,
+                assertAbsolutePath(path, 'renderPdfNativePagePreview.path'),
+                assertPositiveInteger(pageNumber, 'renderPdfNativePagePreview.pageNumber'),
+                assertPdfNativePagePreviewOptions(options, 'renderPdfNativePagePreview.options'),
+            ),
         readFileChunks: async (path, options, onChunk) => {
             const checkedPath = assertAbsolutePath(path, 'readFileChunks.path');
             const chunkBytes = getChunkReadSize(options);

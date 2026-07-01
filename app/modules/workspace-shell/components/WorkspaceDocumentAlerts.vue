@@ -4,6 +4,7 @@
         color="error"
         variant="soft"
         class="mx-3 mt-2"
+        data-testid="workspace-document-pdf-error"
         :title="t('errors.file.open')"
         :description="String(pdfError)"
         :ui="{ title: 'sr-only' }"
@@ -14,6 +15,7 @@
         color="error"
         variant="soft"
         class="mx-3 mt-2"
+        data-testid="workspace-document-djvu-error"
         :description="String(djvuError)"
         :ui="{ title: 'sr-only' }"
     />

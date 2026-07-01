@@ -1,5 +1,5 @@
 <template>
-    <div ref="workspaceHostRef" class="workspace-host">
+    <div class="workspace-host">
         <div
             v-if="workspaceRequested && DocumentWorkspace"
             v-show="!isPlaceholderVisible"
@@ -14,6 +14,7 @@
                 :is-tab-transition-busy="isTabTransitionBusy"
                 :initial-view-state="initialViewState"
                 :pending-document-open="isDocumentOpenInFlight"
+                :pending-document-path="pendingDocumentPath"
                 :start-section="startSection"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
@@ -49,21 +50,10 @@
             />
         </div>
 
-        <div
-            v-if="isOpeningDocumentSkeletonVisible"
-            class="workspace-host__opening-skeleton"
-            aria-hidden="true"
-        >
-            <div
-                class="workspace-host__opening-skeleton-page"
-                :style="openingDocumentSkeletonPageStyle"
-            >
-                <PdfPageSkeleton
-                    :padding="openingDocumentSkeletonPadding"
-                    :content-height="openingDocumentSkeletonContentHeight"
-                />
-            </div>
-        </div>
+        <WorkspaceHostDocumentOpenFallback
+            v-if="showHostDocumentOpenSkeleton"
+            :path="pendingDocumentPath"
+        />
 
         <div
             v-if="isHostErrorVisible"
@@ -102,16 +92,11 @@
 </template>
 
 <script setup lang="ts">
-import { clamp } from 'es-toolkit/math';
 import { delay } from 'es-toolkit/promise';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
 import type { TTabUpdate } from '@app/types/tabs';
-import {
-    useEventListener,
-    useResizeObserver,
-} from '@vueuse/core';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     type IWorkspaceExpose,
@@ -124,7 +109,7 @@ import { shouldRetryAsyncChunkLoad } from '@app/modules/workspace-shell/host/sho
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
-import { PdfPageSkeleton } from '@app/modules/pdf-viewer/public/component-exports/pdfPageSkeleton';
+import WorkspaceHostDocumentOpenFallback from '@app/modules/workspace-shell/components/WorkspaceHostDocumentOpenFallback.vue';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/host/resolveWorkspaceRequestedState';
 import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceOnHostMount';
@@ -138,7 +123,6 @@ import { createDeferredWorkspaceExposeProxy } from '@app/modules/workspace-shell
 import type { TStartSection } from '@app/types/startSection';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
-import type { IContentInsets } from '@app/types/pdf';
 
 const {
     hasDocumentHint = false,
@@ -228,13 +212,6 @@ function handleWorkspaceExposeReleased() {
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 const LOADER_LOG_SECTION = 'loader';
 const DOCUMENT_OPEN_SETTLE_TIMEOUT_MS = 4_000;
-const OPENING_DOCUMENT_SKELETON_FALLBACK_WIDTH_PX = 960;
-const OPENING_DOCUMENT_SKELETON_FALLBACK_HEIGHT_PX = 720;
-const OPENING_DOCUMENT_SKELETON_MIN_WIDTH_PX = 320;
-const OPENING_DOCUMENT_SKELETON_MIN_HEIGHT_PX = 420;
-const OPENING_DOCUMENT_SKELETON_ASPECT_RATIO = 4 / 3;
-const OPENING_DOCUMENT_SKELETON_FRAME_PADDING_PX = 24;
-const OPENING_DOCUMENT_SKELETON_SETTLE_FRAME_COUNT = 4;
 
 interface IDocumentOpenTransaction {
     id: number;
@@ -248,17 +225,9 @@ interface IDocumentOpenIntent {
     target?: TTabUpdate | null;
 }
 
-interface IOpeningDocumentSkeletonFrame {
-    transactionId: number;
-    width: number;
-    height: number;
-    padding: IContentInsets;
-}
-
 const loadDocumentWorkspace = () => import('@app/modules/workspace-shell/components/DocumentWorkspace.vue');
 const workspaceChunkLoadError = ref<unknown>(null);
 const workspaceRenderNonce = ref(0);
-const workspaceHostRef = ref<HTMLElement | null>(null);
 const chunkRetryTimers = new Set<ReturnType<typeof setTimeout>>();
 const ASYNC_CHUNK_RETRY_DELAY_STEP_MS = 150;
 const WORKSPACE_MOUNT_POLL_INTERVAL_MS = 25;
@@ -300,13 +269,10 @@ let workspaceLoadPromise: Promise<IWorkspaceExpose | null> | null = null;
 let workspacePreloadPromise: Promise<boolean> | null = null;
 let isHostUnmounted = false;
 let nextDocumentOpenTransactionId = 0;
-let openingDocumentSkeletonRefreshRaf: number | null = null;
-let openingDocumentSkeletonSettleRafIds: number[] = [];
 const activeDocumentOpenTransaction = ref<IDocumentOpenTransaction | null>(null);
 const documentOpenInFlightCount = ref(0);
 const filePickerInFlightCount = ref(0);
 const workspaceSplitCache = useWorkspaceSplitCache();
-const openingDocumentSkeletonFrame = shallowRef<IOpeningDocumentSkeletonFrame | null>(null);
 const WORKSPACE_MOUNT_TIMEOUT_MS = 30_000;
 const WORKSPACE_MOUNT_RETRY_TIMEOUT_MS = 20_000;
 const restoredDocumentPaths = new Set<string>();
@@ -332,6 +298,10 @@ const workspaceVisibleDocument = computed(() => {
     return snapshot.hasPdf || snapshot.isDjvuMode || snapshot.isOpeningDocument || snapshot.hasOpenError;
 });
 const hasPendingDocumentHint = computed(() => hasDocumentHint === true && !workspaceVisibleDocument.value);
+const pendingDocumentPath = computed(() => (
+    activeDocumentOpenTransaction.value?.target?.originalPath
+    ?? (hasDocumentHint === true ? documentPath : null)
+));
 const isPlaceholderVisible = computed(() => (
     shouldShowWorkspacePlaceholder({
         hasQueuedSplitRestore: hasQueuedSplitRestore.value,
@@ -394,22 +364,18 @@ function emitCurrentViewSessionState(snapshot: IWorkspaceToolbarSnapshot = readW
     emit('update-session-state', createTabViewSessionState(snapshot));
 }
 const hasQueuedSplitRestore = computed(() => workspaceSplitCache.has(tabId));
-const isDocumentOpenInFlight = computed(() => (
-    documentOpenInFlightCount.value > 0
-    || activeDocumentOpenTransaction.value !== null
-));
+const isDocumentOpenInFlight = computed(() => documentOpenInFlightCount.value > 0 || activeDocumentOpenTransaction.value !== null);
 const isFilePickerInFlight = computed(() => filePickerInFlightCount.value > 0);
 // Startup open-claim is a background probe. Mark the open UI busy only once the
 // user or restore flow is actually opening a document.
-const isOpenUiBusy = computed(() => (
-    isDocumentOpenInFlight.value
-    || isFilePickerInFlight.value
-));
+const isOpenUiBusy = computed(() => isDocumentOpenInFlight.value || isFilePickerInFlight.value);
 let documentOpenQueue: Promise<unknown> = Promise.resolve();
-const isHostErrorVisible = computed(() => (
-    hasWorkspaceChunkLoadError.value
-    && workspaceRequested.value
+const isHostErrorVisible = computed(() => hasWorkspaceChunkLoadError.value && workspaceRequested.value && !hasMountedWorkspace.value);
+const showHostDocumentOpenSkeleton = computed(() => (
+    isDocumentOpenInFlight.value
     && !hasMountedWorkspace.value
+    && !hasWorkspaceChunkLoadError.value
+    && !isPlaceholderVisible.value
 ));
 const isHostLoaderVisible = computed(() => (
     shouldShowWorkspaceHostLoader({
@@ -436,24 +402,18 @@ const loaderVariant = computed(() => {
 
     return 'none';
 });
-const isOpeningDocumentSkeletonVisible = computed(() => (
-    !isHostErrorVisible.value
-    && isDocumentOpenInFlight.value
-    && openingDocumentSkeletonFrame.value !== null
-));
-const openingDocumentSkeletonPageStyle = computed<Record<string, string>>(() => {
-    const frame = openingDocumentSkeletonFrame.value;
-    return {
-        width: `${frame?.width ?? OPENING_DOCUMENT_SKELETON_FALLBACK_WIDTH_PX}px`,
-        height: `${frame?.height ?? OPENING_DOCUMENT_SKELETON_FALLBACK_HEIGHT_PX}px`,
-    };
-});
-const openingDocumentSkeletonPadding = computed<IContentInsets | null>(() => (
-    openingDocumentSkeletonFrame.value?.padding ?? null
-));
-const openingDocumentSkeletonContentHeight = computed(() => (
-    openingDocumentSkeletonFrame.value?.height ?? null
-));
+
+function requestWorkspaceMount(reason: string) {
+    if (workspaceRequested.value) {
+        return;
+    }
+
+    workspaceRequested.value = true;
+    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Requesting workspace mount', {
+        tabId: tabId,
+        reason,
+    });
+}
 
 watch(
     [
@@ -624,9 +584,7 @@ function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
         emit('update-tab', target);
     }
 
-    cancelOpeningDocumentSkeletonFrameRefreshes();
-    openingDocumentSkeletonFrame.value = captureOpeningDocumentSkeletonFrame(transaction.id);
-    scheduleOpeningDocumentSkeletonFrameSettleRefreshes(transaction.id);
+    requestWorkspaceMount(`document-open:${intent.action}`);
 
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Document open transaction started', {
         tabId: tabId,
@@ -696,11 +654,6 @@ function finishDocumentOpenTransaction(transaction: IDocumentOpenTransaction, op
         activeDocumentOpenTransaction.value = null;
     }
 
-    if (openingDocumentSkeletonFrame.value?.transactionId === transaction.id) {
-        cancelOpeningDocumentSkeletonFrameRefreshes();
-        openingDocumentSkeletonFrame.value = null;
-    }
-
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Document open transaction finished', {
         tabId: tabId,
         transactionId: transaction.id,
@@ -709,181 +662,6 @@ function finishDocumentOpenTransaction(transaction: IDocumentOpenTransaction, op
         hasTerminalDocumentState: workspaceHasDocumentOrOpenError(),
     });
 }
-
-function clampOpeningDocumentSkeletonDimension(value: number, min: number, max: number) {
-    return clamp(value, min, Math.max(min, max));
-}
-
-function buildOpeningDocumentSkeletonPadding(width: number, height: number): IContentInsets {
-    const horizontal = clampOpeningDocumentSkeletonDimension(width * 0.08, 24, width / 3);
-    const vertical = clampOpeningDocumentSkeletonDimension(height * 0.1, 32, height / 3);
-
-    return {
-        top: vertical,
-        right: horizontal,
-        bottom: vertical,
-        left: horizontal,
-    };
-}
-
-function isOpeningDocumentSkeletonFrameEqual(
-    current: IOpeningDocumentSkeletonFrame,
-    next: IOpeningDocumentSkeletonFrame,
-) {
-    return current.transactionId === next.transactionId
-        && current.width === next.width
-        && current.height === next.height
-        && current.padding.top === next.padding.top
-        && current.padding.right === next.padding.right
-        && current.padding.bottom === next.padding.bottom
-        && current.padding.left === next.padding.left;
-}
-
-function resolveOpeningDocumentSkeletonHostWidth(host: HTMLElement | null) {
-    const measuredHostWidth = host
-        ? Math.max(host.clientWidth, host.getBoundingClientRect().width)
-        : 0;
-    if (measuredHostWidth > 0) {
-        return measuredHostWidth;
-    }
-
-    if (!import.meta.client) {
-        return OPENING_DOCUMENT_SKELETON_FALLBACK_WIDTH_PX;
-    }
-
-    const documentElementWidth = document.documentElement?.clientWidth ?? 0;
-    const viewportWidth = window.visualViewport?.width ?? 0;
-    const windowWidth = window.innerWidth;
-
-    return Math.max(
-        documentElementWidth,
-        viewportWidth,
-        windowWidth,
-        OPENING_DOCUMENT_SKELETON_FALLBACK_WIDTH_PX,
-    );
-}
-
-function captureOpeningDocumentSkeletonFrame(transactionId: number): IOpeningDocumentSkeletonFrame {
-    const host = workspaceHostRef.value;
-    const hostWidth = resolveOpeningDocumentSkeletonHostWidth(host);
-    const width = Math.max(
-        OPENING_DOCUMENT_SKELETON_MIN_WIDTH_PX,
-        hostWidth - OPENING_DOCUMENT_SKELETON_FRAME_PADDING_PX * 2,
-    );
-    const height = Math.max(
-        OPENING_DOCUMENT_SKELETON_MIN_HEIGHT_PX,
-        width / OPENING_DOCUMENT_SKELETON_ASPECT_RATIO,
-    );
-
-    const roundedWidth = Math.round(width);
-    const roundedHeight = Math.round(height);
-
-    return {
-        transactionId,
-        width: roundedWidth,
-        height: roundedHeight,
-        padding: buildOpeningDocumentSkeletonPadding(roundedWidth, roundedHeight),
-    };
-}
-
-function refreshOpeningDocumentSkeletonFrame(transactionId: number) {
-    const currentFrame = openingDocumentSkeletonFrame.value;
-    if (!currentFrame || currentFrame.transactionId !== transactionId) {
-        return;
-    }
-
-    const nextFrame = captureOpeningDocumentSkeletonFrame(transactionId);
-    if (isOpeningDocumentSkeletonFrameEqual(currentFrame, nextFrame)) {
-        return;
-    }
-
-    openingDocumentSkeletonFrame.value = nextFrame;
-}
-
-function requestOpeningDocumentSkeletonFrameRefresh(transactionId = openingDocumentSkeletonFrame.value?.transactionId ?? null) {
-    if (!import.meta.client || transactionId === null || isHostUnmounted) {
-        return;
-    }
-    if (openingDocumentSkeletonRefreshRaf !== null) {
-        return;
-    }
-
-    openingDocumentSkeletonRefreshRaf = window.requestAnimationFrame(() => {
-        openingDocumentSkeletonRefreshRaf = null;
-        refreshOpeningDocumentSkeletonFrame(transactionId);
-    });
-}
-
-function cancelOpeningDocumentSkeletonFrameRefreshes() {
-    if (!import.meta.client) {
-        return;
-    }
-
-    if (openingDocumentSkeletonRefreshRaf !== null) {
-        window.cancelAnimationFrame(openingDocumentSkeletonRefreshRaf);
-        openingDocumentSkeletonRefreshRaf = null;
-    }
-
-    for (const rafId of openingDocumentSkeletonSettleRafIds) {
-        window.cancelAnimationFrame(rafId);
-    }
-    openingDocumentSkeletonSettleRafIds = [];
-}
-
-function queueOpeningDocumentSkeletonSettleFrame(transactionId: number, framesRemaining: number) {
-    if (
-        !import.meta.client
-        || framesRemaining <= 0
-        || isHostUnmounted
-        || openingDocumentSkeletonFrame.value?.transactionId !== transactionId
-    ) {
-        return;
-    }
-
-    const rafId = window.requestAnimationFrame(() => {
-        openingDocumentSkeletonSettleRafIds = openingDocumentSkeletonSettleRafIds.filter(id => id !== rafId);
-        refreshOpeningDocumentSkeletonFrame(transactionId);
-        queueOpeningDocumentSkeletonSettleFrame(transactionId, framesRemaining - 1);
-    });
-    openingDocumentSkeletonSettleRafIds.push(rafId);
-}
-
-function scheduleOpeningDocumentSkeletonFrameSettleRefreshes(transactionId: number) {
-    if (!import.meta.client) {
-        return;
-    }
-
-    // Finder cold-start opens can reach the renderer while Electron is still
-    // applying maximize/layout. Keep the opening skeleton tied to settled host
-    // geometry instead of preserving the first pre-resize measurement.
-    void nextTick().then(() => {
-        refreshOpeningDocumentSkeletonFrame(transactionId);
-        queueOpeningDocumentSkeletonSettleFrame(
-            transactionId,
-            OPENING_DOCUMENT_SKELETON_SETTLE_FRAME_COUNT,
-        );
-    });
-}
-
-function scheduleOpeningDocumentSkeletonFrameRefreshForCurrentTransaction() {
-    requestOpeningDocumentSkeletonFrameRefresh();
-}
-
-watch(workspaceHostRef, scheduleOpeningDocumentSkeletonFrameRefreshForCurrentTransaction, {flush: 'post'});
-
-useResizeObserver(workspaceHostRef, scheduleOpeningDocumentSkeletonFrameRefreshForCurrentTransaction);
-
-useEventListener(
-    import.meta.client ? window : undefined,
-    'resize',
-    scheduleOpeningDocumentSkeletonFrameRefreshForCurrentTransaction,
-);
-
-useEventListener(
-    import.meta.client ? window.visualViewport : undefined,
-    'resize',
-    scheduleOpeningDocumentSkeletonFrameRefreshForCurrentTransaction,
-);
 
 async function runWithDocumentOpenInFlight<T>(
     intent: IDocumentOpenIntent,
@@ -1001,6 +779,8 @@ async function ensureWorkspaceLoaded(reason: string) {
         return null;
     }
 
+    requestWorkspaceMount(`ensureWorkspaceLoaded:${reason}`);
+
     const preloadSucceeded = await preloadWorkspaceComponent(`ensureWorkspaceLoaded:${reason}`);
     if (!preloadSucceeded) {
         BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Proceeding with workspace mount after preload failure', {
@@ -1009,13 +789,6 @@ async function ensureWorkspaceLoaded(reason: string) {
         });
     }
 
-    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Requesting workspace mount', {
-        tabId: tabId,
-        reason,
-        workspaceRequested: workspaceRequested.value,
-    });
-
-    workspaceRequested.value = true;
     workspaceLoadPromise ??= waitForWorkspaceMount().finally(() => {
         workspaceLoadPromise = null;
     });
@@ -1249,7 +1022,6 @@ onUnmounted(() => {
     emit('expose-released');
     workspaceLoadPromise = null;
     workspacePreloadPromise = null;
-    cancelOpeningDocumentSkeletonFrameRefreshes();
     for (const timer of chunkRetryTimers) {
         clearTimeout(timer);
     }
@@ -1310,31 +1082,10 @@ defineExpose(workspaceExpose);
     min-height: 0;
 }
 
-.workspace-host__opening-skeleton {
-    position: absolute;
-    inset: 0;
-    z-index: 10;
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    box-sizing: border-box;
-    padding: 1.5rem;
-    overflow: hidden;
-    pointer-events: none;
-    background: var(--app-pdf-viewer-bg, var(--app-window-bg));
-}
-
-.workspace-host__opening-skeleton-page {
-    position: relative;
-    flex: 0 0 auto;
-    overflow: hidden;
-    box-shadow: var(--pdf-page-shadow);
-}
-
 .workspace-host__loading {
     position: absolute;
     inset: 0;
-    z-index: 20;
+    z-index: 30;
     display: flex;
     align-items: center;
     justify-content: center;

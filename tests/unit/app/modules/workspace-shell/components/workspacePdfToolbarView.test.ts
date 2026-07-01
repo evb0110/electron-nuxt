@@ -43,7 +43,7 @@ describe('workspace PDF toolbar wiring', () => {
     it('uses the same opening-document state for live and shell toolbar snapshots', () => {
         const documentWorkspace = readWorkspaceFile('app/modules/workspace-shell/components/DocumentWorkspace.vue');
 
-        expect(documentWorkspace).toContain('isOpeningDocument: isOpeningDocumentForToolbar.value');
+        expect(documentWorkspace).toContain('isOpeningDocument: isOpeningDocumentForToolbarDisplay.value');
         expect(documentWorkspace).not.toContain('isOpeningDocument: pendingDocumentOpen.value');
     });
 });

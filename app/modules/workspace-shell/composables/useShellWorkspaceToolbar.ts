@@ -65,50 +65,66 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
     let missingToolbarWarningTimer: ReturnType<typeof setTimeout> | null = null;
     let warnedMissingToolbarForKey: string | null = null;
 
+    function normalizeShellToolbarSnapshot(snapshot: IWorkspaceToolbarSnapshot): IWorkspaceToolbarSnapshot {
+        const normalizedHasPdf = snapshot.hasPdf;
+        let normalizedCurrentPage = 1;
+        let normalizedTotalPages = 0;
+
+        if (!snapshot.isOpeningDocument && normalizedHasPdf) {
+            normalizedCurrentPage = Math.max(1, Math.floor(snapshot.currentPage));
+            normalizedTotalPages = Math.max(normalizedCurrentPage, Math.floor(snapshot.totalPages));
+        }
+
+        const normalizedZoom = snapshot.isOpeningDocument ? 1 : snapshot.zoom;
+        const normalizedEffectiveZoom = snapshot.isOpeningDocument ? 1 : snapshot.effectiveZoom;
+
+        return {
+            ...snapshot,
+            zoom: normalizedZoom,
+            effectiveZoom: normalizedEffectiveZoom,
+            currentPage: normalizedCurrentPage,
+            totalPages: normalizedTotalPages,
+        };
+    }
+
     function applyShellToolbarSnapshot(snapshot: IWorkspaceToolbarSnapshot | null | undefined) {
         if (!snapshot) {
             return;
         }
 
-        const normalizedHasPdf = snapshot.hasPdf;
-        const normalizedCurrentPage = normalizedHasPdf
-            ? Math.max(1, Math.floor(snapshot.currentPage))
-            : 1;
-        const normalizedTotalPages = normalizedHasPdf
-            ? Math.max(normalizedCurrentPage, Math.floor(snapshot.totalPages))
-            : 0;
+        const normalizedSnapshot = normalizeShellToolbarSnapshot(snapshot);
 
-        shellToolbarCanSave.value = snapshot.canSave;
-        shellToolbarCanRepairSave.value = snapshot.canRepairSave;
-        shellToolbarCanOptimizePdf.value = snapshot.canOptimizePdf;
-        shellToolbarCanUndo.value = snapshot.canUndo;
-        shellToolbarCanRedo.value = snapshot.canRedo;
-        shellToolbarCanExportDocx.value = snapshot.canExportDocx;
-        shellToolbarIsSaving.value = snapshot.isSaving;
-        shellToolbarIsSavingAs.value = snapshot.isSavingAs;
-        shellToolbarIsAnySaving.value = snapshot.isAnySaving;
-        shellToolbarIsHistoryBusy.value = snapshot.isHistoryBusy;
-        shellToolbarIsExportingDocx.value = snapshot.isExportingDocx;
-        shellToolbarIsOpeningDocument.value = snapshot.isOpeningDocument;
-        shellToolbarHasOpenError.value = snapshot.hasOpenError;
-        shellToolbarIsPreparingPrint.value = snapshot.isPreparingPrint;
-        shellToolbarIsPreparingCurrentPagePrint.value = snapshot.isPreparingCurrentPagePrint;
-        shellToolbarIsFitWidthActive.value = snapshot.isFitWidthActive;
-        shellToolbarIsFitHeightActive.value = snapshot.isFitHeightActive;
-        shellToolbarShowSidebar.value = snapshot.showSidebar;
-        shellToolbarDragMode.value = snapshot.dragMode;
-        shellToolbarContinuousScroll.value = snapshot.continuousScroll;
-        shellToolbarIsDjvuMode.value = snapshot.isDjvuMode;
-        shellToolbarIsCapturingRegion.value = snapshot.isCapturingRegion;
-        shellToolbarIsCropSelecting.value = snapshot.isCropSelecting;
-        shellToolbarIsPlacingPageNote.value = snapshot.isPlacingPageNote;
-        shellToolbarZoom.value = snapshot.zoom;
-        shellToolbarEffectiveZoom.value = snapshot.effectiveZoom;
-        shellToolbarZoomMode.value = snapshot.zoomMode;
-        shellToolbarFitMode.value = snapshot.fitMode;
-        shellToolbarViewMode.value = snapshot.viewMode;
-        shellToolbarCurrentPage.value = normalizedCurrentPage;
-        shellToolbarTotalPages.value = normalizedTotalPages;
+        shellToolbarCanSave.value = normalizedSnapshot.canSave;
+        shellToolbarCanRepairSave.value = normalizedSnapshot.canRepairSave;
+        shellToolbarCanOptimizePdf.value = normalizedSnapshot.canOptimizePdf;
+        shellToolbarCanUndo.value = normalizedSnapshot.canUndo;
+        shellToolbarCanRedo.value = normalizedSnapshot.canRedo;
+        shellToolbarCanExportDocx.value = normalizedSnapshot.canExportDocx;
+        shellToolbarIsSaving.value = normalizedSnapshot.isSaving;
+        shellToolbarIsSavingAs.value = normalizedSnapshot.isSavingAs;
+        shellToolbarIsAnySaving.value = normalizedSnapshot.isAnySaving;
+        shellToolbarIsHistoryBusy.value = normalizedSnapshot.isHistoryBusy;
+        shellToolbarIsExportingDocx.value = normalizedSnapshot.isExportingDocx;
+        shellToolbarIsOpeningDocument.value = normalizedSnapshot.isOpeningDocument;
+        shellToolbarHasOpenError.value = normalizedSnapshot.hasOpenError;
+        shellToolbarIsPreparingPrint.value = normalizedSnapshot.isPreparingPrint;
+        shellToolbarIsPreparingCurrentPagePrint.value = normalizedSnapshot.isPreparingCurrentPagePrint;
+        shellToolbarIsFitWidthActive.value = normalizedSnapshot.isFitWidthActive;
+        shellToolbarIsFitHeightActive.value = normalizedSnapshot.isFitHeightActive;
+        shellToolbarShowSidebar.value = normalizedSnapshot.showSidebar;
+        shellToolbarDragMode.value = normalizedSnapshot.dragMode;
+        shellToolbarContinuousScroll.value = normalizedSnapshot.continuousScroll;
+        shellToolbarIsDjvuMode.value = normalizedSnapshot.isDjvuMode;
+        shellToolbarIsCapturingRegion.value = normalizedSnapshot.isCapturingRegion;
+        shellToolbarIsCropSelecting.value = normalizedSnapshot.isCropSelecting;
+        shellToolbarIsPlacingPageNote.value = normalizedSnapshot.isPlacingPageNote;
+        shellToolbarZoom.value = normalizedSnapshot.zoom;
+        shellToolbarEffectiveZoom.value = normalizedSnapshot.effectiveZoom;
+        shellToolbarZoomMode.value = normalizedSnapshot.zoomMode;
+        shellToolbarFitMode.value = normalizedSnapshot.fitMode;
+        shellToolbarViewMode.value = normalizedSnapshot.viewMode;
+        shellToolbarCurrentPage.value = normalizedSnapshot.currentPage;
+        shellToolbarTotalPages.value = normalizedSnapshot.totalPages;
     }
 
     function readToolbarSnapshot(workspace: IWorkspaceExpose | null) {
@@ -139,10 +155,10 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
     const shellToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => {
         const liveSnapshot = readToolbarSnapshot(options.activeWorkspace.value);
         if (liveSnapshot) {
-            return {
+            return normalizeShellToolbarSnapshot({
                 ...liveSnapshot,
                 hasPdf: liveSnapshot.hasPdf || shellToolbarHasPdf.value,
-            };
+            });
         }
 
         return {

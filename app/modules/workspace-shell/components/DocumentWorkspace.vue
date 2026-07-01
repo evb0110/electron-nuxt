@@ -12,7 +12,7 @@
                 :surface="toolbarSurface"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
-                :document-busy="toolbarDocumentBusy"
+                :document-busy="toolbarDocumentBusyForDisplay"
                 :controls-disabled="toolbarControlsDisabled"
                 :page-dropdown-total-pages="documentMetadataReady ? totalPages : 0"
                 :page-labels="toolbarPageLabels"
@@ -91,7 +91,7 @@
         />
 
         <WorkspaceSidebarHost
-            :show-sidebar="Boolean(pdfSrc && showSidebar)"
+            :show-sidebar="Boolean(showStandardPdfViewer && showSidebar)"
             :sidebar-wrapper-style="sidebarWrapperStyle"
             :is-resizing-sidebar="isResizingSidebar"
             :resize-aria-label="t('sidebar.resize')"
@@ -163,18 +163,19 @@
                 />
             </template>
 
+            <!-- The overlay prop is lease-only once a viewer is mounted; the transition slot also serves the pre-viewer fallback path. -->
             <WorkspaceViewerHost
-                :has-document="Boolean(pdfSrc) || showNativeDjvuViewer"
+                :has-document="showWorkspaceViewerDocument"
+                :show-transition-overlay="showDocumentTransitionSkeleton"
                 :suppress-empty-state="suppressEmptyState || isDocumentOpenPlaceholderVisible"
             >
                 <template #document>
                     <PdfViewer
-                        v-if="pdfSrc"
+                        v-if="showStandardPdfViewer"
                         ref="pdfViewerRef"
                         :src="pdfSrc!"
                         :reload-src="pdfReloadSrc"
                         :source-pdf-data="viewerSourcePdfData"
-                        :suppress-loading-overlay="pendingDocumentOpen"
                         :is-any-saving="isAnySaving"
                         :zoom="zoom"
                         :zoom-mode="zoomMode"
@@ -203,8 +204,8 @@
                         @update:total-pages="handleViewerTotalPagesUpdate"
                         @update:document="pdfDocument = $event"
                         @loading="isLoading = $event"
-                        @initial-visual-pending="handlePdfInitialVisualPending"
-                        @initial-visual-ready="handlePdfInitialVisualReady"
+                        @initial-visual-pending="handleDocumentInitialVisualPending"
+                        @initial-visual-ready="handleDocumentInitialVisualReady"
                         @annotation-state="handleAnnotationState"
                         @annotation-modified="handleAnnotationModified"
                         @annotation-comments="handleAnnotationComments"
@@ -217,6 +218,25 @@
                         @annotation-note-placement-change="annotationPlacingPageNote = $event"
                         @shape-context-menu="annotationSession.handleShapeContextMenu"
                         @image-placement-finalize="annotationSession.handleFinalizePlacedImage"
+                    />
+                    <NativePdfViewer
+                        v-else-if="showNativePdfViewer"
+                        ref="nativePdfViewerRef"
+                        :src="nativePdfSourcePath"
+                        :zoom="zoom"
+                        :zoom-mode="zoomMode"
+                        :fit-mode="fitMode"
+                        :view-mode="viewMode"
+                        :continuous-scroll="continuousScroll"
+                        :drag-mode="dragMode"
+                        :is-active="isRenderActive"
+                        @update:effective-zoom="effectiveZoom = $event"
+                        @update:current-page="handleViewerCurrentPageUpdate"
+                        @update:total-pages="handleViewerTotalPagesUpdate"
+                        @update:document="pdfDocument = $event"
+                        @loading="isLoading = $event"
+                        @initial-visual-pending="handleDocumentInitialVisualPending"
+                        @initial-visual-ready="handleDocumentInitialVisualReady"
                     />
                     <DjvuViewer
                         v-else-if="showNativeDjvuViewer"
@@ -234,7 +254,12 @@
                         @update:total-pages="handleViewerTotalPagesUpdate"
                         @update:document="pdfDocument = $event"
                         @loading="isLoading = $event"
+                        @initial-visual-pending="handleDocumentInitialVisualPending"
+                        @initial-visual-ready="handleDocumentInitialVisualReady"
                     />
+                </template>
+                <template #transition>
+                    <WorkspaceDocumentTransitionSkeleton v-if="showWorkspaceTransitionSkeleton" />
                 </template>
                 <template #empty>
                     <PdfEmptyState
@@ -269,7 +294,7 @@
                 :file-name="statusFileName"
                 :file-path="statusFilePath"
                 :file-size-label="statusFileSizeLabel"
-                :zoom-label="statusZoomLabel"
+                :zoom-label="statusZoomLabelForDisplay"
                 :can-show-in-folder="statusCanShowInFolder"
                 :show-in-folder-tooltip="statusShowInFolderTooltip"
                 :show-in-folder-aria-label="statusShowInFolderAriaLabel"
@@ -424,7 +449,10 @@ import { useWorkspaceStartupReadiness } from '@app/modules/workspace-shell/compo
 import { useWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorkspaceOrchestration';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
-import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-viewer/public';
+import { useWorkspaceViewerVisibility } from '@app/modules/workspace-shell/composables/useWorkspaceViewerVisibility';
+import { useDocumentWorkspaceVisualOpeningState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceVisualOpeningState';
+import { useDocumentTransitionSkeletonLease } from '@app/modules/workspace-shell/composables/useDocumentTransitionSkeletonLease';
+import WorkspaceDocumentTransitionSkeleton from '@app/modules/workspace-shell/components/WorkspaceDocumentTransitionSkeleton.vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TTabUpdate } from '@app/types/tabs';
@@ -446,14 +474,9 @@ import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandS
 import type { IRecentFile } from '@contracts/shared';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 
-const DjvuConversionOverlay = defineAsyncComponent(
-    () => import('@app/modules/djvu-viewer/public')
-        .then(componentModule => componentModule.DjvuConversionOverlay),
-);
-const DjvuViewer = defineAsyncComponent(
-    () => import('@app/modules/djvu-viewer/public')
-        .then(componentModule => componentModule.DjvuViewer),
-);
+const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/modules/djvu-viewer/public').then(componentModule => componentModule.DjvuConversionOverlay));
+const DjvuViewer = defineAsyncComponent(() => import('@app/modules/djvu-viewer/public').then(componentModule => componentModule.DjvuViewer));
+const NativePdfViewer = defineAsyncComponent(() => import('@app/modules/native-pdf-viewer/public').then(componentModule => componentModule.NativePdfViewer));
 
 const {
     fullscreenSupported,
@@ -463,6 +486,7 @@ const {
     isTabTransitionBusy,
     initialViewState = null,
     pendingDocumentOpen: pendingDocumentOpenProp = false,
+    pendingDocumentPath = null,
     startSection = 'recent',
     tabId,
 } = defineProps<{
@@ -474,6 +498,7 @@ const {
     fullscreenSupported: boolean;
     initialViewState?: ITabViewSessionState | null | undefined;
     pendingDocumentOpen?: boolean | undefined;
+    pendingDocumentPath?: TDocumentRef | null | undefined;
     startSection?: TStartSection | undefined;
 }>();
 
@@ -544,6 +569,9 @@ const currentPageTransitionHistory = ref<Array<{
 }>>([]);
 const navigationFeedbackPage = ref<number | null>(null);
 const pendingDocumentOpen = computed(() => pendingDocumentOpenProp === true);
+const pendingDocumentStatusPath = computed<TDocumentRef | null>(() => (
+    pendingDocumentOpen.value ? pendingDocumentPath : null
+));
 const isActiveRef = computed({
     get: () => isActive,
     set: () => {},
@@ -552,6 +580,7 @@ const isActiveRef = computed({
 const orchestration = useWorkspaceOrchestration({
     isActive: isActiveRef,
     initialViewState,
+    pendingDocumentPath: pendingDocumentStatusPath,
     emit,
 });
 
@@ -601,6 +630,7 @@ const {
 
 const {
     pdfViewerRef,
+    nativePdfViewerRef,
     djvuViewerRef,
     documentViewerRef,
     zoomDropdownOpen,
@@ -814,69 +844,147 @@ const {
 } = documentControls;
 
 const hiddenSearchPageMatches = new Map<number, IPdfPageMatches>();
-const viewerSearchPageMatches = computed(() => (
-    isActiveRef.value && showSidebar.value ? pageMatches.value : hiddenSearchPageMatches
-));
-const viewerCurrentSearchMatch = computed(() => (
-    isActiveRef.value && showSidebar.value ? currentResult.value : null
-));
-
+const viewerSearchPageMatches = computed(() => (isActiveRef.value && showSidebar.value ? pageMatches.value : hiddenSearchPageMatches));
+const viewerCurrentSearchMatch = computed(() => (isActiveRef.value && showSidebar.value ? currentResult.value : null));
 const viewerSourcePdfData = computed(() => pdfData.value);
+const {
+    hasQueuedSplitRestore,
+    isExternallyRestoring,
+    suppressEmptyState,
+} = useDocumentWorkspaceSplitRestore({
+    tabId: tabId,
+    pendingDocumentOpen,
+    isTabTransitionBusy: computed(() => isTabTransitionBusy === true),
+    workspaceSplitCache,
+    workspaceRestoreTracker,
+    hasPdf,
+    currentPage,
+    totalPages,
+    showSidebar,
+    sidebarTab,
+    isResizingSidebar,
+    isLoading,
+    continuousScroll,
+    fitMode,
+    viewMode,
+    zoom,
+    documentViewerRef,
+    initFromStorage,
+    cleanupSidebarResizeListeners,
+    captureSplitPayload,
+    restoreSplitPayload,
+    isRestoringSplitPayload,
+    currentPageTransitionHistory,
+});
 
-const showNativeDjvuViewer = computed(() => (
-    isDjvuMode.value
-    && Boolean(djvuSourcePath.value)
-    && !pdfSrc.value
-));
+const {
+    nativePdfSourcePath,
+    showNativePdfViewer,
+    showStandardPdfViewer,
+    showNativeDjvuViewer,
+    showNativePreviewViewer,
+    isDocumentOpenPlaceholderVisible,
+    isOpeningDocumentForToolbar,
+    toolbarDocumentBusy,
+    toolbarHasPdf,
+    toolbarShowSidebar,
+    canToggleSidebar,
+    canRepairSave,
+    canOptimizePdf,
+} = useWorkspaceViewerVisibility({
+    conversionState,
+    djvuOpeningPath,
+    djvuSourcePath,
+    hasPdf,
+    hasQueuedSplitRestore,
+    isAnySaving,
+    isDjvuMode,
+    isExternallyRestoring,
+    isHistoryBusy,
+    isOcrRunning,
+    isRestoringSplitPayload,
+    pendingDocumentOpen,
+    pdfSrc,
+    showSidebar,
+});
 const {
     scheduleStartupOpenVisualReady,
     dispatchStartupOpenVisualReady,
-} = useWorkspaceStartupReadiness({
-    documentViewerRef,
+} = useWorkspaceStartupReadiness({documentViewerRef});
+const {
+    handlePdfInitialVisualPending,
+    handlePdfInitialVisualReady,
+    initialDocumentVisualReady,
+    resetDocumentOpenVisualSettleWaiter,
+    resolveDocumentOpenVisualSettleIfReady,
+    waitForDocumentOpenSettled,
+} = useDocumentOpenVisualSettle({
+    tabId,
+    hasPdf,
+    pdfSrc,
+    pdfDocument,
+    totalPages,
+    pageLabelsResolved,
+    isLoading,
+    pdfError,
+    djvuError,
     showNativeDjvuViewer,
+    showNativePdfViewer,
+    markAnnotationCommentsLoading,
 });
-const isDjvuOpening = computed(() => (
-    Boolean(djvuOpeningPath.value)
-    && !showNativeDjvuViewer.value
-));
-const isDocumentOpenPlaceholderVisible = computed(() => (
-    pendingDocumentOpen.value
-    || isDjvuOpening.value
-));
-const isOpeningDocumentForToolbar = computed(() => (
-    isDocumentOpenPlaceholderVisible.value
-    || isRestoringSplitPayload.value
-    || isExternallyRestoring.value
-));
-const toolbarHasPdf = computed(() => (
-    hasPdf.value
-    || pendingDocumentOpen.value
+const {
+    handleDocumentInitialVisualPending,
+    handleDocumentInitialVisualReady,
+    showDocumentTransitionSkeleton,
+} = useDocumentTransitionSkeletonLease({
+    djvuError,
+    onInitialVisualPending: handlePdfInitialVisualPending,
+    onInitialVisualReady: handlePdfInitialVisualReady,
+    pendingDocumentOpen,
+    pdfError,
+});
+
+const {
+    canOptimizePdfForDisplay,
+    canRepairSaveForDisplay,
+    documentMetadataReady,
+    isOpeningDocumentForToolbarDisplay,
+    statusZoomLabelForDisplay,
+    toolbarControlsDisabled,
+    toolbarDocumentBusyForDisplay,
+    toolbarPageLabels,
+} = useDocumentWorkspaceVisualOpeningState({
+    toolbarHasPdf,
+    isLoading,
+    initialDocumentVisualReady,
+    pdfError,
+    djvuError,
+    isOpeningDocumentForToolbar,
+    toolbarDocumentBusy,
+    canRepairSave,
+    canOptimizePdf,
+    statusZoomLabel,
+    totalPages,
+    pageLabels,
+    pageLabelsResolved,
+    isAnySaving,
+    t,
+});
+const showWorkspaceViewerDocument = computed(() => (
+    showStandardPdfViewer.value
+    || showNativePdfViewer.value
     || showNativeDjvuViewer.value
-    || isDjvuOpening.value
-    || hasQueuedSplitRestore.value
-    || isRestoringSplitPayload.value
-    || isExternallyRestoring.value
 ));
-const toolbarShowSidebar = computed(() => (
-    showSidebar.value
-    && !showNativeDjvuViewer.value
+const showPendingDocumentOpenSkeleton = computed(() => (
+    isDocumentOpenPlaceholderVisible.value
+    && !showWorkspaceViewerDocument.value
+    && !pdfError.value
+    && !djvuError.value
 ));
-const canToggleSidebar = computed(() => (
-    toolbarHasPdf.value
-    && !showNativeDjvuViewer.value
-    && !toolbarDocumentBusy.value
+const showWorkspaceTransitionSkeleton = computed(() => (
+    showDocumentTransitionSkeleton.value
+    || showPendingDocumentOpenSkeleton.value
 ));
-const isConversionBusy = computed(() => conversionState.value.isConverting);
-const isDocumentBusy = computed(() => isConversionBusy.value || isOcrRunning.value);
-const toolbarDocumentBusy = computed(() => isDocumentBusy.value || isOpeningDocumentForToolbar.value);
-const canRepairSave = computed(() => (
-    hasPdf.value
-    && !toolbarDocumentBusy.value
-    && !isAnySaving.value
-    && !isHistoryBusy.value
-    && !isDjvuMode.value
-));
-const canOptimizePdf = computed(() => canRepairSave.value);
 const {
     handleOptimizeDialogOpenChange,
     handleOptimizeDialogSubmit,
@@ -887,7 +995,7 @@ const {
     optimizeDialogOpen,
     optimizeProgress,
 } = useDocumentWorkspaceOptimizeDialog({
-    canOptimizePdf,
+    canOptimizePdf: canOptimizePdfForDisplay,
     handleOptimizePdfAsCopy,
     onOptimizeSuccess: () => {
         toast.add({
@@ -896,29 +1004,6 @@ const {
         });
     },
 });
-const documentMetadataAvailable = computed(() => (
-    toolbarHasPdf.value
-    && totalPages.value > 0
-));
-const documentMetadataReady = computed(() => (
-    documentMetadataAvailable.value
-    && !isOpeningDocumentForToolbar.value
-));
-const toolbarPageLabels = computed(() => {
-    if (!documentMetadataReady.value) {
-        return null;
-    }
-    return resolveVisiblePageLabelsDuringMetadataRefresh({
-        pageLabels: pageLabels.value,
-        pageLabelsResolved: pageLabelsResolved.value,
-        isSaving: isAnySaving.value,
-        totalPages: totalPages.value,
-    });
-});
-const toolbarControlsDisabled = computed(() => (
-    !documentMetadataReady.value || toolbarDocumentBusy.value
-));
-
 async function revealRecentFile(file: IRecentFile) {
     try {
         await getDocumentWindowCapability().showItemInFolder(file.originalPath);
@@ -928,10 +1013,7 @@ async function revealRecentFile(file: IRecentFile) {
 }
 
 function handleViewerTotalPagesUpdate(value: number) {
-    // During split restore the PdfViewer emits totalPages=0 while it starts
-    // loading the "new" source, overwriting the pre-seeded cache value.
-    // Suppress the transient 0 whenever a document is already loaded — the
-    // viewer will emit the real count once parsing finishes.
+    // Suppress split-restore totalPages=0 until the viewer emits the parsed count.
     if (value === 0 && Boolean(pdfSrc.value)) {
         return;
     }
@@ -1002,13 +1084,13 @@ const {
 });
 const workspaceToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => ({
     hasPdf: toolbarHasPdf.value,
-    isOpeningDocument: isOpeningDocumentForToolbar.value,
+    isOpeningDocument: isOpeningDocumentForToolbarDisplay.value,
     hasOpenError: Boolean(pdfError.value) || Boolean(djvuError.value),
     isPreparingPrint: isPreparingPrint.value,
     isPreparingCurrentPagePrint: isPreparingCurrentPagePrint.value,
     canSave: canSave.value,
-    canRepairSave: canRepairSave.value,
-    canOptimizePdf: canOptimizePdf.value,
+    canRepairSave: canRepairSaveForDisplay.value,
+    canOptimizePdf: canOptimizePdfForDisplay.value,
     canUndo: canUndo.value,
     canRedo: canRedo.value,
     canExportDocx: canExportDocx.value,
@@ -1031,8 +1113,8 @@ const workspaceToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => ({
     zoomMode: zoomMode.value,
     fitMode: fitMode.value,
     viewMode: viewMode.value,
-    currentPage: currentPage.value,
-    totalPages: totalPages.value,
+    currentPage: isOpeningDocumentForToolbarDisplay.value ? 1 : currentPage.value,
+    totalPages: isOpeningDocumentForToolbarDisplay.value ? 0 : totalPages.value,
 }));
 const pageOpBatchEtaText = computed(() => formatEtaDuration(pageOpBatchProgress.value?.estimatedRemainingMs ?? null));
 
@@ -1138,10 +1220,10 @@ watch(pdfSrc, (src) => {
     }
 });
 
-watch(showNativeDjvuViewer, (visible) => {
+watch(showNativePreviewViewer, (visible) => {
     if (visible) {
         navigationFeedbackPage.value = null;
-        scheduleStartupOpenVisualReady('djvu-src');
+        scheduleStartupOpenVisualReady(showNativePdfViewer.value ? 'native-pdf-src' : 'djvu-src');
     }
 });
 
@@ -1158,56 +1240,6 @@ watch([
     }
 });
 
-const {
-    hasQueuedSplitRestore,
-    isExternallyRestoring,
-    suppressEmptyState,
-} = useDocumentWorkspaceSplitRestore({
-    tabId: tabId,
-    pendingDocumentOpen,
-    isTabTransitionBusy: computed(() => isTabTransitionBusy === true),
-    workspaceSplitCache,
-    workspaceRestoreTracker,
-    hasPdf,
-    currentPage,
-    totalPages,
-    showSidebar,
-    sidebarTab,
-    isResizingSidebar,
-    isLoading,
-    continuousScroll,
-    fitMode,
-    viewMode,
-    zoom,
-    documentViewerRef,
-    initFromStorage,
-    cleanupSidebarResizeListeners,
-    captureSplitPayload,
-    restoreSplitPayload,
-    isRestoringSplitPayload,
-    currentPageTransitionHistory,
-});
-
-const {
-    handlePdfInitialVisualPending,
-    handlePdfInitialVisualReady,
-    resetDocumentOpenVisualSettleWaiter,
-    resolveDocumentOpenVisualSettleIfReady,
-    waitForDocumentOpenSettled,
-} = useDocumentOpenVisualSettle({
-    tabId,
-    hasPdf,
-    pdfSrc,
-    pdfDocument,
-    totalPages,
-    pageLabelsResolved,
-    isLoading,
-    pdfError,
-    djvuError,
-    showNativeDjvuViewer,
-    markAnnotationCommentsLoading,
-});
-
 function delaySearchReadinessPoll() {
     return new Promise<void>(resolve => {
         setTimeout(resolve, SEARCH_DOCUMENT_READY_POLL_MS);
@@ -1220,7 +1252,7 @@ function isDocumentReadyForSearch() {
         && pdfDocument.value
         && totalPages.value > 0
         && !isLoading.value
-        && !isOpeningDocumentForToolbar.value,
+        && !isOpeningDocumentForToolbarDisplay.value,
     );
 }
 
@@ -1235,7 +1267,7 @@ async function waitForDocumentReadyForSearch() {
         hasPdfDocument: Boolean(pdfDocument.value),
         totalPages: totalPages.value,
         isLoading: isLoading.value,
-        isOpeningDocument: isOpeningDocumentForToolbar.value,
+        isOpeningDocument: isOpeningDocumentForToolbarDisplay.value,
     });
 
     let settleFinished = false;
@@ -1273,7 +1305,7 @@ async function waitForDocumentReadyForSearch() {
         hasPdfDocument: Boolean(pdfDocument.value),
         totalPages: totalPages.value,
         isLoading: isLoading.value,
-        isOpeningDocument: isOpeningDocumentForToolbar.value,
+        isOpeningDocument: isOpeningDocumentForToolbarDisplay.value,
     });
     return isDocumentReadyForSearch();
 }
@@ -1383,9 +1415,7 @@ const {
     workingCopyPath,
     zoom,
 });
-
 const readHasPreservedAnnotationSourceChanges = (): boolean => hasPreservedAnnotationSourceChanges();
-
 const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleSave,
     handleRepairSave,
@@ -1406,11 +1436,13 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleExportImages,
     handleExportMultiPageTiff,
     hasPdf,
-    isOpeningDocument: isOpeningDocumentForToolbar,
+    isOpeningDocument: isOpeningDocumentForToolbarDisplay,
     hasOpenError: computed(() => Boolean(pdfError.value) || Boolean(djvuError.value)),
     isPreparingPrint,
     isPreparingCurrentPagePrint,
     canSave,
+    canRepairSave: canRepairSaveForDisplay,
+    canOptimizePdf: canOptimizePdfForDisplay,
     canUndo,
     canRedo,
     canExportDocx,

@@ -14,6 +14,7 @@ describe('linux Poppler packaging', () => {
         expect(bundleScript).toContain('verify_dir()');
         expect(bundleScript).toContain('verify_dir "$POPPLER_DIR/share/poppler" "poppler data directory"');
         expect(bundleScript).toContain('verify_dir "$POPPLER_DIR/etc/fonts" "fontconfig directory"');
+        expect(bundleScript).toContain('verify_tool "$POPPLER_DIR/bin/pdfinfo" "pdfinfo"');
         expect(bundleScript).toContain('missing_count=$((missing_count + 1))');
         expect(bundleScript).toContain('Error: Bundle verification failed');
 

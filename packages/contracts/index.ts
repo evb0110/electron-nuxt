@@ -100,6 +100,20 @@ export type {
 
 export type { TDocumentRef } from '@contracts/documentRef';
 
+export {
+    DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES,
+    DJVU_PDF_DIRECT_CONVERSION_EFFECTIVE_PIXEL_LIMIT,
+    estimateDjvuPdfEffectivePixels,
+    evaluateDjvuPdfConversionPolicy,
+    normalizeDjvuPdfSubsample,
+    resolveRecommendedDjvuPdfSubsample,
+} from '@contracts/djvuConversionPolicy';
+export type {
+    IDjvuConversionPageMetrics,
+    IDjvuPdfConversionMetrics,
+    IDjvuPdfConversionPolicyDecision,
+} from '@contracts/djvuConversionPolicy';
+
 export type {
     IEditorPaneRect,
     IEditorPaneState,

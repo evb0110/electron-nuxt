@@ -12,6 +12,9 @@ import type {
     IPdfNativeSaveResult,
     IPdfNativeNoteTextSaveResult,
     IPdfNativeWorkingCopyExpectation,
+    IPdfNativePagePreview,
+    IPdfNativePagePreviewOptions,
+    IPdfNativePageSize,
     IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
     IPdfOptimizeResult,
@@ -81,6 +84,16 @@ export interface IDocumentsService {
     readFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<Uint8Array>;
     statFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<{ size: number }>;
     readFileRange: (context: IDocumentsSenderIdContext, filePath: string, offset: number, length: number) => Promise<Uint8Array>;
+    getPdfNativePageSizes: (
+        context: IDocumentsSenderIdContext,
+        filePath: string,
+    ) => Promise<IPdfNativePageSize[]>;
+    renderPdfNativePagePreview: (
+        context: IDocumentsSenderIdContext,
+        filePath: string,
+        pageNumber: number,
+        options?: IPdfNativePagePreviewOptions,
+    ) => Promise<IPdfNativePagePreview>;
     readTextFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<string>;
     fileExists: (context: IDocumentsSenderIdContext, filePath: string) => boolean;
     analyzePdfConformance: (context: IDocumentsSenderIdContext, filePath: string) => Promise<IPdfConformanceProfile>;

@@ -389,6 +389,69 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(DOCUMENTS_CHANNELS.fileReadRange, '/tmp/working.pdf', 4, 1);
     });
 
+    it('invokes native PDF preview metadata and render channels with validated inputs', async () => {
+        const pageSizes = [{
+            width: 612,
+            height: 792,
+        }];
+        const preview = {
+            bytes: new Uint8Array([1]),
+            width: 900,
+            height: 1200,
+        };
+        const ipcRenderer = {
+            invoke: vi.fn(async (channel: string) => {
+                if (channel === DOCUMENTS_CHANNELS.pdfNativePageSizes) {
+                    return pageSizes;
+                }
+                if (channel === DOCUMENTS_CHANNELS.pdfNativePagePreview) {
+                    return preview;
+                }
+                throw new Error(`Unexpected invoke: ${channel}`);
+            }),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        await expect(client.getPdfNativePageSizes?.('/tmp/huge.pdf')).resolves.toBe(pageSizes);
+        await expect(client.renderPdfNativePagePreview?.(
+            '/tmp/huge.pdf',
+            3,
+            { targetWidthPx: 900.8 },
+        )).resolves.toBe(preview);
+
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.pdfNativePageSizes,
+            '/tmp/huge.pdf',
+        );
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.pdfNativePagePreview,
+            '/tmp/huge.pdf',
+            3,
+            { targetWidthPx: 900 },
+        );
+    });
+
+    it('rejects invalid native PDF preview requests before invoking IPC', () => {
+        const ipcRenderer = {
+            invoke: vi.fn(),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        expect(() => client.getPdfNativePageSizes?.('relative.pdf'))
+            .toThrow('getPdfNativePageSizes.path must be an absolute path');
+        expect(() => client.renderPdfNativePagePreview?.('/tmp/huge.pdf', 0))
+            .toThrow('renderPdfNativePagePreview.pageNumber must be a positive integer');
+        expect(() => client.renderPdfNativePagePreview?.(
+            '/tmp/huge.pdf',
+            1,
+            { targetWidthPx: Number.POSITIVE_INFINITY },
+        )).toThrow('renderPdfNativePagePreview.options.targetWidthPx must be a positive finite number');
+
+        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
+    });
+
     it('streams PDF persistence chunks with tight backing buffers without transferring ArrayBuffers', async () => {
         const port1 = new FakeMessagePort();
         const port2 = new FakeMessagePort();

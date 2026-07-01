@@ -26,6 +26,13 @@ const previewMocks = vi.hoisted(() => ({
     terminate: vi.fn(),
 }));
 
+type TInitialVisualEvent =
+    | {type: 'pending';}
+    | {
+        pageNumber: number;
+        type: 'ready';
+    };
+
 vi.mock('@app/platform/browser-api/public', () => ({ createDjvuPagePreviewSourceFromPath: previewMocks.createDjvuPagePreviewSourceFromPath }));
 
 class InstantImage {
@@ -52,7 +59,16 @@ function createDeferred<T>() {
     };
 }
 
+function settleWithTimeout(promise: Promise<void>) {
+    return Promise.race([
+        promise.then(() => 'settled' as const),
+        new Promise<'timed-out'>(resolve => setTimeout(() => resolve('timed-out'), 25)),
+    ]);
+}
+
 function createPreviewRuntimeHarness(options: {
+    initialVisualPageNumbers?: number[];
+    initialVisualPageNumbersRef?: Ref<number[]>;
     isActive?: boolean;
     neededDeviceWidth?: number | ((pageNumber: number) => number);
     scrollDirection?: Ref<TDjvuScrollDirection>;
@@ -78,16 +94,26 @@ function createPreviewRuntimeHarness(options: {
     const pageSizes = ref<IDjvuPageSize[]>([]);
     const pageStates = ref<IDjvuPageState[]>([]);
     const currentPage = ref(1);
+    const isLoading = ref(Boolean(src.value));
+    const viewerError = ref<string | null>(null);
     const emittedTotalPages: number[] = [];
+    const emittedInitialVisualEvents: TInitialVisualEvent[] = [];
     const runtime = useDjvuPreviewRuntime({
         state: {
             currentPage,
-            isLoading: ref(Boolean(src.value)),
+            isLoading,
             pageSizes,
             pageStates,
-            viewerError: ref(null),
+            viewerError,
         },
         source: {
+            getInitialVisualPageNumbers: () => (
+                options.initialVisualPageNumbersRef?.value
+                ?? options.initialVisualPageNumbers
+                ?? options.scrollWindowRef?.value.pageNumbers
+                ?? options.scrollWindow?.pageNumbers
+                ?? [currentPage.value]
+            ),
             getNeededDeviceWidth,
             getOpenErrorMessage: () => 'open failed',
             getSrc: () => src.value,
@@ -106,6 +132,11 @@ function createPreviewRuntimeHarness(options: {
             clearPageElements: vi.fn(),
             emitCurrentPage: vi.fn(),
             emitDocument: vi.fn(),
+            emitInitialVisualPending: () => emittedInitialVisualEvents.push({ type: 'pending' }),
+            emitInitialVisualReady: payload => emittedInitialVisualEvents.push({
+                type: 'ready',
+                pageNumber: payload.pageNumber,
+            }),
             emitLoading: vi.fn(),
             emitTotalPages: value => emittedTotalPages.push(value),
             invalidateContinuousScrollWindowCache: vi.fn(),
@@ -125,10 +156,13 @@ function createPreviewRuntimeHarness(options: {
     });
 
     return {
+        emittedInitialVisualEvents,
         emittedTotalPages,
+        isLoading,
         isActiveSource,
         pageStates,
         runtime,
+        viewerError,
     };
 }
 
@@ -152,6 +186,129 @@ describe('useDjvuPreviewRuntime', () => {
         });
     });
 
+    it('emits initial visual pending then ready when the first visible object URL is committed', async () => {
+        const {
+            emittedInitialVisualEvents,
+            pageStates,
+            runtime,
+        } = createPreviewRuntimeHarness();
+
+        await vi.waitFor(() => expect(pageStates.value[0]?.status).toBe('loaded'));
+
+        expect(emittedInitialVisualEvents).toEqual([
+            { type: 'pending' },
+            {
+                type: 'ready',
+                pageNumber: 1,
+            },
+        ]);
+
+        runtime.syncLoadedPages();
+        await nextTick();
+
+        expect(emittedInitialVisualEvents).toEqual([
+            { type: 'pending' },
+            {
+                type: 'ready',
+                pageNumber: 1,
+            },
+        ]);
+
+        runtime.dispose();
+    });
+
+    it('waits for the visible page before marking initial visual ready when prefetch renders first', async () => {
+        previewMocks.getPageSizes.mockResolvedValue(Array.from({ length: 3 }, () => ({
+            width: 100,
+            height: 200,
+        })));
+        const firstPageRender = createDeferred<{
+            objectUrl: string;
+            renderedPx: number;
+        }>();
+        previewMocks.renderPageObjectUrl.mockImplementation((pageNumber: number) => {
+            if (pageNumber === 1) {
+                return firstPageRender.promise;
+            }
+
+            return Promise.resolve({
+                objectUrl: `blob:page-${pageNumber}`,
+                renderedPx: 100,
+            });
+        });
+        const scrollWindow = {
+            start: 1,
+            end: 1,
+            mostVisiblePage: 1,
+            pageNumbers: [1],
+        };
+        const {
+            emittedInitialVisualEvents,
+            pageStates,
+            runtime,
+        } = createPreviewRuntimeHarness({ scrollWindow });
+
+        await vi.waitFor(() => expect(pageStates.value[1]?.objectUrl).toBe('blob:page-2'));
+
+        expect(emittedInitialVisualEvents).toEqual([{ type: 'pending' }]);
+
+        firstPageRender.resolve({
+            objectUrl: 'blob:page-1',
+            renderedPx: 100,
+        });
+
+        await vi.waitFor(() => expect(emittedInitialVisualEvents).toContainEqual({
+            type: 'ready',
+            pageNumber: 1,
+        }));
+
+        runtime.dispose();
+    });
+
+    it('emits initial visual ready when initial visible pages reach terminal render errors', async () => {
+        previewMocks.renderPageObjectUrl.mockRejectedValue(new Error('render failed'));
+        const {
+            emittedInitialVisualEvents,
+            pageStates,
+            runtime,
+        } = createPreviewRuntimeHarness();
+
+        await vi.waitFor(() => expect(pageStates.value[0]?.status).toBe('error'));
+
+        expect(emittedInitialVisualEvents).toEqual([
+            { type: 'pending' },
+            {
+                type: 'ready',
+                pageNumber: 1,
+            },
+        ]);
+
+        runtime.dispose();
+    });
+
+    it('emits initial visual ready when opening the preview source fails', async () => {
+        previewMocks.createDjvuPagePreviewSourceFromPath.mockRejectedValueOnce(new Error('open failed'));
+        const {
+            emittedInitialVisualEvents,
+            isLoading,
+            runtime,
+            viewerError,
+        } = createPreviewRuntimeHarness();
+
+        await vi.waitFor(() => expect(viewerError.value).toBe('open failed'));
+
+        expect(isLoading.value).toBe(false);
+        expect(emittedInitialVisualEvents).toEqual([
+            { type: 'pending' },
+            {
+                type: 'ready',
+                pageNumber: 1,
+            },
+        ]);
+
+        runtime.dispose();
+    });
+
     it('revokes loaded object URLs and terminates the preview worker when suspended', async () => {
         const {
             isActiveSource,
@@ -172,6 +329,28 @@ describe('useDjvuPreviewRuntime', () => {
             objectUrl: null,
             status: 'idle',
         });
+
+        runtime.dispose();
+    });
+
+    it('does not re-arm viewer load settling while inactive during an initial render', async () => {
+        const firstPageRender = createDeferred<{
+            objectUrl: string;
+            renderedPx: number;
+        }>();
+        previewMocks.renderPageObjectUrl.mockReturnValue(firstPageRender.promise);
+        const {
+            isActiveSource,
+            pageStates,
+            runtime,
+        } = createPreviewRuntimeHarness();
+
+        await vi.waitFor(() => expect(pageStates.value[0]?.status).toBe('loading'));
+
+        isActiveSource.value = false;
+        await nextTick();
+
+        await expect(settleWithTimeout(runtime.waitForViewerLoadSettled())).resolves.toBe('settled');
 
         runtime.dispose();
     });

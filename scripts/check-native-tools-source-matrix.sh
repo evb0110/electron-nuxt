@@ -235,6 +235,7 @@ check_tag() {
   else
     echo "  SKIP    unpaper: not bundled on Windows"
   fi
+  check_file_for_tag "resources/poppler/$tag/bin/pdfinfo$exe_suffix" "pdfinfo" "$tag"
   check_file_for_tag "resources/poppler/$tag/bin/pdftoppm$exe_suffix" "pdftoppm" "$tag"
   check_file_for_tag "resources/poppler/$tag/bin/pdftotext$exe_suffix" "pdftotext" "$tag"
   if [ "$platform" = "win32" ]; then

@@ -29,6 +29,10 @@ import {
     handleFileStat,
 } from '@electron/features/documents/main/documentFileReadHandlers';
 import {
+    handlePdfNativePagePreview,
+    handlePdfNativePageSizes,
+} from '@electron/features/documents/main/nativePdfPreview';
+import {
     handleFileWrite,
     handleFileWriteDocx,
     handleReplaceWorkingCopyFromPath,
@@ -107,6 +111,10 @@ export function createDocumentsService(): IDocumentsService {
         readFile: (...args: TDocumentsServiceArgs<'readFile'>) => handleFileRead(...args),
         statFile: (...args: TDocumentsServiceArgs<'statFile'>) => handleFileStat(...args),
         readFileRange: (...args: TDocumentsServiceArgs<'readFileRange'>) => handleFileReadRange(...args),
+        getPdfNativePageSizes: (...args: TDocumentsServiceArgs<'getPdfNativePageSizes'>) =>
+            handlePdfNativePageSizes(...args),
+        renderPdfNativePagePreview: (...args: TDocumentsServiceArgs<'renderPdfNativePagePreview'>) =>
+            handlePdfNativePagePreview(...args),
         readTextFile: (...args: TDocumentsServiceArgs<'readTextFile'>) => handleFileReadText(...args),
         fileExists: (...args: TDocumentsServiceArgs<'fileExists'>) => handleFileExists(...args),
         analyzePdfConformance: (...args: TDocumentsServiceArgs<'analyzePdfConformance'>) =>

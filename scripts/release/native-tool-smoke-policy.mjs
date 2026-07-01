@@ -36,6 +36,13 @@ const MAC_PACKAGED_TOOL_SMOKE_POLICY = {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: ['page-processor'],
     },
+    pdfinfo: {
+        allowedExitCodes: new Set([0]),
+        expectedOutputTokens: [
+            'pdfinfo',
+            'poppler',
+        ],
+    },
     pdftoppm: {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: [

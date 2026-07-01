@@ -18,12 +18,17 @@ import {
 } from '@app/utils/viewerAssets';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { maxCachedPdfPages } from '@app/modules/pdf-viewer/engine/maxCachedPdfPages';
+import {
+    PDFJS_NATIVE_PREVIEW_MIN_BYTES,
+    shouldUseNativePdfPreview,
+} from '@app/modules/pdf-viewer/runtime/pdfNativePreviewRouting';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = getViewerAssetResolver().pdfWorkerUrl();
 
 type TPdfDataRangeTransportCtor = new (
     length: number,
     initialData: Uint8Array,
+    progressiveDone?: boolean,
 ) => PDFDataRangeTransport;
 
 interface IPdfPreloadedRange {
@@ -32,7 +37,7 @@ interface IPdfPreloadedRange {
 }
 
 const PDF_RANGE_SUBREAD_BYTES = 8 * 1024 * 1024;
-const MAX_AGGREGATE_PDF_RANGE_BYTES = 1024 * 1024 * 1024;
+const MAX_AGGREGATE_PDF_RANGE_BYTES = 64 * 1024 * 1024;
 
 function destroyPdfDocumentDeferred(
     document: PDFDocumentProxy,
@@ -683,6 +688,11 @@ export const usePdfDocument = () => {
     ) {
         // Large PDFs: avoid reading the full file into renderer memory. Use range reads via IPC.
         const length = src.size;
+        if (shouldUseNativePdfPreview(src)) {
+            throw new Error(
+                `PDF is ${length} bytes; PDF.js is capped at ${PDFJS_NATIVE_PREVIEW_MIN_BYTES} bytes for path-backed documents. Native preview should handle this file.`,
+            );
+        }
         const CHUNK = 1024 * 1024;
         const initialLen = Math.min(CHUNK, length);
 
@@ -720,6 +730,7 @@ export const usePdfDocument = () => {
         rangeTransport = new TransportCtor(
             length,
             initialData,
+            false,
         );
         const activeRangeTransport = rangeTransport;
         const preloadedRanges: IPdfPreloadedRange[] = tailData
@@ -743,6 +754,7 @@ export const usePdfDocument = () => {
             length,
             rangeChunkSize: 1024 * 1024,
             disableAutoFetch: true,
+            disableStream: true,
             ...getPdfjsDocumentOptions(),
         });
 

@@ -194,6 +194,7 @@ if ! find "$tessdata_dir" -maxdepth 1 -type f -name '*.traineddata' -print -quit
 fi
 verify_tessdata_registry_complete "$tessdata_dir"
 
+check_file "$native_tool_root/poppler/$platform_arch/bin/pdfinfo$exe_suffix" "pdfinfo binary"
 check_file "$native_tool_root/poppler/$platform_arch/bin/pdftoppm$exe_suffix" "pdftoppm binary"
 check_file "$native_tool_root/poppler/$platform_arch/bin/pdftotext$exe_suffix" "pdftotext binary"
 if [ "$platform" = "win" ]; then
@@ -503,6 +504,7 @@ if [ "$platform" = "mac" ]; then
   # ddjvu prints usage to stdout and exits 1 for --help on healthy builds.
   run_macos_packaged_tool_smoke "ddjvu" "$native_tool_root/djvulibre/$platform_arch/bin/ddjvu" --help
   run_macos_packaged_tool_smoke "qpdf" "$native_tool_root/qpdf/$platform_arch/bin/qpdf" --version
+  run_macos_packaged_tool_smoke "pdfinfo" "$native_tool_root/poppler/$platform_arch/bin/pdfinfo" -v
   run_macos_packaged_tool_smoke "pdftoppm" "$native_tool_root/poppler/$platform_arch/bin/pdftoppm" -v
   run_macos_packaged_tool_smoke "pdftotext" "$native_tool_root/poppler/$platform_arch/bin/pdftotext" -v
   run_macos_packaged_tool_smoke "evb-pdf-image-combine" "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --version

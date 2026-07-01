@@ -243,6 +243,12 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         ...(baseDocuments.applyPdfNativeMutationsToWorkingCopy
             ? {applyPdfNativeMutationsToWorkingCopy: baseDocuments.applyPdfNativeMutationsToWorkingCopy}
             : {}),
+        ...(baseDocuments.getPdfNativePageSizes
+            ? {getPdfNativePageSizes: baseDocuments.getPdfNativePageSizes}
+            : {}),
+        ...(baseDocuments.renderPdfNativePagePreview
+            ? {renderPdfNativePagePreview: baseDocuments.renderPdfNativePagePreview}
+            : {}),
     };
     const documentFiles = {
         readFile: baseDocuments.readFile,
