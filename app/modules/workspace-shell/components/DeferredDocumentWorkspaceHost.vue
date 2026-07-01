@@ -225,6 +225,11 @@ interface IDocumentOpenIntent {
     target?: TTabUpdate | null;
 }
 
+/**
+ * DocumentWorkspace stays an async chunk so the shared web/desktop shell bundle stays
+ * lean; desktop startup pre-warms it (blocking) before the user can reach this boundary.
+ * Policy overview: `workspace-shell/host/warmupDesktopViewerChunks.ts`.
+ */
 const loadDocumentWorkspace = () => import('@app/modules/workspace-shell/components/DocumentWorkspace.vue');
 const workspaceChunkLoadError = ref<unknown>(null);
 const workspaceRenderNonce = ref(0);

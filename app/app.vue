@@ -166,6 +166,7 @@ import {
 } from '@app/utils/browserSettingsPersistence';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { shouldPreloadWorkspaceDuringStartup } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceDuringStartup';
+import { warmupDesktopViewerChunks } from '@app/modules/workspace-shell/host/warmupDesktopViewerChunks';
 
 const {
     load: loadSettings,
@@ -386,6 +387,11 @@ async function preloadStartupContent() {
         } else {
             guardStartupWarmup(workspacePreload, 'Workspace preload failed');
         }
+    }
+
+    const viewerChunksWarmup = warmupDesktopViewerChunks({ isDesktopRuntime: isDesktopRuntime.value });
+    if (viewerChunksWarmup) {
+        guardStartupWarmup(viewerChunksWarmup, 'Viewer chunk warmup failed');
     }
 
     const results = await Promise.allSettled(warmupTasks.map(task => task.promise));

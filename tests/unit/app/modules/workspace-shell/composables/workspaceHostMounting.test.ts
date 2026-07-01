@@ -7,6 +7,7 @@ import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/hos
 import { shouldAutoRequestWorkspace } from '@app/modules/workspace-shell/host/shouldAutoRequestWorkspace';
 import { shouldPreloadWorkspaceDuringStartup } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceDuringStartup';
 import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceOnHostMount';
+import { warmupDesktopViewerChunks } from '@app/modules/workspace-shell/host/warmupDesktopViewerChunks';
 import { shouldShowWorkspaceHostLoader } from '@app/modules/workspace-shell/host/shouldShowWorkspaceHostLoader';
 import { shouldShowWorkspacePlaceholder } from '@app/modules/workspace-shell/host/shouldShowWorkspacePlaceholder';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
@@ -133,6 +134,42 @@ describe('workspace preload policy', () => {
             isDesktopRuntime: false,
             isDev: false,
         })).toBe(true);
+    });
+
+    it('skips viewer chunk warmup on the web so visitors never prefetch both engines', () => {
+        let loaderCalls = 0;
+        const result = warmupDesktopViewerChunks({
+            isDesktopRuntime: false,
+            loaders: [() => {
+                loaderCalls += 1;
+                return Promise.resolve();
+            }],
+        });
+        expect(result).toBeNull();
+        expect(loaderCalls).toBe(0);
+    });
+
+    it('warms every viewer chunk loader on desktop', async () => {
+        const loadedChunks: string[] = [];
+        const result = warmupDesktopViewerChunks({
+            isDesktopRuntime: true,
+            loaders: [
+                () => {
+                    loadedChunks.push('djvu');
+                    return Promise.resolve();
+                },
+                () => {
+                    loadedChunks.push('native-pdf');
+                    return Promise.resolve();
+                },
+            ],
+        });
+        expect(result).not.toBeNull();
+        await result;
+        expect(loadedChunks).toEqual([
+            'djvu',
+            'native-pdf',
+        ]);
     });
 
     it('skips empty host mount preload in dev after startup warmup', () => {
