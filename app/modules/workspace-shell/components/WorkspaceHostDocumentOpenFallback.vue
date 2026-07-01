@@ -8,6 +8,7 @@
         <DjvuBanner
             v-if="isPendingDjvuPath"
             visible
+            is-opening
         />
         <WorkspaceDocumentTransitionSkeleton />
     </div>

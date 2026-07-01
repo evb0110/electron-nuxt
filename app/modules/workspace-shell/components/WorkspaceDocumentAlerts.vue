@@ -21,8 +21,9 @@
     />
 
     <DjvuBanner
-        v-if="canUseDjvu && (isDjvuMode || djvuPendingOpen)"
-        :visible="djvuShowBanner || djvuPendingOpen"
+        v-if="canUseDjvu && (isDjvuMode || djvuPendingOpen || djvuOpening)"
+        :visible="djvuOpening || djvuShowBanner || djvuPendingOpen"
+        :is-opening="djvuOpening || djvuPendingOpen"
         :is-loading-pages="djvuIsLoadingPages"
         :loading-current="djvuLoadingCurrent"
         :loading-total="djvuLoadingTotal"
@@ -39,6 +40,7 @@ defineProps<{
     canUseDjvu: boolean;
     isDjvuMode: boolean;
     djvuPendingOpen: boolean;
+    djvuOpening: boolean;
     djvuError: unknown;
     djvuShowBanner: boolean;
     djvuIsLoadingPages: boolean;

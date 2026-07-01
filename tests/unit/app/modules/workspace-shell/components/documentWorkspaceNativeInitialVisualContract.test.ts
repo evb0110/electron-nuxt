@@ -86,12 +86,19 @@ describe('DocumentWorkspace native initial visual contract', () => {
 
         expect(workspaceSource).toContain('pendingDjvuDocumentOpen');
         expect(workspaceSource).toContain(':djvu-pending-open="pendingDjvuDocumentOpen"');
+        expect(workspaceSource).toContain(':djvu-opening="djvuBannerOpening"');
+        expect(workspaceSource).toContain('const hasDjvuBannerOpeningContext = computed');
+        expect(workspaceSource).toContain('const djvuBannerOpening = computed');
+        expect(workspaceSource).toContain('showWorkspaceTransitionSkeleton.value');
+        expect(workspaceSource).toContain('!initialDocumentVisualReady.value');
         expect(workspaceSource).toContain('getDocumentKindFromPath');
-        expect(alertsSource).toContain('isDjvuMode || djvuPendingOpen');
-        expect(alertsSource).toContain('djvuShowBanner || djvuPendingOpen');
+        expect(alertsSource).toContain('isDjvuMode || djvuPendingOpen || djvuOpening');
+        expect(alertsSource).toContain('djvuOpening || djvuShowBanner || djvuPendingOpen');
+        expect(alertsSource).toContain(':is-opening="djvuOpening || djvuPendingOpen"');
         expect(alertsSource).not.toContain('defineAsyncComponent');
         expect(alertsSource).toContain('from \'@app/modules/djvu-viewer/public/component-exports/djvuBanner\'');
         expect(fallbackSource).toContain('DjvuBanner');
+        expect(fallbackSource).toContain('is-opening');
         expect(fallbackSource).toContain('isPendingDjvuPath');
         expect(fallbackSource).toContain('getDocumentKindFromPath');
         expect(fallbackSource).toContain('flex-direction: column');

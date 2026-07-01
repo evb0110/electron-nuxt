@@ -2,9 +2,11 @@
     <div
         v-if="visible"
         class="djvu-banner"
+        :class="{'djvu-banner--opening': isOpening}"
+        :aria-busy="isBusy ? 'true' : undefined"
     >
         <AppSpinner
-            v-if="isLoadingPages"
+            v-if="isBusy"
             size="sm"
             tone="primary"
             class="shrink-0"
@@ -15,18 +17,10 @@
             class="djvu-banner-icon"
         />
         <span class="djvu-banner-text">
-            <template v-if="isLoadingPages">
-                {{ t('djvu.loadingPages', {
-                    current: loadingCurrent,
-                    total: loadingTotal,
-                }) }}
-            </template>
-            <template v-else>
-                {{ t('djvu.bannerHint') }}
-            </template>
+            {{ bannerText }}
         </span>
         <UButton
-            v-if="!isLoadingPages"
+            v-if="!isBusy"
             :label="t('djvu.convertToPdf')"
             variant="soft"
             color="primary"
@@ -34,6 +28,7 @@
             @click="convert"
         />
         <UButton
+            v-if="!isBusy"
             icon="i-ph-x"
             variant="ghost"
             color="neutral"
@@ -51,11 +46,13 @@ const { t } = useTypedI18n();
 
 const {
     visible,
+    isOpening = false,
     isLoadingPages = false,
     loadingCurrent = 0,
     loadingTotal = 0,
 } = defineProps<{
     visible: boolean;
+    isOpening?: boolean;
     isLoadingPages?: boolean;
     loadingCurrent?: number;
     loadingTotal?: number;
@@ -65,6 +62,23 @@ const emit = defineEmits<{
     convert: [];
     dismiss: [];
 }>();
+
+const hasPageProgress = computed(() => loadingTotal > 0);
+const isBusy = computed(() => isOpening || isLoadingPages);
+const bannerText = computed(() => {
+    if (isOpening || (isLoadingPages && !hasPageProgress.value)) {
+        return t('djvu.opening');
+    }
+
+    if (isLoadingPages) {
+        return t('djvu.loadingPages', {
+            current: loadingCurrent,
+            total: loadingTotal,
+        });
+    }
+
+    return t('djvu.bannerHint');
+});
 
 function convert() {
     emit('convert');
@@ -79,16 +93,17 @@ function dismiss() {
 .djvu-banner {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
+    gap: var(--app-space-3xl);
+    padding: var(--app-space-lg) var(--app-space-9xl);
     background: var(--ui-bg-elevated);
     border-bottom: 1px solid var(--ui-border);
-    font-size: 13px;
+    font-size: var(--app-text-size-body-sm);
+    line-height: var(--app-line-height-snug);
 }
 
 .djvu-banner-icon {
-    width: 16px;
-    height: 16px;
+    width: var(--app-icon-size-md);
+    height: var(--app-icon-size-md);
     color: var(--ui-primary);
     flex-shrink: 0;
 }

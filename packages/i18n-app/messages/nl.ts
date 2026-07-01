@@ -358,6 +358,7 @@ export default {
     },
     'djvu': {
         'loadingPages': 'Pagina\'s laden... {current}/{total}',
+        'opening': 'DjVu openen...',
         'bannerHint': 'DjVu-pagina’s worden op aanvraag weergegeven – converteer naar PDF om bewerkingsfuncties in te schakelen',
         'pageAlt': 'DjVu-pagina {page}',
         'convertToPdf': 'Converteren naar PDF...',

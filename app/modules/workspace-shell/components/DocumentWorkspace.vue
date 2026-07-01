@@ -82,6 +82,7 @@
             :can-use-djvu="canUseDjvu"
             :is-djvu-mode="isDjvuMode"
             :djvu-pending-open="pendingDjvuDocumentOpen"
+            :djvu-opening="djvuBannerOpening"
             :djvu-error="djvuError"
             :djvu-show-banner="djvuShowBanner"
             :djvu-is-loading-pages="djvuIsLoadingPages"
@@ -991,6 +992,25 @@ const showPendingDocumentOpenSkeleton = computed(() => (
 const showWorkspaceTransitionSkeleton = computed(() => (
     showDocumentTransitionSkeleton.value
     || showPendingDocumentOpenSkeleton.value
+));
+const hasDjvuBannerOpeningContext = computed(() => (
+    pendingDjvuDocumentOpen.value
+    || Boolean(djvuOpeningPath.value)
+    || isDjvuMode.value
+    || showNativeDjvuViewer.value
+));
+const djvuBannerOpening = computed(() => (
+    hasDjvuBannerOpeningContext.value
+    && !djvuError.value
+    && (
+        pendingDjvuDocumentOpen.value
+        || Boolean(djvuOpeningPath.value)
+        || showWorkspaceTransitionSkeleton.value
+        || (
+            showNativeDjvuViewer.value
+            && !initialDocumentVisualReady.value
+        )
+    )
 ));
 const {
     handleOptimizeDialogOpenChange,

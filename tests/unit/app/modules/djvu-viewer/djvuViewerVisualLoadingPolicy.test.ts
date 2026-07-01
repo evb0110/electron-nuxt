@@ -35,4 +35,17 @@ describe('DjVu viewer visual loading policy', () => {
         expect(pageContentSource).not.toContain('suppressInitialPlaceholder');
         expect(pageContentSource).not.toContain('djvu-page-skeleton');
     });
+
+    it('keeps the banner in a quiet opening mode until DjVu visuals are ready', async () => {
+        const bannerSource = await readFile(
+            join(process.cwd(), 'app/modules/djvu-viewer/components/DjvuBanner.vue'),
+            'utf8',
+        );
+
+        expect(bannerSource).toContain('isOpening?: boolean');
+        expect(bannerSource).toContain('return t(\'djvu.opening\')');
+        expect(bannerSource).toContain('isLoadingPages && !hasPageProgress.value');
+        expect(bannerSource).toContain('v-if="!isBusy"');
+        expect(bannerSource).toContain(':aria-busy="isBusy ? \'true\' : undefined"');
+    });
 });

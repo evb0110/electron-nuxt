@@ -361,6 +361,7 @@ export default {
     },
     'djvu': {
         'loadingPages': 'Chargement des pages... {current}/{total}',
+        'opening': 'Ouverture du DjVu...',
         'bannerHint': 'Les pages DjVu sont rendues à la demande — convertissez en PDF pour activer les fonctions d’édition',
         'pageAlt': 'Page DjVu {page}',
         'convertToPdf': 'Convertir en PDF...',
