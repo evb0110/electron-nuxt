@@ -6,6 +6,7 @@ import {
 import {
     estimateDjvuPdfEffectivePixels,
     evaluateDjvuPdfConversionPolicy,
+    resolveDjvuPdfExportStrategy,
     resolveRecommendedDjvuPdfSubsample,
 } from '@contracts/djvuConversionPolicy';
 
@@ -40,5 +41,12 @@ describe('djvuConversionPolicy', () => {
 
         expect(resolveRecommendedDjvuPdfSubsample(metrics)).toBe(1);
         expect(evaluateDjvuPdfConversionPolicy(metrics, 1).isAllowed).toBe(true);
+    });
+
+    it('resolves Stage A PDF export strategies without changing default direct conversion', () => {
+        expect(resolveDjvuPdfExportStrategy(undefined)).toBe('direct');
+        expect(resolveDjvuPdfExportStrategy('direct')).toBe('direct');
+        expect(resolveDjvuPdfExportStrategy('auto')).toBe('direct');
+        expect(resolveDjvuPdfExportStrategy('compact-djvu-aware')).toBe('compact-djvu-aware');
     });
 });

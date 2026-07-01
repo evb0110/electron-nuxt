@@ -32,7 +32,10 @@ import {
 } from '@electron/file-access/openPathCapabilities';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
 import type { IDjvuOperationContext } from '@electron/features/djvu/ports';
-import type { IDjvuPagePreviewOptions } from '@contracts/electronApiDjvu';
+import type {
+    IDjvuConvertOptions,
+    IDjvuPagePreviewOptions,
+} from '@contracts/electronApiDjvu';
 
 const logger = createLogger('djvu-operations');
 
@@ -97,10 +100,7 @@ export function handleDjvuConvertToPdfOperation(
     context: IDjvuOperationContext,
     djvuPath: string,
     outputPath: string,
-    options: {
-        subsample?: number;
-        preserveBookmarks?: boolean;
-    },
+    options: IDjvuConvertOptions,
 ) {
     return handleDjvuConvertToPdf(
         context,

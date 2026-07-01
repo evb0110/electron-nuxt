@@ -40,6 +40,10 @@ describe('native tool smoke policy', () => {
                 new Set([0]),
             ],
             [
+                'evb-pdf-image-combine-compact-manifest',
+                new Set([1]),
+            ],
+            [
                 'evb-pdf-page-ops',
                 new Set([0]),
             ],
@@ -94,6 +98,7 @@ describe('native tool smoke policy', () => {
         expect(() => assertMacPackagedToolSmoke('tesseract', 0, 'tesseract 5.5.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('evb-pdf-page-ops', 0, 'evb-pdf-page-ops 0.1.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('evb-pdf-search', 0, 'evb-pdf-search 0.1.0')).not.toThrow();
+        expect(() => assertMacPackagedToolSmoke('evb-pdf-image-combine-compact-manifest', 1, 'Missing --compact-manifest value')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('page-processor', 0, 'page-processor 2.0.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('ddjvu', 1, 'ddjvu usage')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('unpaper', 0, 'Usage: unpaper [options]')).not.toThrow();
@@ -102,6 +107,9 @@ describe('native tool smoke policy', () => {
         );
         expect(() => assertMacPackagedToolSmoke('qpdf', 0, 'unexpected output')).toThrow(
             'Packaged tool smoke test output for qpdf did not match any expected signature',
+        );
+        expect(() => assertMacPackagedToolSmoke('evb-pdf-image-combine-compact-manifest', 1, 'Unknown argument: --compact-manifest')).toThrow(
+            'Packaged tool smoke test output for evb-pdf-image-combine-compact-manifest did not match any expected signature',
         );
     });
 

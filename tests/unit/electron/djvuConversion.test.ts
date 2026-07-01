@@ -50,7 +50,7 @@ const mocks = vi.hoisted(() => {
         args: string[];
         proc: MockProcess;
     }
-    type TSpawnMode = 'success' | 'fail-ranges' | 'hang-ranges';
+    type TSpawnMode = 'success' | 'fail-ranges' | 'hang-ranges' | 'hang-registered';
 
     const spawnCalls: ISpawnCall[] = [];
     let spawnMode: TSpawnMode = 'success';
@@ -58,6 +58,10 @@ const mocks = vi.hoisted(() => {
 
     function isRangeDdjvuCall(command: string, args: string[]) {
         return command === '/tools/ddjvu' && args.some(arg => arg.startsWith('-page='));
+    }
+
+    function isRegisteredCombineCall(command: string) {
+        return command === '/tools/evb-pdf-image-combine';
     }
 
     const spawn = vi.fn((command: string, args: string[]) => {
@@ -71,6 +75,9 @@ const mocks = vi.hoisted(() => {
 
         queueMicrotask(() => {
             if (spawnMode === 'hang-ranges' && isRangeDdjvuCall(command, args)) {
+                return;
+            }
+            if (spawnMode === 'hang-registered' && isRegisteredCombineCall(command)) {
                 return;
             }
             if (spawnMode === 'fail-ranges' && isRangeDdjvuCall(command, args)) {
@@ -139,6 +146,8 @@ vi.mock('@electron/utils/nativeChildProcess', () => ({
 const {
     cancelConversion,
     convertDjvuToPdfFile,
+    renderDjvuPageToImage,
+    runRegisteredDjvuProcess,
 } = await import('@electron/features/djvu/main/ddjvuConversion');
 
 describe('convertDjvuToPdfFile', () => {
@@ -203,6 +212,30 @@ describe('convertDjvuToPdfFile', () => {
         });
     });
 
+    it('renders requested DjVu page modes through registered ddjvu processes', async () => {
+        const result = await renderDjvuPageToImage('/input.djvu', '/mask.pbm', 7, 'job-mask', {
+            format: 'pbm',
+            mode: 'mask',
+        });
+
+        expect(result).toEqual({
+            success: true,
+            outputPath: '/mask.pbm',
+            fileSize: 4096,
+        });
+        expect(mocks.spawnCalls).toHaveLength(1);
+        expect(mocks.spawnCalls[0]).toMatchObject({
+            command: '/tools/ddjvu',
+            args: [
+                '-format=pbm',
+                '-page=7',
+                '-mode=mask',
+                '/input.djvu',
+                '/mask.pbm',
+            ],
+        });
+    });
+
     it('falls back to the single process path when parallel range conversion fails', async () => {
         mocks.setSpawnMode('fail-ranges');
 
@@ -245,5 +278,31 @@ describe('convertDjvuToPdfFile', () => {
             call.command === '/tools/ddjvu'
             && !call.args.some(arg => arg.startsWith('-page='))
         ))).toHaveLength(0);
+    });
+
+    it('cancels registered compact child processes by parent job prefix', async () => {
+        mocks.setSpawnMode('hang-registered');
+
+        const processPromise = runRegisteredDjvuProcess(
+            'job-5-compact-combine',
+            '/tools/evb-pdf-image-combine',
+            [
+                '--compact-manifest',
+                '/tmp/manifest.tsv',
+            ],
+        );
+        await vi.waitFor(() => {
+            expect(mocks.spawnCalls.length).toBe(1);
+        });
+
+        const canceled = await cancelConversion('job-5');
+        const result = await processPromise;
+
+        expect(canceled).toBe(true);
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledTimes(1);
+        expect(result).toEqual({
+            success: false,
+            error: 'DjVu conversion canceled',
+        });
     });
 });

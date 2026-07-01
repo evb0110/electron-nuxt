@@ -17,6 +17,10 @@ export interface IDjvuPdfConversionPolicyDecision {
     isAllowed: boolean;
 }
 
+export type TDjvuPdfExportStrategy = 'direct' | 'compact-djvu-aware' | 'auto';
+
+export type TDjvuPdfResolvedExportStrategy = 'direct' | 'compact-djvu-aware';
+
 export const DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES = [
     1,
     2,
@@ -36,6 +40,20 @@ function normalizePositiveInteger(value: number, fallback: number) {
 
 export function normalizeDjvuPdfSubsample(value: number | undefined) {
     return normalizePositiveInteger(value ?? 1, 1);
+}
+
+export function resolveDjvuPdfExportStrategy(
+    strategy: TDjvuPdfExportStrategy | undefined,
+): TDjvuPdfResolvedExportStrategy {
+    switch (strategy ?? 'direct') {
+        case 'auto':
+        case 'direct':
+            return 'direct';
+        case 'compact-djvu-aware':
+            return 'compact-djvu-aware';
+        default:
+            throw new Error('Invalid DjVu PDF export strategy');
+    }
 }
 
 function estimateSourcePixels(metrics: IDjvuPdfConversionMetrics) {

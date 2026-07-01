@@ -106,12 +106,15 @@ export {
     estimateDjvuPdfEffectivePixels,
     evaluateDjvuPdfConversionPolicy,
     normalizeDjvuPdfSubsample,
+    resolveDjvuPdfExportStrategy,
     resolveRecommendedDjvuPdfSubsample,
 } from '@contracts/djvuConversionPolicy';
 export type {
     IDjvuConversionPageMetrics,
     IDjvuPdfConversionMetrics,
     IDjvuPdfConversionPolicyDecision,
+    TDjvuPdfExportStrategy,
+    TDjvuPdfResolvedExportStrategy,
 } from '@contracts/djvuConversionPolicy';
 
 export type {

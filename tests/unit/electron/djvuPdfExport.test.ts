@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => {
         getDjvuPageSizesForViewing: vi.fn(),
         parseDjvuOutline: vi.fn(),
         convertDjvuToPdfFile: vi.fn(),
+        buildCompactDjvuAwarePdfFromDjvu: vi.fn(),
         cancelConversion: vi.fn(),
         embedBookmarksIntoPdfFile: vi.fn(),
         optimizeGeneratedPdfForInteraction: vi.fn(),
@@ -72,6 +73,8 @@ vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
     cancelConversion: mocks.cancelConversion,
     convertDjvuToPdfFile: mocks.convertDjvuToPdfFile,
 }));
+
+vi.mock('@electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu', () => ({buildCompactDjvuAwarePdfFromDjvu: mocks.buildCompactDjvuAwarePdfFromDjvu}));
 
 vi.mock('@electron/djvu/metadata', () => ({
     getDjvuOutline: mocks.getDjvuOutline,
@@ -195,6 +198,14 @@ describe('handleDjvuConvertToPdf', () => {
             options?.onProgress?.(90);
             return {success: true};
         });
+        mocks.buildCompactDjvuAwarePdfFromDjvu.mockImplementation(async (options?: {onProgress?: (percent: number) => void;}) => {
+            options?.onProgress?.(90);
+            return {
+                success: true,
+                outputPath: '/tmp/djvu-export-test/convert-123.convert.pdf',
+                fileSize: 1024,
+            };
+        });
         mocks.cancelConversion.mockReturnValue(false);
         mocks.embedBookmarksIntoPdfFile.mockResolvedValue(123);
         mocks.optimizeGeneratedPdfForInteraction.mockResolvedValue(null);
@@ -301,6 +312,142 @@ describe('handleDjvuConvertToPdf', () => {
         });
         expect(mocks.convertDjvuToPdfFile).not.toHaveBeenCalled();
         expect(mocks.getDjvuOutline).not.toHaveBeenCalled();
+    });
+
+    it('keeps explicit direct PDF strategy on the existing direct conversion path', async () => {
+        const result = await handleDjvuConvertToPdf(
+            createOperationContext(7) as never,
+            trustedDjvuPath,
+            '/tmp/output.pdf',
+            {
+                pdfStrategy: 'direct',
+                preserveBookmarks: false,
+                subsample: 2,
+            },
+        );
+
+        expect(result).toEqual({
+            success: true,
+            pdfPath: '/tmp/output.pdf',
+            jobId: 'djvu-convert-convert-123',
+        });
+        expect(mocks.convertDjvuToPdfFile).toHaveBeenCalledWith(
+            trustedDjvuPath,
+            '/tmp/djvu-export-test/convert-123.convert.pdf',
+            'djvu-convert-convert-123',
+            expect.objectContaining({
+                pageCount: 2,
+                subsample: 2,
+            }),
+        );
+        expect(mocks.createDjvuPdfBookmarkTask).not.toHaveBeenCalled();
+    });
+
+    it('resolves auto PDF strategy to the Stage A direct conversion path', async () => {
+        const result = await handleDjvuConvertToPdf(
+            createOperationContext(7) as never,
+            trustedDjvuPath,
+            '/tmp/output.pdf',
+            {
+                pdfStrategy: 'auto',
+                preserveBookmarks: false,
+            },
+        );
+
+        expect(result).toEqual({
+            success: true,
+            pdfPath: '/tmp/output.pdf',
+            jobId: 'djvu-convert-convert-123',
+        });
+        expect(mocks.convertDjvuToPdfFile).toHaveBeenCalledTimes(1);
+        expect(mocks.convertDjvuToPdfFile).toHaveBeenCalledWith(
+            trustedDjvuPath,
+            '/tmp/djvu-export-test/convert-123.convert.pdf',
+            'djvu-convert-convert-123',
+            expect.objectContaining({pageCount: 2}),
+        );
+    });
+
+    it('uses the compact DjVu-aware builder only for the explicit compact strategy', async () => {
+        const result = await handleDjvuConvertToPdf(
+            createOperationContext(7) as never,
+            trustedDjvuPath,
+            '/tmp/output.pdf',
+            {
+                pdfStrategy: 'compact-djvu-aware',
+                preserveBookmarks: false,
+            },
+        );
+
+        expect(result).toEqual({
+            success: true,
+            pdfPath: '/tmp/output.pdf',
+            jobId: 'djvu-convert-convert-123',
+        });
+        expect(mocks.getDjvuPageCount).toHaveBeenCalledWith(trustedDjvuPath, {signal: expect.any(AbortSignal)});
+        expect(mocks.getDjvuResolution).toHaveBeenCalledWith(trustedDjvuPath, {signal: expect.any(AbortSignal)});
+        expect(mocks.getDjvuPageSizesForViewing).toHaveBeenCalledWith(trustedDjvuPath, 2);
+        expect(mocks.buildCompactDjvuAwarePdfFromDjvu).toHaveBeenCalledWith(expect.objectContaining({
+            jobId: 'djvu-convert-convert-123',
+            djvuPath: trustedDjvuPath,
+            outputPath: '/tmp/djvu-export-test/convert-123.convert.pdf',
+            tempDir: '/tmp/djvu-export-test',
+            pageCount: 2,
+            sourceDpi: 300,
+            pageSizes: [
+                {
+                    width: 1200,
+                    height: 1600,
+                    dpi: 300,
+                },
+                {
+                    width: 1200,
+                    height: 1600,
+                    dpi: 300,
+                },
+            ],
+            signal: expect.any(AbortSignal),
+            onProgress: expect.any(Function),
+        }));
+        expect(mocks.convertDjvuToPdfFile).not.toHaveBeenCalled();
+        expect(mocks.getDjvuOutline).not.toHaveBeenCalled();
+        expect(mocks.optimizeGeneratedPdfForInteraction)
+            .toHaveBeenCalledWith('/tmp/djvu-export-test/convert-123.convert.pdf');
+        expect(mocks.copyFile).toHaveBeenCalledWith(
+            '/tmp/djvu-export-test/convert-123.convert.pdf',
+            '/tmp/.staged-output.tmp',
+        );
+        expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/.staged-output.tmp', '/tmp/output.pdf');
+    });
+
+    it('stops compact PDF export before finalization when the compact builder fails', async () => {
+        mocks.buildCompactDjvuAwarePdfFromDjvu.mockResolvedValueOnce({
+            success: false,
+            outputPath: '/tmp/djvu-export-test/convert-123.convert.pdf',
+            fileSize: 0,
+            error: 'compact failed',
+        });
+
+        const result = await handleDjvuConvertToPdf(
+            createOperationContext(7) as never,
+            trustedDjvuPath,
+            '/tmp/output.pdf',
+            {
+                pdfStrategy: 'compact-djvu-aware',
+                preserveBookmarks: true,
+            },
+        );
+
+        expect(result).toEqual({
+            success: false,
+            jobId: 'djvu-convert-convert-123',
+            error: 'compact failed',
+        });
+        expect(mocks.convertDjvuToPdfFile).not.toHaveBeenCalled();
+        expect(mocks.getDjvuOutline).not.toHaveBeenCalled();
+        expect(mocks.optimizeGeneratedPdfForInteraction).not.toHaveBeenCalled();
+        expect(mocks.copyFile).not.toHaveBeenCalled();
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
     });
 
     it('terminates the active bookmark worker when cancel is requested', async () => {

@@ -1,8 +1,11 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDjvuPdfExportStrategy } from '@contracts/djvuConversionPolicy';
 import type {
     TMenuEventCallback,
     TMenuEventUnsubscribe,
 } from '@contracts/electronApiCommon';
+
+export type { TDjvuPdfExportStrategy } from '@contracts/djvuConversionPolicy';
 
 export interface IDjvuProgress {
     jobId: string;
@@ -45,6 +48,7 @@ export interface IDjvuPagePreviewOptions {subsample?: number;}
 export interface IDjvuConvertOptions {
     subsample?: number;
     preserveBookmarks?: boolean;
+    pdfStrategy?: TDjvuPdfExportStrategy;
 }
 
 export interface IDjvuOpenResult {

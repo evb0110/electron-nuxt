@@ -108,14 +108,14 @@ describe('useWorkspaceFileLifecycleController', () => {
             },
         });
         mocks.openFileDirectWithDjvuCleanup.mockImplementation(path => mocks.openFileDirect(path));
-        mocks.convertToPdf.mockImplementation(async (_subsample, _preserveBookmarks, openConvertedPdf) => {
+        mocks.convertToPdf.mockImplementation(async (_subsample, _preserveBookmarks, _pdfStrategy, openConvertedPdf) => {
             await openConvertedPdf('/tmp/output.pdf');
         });
 
         const controller = useWorkspaceFileLifecycleController();
-        await controller.handleDjvuConvert(2, true);
+        await controller.handleDjvuConvert(2, true, 'compact-djvu-aware');
 
-        expect(mocks.convertToPdf).toHaveBeenCalledWith(2, true, mocks.openFileDirectWithDjvuCleanup);
+        expect(mocks.convertToPdf).toHaveBeenCalledWith(2, true, 'compact-djvu-aware', mocks.openFileDirectWithDjvuCleanup);
         expect(mocks.openFileDirect).toHaveBeenCalledWith('/tmp/output.pdf');
     });
 });

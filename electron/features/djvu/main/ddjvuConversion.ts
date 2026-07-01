@@ -36,6 +36,14 @@ interface IDjvuConversionOptions {
     onProgress?: (percent: number) => void;
 }
 
+export interface IRegisteredDjvuProcessOptions {
+    env?: NodeJS.ProcessEnv;
+    onStderr?: (chunk: string) => void;
+    onStdout?: (chunk: string) => void;
+    timeoutMs?: number;
+    maxStderrBytes?: number;
+}
+
 interface IDjvuConversionResult {
     success: boolean;
     outputPath: string;
@@ -449,7 +457,8 @@ function buildPdfArgs(
     return args;
 }
 
-type TImageFormat = 'pgm' | 'ppm';
+type TImageFormat = 'pbm' | 'pgm' | 'ppm';
+type TDjvuRenderMode = 'background' | 'black' | 'foreground' | 'mask';
 
 export async function convertDjvuPageToImage(
     inputPath: string,
@@ -461,6 +470,20 @@ export async function convertDjvuPageToImage(
         format?: TImageFormat;
     } = {},
 ): Promise<IDjvuConversionResult> {
+    return renderDjvuPageToImage(inputPath, outputPath, pageNum, jobId, options);
+}
+
+export async function renderDjvuPageToImage(
+    inputPath: string,
+    outputPath: string,
+    pageNum: number,
+    jobId: string,
+    options: {
+        subsample?: number;
+        format?: TImageFormat;
+        mode?: TDjvuRenderMode;
+    } = {},
+): Promise<IDjvuConversionResult> {
     const { ddjvu } = getDjvuNativeToolPaths();
     const format = options.format ?? 'ppm';
 
@@ -468,6 +491,10 @@ export async function convertDjvuPageToImage(
         `-format=${format}`,
         `-page=${pageNum}`,
     ];
+
+    if (options.mode) {
+        args.push(`-mode=${options.mode}`);
+    }
 
     if (options.subsample && options.subsample > 1) {
         args.push(`-subsample=${options.subsample}`);
@@ -503,6 +530,15 @@ export async function convertDjvuPageToImage(
             error: `Output file not found: ${getErrorMessage(err)}`,
         };
     }
+}
+
+export async function runRegisteredDjvuProcess(
+    processId: string,
+    command: string,
+    args: string[],
+    options: IRegisteredDjvuProcessOptions = {},
+) {
+    return runProcess(processId, command, args, options);
 }
 
 export async function cancelConversion(jobId: string) {
@@ -542,6 +578,7 @@ async function killProcess(proc: ChildProcess) {
 interface IRunProcessOptions {
     env?: NodeJS.ProcessEnv;
     onStderr?: (chunk: string) => void;
+    onStdout?: (chunk: string) => void;
     timeoutMs?: number;
     maxStderrBytes?: number;
 }
@@ -634,8 +671,9 @@ async function runProcess(
             resolve(result);
         };
 
-        proc.stdout?.on('data', () => {
+        proc.stdout?.on('data', (data: Buffer) => {
             // Drain stdout to avoid child process back-pressure stalls.
+            options.onStdout?.(data.toString());
         });
 
         proc.stderr?.on('data', (data: Buffer) => {

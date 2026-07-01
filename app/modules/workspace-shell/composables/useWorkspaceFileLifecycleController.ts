@@ -1,3 +1,4 @@
+import type { TDjvuPdfExportStrategy } from '@contracts/electronApiDjvu';
 import { usePdfFile } from '@app/modules/workspace-shell/composables/usePdfFile';
 import { useDjvu } from '@app/composables/useDjvu';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
@@ -92,8 +93,12 @@ export const useWorkspaceFileLifecycleController = () => {
         closeFile,
     });
 
-    function handleDjvuConvert(subsample: number, preserveBookmarks: boolean) {
-        return djvuConvertToPdf(subsample, preserveBookmarks, openFileDirectWithDjvuCleanup);
+    function handleDjvuConvert(
+        subsample: number,
+        preserveBookmarks: boolean,
+        pdfStrategy: TDjvuPdfExportStrategy,
+    ) {
+        return djvuConvertToPdf(subsample, preserveBookmarks, pdfStrategy, openFileDirectWithDjvuCleanup);
     }
 
     function handleDjvuCancel() {

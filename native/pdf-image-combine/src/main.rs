@@ -6,8 +6,9 @@ use std::{
 };
 
 use evb_pdf_image_combine::{
-    combine_tiff_paths, encode_netpbm_path_as_png, write_pdf_from_image_paths_with_progress,
-    PdfBuildOptions, Result,
+    combine_tiff_paths, encode_netpbm_path_as_png, write_mixed_pdf_from_page_specs_with_progress,
+    write_pdf_from_image_paths_with_progress, MixedPdfPageSpec, PdfBuildOptions, PdfPageSize,
+    Result,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -18,6 +19,7 @@ struct Config {
     json_progress: bool,
     dpi: Option<u32>,
     output_format: OutputFormat,
+    compact_manifest_path: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -66,6 +68,28 @@ fn run() -> Result<()> {
     }
 
     let started_at = Instant::now();
+    if let Some(manifest_path) = &config.compact_manifest_path {
+        let page_specs = read_compact_manifest(manifest_path)?;
+        let total = page_specs.len();
+        write_mixed_pdf_from_page_specs_with_progress(
+            &page_specs,
+            &config.output_path,
+            &PdfBuildOptions {
+                default_dpi: config.dpi,
+                max_pages: read_limit("EVB_PDF_COMBINE_MAX_PAGES", 500, 1, 10_000) as usize,
+                max_pixels,
+                max_tiff_frames: read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000)
+                    as usize,
+            },
+            |processed| {
+                if config.json_progress {
+                    print_progress(processed, total, started_at);
+                }
+            },
+        )?;
+        return Ok(());
+    }
+
     let total = config.input_paths.len();
     write_pdf_from_image_paths_with_progress(
         &config.input_paths,
@@ -92,6 +116,7 @@ fn parse_args() -> Result<Config> {
     let mut json_progress = false;
     let mut dpi = None;
     let mut output_format = OutputFormat::Pdf;
+    let mut compact_manifest_path = None;
     let mut reading_inputs = false;
 
     while let Some(arg) = args.next() {
@@ -125,6 +150,10 @@ fn parse_args() -> Result<Config> {
                 let value = args.next().ok_or("Missing --inputs-file value")?;
                 input_paths.extend(read_input_paths_file(Path::new(&value))?);
             }
+            "--compact-manifest" => {
+                let value = args.next().ok_or("Missing --compact-manifest value")?;
+                compact_manifest_path = Some(PathBuf::from(value));
+            }
             "--" => {
                 reading_inputs = true;
             }
@@ -138,8 +167,11 @@ fn parse_args() -> Result<Config> {
     }
 
     let output_path = output_path.ok_or("Missing required --output argument")?;
-    if input_paths.is_empty() {
+    if input_paths.is_empty() && compact_manifest_path.is_none() {
         return Err("At least one input image is required".into());
+    }
+    if compact_manifest_path.is_some() && output_format != OutputFormat::Pdf {
+        return Err("--compact-manifest is only supported for PDF output".into());
     }
 
     Ok(Config {
@@ -148,6 +180,7 @@ fn parse_args() -> Result<Config> {
         json_progress,
         dpi,
         output_format,
+        compact_manifest_path,
     })
 }
 
@@ -159,6 +192,67 @@ fn read_input_paths_file(path: &Path) -> Result<Vec<PathBuf>> {
         .filter(|line| !line.is_empty())
         .map(PathBuf::from)
         .collect())
+}
+
+fn read_compact_manifest(path: &Path) -> Result<Vec<MixedPdfPageSpec>> {
+    let contents = fs::read_to_string(path)?;
+    let mut page_specs = Vec::new();
+
+    for (index, line) in contents.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        page_specs.push(parse_compact_manifest_line(line, index + 1)?);
+    }
+
+    Ok(page_specs)
+}
+
+fn parse_compact_manifest_line(line: &str, line_number: usize) -> Result<MixedPdfPageSpec> {
+    let parts = line.split('\t').collect::<Vec<_>>();
+    let kind = parts
+        .first()
+        .copied()
+        .ok_or_else(|| format!("Invalid compact manifest line {line_number}"))?;
+    let page_size = PdfPageSize {
+        width_points: parse_positive_f64(parts.get(1).copied(), "width points", line_number)?,
+        height_points: parse_positive_f64(parts.get(2).copied(), "height points", line_number)?,
+    };
+
+    match kind {
+        "image" if parts.len() == 4 => Ok(MixedPdfPageSpec::FullImage {
+            page_size,
+            image_path: parse_manifest_path(parts[3], line_number)?,
+        }),
+        "layered" if parts.len() == 5 => Ok(MixedPdfPageSpec::Layered {
+            page_size,
+            background_path: parse_manifest_path(parts[3], line_number)?,
+            foreground_mask_path: parse_manifest_path(parts[4], line_number)?,
+        }),
+        "image" | "layered" => {
+            Err(format!("Invalid compact manifest field count on line {line_number}").into())
+        }
+        _ => {
+            Err(format!("Invalid compact manifest page kind on line {line_number}: {kind}").into())
+        }
+    }
+}
+
+fn parse_positive_f64(value: Option<&str>, label: &str, line_number: usize) -> Result<f64> {
+    let parsed = value
+        .ok_or_else(|| format!("Missing {label} on compact manifest line {line_number}"))?
+        .parse::<f64>()?;
+    if !parsed.is_finite() || parsed <= 0.0 {
+        return Err(format!("Invalid {label} on compact manifest line {line_number}").into());
+    }
+    Ok(parsed)
+}
+
+fn parse_manifest_path(value: &str, line_number: usize) -> Result<PathBuf> {
+    if value.is_empty() || value.trim() != value || value.contains('\r') || value.contains('\n') {
+        return Err(format!("Invalid path on compact manifest line {line_number}").into());
+    }
+    Ok(PathBuf::from(value))
 }
 
 fn parse_dpi(value: &str) -> Result<u32> {
@@ -191,4 +285,55 @@ fn print_progress(processed: usize, total: usize, started_at: Instant) {
         "{{\"type\":\"progress\",\"processed\":{processed},\"total\":{total},\"percent\":{percent},\"elapsedMs\":{elapsed_ms},\"estimatedRemainingMs\":{estimated_remaining_ms}}}"
     );
     let _ = std::io::stdout().flush();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_compact_manifest_layered_and_image_lines() {
+        let layered =
+            parse_compact_manifest_line("layered\t72\t144\t/tmp/background.ppm\t/tmp/mask.pbm", 1)
+                .unwrap();
+        match layered {
+            MixedPdfPageSpec::Layered {
+                page_size,
+                background_path,
+                foreground_mask_path,
+            } => {
+                assert_eq!(page_size.width_points, 72.0);
+                assert_eq!(page_size.height_points, 144.0);
+                assert_eq!(background_path, PathBuf::from("/tmp/background.ppm"));
+                assert_eq!(foreground_mask_path, PathBuf::from("/tmp/mask.pbm"));
+            }
+            MixedPdfPageSpec::FullImage { .. } => panic!("expected layered page"),
+        }
+
+        let image = parse_compact_manifest_line("image\t72\t144\t/tmp/page.ppm", 2).unwrap();
+        match image {
+            MixedPdfPageSpec::FullImage {
+                page_size,
+                image_path,
+            } => {
+                assert_eq!(page_size.width_points, 72.0);
+                assert_eq!(page_size.height_points, 144.0);
+                assert_eq!(image_path, PathBuf::from("/tmp/page.ppm"));
+            }
+            MixedPdfPageSpec::Layered { .. } => panic!("expected image page"),
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_compact_manifest_lines() {
+        assert!(
+            parse_compact_manifest_line("layered\t0\t144\t/tmp/bg.ppm\t/tmp/mask.pbm", 1).is_err()
+        );
+        assert!(parse_compact_manifest_line(
+            "image\t72\t144\t/tmp/page with trailing space.ppm ",
+            2,
+        )
+        .is_err());
+        assert!(parse_compact_manifest_line("unknown\t72\t144\t/tmp/page.ppm", 3).is_err());
+    }
 }

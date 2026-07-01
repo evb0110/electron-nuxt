@@ -192,6 +192,47 @@ describe('registerDjvuIpcAdapter', () => {
         }
     });
 
+    it('forwards the selected PDF strategy through the convert handler', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-convert-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            const canonicalRealPath = realpathSync.native(realPath);
+
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const event = {sender: {id: 1}};
+            allowOpenPath(realPath, event.sender as never);
+            registerDjvuIpcAdapter();
+            const handler = getHandler('djvu:convertToPdf');
+
+            await handler(event, realPath, '/tmp/output.pdf', {
+                subsample: 1,
+                preserveBookmarks: true,
+                pdfStrategy: 'compact-djvu-aware',
+            });
+
+            expect(mocks.handleDjvuConvertToPdf).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    sender: event.sender,
+                    senderId: 1,
+                    parentWindow: null,
+                }),
+                canonicalRealPath,
+                '/tmp/output.pdf',
+                {
+                    subsample: 1,
+                    preserveBookmarks: true,
+                    pdfStrategy: 'compact-djvu-aware',
+                },
+            );
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('requires an active viewing grant before probing page sizes', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-size-test-'));
         try {

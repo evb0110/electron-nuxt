@@ -13,16 +13,22 @@ mod wasm;
 
 use std::{
     error::Error,
-    fs::File,
+    fs::{self, File},
     io::BufWriter,
     path::{Path, PathBuf},
 };
 
 use crate::{
-    image::{read_image_pages, read_image_pages_from_bytes, visit_image_pages},
-    pdf::{build_pdf, write_pdf_to_writer},
+    image::{assert_pixel_limit, read_image_pages, read_image_pages_from_bytes, visit_image_pages},
+    netpbm::parse_pbm_p4,
+    pdf::{build_layered_pdf_page, build_pdf, write_pdf_to_writer, ImagePage, ImagePayload},
     png_encode::encode_netpbm_file_as_png,
     tiff_io::combine_tiff_pages,
+};
+
+pub use crate::{
+    netpbm::PbmP4Image,
+    pdf::{LayeredImagePayload, LayeredPdfImage, LayeredPdfPage, PdfPageSize},
 };
 
 pub const DEFAULT_DPI: u32 = 72;
@@ -52,6 +58,18 @@ impl Default for PdfBuildOptions {
             max_tiff_frames: 250,
         }
     }
+}
+
+pub enum MixedPdfPageSpec {
+    FullImage {
+        page_size: PdfPageSize,
+        image_path: PathBuf,
+    },
+    Layered {
+        page_size: PdfPageSize,
+        background_path: PathBuf,
+        foreground_mask_path: PathBuf,
+    },
 }
 
 pub fn build_pdf_from_image_paths(
@@ -147,6 +165,68 @@ pub fn build_pdf_from_image_bytes_inputs_with_progress(
     build_pdf(&pages)
 }
 
+pub fn parse_pbm_p4_mask(data: &[u8]) -> Result<PbmP4Image> {
+    parse_pbm_p4(data)
+}
+
+pub fn build_layered_pdf_from_page(page: &LayeredPdfPage) -> Result<Vec<u8>> {
+    build_layered_pdf_page(page)
+}
+
+pub fn write_mixed_pdf_from_page_specs_with_progress(
+    page_specs: &[MixedPdfPageSpec],
+    output_path: &Path,
+    options: &PdfBuildOptions,
+    mut on_processed: impl FnMut(usize),
+) -> Result<()> {
+    if page_specs.is_empty() {
+        return Err("Mixed PDF manifest must contain at least one page".into());
+    }
+    next_page_count_with_limit(0, page_specs.len(), options.max_pages)?;
+
+    let output = File::create(output_path)?;
+    let writer = BufWriter::new(output);
+
+    write_pdf_to_writer(writer, |pdf| {
+        for (index, spec) in page_specs.iter().enumerate() {
+            match spec {
+                MixedPdfPageSpec::FullImage {
+                    page_size,
+                    image_path,
+                } => {
+                    let page = read_single_image_page(image_path, options)?;
+                    pdf.add_page_with_size(&page, page_size)?;
+                }
+                MixedPdfPageSpec::Layered {
+                    page_size,
+                    background_path,
+                    foreground_mask_path,
+                } => {
+                    let background = read_single_image_page(background_path, options)?;
+                    let foreground_mask = parse_pbm_p4(&fs::read(foreground_mask_path)?)?;
+                    assert_pixel_limit(
+                        foreground_mask.width,
+                        foreground_mask.height,
+                        options.max_pixels,
+                    )?;
+                    pdf.add_layered_page(&LayeredPdfPage {
+                        page_size: PdfPageSize {
+                            width_points: page_size.width_points,
+                            height_points: page_size.height_points,
+                        },
+                        background: image_page_to_layered_image(background),
+                        foreground_mask,
+                    })?;
+                }
+            }
+            on_processed(index + 1);
+        }
+        Ok(())
+    })?;
+
+    Ok(())
+}
+
 pub fn encode_netpbm_path_as_png(input_path: &Path, output_path: &Path) -> Result<()> {
     encode_netpbm_file_as_png(input_path, output_path)
 }
@@ -182,6 +262,45 @@ fn next_page_count_with_limit(
         return Err(format!("Combined PDF is capped at {max_pages} pages").into());
     }
     Ok(next_pages)
+}
+
+fn read_single_image_page(input_path: &Path, options: &PdfBuildOptions) -> Result<ImagePage> {
+    let pages = read_image_pages(
+        input_path,
+        options.max_pixels,
+        options.default_dpi,
+        options.max_tiff_frames,
+    )?;
+    match pages.len() {
+        1 => pages
+            .into_iter()
+            .next()
+            .ok_or_else(|| format!("No image pages found: {}", input_path.display()).into()),
+        0 => Err(format!("No image pages found: {}", input_path.display()).into()),
+        page_count => Err(format!(
+            "Mixed PDF page images must contain exactly one page: {} has {page_count}",
+            input_path.display()
+        )
+        .into()),
+    }
+}
+
+fn image_page_to_layered_image(page: ImagePage) -> LayeredPdfImage {
+    LayeredPdfImage {
+        width: page.width,
+        height: page.height,
+        color_space: page.color_space,
+        payload: match page.payload {
+            ImagePayload::RawFlate {
+                data,
+                decode_params,
+            } => LayeredImagePayload::RawFlate {
+                data,
+                decode_params,
+            },
+            ImagePayload::Jpeg { data } => LayeredImagePayload::Jpeg { data },
+        },
+    }
 }
 
 #[cfg(test)]
@@ -294,6 +413,88 @@ mod tests {
         assert_eq!(progress, vec![1]);
 
         let _ = fs::remove_file(input_path);
+        let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn builds_layered_pdf_from_public_page_api() {
+        let mask = parse_pbm_p4_mask(b"P4\n8 1\n\x80").unwrap();
+        let pdf = build_layered_pdf_from_page(&LayeredPdfPage {
+            page_size: PdfPageSize {
+                width_points: 72.0,
+                height_points: 72.0,
+            },
+            background: LayeredPdfImage {
+                width: 1,
+                height: 1,
+                color_space: "DeviceGray",
+                payload: LayeredImagePayload::RawFlate {
+                    data: zlib_bytes(&[0]),
+                    decode_params: "<< /Predictor 1 /Colors 1 /BitsPerComponent 8 /Columns 1 >>"
+                        .to_string(),
+                },
+            },
+            foreground_mask: mask,
+        })
+        .unwrap();
+
+        assert!(pdf.starts_with(b"%PDF-1.4"));
+        assert!(pdf
+            .windows(b"/ImageMask true".len())
+            .any(|window| window == b"/ImageMask true"));
+    }
+
+    #[test]
+    fn writes_mixed_layered_and_full_image_pdf_pages() {
+        let background_path = temp_path("mixed-background").with_extension("ppm");
+        let mask_path = temp_path("mixed-mask").with_extension("pbm");
+        let fallback_path = temp_path("mixed-fallback").with_extension("ppm");
+        let output_path = temp_path("mixed-output").with_extension("pdf");
+
+        fs::write(&background_path, b"P6\n1 1\n255\n\xf8\xf8\xf8").unwrap();
+        fs::write(&mask_path, b"P4\n8 1\n\x80").unwrap();
+        fs::write(&fallback_path, b"P6\n1 1\n255\n\x40\x50\x60").unwrap();
+
+        let mut progress = Vec::new();
+        write_mixed_pdf_from_page_specs_with_progress(
+            &[
+                MixedPdfPageSpec::Layered {
+                    page_size: PdfPageSize {
+                        width_points: 72.0,
+                        height_points: 72.0,
+                    },
+                    background_path: background_path.clone(),
+                    foreground_mask_path: mask_path.clone(),
+                },
+                MixedPdfPageSpec::FullImage {
+                    page_size: PdfPageSize {
+                        width_points: 144.0,
+                        height_points: 72.0,
+                    },
+                    image_path: fallback_path.clone(),
+                },
+            ],
+            &output_path,
+            &PdfBuildOptions {
+                default_dpi: Some(72),
+                max_pages: 10,
+                ..PdfBuildOptions::default()
+            },
+            |processed| progress.push(processed),
+        )
+        .unwrap();
+
+        let pdf = fs::read(&output_path).unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/Count 2"));
+        assert!(text.contains("/ImageMask true"));
+        assert!(text.contains("/MediaBox [0 0 144.0000 72.0000]"));
+        assert!(!text.contains("/JBIG2Decode"));
+        assert_eq!(progress, vec![1, 2]);
+
+        let _ = fs::remove_file(background_path);
+        let _ = fs::remove_file(mask_path);
+        let _ = fs::remove_file(fallback_path);
         let _ = fs::remove_file(output_path);
     }
 

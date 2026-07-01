@@ -11,61 +11,119 @@
                         <span class="convert-info-label">{{ t('djvu.convertDialog.file') }}</span>
                         <span class="convert-info-value">{{ fileName }}</span>
                     </div>
-                    <div
-                        v-if="info"
-                        class="convert-info-row"
-                    >
+                    <div class="convert-info-row">
                         <span class="convert-info-label">{{ t('djvu.convertDialog.pages') }}</span>
-                        <span class="convert-info-value">{{ info.pageCount }}</span>
+                        <span class="convert-info-value">{{ pageCountLabel }}</span>
                     </div>
-                    <div
-                        v-if="info"
-                        class="convert-info-row"
-                    >
+                    <div class="convert-info-row">
                         <span class="convert-info-label">{{ t('djvu.convertDialog.sourceResolution') }}</span>
-                        <span class="convert-info-value">{{ info.sourceDpi }} {{ t('common.unitDpi') }}</span>
+                        <span class="convert-info-value">{{ sourceResolutionLabel }}</span>
                     </div>
                 </div>
 
-                <UAlert
-                    v-if="largeDocumentWarning"
-                    color="warning"
-                    variant="soft"
-                    :description="largeDocumentWarning"
-                    :ui="{ title: 'sr-only' }"
-                />
-
                 <div class="convert-presets flex flex-col gap-2">
                     <URadioGroup
-                        v-model="selectedSubsample"
-                        :legend="t('djvu.convertDialog.quality')"
-                        :items="resolvedEstimates"
+                        v-model="selectedPresetValue"
+                        :legend="t('djvu.convertDialog.method')"
+                        :items="recommendedPresets"
                         value-key="value"
                         variant="card"
-                        :ui="presetRadioGroupUi"
+                        :ui="recommendedRadioGroupUi"
                     >
                         <template #label="{ item }">
                             <span class="convert-preset-label">
                                 {{ item.label }}
-                                <span class="convert-preset-dpi">{{ item.resultingDpi }} {{ t('common.unitDpi') }}</span>
+                                <UBadge
+                                    v-if="item.isRecommended"
+                                    size="xs"
+                                    color="primary"
+                                    variant="subtle"
+                                    class="convert-preset-badge"
+                                >
+                                    {{ t('djvu.convertDialog.recommended') }}
+                                </UBadge>
                             </span>
                         </template>
                         <template #description="{ item }">
                             <span class="convert-preset-description">
                                 {{ item.description }}
-                                <span v-if="item.estimatedBytes > 0">
-                                    — ~{{ formatBytes(item.estimatedBytes) }}
+                                <span class="convert-preset-note">
+                                    {{ item.note }}
                                 </span>
                             </span>
                         </template>
                     </URadioGroup>
-                    <div
-                        v-if="estimatesLoading"
-                        class="convert-preset-loading"
+
+                    <UCollapsible
+                        v-model:open="advancedRasterOpen"
+                        :unmount-on-hide="false"
+                        class="convert-advanced flex flex-col"
                     >
-                        <AppSpinner size="xs" tone="muted" />
-                        {{ t('djvu.convertDialog.estimating') }}
-                    </div>
+                        <template #default="{ open: isAdvancedOpen }">
+                            <button
+                                type="button"
+                                class="convert-advanced-toggle"
+                                :aria-expanded="isAdvancedOpen ? 'true' : 'false'"
+                            >
+                                <UIcon
+                                    :name="isAdvancedOpen ? 'i-ph-caret-down' : 'i-ph-caret-right'"
+                                    class="convert-advanced-icon"
+                                />
+                                <span>{{ t('djvu.convertDialog.advancedRaster') }}</span>
+                            </button>
+                        </template>
+
+                        <template #content>
+                            <div class="convert-advanced-content">
+                                <p class="convert-advanced-hint">
+                                    {{ t('djvu.convertDialog.advancedRasterHint') }}
+                                </p>
+                                <URadioGroup
+                                    v-model="selectedPresetValue"
+                                    :legend="t('djvu.convertDialog.advancedRaster')"
+                                    :items="advancedDirectPresets"
+                                    value-key="value"
+                                    variant="card"
+                                    :ui="advancedRadioGroupUi"
+                                >
+                                    <template #label="{ item }">
+                                        <span class="convert-preset-label">
+                                            {{ item.label }}
+                                            <span
+                                                v-if="item.resultingDpi"
+                                                class="convert-preset-dpi"
+                                            >
+                                                {{ item.resultingDpi }} {{ t('common.unitDpi') }}
+                                            </span>
+                                            <UBadge
+                                                v-if="item.isRecommended"
+                                                size="xs"
+                                                color="neutral"
+                                                variant="subtle"
+                                                class="convert-preset-badge"
+                                            >
+                                                {{ t('djvu.convertDialog.recommended') }}
+                                            </UBadge>
+                                        </span>
+                                    </template>
+                                    <template #description="{ item }">
+                                        <span class="convert-preset-description">
+                                            {{ item.description }}
+                                            <span v-if="item.disabledReason">
+                                                {{ item.disabledReason }}
+                                            </span>
+                                            <span v-else-if="item.isEstimateLoading">
+                                                {{ t('djvu.convertDialog.estimating') }}
+                                            </span>
+                                            <span v-else-if="(item.estimatedBytes ?? 0) > 0">
+                                                ~{{ formatBytes(item.estimatedBytes ?? 0) }}
+                                            </span>
+                                        </span>
+                                    </template>
+                                </URadioGroup>
+                            </div>
+                        </template>
+                    </UCollapsible>
                 </div>
 
                 <div
@@ -100,11 +158,23 @@
 <script setup lang="ts">
 
 import type { TDocumentRef } from '@contracts/documentRef';
+import type {
+    IDjvuPageSize,
+    IDjvuSizeEstimate,
+} from '@contracts/electronApiDjvu';
 import {
+    DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES,
     evaluateDjvuPdfConversionPolicy,
-    resolveRecommendedDjvuPdfSubsample,
+    type IDjvuPdfConversionMetrics,
 } from '@contracts/djvuConversionPolicy';
-import AppSpinner from '@app/components/AppSpinner.vue';
+import {
+    DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE,
+    createDirectDjvuConvertDialogPresetValue,
+    resolveDjvuConvertDialogSelection,
+    resolveRecommendedAdvancedDirectPresetValue,
+    type TDjvuConvertDialogPdfStrategy,
+    type TDjvuConvertDialogPresetValue,
+} from '@app/modules/djvu-viewer/runtime/djvuConvertDialogPresets';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
@@ -113,7 +183,7 @@ const { t } = useTypedI18n();
 
 const { djvuPath } = defineProps<{djvuPath: TDocumentRef | null;}>();
 
-const emit = defineEmits<{convert: [subsample: number, preserveBookmarks: boolean];}>();
+const emit = defineEmits<IDjvuConvertDialogEmits>();
 
 const open = defineModel<boolean>('open', { required: true });
 
@@ -121,67 +191,111 @@ interface IInfo {
     pageCount: number;
     sourceDpi: number;
     hasBookmarks: boolean;
+    pageSizes?: readonly IDjvuPageSize[] | null;
 }
 
-interface IEstimate {
+type TDjvuConvertDialogEmitArgs = [
+    subsample: number,
+    preserveBookmarks: boolean,
+    pdfStrategy: TDjvuConvertDialogPdfStrategy,
+];
+
+interface IDjvuConvertDialogEmits {convert: TDjvuConvertDialogEmitArgs;}
+
+interface IResolvedPreset {
+    value: TDjvuConvertDialogPresetValue;
     subsample: number;
+    pdfStrategy: TDjvuConvertDialogPdfStrategy;
     label: string;
     description: string;
-    resultingDpi: number;
-    estimatedBytes: number;
-}
-
-interface IResolvedEstimate extends IEstimate {
-    value: number;
+    note?: string;
+    resultingDpi?: number;
+    estimatedBytes?: number;
+    isEstimateLoading?: boolean;
+    isRecommended?: boolean;
+    disabledReason?: string;
     disabled?: boolean;
 }
 
 const info = ref<IInfo | null>(null);
-const estimates = ref<IEstimate[]>([]);
+const estimates = ref<IDjvuSizeEstimate[]>([]);
 const estimatesLoading = ref(false);
-const selectedSubsample = ref(1);
+const selectedPresetValue = ref<TDjvuConvertDialogPresetValue>(DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE);
 const preserveBookmarks = ref(true);
-const presetRadioGroupUi = {
+const advancedRasterOpen = ref(false);
+const recommendedRadioGroupUi = {
     fieldset: 'gap-y-2',
     legend: 'convert-presets-title',
     item: 'cursor-pointer',
     label: 'font-normal',
     description: 'text-xs',
 } as const;
+const advancedRadioGroupUi = {
+    fieldset: 'gap-y-2',
+    legend: 'sr-only',
+    item: 'cursor-pointer',
+    label: 'font-normal',
+    description: 'text-xs',
+} as const;
 
-const resolvedEstimates = computed<IResolvedEstimate[]>(() => estimates.value.map((estimate) => {
-    const policy = resolvePolicyForSubsample(estimate.subsample);
-    return {
-        ...estimate,
-        value: estimate.subsample,
-        label: estimate.label || resolveEstimateLabel(estimate.subsample),
-        description:
-            estimate.description || resolveEstimateDescription(estimate.subsample),
-        ...(policy && !policy.isAllowed ? { disabled: true } : {}),
-    };
-}));
-const selectedConversionPolicy = computed(() => resolvePolicyForSubsample(selectedSubsample.value));
-const largeDocumentWarning = computed(() => {
-    if (!info.value) {
-        return null;
-    }
+const selectedConversion = computed(() => resolveDjvuConvertDialogSelection(selectedPresetValue.value));
+const recommendedPresets = computed<IResolvedPreset[]>(() => [{
+    value: DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE,
+    subsample: 1,
+    pdfStrategy: 'compact-djvu-aware',
+    label: t('djvu.convertDialog.sourceDetailCompact'),
+    description: t('djvu.convertDialog.sourceDetailCompactDescription'),
+    note: t('djvu.convertDialog.sourceDetailCompactSizeNote'),
+    isRecommended: true,
+}]);
+const advancedDirectPresets = computed<IResolvedPreset[]>(() => {
+    const estimateBySubsample = new Map(estimates.value.map(estimate => [
+        estimate.subsample,
+        estimate,
+    ] as const));
+    const recommendedDirectValue = info.value
+        ? resolveRecommendedAdvancedDirectPresetValue({
+            pageCount: info.value.pageCount,
+            sourceDpi: info.value.sourceDpi,
+            ...(info.value.pageSizes === undefined ? {} : { pageSizes: info.value.pageSizes }),
+        })
+        : null;
 
-    if (selectedConversionPolicy.value && !selectedConversionPolicy.value.isAllowed) {
-        return t('djvu.convertDialog.largeDocumentHigh');
-    }
-
-    if (info.value.pageCount >= 700) {
-        return t('djvu.convertDialog.largeDocumentHigh');
-    }
-
-    if (info.value.pageCount >= 250) {
-        return t('djvu.convertDialog.largeDocumentMedium');
-    }
-
-    return null;
+    return DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES.map((subsample) => {
+        const estimate = estimateBySubsample.get(subsample);
+        const policy = resolvePolicyForSubsample(subsample);
+        const isBlocked = Boolean(policy && !policy.isAllowed);
+        const value = createDirectDjvuConvertDialogPresetValue(subsample);
+        const resultingDpi = estimate?.resultingDpi ?? resolveResultingDpi(subsample);
+        return {
+            value,
+            subsample,
+            pdfStrategy: 'direct' as const,
+            label: estimate?.label ?? resolveEstimateLabel(subsample),
+            description:
+                estimate?.description ?? resolveEstimateDescription(subsample),
+            isEstimateLoading: estimatesLoading.value && !estimate,
+            isRecommended: value === recommendedDirectValue,
+            ...(resultingDpi === undefined ? {} : { resultingDpi }),
+            ...(estimate?.estimatedBytes === undefined ? {} : { estimatedBytes: estimate.estimatedBytes }),
+            ...(isBlocked ? { disabledReason: t('djvu.convertDialog.directDisabledReason') } : {}),
+            ...((estimatesLoading.value || isBlocked) ? { disabled: true } : {}),
+        };
+    });
 });
+const selectedConversionPolicy = computed(() => (
+    selectedConversion.value.pdfStrategy === 'direct'
+        ? resolvePolicyForSubsample(selectedConversion.value.subsample)
+        : null
+));
 
 const fileName = computed(() => getDocumentRefBaseName(djvuPath) ?? '');
+const pageCountLabel = computed(() => info.value?.pageCount.toLocaleString() ?? t('common.loading'));
+const sourceResolutionLabel = computed(() => (
+    info.value
+        ? `${info.value.sourceDpi} ${t('common.unitDpi')}`
+        : t('common.loading')
+));
 
 function formatBytes(bytes: number) {
     if (bytes < 1024) {
@@ -215,38 +329,33 @@ function resolveEstimateDescription(subsample: number) {
     }
 }
 
+function resolveResultingDpi(subsample: number) {
+    if (!info.value) {
+        return undefined;
+    }
+
+    return Math.round(info.value.sourceDpi / subsample);
+}
+
 function resolvePolicyForSubsample(subsample: number) {
     if (!info.value) {
         return null;
     }
 
-    return evaluateDjvuPdfConversionPolicy({
+    const metrics: IDjvuPdfConversionMetrics = {
         pageCount: info.value.pageCount,
         sourceDpi: info.value.sourceDpi,
-    }, subsample);
+        ...(info.value.pageSizes === undefined ? {} : { pageSizes: info.value.pageSizes }),
+    };
+
+    return evaluateDjvuPdfConversionPolicy(metrics, subsample);
 }
 
-function resolvePageCountDefaultSubsample(pageCount: number) {
-    if (pageCount >= 700) {
-        return 4;
+watch(() => selectedConversion.value.pdfStrategy, (pdfStrategy) => {
+    if (pdfStrategy === 'direct') {
+        advancedRasterOpen.value = true;
     }
-
-    if (pageCount >= 250) {
-        return 2;
-    }
-
-    return 1;
-}
-
-function resolveDefaultSubsample(pageCount: number, sourceDpi: number) {
-    return Math.max(
-        resolvePageCountDefaultSubsample(pageCount),
-        resolveRecommendedDjvuPdfSubsample({
-            pageCount,
-            sourceDpi,
-        }),
-    );
-}
+});
 
 watch(open, async (isOpen, _wasOpen, onCleanup) => {
     if (!isOpen || !djvuPath) {
@@ -259,10 +368,12 @@ watch(open, async (isOpen, _wasOpen, onCleanup) => {
         isCurrentRequest = false;
     });
 
-    selectedSubsample.value = 1;
+    selectedPresetValue.value = DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE;
+    advancedRasterOpen.value = false;
     preserveBookmarks.value = true;
     info.value = null;
     estimates.value = [];
+    estimatesLoading.value = true;
 
     try {
         const djvu = getDjvuCapability();
@@ -270,14 +381,31 @@ watch(open, async (isOpen, _wasOpen, onCleanup) => {
         if (!isCurrentRequest) {
             return;
         }
-        info.value = djvuInfo;
-        selectedSubsample.value = resolveDefaultSubsample(djvuInfo.pageCount, djvuInfo.sourceDpi);
+        info.value = {
+            ...djvuInfo,
+            pageSizes: null,
+        };
 
-        estimatesLoading.value = true;
-        const sizeEstimates = await djvu.estimateSizes(requestPath);
+        const [
+            pageSizes,
+            sizeEstimates,
+        ] = await Promise.all([
+            djvu.getPageSizes(requestPath).catch((pageSizeError: unknown) => {
+                BrowserLogger.warn('djvu-convert-dialog', 'Failed to load DjVu page sizes for conversion policy', {
+                    path: requestPath,
+                    error: pageSizeError,
+                });
+                return null;
+            }),
+            djvu.estimateSizes(requestPath),
+        ]);
         if (!isCurrentRequest) {
             return;
         }
+        info.value = {
+            ...djvuInfo,
+            pageSizes,
+        };
         estimates.value = sizeEstimates;
     } catch (error) {
         if (!isCurrentRequest) {
@@ -297,10 +425,11 @@ watch(open, async (isOpen, _wasOpen, onCleanup) => {
 function handleConvert() {
     const policy = selectedConversionPolicy.value;
     if (policy && !policy.isAllowed) {
-        selectedSubsample.value = policy.recommendedSubsample;
+        selectedPresetValue.value = DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE;
     }
+    const selection = resolveDjvuConvertDialogSelection(selectedPresetValue.value);
     open.value = false;
-    emit('convert', selectedSubsample.value, preserveBookmarks.value);
+    emit('convert', selection.subsample, preserveBookmarks.value, selection.pdfStrategy);
 }
 </script>
 
@@ -332,6 +461,10 @@ function handleConvert() {
 }
 
 .convert-preset-label {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: var(--app-space-lg);
     font-size: var(--app-text-size-body-sm);
     font-weight: var(--app-font-weight-medium);
     color: var(--ui-text);
@@ -340,23 +473,61 @@ function handleConvert() {
 .convert-preset-dpi {
     color: var(--ui-text-muted);
     font-weight: normal;
-    margin-left: var(--app-space-sm);
     font-size: var(--app-text-size-kicker);
 }
 
+.convert-preset-badge {
+    flex-shrink: 0;
+}
+
 .convert-preset-description {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-2xs);
     font-size: var(--app-text-size-kicker);
     color: var(--ui-text-muted);
     margin-top: var(--app-space-3xs);
 }
 
-.convert-preset-loading {
+.convert-preset-note {
+    color: var(--ui-text-dimmed);
+}
+
+.convert-advanced {
+    padding-top: var(--app-space-md);
+}
+
+.convert-advanced-toggle {
     display: flex;
     align-items: center;
-    gap: var(--app-space-3xl);
+    gap: var(--app-space-lg);
+    border: none;
+    background: transparent;
+    padding: var(--app-space-sm) 0;
+    color: var(--ui-text);
+    cursor: pointer;
+    font-size: var(--app-text-size-body-sm);
+    font-weight: var(--app-font-weight-medium);
+}
+
+.convert-advanced-icon {
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
+    flex-shrink: 0;
+    color: var(--ui-text-dimmed);
+}
+
+.convert-advanced-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-lg);
+    padding-top: var(--app-space-sm);
+}
+
+.convert-advanced-hint {
+    margin: 0;
     font-size: var(--app-text-size-kicker);
     color: var(--ui-text-muted);
-    padding: var(--app-space-3xl) 0;
 }
 
 .convert-option {

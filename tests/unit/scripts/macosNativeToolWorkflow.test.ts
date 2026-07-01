@@ -257,6 +257,7 @@ describe('macOS native tool workflow', () => {
         expect(verifier).toContain('check_file "$native_tool_root/djvulibre/$platform_arch/bin/djvused$exe_suffix"');
         expect(verifier).toContain('run_macos_packaged_tool_smoke "djvused" "$native_tool_root/djvulibre/$platform_arch/bin/djvused" --help');
         expect(verifier).not.toContain('run_macos_packaged_tool_smoke "djvused" "$resource_root');
+        expect(verifier).toContain('run_macos_packaged_tool_smoke "evb-pdf-image-combine-compact-manifest" "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --compact-manifest');
     });
 
     it('keeps page-processor release resources opt-in until every platform has parity', async () => {

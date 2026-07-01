@@ -1,4 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDjvuPdfExportStrategy } from '@contracts/electronApiDjvu';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import { useDjvuMode } from '@app/composables/useDjvuMode';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -362,6 +363,7 @@ export const useDjvu = () => {
     async function convertToPdf(
         subsample: number,
         preserveBookmarks: boolean,
+        pdfStrategy: TDjvuPdfExportStrategy,
         openConvertedPdf: TOpenConvertedPdf,
     ) {
         const sourcePath = djvuSourcePath.value;
@@ -396,7 +398,8 @@ export const useDjvu = () => {
 
         BrowserLogger.info('djvu', 'Starting conversion to PDF', {
             subsample,
-            preserveBookmarks, 
+            preserveBookmarks,
+            pdfStrategy,
         });
 
         try {
@@ -407,6 +410,7 @@ export const useDjvu = () => {
                 {
                     subsample,
                     preserveBookmarks,
+                    pdfStrategy,
                 },
             );
 
