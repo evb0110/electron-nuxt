@@ -126,11 +126,17 @@ async function applySettingsSavePatch(
             ...currentSettings,
             ...settingsPayload,
         });
+        const {
+            skippedUpdateVersion: _ignoredSkippedUpdateVersion,
+            ...incomingWithoutSkippedUpdateVersion
+        } = incoming;
         shouldShutdownAssistant = currentSettings.assistantPanelEnabled && !incoming.assistantPanelEnabled;
         return {
-            ...incoming,
+            ...incomingWithoutSkippedUpdateVersion,
             // This value is managed by updater flow; avoid stale renderer snapshots clobbering it.
-            skippedUpdateVersion: currentSettings.skippedUpdateVersion,
+            ...(currentSettings.skippedUpdateVersion === undefined
+                ? {}
+                : {skippedUpdateVersion: currentSettings.skippedUpdateVersion}),
             // This value is managed by the Codex MCP flow because it mutates external Codex config.
             agentMcpEnabled: currentSettings.agentMcpEnabled,
         };

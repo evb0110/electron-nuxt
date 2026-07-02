@@ -37,4 +37,16 @@ describe('safeJsonParse', () => {
     it('allows plain constructor data without a prototype payload', () => {
         expect(safeJsonParse('{"constructor":"plain"}')).toEqual({constructor: 'plain'});
     });
+
+    it('narrows parsed values with a validator overload', () => {
+        const isVersionPayload = (value: unknown): value is { version: number } => (
+            typeof value === 'object'
+            && value !== null
+            && 'version' in value
+            && typeof value.version === 'number'
+        );
+
+        expect(safeJsonParse('{"version":2}', isVersionPayload).version).toBe(2);
+        expect(() => safeJsonParse('{"version":"2"}', isVersionPayload)).toThrow(SyntaxError);
+    });
 });

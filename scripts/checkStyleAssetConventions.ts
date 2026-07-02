@@ -29,13 +29,12 @@ const STYLE_ASSET_ROOTS: IStyleAssetRoot[] = [
     },
 ];
 
-type TStyleAssetTarget = 'all' | 'app' | 'landing';
-
-const VALID_TARGETS = new Set<TStyleAssetTarget>([
+const VALID_TARGETS = [
     'all',
     'app',
     'landing',
-]);
+] as const;
+type TStyleAssetTarget = typeof VALID_TARGETS[number];
 
 const STYLE_EXTENSIONS = new Set([
     '.css',
@@ -53,7 +52,7 @@ function isStyleFile(filePath: string) {
 }
 
 function isStyleAssetTarget(value: string): value is TStyleAssetTarget {
-    return VALID_TARGETS.has(value as TStyleAssetTarget);
+    return (VALID_TARGETS as readonly string[]).includes(value);
 }
 
 function parseTarget(argv = process.argv.slice(2)) {

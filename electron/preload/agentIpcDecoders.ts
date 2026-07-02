@@ -8,7 +8,10 @@ import type {
     TAgentAssistantMessageRole,
     TAgentCommand,
 } from '@contracts/agent';
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isOneOf,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import type { IAgentEventMap } from '@electron/features/agent/contract';
 
 const AGENT_ASSISTANT_EVENT_TYPES = [
@@ -149,18 +152,15 @@ function decodeAgentCommand(value: unknown): TAgentCommand | null {
 }
 
 function isAssistantEventType(value: unknown): value is TAgentAssistantEventType {
-    return typeof value === 'string'
-        && AGENT_ASSISTANT_EVENT_TYPES.includes(value as TAgentAssistantEventType);
+    return isOneOf(AGENT_ASSISTANT_EVENT_TYPES, value);
 }
 
 function isAssistantMessageRole(value: unknown): value is TAgentAssistantMessageRole {
-    return typeof value === 'string'
-        && AGENT_ASSISTANT_MESSAGE_ROLES.includes(value as TAgentAssistantMessageRole);
+    return isOneOf(AGENT_ASSISTANT_MESSAGE_ROLES, value);
 }
 
 function isAssistantErrorCode(value: unknown): value is TAgentAssistantErrorCode {
-    return typeof value === 'string'
-        && AGENT_ASSISTANT_ERROR_CODES.includes(value as TAgentAssistantErrorCode);
+    return isOneOf(AGENT_ASSISTANT_ERROR_CODES, value);
 }
 
 function decodeAssistantErrorEnvelope(value: unknown): IAgentAssistantErrorEnvelope | null {

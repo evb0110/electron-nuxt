@@ -385,8 +385,8 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             return;
         }
 
-        const getActive = getOptionalFunction<[], unknown>(annotationUiManager, 'getActive');
-        const setActiveEditor = getOptionalFunction<[unknown | null], unknown>(
+        const getActive = getOptionalFunction<[]>(annotationUiManager, 'getActive');
+        const setActiveEditor = getOptionalFunction<[unknown | null]>(
             annotationUiManager,
             'setActiveEditor',
         );
@@ -406,10 +406,10 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                     return;
                 }
 
-                const show = getOptionalFunction<[boolean?], unknown>(editor, 'show');
+                const show = getOptionalFunction<[boolean?]>(editor, 'show');
                 show?.call(editor, false);
 
-                const disableEditing = getOptionalFunction<[], unknown>(editor, 'disableEditing');
+                const disableEditing = getOptionalFunction<[]>(editor, 'disableEditing');
                 disableEditing?.call(editor);
 
                 const parent = (
@@ -419,12 +419,12 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 )
                     ? (editor as { parent?: unknown }).parent
                     : null;
-                const getEditableAnnotation = getOptionalFunction<[string], unknown>(
+                const getEditableAnnotation = getOptionalFunction<[string]>(
                     parent,
                     'getEditableAnnotation',
                 );
                 const editable = getEditableAnnotation?.call(parent, annotationId) ?? null;
-                const hideEditable = getOptionalFunction<[], unknown>(editable, 'hide');
+                const hideEditable = getOptionalFunction<[]>(editable, 'hide');
                 hideEditable?.call(editable);
 
                 const editorPageIndex = getEditorPageIndex(editor);
@@ -459,13 +459,12 @@ export const usePdfAnnotationLayerRenderer = (deps: {
 
             const mutableUiManager =
                 annotationUiManager as AnnotationEditorUIManager & IAnnotationUiManagerWithAnnotationRenderGuards;
-            const originalRenderAnnotationElement = getOptionalFunction<[unknown], unknown>(
+            const originalRenderAnnotationElement = getOptionalFunction<[unknown]>(
                 annotationUiManager,
                 'renderAnnotationElement',
             );
             const originalSetMissingCanvas = getOptionalFunction<
-                [string, string, HTMLCanvasElement],
-                unknown
+                [string, string, HTMLCanvasElement]
             >(
                 annotationUiManager,
                 'setMissingCanvas',
@@ -538,7 +537,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         const getEditableAnnotations =
             getOptionalFunction<[], Iterable<unknown>>(annotationLayerInstance, 'getEditableAnnotations');
         const getEditableAnnotation =
-            getOptionalFunction<[string], unknown>(annotationLayerInstance, 'getEditableAnnotation');
+            getOptionalFunction<[string]>(annotationLayerInstance, 'getEditableAnnotation');
 
         if (!getEditableAnnotations && !getEditableAnnotation) {
             return annotationLayerInstance;

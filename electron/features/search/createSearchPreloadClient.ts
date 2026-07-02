@@ -14,7 +14,10 @@ import {
     normalizePdfSearchWarmIndexPayload,
 } from '@electron/features/search/searchRequestPayload';
 import { toPageNumber } from '@contracts/pageNumbers';
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isFiniteNumber,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import {
     SEARCH_CHANNELS,
     SEARCH_EVENT_CHANNELS,
@@ -32,9 +35,6 @@ const SEARCH_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [SEARCH_CHANNELS.warmIndex]: SEARCH_NATIVE_IPC_TIMEOUT_MS,
 } as const;
 
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
 
 function isOcrRotation(value: unknown): value is TOcrIndexRotation {
     return value === 0 || value === 90 || value === 180 || value === 270;

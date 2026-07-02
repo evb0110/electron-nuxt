@@ -1,5 +1,8 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import { safeJsonParse } from '@contracts/safeJsonParse';
+import {
+    safeJsonParse,
+    type TJsonValidator,
+} from '@contracts/safeJsonParse';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 
 function isAbsoluteOrDrivePath(value: string) {
@@ -42,10 +45,20 @@ function normalizeAdjacentArtifactSuffix(suffix: string) {
     return trimmedSuffix;
 }
 
+export async function readOptionalOcrArtifactJson(
+    workingCopyPath: TDocumentRef,
+    relativePath: string,
+): Promise<unknown | null>;
 export async function readOptionalOcrArtifactJson<T>(
     workingCopyPath: TDocumentRef,
     relativePath: string,
-): Promise<T | null> {
+    validator: TJsonValidator<T>,
+): Promise<T | null>;
+export async function readOptionalOcrArtifactJson<T>(
+    workingCopyPath: TDocumentRef,
+    relativePath: string,
+    validator?: TJsonValidator<T>,
+) {
     const normalizedRelativePath = normalizeOcrArtifactRelativePath(relativePath);
     if (normalizedRelativePath === null) {
         return null;
@@ -58,13 +71,24 @@ export async function readOptionalOcrArtifactJson<T>(
         return null;
     }
 
-    return safeJsonParse<T>(await documents.readTextFile(path));
+    const source = await documents.readTextFile(path);
+    return validator ? safeJsonParse(source, validator) : safeJsonParse(source);
 }
 
+export async function readOptionalAdjacentJsonArtifact(
+    workingCopyPath: TDocumentRef,
+    suffix: string,
+): Promise<unknown | null>;
 export async function readOptionalAdjacentJsonArtifact<T>(
     workingCopyPath: TDocumentRef,
     suffix: string,
-): Promise<T | null> {
+    validator: TJsonValidator<T>,
+): Promise<T | null>;
+export async function readOptionalAdjacentJsonArtifact<T>(
+    workingCopyPath: TDocumentRef,
+    suffix: string,
+    validator?: TJsonValidator<T>,
+) {
     const normalizedSuffix = normalizeAdjacentArtifactSuffix(suffix);
     if (normalizedSuffix === null) {
         return null;
@@ -77,5 +101,6 @@ export async function readOptionalAdjacentJsonArtifact<T>(
         return null;
     }
 
-    return safeJsonParse<T>(await documents.readTextFile(path));
+    const source = await documents.readTextFile(path);
+    return validator ? safeJsonParse(source, validator) : safeJsonParse(source);
 }

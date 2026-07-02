@@ -1,3 +1,4 @@
+import {isRecord} from '@contracts/runtimeGuards';
 import { orderBy } from 'es-toolkit/array';
 import { sumBy } from 'es-toolkit/math';
 import type {
@@ -184,9 +185,6 @@ function estimatePageTextBytes(pageTexts: string[]) {
     return pageTexts.reduce((total, text) => total + (text.length * 2), 0);
 }
 
-function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function isPositiveInteger(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value > 0;

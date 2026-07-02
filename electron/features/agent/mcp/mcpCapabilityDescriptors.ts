@@ -5,7 +5,11 @@ import type {
     IAgentWorkspaceSnapshot,
     TAgentCapabilityDomain,
 } from '@contracts/agent';
-import { isRecord } from '@contracts/runtimeGuards';
+import { AGENT_CAPABILITY_DOMAINS } from '@contracts/agent';
+import {
+    isOneOf,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import {
     AGENT_CAPABILITY_TEMPLATES,
     type IAgentCapabilityTemplate,
@@ -57,8 +61,8 @@ function getOptionalTabId(params: unknown) {
 
 function getOptionalCapabilityDomain(params: unknown): TAgentCapabilityDomain | undefined {
     const value = getParamsObject(params).domain;
-    return typeof value === 'string' && AGENT_CAPABILITY_TEMPLATES.some(template => template.domain === value)
-        ? value as TAgentCapabilityDomain
+    return isOneOf(AGENT_CAPABILITY_DOMAINS, value)
+        ? value
         : undefined;
 }
 

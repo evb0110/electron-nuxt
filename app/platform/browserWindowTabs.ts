@@ -1,3 +1,4 @@
+import {isRecord} from '@contracts/runtimeGuards';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 import type {
@@ -108,9 +109,6 @@ type TBrowserWindowTabsMessageHandlers = {
     ) => void;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function isPositiveWindowId(value: unknown): value is number {
     return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;

@@ -6,6 +6,7 @@ import type {
     IPdfOptimizeOptions,
     IPdfSaveAsOptions,
 } from '@contracts/electronApiDocuments';
+import { isPdfOptimizePreset } from '@contracts/electronApiDocuments';
 import {
     normalizePdfNativeModifiedAt,
     normalizePdfNativeMutationSet,
@@ -62,13 +63,6 @@ const DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [DOCUMENTS_CHANNELS.fileSavePdfNativeMutations]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy]: LONG_NATIVE_IPC_TIMEOUT_MS,
 } as const;
-const PDF_OPTIMIZE_PRESETS = new Set<IPdfOptimizeOptions['preset']>([
-    'lossless',
-    'balancedScanned',
-    'smallScanned',
-    'blackAndWhite',
-]);
-
 interface ISerializedPdfPersistencePortResult {
     path: string | null;
     validation: Awaited<ReturnType<IDocumentsFileCapability['validatePdfData']>>;
@@ -121,11 +115,11 @@ function assertPdfOptimizeOptions(value: unknown, label: string): IPdfOptimizeOp
     if (!isRecord(value)) {
         throw new TypeError(`${label} must be an object`);
     }
-    if (!PDF_OPTIMIZE_PRESETS.has(value.preset as IPdfOptimizeOptions['preset'])) {
+    if (!isPdfOptimizePreset(value.preset)) {
         throw new TypeError(`${label}.preset is invalid`);
     }
 
-    return { preset: value.preset as IPdfOptimizeOptions['preset'] };
+    return { preset: value.preset };
 }
 
 function assertPdfNativePagePreviewOptions(

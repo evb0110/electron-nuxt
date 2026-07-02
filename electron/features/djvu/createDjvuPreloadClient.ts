@@ -12,7 +12,10 @@ import type {
     TMenuEventUnsubscribe,
 } from '@contracts/electronApiCommon';
 import type { TDocumentRef } from '@contracts/documentRef';
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isFiniteNumber,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import {
     DJVU_CHANNELS,
     DJVU_EVENT_CHANNELS,
@@ -34,9 +37,6 @@ const DJVU_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [DJVU_CHANNELS.estimateSizes]: DJVU_NATIVE_IPC_TIMEOUT_MS,
 } as const;
 
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
 
 function decodeDjvuProgress(payload: unknown): IDjvuProgress | null {
     if (

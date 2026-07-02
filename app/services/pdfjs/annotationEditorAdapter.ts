@@ -141,7 +141,7 @@ function getLayerFromUiManager(
     uiManager: AnnotationEditorUIManager & IUiManagerWithGetLayer,
     pageIndex: number,
 ) {
-    const getLayer = getOptionalFunction<[number], unknown>(uiManager, 'getLayer');
+    const getLayer = getOptionalFunction<[number]>(uiManager, 'getLayer');
     return getLayer
         ? getLayer.call(uiManager, pageIndex)
         : null;
@@ -195,7 +195,7 @@ export function setSelectedEditor(
         return false;
     }
 
-    const setSelected = getOptionalFunction<[unknown], unknown>(uiManager, 'setSelected');
+    const setSelected = getOptionalFunction<[unknown]>(uiManager, 'setSelected');
     if (!setSelected) {
         return false;
     }
@@ -216,7 +216,7 @@ export function clearSelectedEditorState(uiManager: AnnotationEditorUIManager) {
         cleared = true;
     }
 
-    const setSelected = getOptionalFunction<[unknown], unknown>(uiManager, 'setSelected');
+    const setSelected = getOptionalFunction<[unknown]>(uiManager, 'setSelected');
     if (setSelected) {
         try {
             setSelected.call(uiManager, null);
@@ -294,7 +294,7 @@ export function getEditorByUidFromLayer(
         return null;
     }
 
-    const getEditorByUID = getOptionalFunction<[string], unknown>(layer, 'getEditorByUID');
+    const getEditorByUID = getOptionalFunction<[string]>(layer, 'getEditorByUID');
     return asPdfjsEditor(
         getEditorByUID
             ? getEditorByUID.call(layer, uid)
@@ -334,7 +334,7 @@ export function getAnnotationStorageEditor(
     if (!isRecord(annotationStorage)) {
         return null;
     }
-    const getEditor = getOptionalFunction<[string], unknown>(
+    const getEditor = getOptionalFunction<[string]>(
         annotationStorage,
         'getEditor',
     );
@@ -372,7 +372,7 @@ export function markEditorChangedExistingAnnotation(
     editor: IPdfjsEditor,
 ) {
     const manager = uiManager ?? editor._uiManager ?? null;
-    const addChangedExistingAnnotation = getOptionalFunction<[IPdfjsEditor], unknown>(
+    const addChangedExistingAnnotation = getOptionalFunction<[IPdfjsEditor]>(
         manager,
         'addChangedExistingAnnotation',
     );
@@ -431,7 +431,7 @@ export function addUndoableEditorToLayer(
         cmd: () => void;
         mustExec: boolean;
         undo: () => void;
-    }], unknown>(target, 'addCommands');
+    }]>(target, 'addCommands');
     if (addCommands) {
         addCommands.call(target, {
             ...(options.skipAppHistory ? { __evbSkipAppHistory: true } : {}),
@@ -447,12 +447,12 @@ export function addUndoableEditorToLayer(
         });
         return true;
     }
-    const addUndoableEditor = getOptionalFunction<[IPdfjsEditor], unknown>(target, 'addUndoableEditor');
+    const addUndoableEditor = getOptionalFunction<[IPdfjsEditor]>(target, 'addUndoableEditor');
     if (addUndoableEditor) {
         addUndoableEditor.call(target, editor);
         return true;
     }
-    const parentAddUndoableEditor = getOptionalFunction<[IPdfjsEditor], unknown>(editor.parent, 'addUndoableEditor');
+    const parentAddUndoableEditor = getOptionalFunction<[IPdfjsEditor]>(editor.parent, 'addUndoableEditor');
     if (parentAddUndoableEditor) {
         parentAddUndoableEditor.call(editor.parent, editor);
         return true;
@@ -468,20 +468,20 @@ function rebuildEditorForHistory(
         return false;
     }
 
-    const rebuild = getOptionalFunction<[IPdfjsEditor], unknown>(editor._uiManager, 'rebuild');
+    const rebuild = getOptionalFunction<[IPdfjsEditor]>(editor._uiManager, 'rebuild');
     if (rebuild) {
         rebuild.call(editor._uiManager, editor);
         return true;
     }
 
     const target = editor.parent ?? layer;
-    const addOrRebuild = getOptionalFunction<[IPdfjsEditor], unknown>(target, 'addOrRebuild');
+    const addOrRebuild = getOptionalFunction<[IPdfjsEditor]>(target, 'addOrRebuild');
     if (addOrRebuild) {
         addOrRebuild.call(target, editor);
         return true;
     }
 
-    const add = getOptionalFunction<[IPdfjsEditor], unknown>(target, 'add');
+    const add = getOptionalFunction<[IPdfjsEditor]>(target, 'add');
     if (add) {
         add.call(target, editor);
         return true;
@@ -651,7 +651,7 @@ export function markEditorResizable(editor: IPdfjsEditor) {
 }
 
 export function getEditorSerializedData(editor: IPdfjsEditor) {
-    const serialize = getOptionalFunction<[], unknown>(editor, 'serialize');
+    const serialize = getOptionalFunction<[]>(editor, 'serialize');
     return serialize ? serialize.call(editor) : null;
 }
 
@@ -680,7 +680,7 @@ export function updateEditorParams(
     type: number,
     value: unknown,
 ) {
-    const updateParams = getOptionalFunction<[number, unknown], unknown>(editor, 'updateParams');
+    const updateParams = getOptionalFunction<[number, unknown]>(editor, 'updateParams');
     if (!updateParams) {
         return false;
     }
@@ -696,7 +696,7 @@ export function patchEditorUpdateParams(
         value: unknown,
     ) => unknown,
 ) {
-    const originalUpdateParams = getOptionalFunction<[number, unknown], unknown>(editor, 'updateParams')?.bind(editor);
+    const originalUpdateParams = getOptionalFunction<[number, unknown]>(editor, 'updateParams')?.bind(editor);
     if (!originalUpdateParams) {
         return false;
     }

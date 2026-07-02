@@ -41,9 +41,9 @@ export interface IPdfSearchProgress {
     requestId: string;
     processed: number;
     total: number;
-    results?: IPdfSearchResult[] | undefined;
-    truncated?: boolean | undefined;
-    canceled?: boolean | undefined;
+    results?: IPdfSearchResult[];
+    truncated?: boolean;
+    canceled?: boolean;
 }
 
 export type TSearchErrorCode =
@@ -94,9 +94,9 @@ export function findSearchErrorEnvelope(value: unknown): ISearchErrorEnvelope | 
 }
 
 export interface ISearchMatchOptions {
-    matchCase?: boolean | undefined;
-    wholeWord?: boolean | undefined;
-    useRegex?: boolean | undefined;
+    matchCase?: boolean;
+    wholeWord?: boolean;
+    useRegex?: boolean;
 }
 
 export interface IResolvedSearchMatchOptions {
@@ -106,8 +106,8 @@ export interface IResolvedSearchMatchOptions {
 }
 
 export interface IPdfSearchRequestOptions extends ISearchMatchOptions {
-    requestId?: string | undefined;
-    pageCount?: number | undefined;
+    requestId?: string;
+    pageCount?: number;
 }
 
 export const SEARCH_REQUEST_ID_MAX_LENGTH = 128;
@@ -372,9 +372,9 @@ export function normalizePdfSearchRequestPayload(
     const wholeWord = normalizeSearchBooleanOption(raw.wholeWord);
     const useRegex = normalizeSearchBooleanOption(raw.useRegex);
     validateSearchQuery(raw.query, {
-        matchCase,
-        wholeWord,
-        useRegex,
+        ...(matchCase === undefined ? {} : {matchCase}),
+        ...(wholeWord === undefined ? {} : {wholeWord}),
+        ...(useRegex === undefined ? {} : {useRegex}),
     });
 
     return {

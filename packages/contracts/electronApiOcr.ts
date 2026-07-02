@@ -8,6 +8,14 @@ export type TOcrErrorCode =
     | 'OCR_WORKER_UNAVAILABLE'
     | 'OCR_TOOLS_VALIDATION_FAILED';
 
+export const OCR_ERROR_CODES = [
+    'OCR_INVALID_PAYLOAD',
+    'OCR_INTERNAL_ERROR',
+    'OCR_QUEUE_BACKPRESSURE',
+    'OCR_WORKER_UNAVAILABLE',
+    'OCR_TOOLS_VALIDATION_FAILED',
+] as const satisfies readonly TOcrErrorCode[];
+
 export interface IOcrErrorEnvelope {
     code: TOcrErrorCode;
     message: string;
@@ -52,6 +60,17 @@ export type TOcrProgressPhase =
     | 'processing'
     | 'merging'
     | 'indexing';
+
+export const OCR_PROGRESS_PHASES = [
+    'preparing',
+    'model-prep',
+    'pdf-prep',
+    'dpi-inspection',
+    'page-size-probing',
+    'processing',
+    'merging',
+    'indexing',
+] as const satisfies readonly TOcrProgressPhase[];
 
 export interface IOcrProgress {
     requestId: string;

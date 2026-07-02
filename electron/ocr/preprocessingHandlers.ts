@@ -64,7 +64,7 @@ interface IPreprocessPageSender {
 
 interface IPreprocessPageContext {sender: IPreprocessPageSender;}
 
-function readPngDimensions(bytes: Uint8Array<ArrayBufferLike>): IImageDimensions | null {
+function readPngDimensions(bytes: Uint8Array): IImageDimensions | null {
     const pngSignature = [
         0x89,
         0x50,
@@ -85,7 +85,7 @@ function readPngDimensions(bytes: Uint8Array<ArrayBufferLike>): IImageDimensions
     };
 }
 
-function readJpegDimensions(bytes: Uint8Array<ArrayBufferLike>): IImageDimensions | null {
+function readJpegDimensions(bytes: Uint8Array): IImageDimensions | null {
     if (bytes.byteLength < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
         return null;
     }
@@ -123,7 +123,7 @@ function readJpegDimensions(bytes: Uint8Array<ArrayBufferLike>): IImageDimension
     return null;
 }
 
-function readImageDimensions(bytes: Uint8Array<ArrayBufferLike>): IImageDimensions {
+function readImageDimensions(bytes: Uint8Array): IImageDimensions {
     const dimensions = readPngDimensions(bytes) ?? readJpegDimensions(bytes);
     if (!dimensions) {
         throw new Error('Invalid preprocessing payload: imageData must be a PNG or JPEG image with readable dimensions');
@@ -131,7 +131,7 @@ function readImageDimensions(bytes: Uint8Array<ArrayBufferLike>): IImageDimensio
     return dimensions;
 }
 
-function validateDecodedDimensions(bytes: Uint8Array<ArrayBufferLike>, label = 'imageData') {
+function validateDecodedDimensions(bytes: Uint8Array, label = 'imageData') {
     const dimensions = readImageDimensions(bytes);
     if (
         dimensions.width <= 0
@@ -146,8 +146,8 @@ function validateDecodedDimensions(bytes: Uint8Array<ArrayBufferLike>, label = '
     }
 }
 
-function normalizePreprocessImageData(imageData: unknown): Uint8Array<ArrayBufferLike> {
-    let bytes: Uint8Array<ArrayBufferLike>;
+function normalizePreprocessImageData(imageData: unknown): Uint8Array {
+    let bytes: Uint8Array;
     if (imageData instanceof Uint8Array) {
         bytes = imageData;
     } else if (imageData instanceof ArrayBuffer) {
@@ -167,7 +167,7 @@ function normalizePreprocessImageData(imageData: unknown): Uint8Array<ArrayBuffe
     return bytes;
 }
 
-function createPreprocessingAbortResult(imageData: Uint8Array<ArrayBufferLike>, error: string) {
+function createPreprocessingAbortResult(imageData: Uint8Array, error: string) {
     return {
         success: false,
         imageData,
@@ -203,7 +203,7 @@ export async function handlePreprocessPage(
             handleSenderGone();
         }
     };
-    let normalizedImageData: Uint8Array<ArrayBufferLike> = new Uint8Array();
+    let normalizedImageData: Uint8Array = new Uint8Array();
 
     try {
         normalizedImageData = normalizePreprocessImageData(imageData);

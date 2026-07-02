@@ -1,4 +1,7 @@
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isRecord,
+    isSafeWorkerRequestId,
+} from '@contracts/runtimeGuards';
 
 interface IBrowserPdfCombineInput {
     fileName: string;
@@ -36,11 +39,6 @@ type TBrowserPdfCombineWorkerResponse =
         error: string;
     };
 
-function isSafeWorkerRequestId(value: unknown): value is number {
-    return typeof value === 'number'
-        && Number.isSafeInteger(value)
-        && value >= 0;
-}
 
 function parseBrowserPdfCombineInput(value: unknown): IBrowserPdfCombineInput | null {
     if (

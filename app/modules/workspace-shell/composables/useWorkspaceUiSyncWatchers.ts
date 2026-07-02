@@ -16,7 +16,7 @@ interface IWorkspaceUiSyncDeps {
 }
 
 export const useWorkspaceUiSyncWatchers = (deps: IWorkspaceUiSyncDeps): void => {
-    watch(deps.pendingDjvu, async (djvuPath: TDocumentRef | null) => {
+    watch(deps.pendingDjvu, async djvuPath => {
         if (!djvuPath) {
             return;
         }

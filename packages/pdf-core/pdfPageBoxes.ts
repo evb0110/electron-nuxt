@@ -11,7 +11,7 @@ import {
 } from 'pdf-lib';
 import { safePdfDictLookupArray } from '@pdf-core/safePdfLookup';
 
-export interface IPdfPageBox extends IPdfBox {}
+export type IPdfPageBox = IPdfBox;
 
 export type TPdfRect = [number, number, number, number];
 

@@ -1,5 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IOcrIndexV2Manifest } from '@contracts/ocrIndex';
+import { isRecord } from '@contracts/runtimeGuards';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import {
@@ -7,15 +7,38 @@ import {
     readOptionalOcrArtifactJson,
 } from '@app/utils/platformOcrArtifacts';
 
-type TOcrManifestIndex = Pick<IOcrIndexV2Manifest, 'pages'>;
+interface IOcrManifestIndex { pages?: Record<string, { path: string }>; }
 
 interface IOcrPageTextEntry { text?: string; }
 
 interface ILegacyOcrIndex { pages?: IOcrPageTextEntry[]; }
 
+function isOcrPageTextEntry(value: unknown): value is IOcrPageTextEntry {
+    return isRecord(value) && (value.text === undefined || typeof value.text === 'string');
+}
+
+function isOcrManifestIndex(value: unknown): value is IOcrManifestIndex {
+    return isRecord(value)
+        && (
+            value.pages === undefined
+            || (
+                isRecord(value.pages)
+                && Object.values(value.pages).every(entry => isRecord(entry) && typeof entry.path === 'string')
+            )
+        );
+}
+
+function isLegacyOcrIndex(value: unknown): value is ILegacyOcrIndex {
+    return isRecord(value)
+        && (
+            value.pages === undefined
+            || (Array.isArray(value.pages) && value.pages.every(isOcrPageTextEntry))
+        );
+}
+
 export async function loadOcrText(workingCopyPath: TDocumentRef) {
     try {
-        const manifest = await readOptionalOcrArtifactJson<TOcrManifestIndex>(workingCopyPath, 'manifest.json');
+        const manifest = await readOptionalOcrArtifactJson(workingCopyPath, 'manifest.json', isOcrManifestIndex);
         if (manifest) {
 
             const pageEntries = Object.entries(manifest.pages ?? {})
@@ -33,7 +56,7 @@ export async function loadOcrText(workingCopyPath: TDocumentRef) {
 
             for (let index = 0; index < pageEntries.length; index += 1) {
                 const entry = pageEntries[index]!;
-                const pageData = await readOptionalOcrArtifactJson<IOcrPageTextEntry>(workingCopyPath, entry.path);
+                const pageData = await readOptionalOcrArtifactJson(workingCopyPath, entry.path, isOcrPageTextEntry);
                 if (pageData?.text) {
                     texts.push(pageData.text.trim());
                 }
@@ -47,7 +70,7 @@ export async function loadOcrText(workingCopyPath: TDocumentRef) {
             return merged.length > 0 ? merged : null;
         }
 
-        const index = await readOptionalAdjacentJsonArtifact<ILegacyOcrIndex>(workingCopyPath, '.index.json');
+        const index = await readOptionalAdjacentJsonArtifact(workingCopyPath, '.index.json', isLegacyOcrIndex);
         if (!index) {
             return null;
         }

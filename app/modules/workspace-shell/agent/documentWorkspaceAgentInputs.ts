@@ -3,6 +3,11 @@ import type {
     TAnnotationTool,
     TDrawableShapeType,
 } from '@app/types/annotations';
+import {
+    ANNOTATION_TOOLS,
+    DRAWABLE_SHAPE_TOOLS,
+} from '@app/types/annotations';
+import { isOneOf } from '@contracts/runtimeGuards';
 import { uniq } from 'es-toolkit/array';
 import type { TAgentTextMarkupKind } from '@app/modules/pdf-viewer/public';
 import type {
@@ -11,22 +16,6 @@ import type {
     TAgentOcrPageRange,
     TWorkspaceAgentSidebarTab,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
-
-const AGENT_ANNOTATION_TOOLS = [
-    'none',
-    'select',
-    'highlight',
-    'underline',
-    'strikethrough',
-    'squiggly',
-    'text',
-    'draw',
-    'rectangle',
-    'circle',
-    'line',
-    'arrow',
-    'stamp',
-] as const satisfies readonly TAnnotationTool[];
 
 const AGENT_SIDEBAR_TABS = [
     'annotations',
@@ -41,14 +30,6 @@ const AGENT_TEXT_MARKUP_KINDS = [
     'strikethrough',
     'squiggly',
 ] as const satisfies readonly TAgentTextMarkupKind[];
-
-const AGENT_SHAPE_TOOLS = [
-    'draw',
-    'rectangle',
-    'circle',
-    'line',
-    'arrow',
-] as const satisfies readonly TDrawableShapeType[];
 
 export function isAgentRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -116,19 +97,19 @@ export function hasAgentInputKey(input: Record<string, unknown>, key: string) {
 }
 
 export function isAgentAnnotationTool(value: unknown): value is TAnnotationTool {
-    return typeof value === 'string' && AGENT_ANNOTATION_TOOLS.includes(value as TAnnotationTool);
+    return isOneOf(ANNOTATION_TOOLS, value);
 }
 
 export function isAgentSidebarTab(value: unknown): value is TWorkspaceAgentSidebarTab {
-    return typeof value === 'string' && AGENT_SIDEBAR_TABS.includes(value as TWorkspaceAgentSidebarTab);
+    return isOneOf(AGENT_SIDEBAR_TABS, value);
 }
 
 export function isAgentTextMarkupKind(value: unknown): value is TAgentTextMarkupKind {
-    return typeof value === 'string' && AGENT_TEXT_MARKUP_KINDS.includes(value as TAgentTextMarkupKind);
+    return isOneOf(AGENT_TEXT_MARKUP_KINDS, value);
 }
 
 export function isAgentShapeTool(value: unknown): value is TDrawableShapeType {
-    return typeof value === 'string' && AGENT_SHAPE_TOOLS.includes(value as TDrawableShapeType);
+    return isOneOf(DRAWABLE_SHAPE_TOOLS, value);
 }
 
 export function isAgentOcrPageRange(value: unknown): value is TAgentOcrPageRange {

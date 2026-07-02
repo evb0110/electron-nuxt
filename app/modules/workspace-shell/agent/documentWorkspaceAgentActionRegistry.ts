@@ -1,9 +1,8 @@
 export type TAgentActionHandlerRunResult = object | Promise<object>;
 
-interface IAgentActionHandler {
-    parse: (input: Record<string, unknown>, actionId: string) => unknown;
-    run: (parsedInput: unknown, actionId: string) => TAgentActionHandlerRunResult;
-}
+interface IParsedAgentAction {run: () => TAgentActionHandlerRunResult;}
+
+interface IAgentActionHandler {parse: (input: Record<string, unknown>, actionId: string) => IParsedAgentAction;}
 
 export interface IAgentActionHandlerDefinition<TParsedInput> {
     ids: readonly string[];
@@ -14,10 +13,10 @@ export interface IAgentActionHandlerDefinition<TParsedInput> {
 function createAgentActionHandler<TParsedInput>(
     definition: IAgentActionHandlerDefinition<TParsedInput>,
 ): IAgentActionHandler {
-    return {
-        parse: definition.parse,
-        run: (parsedInput, actionId) => definition.run(parsedInput as TParsedInput, actionId),
-    };
+    return {parse: (input, actionId) => {
+        const parsedInput = definition.parse(input, actionId);
+        return {run: () => definition.run(parsedInput, actionId)};
+    }};
 }
 
 export function createAgentActionHandlerRegistry(
@@ -34,5 +33,5 @@ export function createAgentActionHandlerRegistry(
 export function defineAgentActionHandler<TParsedInput>(
     definition: IAgentActionHandlerDefinition<TParsedInput>,
 ) {
-    return definition as IAgentActionHandlerDefinition<unknown>;
+    return definition;
 }

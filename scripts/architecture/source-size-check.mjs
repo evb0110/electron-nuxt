@@ -69,7 +69,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Finding 9 Stage A - PDF thumbnail render orchestration extraction',
     },
     'electron/features/agent/codexAssistant.ts': {
-        maxLines: 1388,
+        maxLines: 1387,
         reason: 'transitional Electron assistant backend facade after session store and runtime lifecycle extraction',
         stage: 'Worker 2/Stage 1 - Assistant backend session/runtime split',
     },
@@ -109,7 +109,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future workspace host extraction',
     },
     'app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts': {
-        maxLines: 1325,
+        maxLines: 1324,
         reason: 'transitional PDF annotation layer renderer hotspot',
         stage: 'Future PDF rendering extraction',
     },

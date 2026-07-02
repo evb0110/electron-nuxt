@@ -12,6 +12,14 @@ function safeJsonReviver(key: string, value: unknown) {
     return value;
 }
 
-export function safeJsonParse<T = unknown>(source: string) {
-    return JSON.parse(source, safeJsonReviver) as T;
+export type TJsonValidator<T> = (value: unknown) => value is T;
+
+export function safeJsonParse(source: string): unknown;
+export function safeJsonParse<T>(source: string, validator: TJsonValidator<T>): T;
+export function safeJsonParse<T>(source: string, validator?: TJsonValidator<T>) {
+    const value = JSON.parse(source, safeJsonReviver) as unknown;
+    if (validator && !validator(value)) {
+        throw new SyntaxError('Invalid JSON payload');
+    }
+    return value;
 }

@@ -1,6 +1,7 @@
 import { uniq } from 'es-toolkit/array';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/availableLanguages';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import { isOneOf } from '@contracts/runtimeGuards';
 import type {
     IOcrErrorEnvelope,
     IOcrSearchablePdfOptions,
@@ -43,15 +44,15 @@ const MAX_IMAGE_PIXELS = 45_000_000;
 const MAX_REQUEST_ID_LENGTH = 128;
 const MAX_ERROR_DETAILS_LENGTH = 512;
 const MAX_TESSERACT_PSM = 13;
-const OCR_QUALITY_PROFILES = new Set<TOcrQualityProfile>([
+const OCR_QUALITY_PROFILES = [
     'balanced',
     'accurate',
     'poor-scan',
-]);
-const OCR_PREPROCESSING_MODES = new Set<TOcrPreprocessingMode>([
+] as const satisfies readonly TOcrQualityProfile[];
+const OCR_PREPROCESSING_MODES = [
     'off',
     'clean',
-]);
+] as const satisfies readonly TOcrPreprocessingMode[];
 const MAX_UNIQUE_LANGUAGES_PER_JOB = parseIntegerEnv(
     'EVB_OCR_MAX_UNIQUE_LANGUAGES_PER_JOB',
     AVAILABLE_OCR_LANGUAGE_CODES.size,
@@ -126,20 +127,20 @@ function asOptionalOcrQualityProfile(value: unknown, fieldName: string) {
     if (value === null || value === undefined) {
         return undefined;
     }
-    if (typeof value !== 'string' || !OCR_QUALITY_PROFILES.has(value as TOcrQualityProfile)) {
+    if (!isOneOf(OCR_QUALITY_PROFILES, value)) {
         throw new OcrPayloadValidationError(`${fieldName} must be one of: balanced, accurate, poor-scan`);
     }
-    return value as TOcrQualityProfile;
+    return value;
 }
 
 function asOptionalOcrPreprocessingMode(value: unknown, fieldName: string) {
     if (value === null || value === undefined) {
         return undefined;
     }
-    if (typeof value !== 'string' || !OCR_PREPROCESSING_MODES.has(value as TOcrPreprocessingMode)) {
+    if (!isOneOf(OCR_PREPROCESSING_MODES, value)) {
         throw new OcrPayloadValidationError(`${fieldName} must be one of: off, clean`);
     }
-    return value as TOcrPreprocessingMode;
+    return value;
 }
 
 function asOptionalPageSegmentationMode(value: unknown, fieldName: string) {

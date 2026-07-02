@@ -14,7 +14,6 @@ import type { IDjvuCapability } from '@contracts/electronApiDjvu';
 import type { TPdfViewMode } from '@contracts/shared';
 
 export type TWorkspaceExposeMethod = keyof Omit<IWorkspaceExpose, 'hasPdf'>;
-export type TWorkspaceExposeCommandName = typeof workspaceExposeCommandRegistry[number]['name'];
 export type TWorkspaceExposeCommandHandler<TName extends TWorkspaceExposeMethod> =
     NonNullable<IWorkspaceExpose[TName]> extends (...args: infer TArgs) => infer TResult
         ? (...args: TArgs) => TResult
@@ -34,15 +33,15 @@ type TWorkspaceDeferredCommandStrategy =
     | 'directBoolean'
     | 'custom';
 
-export interface IWorkspaceDocumentMenuCommandDescriptor {
+interface IWorkspaceDocumentMenuCommandDescriptor {
     readonly actionName: string;
     readonly source?: 'documentMenu' | 'djvu';
     readonly register: keyof IDocumentsMenuCapability | keyof IDjvuCapability;
 }
 
-export interface IWorkspaceToolbarCommandDescriptor {readonly eventName: string;}
+interface IWorkspaceToolbarCommandDescriptor {readonly eventName: string;}
 
-export interface IWorkspaceExposeCommandDescriptor {
+interface IWorkspaceExposeCommandDescriptorBase {
     readonly name: TWorkspaceExposeMethod;
     readonly group: TWorkspaceExposeCommandGroup;
     readonly kind: TWorkspaceExposeCommandKind;
@@ -51,8 +50,6 @@ export interface IWorkspaceExposeCommandDescriptor {
     readonly menu?: IWorkspaceDocumentMenuCommandDescriptor;
     readonly toolbar?: IWorkspaceToolbarCommandDescriptor;
 }
-type TWorkspaceExposeMenuCommandDescriptor = IWorkspaceExposeCommandDescriptor & {readonly menu: IWorkspaceDocumentMenuCommandDescriptor};
-type TWorkspaceExposeToolbarCommandDescriptor = IWorkspaceExposeCommandDescriptor & {readonly toolbar: IWorkspaceToolbarCommandDescriptor};
 
 export class WorkspaceExposeCommandUnavailableError extends Error {
     readonly commandName: TWorkspaceExposeMethod;
@@ -75,7 +72,7 @@ interface IWorkspaceExposeMethodDescriptorMap {
     readonly automation: ReadonlyArray<keyof IWorkspaceAutomationPort>;
 }
 
-function defineWorkspaceExposeCommandRegistry<const TRegistry extends readonly IWorkspaceExposeCommandDescriptor[]>(
+function defineWorkspaceExposeCommandRegistry<const TRegistry extends readonly IWorkspaceExposeCommandDescriptorBase[]>(
     registry: TRegistry,
 ) {
     return registry;
@@ -629,50 +626,87 @@ export const workspaceExposeCommandRegistry = defineWorkspaceExposeCommandRegist
     },
 ] as const);
 
-const workspaceExposeCommandNameSet = new Set<TWorkspaceExposeMethod>(
+export type IWorkspaceExposeCommandDescriptor = IWorkspaceExposeCommandDescriptorBase;
+
+type TWorkspaceExposeCommandDescriptor = typeof workspaceExposeCommandRegistry[number];
+export type TWorkspaceExposeCommandName = TWorkspaceExposeCommandDescriptor['name'];
+type TWorkspaceExposeMethodForGroup<TGroup extends TWorkspaceExposeCommandGroup> =
+    TWorkspaceExposeCommandDescriptor extends infer TDescriptor
+        ? TDescriptor extends {
+            readonly group: TGroup;
+            readonly name: infer TName;
+        }
+            ? TName
+            : never
+        : never;
+type TWorkspaceExposeCommandResolver = (
+    descriptor: TWorkspaceExposeCommandDescriptor,
+) => TWorkspaceExposeCommandRunner | null;
+type TWorkspaceExposeMenuCommandDescriptor = TWorkspaceExposeCommandDescriptor & {readonly menu: IWorkspaceDocumentMenuCommandDescriptor};
+type TWorkspaceExposeToolbarCommandDescriptor = TWorkspaceExposeCommandDescriptor & {readonly toolbar: IWorkspaceToolbarCommandDescriptor};
+
+const workspaceExposeCommandNameSet: ReadonlySet<string> = new Set<TWorkspaceExposeMethod>(
     workspaceExposeCommandRegistry.map(descriptor => descriptor.name),
 );
 
+function isWorkspaceExposeDescriptorForGroup<TGroup extends TWorkspaceExposeCommandGroup>(
+    descriptor: TWorkspaceExposeCommandDescriptor,
+    group: TGroup,
+): descriptor is Extract<TWorkspaceExposeCommandDescriptor, {readonly group: TGroup}> {
+    return descriptor.group === group;
+}
+
+function appendWorkspaceExposeMethodForGroup<TGroup extends TWorkspaceExposeCommandGroup>(
+    methods: Array<TWorkspaceExposeMethodForGroup<TGroup>>,
+    descriptor: Extract<TWorkspaceExposeCommandDescriptor, {readonly group: TGroup}>,
+) {
+    methods.push(descriptor.name as TWorkspaceExposeMethodForGroup<TGroup>);
+}
+
 function getWorkspaceExposeMethodsForGroup<TGroup extends TWorkspaceExposeCommandGroup>(group: TGroup) {
-    return workspaceExposeCommandRegistry
-        .filter(descriptor => descriptor.group === group)
-        .map(descriptor => descriptor.name);
+    const methods: Array<TWorkspaceExposeMethodForGroup<TGroup>> = [];
+    for (const descriptor of workspaceExposeCommandRegistry) {
+        if (isWorkspaceExposeDescriptorForGroup(descriptor, group)) {
+            appendWorkspaceExposeMethodForGroup(methods, descriptor);
+        }
+    }
+    return methods;
 }
 
 function hasDocumentMenuDescriptor(
-    descriptor: IWorkspaceExposeCommandDescriptor,
+    descriptor: TWorkspaceExposeCommandDescriptor,
 ): descriptor is TWorkspaceExposeMenuCommandDescriptor {
-    return descriptor.menu !== undefined;
+    return 'menu' in descriptor && descriptor.menu !== undefined;
 }
 
 function hasToolbarDescriptor(
-    descriptor: IWorkspaceExposeCommandDescriptor,
+    descriptor: TWorkspaceExposeCommandDescriptor,
 ): descriptor is TWorkspaceExposeToolbarCommandDescriptor {
-    return descriptor.toolbar !== undefined;
+    return 'toolbar' in descriptor && descriptor.toolbar !== undefined;
 }
 
 export const workspaceExposeMethodDescriptors = {
-    file: getWorkspaceExposeMethodsForGroup('file') as ReadonlyArray<keyof IWorkspaceFilePort>,
-    export: getWorkspaceExposeMethodsForGroup('export') as ReadonlyArray<keyof IWorkspaceExportPort>,
-    view: getWorkspaceExposeMethodsForGroup('view') as ReadonlyArray<keyof IWorkspaceViewPort>,
-    pageOps: getWorkspaceExposeMethodsForGroup('pageOps') as ReadonlyArray<keyof IWorkspacePageOpsPort>,
-    splitTransfer: getWorkspaceExposeMethodsForGroup('splitTransfer') as ReadonlyArray<keyof IWorkspaceSplitTransferPort>,
-    ui: getWorkspaceExposeMethodsForGroup('ui') as ReadonlyArray<keyof IWorkspaceUiPort>,
-    agent: getWorkspaceExposeMethodsForGroup('agent') as ReadonlyArray<keyof IWorkspaceAgentPort>,
-    automation: getWorkspaceExposeMethodsForGroup('automation') as ReadonlyArray<keyof IWorkspaceAutomationPort>,
+    file: getWorkspaceExposeMethodsForGroup('file'),
+    export: getWorkspaceExposeMethodsForGroup('export'),
+    view: getWorkspaceExposeMethodsForGroup('view'),
+    pageOps: getWorkspaceExposeMethodsForGroup('pageOps'),
+    splitTransfer: getWorkspaceExposeMethodsForGroup('splitTransfer'),
+    ui: getWorkspaceExposeMethodsForGroup('ui'),
+    agent: getWorkspaceExposeMethodsForGroup('agent'),
+    automation: getWorkspaceExposeMethodsForGroup('automation'),
 } as const satisfies IWorkspaceExposeMethodDescriptorMap;
 
 export const workspaceExposeRequiredMethodNames = workspaceExposeCommandRegistry
-    .map(descriptor => descriptor.name) as readonly TWorkspaceExposeMethod[];
+    .map(descriptor => descriptor.name);
 
 export const workspaceExposeMenuCommandDescriptors = workspaceExposeCommandRegistry
-    .filter(hasDocumentMenuDescriptor) as readonly TWorkspaceExposeMenuCommandDescriptor[];
+    .filter(hasDocumentMenuDescriptor);
 
 export const workspaceExposeToolbarCommandDescriptors = workspaceExposeCommandRegistry
-    .filter(hasToolbarDescriptor) as readonly TWorkspaceExposeToolbarCommandDescriptor[];
+    .filter(hasToolbarDescriptor);
 
 export function isWorkspaceExposeCommandName(value: string): value is TWorkspaceExposeMethod {
-    return workspaceExposeCommandNameSet.has(value as TWorkspaceExposeMethod);
+    return workspaceExposeCommandNameSet.has(value);
 }
 
 export function getWorkspaceViewModeCommandName(mode: TPdfViewMode): TWorkspaceExposeMethod {
@@ -685,17 +719,36 @@ export function getWorkspaceViewModeCommandName(mode: TPdfViewMode): TWorkspaceE
     return 'handleViewModeFacingFirstSingle';
 }
 
+export function invokeWorkspaceExposeCommand<TName extends TWorkspaceExposeMethod>(
+    workspace: IWorkspaceExpose,
+    commandName: TName,
+    args?: readonly [...Parameters<TWorkspaceExposeCommandHandler<TName>>],
+): ReturnType<TWorkspaceExposeCommandHandler<TName>>;
+export function invokeWorkspaceExposeCommand(
+    workspace: IWorkspaceExpose,
+    commandName: TWorkspaceExposeMethod,
+    args?: readonly unknown[],
+): unknown;
 export function invokeWorkspaceExposeCommand(
     workspace: IWorkspaceExpose,
     commandName: TWorkspaceExposeMethod,
     args: readonly unknown[] = [],
-) {
-    const command = workspace[commandName] as TWorkspaceExposeCommandRunner;
-    return command.apply(workspace, [...args]);
+): unknown {
+    const command = workspace[commandName];
+    if (typeof command !== 'function') {
+        throw new WorkspaceExposeCommandUnavailableError(commandName);
+    }
+    return Reflect.apply(command, workspace, [...args]);
+}
+
+export function createWorkspaceExposeCommandRunner<TName extends TWorkspaceExposeMethod>(
+    handler: TWorkspaceExposeCommandHandler<TName>,
+): TWorkspaceExposeCommandRunner {
+    return (...args: unknown[]) => Reflect.apply(handler, undefined, args);
 }
 
 export function createWorkspaceExposeCommandHandlers(
-    resolveHandler: (descriptor: IWorkspaceExposeCommandDescriptor) => TWorkspaceExposeCommandRunner | null,
+    resolveHandler: TWorkspaceExposeCommandResolver,
 ) {
     const handlers: Partial<Record<TWorkspaceExposeMethod, TWorkspaceExposeCommandRunner>> = {};
 

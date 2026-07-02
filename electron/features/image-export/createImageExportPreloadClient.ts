@@ -4,7 +4,10 @@ import type {
     IImageExportProgress,
 } from '@contracts/electronApiDocuments';
 import type { TDocumentRef } from '@contracts/documentRef';
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isFiniteNumber,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import {
     IMAGE_EXPORT_EVENT_CHANNELS,
     IMAGE_EXPORT_CHANNELS,
@@ -22,9 +25,6 @@ const IMAGE_EXPORT_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [IMAGE_EXPORT_CHANNELS.exportMultiPageTiff]: IMAGE_EXPORT_NATIVE_IPC_TIMEOUT_MS,
 } as const;
 
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
 
 function decodeImageExportProgress(payload: unknown): IImageExportProgress | null {
     if (

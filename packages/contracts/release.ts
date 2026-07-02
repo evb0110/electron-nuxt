@@ -1,7 +1,20 @@
 import type { LiteralUnion } from 'type-fest';
 
-export type TReleasePlatform = 'macos' | 'windows' | 'linux' | 'unknown';
-export type TReleaseArch = 'arm64' | 'x64' | 'universal' | 'unknown';
+export const RELEASE_PLATFORMS = [
+    'macos',
+    'windows',
+    'linux',
+    'unknown',
+] as const;
+export const RELEASE_ARCHES = [
+    'arm64',
+    'x64',
+    'universal',
+    'unknown',
+] as const;
+
+export type TReleasePlatform = typeof RELEASE_PLATFORMS[number];
+export type TReleaseArch = typeof RELEASE_ARCHES[number];
 export type TReleaseInstallerExtension = LiteralUnion<
     'appimage' | 'deb' | 'dmg' | 'exe' | 'msi' | 'pkg' | 'rpm' | 'tar.gz' | 'zip',
     string

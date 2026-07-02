@@ -1,9 +1,8 @@
-import type { TAgentAssistantProviderId } from '@contracts/agent';
-
-export const ASSISTANT_PROVIDER_IDS = [
-    'codex',
-    'claude',
-] as const satisfies readonly TAgentAssistantProviderId[];
+import {
+    ASSISTANT_PROVIDER_IDS,
+    type TAgentAssistantProviderId,
+} from '@contracts/agent';
+export { ASSISTANT_PROVIDER_IDS };
 
 const ASSISTANT_PROVIDER_LABELS = {
     codex: 'Codex',

@@ -1,8 +1,6 @@
+import {isFinitePositive} from '@contracts/runtimeGuards';
 import type { IPdfPageMetric } from '@app/types/pdf';
 
-function isFinitePositive(value: number | null | undefined): value is number {
-    return typeof value === 'number' && Number.isFinite(value) && value > 0;
-}
 
 function isValidPageMetric(metric: IPdfPageMetric | null | undefined): metric is IPdfPageMetric {
     return isFinitePositive(metric?.width) && isFinitePositive(metric?.height);

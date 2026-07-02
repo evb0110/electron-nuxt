@@ -35,7 +35,7 @@ export const useWorkspaceSidebarSearchSyncController = (
         totalPages,
     });
 
-    watch(currentPage, (next: number, previous: number) => {
+    watch(currentPage, (next, previous) => {
         if (next === previous) {
             return;
         }

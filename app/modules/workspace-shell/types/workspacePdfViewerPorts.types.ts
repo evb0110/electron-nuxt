@@ -9,18 +9,18 @@ import type {
     IPdfViewerShapeExpose,
 } from '@app/modules/pdf-viewer/public';
 
-export interface IWorkspacePdfViewerCropPort extends IPdfViewerCropExpose {}
+export type IWorkspacePdfViewerCropPort = IPdfViewerCropExpose;
 
-export interface IWorkspacePdfViewerSplitPort extends IPdfViewerSaveExpose {}
+export type IWorkspacePdfViewerSplitPort = IPdfViewerSaveExpose;
 
 export interface IWorkspaceDocumentViewerNavigationPort extends Pick<IDocumentViewerExpose,
     'getCurrentPage'
     | 'scrollToPage'
 > {}
 
-export interface IWorkspaceDocumentViewerSplitPort extends IWorkspaceDocumentViewerNavigationPort {}
+export type IWorkspaceDocumentViewerSplitPort = IWorkspaceDocumentViewerNavigationPort;
 
-export interface IWorkspacePdfViewerRegionCapturePort extends IPdfViewerRegionCaptureExpose {}
+export type IWorkspacePdfViewerRegionCapturePort = IPdfViewerRegionCaptureExpose;
 
 export interface IWorkspacePdfViewerShortcutsPort extends Pick<IPdfViewerShapeExpose,
     'deleteSelectedShape'
@@ -108,4 +108,4 @@ export interface IWorkspacePdfViewerInteractionPort extends
     IWorkspacePdfViewerSplitPort,
     IWorkspacePdfViewerRegionCapturePort {}
 
-export interface IWorkspacePdfViewerDocumentControlsPort extends IWorkspacePdfViewerPageOpsPort {}
+export type IWorkspacePdfViewerDocumentControlsPort = IWorkspacePdfViewerPageOpsPort;

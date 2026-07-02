@@ -29,6 +29,7 @@ import {
     createPdfPersistenceResultFrame,
     describePdfPersistenceMessage,
     getPdfPersistenceChunkBytes,
+    isPdfPersistencePreloadToMainPayload,
     normalizePdfPersistencePreloadToMainPayload,
 } from '@electron/features/documents/serializedPdfPersistenceContract';
 import {
@@ -513,15 +514,10 @@ async function handlePortMessage(
     let errorSeq: number | undefined;
     try {
         const normalizedMessage = normalizePdfPersistencePreloadToMainPayload(message);
-        if (!normalizedMessage || typeof normalizedMessage !== 'object') {
-            throw new Error('Invalid PDF persistence message');
+        if (!isPdfPersistencePreloadToMainPayload(normalizedMessage)) {
+            throw new Error(`Unknown PDF persistence message (${describePdfPersistenceMessage(normalizedMessage)})`);
         }
-
-        const payload = normalizedMessage as {
-            type?: unknown;
-            seq?: unknown;
-            bytes?: unknown;
-        };
+        const payload = normalizedMessage;
         refreshSessionTimeout(session);
         if (payload.type === 'chunk') {
             errorPhase = 'streaming';

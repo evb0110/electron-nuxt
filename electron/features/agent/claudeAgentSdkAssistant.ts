@@ -31,9 +31,14 @@ import type {
     IAgentAssistantImageAttachment,
     IAgentAssistantModelOption,
     TAgentAssistantEffort,
+    TAgentAssistantKnownEffort,
     TAgentAssistantSpeedMode,
 } from '@contracts/agent';
-import { isRecord } from '@contracts/runtimeGuards';
+import { ASSISTANT_KNOWN_EFFORTS } from '@contracts/agent';
+import {
+    isOneOf,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import {
     CLAUDE_ASSISTANT_DEFAULT_MODEL,
     CLAUDE_ASSISTANT_MODELS,
@@ -48,6 +53,13 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('agent-claude-assistant');
+const CLAUDE_EFFORT_LEVEL_BY_ASSISTANT_EFFORT = {
+    low: 'low',
+    medium: 'medium',
+    high: 'high',
+    xhigh: 'xhigh',
+    max: 'max',
+} as const satisfies Record<TAgentAssistantKnownEffort, EffortLevel>;
 const execFileAsync = promisify(execFile);
 const requireFromHere = createRequire(import.meta.url);
 const CLAUDE_CLI_DISCOVERY_TIMEOUT_MS = 5_000;
@@ -831,17 +843,9 @@ function normalizeClaudeAccount(account: AccountInfo | null): AccountInfo | null
 }
 
 function toClaudeEffortLevel(effort: TAgentAssistantEffort): EffortLevel {
-    if (
-        effort === 'low'
-        || effort === 'medium'
-        || effort === 'high'
-        || effort === 'xhigh'
-        || effort === 'max'
-    ) {
-        return effort as EffortLevel;
-    }
-
-    return 'low';
+    return isOneOf(ASSISTANT_KNOWN_EFFORTS, effort)
+        ? CLAUDE_EFFORT_LEVEL_BY_ASSISTANT_EFFORT[effort]
+        : 'low';
 }
 
 export class ClaudeAgentAssistantSession {

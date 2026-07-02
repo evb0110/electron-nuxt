@@ -189,7 +189,7 @@ export default defineEventHandler(async (event) => {
 
     try {
         const db = getAnalyticsDb(event);
-        const rows: TViewerAnalyticsInsert[] = parsedEvents.map(entry => ({
+        const rows = parsedEvents.map(entry => ({
             eventName: entry.name,
             path: entry.path,
             locale: entry.locale,
@@ -204,7 +204,7 @@ export default defineEventHandler(async (event) => {
             userAgent,
             payload: entry.payload,
             occurredAt: new Date(entry.occurredAt),
-        }));
+        })) satisfies TViewerAnalyticsInsert[];
 
         await db.insert(viewerAnalyticsEvent).values(rows);
     } catch (error) {

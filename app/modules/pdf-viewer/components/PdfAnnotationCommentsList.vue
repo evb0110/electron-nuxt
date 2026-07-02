@@ -131,6 +131,7 @@
 </template>
 
 <script setup lang="ts">
+import {isFiniteNumber} from '@contracts/runtimeGuards';
 import { clamp } from 'es-toolkit/math';
 import type {
     IAnnotationCommentSummary,
@@ -196,9 +197,6 @@ const filteredComments = computed(() => {
 const showLoadingState = computed(() => status === 'loading' && filteredComments.value.length === 0);
 const showEmptyState = computed(() => status === 'ready' && filteredComments.value.length === 0);
 
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
 
 async function onSearchButtonClick() {
     if (!searchVisible.value) {

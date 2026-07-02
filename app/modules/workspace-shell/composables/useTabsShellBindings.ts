@@ -168,7 +168,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 };
             }
 
-            const value = await Promise.resolve(invokeWorkspaceExposeCommand(workspace, commandName, args));
+            const value: unknown = await Promise.resolve(invokeWorkspaceExposeCommand(workspace, commandName, args));
             return {
                 called: true,
                 value: (value ?? null) as TResult | null,

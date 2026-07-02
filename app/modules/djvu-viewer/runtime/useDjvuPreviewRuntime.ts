@@ -17,7 +17,7 @@ import {
 } from '@app/modules/djvu-viewer/createDjvuPageRenderList';
 import type { IDjvuContinuousScrollWindow } from '@app/modules/djvu-viewer/resolveDjvuContinuousScrollWindow';
 
-export interface IDjvuPageState extends IDocumentPreviewPageState {}
+export type IDjvuPageState = IDocumentPreviewPageState;
 
 
 interface IDjvuPreviewRuntimeState {

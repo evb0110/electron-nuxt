@@ -30,7 +30,7 @@ interface ITypeCoverageRunResult {
 
 const TYPE_COVERAGE_BIN = resolve('node_modules/type-coverage/bin/type-coverage');
 
-const PROJECTS: ITypeCoverageProject[] = [
+const PROJECTS = [
     {
         id: 'app',
         project: 'tsconfig.type-coverage.app.json',
@@ -80,7 +80,7 @@ const PROJECTS: ITypeCoverageProject[] = [
             '**/*.d.ts',
         ],
     },
-];
+] as const satisfies readonly ITypeCoverageProject[];
 
 function findProject(projectId: string) {
     const project = PROJECTS.find(candidate => candidate.id === projectId);

@@ -28,7 +28,7 @@ export interface IRecentFile {
     originalPath: TDocumentRef;
     fileName: string;
     timestamp: number;
-    fileSize?: number | undefined;
+    fileSize?: number;
 }
 
 export interface IOcrLanguage {
@@ -75,8 +75,8 @@ export interface ISettingsData {
     optimizePdfOnSaveAs: boolean;
     assistantPanelEnabled: boolean;
     agentMcpEnabled: boolean;
-    suppressDefaultViewerPrompt?: boolean | undefined;
-    skippedUpdateVersion?: string | undefined;
+    suppressDefaultViewerPrompt?: boolean;
+    skippedUpdateVersion?: string;
 }
 
 export interface ICropMargins {

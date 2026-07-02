@@ -279,14 +279,14 @@ export const useAnnotationShapes = () => {
     function getAllShapes(): IShapeAnnotation[] {
         const all: IShapeAnnotation[] = [];
         for (const pageShapes of shapes.value.values()) {
-            all.push(...pageShapes.map((shape: IShapeAnnotation) => cloneShape(shape)));
+            all.push(...pageShapes.map(shape => cloneShape(shape)));
         }
         return all;
     }
 
     function getShapeById(id: string): IShapeAnnotation | null {
         for (const pageShapes of shapes.value.values()) {
-            const shape = pageShapes.find((s: IShapeAnnotation) => s.id === id);
+            const shape = pageShapes.find(s => s.id === id);
             if (shape) {
                 return shape;
             }

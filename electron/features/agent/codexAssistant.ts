@@ -2,7 +2,6 @@ import * as electron from 'electron';
 import { sanitizeAllowedExternalUrl } from '@contracts/externalUrl';
 import { config } from '@electron/config';
 import type {
-    IAgentAssistantChatMessage,
     IAgentAssistantChatScope,
     IAgentAssistantEvent,
     IAgentAssistantInstallResult,
@@ -736,7 +735,7 @@ function markClaudeTurnCompleted(session: IAssistantChatSession, turnId: string 
 
 function reconcileFailedTurnMessages(session: IAssistantChatSession, errorMessage: string) {
     const normalizedError = errorMessage.trim();
-    session.messages = session.messages.filter((message: IAgentAssistantChatMessage) => {
+    session.messages = session.messages.filter(message => {
         if (message.role !== 'assistant' || !message.pending) {
             return true;
         }

@@ -34,7 +34,10 @@ import {
 } from '@contracts/nativePdfPageBounds';
 import { toPageIndex } from '@contracts/pageNumbers';
 import { PDF_PAGE_LABEL_STYLE_VALUES } from '@contracts/pdfPageLabels';
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isOneOf,
+    isRecord,
+} from '@contracts/runtimeGuards';
 
 export const PDF_NATIVE_MUTATION_LIMITS = {
     noteTextUpdates: 256,
@@ -63,12 +66,6 @@ export const PDF_NATIVE_MUTATION_ENUM_VALUES = {
 
 export const PDF_NATIVE_DATE_PATTERN = /^D:\d{14}(?:Z|[+-]\d{2}'\d{2}')?$/u;
 export const PDF_NATIVE_SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/iu;
-
-const PDF_NATIVE_PAGE_LABEL_STYLES = new Set<string>(PDF_NATIVE_MUTATION_ENUM_VALUES.pageLabelStyles);
-const PDF_NATIVE_SHAPE_TYPES = new Set<string>(PDF_NATIVE_MUTATION_ENUM_VALUES.shapeTypes);
-const PDF_NATIVE_SHAPE_SUBTYPES = new Set<string>(PDF_NATIVE_MUTATION_ENUM_VALUES.shapePdfSubtypes);
-const PDF_NATIVE_SHAPE_LINE_END_STYLES = new Set<string>(PDF_NATIVE_MUTATION_ENUM_VALUES.shapeLineEndStyles);
-const PDF_NATIVE_MARKUP_SUBTYPES = new Set<string>(PDF_NATIVE_MUTATION_ENUM_VALUES.markupSubtypes);
 
 type TPdfNativeValidationErrorKind = 'typeError' | 'error';
 type TPdfNativePlacedImageBytesMode = 'uint8Array' | 'numberArray';
@@ -344,7 +341,7 @@ function normalizePageLabelRange(
     if (typeof startPage !== 'number' || !Number.isSafeInteger(startPage) || startPage < 1) {
         fail(`${label}.startPage must be a positive safe integer`, options);
     }
-    if (style !== null && (typeof style !== 'string' || !PDF_NATIVE_PAGE_LABEL_STYLES.has(style))) {
+    if (style !== null && !isOneOf(PDF_NATIVE_MUTATION_ENUM_VALUES.pageLabelStyles, style)) {
         fail(`${label}.style must be a valid PDF page-label style or null`, options);
     }
     if (typeof prefix !== 'string') {
@@ -355,7 +352,7 @@ function normalizePageLabelRange(
     }
     return {
         startPage,
-        style: style as IPdfNativePageLabelRange['style'],
+        style,
         prefix,
         startNumber,
     };
@@ -518,19 +515,31 @@ function normalizeShapeStrokes(
     return Array.from(value, (points, index) => normalizeShapePoints(points, `${label}[${index}]`, state, options) ?? []);
 }
 
-function normalizeShapeEnum(
+function normalizeShapeEnum<T extends string>(
     value: unknown,
     label: string,
-    allowed: ReadonlySet<string>,
+    allowed: readonly T[],
+    options: IPdfNativeValidationOptions,
+): T;
+function normalizeShapeEnum<T extends string>(
+    value: unknown,
+    label: string,
+    allowed: readonly T[],
+    options: IPdfNativeValidationOptions & { optional: true },
+): T | null;
+function normalizeShapeEnum<T extends string>(
+    value: unknown,
+    label: string,
+    allowed: readonly T[],
     options: IPdfNativeValidationOptions & { optional?: boolean },
-) {
+): T | null {
     if (value === undefined || value === null) {
         if (options.optional) {
             return null;
         }
         fail(`${label} is required`, options);
     }
-    if (typeof value !== 'string' || !allowed.has(value)) {
+    if (!isOneOf(allowed, value)) {
         fail(`${label} is not a supported value`, options);
     }
     return value;
@@ -545,7 +554,7 @@ function normalizeShapeAnnotation(
     if (!isRecord(value)) {
         fail(`${label} must be an object`, options);
     }
-    const type = normalizeShapeEnum(value.type, `${label}.type`, PDF_NATIVE_SHAPE_TYPES, options);
+    const type = normalizeShapeEnum(value.type, `${label}.type`, PDF_NATIVE_MUTATION_ENUM_VALUES.shapeTypes, options);
     const pageIndex = value.pageIndex;
     if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
         fail(`${label}.pageIndex must be a non-negative safe integer`, options);
@@ -562,7 +571,7 @@ function normalizeShapeAnnotation(
     const points = normalizeShapePoints(value.points, `${label}.points`, state, options);
     const strokes = normalizeShapeStrokes(value.strokes, `${label}.strokes`, state, options);
     const shape: IPdfNativeShapeAnnotation = {
-        type: type as IPdfNativeShapeAnnotation['type'],
+        type,
         pageIndex: toPageIndex(pageIndex),
         x: normalizeFiniteUnitNumber(value.x, `${label}.x`, options),
         y: normalizeFiniteUnitNumber(value.y, `${label}.y`, options),
@@ -579,30 +588,30 @@ function normalizeShapeAnnotation(
         pdfSubtype: normalizeShapeEnum(
             value.pdfSubtype,
             `${label}.pdfSubtype`,
-            PDF_NATIVE_SHAPE_SUBTYPES,
+            PDF_NATIVE_MUTATION_ENUM_VALUES.shapePdfSubtypes,
             {
                 ...options,
                 optional: true,
             },
-        ) as NonNullable<IPdfNativeShapeAnnotation['pdfSubtype']> | null,
+        ),
         lineStartStyle: normalizeShapeEnum(
             value.lineStartStyle,
             `${label}.lineStartStyle`,
-            PDF_NATIVE_SHAPE_LINE_END_STYLES,
+            PDF_NATIVE_MUTATION_ENUM_VALUES.shapeLineEndStyles,
             {
                 ...options,
                 optional: true,
             },
-        ) as NonNullable<IPdfNativeShapeAnnotation['lineStartStyle']> | null,
+        ),
         lineEndStyle: normalizeShapeEnum(
             value.lineEndStyle,
             `${label}.lineEndStyle`,
-            PDF_NATIVE_SHAPE_LINE_END_STYLES,
+            PDF_NATIVE_MUTATION_ENUM_VALUES.shapeLineEndStyles,
             {
                 ...options,
                 optional: true,
             },
-        ) as NonNullable<IPdfNativeShapeAnnotation['lineEndStyle']> | null,
+        ),
         createdAt: normalizeOptionalTimestamp(value.createdAt, `${label}.createdAt`, options),
         modifiedAt: normalizeOptionalTimestamp(value.modifiedAt, `${label}.modifiedAt`, options),
     };
@@ -641,10 +650,10 @@ function normalizeMarkupSubtype(
     label: string,
     options: IPdfNativeValidationOptions,
 ) {
-    if (typeof value !== 'string' || !PDF_NATIVE_MARKUP_SUBTYPES.has(value)) {
+    if (!isOneOf(PDF_NATIVE_MUTATION_ENUM_VALUES.markupSubtypes, value)) {
         fail(`${label} must be a supported text-markup subtype`, options);
     }
-    return value as NonNullable<IPdfNativeMarkupSubtypeHint['subtype']>;
+    return value;
 }
 
 function normalizeMarkupOptionalString(value: unknown, label: string, options: IPdfNativeValidationOptions) {
@@ -742,35 +751,42 @@ function normalizeMarkupMutation(
     };
 }
 
-function normalizePlacedImageBytes<TMode extends TPdfNativePlacedImageBytesMode>(
+function normalizePlacedImageBytesAsUint8Array(
     value: unknown,
     label: string,
-    mode: TMode,
     options: IPdfNativeValidationOptions,
 ): {
-    bytes: TPdfNativePlacedImageBytes<TMode>;
-    byteLength: number 
+    bytes: Uint8Array;
+    byteLength: number;
 } {
-    if (mode === 'uint8Array') {
-        if (
-            !(value instanceof Uint8Array)
-            || value.byteLength === 0
-            || value.byteLength > PDF_NATIVE_MUTATION_LIMITS.placedImageBytes
-        ) {
-            fail(`${label} must be a non-empty Uint8Array`, options);
-        }
-        return {
-            bytes: value as TPdfNativePlacedImageBytes<TMode>,
-            byteLength: value.byteLength,
-        };
+    if (
+        !(value instanceof Uint8Array)
+        || value.byteLength === 0
+        || value.byteLength > PDF_NATIVE_MUTATION_LIMITS.placedImageBytes
+    ) {
+        fail(`${label} must be a non-empty Uint8Array`, options);
     }
 
+    return {
+        bytes: value,
+        byteLength: value.byteLength,
+    };
+}
+
+function normalizePlacedImageBytesAsNumberArray(
+    value: unknown,
+    label: string,
+    options: IPdfNativeValidationOptions,
+): {
+    bytes: number[];
+    byteLength: number;
+} {
     if (value instanceof Uint8Array) {
         if (value.byteLength === 0 || value.byteLength > PDF_NATIVE_MUTATION_LIMITS.placedImageBytes) {
             fail(`${label} must be non-empty image bytes`, options);
         }
         return {
-            bytes: Array.from(value) as TPdfNativePlacedImageBytes<TMode>,
+            bytes: Array.from(value),
             byteLength: value.byteLength,
         };
     }
@@ -786,7 +802,7 @@ function normalizePlacedImageBytes<TMode extends TPdfNativePlacedImageBytesMode>
             return byte;
         });
         return {
-            bytes: bytes as TPdfNativePlacedImageBytes<TMode>,
+            bytes,
             byteLength: bytes.length,
         };
     }
@@ -794,13 +810,13 @@ function normalizePlacedImageBytes<TMode extends TPdfNativePlacedImageBytesMode>
     fail(`${label} must be non-empty image bytes`, options);
 }
 
-function normalizePlacedImage<TMode extends TPdfNativePlacedImageBytesMode>(
+function normalizePlacedImage(
     value: unknown,
     label: string,
-    mode: TMode,
+    mode: TPdfNativePlacedImageBytesMode,
     byteState: IPdfNativePlacedImageByteState,
     options: IPdfNativeValidationOptions,
-): TPdfNativePlacedImageForMode<TMode> {
+): SetRequired<IPdfNativePlacedImage, 'rotationDegrees'> | IPdfNativePlacedImageNativeToolPayload {
     if (!isRecord(value)) {
         fail(`${label} must be an object`, options);
     }
@@ -830,27 +846,43 @@ function normalizePlacedImage<TMode extends TPdfNativePlacedImageBytesMode>(
     if (value.mimeType !== 'image/jpeg') {
         fail(`${label}.mimeType must be image/jpeg`, options);
     }
-    const imageBytes = normalizePlacedImageBytes(value.bytes, `${label}.bytes`, mode, options);
-    byteState.totalBytes += imageBytes.byteLength;
-    if (byteState.totalBytes > PDF_NATIVE_MUTATION_LIMITS.placedImagesTotalBytes) {
-        fail(`placed image bytes must total at most ${PDF_NATIVE_MUTATION_LIMITS.placedImagesTotalBytes} bytes`, options);
-    }
-    return {
+    const normalized = {
         pageIndex: toPageIndex(pageIndex),
         x,
         y,
         width,
         height,
         rotationDegrees,
-        mimeType: 'image/jpeg',
+        mimeType: 'image/jpeg' as const,
+    };
+
+    if (mode === 'uint8Array') {
+        const imageBytes = normalizePlacedImageBytesAsUint8Array(value.bytes, `${label}.bytes`, options);
+        byteState.totalBytes += imageBytes.byteLength;
+        if (byteState.totalBytes > PDF_NATIVE_MUTATION_LIMITS.placedImagesTotalBytes) {
+            fail(`placed image bytes must total at most ${PDF_NATIVE_MUTATION_LIMITS.placedImagesTotalBytes} bytes`, options);
+        }
+        return {
+            ...normalized,
+            bytes: imageBytes.bytes,
+        };
+    }
+
+    const imageBytes = normalizePlacedImageBytesAsNumberArray(value.bytes, `${label}.bytes`, options);
+    byteState.totalBytes += imageBytes.byteLength;
+    if (byteState.totalBytes > PDF_NATIVE_MUTATION_LIMITS.placedImagesTotalBytes) {
+        fail(`placed image bytes must total at most ${PDF_NATIVE_MUTATION_LIMITS.placedImagesTotalBytes} bytes`, options);
+    }
+    return {
+        ...normalized,
         bytes: imageBytes.bytes,
-    } as TPdfNativePlacedImageForMode<TMode>;
+    };
 }
 
-function normalizePlacedImages<TMode extends TPdfNativePlacedImageBytesMode>(
+function normalizePlacedImages(
     value: unknown,
     label: string,
-    mode: TMode,
+    mode: TPdfNativePlacedImageBytesMode,
     options: IPdfNativeValidationOptions,
 ) {
     if (value === undefined) {

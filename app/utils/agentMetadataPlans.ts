@@ -1,3 +1,7 @@
+import {
+    isOneOf,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import { isEqual } from 'es-toolkit/predicate';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type {
@@ -140,9 +144,6 @@ const MAX_ISSUE_COUNT = 50;
 const MAX_DIFF_SAMPLE_COUNT = 50;
 const MAX_LABEL_SAMPLE_COUNT = 40;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function hasInputKey(input: Record<string, unknown>, key: string) {
     return Object.prototype.hasOwnProperty.call(input, key);
@@ -215,8 +216,8 @@ export function normalizeAgentPageLabelStyle(value: unknown): TPageLabelStyle {
     if (value === null) {
         return null;
     }
-    if (typeof value === 'string' && AGENT_PAGE_LABEL_STYLES.includes(value as Exclude<TPageLabelStyle, null>)) {
-        return value as Exclude<TPageLabelStyle, null>;
+    if (isOneOf(AGENT_PAGE_LABEL_STYLES, value)) {
+        return value;
     }
     if (typeof value !== 'string') {
         return 'D';

@@ -20,7 +20,7 @@ export interface IResolveTextMarkupColorOptions {
     atPoint?: {
         pageX: number;
         pageY: number;
-    } | undefined;
+    };
     diagnostics?: ITextMarkupColorResolutionDiagnostics | undefined;
 }
 
@@ -450,7 +450,7 @@ function collectTextMarkupLineColorElementsNearPoint(
         element: Element;
         score: number;
     }> = [];
-    pageContainer.querySelectorAll<Element>(selector).forEach((element) => {
+    pageContainer.querySelectorAll(selector).forEach((element) => {
         if (isElementHiddenForColorRead(element)) {
             return;
         }

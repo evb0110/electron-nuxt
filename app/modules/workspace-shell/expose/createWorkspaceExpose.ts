@@ -27,10 +27,9 @@ import { clampPdfManualZoom } from '@app/modules/pdf-viewer/public';
 import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
 import {
     createWorkspaceExposeCommandHandlers,
+    createWorkspaceExposeCommandRunner,
     createWorkspaceExposeFromCommandHandlers,
     type TWorkspaceExposeCommandHandlerMap,
-    type TWorkspaceExposeCommandRunner,
-    type TWorkspaceExposeMethod,
 } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import type {
     IWorkspaceDocumentViewerNavigationPort,
@@ -398,16 +397,15 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         ),
     };
 
-    const depsHandlers = deps as Partial<Record<TWorkspaceExposeMethod, unknown>>;
+    const depsHandlers: Partial<TWorkspaceExposeCommandHandlerMap> = deps;
     const commandHandlers = createWorkspaceExposeCommandHandlers((descriptor) => {
         if (descriptor.real === 'passthrough') {
             const handler = depsHandlers[descriptor.name];
-            return typeof handler === 'function'
-                ? (...args: unknown[]) => (handler as TWorkspaceExposeCommandRunner)(...args)
-                : null;
+            return handler ? createWorkspaceExposeCommandRunner(handler) : null;
         }
 
-        return (customHandlers[descriptor.name] as TWorkspaceExposeCommandRunner | undefined) ?? null;
+        const handler = customHandlers[descriptor.name];
+        return handler ? createWorkspaceExposeCommandRunner(handler) : null;
     });
 
     return createWorkspaceExposeFromCommandHandlers(deps.hasPdf, commandHandlers);

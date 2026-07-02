@@ -1,3 +1,4 @@
+import {isFinitePositive} from '@contracts/runtimeGuards';
 import type {
     IPdfPageMetric,
     TPdfViewMode,
@@ -7,9 +8,6 @@ import {
     sumBy,
 } from 'es-toolkit/math';
 
-function isFinitePositive(value: number | null | undefined): value is number {
-    return typeof value === 'number' && Number.isFinite(value) && value > 0;
-}
 
 function clampPageNumber(pageNumber: number, totalPages: number) {
     return clamp(Math.floor(pageNumber), 1, totalPages);

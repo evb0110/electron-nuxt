@@ -952,7 +952,7 @@ describe('usePdfSerialization embedded shapes', () => {
     it('keeps managed draw shapes stable across repeated save, delete, and redraw reconciliation cycles', async () => {
         const shapes = useAnnotationShapes();
 
-        async function saveAndReconcile(bytes: Uint8Array<ArrayBufferLike>) {
+        async function saveAndReconcile(bytes: Uint8Array) {
             const serializer = usePdfSerialization({
                 pdfData: ref(bytes),
                 workingCopyPath: ref(null),
@@ -972,7 +972,7 @@ describe('usePdfSerialization embedded shapes', () => {
             return saved;
         }
 
-        let currentBytes: Uint8Array<ArrayBufferLike> = await createPdfDataWithSinglePage();
+        let currentBytes: Uint8Array = await createPdfDataWithSinglePage();
 
         shapes.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
         shapes.continueDrawing(0.18, 0.28);

@@ -1,3 +1,4 @@
+import {isFiniteNumber} from '@contracts/runtimeGuards';
 import type {
     IScrollSnapshot,
     TAnchorPageOutsideEdge,
@@ -9,9 +10,6 @@ import { clamp } from 'es-toolkit/math';
 
 const SNAPSHOT_LOG_THROTTLE_MS = 420;
 
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
 
 function getViewportAnchorCoordinate(value: number | null | undefined, fallback: number, limit: number) {
     const normalizedLimit = Math.max(limit, 0);

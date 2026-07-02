@@ -223,6 +223,10 @@ export type {
     TReleaseArch,
     TReleasePlatform,
 } from '@contracts/release';
+export {
+    RELEASE_ARCHES,
+    RELEASE_PLATFORMS,
+} from '@contracts/release';
 
 export {
     PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,
@@ -282,8 +286,13 @@ export {
 } from '@contracts/settings';
 
 export {
+    isFiniteNumber,
+    isFinitePositive,
     isErrnoException,
+    isOneOf,
     isRecord,
+    isSafeWorkerRequestId,
+    isStringArray,
 } from '@contracts/runtimeGuards';
 
 export { safeJsonParse } from '@contracts/safeJsonParse';

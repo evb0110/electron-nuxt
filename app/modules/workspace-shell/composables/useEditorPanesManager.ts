@@ -58,13 +58,13 @@ export const useEditorPanesManager = () => {
     }
 
     const paneLookup = computed<Map<string, IEditorPaneState>>(() => {
-        return new Map(panes.value.map((pane: IEditorPaneState) => [
+        return new Map(panes.value.map(pane => [
             pane.paneId,
             pane,
         ]));
     });
     const tabLookup = computed<Map<string, ITab>>(() => {
-        return new Map(tabs.value.map((tab: ITab) => [
+        return new Map(tabs.value.map(tab => [
             tab.id,
             tab,
         ]));
@@ -88,7 +88,7 @@ export const useEditorPanesManager = () => {
         paneId: string,
         update: (pane: IEditorPaneState) => IEditorPaneState,
     ) {
-        panes.value = panes.value.map((pane: IEditorPaneState) => (
+        panes.value = panes.value.map(pane => (
             pane.paneId === paneId ? update(pane) : pane
         ));
         return getPaneById(paneId);
@@ -235,7 +235,7 @@ export const useEditorPanesManager = () => {
             return insertTabId(targetPane.tabIds, tabId, targetIndex);
         }
 
-        tabs.value = tabs.value.filter((candidate: ITab) => candidate.id !== placeholderTabId);
+        tabs.value = tabs.value.filter(candidate => candidate.id !== placeholderTabId);
         return [tabId];
     }
 
@@ -259,7 +259,7 @@ export const useEditorPanesManager = () => {
         normalizeManagerState();
         ensureLayoutInitialized();
 
-        const hasAnyTab = panes.value.some((pane: IEditorPaneState) => pane.tabIds.length > 0);
+        const hasAnyTab = panes.value.some(pane => pane.tabIds.length > 0);
         if (hasAnyTab) {
             const activePane = getPaneById(activePaneId.value) ?? panes.value[0] ?? null;
             if (activePane) {
@@ -390,7 +390,7 @@ export const useEditorPanesManager = () => {
             return false;
         }
 
-        panes.value = panes.value.filter((candidate: IEditorPaneState) => candidate.paneId !== pane.paneId);
+        panes.value = panes.value.filter(candidate => candidate.paneId !== pane.paneId);
         paneMru.value = paneMru.value.filter((candidate: string) => candidate !== pane.paneId);
 
         if (layout.value) {
@@ -438,7 +438,7 @@ export const useEditorPanesManager = () => {
 
         const tab = getTabById(tabId);
         const nextTabIds = pane.tabIds.filter((candidate: string) => candidate !== tabId);
-        tabs.value = tabs.value.filter((candidate: ITab) => candidate.id !== tabId);
+        tabs.value = tabs.value.filter(candidate => candidate.id !== tabId);
 
         const replacement = nextTabIds[tabIndex] ?? nextTabIds[tabIndex - 1] ?? null;
         updatePaneTabIds(

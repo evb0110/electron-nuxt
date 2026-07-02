@@ -171,7 +171,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const messages = computed(() => (state.value ?? emptyState.value).messages);
     const renderedMessages = computed(() => {
         const activeMessageIds = new Set<string>();
-        const rendered = messages.value.map((message: IAgentAssistantChatMessage) => {
+        const rendered = messages.value.map(message => {
             activeMessageIds.add(message.id);
             return {
                 message,

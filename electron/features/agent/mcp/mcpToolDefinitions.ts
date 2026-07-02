@@ -3,6 +3,7 @@ import type {
     IMcpResourceTemplateDefinition,
     IMcpToolDefinition,
 } from '@electron/features/agent/mcp/mcpDefinitionTypes';
+import { AGENT_CAPABILITY_DOMAINS } from '@contracts/agent';
 
 const WINDOW_ID_SCHEMA = {
     type: 'number',
@@ -42,21 +43,7 @@ const OBJECT_OUTPUT_SCHEMA = {
 };
 const CAPABILITY_DOMAIN_SCHEMA = {
     type: 'string',
-    enum: [
-        'workspace',
-        'document',
-        'annotation',
-        'toc',
-        'page_labels',
-        'bookmarks',
-        'ocr',
-        'ui',
-        'view',
-        'file',
-        'export',
-        'page_ops',
-        'history',
-    ],
+    enum: [...AGENT_CAPABILITY_DOMAINS],
     description: 'Optional capability domain filter.',
 };
 const CAPABILITY_DETAIL_SCHEMA = {

@@ -10,7 +10,10 @@ import type {
     IPageGeometry,
     IPdfBox,
 } from '@contracts/shared';
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isFiniteNumber,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';
@@ -65,9 +68,6 @@ function buildWorkerRequestWithTransfers(
     };
 }
 
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
 
 function decodePageMutationWorkerResult(data: unknown): IPageMutationWorkerResult | null {
     if (

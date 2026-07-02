@@ -1,11 +1,5 @@
-import type { TDocumentRef } from '@contracts/documentRef';
+import type { ITabMetadataCore } from '@contracts/windowTabs';
 
-export interface ITab {
-    id: string;
-    fileName: string | null;
-    originalPath: TDocumentRef | null;
-    isDirty: boolean;
-    isDjvu: boolean;
-}
+export interface ITab extends ITabMetadataCore {id: string;}
 
 export type TTabUpdate = Partial<Pick<ITab, 'fileName' | 'originalPath' | 'isDirty' | 'isDjvu'>>;

@@ -9,19 +9,17 @@ import type {
     TDjvuPdfWorkerTask,
 } from '@electron/features/djvu/main/pdfWorkerProtocol';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isFiniteNumber,
+    isRecord,
+    isStringArray,
+} from '@contracts/runtimeGuards';
 import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { getErrorMessage } from '@electron/utils/error';
 
 interface IDjvuPdfWorkerCancelMessage {type: 'cancel';}
 
-function isStringArray(value: unknown): value is string[] {
-    return Array.isArray(value) && value.every(item => typeof item === 'string');
-}
 
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
 
 function isPdfBookmarkEntry(value: unknown): value is IPdfBookmarkEntry {
     return isRecord(value)

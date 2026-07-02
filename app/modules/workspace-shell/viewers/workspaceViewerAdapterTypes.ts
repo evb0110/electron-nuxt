@@ -1,4 +1,7 @@
-import type { Component } from 'vue';
+import type {
+    Component,
+    Ref,
+} from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
@@ -12,8 +15,8 @@ export interface IWorkspaceViewerLifecycleContext {
     cleanupDjvuTemp: () => Promise<void>;
     exitDjvuMode: () => void;
     invalidatePendingDjvuOpen: () => void;
-    isDjvuMode: { value: boolean };
-    workingCopyPath: { value: TDocumentRef | null };
+    isDjvuMode: Ref<boolean>;
+    workingCopyPath: Ref<TDocumentRef | null>;
 }
 
 export interface IWorkspaceViewerLifecycleHooks {

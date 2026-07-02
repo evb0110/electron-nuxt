@@ -1,3 +1,4 @@
+import {isRecord} from '@contracts/runtimeGuards';
 import {
     LOCALE_CODES,
     LOCALE_DEFINITIONS,
@@ -24,9 +25,6 @@ interface ILocaleDefinitionLike {
 
 type TLocaleTarget = 'app' | 'landing' | 'all';
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function collectLeafPaths(node: unknown, prefix = ''): string[] {
     if (!isRecord(node)) {

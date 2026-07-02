@@ -16,7 +16,7 @@
                 <p class="text-sm text-muted">
                     {{ description }}
                 </p>
-                <AppProgressBar :value="progressPercent" />
+                <AppProgressBar :value="progressPercent ?? null" />
             </div>
         </template>
 

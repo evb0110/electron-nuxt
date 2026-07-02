@@ -12,6 +12,7 @@ export {
     createPdfPersistenceResultFrame,
     describePdfPersistenceMessage,
     getPdfPersistenceChunkBytes,
+    isPdfPersistencePreloadToMainPayload,
     normalizePdfPersistencePreloadToMainPayload,
 } from '@contracts/documentPersistenceFrames';
 

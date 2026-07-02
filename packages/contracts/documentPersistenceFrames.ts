@@ -85,9 +85,9 @@ export type TPdfPersistencePreloadToMainFrame =
     | IPdfPersistenceCancelFrame;
 
 export interface IPdfPersistencePreloadToMainPayload {
-    type?: unknown;
-    seq?: unknown;
-    bytes?: unknown;
+    type: TPdfPersistencePreloadToMainFrame['type'];
+    seq?: number;
+    bytes?: Uint8Array | ArrayBuffer;
 }
 
 const PDF_PERSISTENCE_ERROR_CODE_SET = new Set<string>(PDF_PERSISTENCE_ERROR_CODES);
@@ -254,7 +254,17 @@ export function describePdfPersistenceMessage(message: unknown) {
 }
 
 export function isPdfPersistencePreloadToMainPayload(message: unknown): message is IPdfPersistencePreloadToMainPayload {
-    return Boolean(message && typeof message === 'object' && 'type' in message);
+    if (!isRecord(message) || typeof message.type !== 'string') {
+        return false;
+    }
+
+    if (message.type === 'chunk') {
+        return typeof message.seq === 'number'
+            && Number.isSafeInteger(message.seq)
+            && (message.bytes instanceof Uint8Array || message.bytes instanceof ArrayBuffer);
+    }
+
+    return message.type === 'complete' || message.type === 'cancel';
 }
 
 export function normalizePdfPersistencePreloadToMainPayload(

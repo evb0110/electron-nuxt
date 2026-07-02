@@ -33,12 +33,12 @@ const NON_INSTALLER_SUFFIXES = [
     '.yaml',
 ];
 
-export const INSTALLER_PLATFORM_ORDER: TReleasePlatform[] = [
+export const INSTALLER_PLATFORM_ORDER = [
     'macos',
     'windows',
     'linux',
     'unknown',
-];
+] as const satisfies readonly TReleasePlatform[];
 
 const PREFERRED_EXTENSION_ORDER: Record<TReleasePlatform, string[]> = {
     macos: [

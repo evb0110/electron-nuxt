@@ -10,7 +10,7 @@ export function getOptionalString(
         return null;
     }
 
-    const candidate = value[key];
+    const candidate = (value as Record<PropertyKey, unknown>)[key];
     return typeof candidate === 'string'
         ? candidate
         : null;
@@ -24,7 +24,7 @@ export function getOptionalNumber(
         return null;
     }
 
-    const candidate = value[key];
+    const candidate = (value as Record<PropertyKey, unknown>)[key];
     return typeof candidate === 'number' && Number.isFinite(candidate)
         ? candidate
         : null;
@@ -38,7 +38,7 @@ export function getOptionalArray(
         return null;
     }
 
-    const candidate = value[key];
+    const candidate = (value as Record<PropertyKey, unknown>)[key];
     return Array.isArray(candidate)
         ? candidate
         : null;
@@ -52,7 +52,7 @@ export function getOptionalObject(
         return null;
     }
 
-    const candidate = value[key];
+    const candidate = (value as Record<PropertyKey, unknown>)[key];
     return isRecord(candidate)
         ? candidate
         : null;
@@ -73,7 +73,7 @@ export function getOptionalFunction<TArgs extends unknown[] = unknown[], TResult
         return null;
     }
 
-    const candidate = value[key];
+    const candidate = (value as Record<PropertyKey, unknown>)[key];
     return typeof candidate === 'function'
         ? candidate as (...args: TArgs) => TResult
         : null;

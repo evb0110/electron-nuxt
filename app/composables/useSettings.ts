@@ -37,11 +37,11 @@ export const useSettings = () => {
             ? safeDecodeURIComponent(value)
             : null,
     });
-    const localeCookie = useCookie<string | null | undefined>(
+    const localeCookie = useCookie(
         BROWSER_LOCALE_COOKIE_KEY,
         PERSISTENT_SETTINGS_COOKIE_OPTIONS,
     );
-    const themeCookie = useCookie<string | null | undefined>(
+    const themeCookie = useCookie(
         BROWSER_THEME_COOKIE_KEY,
         PERSISTENT_SETTINGS_COOKIE_OPTIONS,
     );

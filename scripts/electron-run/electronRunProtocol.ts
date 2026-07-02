@@ -21,7 +21,7 @@ export const ELECTRON_RUN_COMMANDS = [
 
 export type TElectronRunCommand = typeof ELECTRON_RUN_COMMANDS[number];
 
-const ELECTRON_RUN_COMMAND_SET = new Set<TElectronRunCommand>(ELECTRON_RUN_COMMANDS);
+const ELECTRON_RUN_COMMAND_SET: ReadonlySet<string> = new Set<TElectronRunCommand>(ELECTRON_RUN_COMMANDS);
 
 export interface IElectronRunCommandRequest {
     command: TElectronRunCommand;
@@ -46,7 +46,7 @@ export type TElectronRunCommandResponse = MergeExclusive<
 >;
 
 export function isElectronRunCommand(value: unknown): value is TElectronRunCommand {
-    return typeof value === 'string' && ELECTRON_RUN_COMMAND_SET.has(value as TElectronRunCommand);
+    return typeof value === 'string' && ELECTRON_RUN_COMMAND_SET.has(value);
 }
 
 export function parseElectronRunCommandRequest(value: unknown) {

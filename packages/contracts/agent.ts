@@ -5,8 +5,30 @@ export type TAgentDocumentKind = 'empty' | 'pdf' | 'djvu' | 'image' | 'unknown';
 export type TAgentDocumentReadinessStatus = 'ready' | 'needs-preparation' | 'unknown' | 'empty';
 export type TAgentOcrCoverageStatus = 'complete' | 'partial' | 'none' | 'unknown';
 export type TAgentRecommendationId = 'convert_to_pdf' | 'ocr_all_pages';
-export type TAgentCapabilityDomain = 'workspace' | 'document' | 'annotation' | 'toc' | 'page_labels' | 'bookmarks' | 'ocr' | 'ui' | 'view' | 'file' | 'export' | 'page_ops' | 'history';
-export type TAgentCapabilityRisk = 'read' | 'navigate' | 'write' | 'destructive' | 'longRunning';
+export const AGENT_CAPABILITY_DOMAINS = [
+    'workspace',
+    'document',
+    'annotation',
+    'toc',
+    'page_labels',
+    'bookmarks',
+    'ocr',
+    'ui',
+    'view',
+    'file',
+    'export',
+    'page_ops',
+    'history',
+] as const;
+export const AGENT_CAPABILITY_RISKS = [
+    'read',
+    'navigate',
+    'write',
+    'destructive',
+    'longRunning',
+] as const;
+export type TAgentCapabilityDomain = typeof AGENT_CAPABILITY_DOMAINS[number];
+export type TAgentCapabilityRisk = typeof AGENT_CAPABILITY_RISKS[number];
 export type TAgentCommandName = 'activate_tab' | 'go_to_page' | 'run_action' | 'read_resource';
 export type TAgentMcpCodexRegistrationState = 'configured' | 'missing' | 'mismatched' | 'unknown';
 export type TAgentAssistantInstallState = 'installed' | 'missing' | 'unsupported';
@@ -17,9 +39,20 @@ export type TAgentAssistantLoginMode = 'chatgpt' | 'device-code';
 export type TAgentAssistantMessageRole = 'user' | 'assistant' | 'system';
 export type TAgentAssistantEventType = 'state' | 'message' | 'message-delta' | 'turn-started' | 'turn-completed' | 'install-progress' | 'error';
 export type TAgentAssistantChatScopeKind = 'document';
-export type TAgentAssistantProviderId = 'codex' | 'claude';
+export const ASSISTANT_PROVIDER_IDS = [
+    'codex',
+    'claude',
+] as const;
+export type TAgentAssistantProviderId = typeof ASSISTANT_PROVIDER_IDS[number];
 export type TAgentAssistantModelSwitchMode = 'none' | 'in-session';
-export type TAgentAssistantKnownEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export const ASSISTANT_KNOWN_EFFORTS = [
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max',
+] as const;
+export type TAgentAssistantKnownEffort = typeof ASSISTANT_KNOWN_EFFORTS[number];
 export type TAgentAssistantEffort = TAgentAssistantKnownEffort | (string & {});
 export type TAgentAssistantSpeedMode = 'fast' | 'standard';
 export type TAgentWorkspaceMode = 'empty-workspace' | 'open-document' | 'documents-open-no-active-document';
@@ -412,10 +445,12 @@ export interface IAgentAssistantLoginResult {
     errorEnvelope?: IAgentAssistantErrorEnvelope;
 }
 
-export type TAgentAssistantPresetId =
-    | 'add-bookmarks'
-    | 'number-pages'
-    | 'check-ocr-readiness';
+export const AGENT_ASSISTANT_PRESET_IDS = [
+    'add-bookmarks',
+    'number-pages',
+    'check-ocr-readiness',
+] as const;
+export type TAgentAssistantPresetId = typeof AGENT_ASSISTANT_PRESET_IDS[number];
 
 export interface IAgentAssistantSendMessageRequest {
     text: string;

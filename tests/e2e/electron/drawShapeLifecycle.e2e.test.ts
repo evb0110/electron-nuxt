@@ -882,7 +882,7 @@ async function waitForNoVisibleInkAtPoint(page: Page, point: {
             return true;
         };
         const hasVisibleLayerGhost = (
-            Array.from(pageContainer.querySelectorAll<Element>(
+            Array.from(pageContainer.querySelectorAll(
                 '.annotationLayer .inkAnnotation,'
                 + '.annotation-layer .inkAnnotation,'
                 + '.annotationEditorLayer .inkEditor,'
@@ -896,7 +896,7 @@ async function waitForNoVisibleInkAtPoint(page: Page, point: {
                 + '.annotationLayer [data-annotation-id],'
                 + '.annotation-layer [data-annotation-id]',
             )).some(isVisibleGhostElement)
-            || Array.from(pageContainer.querySelectorAll<Element>(
+            || Array.from(pageContainer.querySelectorAll(
                 '.annotationLayer svg polyline,'
                 + '.annotation-layer svg polyline,'
                 + '.annotationEditorLayer .draw use,'

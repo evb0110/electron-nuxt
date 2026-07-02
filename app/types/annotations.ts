@@ -7,47 +7,58 @@ import type {
     TPdfAnnotationMarkupSubtype,
     TPdfAnnotationShapePdfSubtype,
     TPdfAnnotationShapeType,
+    TAnnotationTool as TContractAnnotationTool,
+    TDrawableShapeTool,
+} from '@contracts/annotations';
+import type { IPdfNativeShapeAnnotation } from '@contracts/electronApiDocuments';
+export {
+    ANNOTATION_TOOLS,
+    DRAWABLE_SHAPE_TOOLS,
 } from '@contracts/annotations';
 
-export type TAnnotationTool = 'none' | 'select' | 'highlight' | 'underline' | 'strikethrough' | 'squiggly' | 'text' | 'draw' | 'rectangle' | 'circle' | 'line' | 'arrow' | 'stamp';
+export type TAnnotationTool = TContractAnnotationTool;
 
 export type TAnnotationCommentsStatus = 'loading' | 'ready';
 
 export type TMarkupSubtype = TPdfAnnotationMarkupSubtype;
 
 export type TShapeType = TPdfAnnotationShapeType;
-export type TDrawableShapeType = Extract<TAnnotationTool, 'draw' | 'rectangle' | 'circle' | 'line' | 'arrow'>;
+export type TDrawableShapeType = TDrawableShapeTool;
 
 export type TLineEndStyle = TPdfAnnotationLineEndStyle;
 export type TEmbeddedPdfShapeSubtype = TPdfAnnotationShapePdfSubtype;
 export type TShapeResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
 
-export interface IShapePoint extends IPoint2D {}
+export type IShapePoint = IPoint2D;
 
-export interface IShapeAnnotation {
+type TShapeAnnotationContractCore = Pick<
+    IPdfNativeShapeAnnotation,
+    | 'type'
+    | 'x'
+    | 'y'
+    | 'width'
+    | 'height'
+    | 'color'
+    | 'opacity'
+    | 'strokeWidth'
+>;
+
+export interface IShapeAnnotation extends TShapeAnnotationContractCore {
     id: string;
-    type: TShapeType;
     pageIndex: number;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    x2?: number | undefined;
-    y2?: number | undefined;
-    color: string;
+    x2?: number;
+    y2?: number;
     fillColor?: string | undefined;
-    opacity: number;
-    strokeWidth: number;
     points?: IShapePoint[] | undefined;
     strokes?: IShapePoint[][] | undefined;
-    source?: 'local' | 'embedded' | undefined;
+    source?: 'local' | 'embedded';
     annotationId?: string | null | undefined;
     stableKey?: string | null | undefined;
-    pdfSubtype?: TEmbeddedPdfShapeSubtype | null | undefined;
+    pdfSubtype?: TEmbeddedPdfShapeSubtype | null;
     lineStartStyle?: TLineEndStyle | undefined;
     lineEndStyle?: TLineEndStyle | undefined;
-    createdAt?: number | null | undefined;
-    modifiedAt?: number | null | undefined;
+    createdAt?: number | null;
+    modifiedAt?: number | null;
 }
 
 export interface IAnnotationSettings {
@@ -87,7 +98,7 @@ export interface IAnnotationEditorState {
 
 export interface IAnnotationModifiedPayload { forceDirty?: boolean }
 
-export interface IAnnotationMarkerRect extends IMarkerRect {}
+export type IAnnotationMarkerRect = IMarkerRect;
 
 export interface ITextMarkupAnnotationProperties {
     id: string;
@@ -100,34 +111,34 @@ export interface ITextMarkupAnnotationProperties {
 export interface ILinkAnnotation {
     id: string;
     pageNumber: number;
-    url?: string | undefined;
-    dest?: string | unknown[] | undefined;
+    url?: string;
+    dest?: string | unknown[];
     rect: IAnnotationMarkerRect;
 }
 
 export interface IAnnotationCommentSummary {
     id: string;
     stableKey: string;
-    sortIndex?: number | null | undefined;
+    sortIndex?: number | null;
     pageIndex: number;
     pageNumber: number;
     text: string;
-    displayText?: string | null | undefined;
-    previewText?: string | null | undefined;
-    kindLabel?: string | null | undefined;
+    displayText?: string | null;
+    previewText?: string | null;
+    kindLabel?: string | null;
     subtype?: string | null | undefined;
     author: string | null;
-    createdAt?: number | null | undefined;
+    createdAt?: number | null;
     modifiedAt: number | null;
     color: string | null;
     colorEdited?: boolean | undefined;
-    fillColor?: string | null | undefined;
-    opacity?: number | null | undefined;
-    strokeWidth?: number | null | undefined;
+    fillColor?: string | null;
+    opacity?: number | null;
+    strokeWidth?: number | null;
     uid: string | null;
     annotationId: string | null;
     annotationName?: string | null | undefined;
     source: 'editor' | 'pdf' | 'shape';
-    hasNote?: boolean | undefined;
+    hasNote?: boolean;
     markerRect?: IAnnotationMarkerRect | null | undefined;
 }

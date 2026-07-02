@@ -12,4 +12,4 @@ export const LOCALE_CODES = [
 
 export type TLocale = typeof LOCALE_CODES[number];
 
-export const DEFAULT_LOCALE: TLocale = 'en';
+export const DEFAULT_LOCALE = 'en' satisfies TLocale;

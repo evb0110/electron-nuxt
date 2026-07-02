@@ -2,7 +2,10 @@ import type {
     ICropMargins,
     IPageGeometry,
 } from '@contracts/shared';
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isRecord,
+    isSafeWorkerRequestId,
+} from '@contracts/runtimeGuards';
 
 interface IPageMutationWorkerResult {
     data: Uint8Array;
@@ -85,11 +88,6 @@ type TBrowserPageOpsWorkerResponse =
         error: string;
     };
 
-function isSafeWorkerRequestId(value: unknown): value is number {
-    return typeof value === 'number'
-        && Number.isSafeInteger(value)
-        && value >= 0;
-}
 
 function isPositiveInteger(value: unknown): value is number {
     return typeof value === 'number'
@@ -120,7 +118,7 @@ function isCropMargins(value: unknown): value is ICropMargins {
         && Number.isFinite(value.right);
 }
 
-function getPdfData(value: Record<PropertyKey, unknown>) {
+function getPdfData(value: Record<string, unknown>) {
     return value.data instanceof Uint8Array
         ? value.data
         : null;

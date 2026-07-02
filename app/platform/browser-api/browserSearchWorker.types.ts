@@ -1,4 +1,7 @@
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isRecord,
+    isSafeWorkerRequestId,
+} from '@contracts/runtimeGuards';
 
 interface IBrowserSearchWorkerRequestMap {
     extractDocumentText: {pdfPath: string;};
@@ -57,11 +60,6 @@ type TBrowserSearchWorkerResponse =
     | TBrowserSearchWorkerSuccessResponse
     | IBrowserSearchWorkerErrorResponse;
 
-function isSafeWorkerRequestId(value: unknown): value is number {
-    return typeof value === 'number'
-        && Number.isSafeInteger(value)
-        && value >= 0;
-}
 
 function parseExtractDocumentTextPayload(value: unknown): IBrowserSearchWorkerRequestMap['extractDocumentText'] | null {
     if (!isRecord(value) || typeof value.pdfPath !== 'string' || value.pdfPath.trim().length === 0) {

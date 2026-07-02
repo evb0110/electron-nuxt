@@ -9,11 +9,10 @@ import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import type { IPdfNativeMarkupSubtypeHint } from '@contracts/electronApiDocuments';
 import { toPageIndex } from '@contracts/pageNumbers';
 import { PDF_ANNOTATION_MARKUP_SUBTYPES } from '@contracts/annotations';
-
-const NATIVE_MARKUP_SUBTYPES = new Set<TMarkupSubtype>(PDF_ANNOTATION_MARKUP_SUBTYPES);
+import { isOneOf } from '@contracts/runtimeGuards';
 
 function isNativeMarkupSubtype(value: unknown): value is TMarkupSubtype {
-    return typeof value === 'string' && NATIVE_MARKUP_SUBTYPES.has(value as TMarkupSubtype);
+    return isOneOf(PDF_ANNOTATION_MARKUP_SUBTYPES, value);
 }
 
 function addMarkupTargetKey(keys: Set<string>, value: string | null | undefined) {

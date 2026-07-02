@@ -229,7 +229,7 @@ export interface IFileOperationsSaveAdapterPorts {
     operationLease?: IWorkspaceSaveOperationLeasePort;
 }
 
-export interface IWorkspacePdfViewerSaveDocumentPort extends IWorkspacePdfViewerSplitPort {}
+export type IWorkspacePdfViewerSaveDocumentPort = IWorkspacePdfViewerSplitPort;
 
 export interface IWorkspacePdfViewerSaveReloadPort extends Pick<IWorkspaceDocumentViewerNavigationPort, 'scrollToPage'> {
     captureScrollSnapshot?: () => IScrollSnapshot | null;

@@ -2,9 +2,9 @@ import type {
     IAgentAssistantEffortOption,
     IAgentAssistantModelOption,
     TAgentAssistantEffort,
-    TAgentAssistantKnownEffort,
     TAgentAssistantSpeedMode,
 } from '@contracts/agent';
+export { ASSISTANT_KNOWN_EFFORTS } from '@contracts/agent';
 
 // Assistant sessions should start responsive, then let the user opt into deeper
 // reasoning or a slower service tier from the composer controls.
@@ -14,13 +14,6 @@ export const ASSISTANT_SPEED_MODES = [
     'fast',
     'standard',
 ] as const satisfies readonly TAgentAssistantSpeedMode[];
-export const ASSISTANT_KNOWN_EFFORTS = [
-    'low',
-    'medium',
-    'high',
-    'xhigh',
-    'max',
-] as const satisfies readonly TAgentAssistantKnownEffort[];
 export const CLAUDE_ASSISTANT_EFFORTS = [
     'low',
     'medium',

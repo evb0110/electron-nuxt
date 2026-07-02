@@ -13,7 +13,7 @@
 <script setup lang="ts">
 import { clamp } from 'es-toolkit/math';
 
-const { value } = defineProps<{value: number | null | undefined;}>();
+const { value = null } = defineProps<{value?: number | null;}>();
 
 const progressUi = {
     base: 'bg-elevated',

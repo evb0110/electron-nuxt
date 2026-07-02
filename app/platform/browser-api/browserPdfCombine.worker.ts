@@ -76,7 +76,7 @@ async function convertWorkerRgbaToPng(width: number, height: number, rgba: Uint8
 
 async function appendWorkerTiffPages(
     pdfDocument: PDFDocument,
-    input: IBrowserPdfCombineWorkerRequest<'combinePdfs'>['payload']['inputs'][number],
+    input: IBrowserPdfCombineWorkerRequest['payload']['inputs'][number],
 ) {
     let addedPages = 0;
 
@@ -98,7 +98,7 @@ async function appendWorkerTiffPages(
 
 async function appendInputToPdfDocument(
     pdfDocument: PDFDocument,
-    input: IBrowserPdfCombineWorkerRequest<'combinePdfs'>['payload']['inputs'][number],
+    input: IBrowserPdfCombineWorkerRequest['payload']['inputs'][number],
 ) {
     const extension = getBrowserFileExtension(input.fileName);
     if (extension === '.pdf') {
@@ -134,7 +134,7 @@ async function appendInputToPdfDocument(
 }
 
 async function handleCombinePdfsRequest(
-    request: IBrowserPdfCombineWorkerRequest<'combinePdfs'>,
+    request: IBrowserPdfCombineWorkerRequest,
 ) {
     const wasmResult = await tryCombineImageInputsWithWasm(request.payload.inputs);
     if (wasmResult) {

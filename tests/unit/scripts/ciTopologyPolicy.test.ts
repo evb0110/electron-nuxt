@@ -1,3 +1,4 @@
+import {isRecord} from '@contracts/runtimeGuards';
 import { existsSync } from 'node:fs';
 import {
     readFile,
@@ -21,9 +22,6 @@ async function readProjectFile(filePath: string) {
     return readFile(path.join(process.cwd(), filePath), 'utf8');
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function parseTsConfigJsonWithGlobs(source: string, label: string): TTsConfigJsonWithGlobs {
     const parsed = JSON.parse(source) as unknown;

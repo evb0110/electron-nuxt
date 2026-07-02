@@ -1,3 +1,27 @@
+export const ANNOTATION_TOOLS = [
+    'none',
+    'select',
+    'highlight',
+    'underline',
+    'strikethrough',
+    'squiggly',
+    'text',
+    'draw',
+    'rectangle',
+    'circle',
+    'line',
+    'arrow',
+    'stamp',
+] as const;
+
+export const DRAWABLE_SHAPE_TOOLS = [
+    'draw',
+    'rectangle',
+    'circle',
+    'line',
+    'arrow',
+] as const satisfies ReadonlyArray<typeof ANNOTATION_TOOLS[number]>;
+
 export const PDF_ANNOTATION_MARKUP_SUBTYPES = [
     'Highlight',
     'Underline',
@@ -29,6 +53,8 @@ export const PDF_ANNOTATION_LINE_END_STYLES = [
     'closedArrow',
 ] as const;
 
+export type TAnnotationTool = typeof ANNOTATION_TOOLS[number];
+export type TDrawableShapeTool = typeof DRAWABLE_SHAPE_TOOLS[number];
 export type TPdfAnnotationMarkupSubtype = typeof PDF_ANNOTATION_MARKUP_SUBTYPES[number];
 export type TPdfAnnotationShapeType = typeof PDF_ANNOTATION_SHAPE_TYPES[number];
 export type TPdfAnnotationShapePdfSubtype = typeof PDF_ANNOTATION_SHAPE_PDF_SUBTYPES[number];

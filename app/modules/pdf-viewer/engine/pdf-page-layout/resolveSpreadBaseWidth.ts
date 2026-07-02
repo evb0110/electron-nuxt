@@ -1,3 +1,4 @@
+import {isFinitePositive} from '@contracts/runtimeGuards';
 import type {
     IPdfPageMetric,
     TPdfViewMode,
@@ -8,9 +9,6 @@ import {
 } from 'es-toolkit/math';
 import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
 
-function isFinitePositive(value: number | null | undefined): value is number {
-    return typeof value === 'number' && Number.isFinite(value) && value > 0;
-}
 
 function clampPageNumber(pageNumber: number, totalPages: number) {
     return clamp(Math.floor(pageNumber), 1, totalPages);

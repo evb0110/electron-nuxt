@@ -1,3 +1,4 @@
+import {isFiniteNumber} from '@contracts/runtimeGuards';
 import type {
     IScrollSnapshot,
     TAnchorPageOutsideEdge,
@@ -43,9 +44,6 @@ interface IResolvedRestoreOptions {
     allowVerticalRatioFallback: boolean;
 }
 
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
 
 function getDefaultPageNumber(pageElement: HTMLElement) {
     const pageNumberRaw = pageElement.dataset.pageNumber ?? pageElement.dataset.page;

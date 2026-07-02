@@ -17,6 +17,7 @@ import type {
     IPdfOptimizeResult,
     TPdfOptimizePreset,
 } from '@contracts/electronApiDocuments';
+import { isPdfOptimizePreset } from '@contracts/electronApiDocuments';
 import { isRecord } from '@contracts/runtimeGuards';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
@@ -54,13 +55,6 @@ const PDF_OPTIMIZE_MERGE_TIMEOUT_MS = parseIntegerEnv(
     30 * 60 * 1000,
     10_000,
 );
-
-const PDF_OPTIMIZE_PRESETS = new Set<TPdfOptimizePreset>([
-    'lossless',
-    'balancedScanned',
-    'smallScanned',
-    'blackAndWhite',
-]);
 
 interface IPdfRasterOptimizePreset {
     dpi: number;
@@ -103,11 +97,11 @@ const RASTER_PRESETS: Record<Exclude<TPdfOptimizePreset, 'lossless'>, IPdfRaster
 };
 
 export function normalizePdfOptimizeOptions(value: unknown): IPdfOptimizeOptions {
-    if (!isRecord(value) || !PDF_OPTIMIZE_PRESETS.has(value.preset as TPdfOptimizePreset)) {
+    if (!isRecord(value) || !isPdfOptimizePreset(value.preset)) {
         throw new Error('Invalid PDF optimize options');
     }
 
-    return { preset: value.preset as TPdfOptimizePreset };
+    return { preset: value.preset };
 }
 
 function createPageRanges(pageCount: number, chunkPages = PDF_OPTIMIZE_RENDER_CHUNK_PAGES) {

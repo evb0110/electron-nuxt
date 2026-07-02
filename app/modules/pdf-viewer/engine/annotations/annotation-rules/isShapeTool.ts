@@ -1,5 +1,10 @@
-import type { TAnnotationTool } from '@app/types/annotations';
+import {
+    DRAWABLE_SHAPE_TOOLS,
+    type TAnnotationTool,
+    type TDrawableShapeType,
+} from '@app/types/annotations';
+import { isOneOf } from '@contracts/runtimeGuards';
 
-export function isShapeTool(tool: TAnnotationTool): tool is Extract<TAnnotationTool, 'draw' | 'rectangle' | 'circle' | 'line' | 'arrow'> {
-    return tool === 'draw' || tool === 'rectangle' || tool === 'circle' || tool === 'line' || tool === 'arrow';
+export function isShapeTool(tool: TAnnotationTool): tool is TDrawableShapeType {
+    return isOneOf(DRAWABLE_SHAPE_TOOLS, tool);
 }

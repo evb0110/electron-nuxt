@@ -9,7 +9,7 @@ import {
     normalizePdfNativeNoteChanges,
     normalizePdfNativeNoteTextUpdates,
     normalizePdfNativeWorkingCopyExpectation,
-} from '@pdf-core/nativePdfMutationPayload';
+} from '@contracts/nativePdfMutations';
 
 const validNoteTextUpdate = {
     objectNumber: 42,

@@ -1,14 +1,20 @@
+import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+
 export type TBookmarkDisplayMode = 'top-level' | 'all-expanded' | 'current-expanded';
 export type TBookmarkDropPosition = 'before' | 'after' | 'child';
 
-export interface IBookmarkItem {
-    title: string;
+type TBookmarkContractCore = Pick<
+    IPdfBookmarkEntry,
+    | 'title'
+    | 'pageIndex'
+    | 'bold'
+    | 'italic'
+    | 'color'
+>;
+
+export interface IBookmarkItem extends TBookmarkContractCore {
     dest: string | unknown[] | null;
     id: string;
-    pageIndex: number | null;
-    bold: boolean;
-    italic: boolean;
-    color: string | null;
     items: IBookmarkItem[];
 }
 

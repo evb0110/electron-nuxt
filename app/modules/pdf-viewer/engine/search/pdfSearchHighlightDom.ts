@@ -17,7 +17,7 @@ export type TTextLayerRun =
         endOffset: number;
     };
 
-export interface IHighlightMatchRange extends IPdfSearchHighlightMatchRange {}
+export type IHighlightMatchRange = IPdfSearchHighlightMatchRange;
 
 export interface ITextLayerIndexCacheEntry {
     text: string;

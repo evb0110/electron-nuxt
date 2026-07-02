@@ -1,3 +1,4 @@
+import {isFiniteNumber} from '@contracts/runtimeGuards';
 import type {
     IScrollSnapshot,
     TAnchorPageOutsideEdge,
@@ -23,9 +24,6 @@ interface IAnchorPageSnapshot {
 
 interface INearestOutsidePageAnchor extends IAnchorPageSnapshot {distanceSquared: number;}
 
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
 
 function getPageNumberFromElement(pageElement: HTMLElement) {
     const pageNumberRaw = pageElement.dataset.page;

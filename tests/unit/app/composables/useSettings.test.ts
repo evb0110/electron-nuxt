@@ -119,7 +119,6 @@ describe('useSettings', () => {
             agentMcpEnabled: false,
             assistantPanelEnabled: false,
             suppressDefaultViewerPrompt: false,
-            skippedUpdateVersion: undefined,
         });
 
         const { useSettings } = await import('@app/composables/useSettings');

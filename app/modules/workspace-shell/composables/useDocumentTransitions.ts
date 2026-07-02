@@ -131,7 +131,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         }
     });
 
-    watch(pdfSrc, (newSrc: TPdfSource | null, oldSrc: TPdfSource | null) => {
+    watch(pdfSrc, (newSrc, oldSrc) => {
         if (newSrc && newSrc !== oldSrc) {
             const isReload = Boolean(oldSrc);
             currentPage.value = 1;
@@ -190,7 +190,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
 
     });
 
-    watch(workingCopyPath, (nextPath: TDocumentRef | null, previousPath: TDocumentRef | null) => {
+    watch(workingCopyPath, (nextPath, previousPath) => {
         if (nextPath === previousPath) {
             return;
         }
@@ -229,7 +229,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         },
     );
 
-    watch(annotationComments, (comments: IAnnotationCommentSummary[]) => {
+    watch(annotationComments, comments => {
         if (
             annotationActiveCommentStableKey.value
             && !comments.some(comment => comment.stableKey === annotationActiveCommentStableKey.value)

@@ -1,3 +1,4 @@
+import {isFiniteNumber} from '@contracts/runtimeGuards';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 import { toMarkerRectFromPdfRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
@@ -29,9 +30,6 @@ interface ITextRange {
     start: number;
 }
 
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
 
 function hasUsableViewport(viewport: IPdfTextPreviewViewport | null | undefined): viewport is IPdfTextPreviewViewport {
     return Boolean(

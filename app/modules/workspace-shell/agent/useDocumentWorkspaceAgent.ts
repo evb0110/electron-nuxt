@@ -1112,7 +1112,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         if (!handler) {
             throw new Error(`Unsupported EVB agent action: ${actionId}`);
         }
-        const parsedInput = handler.parse(input, actionId);
+        const parsedAction = handler.parse(input, actionId);
         if (options.dryRun) {
             return createAgentActionResult(actionId, {
                 dryRun: true,
@@ -1120,7 +1120,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             });
         }
 
-        return createAgentActionResult(actionId, await handler.run(parsedInput, actionId));
+        return createAgentActionResult(actionId, await parsedAction.run());
     }
 
     return {

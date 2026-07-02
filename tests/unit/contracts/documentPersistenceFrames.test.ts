@@ -17,6 +17,7 @@ import {
     createPdfPersistenceReadyFrame,
     createPdfPersistenceResultFrame,
     getPdfPersistenceChunkBytes,
+    isPdfPersistencePreloadToMainPayload,
     isSerializedPdfPersistenceLimits,
     normalizePdfPersistencePreloadToMainPayload,
     parsePdfPersistenceMainToPreloadFrame,
@@ -136,6 +137,22 @@ describe('document persistence frame contracts', () => {
             3,
         ]);
         expect(() => getPdfPersistenceChunkBytes({})).toThrow('Invalid PDF persistence chunk');
+    });
+
+    it('validates preload-to-main payloads per frame type', () => {
+        expect(isPdfPersistencePreloadToMainPayload(createPdfPersistenceCompleteFrame())).toBe(true);
+        expect(isPdfPersistencePreloadToMainPayload(createPdfPersistenceCancelFrame())).toBe(true);
+        expect(isPdfPersistencePreloadToMainPayload(createPdfPersistenceChunkFrame(0, new Uint8Array([1])))).toBe(true);
+        expect(isPdfPersistencePreloadToMainPayload({
+            type: 'chunk',
+            seq: 0,
+        })).toBe(false);
+        expect(isPdfPersistencePreloadToMainPayload({
+            type: 'chunk',
+            seq: '0',
+            bytes: new Uint8Array([1]),
+        })).toBe(false);
+        expect(isPdfPersistencePreloadToMainPayload({type: 'future'})).toBe(false);
     });
 
     it('unwraps Electron MessagePort event wrappers without recursing through cycles', () => {

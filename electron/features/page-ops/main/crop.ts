@@ -7,7 +7,10 @@ import type {
     IPdfBox,
     IPageGeometry,
 } from '@contracts/shared';
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isFiniteNumber,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import {
@@ -47,9 +50,6 @@ function decodeUndefinedResult(data: unknown): undefined | null {
     return data === undefined ? undefined : null;
 }
 
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
 
 function decodePdfBox(value: unknown): IPdfBox | null {
     if (!isRecord(value)) {

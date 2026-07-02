@@ -27,7 +27,7 @@
                 :text="getMinimizedNotePreview(note)"
                 :delay-duration="250"
                 :disabled="isMarkerDragTooltipSuppressed"
-                :open="isMarkerDragTooltipSuppressed ? false : undefined"
+                v-bind="isMarkerDragTooltipSuppressed ? {open: false} : {}"
             >
                 <button
                     type="button"

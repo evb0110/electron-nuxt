@@ -788,7 +788,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         closeShapeProperties();
     }
 
-    watch((): string | null => selectedShapeId.value, (shapeId: string | null, previousShapeId: string | null | undefined) => {
+    watch((): string | null => selectedShapeId.value, (shapeId, previousShapeId) => {
         if (!shapeId) {
             dismissedShapePropertiesId.value = null;
             shapePropertiesPopover.value = {

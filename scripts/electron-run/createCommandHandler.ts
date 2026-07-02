@@ -71,7 +71,6 @@ const DEVTOOLS_SECTION_VALUES = [
     'all',
 ] as const;
 type TDevtoolsSection = typeof DEVTOOLS_SECTION_VALUES[number];
-const DEVTOOLS_SECTION_SET = new Set<TDevtoolsSection>(DEVTOOLS_SECTION_VALUES);
 const DEVTOOLS_EVENT_SUMMARY_TEMPLATE: Record<TDevtoolsEvent['kind'], number> = {
     console: 0,
     request: 0,
@@ -166,10 +165,14 @@ function parseDevtoolsSection(value: unknown) {
         return null;
     }
     const normalized = value.toLowerCase();
-    if (DEVTOOLS_SECTION_SET.has(normalized as TDevtoolsSection)) {
-        return normalized as TDevtoolsSection;
+    if (isDevtoolsSection(normalized)) {
+        return normalized;
     }
     return null;
+}
+
+function isDevtoolsSection(value: string): value is TDevtoolsSection {
+    return (DEVTOOLS_SECTION_VALUES as readonly string[]).includes(value);
 }
 
 type TTakeScreenshot = (name: string, fullPage?: boolean) => Promise<string>;

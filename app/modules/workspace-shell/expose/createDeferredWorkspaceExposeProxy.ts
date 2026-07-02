@@ -10,6 +10,7 @@ import type { TTabUpdate } from '@app/types/tabs';
 import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
 import {
     createWorkspaceExposeCommandHandlers,
+    createWorkspaceExposeCommandRunner,
     createWorkspaceExposeFromCommandHandlers,
     invokeWorkspaceExposeCommand,
     WorkspaceExposeCommandUnavailableError,
@@ -247,15 +248,15 @@ export function createDeferredWorkspaceExposeProxy(
         },
         getAllShapes: () => {
             const workspace = deps.getMounted();
-            return workspace ? invokeWorkspaceExposeCommand(workspace, 'getAllShapes') as unknown[] : [];
+            return workspace ? invokeWorkspaceExposeCommand(workspace, 'getAllShapes') : [];
         },
         getDeletedEmbeddedShapeAnnotationIds: () => {
             const workspace = deps.getMounted();
-            return workspace ? invokeWorkspaceExposeCommand(workspace, 'getDeletedEmbeddedShapeAnnotationIds') as string[] : [];
+            return workspace ? invokeWorkspaceExposeCommand(workspace, 'getDeletedEmbeddedShapeAnnotationIds') : [];
         },
         getDeletedEmbeddedShapeStableKeys: () => {
             const workspace = deps.getMounted();
-            return workspace ? invokeWorkspaceExposeCommand(workspace, 'getDeletedEmbeddedShapeStableKeys') as string[] : [];
+            return workspace ? invokeWorkspaceExposeCommand(workspace, 'getDeletedEmbeddedShapeStableKeys') : [];
         },
         highlightSelection: async () => {
             const result = await deps.withLoadedWorkspace(
@@ -281,7 +282,8 @@ export function createDeferredWorkspaceExposeProxy(
 
     const commandHandlers = createWorkspaceExposeCommandHandlers((descriptor) => {
         if (descriptor.deferred === 'custom') {
-            return (customHandlers[descriptor.name] as TWorkspaceExposeCommandRunner | undefined) ?? null;
+            const handler = customHandlers[descriptor.name];
+            return handler ? createWorkspaceExposeCommandRunner(handler) : null;
         }
 
         return createDeferredStrategyHandler(descriptor);

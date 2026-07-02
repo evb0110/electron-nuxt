@@ -41,7 +41,7 @@ function normalizeRecentFileTuple(value: unknown): IRecentFile | null {
         originalPath,
         fileName,
         timestamp,
-        fileSize: typeof fileSize === 'number' ? fileSize : undefined,
+        ...(typeof fileSize === 'number' ? {fileSize} : {}),
     };
 }
 
@@ -95,12 +95,12 @@ export function normalizeRecentFile(value: unknown): IRecentFile | null {
         return null;
     }
 
-    const fileSize = getOptionalNumber(value, 'fileSize') ?? undefined;
+    const fileSize = getOptionalNumber(value, 'fileSize');
     return {
         originalPath,
         fileName,
         timestamp,
-        fileSize,
+        ...(fileSize === null ? {} : {fileSize}),
     };
 }
 

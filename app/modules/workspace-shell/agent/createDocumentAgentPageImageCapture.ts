@@ -16,6 +16,7 @@ import {
     hasAgentInputKey,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
 import { getAgentOptionalPageNumberInput } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentPages';
+import { isOneOf } from '@contracts/runtimeGuards';
 
 const AGENT_PAGE_IMAGE_REGIONS = [
     'full',
@@ -37,7 +38,7 @@ interface ICreateDocumentAgentPageImageCaptureOptions {
 }
 
 function isAgentPageImageRegion(value: unknown): value is typeof AGENT_PAGE_IMAGE_REGIONS[number] {
-    return typeof value === 'string' && AGENT_PAGE_IMAGE_REGIONS.includes(value as typeof AGENT_PAGE_IMAGE_REGIONS[number]);
+    return isOneOf(AGENT_PAGE_IMAGE_REGIONS, value);
 }
 
 function normalizeAgentUnit(value: number | null | undefined, fallback: number) {

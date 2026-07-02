@@ -15,4 +15,4 @@ export type * from '@contracts/searchCapability';
 export type * from '@contracts/settingsCapability';
 export type * from '@contracts/shellCapability';
 
-export interface IElectronAPI extends IPlatformApi {}
+export type IElectronAPI = IPlatformApi;

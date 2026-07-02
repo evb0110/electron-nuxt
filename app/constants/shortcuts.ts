@@ -97,6 +97,17 @@ export const SHORTCUTS = {
 
 export type TShortcutName = keyof typeof SHORTCUTS;
 
+function createShortcutRecord<TValue>(createValue: (name: TShortcutName, def: IShortcutDef) => TValue) {
+    const entries = Object.entries(SHORTCUTS).map(([
+        name,
+        def,
+    ]) => [
+        name,
+        createValue(name as TShortcutName, def),
+    ]);
+    return Object.fromEntries(entries) as {[TName in TShortcutName]: TValue};
+}
+
 export function isMacPlatformHint(value: string) {
     return /mac|macintosh|mac os|macos|darwin/iu.test(value);
 }
@@ -148,15 +159,7 @@ function formatShortcutLabel(def: IShortcutDef, isMac: boolean) {
 }
 
 export function getShortcutLabels(isMac = isMacPlatform()) {
-    return Object.fromEntries(
-        Object.entries(SHORTCUTS).map(([
-            name,
-            def,
-        ]) => [
-            name,
-            formatShortcutLabel(def, isMac),
-        ]),
-    ) as Record<TShortcutName, string>;
+    return createShortcutRecord((_, def) => formatShortcutLabel(def, isMac));
 }
 
 export const useShortcutLabels = () => {

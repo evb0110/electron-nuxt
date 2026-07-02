@@ -75,12 +75,12 @@ export {
     normalizePdfNativeNoteChanges,
     normalizePdfNativeNoteTextUpdates,
     normalizePdfNativeWorkingCopyExpectation,
-} from '@pdf-core/nativePdfMutationPayload';
+} from '@contracts/nativePdfMutations';
 export type {
     IPdfNativePlacedImageNativeToolPayload,
     IPdfNativeValidationOptions,
     TPdfNativeMutationSetNativeToolPayload,
-} from '@pdf-core/nativePdfMutationPayload';
+} from '@contracts/nativePdfMutations';
 export {
     buildTiffImageIfd,
     encodeTiffIfds,

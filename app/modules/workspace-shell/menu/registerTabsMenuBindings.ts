@@ -76,7 +76,7 @@ function runWorkspaceMenuCommand(
         return undefined;
     }
 
-    return invokeWorkspaceExposeCommand(workspace, commandName);
+    return invokeWorkspaceExposeCommand(workspace, commandName) as unknown;
 }
 
 function registerWorkspaceMenuActions(

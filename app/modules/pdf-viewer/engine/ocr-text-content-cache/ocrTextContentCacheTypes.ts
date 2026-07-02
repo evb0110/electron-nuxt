@@ -4,8 +4,8 @@ import type {
     IOcrIndexV2Page,
 } from '@contracts/ocrIndex';
 
-export interface IOcrManifest extends IOcrIndexV2Manifest {}
-export interface IOcrPageData extends IOcrIndexV2Page {}
+export type IOcrManifest = IOcrIndexV2Manifest;
+export type IOcrPageData = IOcrIndexV2Page;
 
 export interface IOcrTextContentCacheStats {
     manifestEntries: number;

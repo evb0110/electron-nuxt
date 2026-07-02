@@ -1,19 +1,19 @@
 import type { IpcRenderer } from 'electron';
-import type {
-    IDebugLogEntry,
-    TDebugLogLevel,
-} from '@contracts/electronApiCommon';
-import { isRecord } from '@contracts/runtimeGuards';
+import type { IDebugLogEntry } from '@contracts/electronApiCommon';
+import {
+    isOneOf,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import { pushDebugLogMessage } from '@electron/preload/debugLogBuffer';
 import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
 
 const PRELOAD_DEBUG_LOG_LISTENER_FLAG = '__preloadDebugLogListenerInstalled';
-const DEBUG_LOG_LEVELS = new Set<TDebugLogLevel>([
+const DEBUG_LOG_LEVELS = [
     'DEBUG',
     'INFO',
     'WARN',
     'ERROR',
-]);
+] as const;
 
 export function decodeDebugLogEntry(data: unknown): IDebugLogEntry | null {
     if (!isRecord(data)
@@ -24,7 +24,7 @@ export function decodeDebugLogEntry(data: unknown): IDebugLogEntry | null {
         return null;
     }
 
-    if (data.level !== undefined && (typeof data.level !== 'string' || !DEBUG_LOG_LEVELS.has(data.level as TDebugLogLevel))) {
+    if (data.level !== undefined && !isOneOf(DEBUG_LOG_LEVELS, data.level)) {
         return null;
     }
 
@@ -32,7 +32,7 @@ export function decodeDebugLogEntry(data: unknown): IDebugLogEntry | null {
         source: data.source,
         message: data.message,
         timestamp: data.timestamp,
-        ...(data.level === undefined ? {} : {level: data.level as TDebugLogLevel}),
+        ...(data.level === undefined ? {} : {level: data.level}),
     };
 }
 

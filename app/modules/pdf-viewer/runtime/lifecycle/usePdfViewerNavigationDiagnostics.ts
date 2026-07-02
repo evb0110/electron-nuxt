@@ -69,7 +69,7 @@ export const usePdfViewerNavigationDiagnostics = (options: IUsePdfViewerNavigati
         },
     );
 
-    watch(options.currentPage, (next: number, previous: number) => {
+    watch(options.currentPage, (next, previous) => {
         if (next === previous) {
             return;
         }

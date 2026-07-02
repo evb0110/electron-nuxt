@@ -16,6 +16,7 @@ import type {
     TPdfAnnotationShapePdfSubtype,
     TPdfAnnotationShapeType,
 } from '@contracts/annotations';
+import { isOneOf } from '@contracts/runtimeGuards';
 import type { IRecentFile } from '@contracts/shared';
 import type {
     IPdfConformanceProfile,
@@ -70,11 +71,18 @@ export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
 
 export interface IPdfSaveAsOptions { optimizeLossless?: boolean; }
 
-export type TPdfOptimizePreset =
-    | 'lossless'
-    | 'balancedScanned'
-    | 'smallScanned'
-    | 'blackAndWhite';
+export const PDF_OPTIMIZE_PRESETS = [
+    'lossless',
+    'balancedScanned',
+    'smallScanned',
+    'blackAndWhite',
+] as const;
+
+export type TPdfOptimizePreset = typeof PDF_OPTIMIZE_PRESETS[number];
+
+export function isPdfOptimizePreset(value: unknown): value is TPdfOptimizePreset {
+    return isOneOf(PDF_OPTIMIZE_PRESETS, value);
+}
 
 export type TPdfOptimizeProgressPhase =
     | 'preparing'
@@ -123,7 +131,7 @@ export interface IPdfNoteTextUpdate {
     text: string;
 }
 
-export interface IPdfNativeFreeTextNoteMarkerRect extends IMarkerRect {}
+export type IPdfNativeFreeTextNoteMarkerRect = IMarkerRect;
 
 export interface IPdfNativeFreeTextNote {
     pageIndex: TPageIndex;
@@ -151,7 +159,7 @@ export interface IPdfNativeNoteChanges {
 
 export type TPdfNativePageLabelStyle = TPdfPageLabelStyle;
 
-export interface IPdfNativePageLabelRange extends IPdfPageLabelRange {}
+export type IPdfNativePageLabelRange = IPdfPageLabelRange;
 
 export interface IPdfNativePageLabelsMutation {
     totalPages: number;
@@ -168,7 +176,7 @@ export type TPdfNativeShapeType = TPdfAnnotationShapeType;
 export type TPdfNativeShapePdfSubtype = TPdfAnnotationShapePdfSubtype;
 export type TPdfNativeShapeLineEndStyle = TPdfAnnotationLineEndStyle;
 
-export interface IPdfNativeShapePoint extends IPoint2D {}
+export type IPdfNativeShapePoint = IPoint2D;
 
 export interface IPdfNativeShapeAnnotation {
     id?: string;
@@ -205,7 +213,7 @@ export interface IPdfNativeShapesMutation {
 
 export type TPdfNativeMarkupSubtype = TPdfAnnotationMarkupSubtype;
 
-export interface IPdfNativeMarkupMarkerRect extends IMarkerRect {}
+export type IPdfNativeMarkupMarkerRect = IMarkerRect;
 
 export interface IPdfNativeMarkupSubtypeHint {
     subtype: TPdfNativeMarkupSubtype;
@@ -244,7 +252,7 @@ export interface IPdfNativeNoteTextSaveResult {
     syncError?: string;
 }
 
-export interface IPdfNativeSaveResult extends IPdfNativeNoteTextSaveResult {}
+export type IPdfNativeSaveResult = IPdfNativeNoteTextSaveResult;
 
 export interface IPdfNativeWorkingCopyExpectation {
     byteLength: number;

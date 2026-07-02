@@ -405,7 +405,7 @@ function runFallbackWorkspaceCommand(commandName: TWorkspaceExposeMethod, args: 
         return;
     }
 
-    const result = invokeWorkspaceExposeCommand(workspace, commandName, args);
+    const result: unknown = invokeWorkspaceExposeCommand(workspace, commandName, args);
     if (result instanceof Promise) {
         guardAsync(result, {
             scope: 'shell',

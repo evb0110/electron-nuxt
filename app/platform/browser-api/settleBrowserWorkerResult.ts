@@ -38,7 +38,7 @@ function getWorkerResponseId(response: unknown) {
 function parseBrowserWorkerResult(
     response: unknown,
     expectedType: string,
-): TBrowserWorkerResult<unknown> | null {
+): TBrowserWorkerResult | null {
     if (!isRecord(response) || typeof response.id !== 'number') {
         return null;
     }

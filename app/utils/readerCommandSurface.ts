@@ -12,13 +12,13 @@ export type {
 } from '@contracts/readerCommands';
 
 function createCommandMap(overrides: Partial<Record<TReaderCommandId, boolean>>): TReaderCommandMap {
-    const commandMap = {} as Record<TReaderCommandId, boolean>;
+    const commandMap: Partial<Record<TReaderCommandId, boolean>> = {};
 
     for (const command of READER_COMMANDS) {
         commandMap[command] = overrides[command] ?? false;
     }
 
-    return Object.freeze(commandMap);
+    return Object.freeze(commandMap) as TReaderCommandMap;
 }
 
 function createSurface(options: {

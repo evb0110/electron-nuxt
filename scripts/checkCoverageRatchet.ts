@@ -1,3 +1,4 @@
+import {isRecord} from '@contracts/runtimeGuards';
 import {
     readFile,
     writeFile,
@@ -87,9 +88,6 @@ interface IParsedArgs {
     updateBaseline: boolean;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function assertNumber(value: unknown, label: string) {
     if (typeof value !== 'number' || !Number.isFinite(value)) {

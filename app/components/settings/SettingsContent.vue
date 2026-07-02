@@ -225,12 +225,17 @@ const {
     isUpdateSupported,
 } = useAppUpdates();
 
-const LOCALE_FLAGS: Record<TAppLocale, string> = Object.fromEntries(
-    LOCALE_OPTION_DEFINITIONS.map(option => [
-        option.value,
-        option.icon,
-    ]),
-) as Record<TAppLocale, string>;
+const LOCALE_FLAGS = {
+    en: 'i-circle-flags-gb',
+    ru: 'i-circle-flags-ru',
+    fr: 'i-circle-flags-fr',
+    de: 'i-circle-flags-de',
+    es: 'i-circle-flags-es',
+    it: 'i-circle-flags-it',
+    pt: 'i-circle-flags-pt',
+    'pt-BR': 'i-circle-flags-br',
+    nl: 'i-circle-flags-nl',
+} as const satisfies Record<TAppLocale, string>;
 
 const selectedFlagIcon = computed(() => LOCALE_FLAGS[settings.value.locale] ?? LOCALE_FLAGS.en);
 const annotationColorSwatches = ANNOTATION_COLOR_SWATCHES;

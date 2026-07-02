@@ -1,3 +1,4 @@
+import {isRecord} from '@contracts/runtimeGuards';
 import type { IPlatformApi } from '@contracts/platformApi';
 
 type TCapabilityKey = keyof IPlatformApi;
@@ -91,9 +92,6 @@ function voidPath<const TPath extends TBrowserPlatformVoidMethodPath>(...path: T
     } as const;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function isBrowserPlatformPathDescriptor(value: unknown): value is TBrowserPlatformPathDescriptor {
     return isRecord(value)

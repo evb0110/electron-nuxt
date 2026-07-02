@@ -1,4 +1,8 @@
-import type { TAgentAssistantPresetId } from '@contracts/agent';
+import {
+    AGENT_ASSISTANT_PRESET_IDS,
+    type TAgentAssistantPresetId,
+} from '@contracts/agent';
+import { isOneOf } from '@contracts/runtimeGuards';
 
 // Universal, edge-case-aware workflows shared by the MCP prompts (prompts/get) and the
 // in-app assistant preset chips. Each workflow is a decision tree the model follows so a
@@ -35,8 +39,8 @@ const ASSISTANT_PRESET_INSTRUCTIONS: Record<TAgentAssistantPresetId, string> = {
 };
 
 export function resolveAssistantPresetInstructions(presetId: string | null | undefined) {
-    if (!presetId) {
+    if (!isOneOf(AGENT_ASSISTANT_PRESET_IDS, presetId)) {
         return null;
     }
-    return ASSISTANT_PRESET_INSTRUCTIONS[presetId as TAgentAssistantPresetId] ?? null;
+    return ASSISTANT_PRESET_INSTRUCTIONS[presetId] ?? null;
 }

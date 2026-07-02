@@ -5,7 +5,6 @@ import type {
 } from '@contracts/search';
 import type { TPageIndex } from '@contracts/pageNumbers';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
-import type { TPdfPageLabelStyle } from '@contracts/pdfPageLabels';
 import type {
     IPdfValidationResult,
     TPdfSaveMode,
@@ -29,7 +28,10 @@ export type {
 } from '@contracts/search';
 export type { TPageIndex } from '@contracts/pageNumbers';
 export { PDF_PAGE_LABEL_STYLE_VALUES as PAGE_LABEL_STYLE_VALUES } from '@contracts/pdfPageLabels';
-export type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
+export type {
+    IPdfPageLabelRange,
+    TPdfPageLabelStyle as TPageLabelStyle,
+} from '@contracts/pdfPageLabels';
 export type {
     IPdfConformanceProfile,
     IPdfValidationResult,
@@ -43,7 +45,7 @@ export type TPdfBookmarkChangeHistoryMode = 'record' | 'reset';
 export interface IPdfBookmarkChangePayload {
     bookmarks: TPdfBookmarkEntry[];
     dirty: boolean;
-    history?: TPdfBookmarkChangeHistoryMode | undefined;
+    history?: TPdfBookmarkChangeHistoryMode;
 }
 
 export interface IContentInsets {
@@ -123,12 +125,12 @@ export interface IPdfPageMatches {
 
 export type TSearchDirection = 'next' | 'previous';
 
-export type TPageLabelStyle = TPdfPageLabelStyle;
-
-export interface IPdfPageRange {
+export interface IPdfUiPageRange {
     startPage: number;
     endPage: number;
 }
+
+export type IPdfPageRange = IPdfUiPageRange;
 
 /**
  * The shape returned by `PageViewport.rawDims` at runtime.

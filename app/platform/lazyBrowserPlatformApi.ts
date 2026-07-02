@@ -59,7 +59,7 @@ async function resolveBrowserProperty(path: TPropertyPath) {
         if (!isRecord(value)) {
             throw new TypeError(`Browser platform owner for ${String(key)} is not an object`);
         }
-        value = value[key];
+        value = (value as Record<PropertyKey, unknown>)[key];
     }
     return value;
 }
@@ -83,7 +83,7 @@ function getCallableBrowserMember(owner: unknown, methodKey: string | symbol) {
     if (!isRecord(owner)) {
         throw new TypeError(`Browser platform owner for ${String(methodKey)} is not an object`);
     }
-    const method = owner[methodKey];
+    const method = (owner as Record<PropertyKey, unknown>)[methodKey];
     if (typeof method !== 'function') {
         throw new TypeError(`Browser platform member ${String(methodKey)} is not callable`);
     }

@@ -4,8 +4,8 @@ import type {
     IPdfSearchResult,
 } from '@contracts/search';
 
-export interface ISearchMatch extends IPdfSearchResult {}
-export interface ISearchResponse extends IPdfSearchResponse {}
+export type ISearchMatch = IPdfSearchResult;
+export type ISearchResponse = IPdfSearchResponse;
 
 export interface ISearchWorkerRequest {
     requestId: string;

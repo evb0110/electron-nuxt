@@ -4,11 +4,17 @@ import type {
     IOcrCompleteResult,
     IOcrErrorEnvelope,
     IOcrProgress,
-    TOcrErrorCode,
-    TOcrProgressPhase,
+} from '@contracts/electronApiOcr';
+import {
+    OCR_ERROR_CODES,
+    OCR_PROGRESS_PHASES,
 } from '@contracts/electronApiOcr';
 import type { TDocumentRef } from '@contracts/documentRef';
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isFiniteNumber,
+    isOneOf,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import {
     assertAbsolutePath,
     assertNonEmptyString,
@@ -35,24 +41,6 @@ const OCR_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [OCR_CHANNELS.preprocessingValidate]: OCR_NATIVE_IPC_TIMEOUT_MS,
     [OCR_CHANNELS.preprocessingPreprocessPage]: OCR_NATIVE_IPC_TIMEOUT_MS,
 } as const;
-const OCR_ERROR_CODES = new Set<TOcrErrorCode>([
-    'OCR_INVALID_PAYLOAD',
-    'OCR_INTERNAL_ERROR',
-    'OCR_QUEUE_BACKPRESSURE',
-    'OCR_WORKER_UNAVAILABLE',
-    'OCR_TOOLS_VALIDATION_FAILED',
-]);
-const OCR_PROGRESS_PHASES = new Set<TOcrProgressPhase>([
-    'preparing',
-    'model-prep',
-    'pdf-prep',
-    'dpi-inspection',
-    'page-size-probing',
-    'processing',
-    'merging',
-    'indexing',
-]);
-
 function buildMalformedCompleteResult(requestId: string, message = 'Malformed OCR completion payload'): IOcrCompleteResult {
     return {
         requestId,
@@ -71,10 +59,6 @@ function assertRequestId(value: unknown, fieldName: string) {
     return assertNonEmptyString(value, fieldName, 128);
 }
 
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
-
 function decodeOcrProgress(payload: unknown): IOcrProgress | null {
     if (
         !isRecord(payload)
@@ -89,7 +73,7 @@ function decodeOcrProgress(payload: unknown): IOcrProgress | null {
         payload.phase !== undefined
         && (
             typeof payload.phase !== 'string'
-            || !OCR_PROGRESS_PHASES.has(payload.phase as TOcrProgressPhase)
+            || !isOneOf(OCR_PROGRESS_PHASES, payload.phase)
         )
     ) {
         return null;
@@ -112,7 +96,7 @@ function decodeOcrProgress(payload: unknown): IOcrProgress | null {
         currentPage: payload.currentPage,
         processedCount: payload.processedCount,
         totalPages: payload.totalPages,
-        ...(payload.phase === undefined ? {} : {phase: payload.phase as NonNullable<IOcrProgress['phase']>}),
+        ...(payload.phase === undefined ? {} : {phase: payload.phase}),
         ...(payload.phaseProgress === undefined ? {} : {phaseProgress: payload.phaseProgress}),
         ...(payload.activePages === undefined ? {} : {activePages: payload.activePages as number[]}),
         ...(payload.languageCode === undefined ? {} : {languageCode: payload.languageCode}),
@@ -122,8 +106,7 @@ function decodeOcrProgress(payload: unknown): IOcrProgress | null {
 function decodeOcrErrorEnvelope(payload: unknown): IOcrErrorEnvelope | null {
     if (
         !isRecord(payload)
-        || typeof payload.code !== 'string'
-        || !OCR_ERROR_CODES.has(payload.code as TOcrErrorCode)
+        || !isOneOf(OCR_ERROR_CODES, payload.code)
         || typeof payload.message !== 'string'
         || typeof payload.retryable !== 'boolean'
         || !isFiniteNumber(payload.timestamp)
@@ -135,7 +118,7 @@ function decodeOcrErrorEnvelope(payload: unknown): IOcrErrorEnvelope | null {
     }
 
     return {
-        code: payload.code as TOcrErrorCode,
+        code: payload.code,
         message: payload.message,
         retryable: payload.retryable,
         timestamp: payload.timestamp,

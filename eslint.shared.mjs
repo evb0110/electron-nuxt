@@ -49,6 +49,7 @@ export const strictTypeRules = {
     '@typescript-eslint/no-unsafe-return': 'error',
     '@typescript-eslint/no-unsafe-argument': 'error',
     '@typescript-eslint/no-unnecessary-type-assertion': 'error',
+    '@typescript-eslint/no-unnecessary-type-arguments': 'error',
     '@typescript-eslint/no-unnecessary-type-constraint': 'error',
     '@typescript-eslint/no-floating-promises': 'error',
     '@typescript-eslint/no-misused-promises': [
@@ -90,7 +91,7 @@ export const namingRules = {
             selector: 'typeAlias',
             format: ['PascalCase'],
             custom: {
-                regex: '^T[A-Z]',
+                regex: '^[IT][A-Z]',
                 match: true,
             },
         },

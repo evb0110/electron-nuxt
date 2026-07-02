@@ -119,7 +119,7 @@ function hasManagedShapeOverlayForAnnotation(
     }
 
     return Array.from(
-        pageContainer.querySelectorAll<Element>('.pdf-shape-overlay.has-shapes [data-annotation-id]'),
+        pageContainer.querySelectorAll('.pdf-shape-overlay.has-shapes [data-annotation-id]'),
     ).some(element => (
         getOverlayCandidateAnnotationId(element) === normalizedAnnotationId
         && isOverlayCandidatePaintReady(element)

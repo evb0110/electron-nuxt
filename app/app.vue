@@ -214,8 +214,8 @@ const localeHead = useLocaleHead({
     lang: true,
     seo: true,
 });
-const localeCookie = useCookie<string | null | undefined>(BROWSER_LOCALE_COOKIE_KEY, { watch: false });
-const themeCookie = useCookie<string | null | undefined>(BROWSER_THEME_COOKIE_KEY, { watch: false });
+const localeCookie = useCookie(BROWSER_LOCALE_COOKIE_KEY, { watch: false });
+const themeCookie = useCookie(BROWSER_THEME_COOKIE_KEY, { watch: false });
 const DEV_RELOAD_EVENT_KEY = 'evb-viewer:dev:last-vite-reload-event';
 const fatalRuntimeTitle = computed(() => fatalRuntimeError.value?.kind === 'startup'
     ? t('errors.runtime.startupTitle')

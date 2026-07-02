@@ -1,3 +1,4 @@
+import {isRecord} from '@contracts/runtimeGuards';
 import {
     describe,
     expect,
@@ -15,9 +16,6 @@ function formatPath(path: readonly string[]) {
     return path.join('.');
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function readPath(root: unknown, path: readonly string[]) {
     let value = root;

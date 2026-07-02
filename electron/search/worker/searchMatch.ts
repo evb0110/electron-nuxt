@@ -9,7 +9,7 @@ import {
 } from '@pdf-core';
 import { EXCERPT_CONTEXT_CHARS } from '@electron/config/constants';
 
-export interface IPageSearchMatch extends IPdfSearchUtf16Range {}
+export type IPageSearchMatch = IPdfSearchUtf16Range;
 
 export function buildExcerpt(
     text: string,

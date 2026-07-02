@@ -1,50 +1,28 @@
 import type { TOcrWorkerOutboundMessage } from '@electron/ocr/worker/types';
-import type {
-    IOcrErrorEnvelope,
-    TOcrErrorCode,
-    TOcrProgressPhase,
+import type { IOcrErrorEnvelope } from '@contracts/electronApiOcr';
+import {
+    OCR_ERROR_CODES,
+    OCR_PROGRESS_PHASES,
 } from '@contracts/electronApiOcr';
 import {
     createAbortError,
     isAbortError,
 } from '@electron/utils/abort';
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isFiniteNumber,
+    isOneOf,
+    isRecord,
+    isStringArray,
+} from '@contracts/runtimeGuards';
 
 export {
     createAbortError,
     isAbortError,
 };
 
-function isStringArray(value: unknown): value is string[] {
-    return Array.isArray(value) && value.every(item => typeof item === 'string');
-}
-
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
-
-const OCR_PROGRESS_PHASES = new Set<TOcrProgressPhase>([
-    'preparing',
-    'model-prep',
-    'pdf-prep',
-    'dpi-inspection',
-    'page-size-probing',
-    'processing',
-    'merging',
-    'indexing',
-]);
-
-const OCR_ERROR_CODES = new Set<TOcrErrorCode>([
-    'OCR_INVALID_PAYLOAD',
-    'OCR_INTERNAL_ERROR',
-    'OCR_QUEUE_BACKPRESSURE',
-    'OCR_WORKER_UNAVAILABLE',
-    'OCR_TOOLS_VALIDATION_FAILED',
-]);
-
 function parseOptionalProgressPhase(value: unknown) {
-    return typeof value === 'string' && OCR_PROGRESS_PHASES.has(value as TOcrProgressPhase)
-        ? value as TOcrProgressPhase
+    return isOneOf(OCR_PROGRESS_PHASES, value)
+        ? value
         : undefined;
 }
 
@@ -139,8 +117,7 @@ function parseOcrErrorEnvelope(value: unknown): IOcrErrorEnvelope | undefined {
         return undefined;
     }
     if (
-        typeof value.code !== 'string'
-        || !OCR_ERROR_CODES.has(value.code as TOcrErrorCode)
+        !isOneOf(OCR_ERROR_CODES, value.code)
         || typeof value.message !== 'string'
         || typeof value.retryable !== 'boolean'
         || !isFiniteNumber(value.timestamp)
@@ -152,7 +129,7 @@ function parseOcrErrorEnvelope(value: unknown): IOcrErrorEnvelope | undefined {
     }
 
     return {
-        code: value.code as TOcrErrorCode,
+        code: value.code,
         message: value.message,
         retryable: value.retryable,
         timestamp: value.timestamp,

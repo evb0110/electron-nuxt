@@ -102,10 +102,14 @@ export const WORKSPACE_VIEWER_ADAPTERS: readonly IWorkspaceViewerAdapter[] = [
         capabilities: DJVU_VIEWER_CAPABILITIES,
         createLifecycleHooks: createDjvuLifecycleHooks,
     },
-] as const;
+] as const satisfies readonly IWorkspaceViewerAdapter[];
 
 export function getWorkspaceViewerAdapter(adapterId: TWorkspaceViewerAdapterId): IWorkspaceViewerAdapter {
-    return WORKSPACE_VIEWER_ADAPTERS.find(adapter => adapter.id === adapterId)!;
+    const adapter = WORKSPACE_VIEWER_ADAPTERS.find(candidate => candidate.id === adapterId);
+    if (!adapter) {
+        throw new Error(`Workspace viewer adapter "${adapterId}" is not registered.`);
+    }
+    return adapter;
 }
 
 export function resolveWorkspaceViewerAdapter(

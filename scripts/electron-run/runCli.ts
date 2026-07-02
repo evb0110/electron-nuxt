@@ -57,10 +57,10 @@ const CLI_COMMANDS = [
 ] as const;
 
 type TCliCommand = typeof CLI_COMMANDS[number];
-const CLI_COMMAND_SET = new Set<TCliCommand>(CLI_COMMANDS);
+const CLI_COMMAND_SET: ReadonlySet<string> = new Set<TCliCommand>(CLI_COMMANDS);
 
 function isCliCommand(value: string): value is TCliCommand {
-    return CLI_COMMAND_SET.has(value as TCliCommand);
+    return CLI_COMMAND_SET.has(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -75,7 +75,7 @@ function parsePositivePid(value: unknown) {
 
 function readLegacyPid(filePath: string) {
     try {
-        const parsed = safeJsonParse<Partial<{ pid: unknown }>>(readFileSync(filePath, 'utf8'));
+        const parsed = safeJsonParse(readFileSync(filePath, 'utf8'), isRecord);
         return parsePositivePid(parsed?.pid);
     } catch {
         return null;

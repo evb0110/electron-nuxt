@@ -1,11 +1,9 @@
+import {isFinitePositive} from '@contracts/runtimeGuards';
 import { clamp } from 'es-toolkit/math';
 import type { IPageBoundedHorizontalScrollInput } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/pdfHorizontalScrollClampTypes';
 
 export const HORIZONTAL_SCROLL_CLAMP_EPSILON_PX = 1.5;
 
-function isFinitePositive(value: number) {
-    return Number.isFinite(value) && value > 0;
-}
 
 function normalizeNonNegative(value: number) {
     return Number.isFinite(value) ? Math.max(0, value) : 0;

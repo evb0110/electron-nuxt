@@ -55,31 +55,40 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     const annotationSavedRevision = ref(0);
     const annotationDirty = computed(() => annotationRevision.value !== annotationSavedRevision.value);
 
-    type TShapeSettingUpdateResolver = (value: IAnnotationSettings[keyof IAnnotationSettings]) => Record<string, unknown>;
-
-    const inkShapeSettingUpdates: Partial<Record<keyof IAnnotationSettings, TShapeSettingUpdateResolver>> = {
-        inkColor: value => ({ color: String(value) }),
-        inkThickness: value => ({ strokeWidth: Number(value) }),
-        inkOpacity: value => ({ opacity: Number(value) }),
+    type TShapeSettingUpdateResolverMap = {
+        [K in keyof IAnnotationSettings]?: (value: IAnnotationSettings[K]) => Partial<IShapeAnnotation>;
     };
 
-    const shapeSettingUpdates: Partial<Record<keyof IAnnotationSettings, TShapeSettingUpdateResolver>> = {
-        shapeColor: value => ({ color: String(value) }),
-        shapeStrokeWidth: value => ({ strokeWidth: Number(value) }),
-        shapeOpacity: value => ({ opacity: Number(value) }),
-        shapeFillColor: (value) => {
-            const fill = String(value);
-            return { fillColor: fill === 'transparent' ? undefined : fill };
-        },
+    const inkShapeSettingUpdates: TShapeSettingUpdateResolverMap = {
+        inkColor: value => ({ color: value }),
+        inkThickness: value => ({ strokeWidth: value }),
+        inkOpacity: value => ({ opacity: value }),
     };
 
-    function getSelectedShapeSettingUpdate(
-        key: keyof IAnnotationSettings,
-        value: IAnnotationSettings[keyof IAnnotationSettings],
-        isInkShape: boolean,
-    ): Record<string, unknown> | null {
-        const resolver = (isInkShape ? inkShapeSettingUpdates[key] : null) ?? shapeSettingUpdates[key];
+    const shapeSettingUpdates: TShapeSettingUpdateResolverMap = {
+        shapeColor: value => ({ color: value }),
+        shapeStrokeWidth: value => ({ strokeWidth: value }),
+        shapeOpacity: value => ({ opacity: value }),
+        shapeFillColor: value => ({ fillColor: value === 'transparent' ? undefined : value }),
+    };
+
+    function resolveShapeSettingUpdate<K extends keyof IAnnotationSettings>(
+        resolvers: TShapeSettingUpdateResolverMap,
+        key: K,
+        value: IAnnotationSettings[K],
+    ) {
+        const resolver = resolvers[key];
         return resolver?.(value) ?? null;
+    }
+
+    function getSelectedShapeSettingUpdate<K extends keyof IAnnotationSettings>(
+        key: K,
+        value: IAnnotationSettings[K],
+        isInkShape: boolean,
+    ) {
+        return isInkShape
+            ? resolveShapeSettingUpdate(inkShapeSettingUpdates, key, value) ?? resolveShapeSettingUpdate(shapeSettingUpdates, key, value)
+            : resolveShapeSettingUpdate(shapeSettingUpdates, key, value);
     }
 
     function handleAnnotationToolChange(tool: TAnnotationTool) {
@@ -117,9 +126,9 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         closeAnnotationContextMenu();
     }
 
-    function handleAnnotationSettingChange(payload: {
-        key: keyof IAnnotationSettings;
-        value: IAnnotationSettings[keyof IAnnotationSettings]
+    function handleAnnotationSettingChange<K extends keyof IAnnotationSettings>(payload: {
+        key: K;
+        value: IAnnotationSettings[K]
     }) {
         annotationSettings.value = {
             ...annotationSettings.value,

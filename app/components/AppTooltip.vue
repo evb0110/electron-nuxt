@@ -25,18 +25,18 @@ type TTooltipObject = Record<string, unknown>;
 type TTooltipPortal = boolean | string | HTMLElement;
 
 interface IAppTooltipProps {
-    text?: string | undefined;
-    content?: TTooltipObject | undefined;
-    arrow?: boolean | TTooltipObject | undefined;
-    portal?: TTooltipPortal | undefined;
+    text?: string;
+    content?: TTooltipObject;
+    arrow?: boolean | TTooltipObject;
+    portal?: TTooltipPortal;
     class?: TTooltipClass;
-    defaultOpen?: boolean | undefined;
-    open?: boolean | undefined;
-    delayDuration?: number | undefined;
-    disableHoverableContent?: boolean | undefined;
-    disableClosingTrigger?: boolean | undefined;
-    disabled?: boolean | undefined;
-    ignoreNonKeyboardFocus?: boolean | undefined;
+    defaultOpen?: boolean;
+    open?: boolean;
+    delayDuration?: number;
+    disableHoverableContent?: boolean;
+    disableClosingTrigger?: boolean;
+    disabled?: boolean;
+    ignoreNonKeyboardFocus?: boolean;
     usefulness?: TTooltipUsefulness;
 }
 

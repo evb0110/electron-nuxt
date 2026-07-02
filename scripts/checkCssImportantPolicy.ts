@@ -19,13 +19,12 @@ const TARGET_ROOTS = [
         target: 'landing',
     },
 ];
-type TCssImportantTarget = 'all' | 'app' | 'landing';
-
-const VALID_TARGETS = new Set<TCssImportantTarget>([
+const VALID_TARGETS = [
     'all',
     'app',
     'landing',
-]);
+] as const;
+type TCssImportantTarget = typeof VALID_TARGETS[number];
 
 const IMPORTANT_ALLOWANCE_WINDOW_LINES = 8;
 
@@ -53,7 +52,7 @@ function isStyleFile(filePath: string) {
 }
 
 function isCssImportantTarget(value: string): value is TCssImportantTarget {
-    return VALID_TARGETS.has(value as TCssImportantTarget);
+    return (VALID_TARGETS as readonly string[]).includes(value);
 }
 
 function parseTarget(argv = process.argv.slice(2)) {

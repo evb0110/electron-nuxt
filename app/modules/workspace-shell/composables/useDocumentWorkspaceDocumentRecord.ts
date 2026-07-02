@@ -88,7 +88,7 @@ export const useDocumentWorkspaceDocumentRecord = (
         });
     });
 
-    watch(workspaceDocumentRecord, (record: IWorkspaceDocumentRecord) => options.publishRecord(record), { immediate: true });
+    watch(workspaceDocumentRecord, record => options.publishRecord(record), { immediate: true });
 
     return { workspaceDocumentRecord };
 };

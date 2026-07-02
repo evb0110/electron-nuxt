@@ -1,3 +1,8 @@
+import {
+    ANNOTATION_TOOLS,
+    DRAWABLE_SHAPE_TOOLS,
+} from '@contracts/annotations';
+
 const TAB_ID_SCHEMA = {
     type: 'string',
     description: 'Optional tab id. Defaults to the active tab.',
@@ -229,21 +234,7 @@ export const ANNOTATION_TOOL_INPUT_SCHEMA = {
     type: 'object',
     properties: {tool: {
         type: 'string',
-        enum: [
-            'none',
-            'select',
-            'highlight',
-            'underline',
-            'strikethrough',
-            'squiggly',
-            'text',
-            'draw',
-            'rectangle',
-            'circle',
-            'line',
-            'arrow',
-            'stamp',
-        ],
+        enum: [...ANNOTATION_TOOLS],
     }},
     required: ['tool'],
     additionalProperties: false,
@@ -362,24 +353,12 @@ export const ANNOTATION_SHAPE_INPUT_SCHEMA = {
         },
         shape: {
             type: 'string',
-            enum: [
-                'draw',
-                'rectangle',
-                'circle',
-                'line',
-                'arrow',
-            ],
+            enum: [...DRAWABLE_SHAPE_TOOLS],
             description: 'Shape type to create.',
         },
         tool: {
             type: 'string',
-            enum: [
-                'draw',
-                'rectangle',
-                'circle',
-                'line',
-                'arrow',
-            ],
+            enum: [...DRAWABLE_SHAPE_TOOLS],
             description: 'Alias for shape.',
         },
         x: {

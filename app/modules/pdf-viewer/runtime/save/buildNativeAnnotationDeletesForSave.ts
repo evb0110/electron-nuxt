@@ -20,7 +20,7 @@ function resolveNativeAnnotationDeleteRef(comment: IAnnotationCommentSummary) {
         ?? parsePdfJsAnnotationRef(comment.id);
 }
 
-export interface IBuildNativeAnnotationDeletesForSaveInput extends INativePdfMutationPlanCommonInput {}
+export type IBuildNativeAnnotationDeletesForSaveInput = INativePdfMutationPlanCommonInput;
 
 export function buildNativeAnnotationDeletesForSave(
     opts: IBuildNativeAnnotationDeletesForSaveInput,

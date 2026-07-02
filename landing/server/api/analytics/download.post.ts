@@ -1,9 +1,14 @@
 import { getOptionalDb } from '~~/server/db';
 import { landingDownload } from '~~/server/db/schema';
+import {
+    RELEASE_ARCHES,
+    RELEASE_PLATFORMS,
+} from '~~/vendor/contracts/release';
 import type {
     TReleaseArch,
     TReleasePlatform,
 } from '~~/vendor/contracts/release';
+import { isOneOf } from '~~/vendor/contracts/runtimeGuards';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -16,22 +21,15 @@ interface IDownloadBody {
     fileName: string
 }
 
-const DOWNLOAD_PLATFORMS = new Set<TReleasePlatform>(['macos', 'windows', 'linux', 'unknown']);
-const DOWNLOAD_ARCHES = new Set<TReleaseArch>(['arm64', 'x64', 'universal', 'unknown']);
-
 function validateDownloadBody(value: unknown): IDownloadBody {
     if (
         !isRecord(value)
-        || typeof value.platform !== 'string'
-        || typeof value.arch !== 'string'
         || typeof value.version !== 'string'
         || typeof value.fileName !== 'string'
-        || !value.platform
-        || !value.arch
         || !value.version
         || !value.fileName
-        || !DOWNLOAD_PLATFORMS.has(value.platform as TReleasePlatform)
-        || !DOWNLOAD_ARCHES.has(value.arch as TReleaseArch)
+        || !isOneOf(RELEASE_PLATFORMS, value.platform)
+        || !isOneOf(RELEASE_ARCHES, value.arch)
     ) {
         throw createError({
             statusCode: 400,
@@ -40,8 +38,8 @@ function validateDownloadBody(value: unknown): IDownloadBody {
     }
 
     return {
-        platform: value.platform as TReleasePlatform,
-        arch: value.arch as TReleaseArch,
+        platform: value.platform,
+        arch: value.arch,
         version: value.version,
         fileName: value.fileName,
     };

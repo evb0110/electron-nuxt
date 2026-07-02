@@ -22,12 +22,14 @@ export interface IPdfSnapshotSplitPayload {
 
 export type TSplitPayload = IEmptySplitPayload | IDjvuSplitPayload | IPdfSnapshotSplitPayload;
 
-export interface ITransferredTabState {
+export interface ITabMetadataCore {
     fileName: string | null;
     originalPath: TDocumentRef | null;
     isDirty: boolean;
     isDjvu: boolean;
 }
+
+export type ITransferredTabState = ITabMetadataCore;
 
 export type TWindowTabTransferTarget =
     | { kind: 'new-window'; }

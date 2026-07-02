@@ -13,14 +13,14 @@ export interface IPluralForms<TText extends string = string> {
     many?: TText;
 }
 
-export interface IPluralMessage<TForms extends IPluralForms<string> = IPluralForms<string>> {
+export interface IPluralMessage<TForms extends IPluralForms = IPluralForms> {
     kind: typeof PLURAL_MESSAGE_KIND;
     forms: TForms;
 }
 
 export type TTranslationLeaf = string | IPluralMessage;
 
-export function plural<const TForms extends IPluralForms<string>>(forms: TForms): IPluralMessage<TForms> {
+export function plural<const TForms extends IPluralForms>(forms: TForms): IPluralMessage<TForms> {
     return {
         kind: PLURAL_MESSAGE_KIND,
         forms,
@@ -92,7 +92,7 @@ function fallbackForm(forms: string[], template: string, ...indices: number[]) {
     return template;
 }
 
-function getFirstDefinedForm(forms: IPluralForms<string>) {
+function getFirstDefinedForm(forms: IPluralForms) {
     return forms.zero
         ?? forms.one
         ?? forms.two

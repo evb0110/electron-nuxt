@@ -277,7 +277,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
         void cacheSplitPayloadForRemount();
     });
 
-    watch(options.showSidebar, (next: boolean, previous: boolean) => {
+    watch(options.showSidebar, (next, previous) => {
         if (next === previous) {
             return;
         }
@@ -294,7 +294,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
         });
     });
 
-    watch(options.currentPage, (next: number, previous: number) => {
+    watch(options.currentPage, (next, previous) => {
         if (next === previous) {
             return;
         }
