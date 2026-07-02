@@ -120,6 +120,8 @@ const DJVU_CONTINUOUS_OVERSCAN_VIEWPORTS = 2;
 const DJVU_CONTINUOUS_RENDER_MARGIN_PAGES = 3;
 const DJVU_PREVIEW_DEVICE_PIXEL_RATIO_CAP = 1;
 const DJVU_PAGE_SNAPSHOT_SELECTOR = '[data-page-number]';
+const DJVU_BASE_UNITS_PER_INCH = 72;
+const DJVU_FALLBACK_DPI = 300;
 
 const viewerContainer = ref<HTMLElement | null>(null);
 const pageElements = new Map<number, HTMLElement>();
@@ -179,8 +181,24 @@ function getFitHeightAvailableHeight() {
     return Math.max(1, containerHeight.value - DJVU_BASE_MARGIN * 2);
 }
 
+function getPageCssScale(pageSize: IDjvuPageSize | null | undefined) {
+    const dpi = pageSize?.dpi;
+    const safeDpi = typeof dpi === 'number' && Number.isFinite(dpi) && dpi > 0
+        ? dpi
+        : DJVU_FALLBACK_DPI;
+    return DJVU_BASE_UNITS_PER_INCH / safeDpi;
+}
+
+function getPageBaseWidth(pageSize: IDjvuPageSize) {
+    return pageSize.width * getPageCssScale(pageSize);
+}
+
+function getPageBaseHeight(pageSize: IDjvuPageSize) {
+    return pageSize.height * getPageCssScale(pageSize);
+}
+
 function resolveFitHeightZoomForPageSize(pageSize: IDjvuPageSize | null | undefined) {
-    const baseHeight = pageSize?.height;
+    const baseHeight = pageSize ? getPageBaseHeight(pageSize) : 0;
     if (!baseHeight || baseHeight <= 0) {
         return manualZoom.value;
     }
@@ -202,9 +220,9 @@ const currentSpreadWidth = computed(() => {
     }
     let total = 0;
     for (const pageNumber of pageNumbers) {
-        const w = pageSizes.value[pageNumber - 1]?.width;
-        if (w && w > 0) {
-            total += w;
+        const pageSize = pageSizes.value[pageNumber - 1];
+        if (pageSize && pageSize.width > 0) {
+            total += getPageBaseWidth(pageSize);
         }
     }
     return total > 0 ? total : null;
@@ -225,8 +243,9 @@ function resolveFitHeightZoom() {
 }
 
 function resolveFitWidthBaseWidth() {
+    const currentPageSize = pageSizes.value[currentPage.value - 1];
     const baseWidth = isContinuousScroll.value
-        ? (pageSizes.value[currentPage.value - 1]?.width ?? null)
+        ? (currentPageSize ? getPageBaseWidth(currentPageSize) : null)
         : currentSpreadWidth.value;
     return baseWidth && baseWidth > 0 ? baseWidth : null;
 }
@@ -301,15 +320,11 @@ function getPageShellStyle(pageNumber: number) {
     };
 }
 
-function getPageDisplayScale(pageNumber: number) {
+function getPageZoom(pageNumber: number) {
     const pageSize = pageSizes.value[pageNumber - 1];
-    if (!pageSize) {
-        return 1;
-    }
-
-    if (isContinuousScroll.value) {
+    if (isContinuousScroll.value && pageSize) {
         if (zoomMode.value === 'fit-width' && pageSize.width > 0) {
-            return Math.max(0.1, fitWidthAvailable() / pageSize.width);
+            return Math.max(0.1, fitWidthAvailable() / getPageBaseWidth(pageSize));
         }
         if (zoomMode.value === 'fit-height') {
             return resolveFitHeightZoomForPageSize(pageSize);
@@ -317,6 +332,15 @@ function getPageDisplayScale(pageNumber: number) {
     }
 
     return effectiveZoom.value;
+}
+
+function getPageDisplayScale(pageNumber: number) {
+    const pageSize = pageSizes.value[pageNumber - 1];
+    if (!pageSize) {
+        return 1;
+    }
+
+    return getPageZoom(pageNumber) * getPageCssScale(pageSize);
 }
 
 function getNeededDeviceWidth(pageNumber: number) {
@@ -498,6 +522,40 @@ watch(effectiveZoom, (value) => {
 
 watch(zoomMode, () => {
     continuousScrollController.invalidateContinuousScrollWindowCache();
+});
+
+watch([
+    effectiveZoom,
+    zoomMode,
+], ([
+    nextZoom,
+    nextZoomMode,
+], [
+    previousZoom,
+    previousZoomMode,
+]) => {
+    if (
+        !import.meta.client
+        || !isActive.value
+        || !isContinuousScroll.value
+        || totalPages.value <= 0
+        || isLoading.value
+    ) {
+        return;
+    }
+
+    const zoomModeChanged = nextZoomMode !== previousZoomMode;
+    const customZoomChanged = nextZoomMode === 'custom' && nextZoom !== previousZoom;
+    if (!zoomModeChanged && !customZoomChanged) {
+        return;
+    }
+
+    const snapshot = captureScrollSnapshot();
+    if (!snapshot) {
+        return;
+    }
+
+    continuousScrollController.restoreScrollSnapshot(snapshot, { fallbackPage: currentPage.value });
 });
 
 watch(renderedPageNumbers, async () => {
