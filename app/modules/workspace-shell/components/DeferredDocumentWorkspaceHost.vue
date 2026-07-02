@@ -323,10 +323,11 @@ const hasPdf = computed(() => {
 });
 
 function readWorkspaceToolbarSnapshot() {
+    const baseSnapshot = mountedWorkspace.value?.getToolbarSnapshot() ?? currentToolbarSnapshot.value;
     const isOpeningDocument = isDocumentOpenInFlight.value || hasPendingDocumentHint.value;
     return {
-        ...currentToolbarSnapshot.value,
-        isOpeningDocument: currentToolbarSnapshot.value.isOpeningDocument || isOpeningDocument,
+        ...baseSnapshot,
+        isOpeningDocument: baseSnapshot.isOpeningDocument || isOpeningDocument,
     };
 }
 
