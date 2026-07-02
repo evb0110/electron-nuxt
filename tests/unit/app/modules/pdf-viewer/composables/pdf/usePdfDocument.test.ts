@@ -38,11 +38,13 @@ class MockPdfDataRangeTransport implements IPdfjsDataRangeTransport {
 }
 
 const pdfjsState: {
+    version: string;
     GlobalWorkerOptions: { workerSrc: string };
     VerbosityLevel: { ERRORS: number };
     getDocument: ReturnType<typeof vi.fn>;
     PDFDataRangeTransport?: typeof MockPdfDataRangeTransport;
 } = {
+    version: '5.7.284',
     GlobalWorkerOptions: { workerSrc: '' },
     VerbosityLevel: { ERRORS: 0 },
     getDocument: vi.fn(),
@@ -105,6 +107,7 @@ describe('usePdfDocument range loading', () => {
         });
 
         expect(result).not.toBeNull();
+        expect(documentState.loadError.value).toBeNull();
         expect(documentState.pdfDocument.value).not.toBeNull();
         expect(documentState.pdfDocument.value).toBe(result?.document ?? null);
         expect(documentState.numPages.value).toBe(1);
@@ -223,6 +226,7 @@ describe('usePdfDocument range loading', () => {
         deferred.reject(new Error('range cache test cancelled load'));
 
         await expect(loadPromise).resolves.toBeNull();
+        expect(documentState.loadError.value).toBeNull();
     }, rangePreloadTestTimeoutMs);
 
     it('uses the largest measured page as the fit baseline when page sizes differ', async () => {
@@ -399,7 +403,7 @@ describe('usePdfDocument range loading', () => {
         expect(getPage).toHaveBeenCalledTimes(2);
     });
 
-    it('returns null and clears loading when PDF.js range transport API is unavailable', async () => {
+    it('surfaces a load error when PDF.js range transport API is unavailable', async () => {
         delete pdfjsState.PDFDataRangeTransport;
         electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
             1,
@@ -416,6 +420,8 @@ describe('usePdfDocument range loading', () => {
 
         expect(result).toBeNull();
         expect(documentState.isLoading.value).toBe(false);
+        expect(documentState.loadError.value).toBeInstanceOf(Error);
+        expect((documentState.loadError.value as Error).message).toContain('PDFDataRangeTransport export is not a constructor');
         expect(loggerError).toHaveBeenCalledWith(
             'pdf-document',
             'Failed to load PDF',
@@ -435,6 +441,8 @@ describe('usePdfDocument range loading', () => {
 
         expect(result).toBeNull();
         expect(documentState.isLoading.value).toBe(false);
+        expect(documentState.loadError.value).toBeInstanceOf(Error);
+        expect((documentState.loadError.value as Error).message).toBe('read failed');
         expect(loggerError).toHaveBeenCalledWith(
             'pdf-document',
             'Failed to load PDF',

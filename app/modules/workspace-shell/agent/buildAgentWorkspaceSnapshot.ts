@@ -17,7 +17,7 @@ import type {
     IWorkspaceExpose,
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 
 interface IBuildAgentWorkspaceSnapshotOptions {
     panes: Ref<IEditorPaneState[]>;
@@ -28,6 +28,7 @@ interface IBuildAgentWorkspaceSnapshotOptions {
     recentFiles?: Ref<IRecentFile[]>;
     recentFilesResolved?: Ref<boolean>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
+    documentRecordsByTabId: Ref<Record<string, IWorkspaceDocumentRecord>>;
     getPaneByTabId(tabId: string): IEditorPaneState | null;
 }
 
@@ -151,25 +152,13 @@ function buildDocumentReadiness(
     };
 }
 
-function getToolbarSnapshot(workspace: IWorkspaceExpose | null) {
-    if (!workspace) {
-        return null;
-    }
-
-    try {
-        return workspace.getToolbarSnapshot();
-    } catch (error) {
-        BrowserLogger.warn('agent', 'Failed to read workspace toolbar snapshot', { error: error instanceof Error ? error.message : String(error) });
-        return null;
-    }
-}
-
 function buildAgentTabSnapshot(
     tab: ITab,
     pane: IEditorPaneState | null,
     workspace: IWorkspaceExpose | null,
+    record: IWorkspaceDocumentRecord | null,
 ): IAgentTabSnapshot {
-    const toolbarSnapshot = getToolbarSnapshot(workspace);
+    const toolbarSnapshot = record?.toolbarSnapshot ?? null;
     const kind = inferDocumentKind(tab, toolbarSnapshot);
     return {
         tabId: tab.id,
@@ -230,6 +219,7 @@ export function buildAgentWorkspaceSnapshot(
         tab,
         options.getPaneByTabId(tab.id),
         options.workspaceRefs.value.get(tab.id) ?? null,
+        options.documentRecordsByTabId.value[tab.id] ?? null,
     ));
     const documentTabs = tabSnapshots.filter(isAgentDocumentTab);
     const activeDocumentTab = documentTabs.find(tab => tab.tabId === options.activeTabId.value) ?? null;

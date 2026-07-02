@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
+import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
@@ -30,6 +31,12 @@ describe('tab session memory policy', () => {
     it('does not persist document page position in tab view state', () => {
         const state = createTabViewSessionState({
             hasPdf: true,
+            viewerCapabilities: {
+                ...createDefaultWorkspaceViewerCapabilities(),
+                closeableDocument: true,
+                pdfDocument: true,
+                sidebar: true,
+            },
             isOpeningDocument: false,
             hasOpenError: false,
             isPreparingPrint: false,

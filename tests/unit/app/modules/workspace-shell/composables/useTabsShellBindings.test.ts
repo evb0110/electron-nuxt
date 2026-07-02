@@ -18,6 +18,7 @@ import {
     type IWorkspaceExpose,
     type IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
+import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
@@ -79,6 +80,7 @@ function createOptions() {
             'tab-1',
             activeWorkspace.value,
         ]])),
+        documentRecordsByTabId: ref<Record<string, ReturnType<typeof createWorkspaceDocumentRecord>>>({'tab-1': createWorkspaceDocumentRecord({ toolbarSnapshot })}),
         isStartupOpenClaimPending: ref(true),
         activeTabId: ref('tab-1'),
         activeWorkspace,
@@ -246,6 +248,14 @@ describe('useTabsShellBindings', () => {
         options.activeTabId.value = 'tab-2';
         options.activeWorkspace.value = secondWorkspace;
         options.workspaceRefs.value.set('tab-2', secondWorkspace);
+        options.documentRecordsByTabId.value = {
+            ...options.documentRecordsByTabId.value,
+            'tab-2': createWorkspaceDocumentRecord({toolbarSnapshot: {
+                hasPdf: true,
+                currentPage: 7,
+                totalPages: 10,
+            }}),
+        };
         await nextTick();
 
         expect(installedApi?.getActiveTabId()).toBe('tab-2');
@@ -255,6 +265,10 @@ describe('useTabsShellBindings', () => {
             value: null,
         });
         expect(secondWorkspace.handleUndo).toHaveBeenCalledOnce();
+        await expect(installedApi?.callActiveWorkspaceCommand('workingCopyPath')).resolves.toEqual({
+            called: false,
+            value: null,
+        });
         expect(installedApi?.readActiveWorkspaceStateValues(['workingCopyPath'])).toEqual({ workingCopyPath: '/tmp/page-7.pdf' });
 
         unmount();

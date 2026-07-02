@@ -38,6 +38,7 @@
                 :app-menu-open="shellToolbarAppMenuOpen"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
+                v-on="fallbackToolbarCommandListeners"
                 @update:ocr-popup-open="shellToolbarOcrPopupOpen = $event"
                 @update:zoom-dropdown-open="shellToolbarZoomDropdownOpen = $event"
                 @update:page-dropdown-open="shellToolbarPageDropdownOpen = $event"
@@ -51,39 +52,9 @@
                 @update:current-page="shellToolbarCurrentPage = $event"
                 @open-file="handleFallbackToolbarOpenFile"
                 @open-settings="openSettingsPage"
-                @save="handleFallbackSave"
-                @repair-save="handleFallbackRepairSave"
-                @optimize-pdf-for-interaction="handleFallbackOptimizePdfForInteraction"
-                @save-as="handleFallbackSaveAs"
-                @print="handleFallbackPrint"
-                @print-current-page="handleFallbackPrintCurrentPage"
                 @combine-images="openCombinePage"
-                @export-docx="handleFallbackExportDocx"
-                @export-images="handleFallbackExportImages"
-                @export-multi-page-tiff="handleFallbackExportMultiPageTiff"
-                @convert-to-pdf="handleFallbackConvertToPdf"
-                @undo="handleFallbackUndo"
-                @redo="handleFallbackRedo"
-                @insert-image-from-file="handleFallbackInsertImageFromFile"
-                @paste-image-from-clipboard="handleFallbackPasteImageFromClipboard"
-                @delete-pages="handleFallbackDeletePages"
-                @extract-pages="handleFallbackExtractPages"
-                @rotate-cw="handleFallbackRotateCw"
-                @rotate-ccw="handleFallbackRotateCcw"
-                @insert-pages="handleFallbackInsertPages"
-                @toggle-sidebar="handleFallbackToggleSidebar"
-                @fit-width="handleFallbackFitWidth"
-                @fit-height="handleFallbackFitHeight"
-                @toggle-continuous-scroll="handleFallbackToggleContinuousScroll"
-                @enable-drag="handleFallbackEnableDragMode"
-                @disable-drag="handleFallbackDisableDragMode"
-                @capture-region="handleFallbackCaptureRegion"
-                @crop="handleFallbackCrop"
-                @quick-note="handleFallbackQuickNote"
                 @toggle-fullscreen="handleToggleFullscreen"
                 @set-view-mode="handleShellToolbarOverflowSetViewMode"
-                @go-to-page="handleFallbackGoToPage"
-                @ocr-complete="handleFallbackOcrComplete"
             />
             <div
                 v-show="!showShellToolbar"
@@ -105,6 +76,7 @@
                 :start-section-by-tab-id="startSectionByTabId"
                 :tab-lifecycle-by-id="tabLifecycleById"
                 :view-state-by-tab-id="viewStateByTabId"
+                :document-records-by-tab-id="documentRecordsByTabId"
                 :zen-mode="isFullscreen"
                 :zen-active-tab-id="activeTabId"
                 :is-fullscreen="isFullscreen"
@@ -117,7 +89,7 @@
                 @move-tab-direction="handleTabMoveDirection"
                 @tab-context-command="handleTabContextCommand"
                 @set-workspace-ref="setWorkspaceRef"
-                @update-tab="updateTab"
+                @update-document-record="handleDocumentRecordUpdate"
                 @update-tab-session-state="updateTabViewState"
                 @update-tab-start-section="setTabStartSection"
                 @open-in-new-tab="handleOpenInNewTab"
@@ -175,6 +147,7 @@ import {
 } from '@vueuse/core';
 import { logicNot } from '@vueuse/math';
 import { guardAsync } from '@app/utils/asyncGuard';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     BROWSER_INSTALL_HINT_COOKIE_KEY,
     BROWSER_INSTALL_HINT_STORAGE_KEY,
@@ -199,7 +172,9 @@ import { useDirtyTabCloseDialog } from '@app/modules/workspace-shell/composables
 import { useShellWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useShellWorkspaceToolbar';
 import { useMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
-import { useToolbarTeleportBridge } from '@app/modules/workspace-shell/composables/useToolbarTeleportBridge';
+import { useWorkspaceDocumentRecords } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentRecords';
+import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import { useWorkspaceToolbarContentPresence } from '@app/modules/workspace-shell/composables/useWorkspaceToolbarContentPresence';
 import { useTabsShellBindings } from '@app/modules/workspace-shell/composables/useTabsShellBindings';
 import { useWorkspaceRefRegistry } from '@app/modules/workspace-shell/composables/useWorkspaceRefRegistry';
 import { useAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot';
@@ -211,7 +186,6 @@ import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useTabSessionStore } from '@app/modules/workspace-shell/composables/useTabSessionStore';
-import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import type {
     TPdfViewMode,
@@ -219,12 +193,19 @@ import type {
 } from '@contracts/shared';
 import type { IAgentAssistantChatScope } from '@contracts/agent';
 import type { TStartSection } from '@app/types/startSection';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IHostZenModeState } from '@contracts/electronApiHost';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type { ITab } from '@app/types/tabs';
+import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { getHostCapability } from '@app/utils/getHostCapability';
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
+import {
+    invokeWorkspaceExposeCommand,
+    workspaceExposeToolbarCommandDescriptors,
+    WorkspaceExposeCommandUnavailableError,
+    type TWorkspaceExposeMethod,
+} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 
 traceRendererStartup('index.vue script setup start');
 
@@ -339,43 +320,45 @@ const {
     waitForWorkspace,
     workspaceRefs,
 } = useWorkspaceRefRegistry({ activeTabId });
-
+const {
+    activeDocumentRecord,
+    documentRecordsByTabId,
+    getDocumentRecord,
+    removeDocumentRecord,
+    seedTabDocumentRecord,
+    setWorkspaceDocumentRecord,
+} = useWorkspaceDocumentRecords({
+    activeTabId,
+    tabs,
+});
+const globalToolbarHostRef = ref<HTMLElement | null>(null);
+const { hasWorkspaceToolbarContent } = useWorkspaceToolbarContentPresence(globalToolbarHostRef);
 function persistActiveTabViewState() {
     const tabId = activeTabId.value;
-    const workspace = tabId ? workspaceRefs.value.get(tabId) : null;
-    if (!tabId || !workspace) {
-        return;
+    const record = getDocumentRecord(tabId);
+    if (tabId && record) {
+        updateTabViewState(tabId, record.viewState);
     }
-
-    updateTabViewState(tabId, createTabViewSessionState(workspace.getToolbarSnapshot()));
 }
-
 function activateTab(paneId: string, tabId: string) {
     persistActiveTabViewState();
     activateEditorTab(paneId, tabId);
 }
-
-const activeTab = computed(() => (
-    activeTabId.value
-        ? getTabById(activeTabId.value)
-        : null
-));
+const activeTab = computed(() => activeTabId.value ? getTabById(activeTabId.value) : null);
 const shellState = useWorkspaceShellState({
-    activeWorkspace,
+    activeDocumentRecord,
     activeTabId,
     tabs,
 });
-const hasTeleportedToolbarContentState = shallowRef(false);
 const {
     isTabTransitionBusy,
     enqueueTabTransition,
-    setAfterTransitionHook,
-    updateTab,
-    removeTabFromState,
+    updateTab: updateTabInState,
+    removeTabFromState: removeTabFromLifecycleState,
     cleanupEmptyPanes,
     isSingletonPlaceholderCloseBlocked,
     resolveTabForAction,
-    closeTabInState,
+    closeTabInState: closeTabInLifecycleState,
     handoffActiveTabBeforeClose,
     handleCloseTab,
 } = useAppShellTabLifecycle({
@@ -384,7 +367,7 @@ const {
     activePaneId,
     activeTabId,
     workspaceRefs,
-    hasTeleportedToolbarContent: hasTeleportedToolbarContentState,
+    getDocumentRecord,
     workspaceSplitCache,
     workspaceRestoreTracker,
     getPaneById,
@@ -396,161 +379,50 @@ const {
     closePane,
     requestDirtyTabCloseConfirmation,
 });
-const {
-    globalToolbarHostRef,
-    hasTeleportedToolbarContent,
-    syncToolbarTeleportPresence,
-    observeToolbarHost,
-    disposeToolbarTeleportBridge,
-} = useToolbarTeleportBridge(isTabTransitionBusy);
-setAfterTransitionHook(syncToolbarTeleportPresence);
-watchEffect(() => {
-    hasTeleportedToolbarContentState.value = hasTeleportedToolbarContent.value;
-});
+function updateTab(tabId: string, updates: Partial<ITab>) {
+    updateTabInState(tabId, updates);
+    seedTabDocumentRecord(tabId, updates);
+}
 
-function runFallbackWorkspaceAction(action: (workspace: IWorkspaceExpose) => unknown) {
+function removeTabFromState(tabId: string) {
+    removeDocumentRecord(tabId); removeTabFromLifecycleState(tabId);
+}
+
+function closeTabInState(paneId: string, tabId: string) {
+    removeDocumentRecord(tabId); closeTabInLifecycleState(paneId, tabId);
+}
+
+function handleDocumentRecordUpdate(tabId: string, record: IWorkspaceDocumentRecord) {
+    setWorkspaceDocumentRecord(tabId, record);
+    updateTabInState(tabId, record.tab);
+    updateTabViewState(tabId, record.viewState);
+}
+
+function runFallbackWorkspaceCommand(commandName: TWorkspaceExposeMethod, args: readonly unknown[] = []) {
     const workspace = activeWorkspace.value;
     if (!workspace) {
+        BrowserLogger.error('shell', 'Fallback workspace command unavailable', {error: new WorkspaceExposeCommandUnavailableError(commandName)});
         return;
     }
 
-    const result = action(workspace);
+    const result = invokeWorkspaceExposeCommand(workspace, commandName, args);
     if (result instanceof Promise) {
         guardAsync(result, {
             scope: 'shell',
-            message: 'Fallback workspace action failed',
+            message: `Fallback workspace command failed: ${commandName}`,
         });
     }
 }
 
-function handleFallbackSave() {
-    runFallbackWorkspaceAction(workspace => workspace.handleSave());
-}
-
-function handleFallbackRepairSave() {
-    runFallbackWorkspaceAction(workspace => workspace.handleRepairSave());
-}
-
-function handleFallbackOptimizePdfForInteraction() {
-    runFallbackWorkspaceAction(workspace => workspace.handleOptimizePdfForInteraction());
-}
-
-function handleFallbackSaveAs() {
-    runFallbackWorkspaceAction(workspace => workspace.handleSaveAs());
-}
-
-function handleFallbackPrint() {
-    runFallbackWorkspaceAction(workspace => workspace.handlePrint());
-}
-
-function handleFallbackPrintCurrentPage() {
-    runFallbackWorkspaceAction(workspace => workspace.handlePrintCurrentPage());
-}
-
-function handleFallbackExportDocx() {
-    runFallbackWorkspaceAction(workspace => workspace.handleExportDocx());
-}
-
-function handleFallbackExportImages() {
-    runFallbackWorkspaceAction(workspace => workspace.handleExportImages());
-}
-
-function handleFallbackExportMultiPageTiff() {
-    runFallbackWorkspaceAction(workspace => workspace.handleExportMultiPageTiff());
-}
-
-function handleFallbackConvertToPdf() {
-    runFallbackWorkspaceAction(workspace => workspace.handleConvertToPdf());
-}
-
-function handleFallbackUndo() {
-    runFallbackWorkspaceAction(workspace => workspace.handleUndo());
-}
-
-function handleFallbackRedo() {
-    runFallbackWorkspaceAction(workspace => workspace.handleRedo());
-}
-
-function handleFallbackInsertImageFromFile() {
-    runFallbackWorkspaceAction(workspace => workspace.handleInsertImageFromFile());
-}
-
-function handleFallbackPasteImageFromClipboard() {
-    runFallbackWorkspaceAction(workspace => workspace.handlePasteImageFromClipboard());
-}
-
-function handleFallbackDeletePages() {
-    runFallbackWorkspaceAction(workspace => workspace.handleDeletePages());
-}
-
-function handleFallbackExtractPages() {
-    runFallbackWorkspaceAction(workspace => workspace.handleExtractPages());
-}
-
-function handleFallbackRotateCw() {
-    runFallbackWorkspaceAction(workspace => workspace.handleRotateCw());
-}
-
-function handleFallbackRotateCcw() {
-    runFallbackWorkspaceAction(workspace => workspace.handleRotateCcw());
-}
-
-function handleFallbackInsertPages() {
-    runFallbackWorkspaceAction(workspace => workspace.handleInsertPages());
-}
-
-function handleFallbackToggleSidebar() {
-    runFallbackWorkspaceAction(workspace => workspace.handleToggleSidebar());
-}
-
-function handleFallbackFitWidth() {
-    runFallbackWorkspaceAction(workspace => workspace.handleFitWidth());
-}
-
-function handleFallbackFitHeight() {
-    runFallbackWorkspaceAction(workspace => workspace.handleFitHeight());
-}
-
-function handleFallbackToggleContinuousScroll() {
-    runFallbackWorkspaceAction(workspace => workspace.handleToggleContinuousScroll());
-}
-
-function handleFallbackEnableDragMode() {
-    runFallbackWorkspaceAction(workspace => workspace.handleEnableDragMode());
-}
-
-function handleFallbackDisableDragMode() {
-    runFallbackWorkspaceAction(workspace => workspace.handleDisableDragMode());
-}
-
-function handleFallbackCaptureRegion() {
-    runFallbackWorkspaceAction(workspace => workspace.handleCaptureRegion());
-}
-
-function handleFallbackCrop() {
-    runFallbackWorkspaceAction(workspace => workspace.handleCrop());
-}
-
-function handleFallbackQuickNote() {
-    runFallbackWorkspaceAction(workspace => workspace.handleQuickNote());
-}
-
-function handleFallbackGoToPage(page: number) {
-    runFallbackWorkspaceAction(workspace => workspace.handleGoToPage(page));
-}
-
-function handleFallbackOcrComplete(payload: unknown) {
-    runFallbackWorkspaceAction(workspace => workspace.handleOcrComplete?.(payload));
-}
+const fallbackToolbarCommandListeners = Object.fromEntries(
+    workspaceExposeToolbarCommandDescriptors.map(descriptor => [
+        descriptor.toolbar.eventName,
+        (...args: unknown[]) => runFallbackWorkspaceCommand(descriptor.name, args),
+    ]),
+);
 
 function activeWorkspaceHasDocument() {
-    const workspace = activeWorkspace.value;
-    if (!workspace) {
-        return false;
-    }
-
-    const snapshot = workspace.getToolbarSnapshot();
-    return snapshot.hasPdf || snapshot.isDjvuMode;
+    return shellState.activeWorkspaceHasDocument.value;
 }
 
 function handleToggleFullscreen() {
@@ -669,20 +541,16 @@ const {
     handleShellToolbarOverflowSetViewMode: handleShellToolbarOverflowSetViewModeInternal,
     showShellToolbar,
 } = useShellWorkspaceToolbar({
-    activePaneId,
-    activeTabId,
-    activeWorkspace,
-    hasTeleportedToolbarContent,
-    isTabTransitionBusy,
-    shellState,
+    activeDocumentRecord,
+    hasWorkspaceToolbarContent,
 });
 
 function handleShellToolbarOverflowSetViewMode(mode: TPdfViewMode) {
-    handleShellToolbarOverflowSetViewModeInternal(mode, runFallbackWorkspaceAction);
+    handleShellToolbarOverflowSetViewModeInternal(mode, runFallbackWorkspaceCommand);
 }
 
 useMenuSync({
-    activeWorkspace,
+    activeDocumentRecord,
     activeTabId,
     tabs,
     shellState,
@@ -746,6 +614,7 @@ const {
     activeWorkspace,
     workspaceRefs,
     waitForWorkspace,
+    getDocumentRecord,
     createTab,
     getTabById,
     updateTab,
@@ -770,17 +639,12 @@ function setTabStartSection(tabId: string, section: TStartSection) {
 
 function isTabEmpty(tabId: string) {
     const tab = getTabById(tabId);
-    if (!tab || tabHasDocumentHint(tab)) {
+    const record = getDocumentRecord(tabId);
+    if (!tab || (record?.tab && tabHasDocumentHint(record.tab)) || tabHasDocumentHint(tab)) {
         return false;
     }
-
-    const workspace = workspaceRefs.value.get(tab.id);
-    if (!workspace) {
-        return true;
-    }
-
-    const snapshot = workspace.getToolbarSnapshot();
-    return !snapshot.hasPdf && !snapshot.isDjvuMode && !snapshot.isOpeningDocument && !snapshot.hasOpenError;
+    const snapshot = record?.toolbarSnapshot;
+    return !hasWorkspaceViewerDocumentCapabilities(snapshot?.viewerCapabilities) && !snapshot?.isOpeningDocument && !snapshot?.hasOpenError;
 }
 
 const assistantActiveTab = computed(() => activeTabId.value ? getTabById(activeTabId.value) : null);
@@ -853,6 +717,7 @@ useAgentWorkspaceSnapshot({
     recentFiles,
     recentFilesResolved,
     workspaceRefs,
+    documentRecordsByTabId,
     shouldWaitForDesktopBridge: () => shouldWaitForDesktopBridge.value,
     getPaneByTabId,
     activateTab,
@@ -900,6 +765,7 @@ const {
     panes,
     tabs,
     workspaceRefs,
+    getDocumentRecord,
     isTabTransitionBusy,
     getPaneById,
     getTabById,
@@ -1055,6 +921,7 @@ watch(showBrowserInstallHint, (isVisible) => {
 useTabsShellBindings({
     tabs,
     workspaceRefs,
+    documentRecordsByTabId,
     activeTabId,
     activeWorkspace,
     createTab: () => {
@@ -1095,12 +962,10 @@ traceRendererStartup('index.vue setup wiring complete');
 useAppShellLifecycle({
     dirtyTabCloseDialogOpen,
     updatesDialogOpen: computed(() => updatesDialog.value.open),
-    observeToolbarHost,
     cleanupEmptyPanes,
     ensureUpdatesInitialized,
     handleIncomingTabTransfer,
     cleanupDirectionalTabs,
-    disposeToolbarTeleportBridge,
     cleanupExternalFileDrop,
     resolveDirtyTabCloseDialog,
     closeUpdatesDialog,
@@ -1214,13 +1079,6 @@ useAppShellLifecycle({
 .install-hint-leave-to {
     opacity: 0;
     transform: translateY(4px);
-}
-
-.editor-global-toolbar-shell,
-.editor-global-toolbar-host {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
 }
 
 .editor-global-status-host {

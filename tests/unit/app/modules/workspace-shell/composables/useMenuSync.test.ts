@@ -11,6 +11,7 @@ import {
 } from 'vue';
 import { useMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
+import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 
 const mocks = vi.hoisted(() => ({
     setMenuDocumentState: vi.fn(async () => {}),
@@ -37,7 +38,7 @@ describe('useMenuSync', () => {
     });
 
     it('syncs menu state when workspace or tabs change', async () => {
-        const hasPdfRef = ref(false);
+        const activeDocumentRecord = ref(createWorkspaceDocumentRecord());
         const tabs = ref([{
             id: 'tab-1',
             fileName: null,
@@ -47,7 +48,7 @@ describe('useMenuSync', () => {
         }]);
 
         useMenuSync({
-            activeWorkspace: ref({ hasPdf: hasPdfRef }),
+            activeDocumentRecord,
             activeTabId: ref<string | null>('tab-1'),
             tabs,
         });
@@ -61,7 +62,7 @@ describe('useMenuSync', () => {
         });
         expect(mocks.setMenuTabCount).toHaveBeenCalledWith(1);
 
-        hasPdfRef.value = true;
+        activeDocumentRecord.value = createWorkspaceDocumentRecord({toolbarSnapshot: { hasPdf: true }});
         tabs.value.push({
             id: 'tab-2',
             fileName: null,
@@ -74,8 +75,8 @@ describe('useMenuSync', () => {
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
             hasDocument: true,
             canSave: false,
-            canRepairSave: true,
-            canOptimizePdf: true,
+            canRepairSave: false,
+            canOptimizePdf: false,
         });
         expect(mocks.setMenuTabCount).toHaveBeenLastCalledWith(2);
         expect(mocks.legacySetMenuDocumentState).not.toHaveBeenCalled();
@@ -83,13 +84,15 @@ describe('useMenuSync', () => {
     });
 
     it('syncs save availability separately from document presence', async () => {
-        const canSaveRef = ref(false);
+        const activeDocumentRecord = ref(createWorkspaceDocumentRecord({toolbarSnapshot: {
+            hasPdf: true,
+            canSave: false,
+            canRepairSave: true,
+            canOptimizePdf: true,
+        }}));
 
         useMenuSync({
-            activeWorkspace: ref({
-                hasPdf: true,
-                getToolbarSnapshot: () => ({ canSave: canSaveRef.value }),
-            }),
+            activeDocumentRecord,
             activeTabId: ref<string | null>('tab-1'),
             tabs: ref([{
                 id: 'tab-1',
@@ -108,7 +111,13 @@ describe('useMenuSync', () => {
             canOptimizePdf: true,
         });
 
-        canSaveRef.value = true;
+        activeDocumentRecord.value = createWorkspaceDocumentRecord({
+            ...activeDocumentRecord.value,
+            toolbarSnapshot: {
+                ...activeDocumentRecord.value.toolbarSnapshot,
+                canSave: true,
+            },
+        });
         await nextTick();
 
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
@@ -120,17 +129,15 @@ describe('useMenuSync', () => {
     });
 
     it('syncs optimize availability independently from repair availability', async () => {
-        const canOptimizePdfRef = ref(false);
+        const activeDocumentRecord = ref(createWorkspaceDocumentRecord({toolbarSnapshot: {
+            hasPdf: true,
+            canSave: true,
+            canRepairSave: true,
+            canOptimizePdf: false,
+        }}));
 
         useMenuSync({
-            activeWorkspace: ref({
-                hasPdf: true,
-                getToolbarSnapshot: () => ({
-                    canSave: true,
-                    canRepairSave: true,
-                    canOptimizePdf: canOptimizePdfRef.value,
-                }),
-            }),
+            activeDocumentRecord,
             activeTabId: ref<string | null>('tab-1'),
             tabs: ref([{
                 id: 'tab-1',
@@ -149,7 +156,13 @@ describe('useMenuSync', () => {
             canOptimizePdf: false,
         });
 
-        canOptimizePdfRef.value = true;
+        activeDocumentRecord.value = createWorkspaceDocumentRecord({
+            ...activeDocumentRecord.value,
+            toolbarSnapshot: {
+                ...activeDocumentRecord.value.toolbarSnapshot,
+                canOptimizePdf: true,
+            },
+        });
         await nextTick();
 
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({

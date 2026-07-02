@@ -9,7 +9,7 @@ import { ref } from 'vue';
 const mocks = vi.hoisted(() => ({
     convertToPdf: vi.fn(),
     openFileDirect: vi.fn(),
-    openFileDirectWithDjvuCleanup: vi.fn(),
+    openFileDirectWithViewerLifecycle: vi.fn(),
 }));
 
 vi.mock('@app/modules/workspace-shell/composables/usePdfFile', () => ({usePdfFile: () => ({
@@ -88,10 +88,10 @@ vi.mock('@app/composables/useRecentFiles', () => ({useRecentFiles: () => ({
 })}));
 
 vi.mock('@app/modules/workspace-shell/composables/useWorkspaceFileSwitch', () => ({useWorkspaceFileSwitch: () => ({
-    openFileWithDjvuCleanup: vi.fn(),
-    openFileDirectWithDjvuCleanup: mocks.openFileDirectWithDjvuCleanup,
-    openFileDirectBatchWithDjvuCleanup: vi.fn(),
-    closeFileWithDjvuCleanup: vi.fn(),
+    openFileWithViewerLifecycle: vi.fn(),
+    openFileDirectWithViewerLifecycle: mocks.openFileDirectWithViewerLifecycle,
+    openFileDirectBatchWithViewerLifecycle: vi.fn(),
+    closeFileWithViewerLifecycle: vi.fn(),
 })}));
 
 const { useWorkspaceFileLifecycleController } =
@@ -107,7 +107,7 @@ describe('useWorkspaceFileLifecycleController', () => {
                 workingPath: '/tmp/output-working.pdf',
             },
         });
-        mocks.openFileDirectWithDjvuCleanup.mockImplementation(path => mocks.openFileDirect(path));
+        mocks.openFileDirectWithViewerLifecycle.mockImplementation(path => mocks.openFileDirect(path));
         mocks.convertToPdf.mockImplementation(async (_subsample, _preserveBookmarks, _pdfStrategy, openConvertedPdf) => {
             await openConvertedPdf('/tmp/output.pdf');
         });
@@ -115,7 +115,7 @@ describe('useWorkspaceFileLifecycleController', () => {
         const controller = useWorkspaceFileLifecycleController();
         await controller.handleDjvuConvert(2, true, 'compact-djvu-aware');
 
-        expect(mocks.convertToPdf).toHaveBeenCalledWith(2, true, 'compact-djvu-aware', mocks.openFileDirectWithDjvuCleanup);
+        expect(mocks.convertToPdf).toHaveBeenCalledWith(2, true, 'compact-djvu-aware', mocks.openFileDirectWithViewerLifecycle);
         expect(mocks.openFileDirect).toHaveBeenCalledWith('/tmp/output.pdf');
     });
 });

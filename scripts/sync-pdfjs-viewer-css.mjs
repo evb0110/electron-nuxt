@@ -42,6 +42,21 @@ const removableRulePatterns = [
     '#outerContainer.viewsManager',
 ];
 
+function parseArgs(args) {
+    const parsed = {check: false};
+
+    for (const arg of args) {
+        if (arg === '--check') {
+            parsed.check = true;
+            continue;
+        }
+
+        throw new Error(`Unknown argument: ${arg}`);
+    }
+
+    return parsed;
+}
+
 function collectBlockRanges(cssText, shouldRemoveBlock) {
     const ranges = [];
     const stack = [{ segmentStart: 0 }];
@@ -133,11 +148,28 @@ function applyRanges(cssText, ranges) {
     return output;
 }
 
-function removeUnusedUiBlocks(cssText) {
+export function removeUnusedUiBlocks(cssText) {
+    const matchedPatterns = new Set();
     const removableRules = collectBlockRanges(
         cssText,
-        (prelude) => removableRulePatterns.some(pattern => prelude.includes(pattern)),
+        (prelude) => {
+            const matchedPattern = removableRulePatterns.find(pattern => prelude.includes(pattern));
+            if (matchedPattern === undefined) {
+                return false;
+            }
+
+            matchedPatterns.add(matchedPattern);
+            return true;
+        },
     );
+    const missingPatterns = removableRulePatterns.filter(pattern => !matchedPatterns.has(pattern));
+    if (missingPatterns.length > 0) {
+        throw new Error(
+            'PDF.js viewer CSS removal pattern(s) no longer match upstream css: '
+            + missingPatterns.join(', '),
+        );
+    }
+
     let sanitized = applyRanges(cssText, removableRules);
 
     while (true) {
@@ -162,7 +194,7 @@ function removeUnusedUiBlocks(cssText) {
     return sanitized;
 }
 
-function rewriteImageUrls(cssText, sourceImageNames) {
+export function rewriteImageUrls(cssText, sourceImageNames) {
     const availableImageNames = new Set(sourceImageNames);
 
     let sanitized = cssText.replace(
@@ -185,7 +217,7 @@ function rewriteImageUrls(cssText, sourceImageNames) {
     return sanitized;
 }
 
-function collectReferencedImages(cssText) {
+export function collectReferencedImages(cssText) {
     const images = new Set();
     for (const match of cssText.matchAll(/\/pdfjs\/images\/([^)'"?\s]+)/gu)) {
         images.add(match[1]);
@@ -193,7 +225,7 @@ function collectReferencedImages(cssText) {
     return Array.from(images).sort((a, b) => a.localeCompare(b));
 }
 
-function normalizeWhitespace(cssText) {
+export function normalizeWhitespace(cssText) {
     return cssText
         .replace(/\n{3,}/gu, '\n\n')
         .trim()
@@ -214,7 +246,82 @@ async function syncImages(imageNames) {
     }));
 }
 
-async function main() {
+async function readTargetImageNames() {
+    try {
+        return (await readdir(targetImagesDir))
+            .filter(imageName => !imageName.startsWith('.'))
+            .sort((left, right) => left.localeCompare(right));
+    } catch (error) {
+        if (error?.code === 'ENOENT') {
+            return [];
+        }
+
+        throw error;
+    }
+}
+
+function arraysEqual(left, right) {
+    return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+async function assertImageFreshness(referencedImages) {
+    const targetImageNames = await readTargetImageNames();
+    const drifted = [];
+
+    if (!arraysEqual(targetImageNames, referencedImages)) {
+        drifted.push(`public/pdfjs/images image list (expected ${referencedImages.join(', ') || '<none>'}; received ${targetImageNames.join(', ') || '<none>'})`);
+    }
+
+    await Promise.all(referencedImages.map(async (imageName) => {
+        const [
+            sourceImage,
+            targetImage,
+        ] = await Promise.all([
+            readFile(path.join(sourceImagesDir, imageName)),
+            readFile(path.join(targetImagesDir, imageName)).catch((error) => {
+                if (error?.code === 'ENOENT') {
+                    return null;
+                }
+                throw error;
+            }),
+        ]);
+
+        if (targetImage === null || Buffer.compare(sourceImage, targetImage) !== 0) {
+            drifted.push(`public/pdfjs/images/${imageName}`);
+        }
+    }));
+
+    return drifted;
+}
+
+async function assertFreshness({
+    normalizedCss,
+    referencedImages,
+}) {
+    const drifted = [];
+    const targetCss = await readFile(targetCssPath, 'utf8').catch((error) => {
+        if (error?.code === 'ENOENT') {
+            return null;
+        }
+        throw error;
+    });
+
+    if (targetCss !== normalizedCss) {
+        drifted.push(path.relative(projectRoot, targetCssPath));
+    }
+
+    drifted.push(...await assertImageFreshness(referencedImages));
+
+    if (drifted.length > 0) {
+        throw new Error([
+            'PDF.js viewer CSS assets are out of sync:',
+            ...drifted.map(file => `  ${file}`),
+            'Run `pnpm run copy:pdfjs` and commit the regenerated assets.',
+        ].join('\n'));
+    }
+}
+
+export async function createPdfjsViewerCssSyncPlan() {
     const [
         sourceCss,
         sourceImages,
@@ -237,16 +344,52 @@ async function main() {
     );
     const referencedImages = collectReferencedImages(normalizedCss);
 
+    return {
+        normalizedCss,
+        referencedImages,
+    };
+}
+
+export async function syncPdfjsViewerCss({check = false} = {}) {
+    const plan = await createPdfjsViewerCssSyncPlan();
+    const {
+        normalizedCss,
+        referencedImages,
+    } = plan;
+
+    if (check) {
+        await assertFreshness(plan);
+        return {
+            checked: true,
+            imageCount: referencedImages.length,
+        };
+    }
+
     await mkdir(path.dirname(targetCssPath), { recursive: true });
     await writeFile(targetCssPath, normalizedCss, 'utf8');
     await syncImages(referencedImages);
 
-    console.log(
-        `Synced PDF.js viewer CSS (${referencedImages.length} image assets): ${path.relative(projectRoot, targetCssPath)}`,
-    );
+    return {
+        checked: false,
+        imageCount: referencedImages.length,
+    };
 }
 
-main().catch((error) => {
-    console.error('Failed to sync PDF.js viewer CSS:', error);
-    process.exit(1);
-});
+async function main() {
+    const args = parseArgs(process.argv.slice(2));
+    const result = await syncPdfjsViewerCss({check: args.check});
+
+    console.log(result.checked
+        ? `PDF.js viewer CSS is fresh (${result.imageCount} image assets): ${path.relative(projectRoot, targetCssPath)}`
+        : `Synced PDF.js viewer CSS (${result.imageCount} image assets): ${path.relative(projectRoot, targetCssPath)}`);
+}
+
+const isDirectCliRun = process.argv[1]
+    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+
+if (isDirectCliRun) {
+    main().catch((error) => {
+        console.error('Failed to sync PDF.js viewer CSS:', error);
+        process.exit(1);
+    });
+}

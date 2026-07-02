@@ -172,6 +172,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         getActiveWheelZoomSession,
         ensureWheelZoomSession,
         markExpectedZoomScroll,
+        completeExpectedZoomScroll,
         isZoomInteractionLocked,
         setZoomRerenderBusy,
         consumeZoomViewportAnchor,
@@ -345,6 +346,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         container: HTMLElement,
         debugId: number,
         sessionId: number,
+        zoomLockOperationId: number | null,
         anchorX: number,
         anchorY: number,
         nowMs: number,
@@ -365,6 +367,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         pendingZoomViewportAnchor.value = {
             id: debugId,
             sessionId,
+            zoomLockOperationId,
             x: anchorX,
             y: anchorY,
             capturedAtMs: nowMs,
@@ -638,7 +641,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
 
         lastModifierWheelZoomAtMs = nowMs;
         lastModifierWheelZoomEventId = debugId;
-        markExpectedZoomScroll(wheelZoomExpectedScrollWindowMs);
+        const zoomLockOperationId = markExpectedZoomScroll(wheelZoomExpectedScrollWindowMs);
 
         event.preventDefault();
         BrowserLogger.diagnosticThrottled(
@@ -674,7 +677,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         const {
             session,
             reused: reusedGestureAnchor,
-        } = ensureWheelZoomSession(nowMs, eventAnchor.x, eventAnchor.y, debugId);
+        } = ensureWheelZoomSession(nowMs, eventAnchor.x, eventAnchor.y, debugId, zoomLockOperationId);
         session.packetCount += 1;
         const anchorX = session.anchorX;
         const anchorY = session.anchorY;
@@ -738,7 +741,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             return true;
         }
         updateWheelZoomSessionAfterEmit(session, zoomTarget.nextEffectiveZoom, nowMs);
-        setPendingZoomAnchors(container, debugId, session.id, anchorX, anchorY, nowMs);
+        setPendingZoomAnchors(container, debugId, session.id, zoomLockOperationId, anchorX, anchorY, nowMs);
         BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'wheel-zoom-emit', wheelDetailLogThrottleMs, `[wheel-zoom] emit id=${debugId}`, {
             id: debugId,
             sessionId: session.id,
@@ -764,7 +767,10 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         }
         emit('update:effectiveZoom', zoomTarget.nextEffectiveZoom);
         emit('update:zoom', zoomTarget.nextZoom);
-        markExpectedZoomScroll(wheelZoomExpectedScrollWindowMs);
+        markExpectedZoomScroll(wheelZoomExpectedScrollWindowMs, {
+            operationId: zoomLockOperationId,
+            reason: 'wheel-zoom-emitted',
+        });
         return true;
     }
 
@@ -808,6 +814,13 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
 
         if (context.zoomInteractionLocked || context.zoomScrollExpected) {
             suppressSinglePageSnapForWheelZoom();
+        }
+
+        if (context.zoomScrollExpected) {
+            completeExpectedZoomScroll({
+                operationId: context.activeZoomIntent?.zoomLockOperationId,
+                reason: 'viewer-scroll-applied',
+            });
         }
 
         if (

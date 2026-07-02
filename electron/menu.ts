@@ -31,7 +31,6 @@ import {
 } from '@electron/window/registry';
 import { getErrorMessage } from '@electron/utils/error';
 
-const appName = te('app.title');
 const logger = createLogger('menu');
 const MENU_REBUILD_DEBOUNCE_MS = 40;
 const menuDocumentStateByWindow = new Map<number, boolean>();
@@ -92,6 +91,10 @@ function getFocusedAppWindow() {
 
     const windows = getAllRegisteredAppWindows();
     return windows[0] ?? null;
+}
+
+function getAppName() {
+    return te('app.title');
 }
 
 function resolveWindowFromMenuContext(window: BaseWindow | undefined) {
@@ -743,7 +746,7 @@ function getHelpMenu(): MenuItemConstructorOptions {
 
 function getMacAppMenu(): MenuItemConstructorOptions {
     return {
-        label: appName,
+        label: getAppName(),
         submenu: [
             { role: 'about' },
             { type: 'separator' },

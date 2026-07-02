@@ -1,8 +1,12 @@
-import type { Ref } from 'vue';
+import type {
+    ComputedRef,
+    Ref,
+} from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
+import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
@@ -10,6 +14,7 @@ import type {
     IWorkspaceRestoreTrackerLike,
     IWorkspaceSplitCacheLike,
 } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
+import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 
 interface IUseAppShellTabLifecycleOptions {
     panes: Ref<IEditorPaneState[]>;
@@ -17,7 +22,7 @@ interface IUseAppShellTabLifecycleOptions {
     activePaneId: Ref<string | null>;
     activeTabId: Ref<string | null>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
-    hasTeleportedToolbarContent: Ref<boolean>;
+    getDocumentRecord: (tabId: string | null | undefined) => IWorkspaceDocumentRecord | null;
     workspaceSplitCache: IWorkspaceSplitCacheLike;
     workspaceRestoreTracker: IWorkspaceRestoreTrackerLike;
     getPaneById: (paneId: string | null | undefined) => IEditorPaneState | null;
@@ -41,6 +46,11 @@ interface ITabTransitionReportContext {
     tabId?: string;
 }
 
+interface IResolvedTabForAction {
+    tab: ITab;
+    pane: IEditorPaneState;
+}
+
 function serializeTransitionError(error: unknown) {
     if (error instanceof Error) {
         return {
@@ -52,14 +62,29 @@ function serializeTransitionError(error: unknown) {
     return error;
 }
 
-export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions) => {
+interface IUseAppShellTabLifecycleResult {
+    isTabTransitionBusy: ComputedRef<boolean>;
+    enqueueTabTransition: <T>(task: () => Promise<T>, context?: ITabTransitionReportContext) => Promise<T>;
+    updateTab: (tabId: string, updates: Partial<ITab>) => void;
+    removeTabFromState: (tabId: string) => void;
+    cleanupEmptyPanes: () => void;
+    isSingletonPlaceholderCloseBlocked: (paneId: string, tabId: string) => boolean;
+    resolveTabForAction: (tabId: string | undefined) => IResolvedTabForAction | null;
+    closeTabInState: (paneId: string, tabId: string) => void;
+    handoffActiveTabBeforeClose: (paneId: string, tabId: string) => Promise<void>;
+    handleCloseTab: (paneId: string, tabId: string) => Promise<void>;
+}
+
+export const useAppShellTabLifecycle = (
+    options: IUseAppShellTabLifecycleOptions,
+): IUseAppShellTabLifecycleResult => {
     const {
         panes,
         tabs,
         activePaneId,
         activeTabId,
         workspaceRefs,
-        hasTeleportedToolbarContent,
+        getDocumentRecord,
         workspaceSplitCache,
         workspaceRestoreTracker,
         getPaneById,
@@ -73,54 +98,10 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
     } = options;
 
     const { reportRuntimeError } = useRuntimeErrorReports();
-    const activeTabTransitions = ref(0);
+    const activeTabTransitions: Ref<number> = ref(0);
     let tabTransitionQueue: Promise<void> = Promise.resolve();
-    let afterTransitionHook: (() => void) | null = null;
 
-    const isTabTransitionBusy = computed(() => activeTabTransitions.value > 0);
-
-    function isClearedDocumentTabState(tab: ITab) {
-        return !tabHasDocumentHint(tab)
-            && tab.fileName === null
-            && tab.originalPath === null
-            && !tab.isDjvu
-            && !tab.isDirty;
-    }
-
-    function isTransientDocumentClearDuringRemount(tabId: string, tab: ITab, nextTabState: ITab) {
-        return tabHasDocumentHint(tab)
-            && isClearedDocumentTabState(nextTabState)
-            && (
-                isTabTransitionBusy.value
-                || workspaceSplitCache.has(tabId)
-                || workspaceRestoreTracker.has(tabId)
-                || (activeTabId.value === tabId && !hasTeleportedToolbarContent.value)
-            );
-    }
-
-    function logSuppressedDocumentClearDuringRemount(tabId: string, updates: Partial<ITab>, tab: ITab, nextTabState: ITab) {
-        BrowserLogger.diagnostic('toolbar-transition', 'Suppressing transient placeholder tab update during remount handoff', {
-            tabId,
-            updates,
-            activeTabId: activeTabId.value,
-            activePaneId: activePaneId.value,
-            isTabTransitionBusy: isTabTransitionBusy.value,
-            hasSplitCache: workspaceSplitCache.has(tabId),
-            isRestoreTracked: workspaceRestoreTracker.has(tabId),
-            previousTabState: {
-                fileName: tab.fileName,
-                originalPath: tab.originalPath,
-                isDirty: tab.isDirty,
-                isDjvu: tab.isDjvu,
-            },
-            nextTabState: {
-                fileName: nextTabState.fileName,
-                originalPath: nextTabState.originalPath,
-                isDirty: nextTabState.isDirty,
-                isDjvu: nextTabState.isDjvu,
-            },
-        });
-    }
+    const isTabTransitionBusy: ComputedRef<boolean> = computed(() => activeTabTransitions.value > 0);
 
     function reportTabTransitionError(error: unknown, context: ITabTransitionReportContext | undefined) {
         const details = {
@@ -146,10 +127,9 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
             } finally {
                 await nextTick();
                 activeTabTransitions.value = Math.max(0, activeTabTransitions.value - 1);
-                afterTransitionHook?.();
             }
         });
-        const guarded = chained.catch((error) => {
+        const guarded = chained.catch((error: unknown) => {
             reportTabTransitionError(error, context);
             return undefined as T;
         });
@@ -165,16 +145,6 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
     function updateTab(tabId: string, updates: Partial<ITab>) {
         const tab = getTabById(tabId);
         if (!tab) {
-            return;
-        }
-
-        const nextTabState: ITab = {
-            ...tab,
-            ...updates,
-        };
-
-        if (isTransientDocumentClearDuringRemount(tabId, tab, nextTabState)) {
-            logSuppressedDocumentClearDuringRemount(tabId, updates, tab, nextTabState);
             return;
         }
 
@@ -207,6 +177,11 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
             && !tab.isDjvu;
     }
 
+    function recordHasCloseableDocument(tabId: string | null | undefined) {
+        const snapshot = getDocumentRecord(tabId)?.toolbarSnapshot;
+        return hasWorkspaceViewerDocumentCapabilities(snapshot?.viewerCapabilities);
+    }
+
     function isSingletonPlaceholderCloseBlocked(paneId: string, tabId: string) {
         if (tabs.value.length !== 1) {
             return false;
@@ -222,6 +197,9 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
             return false;
         }
 
+        if (recordHasCloseableDocument(tabId)) {
+            return false;
+        }
         const workspace = workspaceRefs.value.get(tabId) ?? null;
         return !workspaceHasPdf(workspace);
     }
@@ -249,8 +227,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
     }
 
     function scoreTabDocumentReadiness(tabId: string) {
-        const workspace = workspaceRefs.value.get(tabId) ?? null;
-        if (workspaceHasPdf(workspace)) {
+        if (recordHasCloseableDocument(tabId)) {
             return 3;
         }
 
@@ -422,9 +399,15 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
         return confirmed ? false : null;
     }
 
-    function workspaceHasCloseableDocument(workspace: IWorkspaceExpose | undefined): workspace is IWorkspaceExpose {
-        // DjVu workspaces also need proper close handling (temp cleanup, exitDjvuMode).
-        return Boolean(workspace && (workspaceHasPdf(workspace) || workspace.getToolbarSnapshot().isDjvuMode));
+    function workspaceHasCloseableDocument(tabId: string, workspace: IWorkspaceExpose | undefined): workspace is IWorkspaceExpose {
+        if (!workspace) {
+            return false;
+        }
+        if (recordHasCloseableDocument(tabId)) {
+            return true;
+        }
+        return workspaceHasPdf(workspace)
+            || hasWorkspaceViewerDocumentCapabilities(workspace.getToolbarSnapshot().viewerCapabilities);
     }
 
     async function closeWorkspaceDocument(
@@ -441,7 +424,11 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
             workspaceRestoreTracker.finish(tabId);
         }
 
-        if (closed && !workspaceHasPdf(workspace) && !workspace.getToolbarSnapshot().isDjvuMode) {
+        if (
+            closed
+            && !workspaceHasPdf(workspace)
+            && !hasWorkspaceViewerDocumentCapabilities(workspace.getToolbarSnapshot().viewerCapabilities)
+        ) {
             closeResolvedTabInState(paneId, tabId);
         }
     }
@@ -467,7 +454,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
         }
 
         const workspace = workspaceRefs.value.get(tabId);
-        if (workspaceHasCloseableDocument(workspace)) {
+        if (workspaceHasCloseableDocument(tabId, workspace)) {
             await closeWorkspaceDocument(paneId, tabId, workspace, shouldPersistBeforeClose);
         } else {
             closeResolvedTabInState(paneId, tabId);
@@ -495,9 +482,6 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
     return {
         isTabTransitionBusy,
         enqueueTabTransition,
-        setAfterTransitionHook: (callback: (() => void) | null) => {
-            afterTransitionHook = callback;
-        },
         updateTab,
         removeTabFromState,
         cleanupEmptyPanes,

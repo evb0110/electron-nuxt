@@ -16,6 +16,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type * as FsPromises from 'node:fs/promises';
 
 const mocks = vi.hoisted(() => {
     const app = { getPath: vi.fn() };
@@ -25,14 +26,42 @@ const mocks = vi.hoisted(() => {
         info: vi.fn(),
         warn: vi.fn(),
     };
+    let actualStat: ((...args: unknown[]) => Promise<unknown>) | null = null;
+    const stat = vi.fn((...args: unknown[]) => {
+        if (!actualStat) {
+            throw new Error('fs/promises stat mock was not initialized');
+        }
+        return actualStat(...args);
+    });
     return {
         app,
         logger,
+        resetStat: () => {
+            stat.mockImplementation((...args: unknown[]) => {
+                if (!actualStat) {
+                    throw new Error('fs/promises stat mock was not initialized');
+                }
+                return actualStat(...args);
+            });
+        },
+        setActualStat: (implementation: (...args: unknown[]) => Promise<unknown>) => {
+            actualStat = implementation;
+        },
+        stat,
     };
 });
 
 vi.mock('electron', () => ({ app: mocks.app }));
 vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => mocks.logger }));
+vi.mock('fs/promises', async (importOriginal) => {
+    const actual = await importOriginal<typeof FsPromises>();
+    mocks.setActualStat((...args: unknown[]) => actual.stat(...(args as Parameters<typeof actual.stat>)));
+    mocks.resetStat();
+    return {
+        ...actual,
+        stat: mocks.stat,
+    };
+});
 
 async function loadRecentFilesModule() {
     vi.resetModules();
@@ -46,6 +75,8 @@ describe('recentFiles persistence', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         delete process.env.EVB_AUTOMATION_BOOTSTRAP_DEV_PROFILE;
+        delete process.env.EVB_RECENT_FILE_STAT_TIMEOUT_MS;
+        mocks.resetStat();
         appDataDir = mkdtempSync(join(tmpdir(), 'evb-recentFiles-app-data-'));
         userDataDir = mkdtempSync(join(tmpdir(), 'evb-recentFiles-'));
         mocks.app.getPath.mockImplementation((name: string) => {
@@ -62,6 +93,8 @@ describe('recentFiles persistence', () => {
     });
 
     afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllEnvs();
         rmSync(appDataDir, {
             recursive: true,
             force: true,
@@ -213,5 +246,35 @@ describe('recentFiles persistence', () => {
 
         expect(recentFiles.getRecentFilesSync()).toEqual([]);
         expect(await recentFiles.getRecentFiles()).toEqual([]);
+    });
+
+    it('keeps timed-out recent paths without waiting indefinitely for stat', async () => {
+        vi.stubEnv('EVB_RECENT_FILE_STAT_TIMEOUT_MS', '100');
+        const filePath = join(userDataDir, 'network-share.pdf');
+        writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
+            version: 1,
+            files: [{
+                originalPath: filePath,
+                fileName: 'network-share.pdf',
+                timestamp: 123,
+                fileSize: 9,
+            }],
+        }));
+        mocks.stat.mockImplementation((path: unknown) => {
+            if (path === filePath) {
+                return new Promise(() => {});
+            }
+            return Promise.reject(new Error(`Unexpected stat path: ${path}`));
+        });
+
+        const recentFiles = await loadRecentFilesModule();
+        await expect(recentFiles.getRecentFiles()).resolves.toMatchObject([{
+            originalPath: filePath,
+            fileName: 'network-share.pdf',
+        }]);
+        expect(recentFiles.getRecentFilesSync()).toEqual([filePath]);
+        expect(mocks.logger.warn).toHaveBeenCalledWith(
+            `Recent file path stat timed out; preserving entry (${filePath})`,
+        );
     });
 });

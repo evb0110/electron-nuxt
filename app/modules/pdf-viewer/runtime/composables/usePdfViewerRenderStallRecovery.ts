@@ -7,6 +7,11 @@ import { PDF_PAGE_STALL_RECOVERY_COOLDOWN_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { TPdfSource } from '@app/types/pdf';
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
+import {
+    createPdfRenderSupervisor,
+    type IPdfRenderSupervisor,
+    type IPdfRenderSupervisorTimer,
+} from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 
 interface IUsePdfViewerRenderStallRecoveryOptions {
     src: ComputedRef<TPdfSource | null>;
@@ -33,6 +38,7 @@ interface IUsePdfViewerRenderStallRecoveryOptions {
         },
     ) => Promise<void>;
     scheduleReload: (isReload?: boolean) => void;
+    renderSupervisor?: IPdfRenderSupervisor | undefined;
 }
 
 export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStallRecoveryOptions) => {
@@ -48,19 +54,18 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
         cancelInFlightPageRenders,
         renderVisiblePages,
         scheduleReload,
+        renderSupervisor = createPdfRenderSupervisor(),
     } = options;
 
     const pendingRenderStallRecoveryPages = new Set<number>();
     const renderStallRecoveryCooldownByPage = new Map<number, number>();
-    let renderStallRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
+    let renderStallRecoveryTimer: IPdfRenderSupervisorTimer | null = null;
     let pendingInvalidation: number[] | null = null;
     let pageLevelRecoveryRunId = 0;
 
     function clearRenderStallRecoveryTimer() {
-        if (renderStallRecoveryTimer !== null) {
-            clearTimeout(renderStallRecoveryTimer);
-            renderStallRecoveryTimer = null;
-        }
+        renderSupervisor.clearTimer(renderStallRecoveryTimer);
+        renderStallRecoveryTimer = null;
     }
 
     function resetRenderStallRecoveryState() {
@@ -131,55 +136,33 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
             return;
         }
 
-        renderStallRecoveryTimer = setTimeout(() => {
-            renderStallRecoveryTimer = null;
-            if (!src.value) {
-                pageLevelRecoveryRunId += 1;
+        renderStallRecoveryTimer = renderSupervisor.armTimer({
+            cause: 'render-stall-recovery',
+            delayMs: 0,
+            key: 'render-stall-recovery',
+            metadata: {
+                queuedPage: pageNumber,
+                stage: payload.stage,
+                timeoutMs: payload.timeoutMs,
+            },
+            onFire: () => {
+                renderStallRecoveryTimer = null;
+                if (!src.value) {
+                    pageLevelRecoveryRunId += 1;
+                    pendingRenderStallRecoveryPages.clear();
+                    return;
+                }
+
+                const pages = Array.from(pendingRenderStallRecoveryPages)
+                    .sort((left, right) => left - right);
                 pendingRenderStallRecoveryPages.clear();
-                return;
-            }
-
-            const pages = Array.from(pendingRenderStallRecoveryPages)
-                .sort((left, right) => left - right);
-            pendingRenderStallRecoveryPages.clear();
-            if (pages.length === 0) {
-                return;
-            }
-
-            BrowserLogger.warn(
-                'pdf-renderer',
-                'Retrying stalled PDF page render without source reload',
-                {
-                    pages,
-                    currentPage: currentPage.value,
-                    visibleRange: {
-                        start: visibleRange.value.start,
-                        end: visibleRange.value.end,
-                    },
-                    viewer: summarizeViewerMetricsForLog(viewerContainer.value),
-                },
-            );
-            const recoveryRunId = ++pageLevelRecoveryRunId;
-            void cancelInFlightPageRenders?.();
-            invalidatePages(pages);
-            void renderVisiblePages(
-                {
-                    start: pages[0]!,
-                    end: pages[pages.length - 1]!,
-                },
-                {
-                    preserveRenderedPages: true,
-                    forceRerender: true,
-                    bufferOverride: 0,
-                },
-            ).catch((error: unknown) => {
-                if (recoveryRunId !== pageLevelRecoveryRunId || isLoading.value || !src.value) {
+                if (pages.length === 0) {
                     return;
                 }
 
                 BrowserLogger.warn(
                     'pdf-renderer',
-                    'Page-level stalled render recovery failed; scheduling selective source reload',
+                    'Retrying stalled PDF page render without source reload',
                     {
                         pages,
                         currentPage: currentPage.value,
@@ -187,12 +170,44 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
                             start: visibleRange.value.start,
                             end: visibleRange.value.end,
                         },
-                        error: error instanceof Error ? error.message : String(error),
+                        viewer: summarizeViewerMetricsForLog(viewerContainer.value),
                     },
                 );
-                scheduleReload(true);
-            });
-        }, 0);
+                const recoveryRunId = ++pageLevelRecoveryRunId;
+                void cancelInFlightPageRenders?.();
+                invalidatePages(pages);
+                void renderVisiblePages(
+                    {
+                        start: pages[0]!,
+                        end: pages[pages.length - 1]!,
+                    },
+                    {
+                        preserveRenderedPages: true,
+                        forceRerender: true,
+                        bufferOverride: 0,
+                    },
+                ).catch((error: unknown) => {
+                    if (recoveryRunId !== pageLevelRecoveryRunId || isLoading.value || !src.value) {
+                        return;
+                    }
+
+                    BrowserLogger.warn(
+                        'pdf-renderer',
+                        'Page-level stalled render recovery failed; scheduling selective source reload',
+                        {
+                            pages,
+                            currentPage: currentPage.value,
+                            visibleRange: {
+                                start: visibleRange.value.start,
+                                end: visibleRange.value.end,
+                            },
+                            error: error instanceof Error ? error.message : String(error),
+                        },
+                    );
+                    scheduleReload(true);
+                });
+            },
+        });
     }
 
     return {

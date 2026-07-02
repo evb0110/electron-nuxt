@@ -35,12 +35,13 @@ interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps
     handleSave: () => Promise<unknown>;
     requestThumbnailInvalidation: (pages: number[]) => void;
     pdfViewerRef: Ref<IWorkspacePdfViewerDocumentControlsPort | null>;
+    canMutatePages: Ref<boolean>;
     handleExportImages: (pages: number[]) => Promise<void>;
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
-    openFileWithDjvuCleanup: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
-    openFileDirectWithDjvuCleanup: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
-    openFileDirectBatchWithDjvuCleanup: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
-    closeFileWithDjvuCleanup: () => Promise<void>;
+    openFileWithViewerLifecycle: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
+    openFileDirectWithViewerLifecycle: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
+    openFileDirectBatchWithViewerLifecycle: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
+    closeFileWithViewerLifecycle: () => Promise<void>;
 }
 
 export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControlsOptions) => {
@@ -62,10 +63,10 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         setSelectedThumbnailPages,
         requestThumbnailInvalidation,
         pdfViewerRef,
+        canMutatePages,
         pageContextMenu,
         closePageContextMenu,
         handleExportImages,
-        isDjvuMode,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         ensureWorkingCopyFreshForRead,
@@ -83,10 +84,10 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         bookmarksDirty,
         persistAllAnnotationNotes,
         pickFileToOpen,
-        openFileWithDjvuCleanup,
-        openFileDirectWithDjvuCleanup,
-        openFileDirectBatchWithDjvuCleanup,
-        closeFileWithDjvuCleanup,
+        openFileWithViewerLifecycle,
+        openFileDirectWithViewerLifecycle,
+        openFileDirectBatchWithViewerLifecycle,
+        closeFileWithViewerLifecycle,
         closeAllDropdowns,
         emitOpenInNewTab,
         removeRecentFile,
@@ -120,7 +121,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         onExportPages: (pages) => {
             void handleExportImages(pages);
         },
-        ...(isDjvuMode !== undefined ? { isDjvuMode } : {}),
+        canMutatePages,
         onExtractedDocument: (path) => {
             emitOpenInNewTab(path);
         },
@@ -152,10 +153,10 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         persistAllAnnotationNotes,
         handleSave,
         pickFileToOpen,
-        openFile: openFileWithDjvuCleanup,
-        openFileDirect: openFileDirectWithDjvuCleanup,
-        openFileDirectBatch: openFileDirectBatchWithDjvuCleanup,
-        closeFile: closeFileWithDjvuCleanup,
+        openFile: openFileWithViewerLifecycle,
+        openFileDirect: openFileDirectWithViewerLifecycle,
+        openFileDirectBatch: openFileDirectBatchWithViewerLifecycle,
+        closeFile: closeFileWithViewerLifecycle,
         closeAllDropdowns,
         emitOpenInNewTab,
         removeRecentFile,

@@ -26,6 +26,15 @@ import {
 } from '@electron/preload/ipcClient';
 
 const OCR_LANGUAGE_INSTALL_UNAVAILABLE = 'OCR language installation is not available from the renderer; validateTools only reports installed languages.';
+const OCR_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1000;
+const OCR_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
+    [OCR_CHANNELS.recognize]: OCR_NATIVE_IPC_TIMEOUT_MS,
+    [OCR_CHANNELS.recognizeBatch]: OCR_NATIVE_IPC_TIMEOUT_MS,
+    [OCR_CHANNELS.createSearchablePdf]: OCR_NATIVE_IPC_TIMEOUT_MS,
+    [OCR_CHANNELS.validateTools]: OCR_NATIVE_IPC_TIMEOUT_MS,
+    [OCR_CHANNELS.preprocessingValidate]: OCR_NATIVE_IPC_TIMEOUT_MS,
+    [OCR_CHANNELS.preprocessingPreprocessPage]: OCR_NATIVE_IPC_TIMEOUT_MS,
+} as const;
 const OCR_ERROR_CODES = new Set<TOcrErrorCode>([
     'OCR_INVALID_PAYLOAD',
     'OCR_INTERNAL_ERROR',
@@ -174,7 +183,7 @@ function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
 }
 
 export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability {
-    const invoke = createTypedIpcInvoker<IOcrInvokeMap>(ipcRenderer);
+    const invoke = createTypedIpcInvoker<IOcrInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: OCR_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const eventSubscriber = createTypedIpcEventSubscriber<IOcrEventMap>(ipcRenderer);
 
     return {

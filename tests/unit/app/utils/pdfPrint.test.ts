@@ -22,11 +22,15 @@ import {
 } from '@app/utils/pdfPrintShared';
 
 const pdfjsModule = vi.hoisted((): {
+    version: string;
     GlobalWorkerOptions: { workerSrc?: string; };
+    PDFDataRangeTransport: () => void;
     VerbosityLevel: { ERRORS: number; };
     getDocument: ReturnType<typeof vi.fn>;
 } => ({
+    version: '5.7.284',
     GlobalWorkerOptions: {},
+    PDFDataRangeTransport: function MockPdfDataRangeTransport() {},
     VerbosityLevel: { ERRORS: 0 },
     getDocument: vi.fn(),
 }));

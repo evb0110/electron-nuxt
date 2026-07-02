@@ -10,8 +10,11 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+import {
+    createDefaultWorkspaceToolbarSnapshot,
+    createDefaultWorkspaceViewerCapabilities,
+    type IWorkspaceExpose,
+} from '@app/types/workspaceExpose';
 import type { ITab } from '@app/types/tabs';
 import { useAppShellWorkspaceRouting } from '@app/modules/workspace-shell/composables/useAppShellWorkspaceRouting';
 import { cast } from '@tests/helpers/cast';
@@ -53,6 +56,13 @@ function createWorkspace(hasPdf = false, isDjvuMode = false, isOpeningDocument =
             getToolbarSnapshot: () => cast<IWorkspaceExpose['getToolbarSnapshot'] extends () => infer T ? T : never>({
                 isDjvuMode,
                 isOpeningDocument,
+                viewerCapabilities: {
+                    ...createDefaultWorkspaceViewerCapabilities(),
+                    closeableDocument: hasPdf || isDjvuMode,
+                    conversionBanner: isDjvuMode,
+                    conversionDialog: isDjvuMode,
+                    pdfDocument: hasPdf,
+                },
             }),
         }),
     };
@@ -73,6 +83,7 @@ function createRoutingOptions(options: {
         activeWorkspace: computed(() => options.workspaceRefs.value.get(options.activeTabId.value ?? '') ?? null),
         workspaceRefs: options.workspaceRefs,
         waitForWorkspace: vi.fn(async (tabId: string) => options.workspaceRefs.value.get(tabId) ?? null),
+        getDocumentRecord: vi.fn(() => null),
         createTab: vi.fn(({
             activate,
             initial,

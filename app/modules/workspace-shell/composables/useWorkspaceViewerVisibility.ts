@@ -4,10 +4,7 @@ import type {
 } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPdfSource } from '@app/types/pdf';
-import {
-    isPathPdfSource,
-    shouldUseNativePdfPreview,
-} from '@app/modules/pdf-viewer/public';
+import { useWorkspaceActiveViewerAdapter } from '@app/modules/workspace-shell/viewers/useWorkspaceActiveViewerAdapter';
 
 interface IWorkspaceViewerVisibilityOptions {
     djvuOpeningPath: Ref<TDocumentRef | null>;
@@ -27,30 +24,19 @@ interface IWorkspaceViewerVisibilityOptions {
 }
 
 export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibilityOptions) => {
-    const nativePdfSourcePath = computed(() => {
-        const source = options.pdfSrc.value;
-        if (!shouldUseNativePdfPreview(source) || !isPathPdfSource(source)) {
-            return null;
-        }
-        return source.path;
+    const {
+        activeViewerAdapter,
+        activeViewerCapabilities,
+        nativePdfSourcePath,
+    } = useWorkspaceActiveViewerAdapter({
+        djvuSourcePath: options.djvuSourcePath,
+        isDjvuMode: options.isDjvuMode,
+        pdfSrc: options.pdfSrc,
     });
-    const showNativePdfViewer = computed(() => (
-        !options.isDjvuMode.value
-        && Boolean(nativePdfSourcePath.value)
-    ));
-    const showStandardPdfViewer = computed(() => (
-        Boolean(options.pdfSrc.value)
-        && !showNativePdfViewer.value
-    ));
-    const showNativeDjvuViewer = computed(() => (
-        options.isDjvuMode.value
-        && Boolean(options.djvuSourcePath.value)
-        && !options.pdfSrc.value
-    ));
-    const showNativePreviewViewer = computed(() => (
-        showNativePdfViewer.value
-        || showNativeDjvuViewer.value
-    ));
+    const showNativePdfViewer = computed(() => activeViewerAdapter.value?.id === 'native-pdf');
+    const showStandardPdfViewer = computed(() => activeViewerAdapter.value?.id === 'pdf');
+    const showNativeDjvuViewer = computed(() => activeViewerAdapter.value?.id === 'djvu');
+    const showNativePreviewViewer = computed(() => !activeViewerCapabilities.value?.sidebar && Boolean(activeViewerAdapter.value));
     const isDjvuOpening = computed(() => (
         Boolean(options.djvuOpeningPath.value)
         && !showNativeDjvuViewer.value
@@ -79,11 +65,11 @@ export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibility
     ));
     const toolbarShowSidebar = computed(() => (
         options.showSidebar.value
-        && !showNativePreviewViewer.value
+        && activeViewerCapabilities.value?.sidebar === true
     ));
     const canToggleSidebar = computed(() => (
         toolbarHasPdf.value
-        && !showNativePreviewViewer.value
+        && activeViewerCapabilities.value?.sidebar === true
         && !toolbarDocumentBusy.value
     ));
     const canRepairSave = computed(() => (
@@ -91,11 +77,12 @@ export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibility
         && !toolbarDocumentBusy.value
         && !options.isAnySaving.value
         && !options.isHistoryBusy.value
-        && !options.isDjvuMode.value
-        && !showNativePdfViewer.value
+        && activeViewerCapabilities.value?.repairSave === true
     ));
 
     return {
+        activeViewerAdapter,
+        activeViewerCapabilities,
         nativePdfSourcePath,
         showNativePdfViewer,
         showStandardPdfViewer,

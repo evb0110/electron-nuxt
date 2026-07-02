@@ -1,4 +1,8 @@
-import pdfjsLib from '@app/services/pdfjs/runtimeLib';
+import pdfjsLib, {
+    configurePdfjsWorkerSrc,
+    createPdfjsDocumentOptions,
+    preparePdfjsBrowserRuntime,
+} from '@app/services/pdfjs/runtimeLib';
 import { clamp } from 'es-toolkit/math';
 import type {
     PDFDataRangeTransport,
@@ -12,10 +16,6 @@ import type {
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
-import {
-    getPdfjsAssetDir,
-    getViewerAssetResolver,
-} from '@app/utils/viewerAssets';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { maxCachedPdfPages } from '@app/modules/pdf-viewer/engine/maxCachedPdfPages';
 import {
@@ -23,7 +23,7 @@ import {
     shouldUseNativePdfPreview,
 } from '@app/modules/pdf-viewer/runtime/pdfNativePreviewRouting';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = getViewerAssetResolver().pdfWorkerUrl();
+configurePdfjsWorkerSrc(pdfjsLib);
 
 type TPdfDataRangeTransportCtor = new (
     length: number,
@@ -78,6 +78,7 @@ export const usePdfDocument = () => {
     const basePageHeight = ref<number | null>(null);
     const pageMetrics = ref<IPdfPageMetric[]>([]);
     const pageMetricsVersion = ref(0);
+    const loadError = shallowRef<unknown | null>(null);
 
     let renderVersion = 0;
     const pdfPageCache = new Map<number, PDFPageProxy>();
@@ -86,16 +87,9 @@ export const usePdfDocument = () => {
     let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
     let rangeTransport: PDFDataRangeTransport | null = null;
 
-    function getPdfjsDocumentOptions() {
-        return {
-            verbosity: pdfjsLib.VerbosityLevel.ERRORS,
-            standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
-            cMapUrl: getPdfjsAssetDir('cmaps'),
-            cMapPacked: true,
-            wasmUrl: getPdfjsAssetDir('wasm'),
-            iccUrl: getPdfjsAssetDir('iccs'),
-            useSystemFonts: false,
-        };
+    async function getPdfjsDocumentOptions() {
+        await preparePdfjsBrowserRuntime(pdfjsLib);
+        return createPdfjsDocumentOptions(pdfjsLib);
     }
 
     function touchCachedPage(pageNumber: number, page: PDFPageProxy) {
@@ -331,6 +325,7 @@ export const usePdfDocument = () => {
 
         const version = incrementRenderVersion();
         isLoading.value = true;
+        loadError.value = null;
         if (!shouldPreservePageStructure) {
             resetLoadMetadata();
         }
@@ -354,6 +349,7 @@ export const usePdfDocument = () => {
             return null;
         }
         BrowserLogger.error('pdf-document', 'Failed to load PDF', error);
+        loadError.value = error;
         return null;
     }
 
@@ -672,10 +668,15 @@ export const usePdfDocument = () => {
             return null;
         }
 
+        const documentOptions = await getPdfjsDocumentOptions();
+        if (version !== renderVersion) {
+            return null;
+        }
+
         objectUrl = URL.createObjectURL(src);
         loadingTask = pdfjsLib.getDocument({
             url: objectUrl,
-            ...getPdfjsDocumentOptions(),
+            ...documentOptions,
         });
 
         const pdfDoc = await loadingTask.promise;
@@ -715,16 +716,17 @@ export const usePdfDocument = () => {
             return null;
         }
 
-        const TransportCtor = (
-            pdfjsLib as typeof pdfjsLib & {PDFDataRangeTransport?: TPdfDataRangeTransportCtor;}
-        ).PDFDataRangeTransport;
-        if (!TransportCtor) {
-            BrowserLogger.error(
-                'pdf-document',
-                'Failed to load PDF',
-                new Error('PDF.js range transport API is unavailable'),
-            );
+        const documentOptions = await getPdfjsDocumentOptions();
+        if (version !== renderVersion) {
             return null;
+        }
+
+        const pdfjsWithRangeTransport = pdfjsLib as typeof pdfjsLib & {PDFDataRangeTransport?: TPdfDataRangeTransportCtor;};
+        const TransportCtor = 'PDFDataRangeTransport' in pdfjsWithRangeTransport
+            ? pdfjsWithRangeTransport.PDFDataRangeTransport
+            : undefined;
+        if (!TransportCtor) {
+            throw new Error('PDF.js range transport API is unavailable');
         }
 
         rangeTransport = new TransportCtor(
@@ -755,7 +757,7 @@ export const usePdfDocument = () => {
             rangeChunkSize: 1024 * 1024,
             disableAutoFetch: true,
             disableStream: true,
-            ...getPdfjsDocumentOptions(),
+            ...documentOptions,
         });
 
         const activeLoadingTask = loadingTask;
@@ -860,6 +862,7 @@ export const usePdfDocument = () => {
     function cleanup() {
         incrementRenderVersion();
         isLoading.value = false;
+        loadError.value = null;
         cleanupPageCache();
         pageMetricLoads.clear();
         abortActiveRangeTransport('Failed to abort PDF range transport');
@@ -892,6 +895,7 @@ export const usePdfDocument = () => {
         basePageHeight,
         pageMetrics,
         pageMetricsVersion,
+        loadError,
         getRenderVersion,
         incrementRenderVersion,
         loadPdf,

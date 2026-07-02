@@ -4,3 +4,4 @@ export { validatePdfFile } from '@electron/features/documents/main/pdfConformanc
 export { attachSerializedPdfPersistencePort } from '@electron/features/documents/main/serializedPdfPersistence';
 export { assertOpenInputPathCount } from '@electron/features/documents/main/openInputPaths.service';
 export { sweepStaleDefaultAppTempPdfs } from '@electron/features/documents/main/print';
+export { sweepStaleOcrTempArtifacts } from '@electron/features/documents/main/sweepStaleOcrTempArtifacts';

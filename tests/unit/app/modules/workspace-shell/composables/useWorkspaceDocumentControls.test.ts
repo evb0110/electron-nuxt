@@ -15,7 +15,7 @@ import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 const mocks = vi.hoisted(() => ({ pageOpsDeps: null as null | {
     onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
-    isDjvuMode?: unknown;
+    canMutatePages?: unknown;
 } }));
 
 vi.mock('@app/modules/workspace-shell/composables/usePageStatusBar', () => ({ usePageStatusBar: () => ({}) }));
@@ -24,7 +24,7 @@ vi.mock('@app/modules/workspace-shell/composables/usePageOpsHandlers', () => ({ 
     mocks.pageOpsDeps = deps as {
         onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
         ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
-        isDjvuMode?: unknown;
+        canMutatePages?: unknown;
     };
     return {};
 } }));
@@ -54,7 +54,7 @@ function createOptions() {
         canSave: ref(false),
         isAnySaving: ref(false),
         isHistoryBusy: ref(false),
-        isDjvuMode: ref(false),
+        canMutatePages: ref(true),
         handleSave: vi.fn(async () => {}),
         totalPages: ref(1),
         selectedThumbnailPages: ref<number[]>([]),
@@ -87,10 +87,10 @@ function createOptions() {
         hasAnnotationChanges: vi.fn(() => false),
         persistAllAnnotationNotes: vi.fn(async () => true),
         pickFileToOpen: vi.fn(async () => null),
-        openFileWithDjvuCleanup: vi.fn(async () => openedOutcome),
-        openFileDirectWithDjvuCleanup: vi.fn(async () => openedOutcome),
-        openFileDirectBatchWithDjvuCleanup: vi.fn(async () => openedOutcome),
-        closeFileWithDjvuCleanup: vi.fn(async () => {}),
+        openFileWithViewerLifecycle: vi.fn(async () => openedOutcome),
+        openFileDirectWithViewerLifecycle: vi.fn(async () => openedOutcome),
+        openFileDirectBatchWithViewerLifecycle: vi.fn(async () => openedOutcome),
+        closeFileWithViewerLifecycle: vi.fn(async () => {}),
         closeAllDropdowns: vi.fn(),
         emitOpenInNewTab: vi.fn(),
         removeRecentFile: vi.fn(async () => {}),
@@ -124,11 +124,11 @@ describe('useWorkspaceDocumentControls', () => {
         expect(mocks.pageOpsDeps?.ensureWorkingCopyFreshForRead).toBe(options.ensureWorkingCopyFreshForRead);
     });
 
-    it('forwards DjVu state to page operations', () => {
+    it('forwards page mutation capability to page operations', () => {
         const options = createOptions();
 
         useWorkspaceDocumentControls(options);
 
-        expect(mocks.pageOpsDeps?.isDjvuMode).toBe(options.isDjvuMode);
+        expect(mocks.pageOpsDeps?.canMutatePages).toBe(options.canMutatePages);
     });
 });

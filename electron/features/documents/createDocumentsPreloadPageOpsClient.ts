@@ -6,10 +6,23 @@ import {
 } from '@electron/features/page-ops/index';
 import { createTypedIpcInvoker } from '@electron/preload/ipcClient';
 
+const PAGE_OPS_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1000;
+const PAGE_OPS_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
+    [PAGE_OPS_CHANNELS.delete]: PAGE_OPS_NATIVE_IPC_TIMEOUT_MS,
+    [PAGE_OPS_CHANNELS.extract]: PAGE_OPS_NATIVE_IPC_TIMEOUT_MS,
+    [PAGE_OPS_CHANNELS.reorder]: PAGE_OPS_NATIVE_IPC_TIMEOUT_MS,
+    [PAGE_OPS_CHANNELS.insert]: PAGE_OPS_NATIVE_IPC_TIMEOUT_MS,
+    [PAGE_OPS_CHANNELS.insertFile]: PAGE_OPS_NATIVE_IPC_TIMEOUT_MS,
+    [PAGE_OPS_CHANNELS.rotate]: PAGE_OPS_NATIVE_IPC_TIMEOUT_MS,
+    [PAGE_OPS_CHANNELS.crop]: PAGE_OPS_NATIVE_IPC_TIMEOUT_MS,
+    [PAGE_OPS_CHANNELS.removeCrop]: PAGE_OPS_NATIVE_IPC_TIMEOUT_MS,
+    [PAGE_OPS_CHANNELS.getPageGeometry]: PAGE_OPS_NATIVE_IPC_TIMEOUT_MS,
+} as const;
+
 export function createDocumentsPreloadPageOpsClient(
     ipcRenderer: IpcRenderer,
 ): IPageOpsCapability {
-    const invoke = createTypedIpcInvoker<IPageOpsInvokeMap>(ipcRenderer);
+    const invoke = createTypedIpcInvoker<IPageOpsInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: PAGE_OPS_INVOKE_TIMEOUT_MS_BY_CHANNEL});
 
     return {
         delete: (workingCopyPath, pages, totalPages) =>

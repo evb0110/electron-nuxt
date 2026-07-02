@@ -217,6 +217,10 @@ jobs:
             echo "WIN_CSC_KEY_PASSWORD_ENV=$WIN_CSC_KEY_PASSWORD" >> "$GITHUB_ENV"
             echo "WIN_EXPECT_SIGNATURE=true" >> "$GITHUB_ENV"
           elif [ -n "$WIN_CSC_LINK" ] || [ -n "$WIN_CSC_KEY_PASSWORD" ]; then
+            if [ "${CI:-}" = "true" ]; then
+              echo "::error::Partial WIN_CSC_* secrets detected; set both WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD or neither"
+              exit 1
+            fi
             echo "::warning::Partial WIN_CSC_* secrets detected; building unsigned Windows installer"
           else
             echo "::notice::No Windows signing certificate configured; building unsigned Windows installer"

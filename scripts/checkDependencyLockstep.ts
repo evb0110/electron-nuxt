@@ -21,6 +21,7 @@ export interface IPnpmLockfileIndex {
 }
 
 export interface IDependencyLockstepInput {
+    landingPackageJson?: PackageJson;
     lockfile: IPnpmLockfileIndex;
     packageJson: PackageJson;
 }
@@ -35,6 +36,7 @@ const INTLIFY_LOCKSTEP_PACKAGES = [
     '@intlify/message-compiler',
     '@intlify/shared',
 ];
+const SIMPLE_VERSION_SPECIFIER_PATTERN = /^[\^~]?=?\s*v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)/u;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -179,6 +181,10 @@ function compareSemver(left: ISemver, right: ISemver) {
     }
 
     return comparePrerelease(left.prerelease, right.prerelease);
+}
+
+function formatSemver(version: ISemver) {
+    return `${version.major}.${version.minor}.${version.patch}${version.prerelease === null ? '' : `-${version.prerelease}`}`;
 }
 
 function incrementForCaret(version: ISemver): ISemver {
@@ -584,6 +590,96 @@ function assertIntlifyLockstep(packageJson: PackageJson, errors: string[]) {
     }
 }
 
+function getPackageManager(packageJson: PackageJson) {
+    return typeof packageJson.packageManager === 'string' ? packageJson.packageManager : '';
+}
+
+function getSharedDependencyAnchorVersion(specifier: string) {
+    const match = SIMPLE_VERSION_SPECIFIER_PATTERN.exec(specifier.trim());
+    const rawVersion = match?.[1];
+
+    return rawVersion === undefined ? null : parseSemver(rawVersion);
+}
+
+function assertLandingSharedDependencyAnchors(
+    packageJson: PackageJson,
+    landingPackageJson: PackageJson,
+    errors: string[],
+) {
+    const rootDependencies = collectDeclaredDependencies(packageJson);
+    const landingDependencies = collectDeclaredDependencies(landingPackageJson);
+    const sharedDependencyNames = Object.keys(landingDependencies)
+        .filter(packageName => rootDependencies[packageName] !== undefined)
+        .sort((left, right) => left.localeCompare(right));
+
+    for (const packageName of sharedDependencyNames) {
+        const rootSpecifier = rootDependencies[packageName];
+        const landingSpecifier = landingDependencies[packageName];
+        if (rootSpecifier === undefined || landingSpecifier === undefined) {
+            continue;
+        }
+
+        const rootAnchor = getSharedDependencyAnchorVersion(rootSpecifier);
+        const landingAnchor = getSharedDependencyAnchorVersion(landingSpecifier);
+        if (rootAnchor === null || landingAnchor === null) {
+            errors.push(`landing package ${packageName} must use a simple semver specifier that can be checked against the root package, received root "${rootSpecifier}" and landing "${landingSpecifier}".`);
+            continue;
+        }
+
+        if (compareSemver(rootAnchor, landingAnchor) !== 0) {
+            errors.push(`landing package ${packageName} must stay on root dependency anchor ${formatSemver(rootAnchor)}, received ${formatSemver(landingAnchor)}.`);
+        }
+    }
+}
+
+function assertLandingOverrideLockstep(
+    packageJson: PackageJson,
+    landingPackageJson: PackageJson,
+    errors: string[],
+) {
+    const rootOverrides = getOverrides(packageJson);
+    const landingOverrides = getOverrides(landingPackageJson);
+
+    for (const [
+        overrideKey,
+        overrideValue,
+    ] of sortedEntries(rootOverrides)) {
+        const landingValue = landingOverrides[overrideKey];
+        if (landingValue !== overrideValue) {
+            errors.push(`landing/package.json pnpm.overrides.${overrideKey} must match root package.json value "${overrideValue}", received "${landingValue ?? '<missing>'}".`);
+        }
+    }
+
+    for (const [
+        overrideKey,
+        landingValue,
+    ] of sortedEntries(landingOverrides)) {
+        if (rootOverrides[overrideKey] === undefined) {
+            errors.push(`landing/package.json contains pnpm.overrides.${overrideKey}: ${landingValue}, but root package.json does not.`);
+        }
+    }
+}
+
+function assertLandingPackageLockstep(
+    packageJson: PackageJson,
+    landingPackageJson: PackageJson | undefined,
+    errors: string[],
+) {
+    if (landingPackageJson === undefined) {
+        errors.push('landing/package.json must be checked by dependency lockstep.');
+        return;
+    }
+
+    const rootPackageManager = getPackageManager(packageJson);
+    const landingPackageManager = getPackageManager(landingPackageJson);
+    if (rootPackageManager !== landingPackageManager) {
+        errors.push(`landing/package.json packageManager must match root package.json (${rootPackageManager || '<missing>'}), received "${landingPackageManager || '<missing>'}".`);
+    }
+
+    assertLandingOverrideLockstep(packageJson, landingPackageJson, errors);
+    assertLandingSharedDependencyAnchors(packageJson, landingPackageJson, errors);
+}
+
 function assertOverrideGraph(packageJson: PackageJson, lockfile: IPnpmLockfileIndex, errors: string[]) {
     const overrides = getOverrides(packageJson);
     const packageOverrideEntries = sortedEntries(overrides);
@@ -626,6 +722,7 @@ export function checkDependencyLockstep(input: IDependencyLockstepInput) {
     assertVueLockstep(input.packageJson, errors);
     assertIntlifyLockstep(input.packageJson, errors);
     assertOverrideGraph(input.packageJson, input.lockfile, errors);
+    assertLandingPackageLockstep(input.packageJson, input.landingPackageJson, errors);
 
     return errors;
 }
@@ -640,8 +737,10 @@ async function readPackageJson(packageJsonPath: string) {
 
 async function main() {
     const packageJson = await readPackageJson(path.join(PROJECT_ROOT, 'package.json'));
+    const landingPackageJson = await readPackageJson(path.join(PROJECT_ROOT, 'landing', 'package.json'));
     const lockfileContent = await readFile(path.join(PROJECT_ROOT, 'pnpm-lock.yaml'), 'utf8');
     const errors = checkDependencyLockstep({
+        landingPackageJson,
         lockfile: parsePnpmLockfile(lockfileContent),
         packageJson,
     });

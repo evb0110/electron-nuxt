@@ -26,6 +26,12 @@ import {
     createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
 
+const SEARCH_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1000;
+const SEARCH_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
+    [SEARCH_CHANNELS.search]: SEARCH_NATIVE_IPC_TIMEOUT_MS,
+    [SEARCH_CHANNELS.warmIndex]: SEARCH_NATIVE_IPC_TIMEOUT_MS,
+} as const;
+
 function isFiniteNumber(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value);
 }
@@ -138,7 +144,7 @@ function decodeSearchProgress(payload: unknown): IPdfSearchProgress | null {
 }
 
 export function createSearchPreloadClient(ipcRenderer: IpcRenderer): ISearchPreloadClient {
-    const invoke = createTypedIpcInvoker<ISearchInvokeMap>(ipcRenderer);
+    const invoke = createTypedIpcInvoker<ISearchInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: SEARCH_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const eventSubscriber = createTypedIpcEventSubscriber<ISearchEventMap>(ipcRenderer);
 
     return {

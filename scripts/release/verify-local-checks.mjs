@@ -57,7 +57,7 @@ export function getLocalReleaseCheckCommands() {
         {
             args: [
                 'run',
-                'test:release',
+                'test:coverage',
             ],
             command: 'pnpm',
         },

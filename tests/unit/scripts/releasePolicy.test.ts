@@ -148,6 +148,20 @@ interface IReleaseSharedModule {
     isTransientRemoteGitError: (error: unknown) => boolean;
 }
 
+interface ICutReleaseArgs {
+    level: string | null;
+    resume: boolean;
+}
+
+interface ICutReleaseModule {
+    getReleaseWorkflowDispatchArgs: (options: {
+        branch: string;
+        tag: string;
+        targetSha: string;
+    }) => string[];
+    parseCutReleaseArgs: (argv: string[]) => ICutReleaseArgs;
+}
+
 const {
     detectHostReleasePlatform,
     assertPublishUpdaterMetadataReferences,
@@ -182,6 +196,10 @@ const {
     isTransientGitHubAuthError,
     isTransientRemoteGitError,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/shared.mjs')).href) as IReleaseSharedModule;
+const {
+    getReleaseWorkflowDispatchArgs,
+    parseCutReleaseArgs,
+} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/cut-release.mjs')).href) as ICutReleaseModule;
 
 describe('release policy', () => {
     it('derives local release targets from host platform and arch', () => {
@@ -431,7 +449,7 @@ describe('release policy', () => {
             ],
             [
                 'run',
-                'test:release',
+                'test:coverage',
             ],
             [
                 'run',
@@ -441,10 +459,40 @@ describe('release policy', () => {
         expect(scriptNames).not.toContain('validate');
         expect(scriptNames).not.toContain('fallow:all');
         expect(scriptNames).not.toContain('typecheck:coverage');
-        expect(scriptNames).not.toContain('test:coverage');
+        expect(scriptNames).not.toContain('test:release');
         expect(scriptNames).not.toContain('test:python-page-processor');
         expect(scriptNames).not.toContain('check:architecture:all');
         expect(commandArgs.flat()).not.toContain('landing');
+    });
+
+    it('supports release resume without requiring a new version bump level', () => {
+        expect(parseCutReleaseArgs(['patch'])).toEqual({
+            level: 'patch',
+            resume: false,
+        });
+        expect(parseCutReleaseArgs(['--resume'])).toEqual({
+            level: null,
+            resume: true,
+        });
+        expect(() => parseCutReleaseArgs([
+            'patch',
+            '--resume',
+        ])).toThrow('does not accept a release level');
+        expect(getReleaseWorkflowDispatchArgs({
+            branch: 'main',
+            tag: 'v1.2.3',
+            targetSha: 'abc123',
+        })).toEqual([
+            'workflow',
+            'run',
+            'release.yml',
+            '--ref',
+            'main',
+            '--field',
+            'tag=v1.2.3',
+            '--field',
+            'target_ref=abc123',
+        ]);
     });
 
     it('keeps standalone release verification composed from focused local gates', () => {

@@ -18,6 +18,8 @@ body,
     --app-window-bg: var(--ui-bg);
     --app-chrome: color-mix(in oklab, var(--ui-bg) 35%, var(--ui-border) 65%);
     --app-chrome-hover: color-mix(in oklab, var(--ui-bg) 55%, var(--ui-border) 45%);
+    --app-toolbar-control-size: 2.25rem;
+    --app-toolbar-row-height: calc(var(--app-toolbar-control-size) + 1rem + 2px);
     --app-toolbar-control-hover-bg: var(--app-chrome-hover);
     --app-toolbar-control-active-bg: #ffffff;
     --app-toolbar-control-active-hover-bg: #ffffff;
@@ -156,22 +158,24 @@ body {
 
 .editor-global-toolbar-shell,
 .editor-global-toolbar-host {
+    display: flex;
+    flex-direction: column;
     flex: 0 0 auto;
-    min-height: 3.25rem;
+    min-height: var(--app-toolbar-row-height, 3.5rem);
 }
 
 .toolbar {
     display: flex;
     align-items: center;
     gap: 0.25rem;
-    min-height: 3.25rem;
+    min-height: var(--app-toolbar-row-height, 3.5rem);
     padding: 0.5rem;
     border-bottom: 1px solid var(--ui-border);
     border-top: 1px solid var(--ui-border);
     background: var(--app-chrome);
     white-space: nowrap;
     overflow: hidden;
-    --toolbar-control-height: 2.25rem;
+    --toolbar-control-height: var(--app-toolbar-control-size);
 }
 
 .toolbar-section,

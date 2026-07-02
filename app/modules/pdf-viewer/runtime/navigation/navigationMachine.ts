@@ -13,6 +13,7 @@ export type TPdfNavigationStatus =
 
 export interface IPdfNavigationState {
     anchor: TPageSnapAnchor | null;
+    currentPage: number | null;
     source: TPdfNavigationSource | null;
     status: TPdfNavigationStatus;
     targetPage: number | null;
@@ -35,17 +36,41 @@ interface IPdfNavigationScrollAppliedEvent extends IPdfNavigationTxnPageEvent { 
 
 interface IPdfNavigationRenderSettledEvent extends IPdfNavigationTxnPageEvent { type: 'RENDER_SETTLED' }
 
+interface IPdfNavigationCurrentPageCommittedEvent extends IPdfNavigationTxnPageEvent { type: 'CURRENT_PAGE_COMMITTED' }
+
+interface IPdfNavigationViewportCurrentPageEvent {
+    page: number;
+    type: 'VIEWPORT_CURRENT_PAGE';
+}
+
 interface IPdfNavigationCancelEvent { type: 'CANCEL' | 'DOCUMENT_CHANGED' | 'USER_SCROLL' }
 
 export type TPdfNavigationEvent =
     | IPdfNavigateEvent
     | IPdfNavigationScrollAppliedEvent
     | IPdfNavigationRenderSettledEvent
+    | IPdfNavigationCurrentPageCommittedEvent
+    | IPdfNavigationViewportCurrentPageEvent
     | IPdfNavigationCancelEvent;
 
-export function createPdfNavigationMachineState(txn = 0): IPdfNavigationState {
+export function createPdfNavigationRenderSettledEvent(
+    txn: number,
+    page: number,
+): TPdfNavigationEvent {
+    return {
+        page,
+        txn,
+        type: 'RENDER_SETTLED',
+    };
+}
+
+export function createPdfNavigationMachineState(
+    txn = 0,
+    currentPage: number | null = null,
+): IPdfNavigationState {
     return {
         anchor: null,
+        currentPage,
         source: null,
         status: 'idle',
         targetPage: null,
@@ -68,10 +93,27 @@ export function reducePdfNavigationMachine(
         case 'NAVIGATE':
             return {
                 anchor: event.anchor ?? null,
+                currentPage: event.targetPage,
                 source: event.source,
                 status: 'navigating',
                 targetPage: event.targetPage,
                 txn: state.txn + 1,
+            };
+        case 'CURRENT_PAGE_COMMITTED':
+            if (!eventMatchesCurrentTarget(state, event)) {
+                return state;
+            }
+            return {
+                ...state,
+                currentPage: event.page,
+            };
+        case 'VIEWPORT_CURRENT_PAGE':
+            if (!canSyncPdfNavigationFromViewport(state)) {
+                return state;
+            }
+            return {
+                ...state,
+                currentPage: event.page,
             };
         case 'SCROLL_APPLIED':
             if (state.status !== 'navigating' || !eventMatchesCurrentTarget(state, event)) {
@@ -88,11 +130,11 @@ export function reducePdfNavigationMachine(
             ) {
                 return state;
             }
-            return createPdfNavigationMachineState(state.txn);
+            return createPdfNavigationMachineState(state.txn, state.currentPage);
         case 'CANCEL':
         case 'DOCUMENT_CHANGED':
         case 'USER_SCROLL':
-            return createPdfNavigationMachineState(state.txn + 1);
+            return createPdfNavigationMachineState(state.txn + 1, state.currentPage);
     }
 }
 

@@ -12,10 +12,16 @@ import {
     isResizePdfRerenderSource,
     normalizePdfRerenderSource,
 } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
+import type { TZoomInteractionLockOperationId } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
 const ZOOM_RERENDER_DEFER_WHILE_GESTURE_MS = 80;
 const ZOOM_RERENDER_DURING_GESTURE_MIN_INTERVAL_MS = 110;
+
+interface IZoomRerenderBusySignal {
+    operationId?: TZoomInteractionLockOperationId | null | undefined;
+    reason: string;
+}
 
 interface IUsePdfViewerZoomRerenderQueueOptions {
     pdfDocument: Ref<PDFDocumentProxy | null>;
@@ -27,7 +33,10 @@ interface IUsePdfViewerZoomRerenderQueueOptions {
     scheduleEndResizeTransition?: (token: number, reason: string, page: number | null) => void;
     isZoomInteractionLocked?: (() => boolean) | undefined;
     isZoomGestureSessionLocked?: (() => boolean) | undefined;
-    setZoomRerenderBusy?: ((busy: boolean) => void) | undefined;
+    setZoomRerenderBusy?: ((
+        busy: boolean,
+        signal?: IZoomRerenderBusySignal,
+    ) => TZoomInteractionLockOperationId | null | undefined) | undefined;
 }
 
 export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerenderQueueOptions) => {
@@ -56,12 +65,46 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
         syncOptions: ICurrentPageSyncOptions;
     } | null = null;
     let lastReportedZoomBusy = false;
+    let activeZoomRerenderLockOperationId: TZoomInteractionLockOperationId | null = null;
 
     function isZoomRerenderBusy() {
         return zoomRerenderQueueProcessing
             || zoomRerenderFrameScheduled
             || zoomRerenderDeferredTimer !== null
             || pendingZoomSyncOptions !== null;
+    }
+
+    function notifyZoomRerenderBusy(
+        busy: boolean,
+        source: string,
+        operationId = activeZoomRerenderLockOperationId,
+    ) {
+        const signaledOperationId = setZoomRerenderBusy?.(busy, {
+            operationId,
+            reason: source,
+        });
+        if (busy) {
+            activeZoomRerenderLockOperationId =
+                typeof signaledOperationId === 'number'
+                    ? signaledOperationId
+                    : operationId;
+        } else {
+            activeZoomRerenderLockOperationId = null;
+        }
+    }
+
+    function adoptPendingZoomLockOperation(source: string) {
+        if (!lastReportedZoomBusy) {
+            return;
+        }
+        const operationId = pendingZoomSyncOptions?.zoomLockOperationId ?? null;
+        if (
+            operationId === null
+            || operationId === activeZoomRerenderLockOperationId
+        ) {
+            return;
+        }
+        notifyZoomRerenderBusy(true, source, operationId);
     }
 
     function clearZoomRerenderDeferredTimer() {
@@ -91,7 +134,11 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
             queueProcessing: zoomRerenderQueueProcessing,
             hasPendingZoomSync: Boolean(pendingZoomSyncOptions),
         });
-        setZoomRerenderBusy?.(busy);
+        notifyZoomRerenderBusy(
+            busy,
+            source,
+            pendingZoomSyncOptions?.zoomLockOperationId ?? activeZoomRerenderLockOperationId,
+        );
     }
 
     function deferZoomRerenderWhileGestureActive() {
@@ -357,6 +404,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
 
     function enqueueZoomSync(syncOptions: ICurrentPageSyncOptions) {
         pendingZoomSyncOptions = syncOptions;
+        adoptPendingZoomLockOperation('zoom-watch-adopt-operation');
         reportZoomBusyStateIfChanged('zoom-watch-enqueue');
         scheduleZoomRerender();
     }
@@ -375,7 +423,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
         zoomGestureLowResRerenderUsed = false;
         cancelDeferredResizeRerender('zoom-queue-cleanup');
         lastReportedZoomBusy = false;
-        setZoomRerenderBusy?.(false);
+        notifyZoomRerenderBusy(false, 'zoom-queue-cleanup');
     }
 
     return {

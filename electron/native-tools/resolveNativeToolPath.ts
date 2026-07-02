@@ -2,8 +2,10 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { resolveNativeToolsBase } from '@electron/native-tools/resolveNativeToolsBase';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
+import { createLogger } from '@electron/utils/createLogger';
 
 interface IResolveNativeToolPathOptions {
+    allowPackagedDiagnosticsPaths?: boolean | undefined;
     binaryName: string;
     binaryRelativePath?: string[] | undefined;
     crateName: string;
@@ -27,6 +29,9 @@ const RUST_TARGET_BY_PLATFORM_ARCH: Record<string, string> = {
     'win32-x64': 'x86_64-pc-windows-msvc',
 };
 
+const logger = createLogger('native-tool-paths');
+const PACKAGED_DIAGNOSTICS_PATHS_ENV = 'EVB_NATIVE_TOOL_ALLOW_PACKAGED_DIAGNOSTIC_PATHS';
+
 function platformFromPlatformArch(platformArch: string | undefined): NodeJS.Platform | undefined {
     if (platformArch?.startsWith('darwin-')) {
         return 'darwin';
@@ -41,34 +46,21 @@ function platformFromPlatformArch(platformArch: string | undefined): NodeJS.Plat
     return undefined;
 }
 
-export function getNativeToolPathCandidates(options: IResolveNativeToolPathOptions) {
+function allowPackagedDiagnosticsPaths(options: IResolveNativeToolPathOptions) {
+    return !options.isPackaged
+        || options.allowPackagedDiagnosticsPaths === true
+        || process.env[PACKAGED_DIAGNOSTICS_PATHS_ENV] === '1';
+}
+
+function getDevNativeToolPathCandidates(options: IResolveNativeToolPathOptions) {
     const projectRoot = options.projectRoot ?? process.cwd();
     const platformArch = options.platformArch ?? resolvePlatformArchTag();
-    const platform = options.platform ?? platformFromPlatformArch(platformArch);
-    const nativeToolsBaseOptions: {
-        platform?: NodeJS.Platform;
-        resourcesBase?: string;
-    } = {};
-    if (platform !== undefined) {
-        nativeToolsBaseOptions.platform = platform;
-    }
-    if (options.resourcesBase !== undefined) {
-        nativeToolsBaseOptions.resourcesBase = options.resourcesBase;
-    }
-    const nativeToolsBase = resolveNativeToolsBase(
-        options.currentDir,
-        options.isPackaged,
-        nativeToolsBaseOptions,
-    );
     const rustTarget = RUST_TARGET_BY_PLATFORM_ARCH[platformArch];
     const binaryRelativePath = options.binaryRelativePath ?? [
         'bin',
         options.binaryName,
     ];
-    const candidates = [
-        join(nativeToolsBase, options.crateName, platformArch, ...binaryRelativePath),
-        join(projectRoot, '.tmp', options.crateName, platformArch, ...binaryRelativePath),
-    ];
+    const candidates = [join(projectRoot, '.tmp', options.crateName, platformArch, ...binaryRelativePath)];
 
     if (options.includeRustTargetCandidates === false) {
         return candidates;
@@ -98,12 +90,65 @@ export function getNativeToolPathCandidates(options: IResolveNativeToolPathOptio
     return candidates;
 }
 
+export function getNativeToolPathCandidates(options: IResolveNativeToolPathOptions) {
+    const platformArch = options.platformArch ?? resolvePlatformArchTag();
+    const platform = options.platform ?? platformFromPlatformArch(platformArch);
+    const nativeToolsBaseOptions: {
+        platform?: NodeJS.Platform;
+        resourcesBase?: string;
+    } = {};
+    if (platform !== undefined) {
+        nativeToolsBaseOptions.platform = platform;
+    }
+    if (options.resourcesBase !== undefined) {
+        nativeToolsBaseOptions.resourcesBase = options.resourcesBase;
+    }
+    const nativeToolsBase = resolveNativeToolsBase(
+        options.currentDir,
+        options.isPackaged,
+        nativeToolsBaseOptions,
+    );
+    const binaryRelativePath = options.binaryRelativePath ?? [
+        'bin',
+        options.binaryName,
+    ];
+    const candidates = [join(nativeToolsBase, options.crateName, platformArch, ...binaryRelativePath)];
+
+    if (allowPackagedDiagnosticsPaths(options)) {
+        candidates.push(...getDevNativeToolPathCandidates(options));
+    }
+
+    return candidates;
+}
+
 export function resolveNativeToolPath(options: IResolveNativeToolPathOptions) {
     const pathExists = options.exists ?? existsSync;
     const overridePath = options.envOverridePath?.trim();
-    if (overridePath && pathExists(overridePath)) {
+    const allowDiagnosticsPaths = allowPackagedDiagnosticsPaths(options);
+    if (overridePath && !allowDiagnosticsPaths) {
+        logger.warn(
+            `Ignoring packaged native tool override for ${options.crateName}; `
+            + `set ${PACKAGED_DIAGNOSTICS_PATHS_ENV}=1 only for diagnostics`,
+        );
+    }
+    if (overridePath && allowDiagnosticsPaths && pathExists(overridePath)) {
+        if (options.isPackaged) {
+            logger.warn(`Using diagnostics native tool override for packaged ${options.crateName}: ${overridePath}`);
+        }
         return overridePath;
     }
 
-    return getNativeToolPathCandidates(options).find(candidate => pathExists(candidate)) ?? null;
+    const resolvedPath = getNativeToolPathCandidates(options).find(candidate => pathExists(candidate)) ?? null;
+    if (resolvedPath || !options.isPackaged || allowDiagnosticsPaths) {
+        return resolvedPath;
+    }
+
+    const unsafeFallbackPath = getDevNativeToolPathCandidates(options).find(candidate => pathExists(candidate));
+    if (unsafeFallbackPath) {
+        logger.warn(
+            `Ignoring packaged native tool fallback for ${options.crateName}: ${unsafeFallbackPath}; `
+            + `set ${PACKAGED_DIAGNOSTICS_PATHS_ENV}=1 only for diagnostics`,
+        );
+    }
+    return null;
 }

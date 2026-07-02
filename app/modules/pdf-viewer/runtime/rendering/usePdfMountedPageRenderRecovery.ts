@@ -4,7 +4,11 @@ import type {
     Ref,
 } from 'vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
-
+import {
+    createPdfRenderSupervisor,
+    type IPdfRenderSupervisor,
+    type IPdfRenderSupervisorTimer,
+} from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 
 interface IUsePdfMountedPageRenderRecoveryOptions {
     isActive: MaybeRefOrGetter<boolean>;
@@ -32,6 +36,7 @@ interface IUsePdfMountedPageRenderRecoveryOptions {
         },
     ) => Promise<void>;
     resolveRecoveryRange?: ((pageNumber: number) => IPageRange | null | undefined) | undefined;
+    renderSupervisor?: IPdfRenderSupervisor | undefined;
 }
 
 const MOUNTED_PAGE_RENDER_RETRY_DELAYS_MS = [
@@ -76,16 +81,15 @@ function toContiguousPageRanges(pageNumbers: number[]) {
 }
 
 export const usePdfMountedPageRenderRecovery = (options: IUsePdfMountedPageRenderRecoveryOptions) => {
+    const renderSupervisor = options.renderSupervisor ?? createPdfRenderSupervisor();
     const pendingPages = new Map<number, number>();
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryTimer: IPdfRenderSupervisorTimer | null = null;
     let isRenderPassActive = false;
     let recoveryRunId = 0;
 
     function clearRetryTimer() {
-        if (retryTimer !== null) {
-            clearTimeout(retryTimer);
-            retryTimer = null;
-        }
+        renderSupervisor.clearTimer(retryTimer);
+        retryTimer = null;
     }
 
     function canTrackPendingPage(pageNumber: number) {
@@ -144,10 +148,19 @@ export const usePdfMountedPageRenderRecovery = (options: IUsePdfMountedPageRende
         }
 
         const runId = recoveryRunId;
-        retryTimer = setTimeout(() => {
-            retryTimer = null;
-            void runRenderPass(runId);
-        }, delayMs);
+        retryTimer = renderSupervisor.armTimer({
+            cause: 'mounted-page-recovery',
+            delayMs,
+            key: 'mounted-page-render-recovery',
+            metadata: {
+                pendingPages: Array.from(pendingPages.keys()),
+                runId,
+            },
+            onFire: () => {
+                retryTimer = null;
+                void runRenderPass(runId);
+            },
+        });
     }
 
     function scheduleRetryForPages(pageNumbers: number[]) {

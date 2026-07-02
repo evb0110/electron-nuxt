@@ -4,6 +4,7 @@ import { useDjvu } from '@app/composables/useDjvu';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import { useWorkspaceFileSwitch } from '@app/modules/workspace-shell/composables/useWorkspaceFileSwitch';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { createWorkspaceViewerLifecycleHooks } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 
 export const useWorkspaceFileLifecycleController = () => {
     const {
@@ -76,16 +77,19 @@ export const useWorkspaceFileLifecycleController = () => {
     } = useRecentFiles();
 
     const {
-        openFileWithDjvuCleanup,
-        openFileDirectWithDjvuCleanup,
-        openFileDirectBatchWithDjvuCleanup,
-        closeFileWithDjvuCleanup,
+        openFileWithViewerLifecycle,
+        openFileDirectWithViewerLifecycle,
+        openFileDirectBatchWithViewerLifecycle,
+        closeFileWithViewerLifecycle,
     } = useWorkspaceFileSwitch({
         workingCopyPath,
-        isDjvuMode,
-        cleanupDjvuTemp,
-        exitDjvuMode,
-        invalidatePendingDjvuOpen,
+        viewerLifecycleHooks: createWorkspaceViewerLifecycleHooks({
+            cleanupDjvuTemp,
+            exitDjvuMode,
+            invalidatePendingDjvuOpen,
+            isDjvuMode,
+            workingCopyPath,
+        }),
         pickFileToOpen: pickPdfFileToOpen,
         openFile,
         openFileDirect,
@@ -98,7 +102,7 @@ export const useWorkspaceFileLifecycleController = () => {
         preserveBookmarks: boolean,
         pdfStrategy: TDjvuPdfExportStrategy,
     ) {
-        return djvuConvertToPdf(subsample, preserveBookmarks, pdfStrategy, openFileDirectWithDjvuCleanup);
+        return djvuConvertToPdf(subsample, preserveBookmarks, pdfStrategy, openFileDirectWithViewerLifecycle);
     }
 
     function handleDjvuCancel() {
@@ -178,10 +182,10 @@ export const useWorkspaceFileLifecycleController = () => {
         removeRecentFile,
         clearRecentFiles,
 
-        openFileWithDjvuCleanup,
-        openFileDirectWithDjvuCleanup,
-        openFileDirectBatchWithDjvuCleanup,
-        closeFileWithDjvuCleanup,
+        openFileWithViewerLifecycle,
+        openFileDirectWithViewerLifecycle,
+        openFileDirectBatchWithViewerLifecycle,
+        closeFileWithViewerLifecycle,
 
         hasPdf,
         initFromStorage,

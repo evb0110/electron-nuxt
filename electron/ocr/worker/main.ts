@@ -78,11 +78,19 @@ import {
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
 import { buildOcrErrorEnvelope } from '@electron/ocr/contracts';
+import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import { assertPdfPageSizeFallbackInputSafe } from '@electron/ocr/worker/assertPdfPageSizeFallbackInputSafe';
 
 const initialWorkerData: unknown = workerData;
 const paths = resolveWorkerPaths(initialWorkerData);
 const activeJobControllers = new Map<string, AbortController>();
 const OCR_PAGE_SIZES_TIMEOUT_MS = 30_000;
+const OCR_PAGE_SIZE_FALLBACK_MAX_INPUT_BYTES = parseIntegerEnv(
+    'EVB_OCR_PAGE_SIZE_FALLBACK_MAX_INPUT_MB',
+    128,
+    1,
+    1024,
+) * 1024 * 1024;
 const OCR_RESOURCE_ACQUIRE_TIMEOUT_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_OCR_RESOURCE_ACQUIRE_TIMEOUT_MS ?? '30000', 10);
     if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -655,6 +663,7 @@ async function readPdfPageSizesInches(pdfPath: string, signal?: AbortSignal) {
         if (signal?.aborted) {
             throw signal.reason instanceof Error ? signal.reason : new Error('OCR job canceled');
         }
+        await assertPdfPageSizeFallbackInputSafe(pdfPath, OCR_PAGE_SIZE_FALLBACK_MAX_INPUT_BYTES);
         const pdfBytes = await readFile(pdfPath);
         if (signal?.aborted) {
             throw signal.reason instanceof Error ? signal.reason : new Error('OCR job canceled');

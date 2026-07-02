@@ -24,6 +24,7 @@ export interface IPdfViewerEventAdapter {
     updateLoading(loading: boolean): void;
     updateDocument(document: PDFDocumentProxy | null): void;
     loading(loading: boolean): void;
+    loadError(error: unknown): void;
     annotationState(state: IAnnotationEditorState): void;
     annotationModified(payload?: IAnnotationModifiedPayload): void;
     annotationComments(comments: IAnnotationCommentSummary[]): void;
@@ -59,6 +60,7 @@ export function createPdfViewerEventAdapter(emit: IPdfViewerEmit): IPdfViewerEve
         updateLoading: loading => emit('update:loading', loading),
         updateDocument: document => emit('update:document', document),
         loading: loading => emit('loading', loading),
+        loadError: error => emit('load-error', error),
         annotationState: state => emit('annotation-state', state),
         annotationModified: payload => emit('annotation-modified', payload),
         annotationComments: comments => emit('annotation-comments', comments),

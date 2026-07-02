@@ -1,4 +1,7 @@
-import { stat } from 'fs/promises';
+import {
+    rm,
+    stat,
+} from 'fs/promises';
 import { sortBy } from 'es-toolkit/array';
 import { sumBy } from 'es-toolkit/math';
 import type { IPdfSearchIndex } from '@electron/search/indexBuilder';
@@ -28,6 +31,13 @@ interface IEnsureSearchIndexOptions {
     signal?: AbortSignal;
     throwIfCancelled: (signal?: AbortSignal) => void;
     onPageIndexed?: (page: IPdfSearchIndex['pages'][number]) => void;
+}
+
+class SearchIndexTextBudgetError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'SearchIndexTextBudgetError';
+    }
 }
 
 function getIndexPath(pdfPath: string) {
@@ -86,7 +96,7 @@ function validateIndexTextBudget(
         const pageText = page.text ?? '';
         const pageTextBytes = Buffer.byteLength(pageText, 'utf8');
         if (pageTextBytes > options.maxPageTextBytes) {
-            throw new Error(
+            throw new SearchIndexTextBudgetError(
                 `Search index page ${page.pageNumber} is too large (${Math.round(pageTextBytes / 1024)}KB > `
                 + `${Math.round(options.maxPageTextBytes / 1024)}KB limit)`,
             );
@@ -94,12 +104,21 @@ function validateIndexTextBudget(
 
         totalTextBytes += pageTextBytes;
         if (totalTextBytes > options.maxTotalTextBytes) {
-            throw new Error(
+            throw new SearchIndexTextBudgetError(
                 `Search index resident text budget exceeded (${Math.round(totalTextBytes / (1024 * 1024))}MB > `
                 + `${Math.round(options.maxTotalTextBytes / (1024 * 1024))}MB limit)`,
             );
         }
     }
+}
+
+async function deleteSearchIndexFile(
+    indexCache: Map<string, ICachedIndex>,
+    pdfPath: string,
+    indexPath: string,
+) {
+    indexCache.delete(pdfPath);
+    await rm(indexPath, { force: true }).catch(() => undefined);
 }
 
 async function loadCachedIndex(
@@ -146,7 +165,15 @@ async function loadCachedIndex(
         accessedAt: now,
         validatedTextBudget: true,
     };
-    validateIndexTextBudget(entry.index, options);
+    try {
+        validateIndexTextBudget(entry.index, options);
+    } catch (error) {
+        if (error instanceof SearchIndexTextBudgetError) {
+            await deleteSearchIndexFile(indexCache, pdfPath, indexPath);
+            return null;
+        }
+        throw error;
+    }
     indexCache.set(pdfPath, entry);
     pruneIndexCache(indexCache, options, now);
     return entry;
@@ -171,7 +198,14 @@ async function cacheBuiltIndex(
         accessedAt: now,
         validatedTextBudget: true,
     };
-    validateIndexTextBudget(entry.index, options);
+    try {
+        validateIndexTextBudget(entry.index, options);
+    } catch (error) {
+        if (error instanceof SearchIndexTextBudgetError) {
+            await deleteSearchIndexFile(indexCache, pdfPath, indexPath);
+        }
+        throw error;
+    }
     indexCache.set(pdfPath, entry);
     pruneIndexCache(indexCache, options, now);
     return entry;
@@ -253,6 +287,7 @@ export async function ensureSearchIndex(
         if (ensureOptions.onPageIndexed !== undefined) {
             buildOptions.onPageIndexed = ensureOptions.onPageIndexed;
         }
+        buildOptions.validateBeforePersist = index => validateIndexTextBudget(index, cacheOptions);
 
         entry = await cacheBuiltIndex(
             indexCache,

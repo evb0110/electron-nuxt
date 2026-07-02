@@ -27,7 +27,7 @@ interface IUseWorkspaceSplitPayloadOptions {
     pdfViewerRef: Ref<IWorkspacePdfViewerSplitPort | null>;
     documentViewerRef: Ref<IWorkspaceDocumentViewerSplitPort | null>;
     pdfData: Ref<Uint8Array | null>;
-    openFileWithDjvuCleanup: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
+    openFileWithViewerLifecycle: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     waitForPdfReload: (page: number) => Promise<void>;
     loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
     runWithDocumentOperationLease?: <T>(
@@ -175,7 +175,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                     pageToRestore ?? 1,
                 );
             }
-            await options.openFileWithDjvuCleanup({
+            await options.openFileWithViewerLifecycle({
                 kind: 'djvu',
                 workingPath: '',
                 originalPath: payload.sourcePath,

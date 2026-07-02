@@ -11,7 +11,7 @@
     />
 
     <UAlert
-        v-if="canUseDjvu && isDjvuMode && djvuError"
+        v-if="showDjvuConversionUi && djvuError"
         color="error"
         variant="soft"
         class="mx-3 mt-2"
@@ -21,7 +21,7 @@
     />
 
     <DjvuBanner
-        v-if="canUseDjvu && (isDjvuMode || djvuPendingOpen || djvuOpening)"
+        v-if="showDjvuConversionUi || djvuPendingOpen || djvuOpening"
         :visible="djvuOpening || djvuShowBanner || djvuPendingOpen"
         :is-opening="djvuOpening || djvuPendingOpen"
         :is-loading-pages="djvuIsLoadingPages"
@@ -37,8 +37,7 @@ import { DjvuBanner } from '@app/modules/djvu-viewer/public/component-exports/dj
 
 defineProps<{
     pdfError: unknown;
-    canUseDjvu: boolean;
-    isDjvuMode: boolean;
+    showDjvuConversionUi: boolean;
     djvuPendingOpen: boolean;
     djvuOpening: boolean;
     djvuError: unknown;

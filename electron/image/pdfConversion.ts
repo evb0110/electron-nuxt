@@ -15,7 +15,10 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
-import { Worker } from 'worker_threads';
+import {
+    Worker,
+    type ResourceLimits,
+} from 'worker_threads';
 import { PDFDocument } from 'pdf-lib';
 import { createLogger } from '@electron/utils/createLogger';
 import {
@@ -38,6 +41,7 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
+import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
 export interface ICreatePdfFromInputPathsProgress {
     processed: number;
@@ -87,6 +91,11 @@ const PDF_COMBINE_WORKER_TIMEOUT_MS = (() => {
     }
     return parsed;
 })();
+const PDF_COMBINE_WORKER_RESOURCE_LIMITS: ResourceLimits = {
+    maxOldGenerationSizeMb: parseIntegerEnv('EVB_PDF_COMBINE_WORKER_MAX_OLD_MB', 512, 128, 2048),
+    maxYoungGenerationSizeMb: parseIntegerEnv('EVB_PDF_COMBINE_WORKER_MAX_YOUNG_MB', 64, 16, 256),
+    stackSizeMb: parseIntegerEnv('EVB_PDF_COMBINE_WORKER_STACK_MB', 8, 2, 64),
+};
 const PDF_COMBINE_MAX_INPUT_BYTES = (() => {
     const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_INPUT_MB ?? '512', 10);
     if (!Number.isFinite(parsed) || parsed < 16) {
@@ -251,6 +260,7 @@ async function createPdfFromInputPathsLocal(
                     throw new Error(result.error ?? `Failed to convert DjVu file: ${sourcePath}`);
                 }
 
+                await assertLocalPdfReadLimit(tempPdfPath);
                 const sourceBytes = await readFile(tempPdfPath);
                 const sourcePdf = await PDFDocument.load(sourceBytes);
                 const copiedPages = await targetPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
@@ -353,6 +363,16 @@ function getLocalWorkerStartupFallbackDisabledError() {
     return new Error(`Image combine worker startup failed and main-process fallback is disabled for inputs larger than ${maxMb}MB`);
 }
 
+async function assertLocalPdfReadLimit(pdfPath: string) {
+    const pdfStat = await stat(pdfPath);
+    if (!pdfStat.isFile()) {
+        throw new Error(`Converted DjVu PDF is not a regular file: ${pdfPath}`);
+    }
+    if (pdfStat.size > PDF_COMBINE_MAX_INPUT_BYTES) {
+        throw new Error(`Converted DjVu PDF is too large to combine safely: ${pdfPath}`);
+    }
+}
+
 function createPdfFromInputPathsWorker(
     inputPaths: string[],
     options?: ICreatePdfFromInputPathsOptions,
@@ -360,7 +380,10 @@ function createPdfFromInputPathsWorker(
     return new Promise((resolve, reject) => {
         let worker: Worker;
         try {
-            worker = new Worker(getCombineWorkerPath(), {workerData: { inputPaths }});
+            worker = new Worker(getCombineWorkerPath(), {
+                workerData: { inputPaths },
+                resourceLimits: PDF_COMBINE_WORKER_RESOURCE_LIMITS,
+            });
         } catch (error) {
             reject(new PdfCombineWorkerStartupError(
                 `Image combine worker failed to start: ${getErrorMessage(error)}`,

@@ -764,6 +764,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                     source: PDF_RERENDER_SOURCE.ZoomModeChange,
                     stabilize: true,
                     resizeAnchor: zoomAnchor,
+                    zoomLockOperationId: zoomViewportAnchor?.zoomLockOperationId ?? null,
                 });
                 return;
             }
@@ -1103,6 +1104,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 source: zoomRerenderSource,
                 stabilize: true,
                 resizeAnchor: zoomAnchor,
+                zoomLockOperationId: zoomViewportAnchor?.zoomLockOperationId ?? null,
             });
         }
     });

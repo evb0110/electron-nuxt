@@ -7,12 +7,10 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 interface IUseAppShellLifecycleOptions {
     dirtyTabCloseDialogOpen: Ref<boolean>;
     updatesDialogOpen: Ref<boolean>;
-    observeToolbarHost: () => void;
     cleanupEmptyPanes: () => void;
     ensureUpdatesInitialized: () => Promise<void>;
     handleIncomingTabTransfer: (transfer: IWindowTabIncomingTransfer) => Promise<void>;
     cleanupDirectionalTabs: () => void;
-    disposeToolbarTeleportBridge: () => void;
     cleanupExternalFileDrop: () => void;
     resolveDirtyTabCloseDialog: (confirmed: boolean) => void;
     closeUpdatesDialog: () => void;
@@ -22,12 +20,10 @@ export const useAppShellLifecycle = (options: IUseAppShellLifecycleOptions) => {
     const {
         dirtyTabCloseDialogOpen,
         updatesDialogOpen,
-        observeToolbarHost,
         cleanupEmptyPanes,
         ensureUpdatesInitialized,
         handleIncomingTabTransfer,
         cleanupDirectionalTabs,
-        disposeToolbarTeleportBridge,
         cleanupExternalFileDrop,
         resolveDirtyTabCloseDialog,
         closeUpdatesDialog,
@@ -39,7 +35,6 @@ export const useAppShellLifecycle = (options: IUseAppShellLifecycleOptions) => {
         const start = performance.now();
         traceRendererStartup('index.vue onMounted start');
 
-        observeToolbarHost();
         cleanupEmptyPanes();
         void ensureUpdatesInitialized();
 
@@ -56,7 +51,6 @@ export const useAppShellLifecycle = (options: IUseAppShellLifecycleOptions) => {
 
     onUnmounted(() => {
         cleanupDirectionalTabs();
-        disposeToolbarTeleportBridge();
         incomingTabTransferCleanup?.();
         incomingTabTransferCleanup = null;
         cleanupExternalFileDrop();

@@ -100,6 +100,7 @@ const DJVU_PDFLIB_FALLBACK_MAX_TOTAL_BYTES = (() => {
 const activeProcesses = new Map<string, ChildProcess>();
 const canceledProcessIds = new Set<string>();
 const logger = createLogger('djvu-convert');
+const DJVU_CONVERSION_CANCELED_MESSAGE = 'DjVu conversion canceled';
 
 interface IDjvuPageRangeChunk {
     index: number;
@@ -196,7 +197,7 @@ async function _convertDjvuToPdfWithRanges(
             };
         }
 
-        const mergeResult = await mergePdfChunks(chunkPaths, outputPath, `${jobId}-merge`);
+        const mergeResult = await mergePdfChunks(chunkPaths, outputPath, `${jobId}-merge`, totalPages);
         if (!mergeResult.success) {
             await cleanupPartialOutput(outputPath);
             return {
@@ -371,6 +372,7 @@ async function mergePdfChunks(
     chunkPaths: string[],
     outputPath: string,
     mergeJobId: string,
+    totalPages: number,
 ) {
     const { qpdf } = getPdfNativeToolPaths();
     const qpdfResult = await runProcess(
@@ -388,14 +390,19 @@ async function mergePdfChunks(
         return { success: true };
     }
 
-    logger.warn(`[${mergeJobId}] qpdf merge failed, falling back to pdf-lib merge: ${qpdfResult.error}`);
-    if (chunkPaths.length > DJVU_PDFLIB_FALLBACK_MAX_PAGES) {
+    if (isDjvuConversionCancellationError(qpdfResult.error)) {
+        return qpdfResult;
+    }
+
+    const fallbackPageCount = totalPages > 0 ? totalPages : chunkPaths.length;
+    if (fallbackPageCount > DJVU_PDFLIB_FALLBACK_MAX_PAGES) {
         return {
             success: false,
             error: `qpdf merge failed and fallback is disabled for large files (> ${DJVU_PDFLIB_FALLBACK_MAX_PAGES} pages)`,
         };
     }
 
+    logger.warn(`[${mergeJobId}] qpdf merge failed, falling back to pdf-lib merge: ${qpdfResult.error}`);
     try {
         let totalChunkBytes = 0;
         for (const chunkPath of chunkPaths) {
@@ -719,7 +726,7 @@ async function runProcess(
             if (canceledProcessIds.has(processId)) {
                 finalize({
                     success: false,
-                    error: 'DjVu conversion canceled',
+                    error: DJVU_CONVERSION_CANCELED_MESSAGE,
                 });
                 return;
             }
@@ -734,7 +741,7 @@ async function runProcess(
             if (canceledProcessIds.has(processId)) {
                 finalize({
                     success: false,
-                    error: 'DjVu conversion canceled',
+                    error: DJVU_CONVERSION_CANCELED_MESSAGE,
                 });
                 return;
             }
@@ -764,7 +771,11 @@ function shouldSkipSingleProcessFallback(error: string | undefined) {
     if (!error) {
         return false;
     }
-    return error.includes('DjVu conversion canceled') || error.includes('timed out after');
+    return isDjvuConversionCancellationError(error) || error.includes('timed out after');
+}
+
+function isDjvuConversionCancellationError(error: string | undefined) {
+    return error?.includes(DJVU_CONVERSION_CANCELED_MESSAGE) ?? false;
 }
 
 function _shouldUseParallelRangeConversion(options: IDjvuConversionOptions) {

@@ -329,6 +329,30 @@ describe('buildSearchIndex assembly', () => {
         ]);
     });
 
+    it('validates a built JSON index before writing it to disk', async () => {
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        mocks.extractTextWithPdfjs.mockResolvedValue([]);
+        mocks.extractTextFromPdf.mockResolvedValue([]);
+
+        await expect(buildSearchIndex(
+            '/tmp/file.pdf',
+            [{
+                pageNumber: 1,
+                words: [],
+                text: 'oversized text',
+            }],
+            {
+                pageCount: 1,
+                validateBeforePersist: () => {
+                    throw new Error('over budget');
+                },
+            },
+        )).rejects.toThrow('over budget');
+
+        expect(mocks.writeFile).not.toHaveBeenCalled();
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+    });
+
     it('uses OCR v2 words as text-layer-compatible search text and persists index best-effort', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         mocks.existsSync.mockReturnValue(true);

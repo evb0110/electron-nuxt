@@ -5,6 +5,7 @@ concurrency:
   cancel-in-progress: true
 
 on:
+  pull_request:
   schedule:
     - cron: '17 2 * * *'
   workflow_dispatch:
@@ -18,6 +19,37 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  pr_quality:
+    name: Pull Request Quality Gates
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Unit tests
+        run: pnpm run test:unit
+
   manual_quality:
     name: Manual Quality Gates
     if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -52,6 +84,9 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      - name: Unit tests
+        run: pnpm run test:unit
+
       - name: Type coverage
         run: pnpm run typecheck:coverage
 
@@ -72,9 +107,6 @@ jobs:
 
       - name: Architecture source size
         run: pnpm run check:architecture:source-size
-
-      - name: Unit and integration tests
-        run: pnpm run test:release
 
       - name: Coverage
         run: pnpm run test:coverage
@@ -163,6 +195,9 @@ jobs:
       - name: Install Rust WASM target
         run: rustup target add wasm32-unknown-unknown
 
+      - name: WASM freshness
+        run: pnpm run check:wasm:freshness
+
       - name: Install page processor smoke dependencies
         run: python -m pip install 'numpy>=2.0.0' 'opencv-python-headless>=4.10.0' 'img2pdf>=0.6.3' 'Pillow>=10.0.0'
 
@@ -171,6 +206,9 @@ jobs:
 
       - name: Typecheck
         run: pnpm run typecheck
+
+      - name: Unit tests
+        run: pnpm run test:unit
 
       - name: Type coverage
         run: pnpm run typecheck:coverage
@@ -264,6 +302,37 @@ jobs:
 
       - name: Electron E2E rapid navigation
         run: pnpm run test:e2e:electron:rapid-navigation
+
+  nightly_electron_e2e_large_pdf:
+    name: Nightly Electron E2E Large PDF
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: macos-14
+    continue-on-error: true
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Verify Electron install
+        run: pnpm run check:electron:install
+
+      - name: Electron E2E large PDF
+        env:
+          EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE: '1'
+        run: pnpm run test:e2e:electron:large
 
   nightly_electron_e2e_quarantine:
     name: Nightly Electron E2E Quarantine

@@ -7,11 +7,15 @@ import { wheelZoomSessionIdleMs } from '@app/modules/pdf-viewer/runtime/zoom/whe
 import { wheelZoomSessionLockExtensionMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomSessionLockExtensionMs';
 import { zoomViewportAnchorMaxAgeMs } from '@app/modules/pdf-viewer/runtime/zoom/zoomViewportAnchorMaxAgeMs';
 import { usePdfViewerZoomInteractionLock } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerZoomInteractionLock';
-import type { IZoomVirtualizationLogOptions } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
+import type {
+    IZoomVirtualizationLogOptions,
+    TZoomInteractionLockOperationId,
+} from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
 
 interface IZoomViewportAnchorIntent {
     id: number;
     sessionId: number;
+    zoomLockOperationId: TZoomInteractionLockOperationId | null;
     x: number;
     y: number;
     capturedAtMs: number;
@@ -28,6 +32,7 @@ interface IWheelZoomSession {
     lastPacketAtMs: number;
     lockUntilMs: number;
     lastEventId: number;
+    zoomLockOperationId: TZoomInteractionLockOperationId | null;
     packetCount: number;
     emittedCount: number;
     startScrollTop: number | null;
@@ -94,6 +99,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
         captureZoomVirtualizationFreeze,
         maybeReleaseZoomVirtualizationFreeze,
         markExpectedZoomScroll,
+        completeExpectedZoomScroll,
         setZoomRerenderBusy,
         isZoomInteractionLocked,
         cleanupZoomInteractionLock,
@@ -159,6 +165,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
         anchorX: number,
         anchorY: number,
         eventId: number,
+        zoomLockOperationId: TZoomInteractionLockOperationId | null,
     ) {
         const current = activeWheelZoomSession;
         const shouldReuseCurrent = Boolean(
@@ -172,6 +179,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
             current.lastPacketAtMs = nowMs;
             current.lockUntilMs = nowMs + wheelZoomSessionIdleMs + wheelZoomSessionLockExtensionMs;
             current.lastEventId = eventId;
+            current.zoomLockOperationId = zoomLockOperationId;
             scheduleWheelZoomSessionIdleTimeout(current.id);
             return {
                 session: current,
@@ -191,6 +199,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
             lastPacketAtMs: nowMs,
             lockUntilMs: nowMs + wheelZoomSessionIdleMs + wheelZoomSessionLockExtensionMs,
             lastEventId: eventId,
+            zoomLockOperationId,
             packetCount: 0,
             emittedCount: 0,
             startScrollTop: viewerContainer.value ? Math.round(viewerContainer.value.scrollTop) : null,
@@ -222,6 +231,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
                 const fallbackAnchor: IZoomViewportAnchorIntent = {
                     id: activeSession.lastEventId,
                     sessionId: activeSession.id,
+                    zoomLockOperationId: activeSession.zoomLockOperationId,
                     x: activeSession.anchorX,
                     y: activeSession.anchorY,
                     capturedAtMs: activeSession.lastPacketAtMs,
@@ -307,6 +317,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
         getActiveWheelZoomSession,
         ensureWheelZoomSession,
         markExpectedZoomScroll,
+        completeExpectedZoomScroll,
         isZoomInteractionLocked,
         setZoomRerenderBusy,
         consumeZoomViewportAnchor,

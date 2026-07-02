@@ -18,6 +18,7 @@ describe('pdf navigation machine', () => {
     it('starts idle', () => {
         expect(createPdfNavigationMachineState()).toEqual({
             anchor: null,
+            currentPage: null,
             source: null,
             status: 'idle',
             targetPage: null,
@@ -94,11 +95,73 @@ describe('pdf navigation machine', () => {
 
         expect(idle).toEqual({
             anchor: null,
+            currentPage: 7,
             source: null,
             status: 'idle',
             targetPage: null,
             txn: navigating.txn,
         });
+    });
+
+    it('keeps the target page authoritative before render settles', () => {
+        const navigating = reducePdfNavigationMachine(createPdfNavigationMachineState(0, 1), {
+            type: 'NAVIGATE',
+            source: 'paged',
+            targetPage: 5,
+        });
+        const staleViewport = reducePdfNavigationMachine(navigating, {
+            type: 'VIEWPORT_CURRENT_PAGE',
+            page: 1,
+        });
+
+        expect(navigating.currentPage).toBe(5);
+        expect(staleViewport.currentPage).toBe(5);
+    });
+
+    it('accepts viewport current-page sync after matching render settle', () => {
+        const navigating = reducePdfNavigationMachine(createPdfNavigationMachineState(0, 1), {
+            type: 'NAVIGATE',
+            source: 'continuous',
+            targetPage: 6,
+        });
+        const settling = reducePdfNavigationMachine(navigating, {
+            type: 'SCROLL_APPLIED',
+            txn: navigating.txn,
+            page: 6,
+        });
+        const idle = reducePdfNavigationMachine(settling, {
+            type: 'RENDER_SETTLED',
+            txn: navigating.txn,
+            page: 6,
+        });
+        const synced = reducePdfNavigationMachine(idle, {
+            type: 'VIEWPORT_CURRENT_PAGE',
+            page: 4,
+        });
+
+        expect(idle.status).toBe('idle');
+        expect(synced.currentPage).toBe(4);
+    });
+
+    it('ignores stale current-page commits from older transactions', () => {
+        const first = reducePdfNavigationMachine(createPdfNavigationMachineState(0, 1), {
+            type: 'NAVIGATE',
+            source: 'paged',
+            targetPage: 2,
+        });
+        const second = reducePdfNavigationMachine(first, {
+            type: 'NAVIGATE',
+            source: 'paged',
+            targetPage: 3,
+        });
+        const staleCommit = reducePdfNavigationMachine(second, {
+            type: 'CURRENT_PAGE_COMMITTED',
+            txn: first.txn,
+            page: 2,
+        });
+
+        expect(staleCommit.currentPage).toBe(3);
+        expect(staleCommit).toBe(second);
     });
 
     it('invalidates active work on cancel, document change, or user scroll', () => {

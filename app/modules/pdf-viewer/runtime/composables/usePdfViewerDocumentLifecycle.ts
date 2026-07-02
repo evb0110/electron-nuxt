@@ -91,6 +91,7 @@ interface IUsePdfViewerDocumentLifecycleOptions {
     pdfDocument: Ref<PDFDocumentProxy | null>;
     numPages: Ref<number>;
     isLoading: Ref<boolean>;
+    loadError?: Ref<unknown | null> | undefined;
     getRenderVersion: () => number;
     loadPdf: (
         src: TPdfSource,
@@ -145,6 +146,7 @@ interface IUsePdfViewerDocumentLifecycleOptions {
     suppressNextZoomRerender: (targetZoom: number) => void;
     beginVisualReloadTransition: (reason: string) => number;
     endVisualReloadTransition: (token: number, reason: string) => void;
+    emitLoadError?: ((error: unknown) => void) | undefined;
     onDocumentLoadStateChange?: ((payload: {
         token: number;
         phase: 'started' | 'settled';
@@ -925,6 +927,10 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 return;
             }
             if (!loaded) {
+                const loadError = options.loadError?.value ?? null;
+                if (loadError) {
+                    options.emitLoadError?.(loadError);
+                }
                 cleanupPreservedVisibleContentAfterLoadFailure(plan);
                 settleVisualReloadTransition('load-aborted');
                 return;

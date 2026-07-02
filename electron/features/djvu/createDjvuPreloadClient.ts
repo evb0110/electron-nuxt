@@ -24,6 +24,16 @@ import {
     createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
 
+const DJVU_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1000;
+const DJVU_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
+    [DJVU_CHANNELS.openForViewing]: DJVU_NATIVE_IPC_TIMEOUT_MS,
+    [DJVU_CHANNELS.convertToPdf]: DJVU_NATIVE_IPC_TIMEOUT_MS,
+    [DJVU_CHANNELS.getInfo]: DJVU_NATIVE_IPC_TIMEOUT_MS,
+    [DJVU_CHANNELS.getPageSizes]: DJVU_NATIVE_IPC_TIMEOUT_MS,
+    [DJVU_CHANNELS.renderPagePreview]: DJVU_NATIVE_IPC_TIMEOUT_MS,
+    [DJVU_CHANNELS.estimateSizes]: DJVU_NATIVE_IPC_TIMEOUT_MS,
+} as const;
+
 function isFiniteNumber(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value);
 }
@@ -87,7 +97,7 @@ function decodeDjvuViewingError(payload: unknown): IDjvuViewingErrorEvent | null
 }
 
 export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapability {
-    const invoke = createTypedIpcInvoker<IDjvuInvokeMap>(ipcRenderer);
+    const invoke = createTypedIpcInvoker<IDjvuInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: DJVU_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const eventSubscriber = createTypedIpcEventSubscriber<IDjvuEventMap>(ipcRenderer);
 
     return {

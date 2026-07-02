@@ -16,6 +16,12 @@ import {
     createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
 
+const IMAGE_EXPORT_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1000;
+const IMAGE_EXPORT_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
+    [IMAGE_EXPORT_CHANNELS.exportImages]: IMAGE_EXPORT_NATIVE_IPC_TIMEOUT_MS,
+    [IMAGE_EXPORT_CHANNELS.exportMultiPageTiff]: IMAGE_EXPORT_NATIVE_IPC_TIMEOUT_MS,
+} as const;
+
 function isFiniteNumber(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value);
 }
@@ -46,7 +52,7 @@ function decodeImageExportProgress(payload: unknown): IImageExportProgress | nul
 export function createImageExportPreloadClient(
     ipcRenderer: IpcRenderer,
 ): IImageExportCapability {
-    const invoke = createTypedIpcInvoker<IImageExportInvokeMap>(ipcRenderer);
+    const invoke = createTypedIpcInvoker<IImageExportInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: IMAGE_EXPORT_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const eventSubscriber = createTypedIpcEventSubscriber<IImageExportEventMap>(ipcRenderer);
 
     return {

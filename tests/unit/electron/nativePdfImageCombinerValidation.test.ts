@@ -13,12 +13,15 @@ const mocks = vi.hoisted(() => {
         readFile: vi.fn(),
         rm: vi.fn(async () => undefined),
         spawn: vi.fn(),
+        terminateDetachedChildProcess: vi.fn(async () => undefined),
         warn: vi.fn(),
         writeFile: vi.fn(async () => undefined),
     };
 });
 
 class MockProcess extends EventEmitter {
+    readonly pid = 12345;
+
     readonly stdout = new EventEmitter();
 
     readonly stderr = new EventEmitter();
@@ -34,6 +37,13 @@ vi.mock('fs/promises', () => ({
     writeFile: mocks.writeFile,
 }));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: () => '/native/evb-pdf-image-combine'}));
+vi.mock('@electron/utils/nativeChildProcess', () => ({
+    createDetachedChildProcessSpawnOptions: (options: object) => ({
+        ...options,
+        detached: true,
+    }),
+    terminateDetachedChildProcess: mocks.terminateDetachedChildProcess,
+}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     error: vi.fn(),
@@ -95,6 +105,33 @@ describe('native PDF image combiner output validation', () => {
         await expect(tryWritePdfWithNativeImageCombiner(['/tmp/input.jpg'], '/tmp/output.pdf')).resolves.toBe(false);
 
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/output.pdf', { force: true });
+    });
+
+    it('terminates the native process group and rejects when canceled', async () => {
+        const proc = new MockProcess();
+        const abortError = new Error('Canceled by test');
+        abortError.name = 'AbortError';
+        mocks.spawn.mockReturnValueOnce(proc);
+        mocks.terminateDetachedChildProcess.mockImplementationOnce(async () => {
+            proc.emit('close', null, 'SIGTERM');
+        });
+        const { tryWritePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+        const controller = new AbortController();
+
+        const pending = tryWritePdfWithNativeImageCombiner(['/tmp/input.jpg'], '/tmp/output.pdf', {signal: controller.signal});
+        await vi.waitFor(() => {
+            expect(mocks.spawn).toHaveBeenCalled();
+        });
+        controller.abort(abortError);
+
+        await expect(pending).rejects.toBe(abortError);
+        expect(mocks.spawn).toHaveBeenCalledWith('/native/evb-pdf-image-combine', expect.any(Array), expect.objectContaining({detached: true}));
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
+        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+            recursive: true,
+            force: true,
+        });
     });
 
     it('accepts structurally plausible native PDF output', async () => {

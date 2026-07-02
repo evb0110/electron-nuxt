@@ -70,8 +70,9 @@ import {
     removeRecentFile,
 } from '@electron/recentFiles';
 import {
-    allowOpenPaths,
+    allowRevealPaths,
     removeAllowedOpenPath,
+    removeAllowedRevealPath,
 } from '@electron/file-access/openPathCapabilities';
 import {
     setMenuDocumentState,
@@ -184,10 +185,7 @@ export function createDocumentsService(): IDocumentsService {
             const [context] = args;
             const startedAt = Date.now();
             const files = await getRecentFiles();
-            // Grant reveal-in-folder capability for each recent path to the
-            // requesting webContents; without this, showItemInFolder is rejected
-            // by requireOpenPath for paths the user has not opened this session.
-            allowOpenPaths(files.map(file => file.originalPath), context.sender);
+            allowRevealPaths(files.map(file => file.originalPath), context.sender);
             if (STARTUP_TRACE_ENABLED) {
                 logger.info(`[startup] IPC recentFiles:get resolved (${files.length} file(s), +${Date.now() - startedAt}ms)`);
             }
@@ -197,12 +195,16 @@ export function createDocumentsService(): IDocumentsService {
             const [originalPath] = args;
             await removeRecentFile(originalPath);
             removeAllowedOpenPath(originalPath);
+            removeAllowedRevealPath(originalPath);
             updateRecentFilesMenu();
         },
         clearRecentFiles: async () => {
             const files = await getRecentFiles();
             await clearRecentFiles();
-            files.forEach(file => removeAllowedOpenPath(file.originalPath));
+            files.forEach(file => {
+                removeAllowedOpenPath(file.originalPath);
+                removeAllowedRevealPath(file.originalPath);
+            });
             updateRecentFilesMenu();
         },
     };

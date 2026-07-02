@@ -14,7 +14,7 @@ import { PACKAGED_STARTUP_READY_MARKER } from '@scripts/releaseVerificationHelpe
 interface IShutdownCoordinator {
     isQuittingAfterCleanup(): boolean;
     isFatalShutdownInProgress(): boolean;
-    requestGracefulQuit(): void;
+    requestGracefulQuit(options?: { afterCleanup?: () => void }): void;
 }
 
 interface IExternalOpenManager {
@@ -92,6 +92,7 @@ export interface IRunInitSequenceOptions {
     }): boolean;
     shutdownCoordinator: IShutdownCoordinator | null;
     sweepStaleDefaultAppTempPdfs(): Promise<unknown>;
+    sweepStaleOcrTempArtifacts?: () => Promise<unknown>;
 }
 
 function bootSingleInstance(options: IRunInitSequenceOptions) {
@@ -250,10 +251,15 @@ function bootCleanup(options: IRunInitSequenceOptions) {
         cleanupStaleWorkingCopyDirectories,
         logger,
         sweepStaleDefaultAppTempPdfs,
+        sweepStaleOcrTempArtifacts,
     } = options;
 
     void sweepStaleDefaultAppTempPdfs().catch((error: unknown) => {
         logger.warn(`Failed to sweep stale default-app temp PDFs: ${String(error)}`);
+    });
+
+    void sweepStaleOcrTempArtifacts?.().catch((error: unknown) => {
+        logger.warn(`Failed to sweep stale OCR temp artifacts: ${getErrorMessage(error)}`);
     });
 
     void cleanupStaleWorkingCopyDirectories()

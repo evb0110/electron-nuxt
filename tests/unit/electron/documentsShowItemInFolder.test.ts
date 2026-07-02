@@ -83,6 +83,20 @@ describe('documents show item in folder', () => {
         expect(mocks.showItemInFolder).toHaveBeenCalledWith(realpathSync.native(filePath));
     });
 
+    it('reveals paths trusted by a reveal-only capability', async () => {
+        const filePath = join(tempRoot, 'recent.pdf');
+        writeFileSync(filePath, new Uint8Array([1]));
+
+        const { allowRevealPath } = await import('@electron/file-access/openPathCapabilities');
+        const { handleShowItemInFolder } = await import('@electron/features/documents/main/documentWindowHandlers');
+
+        allowRevealPath(filePath);
+
+        await expect(handleShowItemInFolder({}, filePath)).resolves.toBe(true);
+
+        expect(mocks.showItemInFolder).toHaveBeenCalledWith(realpathSync.native(filePath));
+    });
+
     it('does not reveal arbitrary existing paths without a capability', async () => {
         const filePath = join(tempRoot, 'untrusted.pdf');
         writeFileSync(filePath, new Uint8Array([1]));

@@ -1,236 +1,139 @@
 import {
-    afterEach,
-    beforeEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
-import {
-    nextTick,
-    ref,
-} from 'vue';
+import { ref } from 'vue';
 import { useShellWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useShellWorkspaceToolbar';
-import { shellToolbarHandoffWarningDelayMs } from '@app/modules/workspace-shell/toolbar/shellToolbarHandoffWarningDelayMs';
-import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
-import type {
-    IWorkspaceExpose,
-    IWorkspaceToolbarSnapshot,
-} from '@app/types/workspaceExpose';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import type { ITab } from '@app/types/tabs';
-import { cast } from '@tests/helpers/cast';
+import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+import {
+    createWorkspaceDocumentRecord,
+    type IWorkspaceDocumentRecord,
+} from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 
 function createSnapshot(overrides: Partial<IWorkspaceToolbarSnapshot> = {}): IWorkspaceToolbarSnapshot {
     return {
-        hasPdf: false,
-        isOpeningDocument: false,
-        hasOpenError: false,
-        isPreparingPrint: false,
-        isPreparingCurrentPagePrint: false,
-        canSave: false,
-        canRepairSave: false,
-        canOptimizePdf: false,
-        canUndo: false,
-        canRedo: false,
-        canExportDocx: false,
-        isSaving: false,
-        isSavingAs: false,
-        isAnySaving: false,
-        isHistoryBusy: false,
-        isExportingDocx: false,
-        isFitWidthActive: false,
-        isFitHeightActive: false,
-        showSidebar: false,
-        dragMode: false,
-        continuousScroll: false,
-        isDjvuMode: false,
-        isCapturingRegion: false,
-        isCropSelecting: false,
-        isPlacingPageNote: false,
-        zoom: 1,
-        effectiveZoom: 1,
-        zoomMode: 'fit-width',
-        fitMode: 'width',
-        viewMode: 'single',
-        currentPage: 1,
-        totalPages: 0,
+        ...createDefaultWorkspaceToolbarSnapshot(),
         ...overrides,
     };
 }
 
-function createWorkspace(snapshot: IWorkspaceToolbarSnapshot): IWorkspaceExpose {
-    return cast<IWorkspaceExpose>({
-        hasPdf: { value: snapshot.hasPdf },
-        getToolbarSnapshot: () => snapshot,
-    });
-}
-
-function createPlaceholderTab(tabId: string): ITab {
-    return {
-        id: tabId,
-        fileName: null,
-        originalPath: null,
-        isDirty: false,
-        isDjvu: false,
-    };
-}
-
-function createShellState(activeWorkspace: ReturnType<typeof ref<IWorkspaceExpose | null>>, activeTabId = 'tab-1') {
-    return useWorkspaceShellState({
-        activeWorkspace,
-        activeTabId: ref<string | null>(activeTabId),
-        tabs: ref([createPlaceholderTab(activeTabId)]),
+function createRecord(snapshot: Partial<IWorkspaceToolbarSnapshot> = {}) {
+    return createWorkspaceDocumentRecord({
+        tab: {
+            fileName: 'paper.pdf',
+            originalPath: '/docs/paper.pdf',
+            isDirty: false,
+            isDjvu: false,
+        },
+        toolbarSnapshot: createSnapshot(snapshot),
     });
 }
 
 function createToolbarOptions(overrides: Partial<Parameters<typeof useShellWorkspaceToolbar>[0]> = {}) {
-    const activeWorkspace = ref<IWorkspaceExpose | null>(null);
     return {
-        activePaneId: ref('pane-1'),
-        activeTabId: ref('tab-1'),
-        activeWorkspace,
-        hasTeleportedToolbarContent: ref(false),
-        isTabTransitionBusy: ref(true),
-        shellState: createShellState(activeWorkspace),
+        activeDocumentRecord: ref<IWorkspaceDocumentRecord | null>(null),
+        hasWorkspaceToolbarContent: ref(false),
         ...overrides,
     };
 }
 
 describe('useShellWorkspaceToolbar', () => {
-    beforeEach(() => {
-        vi.useFakeTimers();
-    });
-
-    afterEach(() => {
-        vi.useRealTimers();
-        vi.restoreAllMocks();
-    });
-
-    it('preserves isOpeningDocument from the active workspace snapshot', () => {
-        const activeWorkspace = ref<IWorkspaceExpose | null>(createWorkspace(createSnapshot({ isOpeningDocument: true })));
-        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({
-            activeWorkspace,
-            shellState: createShellState(activeWorkspace),
-        }));
-
-        expect(toolbar.shellToolbarSnapshot.value.isOpeningDocument).toBe(true);
-    });
-
-    it('suppresses page and zoom metadata while the active workspace snapshot is opening', () => {
-        const activeWorkspace = ref<IWorkspaceExpose | null>(createWorkspace(createSnapshot({
+    it('reads toolbar state from the active document record', () => {
+        const activeDocumentRecord = ref<IWorkspaceDocumentRecord | null>(createRecord({
             hasPdf: true,
-            isOpeningDocument: true,
-            currentPage: 42,
-            totalPages: 564,
-            zoom: 2.38,
-            effectiveZoom: 2.38,
-        })));
-        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({
-            activeWorkspace,
-            shellState: createShellState(activeWorkspace),
+            canSave: true,
+            currentPage: 12,
+            totalPages: 80,
+            zoom: 1.5,
+            effectiveZoom: 1.5,
         }));
+
+        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({ activeDocumentRecord }));
 
         expect(toolbar.shellToolbarSnapshot.value).toMatchObject({
-            isOpeningDocument: true,
-            currentPage: 1,
-            totalPages: 0,
-            zoom: 1,
-            effectiveZoom: 1,
-        });
-    });
-
-    it('defaults isOpeningDocument to false without an active workspace', () => {
-        const activeWorkspace = ref<IWorkspaceExpose | null>(null);
-        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({
-            activeWorkspace,
-            shellState: createShellState(activeWorkspace),
-        }));
-
-        expect(toolbar.shellToolbarSnapshot.value.isOpeningDocument).toBe(false);
-    });
-
-    it('seeds the shell handoff snapshot with default values when no workspace is active', () => {
-        const activeWorkspace = ref<IWorkspaceExpose | null>(null);
-        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({
-            activeWorkspace,
-            shellState: createShellState(activeWorkspace),
-        }));
-
-        expect(toolbar.shellToolbarSnapshot.value).toEqual(createDefaultWorkspaceToolbarSnapshot());
-    });
-
-    it('tracks live workspace snapshot changes while the shell toolbar is visible', async () => {
-        const snapshot = ref(createSnapshot({
-            canSave: false,
             hasPdf: true,
-        }));
-        const activeWorkspace = ref<IWorkspaceExpose | null>(cast<IWorkspaceExpose>({
-            hasPdf: { value: true },
-            getToolbarSnapshot: () => snapshot.value,
-        }));
-
-        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({
-            activeWorkspace,
-            shellState: createShellState(activeWorkspace),
-        }));
-
-        expect(toolbar.shellToolbarSnapshot.value.canSave).toBe(false);
-
-        snapshot.value = createSnapshot({
             canSave: true,
-            hasPdf: true,
+            currentPage: 12,
+            totalPages: 80,
+            zoom: 1.5,
+            effectiveZoom: 1.5,
         });
-        await nextTick();
+        expect(toolbar.shellToolbarHasPdf.value).toBe(true);
+    });
+
+    it('updates when the active document record changes', () => {
+        const activeDocumentRecord = ref<IWorkspaceDocumentRecord | null>(createRecord({
+            hasPdf: true,
+            canSave: false,
+        }));
+        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({ activeDocumentRecord }));
+
+        activeDocumentRecord.value = createRecord({
+            hasPdf: true,
+            canSave: true,
+        });
 
         expect(toolbar.shellToolbarSnapshot.value.canSave).toBe(true);
     });
 
-    it('keeps expected transition handoff quiet', async () => {
-        const diagnostic = vi.spyOn(BrowserLogger, 'diagnostic').mockImplementation(() => {});
-        const activeWorkspace = ref<IWorkspaceExpose | null>(createWorkspace(createSnapshot({
-            hasPdf: true,
-            totalPages: 3,
-        })));
-        useShellWorkspaceToolbar(createToolbarOptions({
-            activeWorkspace,
-            isTabTransitionBusy: ref(true),
-            shellState: createShellState(activeWorkspace),
-        }));
+    it('uses the default snapshot when no active document record exists', () => {
+        const toolbar = useShellWorkspaceToolbar(createToolbarOptions());
 
-        await vi.advanceTimersByTimeAsync(shellToolbarHandoffWarningDelayMs + 1);
-
-        expect(diagnostic).not.toHaveBeenCalled();
+        expect(toolbar.shellToolbarSnapshot.value).toEqual(createDefaultWorkspaceToolbarSnapshot());
+        expect(toolbar.shellToolbarHasPdf.value).toBe(false);
     });
 
-    it('warns when shell handoff remains visible after transition with a mounted document workspace', async () => {
-        const diagnostic = vi.spyOn(BrowserLogger, 'diagnostic').mockImplementation(() => {});
-        const activeWorkspace = ref<IWorkspaceExpose | null>(createWorkspace(createSnapshot({
-            hasPdf: true,
-            totalPages: 3,
-        })));
-        useShellWorkspaceToolbar(createToolbarOptions({
-            activeWorkspace,
-            isTabTransitionBusy: ref(false),
-            shellState: createShellState(activeWorkspace),
+    it('keeps the shell toolbar visible until workspace toolbar content can take over', () => {
+        const activeDocumentRecord = ref<IWorkspaceDocumentRecord | null>(null);
+        const hasWorkspaceToolbarContent = ref(false);
+        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({
+            activeDocumentRecord,
+            hasWorkspaceToolbarContent,
         }));
 
-        await vi.advanceTimersByTimeAsync(shellToolbarHandoffWarningDelayMs - 1);
-        expect(diagnostic).not.toHaveBeenCalled();
+        expect(toolbar.showShellToolbar.value).toBe(true);
 
-        await vi.advanceTimersByTimeAsync(1);
+        activeDocumentRecord.value = createRecord({
+            hasPdf: true,
+            currentPage: 1,
+            totalPages: 3,
+        });
+        expect(toolbar.showShellToolbar.value).toBe(true);
 
-        expect(diagnostic).toHaveBeenCalledWith(
-            'toolbar-transition',
-            'Shell toolbar handoff stayed visible without teleported workspace toolbar content',
-            expect.objectContaining({
-                activeTabId: 'tab-1',
-                activePaneId: 'pane-1',
-                isTabTransitionBusy: false,
-                hasTeleportedToolbarContent: false,
-            }),
-        );
+        hasWorkspaceToolbarContent.value = true;
+        expect(toolbar.showShellToolbar.value).toBe(false);
+
+        hasWorkspaceToolbarContent.value = false;
+        expect(toolbar.showShellToolbar.value).toBe(true);
+    });
+
+    it('keeps field models as record-backed no-op mirrors', () => {
+        const activeDocumentRecord = ref<IWorkspaceDocumentRecord | null>(createRecord({
+            hasPdf: true,
+            zoom: 1.25,
+            currentPage: 5,
+            totalPages: 10,
+        }));
+        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({ activeDocumentRecord }));
+
+        toolbar.shellToolbarZoom.value = 3;
+        toolbar.shellToolbarCurrentPage.value = 9;
+
+        expect(toolbar.shellToolbarZoom.value).toBe(1.25);
+        expect(toolbar.shellToolbarCurrentPage.value).toBe(5);
+        expect(activeDocumentRecord.value?.toolbarSnapshot.zoom).toBe(1.25);
+    });
+
+    it('runs overflow view mode commands through registry command names', () => {
+        const runCommand = vi.fn();
+        const toolbar = useShellWorkspaceToolbar(createToolbarOptions());
+
+        toolbar.handleShellToolbarOverflowSetViewMode('facing', runCommand);
+
+        expect(runCommand).toHaveBeenCalledWith('handleViewModeFacing');
     });
 });
 
@@ -269,6 +172,19 @@ describe('createDefaultWorkspaceToolbarSnapshot', () => {
             viewMode: 'single',
             currentPage: 1,
             totalPages: 0,
+            viewerCapabilities: {
+                closeableDocument: false,
+                conversionBanner: false,
+                conversionDialog: false,
+                crop: false,
+                optimizePdf: false,
+                pdfDocument: false,
+                pdfMutationActions: false,
+                regionCapture: false,
+                repairSave: false,
+                save: false,
+                sidebar: false,
+            },
         });
     });
 

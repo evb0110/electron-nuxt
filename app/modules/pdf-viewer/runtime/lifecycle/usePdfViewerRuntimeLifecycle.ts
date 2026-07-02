@@ -43,8 +43,14 @@ import type {
     IResizeTransitionSignal,
     IZoomViewportAnchor,
 } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
+import type { TZoomInteractionLockOperationId } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
 
 type TPdfDocumentResult = ReturnType<typeof usePdfDocument>;
+
+interface IZoomRerenderBusySignal {
+    operationId?: TZoomInteractionLockOperationId | null | undefined;
+    reason: string;
+}
 
 
 export interface IUsePdfViewerRuntimeLifecycleOptions {
@@ -68,6 +74,16 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     pdfDocumentResult: TPdfDocumentResult;
     annotations: TAnnotationOrchestrator;
     currentPage: Ref<number>;
+    currentPageAuthority?: {
+        canSyncFromViewport: (source: string) => boolean;
+        commitViewportPage: (
+            page: number,
+            context: {
+                previousPage: number;
+                source: string;
+            },
+        ) => boolean;
+    } | undefined;
     pagedNavigationTargetPage?: Readonly<Ref<number | null>> | undefined;
     navigationAnchorPage?: Readonly<Ref<number | null>> | undefined;
     visibleRange: Ref<{
@@ -137,7 +153,10 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     consumeZoomViewportAnchor?: (() => IZoomViewportAnchor | null) | undefined;
     isZoomInteractionLocked?: (() => boolean) | undefined;
     isZoomGestureSessionLocked?: (() => boolean) | undefined;
-    setZoomRerenderBusy?: ((busy: boolean) => void) | undefined;
+    setZoomRerenderBusy?: ((
+        busy: boolean,
+        signal?: IZoomRerenderBusySignal,
+    ) => TZoomInteractionLockOperationId | null | undefined) | undefined;
     setResizeTransitionVisible?: ((payload: IResizeTransitionSignal) => void) | undefined;
     onDocumentLoadStateChange?: ((payload: {
         token: number;
@@ -153,6 +172,7 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     beginVisualReloadTransition: (reason: string) => number;
     endVisualReloadTransition: (token: number, reason: string) => void;
     setCurrentPageFitRerenderTransitionActive?: ((active: boolean) => void) | undefined;
+    emitLoadError?: ((error: unknown) => void) | undefined;
     emit: {
         (e: 'update:zoom', value: number): void;
         (e: 'update:currentPage', page: number): void;
@@ -186,6 +206,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         pdfDocumentResult,
         annotations,
         currentPage,
+        currentPageAuthority,
         visibleRange,
         effectiveScale,
         basePageWidth,
@@ -224,6 +245,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         beginVisualReloadTransition,
         endVisualReloadTransition,
         setCurrentPageFitRerenderTransitionActive,
+        emitLoadError,
         emit,
     } = options;
     const isActive = computed(() => isActiveOption?.value ?? true);
@@ -233,6 +255,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         pdfDocument,
         numPages,
         isLoading,
+        loadError,
         getRenderVersion,
         loadPdf,
         ensurePageMetricsInRange,
@@ -264,6 +287,15 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         emitCurrentPage: (page) => {
             emit('update:currentPage', page);
         },
+        canSyncCurrentPageFromViewport: currentPageAuthority
+            ? source => currentPageAuthority.canSyncFromViewport(source)
+            : undefined,
+        commitCurrentPageFromViewport: currentPageAuthority
+            ? (page, context) => currentPageAuthority.commitViewportPage(page, {
+                previousPage: context.previousPage,
+                source: context.source,
+            })
+            : undefined,
     });
     const {
         resetRenderStallRecoveryState,
@@ -442,6 +474,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         pdfDocument,
         numPages,
         isLoading,
+        loadError,
         getRenderVersion,
         loadPdf,
         ensurePageMetricsInRange,
@@ -470,6 +503,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         suppressNextZoomRerender,
         beginVisualReloadTransition,
         endVisualReloadTransition,
+        emitLoadError,
         onDocumentLoadStateChange: options.onDocumentLoadStateChange,
         emit,
     });

@@ -91,10 +91,12 @@ describe('package scripts', () => {
 
         expect(scriptRunTargets(packageJson, 'lint')).toEqual(expect.arrayContaining([
             'check:style-assets',
+            'check:pdfjs-viewer-css',
             'check:css-custom-properties',
             'check:css-important',
             'check:web-deploy-source',
             'check:dependency-lockstep',
+            'check:ocr-language-model-registry',
             'check:naming',
         ]));
         expect(getPackageScripts(packageJson).lint).not.toContain('|| true');
@@ -127,6 +129,15 @@ describe('package scripts', () => {
     it('keeps focused release and diagnostic test scripts mapped to first-class commands', async () => {
         const packageJson = await readPackageJson();
 
+        expect(scriptCommands(packageJson, 'validate')).toEqual([
+            'pnpm run lint',
+            'pnpm run typecheck',
+            'pnpm run test:unit',
+            'pnpm run typecheck:coverage',
+            'pnpm run build:strict',
+            'pnpm run fallow:all',
+            'pnpm run check:architecture',
+        ]);
         expect(packageJson.scripts['test:coverage']).toBe('pnpm run test:coverage:run && pnpm run check:coverage-ratchet');
         expect(packageJson.scripts['release:verify']).toBe('node scripts/release/verify-local.mjs');
         expect(packageJson.scripts.test).toBe('vitest run --project unit');
@@ -135,6 +146,8 @@ describe('package scripts', () => {
         expect(packageJson.scripts['test:bundle-integrity']).toBe('pnpm run build:electron && vitest run --project bundle-integrity && node scripts/prune-build-artifacts.mjs && pnpm run check:build-artifacts:hygiene');
         expect(packageJson.scripts['check:coverage-ratchet']).toBe('pnpm exec tsx scripts/checkCoverageRatchet.ts');
         expect(packageJson.scripts['check:coverage-ratchet:update']).toBe('pnpm exec tsx scripts/checkCoverageRatchet.ts --update-baseline');
+        expect(packageJson.scripts['check:pdfjs-viewer-css']).toBe('node scripts/sync-pdfjs-viewer-css.mjs --check');
+        expect(packageJson.scripts['release:resume']).toBe('HUSKY=0 node scripts/release/cut-release.mjs --resume');
         expect(packageJson.scripts['test:python-page-processor']).toBe('python3 scripts/check-page-processor-smoke.py');
         expect(packageJson.scripts['check:wasm:freshness']).toBe('node scripts/check-wasm-freshness.mjs --mode=strict');
         expect(packageJson.scripts['check:wasm:portable']).toBe('node scripts/check-wasm-freshness.mjs --mode=portable');

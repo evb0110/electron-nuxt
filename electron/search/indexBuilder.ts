@@ -85,6 +85,7 @@ interface IBuildSearchIndexOptions {
     pageCount?: number;
     signal?: AbortSignal;
     onPageIndexed?: (page: IPageIndex) => void;
+    validateBeforePersist?: (index: IPdfSearchIndex) => void;
 }
 
 interface IExtractedPageText {
@@ -518,6 +519,7 @@ async function buildIndexFromOcrPages(
     ocrPages: Map<number, IPageIndex>,
     expectedCount: number | undefined,
     signal?: AbortSignal,
+    validateBeforePersist?: (index: IPdfSearchIndex) => void,
 ): Promise<IPdfSearchIndex> {
     log.debug(`Using OCR v2 index with ${ocrPages.size} pages`);
     const pages = pagesFromOcrIndexPages(ocrPages, signal);
@@ -534,6 +536,7 @@ async function buildIndexFromOcrPages(
         },
     };
 
+    validateBeforePersist?.(index);
     await persistIndexBestEffort(pdfPath, index, signal);
     await persistCompactSearchIndexBestEffort(pdfPath, {
         pageCount: index.pageCount ?? pages.length,
@@ -961,6 +964,7 @@ export async function buildSearchIndex(
         pageCount: expectedCount,
         signal,
         onPageIndexed,
+        validateBeforePersist,
     } = options;
     throwIfAborted(signal);
 
@@ -972,7 +976,7 @@ export async function buildSearchIndex(
         ? expectedCount
         : ocrIndex?.pageCount;
     if (ocrPages && ocrPages.size > 0 && hasCompleteExpectedCoverage(ocrPages, effectiveExpectedCount, signal)) {
-        return buildIndexFromOcrPages(pdfPath, ocrPages, effectiveExpectedCount, signal);
+        return buildIndexFromOcrPages(pdfPath, ocrPages, effectiveExpectedCount, signal, validateBeforePersist);
     }
 
     throwIfAborted(signal);
@@ -1006,6 +1010,7 @@ export async function buildSearchIndex(
 
     log.debug(`Saving index to ${getIndexPath(pdfPath)}`);
     try {
+        validateBeforePersist?.(index);
         await persistIndex(pdfPath, index, signal);
         await ensureNativeSearchIndexBestEffort(pdfPath, index, signal);
         return index;

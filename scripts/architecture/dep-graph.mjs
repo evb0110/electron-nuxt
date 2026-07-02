@@ -60,6 +60,17 @@ const IMPORT_PATTERNS = [
 ];
 
 const INTERNAL_LIKE_PREFIXES = [
+    '@evb/contracts',
+    '@evb/contracts/',
+    '@evb/electron-worker-bundles/',
+    '@evb/i18n-app',
+    '@evb/i18n-app/',
+    '@evb/i18n-core',
+    '@evb/i18n-core/',
+    '@evb/pdf-core',
+    '@evb/pdf-core/',
+    '@evb/releaseSelection',
+    '@evb/releaseSelection/',
     '@app/',
     '@contracts',
     '@contracts/',
@@ -215,6 +226,40 @@ function isInternalLikeSpecifier(specifier) {
 }
 
 const PACKAGE_ALIAS_RULES = [
+    {
+        exact: '@evb/contracts',
+        prefix: '@evb/contracts/',
+        exactTarget: 'packages/contracts/index',
+        prefixTarget: 'packages/contracts/',
+    },
+    {
+        exact: '@evb/pdf-core',
+        prefix: '@evb/pdf-core/',
+        exactTarget: 'packages/pdf-core/index',
+        prefixTarget: 'packages/pdf-core/',
+    },
+    {
+        prefix: '@evb/electron-worker-bundles/',
+        prefixTarget: 'packages/electron-worker-bundles/',
+    },
+    {
+        exact: '@evb/i18n-core',
+        prefix: '@evb/i18n-core/',
+        exactTarget: 'packages/i18n-core/index',
+        prefixTarget: 'packages/i18n-core/',
+    },
+    {
+        exact: '@evb/i18n-app',
+        prefix: '@evb/i18n-app/',
+        exactTarget: 'packages/i18n-app/index',
+        prefixTarget: 'packages/i18n-app/',
+    },
+    {
+        exact: '@evb/releaseSelection',
+        prefix: '@evb/releaseSelection/',
+        exactTarget: 'packages/release-selection/index',
+        prefixTarget: 'packages/release-selection/',
+    },
     {
         exact: '@contracts',
         prefix: '@contracts/',

@@ -1,13 +1,25 @@
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { wheelDetailLogThrottleMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelDetailLogThrottleMs';
 import { wheelZoomExpectedScrollWindowMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomExpectedScrollWindowMs';
-import { wheelZoomGestureGraceMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomGestureGraceMs';
 import { wheelZoomSessionLockExtensionMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomSessionLockExtensionMs';
-import type { IZoomVirtualizationLogOptions } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
+import type {
+    IZoomVirtualizationLogOptions,
+    TZoomInteractionLockOperationId,
+} from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
 
 interface IUsePdfViewerZoomInteractionLockOptions extends IZoomVirtualizationLogOptions {
     getActiveSessionId: () => number | null;
     isWheelZoomGestureLocked: (nowMs?: number) => boolean;
+}
+
+interface IZoomInteractionLockCompletionOptions {
+    operationId?: TZoomInteractionLockOperationId | null | undefined;
+    reason: string;
+}
+
+interface IZoomInteractionLockStartOptions {
+    operationId?: TZoomInteractionLockOperationId | null | undefined;
+    reason?: string | undefined;
 }
 
 export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomInteractionLockOptions) => {
@@ -28,7 +40,11 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
     let isZoomRerenderBusyFromCore = false;
     let zoomRerenderBusyLockUntilMs = 0;
     let expectedZoomScrollUntilMs = 0;
+    let nextZoomInteractionLockOperationId = 0;
+    let activeExpectedZoomScrollOperationId: TZoomInteractionLockOperationId | null = null;
+    let activeZoomRerenderOperationId: TZoomInteractionLockOperationId | null = null;
     let zoomSnapSuppressedTimer: ReturnType<typeof setTimeout> | null = null;
+    let zoomRerenderBusyFailsafeTimer: ReturnType<typeof setTimeout> | null = null;
 
     function captureZoomVirtualizationFreeze(sessionId: number | null, reason: string) {
         if (!virtualizedContinuousMode.value) {
@@ -87,6 +103,46 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
         }
     }
 
+    function clearZoomRerenderBusyFailsafeTimer() {
+        if (zoomRerenderBusyFailsafeTimer !== null) {
+            clearTimeout(zoomRerenderBusyFailsafeTimer);
+            zoomRerenderBusyFailsafeTimer = null;
+        }
+    }
+
+    function beginZoomInteractionLockOperation(
+        operationId?: TZoomInteractionLockOperationId | null,
+    ) {
+        if (typeof operationId === 'number') {
+            if (operationId < nextZoomInteractionLockOperationId) {
+                return null;
+            }
+            nextZoomInteractionLockOperationId = operationId;
+            return operationId;
+        }
+
+        nextZoomInteractionLockOperationId += 1;
+        return nextZoomInteractionLockOperationId;
+    }
+
+    function completeExpectedZoomScroll(options: IZoomInteractionLockCompletionOptions) {
+        const operationId = options.operationId ?? activeExpectedZoomScrollOperationId;
+        if (
+            operationId === null
+            || operationId === undefined
+            || activeExpectedZoomScrollOperationId !== operationId
+        ) {
+            return false;
+        }
+
+        clearZoomSnapSuppressedTimer();
+        activeExpectedZoomScrollOperationId = null;
+        expectedZoomScrollUntilMs = 0;
+        zoomSnapSuppressed.value = false;
+        maybeReleaseZoomVirtualizationFreeze(options.reason);
+        return true;
+    }
+
     function shouldHoldZoomVirtualizationFreeze(nowMs = Date.now()) {
         if (!virtualizedContinuousMode.value) {
             return false;
@@ -106,26 +162,39 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
         releaseZoomVirtualizationFreeze(reason);
     }
 
-    function scheduleZoomSnapSuppressedRelease() {
+    function scheduleZoomSnapSuppressedRelease(operationId: TZoomInteractionLockOperationId) {
         clearZoomSnapSuppressedTimer();
         const delayMs = expectedZoomScrollUntilMs - Date.now();
         if (delayMs <= 0) {
-            zoomSnapSuppressed.value = false;
-            maybeReleaseZoomVirtualizationFreeze('expected-scroll-window-expired');
+            completeExpectedZoomScroll({
+                operationId,
+                reason: 'expected-scroll-window-expired',
+            });
             return;
         }
         zoomSnapSuppressedTimer = setTimeout(() => {
             zoomSnapSuppressedTimer = null;
-            if (Date.now() <= expectedZoomScrollUntilMs) {
-                scheduleZoomSnapSuppressedRelease();
+            if (activeExpectedZoomScrollOperationId !== operationId) {
                 return;
             }
-            zoomSnapSuppressed.value = false;
-            maybeReleaseZoomVirtualizationFreeze('expected-scroll-window-expired');
+            if (Date.now() <= expectedZoomScrollUntilMs) {
+                scheduleZoomSnapSuppressedRelease(operationId);
+                return;
+            }
+            completeExpectedZoomScroll({
+                operationId,
+                reason: 'expected-scroll-window-expired',
+            });
         }, delayMs + 32);
     }
 
-    function markExpectedZoomScroll(ms: number) {
+    function markExpectedZoomScroll(ms: number, options: IZoomInteractionLockStartOptions = {}) {
+        const operationId = beginZoomInteractionLockOperation(options.operationId);
+        if (operationId === null) {
+            return null;
+        }
+
+        activeExpectedZoomScrollOperationId = operationId;
         expectedZoomScrollUntilMs = Math.max(
             expectedZoomScrollUntilMs,
             Date.now() + Math.max(0, ms),
@@ -133,29 +202,89 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
         zoomSnapSuppressed.value = true;
         captureZoomVirtualizationFreeze(
             getActiveSessionId(),
-            'expected-scroll-window',
+            options.reason ?? 'expected-scroll-window',
         );
-        scheduleZoomSnapSuppressedRelease();
+        scheduleZoomSnapSuppressedRelease(operationId);
+        return operationId;
     }
 
-    function setZoomRerenderBusy(busy: boolean) {
-        isZoomRerenderBusyFromCore = busy;
-        zoomRerenderBusyLockUntilMs = Date.now()
-            + (busy ? wheelZoomSessionLockExtensionMs : wheelZoomGestureGraceMs);
+    function completeZoomRerenderBusy(options: IZoomInteractionLockCompletionOptions) {
+        const operationId = options.operationId ?? activeZoomRerenderOperationId;
+        if (
+            operationId === null
+            || operationId === undefined
+            || activeZoomRerenderOperationId !== operationId
+        ) {
+            return false;
+        }
+
+        clearZoomRerenderBusyFailsafeTimer();
+        activeZoomRerenderOperationId = null;
+        isZoomRerenderBusyFromCore = false;
+        zoomRerenderBusyLockUntilMs = 0;
+        completeExpectedZoomScroll({
+            operationId,
+            reason: options.reason,
+        });
+        maybeReleaseZoomVirtualizationFreeze(options.reason);
+        return true;
+    }
+
+    function scheduleZoomRerenderBusyFailsafe(operationId: TZoomInteractionLockOperationId) {
+        clearZoomRerenderBusyFailsafeTimer();
+        zoomRerenderBusyFailsafeTimer = setTimeout(() => {
+            zoomRerenderBusyFailsafeTimer = null;
+            completeZoomRerenderBusy({
+                operationId,
+                reason: 'core-rerender-failsafe',
+            });
+        }, wheelZoomExpectedScrollWindowMs + wheelZoomSessionLockExtensionMs);
+    }
+
+    function setZoomRerenderBusy(
+        busy: boolean,
+        options: IZoomInteractionLockStartOptions = {},
+    ) {
         if (busy) {
-            markExpectedZoomScroll(wheelZoomExpectedScrollWindowMs);
+            const operationId = beginZoomInteractionLockOperation(options.operationId);
+            if (operationId === null) {
+                return activeZoomRerenderOperationId;
+            }
+
+            activeZoomRerenderOperationId = operationId;
+            isZoomRerenderBusyFromCore = true;
+            zoomRerenderBusyLockUntilMs = Date.now()
+                + wheelZoomExpectedScrollWindowMs
+                + wheelZoomSessionLockExtensionMs;
+            markExpectedZoomScroll(wheelZoomExpectedScrollWindowMs, {
+                operationId,
+                reason: options.reason ?? 'core-rerender-busy',
+            });
             captureZoomVirtualizationFreeze(
                 getActiveSessionId(),
                 'core-rerender-busy',
             );
-        } else {
-            maybeReleaseZoomVirtualizationFreeze('core-rerender-idle');
+            scheduleZoomRerenderBusyFailsafe(operationId);
+            BrowserLogger.diagnostic('pdf-zoom-debug', `[wheel-zoom-session] core-busy=${busy}`, {
+                busy,
+                operationId,
+                lockUntilMs: zoomRerenderBusyLockUntilMs,
+                activeSessionId: getActiveSessionId(),
+            });
+            return operationId;
         }
+
+        completeZoomRerenderBusy({
+            operationId: options.operationId,
+            reason: options.reason ?? 'core-rerender-idle',
+        });
         BrowserLogger.diagnostic('pdf-zoom-debug', `[wheel-zoom-session] core-busy=${busy}`, {
             busy,
+            operationId: options.operationId ?? null,
             lockUntilMs: zoomRerenderBusyLockUntilMs,
             activeSessionId: getActiveSessionId(),
         });
+        return activeZoomRerenderOperationId;
     }
 
     function isZoomInteractionLocked(nowMs = Date.now()) {
@@ -167,9 +296,12 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
 
     function cleanupZoomInteractionLock() {
         clearZoomSnapSuppressedTimer();
+        clearZoomRerenderBusyFailsafeTimer();
         isZoomRerenderBusyFromCore = false;
         zoomRerenderBusyLockUntilMs = 0;
         expectedZoomScrollUntilMs = 0;
+        activeExpectedZoomScrollOperationId = null;
+        activeZoomRerenderOperationId = null;
         zoomSnapSuppressed.value = false;
         zoomVirtualizationFreeze.value = null;
     }
@@ -179,11 +311,14 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
         captureZoomVirtualizationFreeze,
         maybeReleaseZoomVirtualizationFreeze,
         markExpectedZoomScroll,
+        completeExpectedZoomScroll,
         setZoomRerenderBusy,
         isZoomInteractionLocked,
         cleanupZoomInteractionLock,
         getIsZoomRerenderBusyFromCore: () => isZoomRerenderBusyFromCore,
         getZoomRerenderBusyLockUntilMs: () => zoomRerenderBusyLockUntilMs,
         getExpectedZoomScrollUntilMs: () => expectedZoomScrollUntilMs,
+        getActiveExpectedZoomScrollOperationId: () => activeExpectedZoomScrollOperationId,
+        getActiveZoomRerenderOperationId: () => activeZoomRerenderOperationId,
     };
 };

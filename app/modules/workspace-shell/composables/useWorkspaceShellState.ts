@@ -4,8 +4,7 @@ import type {
 } from 'vue';
 import type { ITab } from '@app/types/tabs';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
-import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
-import type { IWorkspaceHasPdfState } from '@app/modules/workspace-shell/state/workspaceHasPdf';
+import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 
 export interface IWorkspaceShellState {
     activeTab: ComputedRef<ITab | null>;
@@ -19,7 +18,7 @@ export interface IWorkspaceShellState {
 }
 
 export interface IUseWorkspaceShellStateOptions {
-    activeWorkspace: Readonly<Ref<IWorkspaceHasPdfState | null | undefined>>;
+    activeDocumentRecord: Readonly<Ref<IWorkspaceDocumentRecord | null | undefined>>;
     activeTabId: Ref<string | null>;
     tabs: Ref<ITab[]>;
 }
@@ -33,24 +32,16 @@ export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions):
 
         return options.tabs.value.find(candidate => candidate.id === tabId) ?? null;
     });
-    const activeWorkspaceHasDocument = computed(() => workspaceHasPdf(options.activeWorkspace.value));
-    const activeWorkspaceCanSave = computed(() => (
-        options.activeWorkspace.value?.getToolbarSnapshot?.().canSave === true
+    const activeToolbarSnapshot = computed(() => options.activeDocumentRecord.value?.toolbarSnapshot ?? null);
+    const activeWorkspaceHasDocument = computed(() => (
+        activeToolbarSnapshot.value?.hasPdf === true
+        || activeToolbarSnapshot.value?.isDjvuMode === true
     ));
-    const activeWorkspaceCanRepairSave = computed(() => {
-        const workspace = options.activeWorkspace.value;
-        const snapshot = workspace?.getToolbarSnapshot?.();
-        return snapshot?.canRepairSave === true
-            || (snapshot?.canRepairSave === undefined && workspaceHasPdf(workspace));
-    });
-    const activeWorkspaceCanOptimizePdf = computed(() => {
-        const workspace = options.activeWorkspace.value;
-        const snapshot = workspace?.getToolbarSnapshot?.();
-        return snapshot?.canOptimizePdf === true
-            || (snapshot?.canOptimizePdf === undefined && activeWorkspaceCanRepairSave.value);
-    });
+    const activeWorkspaceCanSave = computed(() => activeToolbarSnapshot.value?.canSave === true);
+    const activeWorkspaceCanRepairSave = computed(() => activeToolbarSnapshot.value?.canRepairSave === true);
+    const activeWorkspaceCanOptimizePdf = computed(() => activeToolbarSnapshot.value?.canOptimizePdf === true);
     const activeTabHasDocumentHint = computed(() => {
-        const tab = activeTab.value;
+        const tab = options.activeDocumentRecord.value?.tab ?? activeTab.value;
         if (!tab) {
             return false;
         }

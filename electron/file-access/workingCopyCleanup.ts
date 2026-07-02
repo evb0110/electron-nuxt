@@ -27,6 +27,7 @@ import {
     safeRemoveDirectory,
 } from '@electron/file-access/workingCopyDirectory';
 import { getAppTempDir } from '@electron/utils/appTempDir';
+import { drainWorkingCopyMutations } from '@electron/file-access/workingCopyMutationQueue';
 
 const logger = createLogger('working-copy');
 const STALE_WORK_DIR_MAX_AGE_MS = (() => {
@@ -189,6 +190,7 @@ export function cleanupWorkingCopy(workingPath: string, senderWebContentsId?: nu
 }
 
 export async function clearAllWorkingCopies() {
+    await drainWorkingCopyMutations();
     const paths = [...workingCopyMap.keys()];
     clearWorkingCopyOriginalPaths();
     clearRetiredWorkingCopyOriginals();

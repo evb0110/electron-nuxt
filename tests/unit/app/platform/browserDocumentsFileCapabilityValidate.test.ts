@@ -8,7 +8,9 @@ import {
 import { PDFDocument } from 'pdf-lib';
 
 const pdfjsModule = vi.hoisted(() => ({
+    version: '5.7.284',
     GlobalWorkerOptions: {},
+    PDFDataRangeTransport: function MockPdfDataRangeTransport() {},
     VerbosityLevel: {ERRORS: 3},
     getDocument: vi.fn(),
 }));

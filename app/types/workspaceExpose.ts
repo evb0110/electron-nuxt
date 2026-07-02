@@ -15,6 +15,7 @@ import type {
 
 export interface IWorkspaceToolbarSnapshot {
     hasPdf: boolean;
+    viewerCapabilities: IWorkspaceViewerCapabilities;
     isOpeningDocument: boolean;
     hasOpenError: boolean;
     isPreparingPrint: boolean;
@@ -48,9 +49,40 @@ export interface IWorkspaceToolbarSnapshot {
     totalPages: number;
 }
 
+export interface IWorkspaceViewerCapabilities {
+    closeableDocument: boolean;
+    conversionBanner: boolean;
+    conversionDialog: boolean;
+    crop: boolean;
+    optimizePdf: boolean;
+    pdfDocument: boolean;
+    pdfMutationActions: boolean;
+    regionCapture: boolean;
+    repairSave: boolean;
+    save: boolean;
+    sidebar: boolean;
+}
+
+export function createDefaultWorkspaceViewerCapabilities(): IWorkspaceViewerCapabilities {
+    return {
+        closeableDocument: false,
+        conversionBanner: false,
+        conversionDialog: false,
+        crop: false,
+        optimizePdf: false,
+        pdfDocument: false,
+        pdfMutationActions: false,
+        regionCapture: false,
+        repairSave: false,
+        save: false,
+        sidebar: false,
+    };
+}
+
 export function createDefaultWorkspaceToolbarSnapshot(): IWorkspaceToolbarSnapshot {
     return {
         hasPdf: false,
+        viewerCapabilities: createDefaultWorkspaceViewerCapabilities(),
         isOpeningDocument: false,
         hasOpenError: false,
         isPreparingPrint: false,

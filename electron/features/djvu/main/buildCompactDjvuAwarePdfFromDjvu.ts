@@ -90,6 +90,12 @@ const DJVU_COMPACT_FALLBACK_SUBSAMPLE = readBoundedIntegerEnv(
     2,
     32,
 );
+const DJVU_COMPACT_NETPBM_MAX_INPUT_BYTES = readBoundedIntegerEnv(
+    'EVB_DJVU_COMPACT_NETPBM_MAX_MB',
+    192,
+    1,
+    1024,
+) * 1024 * 1024;
 
 export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfExportOptions) {
     const pages = normalizePages(options.pages, options.pageCount);
@@ -434,10 +440,12 @@ function canRepresentManifestPath(path: string) {
 }
 
 async function readNetpbmInfo(path: string) {
+    await assertNetpbmReadSafe(path);
     return parseNetpbmInfo(await readFile(path));
 }
 
 async function readNetpbmStats(path: string) {
+    await assertNetpbmReadSafe(path);
     const data = await readFile(path);
     const info = parseNetpbmInfo(data);
     if (info.magic === 'P4') {
@@ -506,6 +514,17 @@ async function readNetpbmStats(path: string) {
         colorRatio: colorPixels / Math.max(1, nonWhitePixels),
         maxDarkRunRatio: maxDarkRun / Math.max(1, info.width),
     } satisfies INetpbmStats;
+}
+
+async function assertNetpbmReadSafe(path: string) {
+    const fileStat = await stat(path);
+    if (!fileStat.isFile()) {
+        throw new Error(`Netpbm input is not a regular file: ${path}`);
+    }
+    if (fileStat.size > DJVU_COMPACT_NETPBM_MAX_INPUT_BYTES) {
+        const maxMb = Math.floor(DJVU_COMPACT_NETPBM_MAX_INPUT_BYTES / (1024 * 1024));
+        throw new Error(`Netpbm input exceeds safe read limit (${maxMb}MB): ${path}`);
+    }
 }
 
 function parseNetpbmInfo(data: Buffer): INetpbmInfo {

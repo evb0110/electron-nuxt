@@ -82,6 +82,7 @@ export const usePdfFile = () => {
     });
     const documentOpenFlow = createDocumentOpenFlow(sessionState, {
         analytics,
+        cleanupAbandonedWorkingCopy: path => getDocumentWorkingCopyCapability().cleanupFile(path),
         clearPdfConformanceProfile,
         cleanupPreviousWorkingCopy,
         deferPdfConformanceProfile,

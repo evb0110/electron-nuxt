@@ -1,4 +1,5 @@
 import {
+    canSyncPdfNavigationFromViewport,
     createPdfNavigationMachineState,
     getPdfNavigationStatusForSource,
     getPdfNavigationTargetPageForSource,
@@ -12,16 +13,52 @@ import type {
     TPdfNavigationEvent,
     TPdfNavigationSource,
 } from '@app/modules/pdf-viewer/runtime/navigation/navigationMachine';
+import type { Ref } from 'vue';
 
-export function createPdfNavigationRuntime() {
-    const state = shallowRef<IPdfNavigationState>(createPdfNavigationMachineState());
+type TPdfCurrentPageEmitter = (page: number) => void;
+
+interface IPdfNavigationRuntimeOptions {
+    currentPage?: Ref<number> | undefined;
+    emitCurrentPage?: TPdfCurrentPageEmitter | undefined;
+}
+
+interface IPdfCurrentPageCommitOptions { previousPage?: number | undefined }
+
+interface IPdfViewportCurrentPageCommitOptions extends IPdfCurrentPageCommitOptions { source?: string | undefined }
+
+export function createPdfNavigationRuntime(options: IPdfNavigationRuntimeOptions = {}) {
+    const state = shallowRef<IPdfNavigationState>(
+        createPdfNavigationMachineState(0, options.currentPage?.value ?? null),
+    );
     const status = computed(() => state.value.status);
     const targetPage = computed(() => state.value.targetPage);
     const source = computed(() => state.value.source);
     const txn = computed(() => state.value.txn);
 
-    function dispatch(event: TPdfNavigationEvent) {
+    function applyCurrentPageFromState(previousPage?: number) {
+        const currentPage = state.value.currentPage;
+        if (currentPage === null || !options.currentPage) {
+            return false;
+        }
+
+        const previous = previousPage ?? options.currentPage.value;
+        if (options.currentPage.value !== currentPage) {
+            options.currentPage.value = currentPage;
+        }
+        if (currentPage !== previous) {
+            options.emitCurrentPage?.(currentPage);
+            return true;
+        }
+        return false;
+    }
+
+    function dispatch(
+        event: TPdfNavigationEvent,
+        commitOptions: IPdfCurrentPageCommitOptions = {},
+    ) {
+        const previousPage = commitOptions.previousPage ?? options.currentPage?.value;
         state.value = reducePdfNavigationMachine(state.value, event);
+        applyCurrentPageFromState(previousPage);
         return state.value;
     }
 
@@ -60,6 +97,51 @@ export function createPdfNavigationRuntime() {
         );
     }
 
+    function canSyncCurrentPageFromViewport() {
+        return canSyncPdfNavigationFromViewport(state.value);
+    }
+
+    function commitViewportCurrentPage(
+        page: number,
+        commitOptions: IPdfViewportCurrentPageCommitOptions = {},
+    ) {
+        if (!canSyncCurrentPageFromViewport()) {
+            return false;
+        }
+
+        const previousState = state.value;
+        const nextState = dispatch(
+            {
+                type: 'VIEWPORT_CURRENT_PAGE',
+                page,
+            },
+            commitOptions,
+        );
+        return nextState !== previousState || nextState.currentPage === page;
+    }
+
+    function commitNavigationCurrentPage(
+        candidateSource: TPdfNavigationSource,
+        candidateTxn: number,
+        candidateTargetPage: number,
+        commitOptions: IPdfCurrentPageCommitOptions = {},
+    ) {
+        if (!isTargetCurrent(candidateSource, candidateTxn, candidateTargetPage)) {
+            return false;
+        }
+
+        const previousState = state.value;
+        const nextState = dispatch(
+            {
+                type: 'CURRENT_PAGE_COMMITTED',
+                txn: candidateTxn,
+                page: candidateTargetPage,
+            },
+            commitOptions,
+        );
+        return nextState !== previousState || nextState.currentPage === candidateTargetPage;
+    }
+
     return {
         state,
         dispatch,
@@ -72,5 +154,18 @@ export function createPdfNavigationRuntime() {
         targetPageForSource,
         getTxnForSource,
         isTargetCurrent,
+        canSyncCurrentPageFromViewport,
+        commitViewportCurrentPage,
+        commitNavigationCurrentPage,
     };
+}
+
+export function createPdfNavigationRuntimeForCurrentPage(
+    currentPage: Ref<number>,
+    emitCurrentPage?: TPdfCurrentPageEmitter | undefined,
+) {
+    return createPdfNavigationRuntime({
+        currentPage,
+        emitCurrentPage,
+    });
 }

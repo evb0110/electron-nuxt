@@ -8,6 +8,16 @@ import {
 } from '@app/types/workspaceExpose';
 import type { TTabUpdate } from '@app/types/tabs';
 import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
+import {
+    createWorkspaceExposeCommandHandlers,
+    createWorkspaceExposeFromCommandHandlers,
+    invokeWorkspaceExposeCommand,
+    WorkspaceExposeCommandUnavailableError,
+    type IWorkspaceExposeCommandDescriptor,
+    type TWorkspaceExposeCommandHandlerMap,
+    type TWorkspaceExposeCommandRunner,
+    type TWorkspaceExposeMethod,
+} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 
 interface IDocumentOpenIntent {
     action: string;
@@ -45,40 +55,42 @@ export function createDeferredWorkspaceExposeProxy(
     deps: ICreateDeferredWorkspaceExposeProxyDeps,
 ): IWorkspaceExpose {
     function mountWaitBoolean(
-        action: keyof IWorkspaceExpose,
-        run: (workspace: IWorkspaceExpose) => Promise<boolean> | boolean,
+        action: TWorkspaceExposeMethod,
+        run: (workspace: IWorkspaceExpose, args: readonly unknown[]) => Promise<boolean> | boolean,
     ) {
-        return async () => await deps.withLoadedWorkspace(action, run) === true;
+        return async (...args: unknown[]) => await deps.withLoadedWorkspace(action, workspace => run(workspace, args)) === true;
     }
 
     function mountWaitVoid(
-        action: keyof IWorkspaceExpose,
-        run: (workspace: IWorkspaceExpose) => Promise<void> | void,
+        action: TWorkspaceExposeMethod,
+        run: (workspace: IWorkspaceExpose, args: readonly unknown[]) => Promise<void> | void,
     ) {
-        return async () => {
-            await deps.withLoadedWorkspace(action, run);
+        return async (...args: unknown[]) => {
+            await deps.withLoadedWorkspace(action, workspace => run(workspace, args));
         };
     }
 
     function mountWaitSyncVoid(
-        action: keyof IWorkspaceExpose,
-        run: (workspace: IWorkspaceExpose) => void,
+        action: TWorkspaceExposeMethod,
+        run: (workspace: IWorkspaceExpose, args: readonly unknown[]) => void,
     ) {
-        return () => {
-            void deps.withLoadedWorkspace(action, run);
+        return (...args: unknown[]) => {
+            void deps.withLoadedWorkspace(action, workspace => run(workspace, args));
         };
     }
 
     async function directBoolean(
-        action: keyof IWorkspaceExpose,
-        run: (workspace: IWorkspaceExpose) => Promise<boolean> | boolean,
+        action: TWorkspaceExposeMethod,
+        run: (workspace: IWorkspaceExpose, args: readonly unknown[]) => Promise<boolean> | boolean,
+        args: readonly unknown[] = [],
     ) {
         const workspace = deps.getMounted();
         if (!workspace) {
+            deps.log(action, new WorkspaceExposeCommandUnavailableError(action));
             return false;
         }
         try {
-            return await run(workspace);
+            return await run(workspace, args);
         } catch (error) {
             deps.log(action, error);
             return false;
@@ -92,20 +104,39 @@ export function createDeferredWorkspaceExposeProxy(
         return deps.enqueueDocumentOpen(intent, run);
     }
 
-    const proxy: IWorkspaceExpose = {
-        handleSave: mountWaitBoolean('handleSave', workspace => workspace.handleSave()),
-        handleRepairSave: mountWaitBoolean('handleRepairSave', workspace => workspace.handleRepairSave()),
-        handleOptimizePdfForInteraction: mountWaitBoolean(
-            'handleOptimizePdfForInteraction',
-            workspace => workspace.handleOptimizePdfForInteraction(),
-        ),
-        handleSaveAs: mountWaitBoolean('handleSaveAs', workspace => workspace.handleSaveAs()),
-        handlePrint: mountWaitVoid('handlePrint', workspace => workspace.handlePrint()),
-        handlePrintCurrentPage: mountWaitVoid('handlePrintCurrentPage', workspace => workspace.handlePrintCurrentPage()),
-        handleUndo: mountWaitSyncVoid('handleUndo', workspace => workspace.handleUndo()),
-        handleRedo: mountWaitSyncVoid('handleRedo', workspace => workspace.handleRedo()),
+    function createDeferredStrategyHandler(
+        descriptor: IWorkspaceExposeCommandDescriptor,
+    ): TWorkspaceExposeCommandRunner | null {
+        const { name } = descriptor;
+        if (descriptor.deferred === 'mountWaitBoolean') {
+            return mountWaitBoolean(name, async (workspace, args) => (
+                await Promise.resolve(invokeWorkspaceExposeCommand(workspace, name, args)) === true
+            ));
+        }
+
+        if (descriptor.deferred === 'mountWaitVoid') {
+            return mountWaitVoid(name, async (workspace, args) => {
+                await Promise.resolve(invokeWorkspaceExposeCommand(workspace, name, args));
+            });
+        }
+
+        if (descriptor.deferred === 'mountWaitSyncVoid') {
+            return mountWaitSyncVoid(name, (workspace, args) => {
+                void invokeWorkspaceExposeCommand(workspace, name, args);
+            });
+        }
+
+        if (descriptor.deferred === 'directBoolean') {
+            return async (...args: unknown[]) => directBoolean(name, async (workspace, commandArgs) => (
+                await Promise.resolve(invokeWorkspaceExposeCommand(workspace, name, commandArgs)) === true
+            ), args);
+        }
+
+        return null;
+    }
+
+    const customHandlers: Partial<TWorkspaceExposeCommandHandlerMap> = {
         handleOpenFileFromUi: () => Promise.resolve(false),
-        handleCombineImages: () => directBoolean('handleCombineImages', workspace => workspace.handleCombineImages()),
         handleOpenFileDirectWithPersist: async (path: TDocumentRef) => openQueued({
             action: 'handleOpenFileDirectWithPersist',
             target: buildPendingTabDocumentHint(path),
@@ -143,42 +174,6 @@ export function createDeferredWorkspaceExposeProxy(
             action: 'openRecentFile',
             target: buildPendingTabDocumentHint(file),
         }, async () => deps.withWorkspace('openRecentFile', workspace => workspace.openRecentFile(file))),
-        handleExportDocx: mountWaitVoid('handleExportDocx', workspace => workspace.handleExportDocx()),
-        handleExportImages: mountWaitVoid('handleExportImages', workspace => workspace.handleExportImages()),
-        handleExportMultiPageTiff: mountWaitVoid('handleExportMultiPageTiff', workspace => workspace.handleExportMultiPageTiff()),
-        hasPdf: false,
-        handleZoomIn: mountWaitSyncVoid('handleZoomIn', workspace => workspace.handleZoomIn()),
-        handleZoomOut: mountWaitSyncVoid('handleZoomOut', workspace => workspace.handleZoomOut()),
-        handleFitWidth: mountWaitSyncVoid('handleFitWidth', workspace => workspace.handleFitWidth()),
-        handleFitHeight: mountWaitSyncVoid('handleFitHeight', workspace => workspace.handleFitHeight()),
-        handleActualSize: mountWaitSyncVoid('handleActualSize', workspace => workspace.handleActualSize()),
-        setCustomZoomFromDisplay: (displayZoom: number) => {
-            void deps.withLoadedWorkspace('setCustomZoomFromDisplay', workspace => workspace.setCustomZoomFromDisplay(displayZoom));
-        },
-        handleGoToPage: (page: number) => {
-            void deps.withLoadedWorkspace('handleGoToPage', workspace => workspace.handleGoToPage(page));
-        },
-        handleToggleSidebar: mountWaitSyncVoid('handleToggleSidebar', workspace => workspace.handleToggleSidebar()),
-        handleToggleContinuousScroll: mountWaitSyncVoid('handleToggleContinuousScroll', workspace => workspace.handleToggleContinuousScroll()),
-        handleEnableDragMode: mountWaitSyncVoid('handleEnableDragMode', workspace => workspace.handleEnableDragMode()),
-        handleDisableDragMode: mountWaitSyncVoid('handleDisableDragMode', workspace => workspace.handleDisableDragMode()),
-        handleCaptureRegion: mountWaitSyncVoid('handleCaptureRegion', workspace => workspace.handleCaptureRegion()),
-        handleCrop: mountWaitSyncVoid('handleCrop', workspace => workspace.handleCrop()),
-        handleQuickNote: mountWaitSyncVoid('handleQuickNote', workspace => workspace.handleQuickNote()),
-        handleInsertImageFromFile: mountWaitVoid('handleInsertImageFromFile', workspace => workspace.handleInsertImageFromFile()),
-        handlePasteImageFromClipboard: mountWaitVoid('handlePasteImageFromClipboard', workspace => workspace.handlePasteImageFromClipboard()),
-        handleViewModeSingle: mountWaitSyncVoid('handleViewModeSingle', workspace => workspace.handleViewModeSingle()),
-        handleViewModeFacing: mountWaitSyncVoid('handleViewModeFacing', workspace => workspace.handleViewModeFacing()),
-        handleViewModeFacingFirstSingle: mountWaitSyncVoid(
-            'handleViewModeFacingFirstSingle',
-            workspace => workspace.handleViewModeFacingFirstSingle(),
-        ),
-        handleDeletePages: mountWaitSyncVoid('handleDeletePages', workspace => workspace.handleDeletePages()),
-        handleExtractPages: mountWaitSyncVoid('handleExtractPages', workspace => workspace.handleExtractPages()),
-        handleRotateCw: mountWaitSyncVoid('handleRotateCw', workspace => workspace.handleRotateCw()),
-        handleRotateCcw: mountWaitSyncVoid('handleRotateCcw', workspace => workspace.handleRotateCcw()),
-        handleInsertPages: mountWaitSyncVoid('handleInsertPages', workspace => workspace.handleInsertPages()),
-        handleConvertToPdf: mountWaitSyncVoid('handleConvertToPdf', workspace => workspace.handleConvertToPdf()),
         captureSplitPayload: () => deps.getMounted()?.captureSplitPayload() ?? Promise.resolve({kind: 'empty'} satisfies TSplitPayload),
         restoreSplitPayload: async (payload: TSplitPayload) => {
             if (!deps.getMounted() && payload.kind === 'empty') {
@@ -202,11 +197,6 @@ export function createDeferredWorkspaceExposeProxy(
                 target: null,
             }, restorePayload);
         },
-        closeAllDropdowns: mountWaitSyncVoid('closeAllDropdowns', workspace => workspace.closeAllDropdowns()),
-        waitForDocumentOpenSettled: mountWaitVoid(
-            'waitForDocumentOpenSettled',
-            workspace => workspace.waitForDocumentOpenSettled(),
-        ),
         runAgentAction: async (actionId, input, options) => {
             try {
                 return await deps.withLoadedWorkspaceRequired(
@@ -244,28 +234,58 @@ export function createDeferredWorkspaceExposeProxy(
             workingCopyPath: null,
         },
         handleOcrComplete: async (payload) => {
-            await deps.withLoadedWorkspace('handleOcrComplete', workspace => workspace.handleOcrComplete?.(payload));
+            await deps.withLoadedWorkspace(
+                'handleOcrComplete',
+                workspace => invokeWorkspaceExposeCommand(workspace, 'handleOcrComplete', [payload]),
+            );
         },
         scrollToPage: (page: number) => {
-            void deps.withLoadedWorkspace('scrollToPage', workspace => workspace.scrollToPage?.(page));
+            void deps.withLoadedWorkspace(
+                'scrollToPage',
+                workspace => invokeWorkspaceExposeCommand(workspace, 'scrollToPage', [page]),
+            );
         },
-        getAllShapes: () => deps.getMounted()?.getAllShapes?.() ?? [],
-        getDeletedEmbeddedShapeAnnotationIds: () => deps.getMounted()?.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
-        getDeletedEmbeddedShapeStableKeys: () => deps.getMounted()?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
-        highlightSelection: async () => (
-            await deps.withLoadedWorkspace('highlightSelection', workspace => workspace.highlightSelection?.()) ?? false
-        ),
-        commentAtPoint: async (pageNumber, pageX, pageY, options) => (
-            await deps.withLoadedWorkspace(
+        getAllShapes: () => {
+            const workspace = deps.getMounted();
+            return workspace ? invokeWorkspaceExposeCommand(workspace, 'getAllShapes') as unknown[] : [];
+        },
+        getDeletedEmbeddedShapeAnnotationIds: () => {
+            const workspace = deps.getMounted();
+            return workspace ? invokeWorkspaceExposeCommand(workspace, 'getDeletedEmbeddedShapeAnnotationIds') as string[] : [];
+        },
+        getDeletedEmbeddedShapeStableKeys: () => {
+            const workspace = deps.getMounted();
+            return workspace ? invokeWorkspaceExposeCommand(workspace, 'getDeletedEmbeddedShapeStableKeys') as string[] : [];
+        },
+        highlightSelection: async () => {
+            const result = await deps.withLoadedWorkspace(
+                'highlightSelection',
+                workspace => invokeWorkspaceExposeCommand(workspace, 'highlightSelection'),
+            );
+            return result === true;
+        },
+        commentAtPoint: async (pageNumber, pageX, pageY, options) => {
+            const result = await deps.withLoadedWorkspace(
                 'commentAtPoint',
-                workspace => workspace.commentAtPoint?.(pageNumber, pageX, pageY, options),
-            ) ?? false
-        ),
+                workspace => invokeWorkspaceExposeCommand(workspace, 'commentAtPoint', [
+                    pageNumber,
+                    pageX,
+                    pageY,
+                    options,
+                ]),
+            );
+            return result === true;
+        },
         getToolbarSnapshot: () => deps.getMounted()?.getToolbarSnapshot() ?? createDefaultWorkspaceToolbarSnapshot(),
     };
 
-    return {
-        ...proxy,
-        ...deps.overrides,
-    };
+    const commandHandlers = createWorkspaceExposeCommandHandlers((descriptor) => {
+        if (descriptor.deferred === 'custom') {
+            return (customHandlers[descriptor.name] as TWorkspaceExposeCommandRunner | undefined) ?? null;
+        }
+
+        return createDeferredStrategyHandler(descriptor);
+    });
+
+    return createWorkspaceExposeFromCommandHandlers(false, commandHandlers, deps.overrides);
 }

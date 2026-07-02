@@ -37,6 +37,10 @@ import { usePdfRendererVisibleRenderController } from '@app/modules/pdf-viewer/r
 import { usePdfRendererSinglePageController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSinglePageController';
 import { resolveHiddenEmbeddedAnnotationIdsForPageContainer } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import {
+    createPdfRenderSupervisor,
+    type IPdfRenderSupervisor,
+} from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 
 export type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 
@@ -82,6 +86,7 @@ export interface IUsePdfPageRendererOptions {
     isVisibleRenderRangeCurrent?: ((visibleRange: IPageRange) => boolean) | undefined;
     onAnnotationLayersRendered?: ((pageNumber: number, container: HTMLElement) => void) | undefined;
     onRenderedPageStateChanged?: () => void;
+    renderSupervisor?: IPdfRenderSupervisor | undefined;
 }
 
 export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
@@ -140,6 +145,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     });
 
     const renderMutex = new Mutex();
+    const renderSupervisor = options.renderSupervisor ?? createPdfRenderSupervisor();
     const RERENDER_LOG_THROTTLE_MS = 420;
     let renderVersion = 0;
     let visibleRenderRequestId = 0;
@@ -319,7 +325,17 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             return;
         }
 
-        setTimeout(retry, 0);
+        renderSupervisor.armTimer({
+            cause: 'mounted-page-recovery',
+            delayMs: 0,
+            key: `missing-render-target-retry:${pageNumber}`,
+            metadata: {
+                pageNumber,
+                requestId,
+                version,
+            },
+            onFire: retry,
+        });
     }
 
     function resolveCanvasHiddenAnnotationIds(pageNumber: number) {
@@ -429,6 +445,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         cancelActiveRenderTask,
         cancelActiveRenderTaskIfCurrent,
         onRenderStall: options.onRenderStall,
+        renderSupervisor,
     });
     type TCanvasRenderResult = NonNullable<Awaited<ReturnType<typeof prepareCanvasForRender>>>;
     const renderAnnotationLayersForPage = usePdfRendererAnnotationLayerController({
@@ -452,6 +469,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         clearSelectionBeforePageLayerTeardown,
         logNonCriticalStageError,
         onRenderStall: options.onRenderStall,
+        renderSupervisor,
     });
     const {
         renderSingleVisiblePage,

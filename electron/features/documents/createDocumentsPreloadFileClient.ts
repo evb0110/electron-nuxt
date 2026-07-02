@@ -47,6 +47,21 @@ const PDF_PERSISTENCE_MAX_IN_FLIGHT_CHUNKS = PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIG
 const PDF_PERSISTENCE_READY_TIMEOUT_MS = 10_000;
 const PDF_PERSISTENCE_ACK_TIMEOUT_MS = PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS;
 const PDF_PERSISTENCE_RESULT_TIMEOUT_MS = PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS;
+const LONG_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1000;
+const DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
+    [DOCUMENTS_CHANNELS.openDocumentDirectBatch]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.pdfNativePageSizes]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.pdfNativePagePreview]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.pdfAnalyzeConformance]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.pdfValidatePath]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.fileRepairPdf]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.fileOptimizePdfForInteraction]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.fileOptimizePdfAsCopy]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.fileSavePdfNoteTextUpdates]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.fileSavePdfNoteChanges]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.fileSavePdfNativeMutations]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy]: LONG_NATIVE_IPC_TIMEOUT_MS,
+} as const;
 const PDF_OPTIMIZE_PRESETS = new Set<IPdfOptimizeOptions['preset']>([
     'lossless',
     'balancedScanned',
@@ -345,7 +360,7 @@ async function streamPdfBytesToPersistencePort(
 export function createDocumentsPreloadFileClient(
     ipcRenderer: Pick<IpcRenderer, 'invoke' | 'postMessage'>,
 ): TDocumentsPreloadFileClient {
-    const invoke = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer);
+    const invoke = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const openDocumentDialog = () => invoke(DOCUMENTS_CHANNELS.openDocumentDialog);
     const openDocumentDirect = (path: string) => invoke(DOCUMENTS_CHANNELS.openDocumentDirect, path);
     const openDocumentDirectBatch = (paths: string[], requestId?: string) =>

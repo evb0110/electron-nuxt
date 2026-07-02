@@ -30,6 +30,7 @@ type TEpochGuard = ReturnType<typeof createEpochGuard>;
 
 interface ICreateDocumentOpenFlowDeps {
     analytics: TAnalytics;
+    cleanupAbandonedWorkingCopy: (path: TDocumentRef) => Promise<void>;
     clearPdfConformanceProfile: () => void;
     cleanupPreviousWorkingCopy: (path: TDocumentRef, nextPath: TDocumentRef) => Promise<void>;
     deferPdfConformanceProfile: (
@@ -45,8 +46,11 @@ interface ICreateDocumentOpenFlowDeps {
     ) => Promise<boolean>;
     resetHistory: (
         snapshot: Uint8Array | null,
-        options?: { reuseSnapshot?: boolean },
-    ) => Promise<void>;
+        options?: {
+            reuseSnapshot?: boolean;
+            isCurrent?: (() => boolean) | undefined;
+        },
+    ) => Promise<boolean>;
     syncDirtyFromHistory: () => void;
     t: TTranslateFn;
 }
@@ -143,6 +147,37 @@ export function createDocumentOpenFlow(
         return deps.openEpoch.isCurrent(requestId);
     }
 
+    function isCurrentLoadRequest(requestId: number) {
+        return deps.loadEpoch.isCurrent(requestId);
+    }
+
+    function isCurrentOpenLoadRequest(openRequestId: number, loadRequestId: number) {
+        return isCurrentOpenRequest(openRequestId) && isCurrentLoadRequest(loadRequestId);
+    }
+
+    async function cleanupAbandonedPdfWorkingCopy(
+        result: TOpenFileResult,
+        reason: string,
+    ) {
+        if (result.kind !== 'pdf' || state.isActiveWorkingCopy(result.workingPath)) {
+            return;
+        }
+
+        try {
+            await deps.cleanupAbandonedWorkingCopy(result.workingPath);
+        } catch (cleanupError) {
+            BrowserLogger.warn(
+                RECENT_OPEN_LOG_SECTION,
+                'Failed to cleanup abandoned PDF working copy',
+                {
+                    path: result.workingPath,
+                    reason,
+                    error: cleanupError,
+                },
+            );
+        }
+    }
+
     async function openFile(preSelected?: TOpenFileResult) {
         const openRequestId = beginOpenRequest();
         state.error.value = null;
@@ -152,6 +187,7 @@ export function createDocumentOpenFlow(
             const result = preSelected ?? (await pickFileToOpen());
             if (!isCurrentOpenRequest(openRequestId)) {
                 if (result) {
+                    await cleanupAbandonedPdfWorkingCopy(result, 'stale-picker-result');
                     return {
                         status: 'stale',
                         result,
@@ -196,11 +232,26 @@ export function createDocumentOpenFlow(
         result: Extract<TOpenFileResult, { kind: 'pdf' }>,
         openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
     ) {
-        await loadPdfFromPath(result.workingPath, {
-            markDirty: !!result.isGenerated,
-            resetSourceBeforeCommit: true,
-        });
+        try {
+            await loadPdfFromPath(result.workingPath, {
+                markDirty: !!result.isGenerated,
+                openRequestId,
+                resetSourceBeforeCommit: true,
+            });
+        } catch (error) {
+            await cleanupAbandonedPdfWorkingCopy(result, 'failed-pdf-load');
+            throw error;
+        }
         if (!isCurrentOpenRequest(openRequestId) || state.workingCopyPath.value !== result.workingPath) {
+            await cleanupAbandonedPdfWorkingCopy(result, 'stale-pdf-load');
+            return {
+                status: 'stale',
+                result,
+            } satisfies TDocumentOpenOutcome;
+        }
+        await trackOpenedDocument(result, openMethod);
+        if (!isCurrentOpenRequest(openRequestId) || state.workingCopyPath.value !== result.workingPath) {
+            await cleanupAbandonedPdfWorkingCopy(result, 'stale-pdf-track');
             return {
                 status: 'stale',
                 result,
@@ -208,7 +259,6 @@ export function createDocumentOpenFlow(
         }
         state.originalPath.value = result.originalPath;
         state.requiresSaveAsOnFirstSave.value = !!result.isGenerated;
-        await trackOpenedDocument(result, openMethod);
         return {
             status: 'opened',
             result,
@@ -225,6 +275,7 @@ export function createDocumentOpenFlow(
             const result = await getDocumentOpenCapability().openDocumentDirect(path);
             if (!isCurrentOpenRequest(openRequestId)) {
                 if (result) {
+                    await cleanupAbandonedPdfWorkingCopy(result, 'stale-direct-result');
                     return {
                         status: 'stale',
                         result,
@@ -401,6 +452,7 @@ export function createDocumentOpenFlow(
 
             if (!isCurrentOpenRequest(openRequestId)) {
                 if (result) {
+                    await cleanupAbandonedPdfWorkingCopy(result, 'stale-batch-result');
                     return {
                         status: 'stale',
                         result,
@@ -455,8 +507,13 @@ export function createDocumentOpenFlow(
             markDirty?: boolean;
             preserveHistory?: boolean;
             previousPath?: TDocumentRef | null;
+            isCurrent?: (() => boolean) | undefined;
         },
     ) {
+        if (options?.isCurrent?.() === false) {
+            return false;
+        }
+
         state.workingCopyPath.value = path;
         state.pdfData.value = nextState.pdfData;
         state.pdfSrc.value = nextState.pdfSrc;
@@ -466,22 +523,43 @@ export function createDocumentOpenFlow(
         if (!options?.preserveHistory) {
             deps.incrementSessionVersion();
             if (nextState.pdfData) {
-                await deps.resetHistory(nextState.pdfData, { reuseSnapshot: true });
+                const didResetHistory = await deps.resetHistory(nextState.pdfData, {
+                    reuseSnapshot: true,
+                    isCurrent: options?.isCurrent,
+                });
+                if (!didResetHistory || options?.isCurrent?.() === false) {
+                    return false;
+                }
                 deps.syncDirtyFromHistory();
             } else {
-                await deps.resetHistory(null);
+                const didResetHistory = await deps.resetHistory(null, { isCurrent: options?.isCurrent });
+                if (!didResetHistory || options?.isCurrent?.() === false) {
+                    return false;
+                }
             }
+        }
+
+        if (options?.isCurrent?.() === false) {
+            return false;
         }
 
         if (typeof options?.markDirty === 'boolean') {
             state.isDirty.value = options.markDirty;
         }
 
-        if (options?.previousPath && options.previousPath !== path) {
+        if (
+            options?.previousPath
+            && options.previousPath !== path
+            && options.isCurrent?.() !== false
+        ) {
             await deps.cleanupPreviousWorkingCopy(options.previousPath, path);
+            if (options.isCurrent?.() === false) {
+                return false;
+            }
         }
 
         deps.deferPdfConformanceProfile(path, { fileSize: getLoadedPdfFileSize(nextState) });
+        return true;
     }
 
     async function readPdfStateFromPath(path: TDocumentRef): Promise<IPdfLoadedState> {
@@ -511,14 +589,22 @@ export function createDocumentOpenFlow(
 
     async function loadPdfFromPath(path: TDocumentRef, opts?: {
         markDirty?: boolean;
+        openRequestId?: number;
         resetSourceBeforeCommit?: boolean;
     }) {
         const requestId = deps.loadEpoch.begin();
+        const isCurrent = () => (
+            isCurrentLoadRequest(requestId)
+            && (
+                opts?.openRequestId === undefined
+                || isCurrentOpenLoadRequest(opts.openRequestId, requestId)
+            )
+        );
         // Yield one visual frame so upstream loading indicators (e.g. the
         // workspace host spinner) can paint before the potentially heavy file
         // read blocks the renderer thread during IPC deserialization.
         await waitForVisualFrames();
-        if (!deps.loadEpoch.isCurrent(requestId)) {
+        if (!isCurrent()) {
             return;
         }
 
@@ -531,7 +617,7 @@ export function createDocumentOpenFlow(
         // the initial display of the document.
         const nextState = await readPdfStateFromPath(path);
 
-        if (!deps.loadEpoch.isCurrent(requestId)) {
+        if (!isCurrent()) {
             BrowserLogger.debug('pdf-file', 'Skipped stale PDF load result', {
                 path,
                 requestId,
@@ -544,7 +630,7 @@ export function createDocumentOpenFlow(
             state.pdfSrc.value = null;
             state.pdfReloadSrc.value = null;
             await nextTick();
-            if (!deps.loadEpoch.isCurrent(requestId)) {
+            if (!isCurrent()) {
                 return;
             }
         }
@@ -552,6 +638,7 @@ export function createDocumentOpenFlow(
         // Keep the previous working copy until the new file is fully validated and loaded.
         // This avoids dropping recoverable state when opening the next file fails midway.
         await applyLoadedPdfState(path, nextState, {
+            isCurrent,
             markDirty: !!opts?.markDirty,
             previousPath: state.workingCopyPath.value,
         });

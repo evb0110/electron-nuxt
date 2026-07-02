@@ -1,5 +1,6 @@
 import path from 'node:path';
 import {
+    beforeEach,
     describe,
     expect,
     it,
@@ -22,6 +23,13 @@ import {
     resolvePageProcessorPath,
 } from '@electron/native-tools/pageProcessorPath';
 
+const mocks = vi.hoisted(() => ({logger: {
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+}}));
+
 const baseOptions = {
     binaryName: 'evb-pdf-page-ops.exe',
     crateName: 'pdf-page-ops',
@@ -33,6 +41,11 @@ const baseOptions = {
 };
 
 vi.mock('electron', () => ({app: {isPackaged: false}}));
+vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => mocks.logger }));
+
+beforeEach(() => {
+    vi.clearAllMocks();
+});
 
 describe('native resource base resolution', () => {
     it('probes cwd resources before module-relative resources directories', () => {
@@ -172,13 +185,13 @@ describe('native tool path resolution', () => {
             platformArch: 'darwin-arm64',
             projectRoot: '/repo',
             resourcesBase: '/app/Contents/Resources',
-        })[0]).toBe(path.join(
+        })).toEqual([path.join(
             '/app/Contents/MacOS/native-tools',
             'pdf-page-ops',
             'darwin-arm64',
             'bin',
             'evb-pdf-page-ops',
-        ));
+        )]);
     });
 
     it('prefers the override path when it exists', () => {
@@ -187,6 +200,60 @@ describe('native tool path resolution', () => {
             envOverridePath: '/custom/evb-pdf-page-ops.exe',
             exists: candidate => candidate === '/custom/evb-pdf-page-ops.exe',
         })).toBe('/custom/evb-pdf-page-ops.exe');
+    });
+
+    it('ignores env overrides and cwd-relative fallback candidates in packaged builds by default', () => {
+        const bundledPath = path.join('/app/resources', 'pdf-page-ops', 'win32-arm64', 'bin', 'evb-pdf-page-ops.exe');
+        const stagedPath = path.join('/repo', '.tmp', 'pdf-page-ops', 'win32-arm64', 'bin', 'evb-pdf-page-ops.exe');
+        const crossTargetPath = path.join('/repo', 'native', 'pdf-page-ops', 'target', 'aarch64-pc-windows-msvc', 'release', 'evb-pdf-page-ops.exe');
+
+        expect(resolveNativeToolPath({
+            ...baseOptions,
+            envOverridePath: '/custom/evb-pdf-page-ops.exe',
+            isPackaged: true,
+            resourcesBase: '/app/resources',
+            exists: candidate => [
+                '/custom/evb-pdf-page-ops.exe',
+                bundledPath,
+                stagedPath,
+                crossTargetPath,
+            ].includes(candidate),
+        })).toBe(bundledPath);
+
+        expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Ignoring packaged native tool override'));
+    });
+
+    it('logs and rejects packaged cwd-relative fallback candidates when the bundled path is missing', () => {
+        const stagedPath = path.join('/repo', '.tmp', 'pdf-page-ops', 'win32-arm64', 'bin', 'evb-pdf-page-ops.exe');
+
+        expect(resolveNativeToolPath({
+            ...baseOptions,
+            isPackaged: true,
+            resourcesBase: '/app/resources',
+            exists: candidate => candidate === stagedPath,
+        })).toBeNull();
+
+        expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Ignoring packaged native tool fallback'));
+    });
+
+    it('allows packaged override and fallback diagnostics behind an explicit flag', () => {
+        const stagedPath = path.join('/repo', '.tmp', 'pdf-page-ops', 'win32-arm64', 'bin', 'evb-pdf-page-ops.exe');
+
+        expect(resolveNativeToolPath({
+            ...baseOptions,
+            envOverridePath: '/custom/evb-pdf-page-ops.exe',
+            isPackaged: true,
+            allowPackagedDiagnosticsPaths: true,
+            resourcesBase: '/app/resources',
+            exists: candidate => candidate === '/custom/evb-pdf-page-ops.exe',
+        })).toBe('/custom/evb-pdf-page-ops.exe');
+
+        expect(getNativeToolPathCandidates({
+            ...baseOptions,
+            isPackaged: true,
+            allowPackagedDiagnosticsPaths: true,
+            resourcesBase: '/app/resources',
+        })).toContain(stagedPath);
     });
 
     it('falls through to the staged dev binary before raw Cargo outputs', () => {
@@ -218,17 +285,16 @@ describe('native tool path resolution', () => {
 });
 
 describe('page-processor path resolution', () => {
-    it('uses the PyInstaller onedir binary layout under resource and staged dev roots', () => {
+    it('uses only the PyInstaller onedir binary layout under packaged resources by default', () => {
+        const expectedPath = path.join('/app/resources', 'page-processing', 'win32-arm64', 'bin', 'page-processor', 'page-processor.exe');
+
         expect(getPageProcessorPathCandidates({
             currentDir: '/repo/electron/native-tools',
             isPackaged: true,
             platformArch: 'win32-arm64',
             projectRoot: '/repo',
             resourcesBase: '/app/resources',
-        })).toEqual([
-            path.join('/app/resources', 'page-processing', 'win32-arm64', 'bin', 'page-processor', 'page-processor.exe'),
-            path.join('/repo', '.tmp', 'page-processing', 'win32-arm64', 'bin', 'page-processor', 'page-processor.exe'),
-        ]);
+        })).toEqual([expectedPath]);
     });
 
     it('keeps the nested binary relative path explicit for callers that need packaging checks', () => {

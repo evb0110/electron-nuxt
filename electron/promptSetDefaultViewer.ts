@@ -6,11 +6,10 @@ import {
 import type { BrowserWindow } from 'electron';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
-import type { ISettingsData } from '@contracts/shared';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     loadSettings,
-    saveSettings,
+    updateSettings,
 } from '@electron/settings';
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
@@ -44,14 +43,14 @@ async function isPromptSuppressedInKnownSettingsFiles() {
     return false;
 }
 
-async function persistPromptSuppression(settings: ISettingsData) {
-    if (settings.suppressDefaultViewerPrompt) {
-        return;
-    }
-
-    settings.suppressDefaultViewerPrompt = true;
+async function persistPromptSuppression() {
     try {
-        await saveSettings(settings);
+        await updateSettings((settings) => {
+            if (settings.suppressDefaultViewerPrompt) {
+                return undefined;
+            }
+            return {suppressDefaultViewerPrompt: true};
+        });
     } catch (err) {
         logger.error(`Failed to suppress prompt: ${getErrorMessage(err)}`);
     }
@@ -62,7 +61,7 @@ export async function promptSetDefaultViewer(window: BrowserWindow) {
     const isSuppressedElsewhere = await isPromptSuppressedInKnownSettingsFiles();
     if (settings.suppressDefaultViewerPrompt || isSuppressedElsewhere) {
         if (isSuppressedElsewhere && !settings.suppressDefaultViewerPrompt) {
-            await persistPromptSuppression(settings);
+            await persistPromptSuppression();
         }
         return;
     }
@@ -94,7 +93,7 @@ export async function promptSetDefaultViewer(window: BrowserWindow) {
 
     // Make the prompt one-time to avoid repeated startup interruption.
     if (response === BUTTON_DONT_ASK_AGAIN || response === BUTTON_NOT_NOW || response === BUTTON_SET_DEFAULT) {
-        await persistPromptSuppression(settings);
+        await persistPromptSuppression();
     }
 }
 

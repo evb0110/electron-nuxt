@@ -9,7 +9,6 @@ import {
     ref,
 } from 'vue';
 import type { Ref } from 'vue';
-import type { IOpenBatchProgressState } from '@app/modules/workspace-shell/composables/openBatchProgressState';
 import { useWorkspaceUiSyncWatchers } from '@app/modules/workspace-shell/composables/useWorkspaceUiSyncWatchers';
 import { resolveWorkspaceTabUpdate } from '@app/modules/workspace-shell/state/resolveWorkspaceTabUpdate';
 import { resolveWorkspaceWindowTitle } from '@app/modules/workspace-shell/state/resolveWorkspaceWindowTitle';
@@ -118,14 +117,7 @@ interface IWorkspaceUiSyncTestDeps {
     pdfViewerRef: Ref<{ scrollToPage: (page: number) => void } | null>;
     originalPath: Ref<string | null>;
     closeFile: TWorkspaceUiSyncDeps['closeFile'];
-    openBatchProgress: Ref<IOpenBatchProgressState | null>;
-    isActive: Ref<boolean>;
-    fileName: Ref<string | null>;
-    isDirty: Ref<boolean>;
-    isDjvuMode: Ref<boolean>;
-    djvuSourcePath: Ref<string | null>;
     showSettings: Ref<boolean>;
-    emitUpdateTab: TWorkspaceUiSyncDeps['emitUpdateTab'];
     emitOpenSettings: TWorkspaceUiSyncDeps['emitOpenSettings'];
     onOpenDjvuError: NonNullable<TWorkspaceUiSyncDeps['onOpenDjvuError']>;
 }
@@ -139,14 +131,7 @@ function createWatcherDeps(overrides: Partial<IWorkspaceUiSyncTestDeps> = {}): I
         pdfViewerRef: ref(null),
         originalPath: ref<string | null>(null),
         closeFile: vi.fn(async () => {}),
-        openBatchProgress: ref<IOpenBatchProgressState | null>(null),
-        isActive: ref(false),
-        fileName: ref<string | null>(null),
-        isDirty: ref(false),
-        isDjvuMode: ref(false),
-        djvuSourcePath: ref<string | null>(null),
         showSettings: ref(false),
-        emitUpdateTab: (vi.fn() as TWorkspaceUiSyncDeps['emitUpdateTab']),
         emitOpenSettings: (vi.fn() as TWorkspaceUiSyncDeps['emitOpenSettings']),
         onOpenDjvuError: vi.fn() as NonNullable<TWorkspaceUiSyncDeps['onOpenDjvuError']>,
         ...overrides,
@@ -154,56 +139,6 @@ function createWatcherDeps(overrides: Partial<IWorkspaceUiSyncTestDeps> = {}): I
 }
 
 describe('useWorkspaceUiSyncWatchers', () => {
-    it('emits the current tab state immediately on mount', async () => {
-        const deps = createWatcherDeps({
-            fileName: ref('paper.pdf'),
-            originalPath: ref('/docs/paper.pdf'),
-            isDirty: ref(false),
-        });
-
-        useWorkspaceUiSyncWatchers(deps);
-        await nextTick();
-
-        expect(deps.emitUpdateTab).toHaveBeenCalledWith({
-            fileName: 'paper.pdf',
-            originalPath: '/docs/paper.pdf',
-            isDirty: false,
-            isDjvu: false,
-        });
-    });
-
-    it('does not emit an initial empty tab state while a parent open hint owns the tab', async () => {
-        const deps = createWatcherDeps();
-
-        useWorkspaceUiSyncWatchers(deps);
-        await nextTick();
-
-        expect(deps.emitUpdateTab).not.toHaveBeenCalled();
-    });
-
-    it('emits an empty tab state after a previously opened document closes', async () => {
-        const fileName = ref<string | null>('paper.pdf');
-        const originalPath = ref<string | null>('/docs/paper.pdf');
-        const deps = createWatcherDeps({
-            fileName,
-            originalPath,
-        });
-
-        useWorkspaceUiSyncWatchers(deps);
-        await nextTick();
-
-        fileName.value = null;
-        originalPath.value = null;
-        await nextTick();
-
-        expect(deps.emitUpdateTab).toHaveBeenLastCalledWith({
-            fileName: null,
-            originalPath: null,
-            isDirty: false,
-            isDjvu: false,
-        });
-    });
-
     it('opens pending DjVu paths and clears pending state', async () => {
         const deps = createWatcherDeps();
         useWorkspaceUiSyncWatchers(deps);
@@ -237,5 +172,16 @@ describe('useWorkspaceUiSyncWatchers', () => {
 
         expect(deps.onOpenDjvuError).toHaveBeenCalledTimes(1);
         expect(deps.onOpenDjvuError).toHaveBeenCalledWith(openError);
+    });
+
+    it('forwards settings requests and clears the local flag', async () => {
+        const deps = createWatcherDeps();
+        useWorkspaceUiSyncWatchers(deps);
+
+        deps.showSettings.value = true;
+        await nextTick();
+
+        expect(deps.emitOpenSettings).toHaveBeenCalledTimes(1);
+        expect(deps.showSettings.value).toBe(false);
     });
 });

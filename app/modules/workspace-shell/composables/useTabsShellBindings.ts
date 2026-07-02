@@ -26,18 +26,32 @@ import { getDjvuCapability } from '@app/utils/getDjvuCapability';
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { shouldHandleRendererMenuAccelerators } from '@app/utils/shouldHandleRendererMenuAccelerators';
 import { guardAsync } from '@app/utils/asyncGuard';
+import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import {
+    invokeWorkspaceExposeCommand,
+    isWorkspaceExposeCommandName,
+    type TWorkspaceExposeMethod,
+} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 
 const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
 type TTabKeyboardShortcutAction = 'new-tab' | 'close-tab' | 'next-tab' | 'previous-tab';
 type TRendererDocumentShortcutAction = 'open-file' | 'save-as' | 'export-docx' | 'undo' | 'redo';
+type TRendererDocumentCommandShortcutAction = Exclude<TRendererDocumentShortcutAction, 'open-file'>;
 const RENDERER_MENU_SHORTCUT_ACTIONS: Partial<Record<string, TTabKeyboardShortcutAction>> = {
     t: 'new-tab',
     w: 'close-tab',
+};
+const RENDERER_DOCUMENT_SHORTCUT_COMMANDS: Record<TRendererDocumentCommandShortcutAction, TWorkspaceExposeMethod> = {
+    'save-as': 'handleSaveAs',
+    'export-docx': 'handleExportDocx',
+    undo: 'handleUndo',
+    redo: 'handleRedo',
 };
 
 interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
     tabs: Ref<Array<{ id: string }>>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
+    documentRecordsByTabId: Ref<Record<string, IWorkspaceDocumentRecord>>;
     isStartupOpenClaimPending: Ref<boolean>;
     activateTab: (tabId: string) => void;
     beginOpenPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<TDocumentRef[]>;
@@ -48,6 +62,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     const {
         tabs,
         workspaceRefs,
+        documentRecordsByTabId,
         isStartupOpenClaimPending,
         activeTabId,
         activeWorkspace,
@@ -79,7 +94,17 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             && typeof window.__allowRendererFileOpenForAutomation === 'function';
     }
 
-    function readWorkspaceSnapshot(workspace: IWorkspaceExpose | null): IWorkspaceToolbarSnapshot | null {
+    function readWorkspaceSnapshot(
+        tabId: string | null | undefined,
+        workspace: IWorkspaceExpose | null,
+    ): IWorkspaceToolbarSnapshot | null {
+        const recordSnapshot = tabId
+            ? documentRecordsByTabId.value[tabId]?.toolbarSnapshot ?? null
+            : null;
+        if (recordSnapshot) {
+            return recordSnapshot;
+        }
+
         try {
             return workspace?.getToolbarSnapshot() ?? null;
         } catch (error) {
@@ -136,15 +161,14 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             args: unknown[] = [],
         ): Promise<IEvbTestCommandResult<TResult>> => {
             const workspace = getActiveWorkspaceHandle();
-            const command = (workspace as Record<string, unknown> | null)?.[commandName];
-            if (typeof command !== 'function') {
+            if (!workspace || !isWorkspaceExposeCommandName(commandName)) {
                 return {
                     called: false,
                     value: null,
                 };
             }
 
-            const value = await Promise.resolve((command as (...values: unknown[]) => unknown).apply(workspace, args));
+            const value = await Promise.resolve(invokeWorkspaceExposeCommand(workspace, commandName, args));
             return {
                 called: true,
                 value: (value ?? null) as TResult | null,
@@ -156,14 +180,14 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             openFiles: openPathsInAppropriateTab,
             getActiveTabId: () => activeTabId.value,
             getActiveWorkspaceHandle,
-            getActiveToolbarSnapshot: () => readWorkspaceSnapshot(getActiveWorkspaceHandle()),
+            getActiveToolbarSnapshot: () => readWorkspaceSnapshot(activeTabId.value, getActiveWorkspaceHandle()),
             readActiveWorkspaceStateValues,
             callActiveWorkspaceCommand,
             collectWorkspaceDebugState: (): IEvbTestWorkspaceDebugState => {
                 const activeWorkspaceHandle = getActiveWorkspaceHandle();
                 return {
                     activeTabId: activeTabId.value,
-                    activeToolbarSnapshot: readWorkspaceSnapshot(activeWorkspaceHandle),
+                    activeToolbarSnapshot: readWorkspaceSnapshot(activeTabId.value, activeWorkspaceHandle),
                     activeWorkspaceState: readWorkspaceAutomationState(activeWorkspaceHandle),
                     workspaceCount: workspaceRefs.value.size,
                     workspaces: Array.from(
@@ -176,7 +200,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                         exposedKeys: Object.keys(workspace),
                         isActive: tabId === activeTabId.value,
                         tabId,
-                        toolbarSnapshot: readWorkspaceSnapshot(workspace),
+                        toolbarSnapshot: readWorkspaceSnapshot(tabId, workspace),
                     })),
                 };
             },
@@ -331,15 +355,12 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         }
 
         const workspace = activeWorkspace.value;
-        if (action === 'save-as') {
-            guard(workspace?.handleSaveAs() ?? Promise.resolve());
-        } else if (action === 'export-docx') {
-            guard(workspace?.handleExportDocx() ?? Promise.resolve());
-        } else if (action === 'undo') {
-            guard(workspace?.handleUndo() ?? Promise.resolve());
-        } else {
-            guard(workspace?.handleRedo() ?? Promise.resolve());
+        if (!workspace) {
+            guard(Promise.resolve());
+            return;
         }
+
+        guard(invokeWorkspaceExposeCommand(workspace, RENDERER_DOCUMENT_SHORTCUT_COMMANDS[action]));
     }
 
     function handleTabKeyboardShortcut(event: KeyboardEvent) {

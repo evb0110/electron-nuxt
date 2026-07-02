@@ -1,6 +1,6 @@
-import { statSync } from 'fs';
 import {
     readFile,
+    stat,
     unlink,
     writeFile,
 } from 'fs/promises';
@@ -28,10 +28,12 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
+import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
 const logger = createLogger('recentFiles');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 const BOOTSTRAP_DEV_PROFILE_ENABLED = process.env.EVB_AUTOMATION_BOOTSTRAP_DEV_PROFILE === '1';
+const RECENT_FILE_STAT_TIMEOUT_MS = parseIntegerEnv('EVB_RECENT_FILE_STAT_TIMEOUT_MS', 1_500, 100, 60_000);
 const BOOTSTRAP_RECENT_FILES_DIR_NAMES = [
     'EVB Viewer Dev',
     'EVB Viewer',
@@ -53,6 +55,23 @@ interface IFilteredRecentFiles {
     files: IRecentFile[];
     removedMissingCount: number;
     unreadableCount: number;
+}
+
+interface IPathInspectionResult {
+    status: 'exists' | 'missing' | 'unreadable';
+    size?: number;
+}
+
+class RecentFileStatTimeoutError extends Error {
+    readonly filePath: string;
+    readonly timeoutMs: number;
+
+    constructor(filePath: string, timeoutMs: number) {
+        super(`Timed out while checking recent file path after ${timeoutMs}ms: ${filePath}`);
+        this.name = 'RecentFileStatTimeoutError';
+        this.filePath = filePath;
+        this.timeoutMs = timeoutMs;
+    }
 }
 
 function getStoragePath() {
@@ -109,31 +128,65 @@ function normalizeRecentFilesData(raw: unknown): IRecentFilesData {
     };
 }
 
-function inspectPath(filePath: string): 'exists' | 'missing' | 'unreadable' {
+async function statWithTimeout(filePath: string) {
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
     try {
-        statSync(filePath);
-        return 'exists';
-    } catch (error) {
-        const code = isErrnoException(error) ? error.code : undefined;
-        if (code === 'ENOENT' || code === 'ENOTDIR') {
-            return 'missing';
+        return await Promise.race([
+            stat(filePath),
+            new Promise<never>((_resolve, reject) => {
+                timeoutHandle = setTimeout(() => {
+                    reject(new RecentFileStatTimeoutError(filePath, RECENT_FILE_STAT_TIMEOUT_MS));
+                }, RECENT_FILE_STAT_TIMEOUT_MS);
+                timeoutHandle.unref?.();
+            }),
+        ]);
+    } finally {
+        if (timeoutHandle) {
+            clearTimeout(timeoutHandle);
         }
-        logger.warn(`Recent file path unreadable; preserving entry (${filePath}): ${getErrorMessage(error)}`);
-        return 'unreadable';
     }
 }
 
-function filterExistingFiles(files: IRecentFile[]): IFilteredRecentFiles {
+async function inspectPath(filePath: string): Promise<IPathInspectionResult> {
+    try {
+        const fileStat = await statWithTimeout(filePath);
+        return {
+            status: 'exists',
+            size: fileStat.size,
+        };
+    } catch (error) {
+        const code = isErrnoException(error) ? error.code : undefined;
+        if (code === 'ENOENT' || code === 'ENOTDIR') {
+            return {status: 'missing'};
+        }
+        const timedOut = error instanceof RecentFileStatTimeoutError;
+        logger.warn(
+            timedOut
+                ? `Recent file path stat timed out; preserving entry (${filePath})`
+                : `Recent file path unreadable; preserving entry (${filePath}): ${getErrorMessage(error)}`,
+        );
+        return {status: 'unreadable'};
+    }
+}
+
+async function filterExistingFiles(files: IRecentFile[]): Promise<IFilteredRecentFiles> {
     let removedMissingCount = 0;
     let unreadableCount = 0;
     const checks: IRecentFile[] = [];
-    for (const file of uniqBy(files, item => item.originalPath)) {
-        const status = inspectPath(file.originalPath);
-        if (status === 'missing') {
+    const inspections = await Promise.all(uniqBy(files, item => item.originalPath).map(async (file) => ({
+        file,
+        inspection: await inspectPath(file.originalPath),
+    })));
+
+    for (const {
+        file,
+        inspection,
+    } of inspections) {
+        if (inspection.status === 'missing') {
             removedMissingCount += 1;
             continue;
         }
-        if (status === 'unreadable') {
+        if (inspection.status === 'unreadable') {
             unreadableCount += 1;
         }
         checks.push(file);
@@ -158,7 +211,7 @@ async function tryBootstrapRecentFiles(bootstrapPath: string): Promise<IRecentFi
         const content = await readFile(bootstrapPath, 'utf-8');
         const parsed: unknown = JSON.parse(content);
         const bootstrapData = normalizeRecentFilesData(parsed);
-        const filtered = filterExistingFiles(bootstrapData.files);
+        const filtered = await filterExistingFiles(bootstrapData.files);
         if (filtered.files.length === 0) {
             return null;
         }
@@ -247,15 +300,11 @@ export async function addRecentFile(originalPath: string) {
             return;
         }
 
-        // Get file info with race-safe stat
-        let fileSize: number;
-        try {
-            const st = statSync(originalPath);
-            fileSize = st.size;
-        } catch {
-            // File doesn't exist or became unreadable
+        const inspection = await inspectPath(originalPath);
+        if (inspection.status !== 'exists' || typeof inspection.size !== 'number') {
             return;
         }
+        const fileSize = inspection.size;
 
         const data = await loadRecentFilesData();
 
@@ -292,7 +341,7 @@ export async function getRecentFiles(): Promise<IRecentFile[]> {
     // Use cache if fresh
     if (Date.now() - cacheTimestamp < CACHE_TTL_MS) {
         // Still validate existence
-        const filtered = filterExistingFiles(recentFilesCache);
+        const filtered = await filterExistingFiles(recentFilesCache);
         if (STARTUP_TRACE_ENABLED) {
             logger.info(`[startup] recentFiles:get cache hit (${filtered.files.length} file(s), removedMissing=${filtered.removedMissingCount}, unreadable=${filtered.unreadableCount}, +${Date.now() - startedAt}ms)`);
         }
@@ -301,7 +350,7 @@ export async function getRecentFiles(): Promise<IRecentFile[]> {
 
     // Refresh cache from disk
     const data = await loadRecentFilesData();
-    const filtered = filterExistingFiles(data.files);
+    const filtered = await filterExistingFiles(data.files);
     const validFiles = filtered.files;
 
     // Update cache

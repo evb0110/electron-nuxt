@@ -25,6 +25,7 @@ interface IApplyLoadedPdfStateOptions {
     markDirty?: boolean;
     preserveHistory?: boolean;
     previousPath?: TDocumentRef | null;
+    isCurrent?: (() => boolean) | undefined;
 }
 
 type TDocumentHistoryFileDeps = Pick<IDocumentsFileIoCapability, 'writeFile'>;
@@ -39,7 +40,7 @@ interface ICreateDocumentHistoryDeps {
         path: TDocumentRef,
         nextState: IPdfLoadedState,
         options?: IApplyLoadedPdfStateOptions,
-    ) => Promise<void>;
+    ) => Promise<boolean | undefined>;
     clearPdfConformanceProfile: () => void;
     clearOcrCache: (path: TDocumentRef) => void;
     deferPdfConformanceProfile: (path: TDocumentRef) => void;
@@ -110,15 +111,32 @@ export function createDocumentHistory(
 
     async function resetHistory(
         snapshot: Uint8Array | null,
-        options?: { reuseSnapshot?: boolean },
+        options?: {
+            reuseSnapshot?: boolean;
+            isCurrent?: (() => boolean) | undefined;
+        },
     ) {
+        if (options?.isCurrent?.() === false) {
+            return false;
+        }
+
         if (snapshot) {
             const entry = await createHistoryEntryFromSnapshot(snapshot, options);
             if (entry) {
+                if (options?.isCurrent?.() === false) {
+                    scheduleHistoryEntryCleanup([entry]);
+                    return false;
+                }
                 replaceHistory([entry], 0, 0);
+                return true;
             }
+            return false;
         } else {
+            if (options?.isCurrent?.() === false) {
+                return false;
+            }
             clearHistory();
+            return true;
         }
     }
 
@@ -437,11 +455,11 @@ export function createDocumentHistory(
             void deps.documentWorkingCopy().cleanupFile(nextWorkingPath);
             return false;
         }
-        await deps.applyLoadedPdfState(nextWorkingPath, nextState, {
+        const didApply = await deps.applyLoadedPdfState(nextWorkingPath, nextState, {
             preserveHistory: true,
             previousPath,
         });
-        return true;
+        return didApply !== false;
     }
 
     async function undo() {

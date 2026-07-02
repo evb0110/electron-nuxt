@@ -49,6 +49,10 @@ const PDF_BYTES = Uint8Array.from([
     68,
     70,
 ]);
+interface IResetHistoryTestOptions {
+    reuseSnapshot?: boolean;
+    isCurrent?: (() => boolean) | undefined;
+}
 
 function createOpenFlowHarness() {
     const state = createDocumentSessionState({ isDesktopRuntime: ref(true) });
@@ -62,6 +66,7 @@ function createOpenFlowHarness() {
             setDocumentContext: vi.fn(),
             track: vi.fn(),
         },
+        cleanupAbandonedWorkingCopy: vi.fn(async () => undefined),
         clearPdfConformanceProfile: vi.fn(),
         cleanupPreviousWorkingCopy: vi.fn(async () => undefined),
         deferPdfConformanceProfile: vi.fn(),
@@ -69,7 +74,7 @@ function createOpenFlowHarness() {
         loadEpoch: createEpochGuard(),
         openEpoch: createEpochGuard(),
         pushHistorySnapshot: vi.fn(async () => true),
-        resetHistory: vi.fn(async () => undefined),
+        resetHistory: vi.fn(async (_snapshot, options?: IResetHistoryTestOptions) => options?.isCurrent?.() !== false),
         syncDirtyFromHistory: vi.fn(),
         t: ((key: string) => key) as TTranslateFn,
     };
@@ -147,5 +152,104 @@ describe('createDocumentOpenFlow', () => {
             openMethod: 'preselected',
             requiresSaveAsOnFirstSave: false,
         }));
+    });
+
+    it('cleans up a stale direct PDF working copy that was superseded before adoption', async () => {
+        const {
+            deps,
+            openFlow,
+            state,
+        } = createOpenFlowHarness();
+        const staleResult: TOpenFileResult = {
+            kind: 'pdf',
+            originalPath: '/stale.pdf',
+            workingPath: '/tmp/stale-working.pdf',
+            isGenerated: false,
+        };
+        const freshResult: TOpenFileResult = {
+            kind: 'pdf',
+            originalPath: '/fresh.pdf',
+            workingPath: '/tmp/fresh-working.pdf',
+            isGenerated: false,
+        };
+        const staleGate = Promise.withResolvers<TOpenFileResult>();
+        mocks.documentOpen.openDocumentDirect.mockImplementation(async (path: string) => {
+            if (path === '/stale.pdf') {
+                return staleGate.promise;
+            }
+            return freshResult;
+        });
+        mocks.documentFiles.statFile.mockResolvedValue({ size: PDF_BYTES.byteLength });
+        mocks.documentFiles.readFile.mockResolvedValue(PDF_BYTES);
+
+        const staleOpen = openFlow.openFileDirect('/stale.pdf');
+        await expect(openFlow.openFileDirect('/fresh.pdf')).resolves.toMatchObject({
+            status: 'opened',
+            result: freshResult,
+        });
+
+        staleGate.resolve(staleResult);
+        await expect(staleOpen).resolves.toMatchObject({
+            status: 'stale',
+            result: staleResult,
+        });
+
+        expect(state.workingCopyPath.value).toBe('/tmp/fresh-working.pdf');
+        expect(deps.cleanupAbandonedWorkingCopy).toHaveBeenCalledWith('/tmp/stale-working.pdf');
+        expect(deps.cleanupAbandonedWorkingCopy).not.toHaveBeenCalledWith('/tmp/fresh-working.pdf');
+    });
+
+    it('does not let a stale PDF open clobber dirty state or conformance after history reset', async () => {
+        const {
+            deps,
+            openFlow,
+            state,
+        } = createOpenFlowHarness();
+        const firstResult: TOpenFileResult = {
+            kind: 'pdf',
+            originalPath: '/first.pdf',
+            workingPath: '/tmp/first-working.pdf',
+            isGenerated: true,
+        };
+        const secondResult: TOpenFileResult = {
+            kind: 'pdf',
+            originalPath: '/second.pdf',
+            workingPath: '/tmp/second-working.pdf',
+            isGenerated: false,
+        };
+        const firstHistoryResetGate = Promise.withResolvers<undefined>();
+        let resetHistoryCalls = 0;
+        deps.resetHistory.mockImplementation(async (_snapshot, options?: IResetHistoryTestOptions) => {
+            resetHistoryCalls += 1;
+            if (resetHistoryCalls === 1) {
+                await firstHistoryResetGate.promise;
+            }
+            return options?.isCurrent?.() !== false;
+        });
+        mocks.documentFiles.statFile.mockResolvedValue({ size: PDF_BYTES.byteLength });
+        mocks.documentFiles.readFile.mockResolvedValue(PDF_BYTES);
+
+        const firstOpen = openFlow.openFile(firstResult);
+        await vi.waitFor(() => {
+            expect(deps.resetHistory).toHaveBeenCalledTimes(1);
+        });
+
+        await expect(openFlow.openFile(secondResult)).resolves.toMatchObject({
+            status: 'opened',
+            result: secondResult,
+        });
+
+        firstHistoryResetGate.resolve(undefined);
+        await expect(firstOpen).resolves.toMatchObject({
+            status: 'stale',
+            result: firstResult,
+        });
+
+        expect(state.workingCopyPath.value).toBe('/tmp/second-working.pdf');
+        expect(state.originalPath.value).toBe('/second.pdf');
+        expect(state.isDirty.value).toBe(false);
+        expect(deps.deferPdfConformanceProfile).toHaveBeenCalledTimes(1);
+        expect(deps.deferPdfConformanceProfile).toHaveBeenCalledWith('/tmp/second-working.pdf', { fileSize: PDF_BYTES.byteLength });
+        expect(deps.cleanupPreviousWorkingCopy).toHaveBeenCalledWith('/tmp/first-working.pdf', '/tmp/second-working.pdf');
     });
 });

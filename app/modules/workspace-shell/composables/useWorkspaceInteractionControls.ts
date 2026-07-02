@@ -70,7 +70,7 @@ interface IWorkspaceInteractionControlsOptions {
     originalPath: Ref<TDocumentRef | null>;
     hasPendingTabChanges: ComputedRef<boolean>;
     pdfData: Ref<Uint8Array | null>;
-    openFileWithDjvuCleanup: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
+    openFileWithViewerLifecycle: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     waitForPdfReload: (page: number) => Promise<void>;
     loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
     runWithDocumentOperationLease?: <T>(
@@ -117,7 +117,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         originalPath,
         hasPendingTabChanges,
         pdfData,
-        openFileWithDjvuCleanup,
+        openFileWithViewerLifecycle,
         waitForPdfReload,
         loadPdfFromPath,
         runWithDocumentOperationLease,
@@ -136,6 +136,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         effectiveZoom,
         zoomMode,
         pdfSrc,
+        documentSourceKey: computed(() => pdfSrc.value ?? (djvuSourcePath.value ? `djvu:${djvuSourcePath.value}` : null)),
     });
 
     function handleZoomIn() {
@@ -235,7 +236,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         pdfViewerRef,
         documentViewerRef,
         pdfData,
-        openFileWithDjvuCleanup,
+        openFileWithViewerLifecycle,
         waitForPdfReload,
         loadPdfFromPath,
         ...(runWithDocumentOperationLease !== undefined ? { runWithDocumentOperationLease } : {}),

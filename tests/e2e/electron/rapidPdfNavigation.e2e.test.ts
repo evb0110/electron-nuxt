@@ -22,6 +22,7 @@ import type { IE2EWindow } from '@tests/e2e/electron/helpers/getE2EWindow';
 import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
 import { callWorkspaceCommand } from '@tests/e2e/electron/helpers/workspaceExpose';
 import type { IPdfRenderTraceEntry } from '@app/utils/pdfRenderTrace';
+import type { IEvbTestApi } from '@app/types/evbTestApi';
 
 const PAGE_JUMP_PDF_ENV_VAR = 'EVB_E2E_PAGE_JUMP_PDF_PATH';
 const PAGE_JUMP_PDF_OVERRIDE = process.env[PAGE_JUMP_PDF_ENV_VAR]?.trim() ?? null;
@@ -63,6 +64,8 @@ interface IPageButtonState {
     disabled: boolean;
     visible: boolean;
 }
+
+interface IRapidNavigationProbeWindow { __evbTestApi?: IEvbTestApi }
 
 function writeTraceArtifact(payload: unknown, outputPath = TRACE_OUTPUT_PATH) {
     mkdirSync(dirname(outputPath), { recursive: true });
@@ -165,6 +168,18 @@ async function collectTrace(session: IElectronE2ESession) {
     });
 }
 
+async function collectRapidNavigationDebug(session: IElectronE2ESession) {
+    return session.page.evaluate(() => {
+        const probeWindow = window as Window & IRapidNavigationProbeWindow;
+        return {
+            activeToolbarSnapshot: probeWindow.__evbTestApi?.getActiveToolbarSnapshot?.() ?? null,
+            toolbarPrimaryTexts: Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
+                .map(element => element.textContent?.trim() ?? ''),
+            workspaceDebugState: probeWindow.__evbTestApi?.collectWorkspaceDebugState?.() ?? null,
+        };
+    });
+}
+
 async function clickPageNavigationButton(session: IElectronE2ESession, label: string) {
     await session.page.waitForFunction((targetLabel: string) => {
         return Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
@@ -213,8 +228,17 @@ async function clickPageNavigationButton(session: IElectronE2ESession, label: st
 
 async function waitForToolbarCurrentPage(session: IElectronE2ESession, pageNumber: number) {
     await session.page.waitForFunction((targetPageNumber: number) => {
+        const isVisibleElement = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 8 && rect.height > 8;
+        };
         return Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
-            .some((element) => element.textContent?.trim() === String(targetPageNumber));
+            .some((element) => {
+                const controls = element.closest<HTMLElement>('.page-controls');
+                return element.textContent?.trim() === String(targetPageNumber)
+                    && isVisibleElement(controls ?? element);
+            });
     }, { timeout: 10_000 }, pageNumber);
 }
 
@@ -240,7 +264,10 @@ async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumb
     const workspaceJump = await callWorkspaceCommand(session.page, 'handleGoToPage', [pageNumber]);
 
     if (workspaceJump.called) {
-        return;
+        const canvasMounted = await waitForVisiblePageCanvas(session, pageNumber, 8_000);
+        if (canvasMounted) {
+            return;
+        }
     }
 
     await callWorkspaceCommand(session.page, 'scrollToPage', [pageNumber]);
@@ -418,30 +445,62 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             return;
         }
 
-        await jumpToPageAndWaitForCanvas(session, 1);
-        await waitForToolbarCurrentPage(session, 1);
+        let targetCanvasMounted = false;
+        let visiblePages: IVisiblePageState[] = [];
+        let navigationControls: Awaited<ReturnType<typeof collectNavigationControlState>> | null = null;
+        let rapidNavigationDebug: Awaited<ReturnType<typeof collectRapidNavigationDebug>> | null = null;
+        let trace: IPdfRenderTraceEntry[] = [];
+        let toolbarReachedTarget = false;
+        let failureMessage: string | null = null;
 
-        for (let step = 0; step < 20; step += 1) {
-            await clickPageNavigationButton(session, 'Next Page');
+        try {
+            await jumpToPageAndWaitForCanvas(session, 1);
+            await waitForToolbarCurrentPage(session, 1);
+
+            for (let step = 0; step < 20; step += 1) {
+                await clickPageNavigationButton(session, 'Next Page');
+            }
+            await waitForToolbarCurrentPage(session, 21);
+            toolbarReachedTarget = true;
+
+            targetCanvasMounted = await waitForVisiblePageCanvas(session, 21, 14_000);
+            visiblePages = await collectVisiblePageState(session);
+            navigationControls = await collectNavigationControlState(session);
+            rapidNavigationDebug = await collectRapidNavigationDebug(session);
+            trace = await collectTrace(session);
+        } catch (error) {
+            failureMessage = error instanceof Error
+                ? error.message
+                : String(error);
+            throw error;
+        } finally {
+            if (visiblePages.length === 0) {
+                visiblePages = await collectVisiblePageState(session).catch(() => []);
+            }
+            navigationControls ??= await collectNavigationControlState(session).catch(() => null);
+            rapidNavigationDebug ??= await collectRapidNavigationDebug(session).catch(() => null);
+            if (trace.length === 0) {
+                trace = await collectTrace(session).catch(() => []);
+            }
+            const blankVisiblePages = visiblePages.filter(page => !page.hasCanvas || !page.renderedClass);
+            const targetPageState = visiblePages.find(page => page.page === 21) ?? null;
+            writeTraceArtifact({
+                pdfPath: pageJumpPdfPath,
+                scenario: 'toolbar-rapid-next-to-21',
+                failureMessage,
+                navigationControls,
+                rapidNavigationDebug,
+                toolbarReachedTarget,
+                visiblePages,
+                targetPageState,
+                targetCanvasMounted,
+                blankVisiblePages,
+                trace,
+            }, RAPID_NEXT_TRACE_OUTPUT_PATH);
         }
-        await waitForToolbarCurrentPage(session, 21);
 
-        const targetCanvasMounted = await waitForVisiblePageCanvas(session, 21, 14_000);
-        const visiblePages = await collectVisiblePageState(session);
-        const navigationControls = await collectNavigationControlState(session);
-        const trace = await collectTrace(session);
         const blankVisiblePages = visiblePages.filter(page => !page.hasCanvas || !page.renderedClass);
         const targetPageState = visiblePages.find(page => page.page === 21) ?? null;
-        writeTraceArtifact({
-            pdfPath: pageJumpPdfPath,
-            scenario: 'toolbar-rapid-next-to-21',
-            navigationControls,
-            visiblePages,
-            targetPageState,
-            targetCanvasMounted,
-            blankVisiblePages,
-            trace,
-        }, RAPID_NEXT_TRACE_OUTPUT_PATH);
 
         expect(targetCanvasMounted).toBe(true);
         expect(targetPageState).not.toBeNull();

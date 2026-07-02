@@ -1,15 +1,12 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import { didOpenDocument } from '@app/types/documentOpenOutcome';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+import type { IWorkspaceViewerLifecycleHooks } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 
 interface IWorkspaceFileSwitchDeps {
     workingCopyPath: Ref<TDocumentRef | null>;
-    isDjvuMode: Ref<boolean>;
-    cleanupDjvuTemp: () => Promise<void>;
-    exitDjvuMode: () => void;
-    invalidatePendingDjvuOpen: () => void;
+    viewerLifecycleHooks: IWorkspaceViewerLifecycleHooks[];
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
     openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     openFileDirect: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
@@ -20,10 +17,7 @@ interface IWorkspaceFileSwitchDeps {
 export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
     const {
         workingCopyPath,
-        isDjvuMode,
-        cleanupDjvuTemp,
-        exitDjvuMode,
-        invalidatePendingDjvuOpen,
+        viewerLifecycleHooks,
         pickFileToOpen,
         openFile,
         openFileDirect,
@@ -31,45 +25,44 @@ export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
         closeFile,
     } = deps;
 
-    async function openWithDjvuCleanup(
+    async function openWithViewerLifecycle(
         openDocument: () => Promise<TDocumentOpenOutcome>,
     ) {
-        const oldPath = workingCopyPath.value;
-        invalidatePendingDjvuOpen();
+        const previousWorkingCopyPath = workingCopyPath.value;
+        for (const hooks of viewerLifecycleHooks) {
+            await hooks.beforeOpen?.();
+        }
         const outcome = await openDocument();
-        if (didOpenDocument(outcome) && isDjvuMode.value && workingCopyPath.value !== oldPath) {
-            await cleanupDjvuTemp();
-            exitDjvuMode();
+        for (const hooks of viewerLifecycleHooks) {
+            await hooks.afterOpen?.(outcome, { previousWorkingCopyPath });
         }
         return outcome;
     }
 
-    async function openFileWithDjvuCleanup(preSelected?: TOpenFileResult) {
-        return openWithDjvuCleanup(() => openFile(preSelected));
+    async function openFileWithViewerLifecycle(preSelected?: TOpenFileResult) {
+        return openWithViewerLifecycle(() => openFile(preSelected));
     }
 
-    async function openFileDirectWithDjvuCleanup(path: TDocumentRef) {
-        return openWithDjvuCleanup(() => openFileDirect(path));
+    async function openFileDirectWithViewerLifecycle(path: TDocumentRef) {
+        return openWithViewerLifecycle(() => openFileDirect(path));
     }
 
-    async function openFileDirectBatchWithDjvuCleanup(paths: TDocumentRef[]) {
-        return openWithDjvuCleanup(() => openFileDirectBatch(paths));
+    async function openFileDirectBatchWithViewerLifecycle(paths: TDocumentRef[]) {
+        return openWithViewerLifecycle(() => openFileDirectBatch(paths));
     }
 
-    async function closeFileWithDjvuCleanup() {
-        invalidatePendingDjvuOpen();
-        if (isDjvuMode.value) {
-            await cleanupDjvuTemp();
-            exitDjvuMode();
+    async function closeFileWithViewerLifecycle() {
+        for (const hooks of viewerLifecycleHooks) {
+            await hooks.beforeClose?.();
         }
         closeFile();
     }
 
     return {
         pickFileToOpen,
-        openFileWithDjvuCleanup,
-        openFileDirectWithDjvuCleanup,
-        openFileDirectBatchWithDjvuCleanup,
-        closeFileWithDjvuCleanup,
+        openFileWithViewerLifecycle,
+        openFileDirectWithViewerLifecycle,
+        openFileDirectBatchWithViewerLifecycle,
+        closeFileWithViewerLifecycle,
     };
 };

@@ -14,6 +14,10 @@ import {
 import type { Ref } from 'vue';
 import { usePdfMountedPageRenderRecovery } from '@app/modules/pdf-viewer/runtime/rendering/usePdfMountedPageRenderRecovery';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import {
+    createPdfRenderSupervisor,
+    type IPdfRenderSupervisorEvent,
+} from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 
 async function flushTimersAndTicks() {
     await vi.runOnlyPendingTimersAsync();
@@ -23,6 +27,7 @@ async function flushTimersAndTicks() {
 
 function createHarness(options?: {
     isPageMounted?: ((pageNumber: number) => boolean) | undefined;
+    onSupervisorEvent?: ((event: IPdfRenderSupervisorEvent) => void) | undefined;
     suppressRecovery?: Ref<boolean>;
 }) {
     const scope = effectScope();
@@ -33,6 +38,9 @@ function createHarness(options?: {
     const numPages = ref(928);
     const pagesNeedingRender = ref(new Set<number>());
     const renderVisiblePages = vi.fn(async () => {});
+    const renderSupervisor = options?.onSupervisorEvent
+        ? createPdfRenderSupervisor({ onEvent: options.onSupervisorEvent })
+        : undefined;
     const recovery = scope.run(() => usePdfMountedPageRenderRecovery({
         isActive: computed(() => isActive.value),
         isLoading,
@@ -42,6 +50,7 @@ function createHarness(options?: {
         isPageMounted: options?.isPageMounted,
         shouldRecoverPage: pageNumber => pagesNeedingRender.value.has(pageNumber),
         renderVisiblePages,
+        renderSupervisor,
     }));
 
     if (!recovery) {
@@ -68,12 +77,13 @@ describe('usePdfMountedPageRenderRecovery', () => {
 
     it('renders a late-mounted visible page with no canvas', async () => {
         vi.useFakeTimers();
+        const supervisorEvents: IPdfRenderSupervisorEvent[] = [];
         const {
             pagesNeedingRender,
             recovery,
             renderVisiblePages,
             scope,
-        } = createHarness();
+        } = createHarness({ onSupervisorEvent: event => supervisorEvents.push(event) });
         pagesNeedingRender.value = new Set([928]);
 
         recovery.queueMountedPageRender(928);
@@ -90,6 +100,13 @@ describe('usePdfMountedPageRenderRecovery', () => {
                 preserveInFlightRequiredPages: true,
             },
         );
+        expect(supervisorEvents).toContainEqual(expect.objectContaining({
+            cause: 'mounted-page-recovery',
+            metadata: expect.objectContaining({
+                pendingPages: [928],
+                runId: 0,
+            }),
+        }));
 
         scope.stop();
     });

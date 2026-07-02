@@ -20,9 +20,18 @@ import type {
     IWorkspaceFilePort,
     IWorkspaceAutomationStateSnapshot,
     IWorkspaceToolbarSnapshot,
+    IWorkspaceViewerCapabilities,
 } from '@app/types/workspaceExpose';
+import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import { clampPdfManualZoom } from '@app/modules/pdf-viewer/public';
 import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
+import {
+    createWorkspaceExposeCommandHandlers,
+    createWorkspaceExposeFromCommandHandlers,
+    type TWorkspaceExposeCommandHandlerMap,
+    type TWorkspaceExposeCommandRunner,
+    type TWorkspaceExposeMethod,
+} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import type {
     IWorkspaceDocumentViewerNavigationPort,
     IWorkspacePdfViewerExposeAutomationPort,
@@ -86,6 +95,7 @@ interface ICreateWorkspaceExposeDeps extends
     pageOpsInsert: (totalPages: number, afterPage: number) => Promise<boolean>;
     totalPages: Ref<number>;
     isDjvuMode: Ref<boolean>;
+    viewerCapabilities?: Ref<IWorkspaceViewerCapabilities>;
     openConvertDialog: () => void;
     captureSplitPayload: IWorkspaceExpose['captureSplitPayload'];
     restoreSplitPayload: IWorkspaceExpose['restoreSplitPayload'];
@@ -135,13 +145,34 @@ function clampZoomLevel(level: number) {
  * Keeping this mapping centralized avoids duplicating command wiring in component files.
  */
 export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorkspaceExpose {
+    const viewerCapabilities = () => deps.viewerCapabilities?.value ?? (
+        deps.isDjvuMode.value
+            ? {
+                ...createDefaultWorkspaceViewerCapabilities(),
+                closeableDocument: true,
+                conversionBanner: true,
+                conversionDialog: true,
+            }
+            : {
+                ...createDefaultWorkspaceViewerCapabilities(),
+                closeableDocument: deps.hasPdf.value,
+                crop: true,
+                optimizePdf: deps.hasPdf.value,
+                pdfDocument: deps.hasPdf.value,
+                pdfMutationActions: deps.hasPdf.value,
+                regionCapture: true,
+                repairSave: deps.hasPdf.value,
+                save: deps.hasPdf.value,
+                sidebar: deps.hasPdf.value,
+            }
+    );
     const canRepairSave = () => deps.canRepairSave?.value ?? (
         deps.hasPdf.value
         && !deps.isOpeningDocument.value
         && !deps.hasOpenError.value
         && !deps.isAnySaving.value
         && !deps.isHistoryBusy.value
-        && !deps.isDjvuMode.value
+        && viewerCapabilities().repairSave
     );
     const canOptimizePdf = () => deps.canOptimizePdf?.value ?? (
         deps.hasPdf.value
@@ -149,7 +180,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         && !deps.hasOpenError.value
         && !deps.isAnySaving.value
         && !deps.isHistoryBusy.value
-        && !deps.isDjvuMode.value
+        && viewerCapabilities().optimizePdf
     );
 
     async function handleSaveFromCommandSurface() {
@@ -159,7 +190,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             || (!deps.canSave.value && !hasSaveableOpenNotes)
             || deps.isAnySaving.value
             || deps.isHistoryBusy.value
-            || deps.isDjvuMode.value
+            || !viewerCapabilities().save
         ) {
             return false;
         }
@@ -220,6 +251,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             dragMode: deps.dragMode.value,
             continuousScroll: deps.continuousScroll.value,
             isDjvuMode: deps.isDjvuMode.value,
+            viewerCapabilities: viewerCapabilities(),
             isCapturingRegion: deps.isCapturingRegion.value,
             isCropSelecting: deps.isCropSelecting.value,
             isPlacingPageNote: deps.isPlacingPageNote.value,
@@ -273,26 +305,10 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         };
     }
 
-    return {
+    const customHandlers: Partial<TWorkspaceExposeCommandHandlerMap> = {
         handleSave: handleSaveFromCommandSurface,
         handleRepairSave: handleRepairSaveFromCommandSurface,
         handleOptimizePdfForInteraction: handleOptimizePdfForInteractionFromCommandSurface,
-        handleSaveAs: deps.handleSaveAs,
-        handlePrint: deps.handlePrint,
-        handlePrintCurrentPage: deps.handlePrintCurrentPage,
-        handleUndo: deps.handleUndo,
-        handleRedo: deps.handleRedo,
-        handleOpenFileFromUi: deps.handleOpenFileFromUi,
-        handleCombineImages: deps.handleCombineImages,
-        handleOpenFileDirectWithPersist: deps.handleOpenFileDirectWithPersist,
-        handleOpenFileDirectBatchWithPersist: deps.handleOpenFileDirectBatchWithPersist,
-        handleOpenFileWithResult: deps.handleOpenFileWithResult,
-        handleCloseFileFromUi: deps.handleCloseFileFromUi,
-        openRecentFile: deps.openRecentFile,
-        handleExportDocx: deps.handleExportDocx,
-        handleExportImages: deps.handleExportImages,
-        handleExportMultiPageTiff: deps.handleExportMultiPageTiff,
-        hasPdf: deps.hasPdf,
         handleZoomIn: () => {
             setCustomZoomFromDisplay(resolveDisplayZoom() + ZOOM.STEP);
         },
@@ -313,26 +329,18 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             setCustomZoomFromDisplay(1);
         },
         setCustomZoomFromDisplay,
-        handleGoToPage: deps.handleGoToPage,
-        handleToggleSidebar: deps.handleToggleSidebar,
-        handleToggleContinuousScroll: deps.handleToggleContinuousScroll,
-        handleEnableDragMode: deps.handleEnableDragMode,
-        handleDisableDragMode: deps.handleDisableDragMode,
         handleCaptureRegion: () => {
-            if (deps.isDjvuMode.value) {
+            if (!viewerCapabilities().regionCapture) {
                 return;
             }
             deps.handleCaptureRegion();
         },
         handleCrop: () => {
-            if (deps.isDjvuMode.value) {
+            if (!viewerCapabilities().crop) {
                 return;
             }
             deps.handleCrop();
         },
-        handleQuickNote: deps.handleQuickNote,
-        handleInsertImageFromFile: deps.handleInsertImageFromFile,
-        handlePasteImageFromClipboard: deps.handlePasteImageFromClipboard,
         handleViewModeSingle: () => {
             deps.viewMode.value = 'single';
         },
@@ -370,21 +378,14 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             void deps.pageOpsInsert(deps.totalPages.value, deps.totalPages.value);
         },
         handleConvertToPdf: () => {
-            if (deps.isDjvuMode.value) {
+            if (viewerCapabilities().conversionDialog) {
                 deps.openConvertDialog();
                 return;
             }
             void deps.handleOpenFileFromUi();
         },
-        captureSplitPayload: deps.captureSplitPayload,
-        restoreSplitPayload: deps.restoreSplitPayload,
-        waitForDocumentOpenSettled: deps.waitForDocumentOpenSettled,
-        runAgentAction: deps.runAgentAction,
-        readAgentResource: deps.readAgentResource,
-        closeAllDropdowns: deps.closeAllDropdowns,
         getToolbarSnapshot,
         getAutomationStateSnapshot,
-        handleOcrComplete: deps.handleOcrComplete,
         scrollToPage: (page: number) => {
             deps.documentViewerRef?.value?.scrollToPage(page);
         },
@@ -396,4 +397,18 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             deps.pdfAutomationViewerRef?.value?.commentAtPoint?.(pageNumber, pageX, pageY, options) ?? Promise.resolve(false)
         ),
     };
+
+    const depsHandlers = deps as Partial<Record<TWorkspaceExposeMethod, unknown>>;
+    const commandHandlers = createWorkspaceExposeCommandHandlers((descriptor) => {
+        if (descriptor.real === 'passthrough') {
+            const handler = depsHandlers[descriptor.name];
+            return typeof handler === 'function'
+                ? (...args: unknown[]) => (handler as TWorkspaceExposeCommandRunner)(...args)
+                : null;
+        }
+
+        return (customHandlers[descriptor.name] as TWorkspaceExposeCommandRunner | undefined) ?? null;
+    });
+
+    return createWorkspaceExposeFromCommandHandlers(deps.hasPdf, commandHandlers);
 }

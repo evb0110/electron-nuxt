@@ -1,4 +1,10 @@
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
+import {
+    createPdfRenderSupervisor,
+    type IPdfRenderSupervisor,
+    type IPdfRenderSupervisorTimer,
+    type TPdfRenderSupervisorWatchdogCause,
+} from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 
 type TContinuousLayoutReapplyReason = 'mutation' | 'resize' | 'scroll';
 
@@ -10,6 +16,7 @@ interface IContinuousLayoutReapplyEvent {
 }
 
 interface IPagedNavigationHoldWatchdogEvent {
+    cause: TPdfRenderSupervisorWatchdogCause;
     delayMs: number;
     runId: number;
     targetPage: number;
@@ -32,17 +39,19 @@ interface ICreateNavigationSettleEffectsDeps {
     getLayoutObserverElements: (pageNumber: number) => HTMLElement[];
     hasLayoutMutation: (mutations: MutationRecord[], pageNumber: number) => boolean;
     onLayoutReapply: (event: IContinuousLayoutReapplyEvent) => void;
+    renderSupervisor?: IPdfRenderSupervisor | undefined;
 }
 
 export function createNavigationSettleEffects(deps: ICreateNavigationSettleEffectsDeps) {
-    let pagedNavigationSettleTimer: ReturnType<typeof setTimeout> | null = null;
-    let searchNavigationSettleTimer: ReturnType<typeof setTimeout> | null = null;
-    let continuousNavigationRenderTimers: Array<ReturnType<typeof setTimeout>> = [];
-    let continuousNavigationTargetClearTimer: ReturnType<typeof setTimeout> | null = null;
-    let pagedNavigationReadyRetryTimers: Array<ReturnType<typeof setTimeout>> = [];
-    let pagedNavigationRecoveryRenderTimer: ReturnType<typeof setTimeout> | null = null;
-    let pagedNavigationAbandonTimer: ReturnType<typeof setTimeout> | null = null;
-    let pagedNavigationStillWaitingTimer: ReturnType<typeof setTimeout> | null = null;
+    const renderSupervisor = deps.renderSupervisor ?? createPdfRenderSupervisor();
+    let pagedNavigationSettleTimer: IPdfRenderSupervisorTimer | null = null;
+    let searchNavigationSettleTimer: IPdfRenderSupervisorTimer | null = null;
+    let continuousNavigationRenderTimers: IPdfRenderSupervisorTimer[] = [];
+    let continuousNavigationTargetClearTimer: IPdfRenderSupervisorTimer | null = null;
+    let pagedNavigationReadyRetryTimers: IPdfRenderSupervisorTimer[] = [];
+    let pagedNavigationRecoveryRenderTimer: IPdfRenderSupervisorTimer | null = null;
+    let pagedNavigationAbandonTimer: IPdfRenderSupervisorTimer | null = null;
+    let pagedNavigationStillWaitingTimer: IPdfRenderSupervisorTimer | null = null;
     let continuousNavigationLayoutObserver: MutationObserver | null = null;
     let continuousNavigationResizeObserver: ResizeObserver | null = null;
     let continuousNavigationResizeObservedElements: HTMLElement[] = [];
@@ -50,10 +59,8 @@ export function createNavigationSettleEffects(deps: ICreateNavigationSettleEffec
     let pendingContinuousNavigationLayoutReapplyEvent: IContinuousLayoutReapplyEvent | null = null;
 
     function clearPagedSettle() {
-        if (pagedNavigationSettleTimer !== null) {
-            clearTimeout(pagedNavigationSettleTimer);
-            pagedNavigationSettleTimer = null;
-        }
+        renderSupervisor.clearTimer(pagedNavigationSettleTimer);
+        pagedNavigationSettleTimer = null;
     }
 
     function armPagedSettle(
@@ -63,84 +70,127 @@ export function createNavigationSettleEffects(deps: ICreateNavigationSettleEffec
         onSettle: (runId: number, pageNumber: number) => void,
     ) {
         clearPagedSettle();
-        pagedNavigationSettleTimer = setTimeout(() => {
-            pagedNavigationSettleTimer = null;
-            onSettle(runId, pageNumber);
-        }, ms);
+        pagedNavigationSettleTimer = renderSupervisor.armTimer({
+            cause: 'navigation-paged-settle',
+            delayMs: ms,
+            key: 'navigation-paged-settle',
+            metadata: {
+                pageNumber,
+                runId,
+            },
+            onFire: () => {
+                pagedNavigationSettleTimer = null;
+                onSettle(runId, pageNumber);
+            },
+        });
     }
 
     function clearPagedHoldWatchdog() {
-        for (const timer of pagedNavigationReadyRetryTimers) {
-            clearTimeout(timer);
-        }
+        renderSupervisor.clearTimers(pagedNavigationReadyRetryTimers);
         pagedNavigationReadyRetryTimers = [];
-        if (pagedNavigationRecoveryRenderTimer !== null) {
-            clearTimeout(pagedNavigationRecoveryRenderTimer);
-            pagedNavigationRecoveryRenderTimer = null;
-        }
-        if (pagedNavigationAbandonTimer !== null) {
-            clearTimeout(pagedNavigationAbandonTimer);
-            pagedNavigationAbandonTimer = null;
-        }
-        if (pagedNavigationStillWaitingTimer !== null) {
-            clearTimeout(pagedNavigationStillWaitingTimer);
-            pagedNavigationStillWaitingTimer = null;
-        }
+        renderSupervisor.clearTimer(pagedNavigationRecoveryRenderTimer);
+        pagedNavigationRecoveryRenderTimer = null;
+        renderSupervisor.clearTimer(pagedNavigationAbandonTimer);
+        pagedNavigationAbandonTimer = null;
+        renderSupervisor.clearTimer(pagedNavigationStillWaitingTimer);
+        pagedNavigationStillWaitingTimer = null;
     }
 
     function armPagedHoldWatchdog(options: IArmPagedNavigationHoldWatchdogOptions) {
         clearPagedHoldWatchdog();
 
-        const buildEvent = (delayMs: number): IPagedNavigationHoldWatchdogEvent => ({
+        const buildEvent = (
+            delayMs: number,
+            cause: TPdfRenderSupervisorWatchdogCause,
+        ): IPagedNavigationHoldWatchdogEvent => ({
+            cause,
             delayMs,
             runId: options.runId,
             targetPage: options.targetPage,
         });
 
-        for (const delayMs of options.readyRetryDelaysMs) {
-            const timer = setTimeout(() => {
-                pagedNavigationReadyRetryTimers = pagedNavigationReadyRetryTimers
-                    .filter(activeTimer => activeTimer !== timer);
-                options.onReadyRetry(buildEvent(delayMs));
-            }, delayMs);
+        options.readyRetryDelaysMs.forEach((delayMs, index) => {
+            const timer = renderSupervisor.armTimer({
+                cause: 'navigation-hold-ready-retry',
+                delayMs,
+                key: `navigation-hold-ready-retry:${index}`,
+                metadata: {
+                    delayMs,
+                    runId: options.runId,
+                    targetPage: options.targetPage,
+                },
+                onFire: () => {
+                    pagedNavigationReadyRetryTimers = pagedNavigationReadyRetryTimers
+                        .filter(activeTimer => activeTimer !== timer);
+                    options.onReadyRetry(buildEvent(delayMs, 'navigation-hold-ready-retry'));
+                },
+            });
             pagedNavigationReadyRetryTimers.push(timer);
-        }
+        });
 
-        pagedNavigationRecoveryRenderTimer = setTimeout(() => {
-            pagedNavigationRecoveryRenderTimer = null;
-            options.onRecovery(buildEvent(options.recoveryRenderMs));
-        }, options.recoveryRenderMs);
+        pagedNavigationRecoveryRenderTimer = renderSupervisor.armTimer({
+            cause: 'navigation-hold-recovery',
+            delayMs: options.recoveryRenderMs,
+            key: 'navigation-hold-recovery',
+            metadata: {
+                runId: options.runId,
+                targetPage: options.targetPage,
+            },
+            onFire: () => {
+                pagedNavigationRecoveryRenderTimer = null;
+                options.onRecovery(buildEvent(options.recoveryRenderMs, 'navigation-hold-recovery'));
+            },
+        });
 
-        pagedNavigationAbandonTimer = setTimeout(() => {
-            pagedNavigationAbandonTimer = null;
-            options.onAbandon(buildEvent(options.abandonMs));
-        }, options.abandonMs);
+        pagedNavigationAbandonTimer = renderSupervisor.armTimer({
+            cause: 'navigation-hold-abandon',
+            delayMs: options.abandonMs,
+            key: 'navigation-hold-abandon',
+            metadata: {
+                runId: options.runId,
+                targetPage: options.targetPage,
+            },
+            onFire: () => {
+                pagedNavigationAbandonTimer = null;
+                options.onAbandon(buildEvent(options.abandonMs, 'navigation-hold-abandon'));
+            },
+        });
 
-        pagedNavigationStillWaitingTimer = setTimeout(() => {
-            pagedNavigationStillWaitingTimer = null;
-            options.onStillWaiting(buildEvent(options.stallLogMs));
-        }, options.stallLogMs);
+        pagedNavigationStillWaitingTimer = renderSupervisor.armTimer({
+            cause: 'navigation-hold-still-waiting',
+            delayMs: options.stallLogMs,
+            key: 'navigation-hold-still-waiting',
+            metadata: {
+                runId: options.runId,
+                targetPage: options.targetPage,
+            },
+            onFire: () => {
+                pagedNavigationStillWaitingTimer = null;
+                options.onStillWaiting(buildEvent(options.stallLogMs, 'navigation-hold-still-waiting'));
+            },
+        });
     }
 
     function clearSearchSettle() {
-        if (searchNavigationSettleTimer !== null) {
-            clearTimeout(searchNavigationSettleTimer);
-            searchNavigationSettleTimer = null;
-        }
+        renderSupervisor.clearTimer(searchNavigationSettleTimer);
+        searchNavigationSettleTimer = null;
     }
 
     function armSearchSettle(ms: number, onSettle: () => void) {
         clearSearchSettle();
-        searchNavigationSettleTimer = setTimeout(() => {
-            searchNavigationSettleTimer = null;
-            onSettle();
-        }, ms);
+        searchNavigationSettleTimer = renderSupervisor.armTimer({
+            cause: 'navigation-search-settle',
+            delayMs: ms,
+            key: 'navigation-search-settle',
+            onFire: () => {
+                searchNavigationSettleTimer = null;
+                onSettle();
+            },
+        });
     }
 
     function clearContinuousRenderTimers() {
-        for (const timer of continuousNavigationRenderTimers) {
-            clearTimeout(timer);
-        }
+        renderSupervisor.clearTimers(continuousNavigationRenderTimers);
         continuousNavigationRenderTimers = [];
     }
 
@@ -153,21 +203,25 @@ export function createNavigationSettleEffects(deps: ICreateNavigationSettleEffec
         onRender: (delayMs: number) => void,
     ) {
         clearContinuousRenderTimers();
-        for (const delayMs of delaysMs) {
-            const timer = setTimeout(() => {
-                continuousNavigationRenderTimers = continuousNavigationRenderTimers
-                    .filter(activeTimer => activeTimer !== timer);
-                onRender(delayMs);
-            }, delayMs);
+        delaysMs.forEach((delayMs, index) => {
+            const timer = renderSupervisor.armTimer({
+                cause: 'navigation-continuous-render',
+                delayMs,
+                key: `navigation-continuous-render:${index}`,
+                metadata: { delayMs },
+                onFire: () => {
+                    continuousNavigationRenderTimers = continuousNavigationRenderTimers
+                        .filter(activeTimer => activeTimer !== timer);
+                    onRender(delayMs);
+                },
+            });
             continuousNavigationRenderTimers.push(timer);
-        }
+        });
     }
 
     function clearContinuousTargetFallback() {
-        if (continuousNavigationTargetClearTimer !== null) {
-            clearTimeout(continuousNavigationTargetClearTimer);
-            continuousNavigationTargetClearTimer = null;
-        }
+        renderSupervisor.clearTimer(continuousNavigationTargetClearTimer);
+        continuousNavigationTargetClearTimer = null;
     }
 
     function armContinuousTargetFallback(
@@ -175,10 +229,15 @@ export function createNavigationSettleEffects(deps: ICreateNavigationSettleEffec
         onClear: () => void,
     ) {
         clearContinuousTargetFallback();
-        continuousNavigationTargetClearTimer = setTimeout(() => {
-            continuousNavigationTargetClearTimer = null;
-            onClear();
-        }, ms);
+        continuousNavigationTargetClearTimer = renderSupervisor.armTimer({
+            cause: 'navigation-continuous-target-fallback',
+            delayMs: ms,
+            key: 'navigation-continuous-target-fallback',
+            onFire: () => {
+                continuousNavigationTargetClearTimer = null;
+                onClear();
+            },
+        });
     }
 
     function setContinuousNavigationResizeObserverElements(elements: HTMLElement[]) {

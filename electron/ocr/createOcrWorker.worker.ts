@@ -5,18 +5,27 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
-import { Worker } from 'worker_threads';
+import {
+    Worker,
+    type ResourceLimits,
+} from 'worker_threads';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import { getOcrToolPaths } from '@electron/ocr/paths';
 import { createLogger } from '@electron/utils/createLogger';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/public';
+import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const log = createLogger('ocr-ipc');
+const OCR_WORKER_RESOURCE_LIMITS: ResourceLimits = {
+    maxOldGenerationSizeMb: parseIntegerEnv('EVB_OCR_WORKER_MAX_OLD_MB', 768, 128, 2048),
+    maxYoungGenerationSizeMb: parseIntegerEnv('EVB_OCR_WORKER_MAX_YOUNG_MB', 64, 16, 256),
+    stackSizeMb: parseIntegerEnv('EVB_OCR_WORKER_STACK_MB', 8, 2, 64),
+};
 
 function getOcrWorkerPath() {
     const defaultPath = join(__dirname, WORKER_BUNDLES_BY_ID.ocr.fileName);
@@ -50,17 +59,20 @@ export function createOcrWorker(): Worker {
         `Tool paths: tesseract=${paths.tesseract}, pdftoppm=${paths.pdftoppm}, qpdf=${paths.qpdf}, popplerData=${paths.popplerDataDir?.length ? paths.popplerDataDir : 'none'}, fontConfig=${paths.popplerFontConfigDir?.length ? paths.popplerFontConfigDir : 'none'}`,
     );
 
-    return new Worker(workerPath, {workerData: {
-        tesseractBinary: paths.tesseract,
-        tessdataPath: paths.tessdata,
-        pdftoppmBinary: paths.pdftoppm,
-        pdftotextBinary: paths.pdftotext,
-        pdfimagesBinary: paths.pdfimages,
-        popplerDataDir: paths.popplerDataDir,
-        popplerFontConfigDir: paths.popplerFontConfigDir,
-        qpdfBinary: paths.qpdf,
-        pdfPageOpsBinary: resolveNativePageOpsPath() ?? undefined,
-        unpaperBinary: paths.unpaper,
-        tempDir: getAppTempDir(),
-    }});
+    return new Worker(workerPath, {
+        workerData: {
+            tesseractBinary: paths.tesseract,
+            tessdataPath: paths.tessdata,
+            pdftoppmBinary: paths.pdftoppm,
+            pdftotextBinary: paths.pdftotext,
+            pdfimagesBinary: paths.pdfimages,
+            popplerDataDir: paths.popplerDataDir,
+            popplerFontConfigDir: paths.popplerFontConfigDir,
+            qpdfBinary: paths.qpdf,
+            pdfPageOpsBinary: resolveNativePageOpsPath() ?? undefined,
+            unpaperBinary: paths.unpaper,
+            tempDir: getAppTempDir(),
+        },
+        resourceLimits: OCR_WORKER_RESOURCE_LIMITS,
+    });
 }

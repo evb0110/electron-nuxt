@@ -18,7 +18,7 @@
                 :start-section="startSection"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
-                @update-tab="handleUpdateTab"
+                @update-document-record="handleDocumentRecordUpdate"
                 @update:start-section="handleStartSectionUpdate"
                 @open-in-new-tab="handleOpenInNewTab"
                 @request-close-tab="handleRequestCloseTab"
@@ -116,17 +116,22 @@ import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/
 import { shouldShowWorkspaceHostLoader } from '@app/modules/workspace-shell/host/shouldShowWorkspaceHostLoader';
 import { shouldShowWorkspacePlaceholder } from '@app/modules/workspace-shell/host/shouldShowWorkspacePlaceholder';
 import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
-import { hasDocumentHintUpdate } from '@app/modules/workspace-shell/tabs/hasDocumentHintUpdate';
-import { isEmptyTabDocumentUpdate } from '@app/modules/workspace-shell/tabs/isEmptyTabDocumentUpdate';
+import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 import { createDeferredWorkspaceExposeProxy } from '@app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy';
 import type { TStartSection } from '@app/types/startSection';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import {
+    createPendingWorkspaceDocumentRecord,
+    createWorkspaceDocumentRecord,
+    type IWorkspaceDocumentRecord,
+} from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 
 const {
     hasDocumentHint = false,
     documentPath = null,
+    documentRecord = null,
     isActive,
     isFullscreen,
     isRenderActive = isActive,
@@ -144,6 +149,7 @@ const {
     isStartupOpenClaimPending?: boolean | undefined;
     hasDocumentHint?: boolean | undefined;
     documentPath?: TDocumentRef | null | undefined;
+    documentRecord?: IWorkspaceDocumentRecord | null | undefined;
     initialViewState?: ITabViewSessionState | null | undefined;
     startSection?: TStartSection | undefined;
     isFullscreen: boolean;
@@ -152,7 +158,7 @@ const {
 const { t } = useTypedI18n();
 
 const emit = defineEmits<{
-    'update-tab': [updates: TTabUpdate];
+    'update-document-record': [record: IWorkspaceDocumentRecord];
     'update-session-state': [state: ITabViewSessionState];
     'update:start-section': [section: TStartSection];
     'open-in-new-tab': [result: string | TOpenFileResult];
@@ -164,18 +170,8 @@ const emit = defineEmits<{
     'expose-released': [];
 }>();
 
-function handleUpdateTab(updates: TTabUpdate) {
-    if (activeDocumentOpenTransaction.value && isEmptyTabDocumentUpdate(updates)) {
-        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Suppressing empty workspace tab update during document open', {
-            tabId: tabId,
-            transactionId: activeDocumentOpenTransaction.value.id,
-            action: activeDocumentOpenTransaction.value.action,
-            target: activeDocumentOpenTransaction.value.target,
-        });
-        return;
-    }
-
-    emit('update-tab', updates);
+function handleDocumentRecordUpdate(record: IWorkspaceDocumentRecord) {
+    emit('update-document-record', record);
 }
 
 function handleStartSectionUpdate(section: TStartSection) {
@@ -289,18 +285,13 @@ const {
     removeRecentFile,
     clearRecentFiles,
 } = useRecentFiles();
-
 const hasMountedWorkspace = computed(() => mountedWorkspace.value !== null);
 const hasWorkspaceChunkLoadError = computed(() => workspaceChunkLoadError.value !== null);
 const workspaceRenderKey = computed(() => `${tabId}:${workspaceRenderNonce.value}`);
+const currentToolbarSnapshot = computed(() => documentRecord?.toolbarSnapshot ?? createDefaultWorkspaceToolbarSnapshot());
 const workspaceVisibleDocument = computed(() => {
-    const workspace = mountedWorkspace.value;
-    if (!workspace) {
-        return false;
-    }
-
-    const snapshot = workspace.getToolbarSnapshot();
-    return snapshot.hasPdf || snapshot.isDjvuMode || snapshot.isOpeningDocument || snapshot.hasOpenError;
+    const snapshot = currentToolbarSnapshot.value;
+    return hasWorkspaceViewerDocumentCapabilities(snapshot.viewerCapabilities) || snapshot.isOpeningDocument || snapshot.hasOpenError;
 });
 const hasPendingDocumentHint = computed(() => hasDocumentHint === true && !workspaceVisibleDocument.value);
 const pendingDocumentPath = computed(() => (
@@ -328,41 +319,15 @@ const hasPdf = computed(() => {
     if (typeof value === 'boolean') {
         return value;
     }
-    return value?.value ?? false;
+    return value?.value ?? currentToolbarSnapshot.value.hasPdf;
 });
 
-let lastToolbarSnapshot: IWorkspaceToolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
-
 function readWorkspaceToolbarSnapshot() {
-    const workspace = mountedWorkspace.value;
     const isOpeningDocument = isDocumentOpenInFlight.value || hasPendingDocumentHint.value;
-    if (isPlaceholderVisible.value) {
-        lastToolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
-        return {
-            ...lastToolbarSnapshot,
-            isOpeningDocument,
-        };
-    }
-
-    if (!workspace) {
-        if (workspaceRequested.value || isOpeningDocument || hasQueuedSplitRestore.value) {
-            return {
-                ...lastToolbarSnapshot,
-                isOpeningDocument,
-            };
-        }
-
-        lastToolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
-        return lastToolbarSnapshot;
-    }
-
-    const workspaceSnapshot = workspace.getToolbarSnapshot();
-    const snapshot = {
-        ...workspaceSnapshot,
-        isOpeningDocument: workspaceSnapshot.isOpeningDocument || isOpeningDocument,
+    return {
+        ...currentToolbarSnapshot.value,
+        isOpeningDocument: currentToolbarSnapshot.value.isOpeningDocument || isOpeningDocument,
     };
-    lastToolbarSnapshot = snapshot;
-    return snapshot;
 }
 
 function emitCurrentViewSessionState(snapshot: IWorkspaceToolbarSnapshot = readWorkspaceToolbarSnapshot()) {
@@ -480,21 +445,19 @@ watch(
         () => isActive,
         () => isRenderActive,
         () => documentPath,
-        workspaceVisibleDocument,
         isDocumentOpenInFlight,
     ],
     ([
         active,
         renderActive,
         path,
-        hasVisibleDocument,
         opening,
     ]) => {
         if (
             !(active || renderActive)
             || !path
             || hasDocumentHint !== true
-            || hasVisibleDocument
+            || workspaceHasOpenedDocument()
             || opening
             || restoredDocumentPaths.has(path)
         ) {
@@ -553,7 +516,7 @@ function workspaceHasDocumentOrOpenError() {
     }
 
     const snapshot = workspace.getToolbarSnapshot();
-    return snapshot.hasPdf || snapshot.isDjvuMode || snapshot.hasOpenError;
+    return hasWorkspaceViewerDocumentCapabilities(snapshot.viewerCapabilities) || snapshot.hasOpenError;
 }
 
 function workspaceHasOpenedDocument() {
@@ -563,13 +526,12 @@ function workspaceHasOpenedDocument() {
     }
 
     const snapshot = workspace.getToolbarSnapshot();
-    return snapshot.hasPdf || snapshot.isDjvuMode;
+    return hasWorkspaceViewerDocumentCapabilities(snapshot.viewerCapabilities);
 }
 
 function shouldSeedPendingTabHint(target: TTabUpdate | null | undefined) {
     return Boolean(
         target
-        && hasDocumentHintUpdate(target)
         && !workspaceHasOpenedDocument(),
     );
 }
@@ -586,7 +548,7 @@ function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
     activeDocumentOpenTransaction.value = transaction;
 
     if (transaction.seededTabHint && target) {
-        emit('update-tab', target);
+        emit('update-document-record', createPendingWorkspaceDocumentRecord(target));
     }
 
     requestWorkspaceMount(`document-open:${intent.action}`);
@@ -647,12 +609,7 @@ async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransa
 
 function finishDocumentOpenTransaction(transaction: IDocumentOpenTransaction, opened: boolean) {
     if (!opened && transaction.seededTabHint && !workspaceHasDocumentOrOpenError()) {
-        emit('update-tab', {
-            fileName: null,
-            originalPath: null,
-            isDirty: false,
-            isDjvu: false,
-        });
+        emit('update-document-record', createWorkspaceDocumentRecord());
     }
 
     if (activeDocumentOpenTransaction.value?.id === transaction.id) {

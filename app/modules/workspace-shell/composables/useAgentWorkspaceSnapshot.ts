@@ -19,6 +19,7 @@ import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
+import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 
 interface IUseAgentWorkspaceSnapshotOptions {
     panes: Ref<IEditorPaneState[]>;
@@ -29,6 +30,7 @@ interface IUseAgentWorkspaceSnapshotOptions {
     recentFiles?: Ref<IRecentFile[]>;
     recentFilesResolved?: Ref<boolean>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
+    documentRecordsByTabId: Ref<Record<string, IWorkspaceDocumentRecord>>;
     shouldWaitForDesktopBridge: () => boolean;
     getPaneByTabId(tabId: string): IEditorPaneState | null;
     activateTab(paneId: string, tabId: string): void;
@@ -44,24 +46,19 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     let cachedSnapshot: IAgentWorkspaceSnapshot | null = null;
 
     function createToolbarSnapshotSignature(tabId: string) {
-        const workspace = options.workspaceRefs.value.get(tabId);
-        if (!workspace) {
+        const snapshot = options.documentRecordsByTabId.value[tabId]?.toolbarSnapshot;
+        if (!snapshot) {
             return null;
         }
 
-        try {
-            const snapshot = workspace.getToolbarSnapshot();
-            return {
-                hasPdf: snapshot.hasPdf,
-                isDjvuMode: snapshot.isDjvuMode,
-                isOpeningDocument: snapshot.isOpeningDocument,
-                hasOpenError: snapshot.hasOpenError,
-                currentPage: snapshot.currentPage,
-                totalPages: snapshot.totalPages,
-            };
-        } catch {
-            return { readError: true };
-        }
+        return {
+            hasPdf: snapshot.hasPdf,
+            isDjvuMode: snapshot.isDjvuMode,
+            isOpeningDocument: snapshot.isOpeningDocument,
+            hasOpenError: snapshot.hasOpenError,
+            currentPage: snapshot.currentPage,
+            totalPages: snapshot.totalPages,
+        };
     }
 
     function createSnapshotSignature() {
@@ -246,7 +243,8 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
 
         workspace.handleGoToPage(request.command.arguments.page);
         await nextTick();
-        const snapshot = workspace.getToolbarSnapshot();
+        const snapshot = options.documentRecordsByTabId.value[tabId]?.toolbarSnapshot
+            ?? workspace.getToolbarSnapshot();
         return {
             activePaneId: paneId,
             activeTabId: tabId,

@@ -9,6 +9,10 @@ import {
     ref,
 } from 'vue';
 import { usePdfViewerRenderStallRecovery } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerRenderStallRecovery';
+import {
+    createPdfRenderSupervisor,
+    type IPdfRenderSupervisorEvent,
+} from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 
 describe('usePdfViewerRenderStallRecovery', () => {
     it('invalidates stalled pages and retries page render when rendering stalls', async () => {
@@ -18,6 +22,8 @@ describe('usePdfViewerRenderStallRecovery', () => {
             const scheduleReload = vi.fn();
             const cancelInFlightPageRenders = vi.fn();
             const renderVisiblePages = vi.fn().mockResolvedValue(undefined);
+            const supervisorEvents: IPdfRenderSupervisorEvent[] = [];
+            const renderSupervisor = createPdfRenderSupervisor({ onEvent: event => supervisorEvents.push(event) });
             const recovery = usePdfViewerRenderStallRecovery({
                 src: computed(
                     () => ({
@@ -42,6 +48,7 @@ describe('usePdfViewerRenderStallRecovery', () => {
                 cancelInFlightPageRenders,
                 renderVisiblePages,
                 scheduleReload,
+                renderSupervisor,
             });
 
             recovery.handlePageRenderStall({
@@ -68,6 +75,14 @@ describe('usePdfViewerRenderStallRecovery', () => {
             expect(scheduleReload).not.toHaveBeenCalled();
             expect(recovery.consumePendingInvalidation()).toEqual([2]);
             expect(recovery.consumePendingInvalidation()).toBeNull();
+            expect(supervisorEvents).toContainEqual(expect.objectContaining({
+                cause: 'render-stall-recovery',
+                metadata: expect.objectContaining({
+                    queuedPage: 2,
+                    stage: 'canvas-render',
+                    timeoutMs: 15_000,
+                }),
+            }));
         } finally {
             vi.useRealTimers();
         }

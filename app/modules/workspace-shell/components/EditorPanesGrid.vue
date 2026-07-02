@@ -28,6 +28,7 @@
                         v-show="tab.id === paneForLeaf!.activeTabId"
                         :tab-id="tab.id"
                         :document-path="tab.originalPath"
+                        :document-record="documentRecordsByTabId[tab.id] ?? null"
                         :has-document-hint="tabHasDocumentHint(tab)"
                         :initial-view-state="viewStateByTabId[tab.id] ?? null"
                         :is-startup-open-claim-pending="isStartupOpenClaimPending"
@@ -37,7 +38,7 @@
                         :is-fullscreen="isFullscreen"
                         :fullscreen-supported="fullscreenSupported"
                         :start-section="startSectionByTabId[tab.id] ?? 'recent'"
-                        @update-tab="handleWorkspaceTabUpdate(tab.id, $event)"
+                        @update-document-record="handleWorkspaceDocumentRecordUpdate(tab.id, $event)"
                         @update-session-state="handleWorkspaceSessionStateUpdate(tab.id, $event)"
                         @update:start-section="handleWorkspaceStartSectionUpdate(tab.id, $event)"
                         @open-in-new-tab="handleLeafOpenInNewTab"
@@ -76,6 +77,7 @@
                 :start-section-by-tab-id="startSectionByTabId"
                 :tab-lifecycle-by-id="tabLifecycleById"
                 :view-state-by-tab-id="viewStateByTabId"
+                :document-records-by-tab-id="documentRecordsByTabId"
                 :zen-mode="zenMode"
                 :zen-active-tab-id="zenActiveTabId"
                 :is-fullscreen="isFullscreen"
@@ -88,7 +90,7 @@
                 @move-tab-direction="handleMoveTabDirection"
                 @tab-context-command="handleTabContextCommand"
                 @set-workspace-ref="handleSetWorkspaceRef"
-                @update-tab="handleUpdateTab"
+                @update-document-record="handleUpdateDocumentRecord"
                 @update-tab-session-state="handleUpdateTabSessionState"
                 @update-tab-start-section="handleUpdateTabStartSection"
                 @open-in-new-tab="handleOpenInNewTab"
@@ -124,6 +126,7 @@
                 :start-section-by-tab-id="startSectionByTabId"
                 :tab-lifecycle-by-id="tabLifecycleById"
                 :view-state-by-tab-id="viewStateByTabId"
+                :document-records-by-tab-id="documentRecordsByTabId"
                 :zen-mode="zenMode"
                 :zen-active-tab-id="zenActiveTabId"
                 :is-fullscreen="isFullscreen"
@@ -136,7 +139,7 @@
                 @move-tab-direction="handleMoveTabDirection"
                 @tab-context-command="handleTabContextCommand"
                 @set-workspace-ref="handleSetWorkspaceRef"
-                @update-tab="handleUpdateTab"
+                @update-document-record="handleUpdateDocumentRecord"
                 @update-tab-session-state="handleUpdateTabSessionState"
                 @update-tab-start-section="handleUpdateTabStartSection"
                 @open-in-new-tab="handleOpenInNewTab"
@@ -155,10 +158,7 @@
 import { useEventListener } from '@vueuse/core';
 import { keyBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
-import type {
-    ITab,
-    TTabUpdate,
-} from '@app/types/tabs';
+import type { ITab } from '@app/types/tabs';
 import type {
     ITabContextAvailability,
     TTabContextCommand,
@@ -179,10 +179,12 @@ import type {
     ITabViewSessionState,
 } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 
 defineOptions({name: 'EditorPanesGrid'});
 
 const {
+    documentRecordsByTabId,
     panes,
     node,
     tabLifecycleById,
@@ -201,6 +203,7 @@ const {
     startSectionByTabId: Record<string, TStartSection>;
     tabLifecycleById: Record<string, ITabLifecycleState>;
     viewStateByTabId: Record<string, ITabViewSessionState>;
+    documentRecordsByTabId: Record<string, IWorkspaceDocumentRecord>;
     zenMode: boolean;
     zenActiveTabId: string | null;
     isFullscreen: boolean;
@@ -221,7 +224,7 @@ const emit = defineEmits<{
     ];
     'tab-context-command': [paneId: string, tabId: string, command: TTabContextCommand];
     'set-workspace-ref': [tabId: string, el: unknown];
-    'update-tab': [tabId: string, updates: TTabUpdate];
+    'update-document-record': [tabId: string, record: IWorkspaceDocumentRecord];
     'update-tab-session-state': [tabId: string, state: ITabViewSessionState];
     'update-tab-start-section': [tabId: string, section: TStartSection];
     'open-in-new-tab': [result: string | TOpenFileResult, paneId: string];
@@ -242,6 +245,16 @@ const paneById = computed(() => {
 const tabById = computed(() => {
     return new Map(Object.entries(keyBy(tabs, tab => tab.id)));
 });
+function resolveRecordTab(tab: ITab): ITab {
+    const recordTab = documentRecordsByTabId[tab.id]?.tab;
+    return recordTab
+        ? {
+            ...tab,
+            ...recordTab,
+        }
+        : tab;
+}
+
 const tabsByPaneId = computed(() => {
     const map = new Map<string, ITab[]>();
     const tabLookup = tabById.value;
@@ -251,7 +264,7 @@ const tabsByPaneId = computed(() => {
         for (const tabId of pane.tabIds) {
             const tab = tabLookup.get(tabId);
             if (tab) {
-                paneTabs.push(tab);
+                paneTabs.push(resolveRecordTab(tab));
             }
         }
         map.set(pane.paneId, paneTabs);
@@ -361,8 +374,8 @@ function handleLeafTabContextCommand(tabId: string, command: TTabContextCommand)
     }
 }
 
-function handleWorkspaceTabUpdate(tabId: string, updates: TTabUpdate) {
-    emit('update-tab', tabId, updates);
+function handleWorkspaceDocumentRecordUpdate(tabId: string, record: IWorkspaceDocumentRecord) {
+    emit('update-document-record', tabId, record);
 }
 
 function handleWorkspaceSessionStateUpdate(tabId: string, state: ITabViewSessionState) {
@@ -432,8 +445,8 @@ function handleWorkspaceExposeReleased(tabId: string) {
     emit('set-workspace-ref', tabId, null);
 }
 
-function handleUpdateTab(tabId: string, updates: TTabUpdate) {
-    emit('update-tab', tabId, updates);
+function handleUpdateDocumentRecord(tabId: string, record: IWorkspaceDocumentRecord) {
+    emit('update-document-record', tabId, record);
 }
 
 function handleUpdateTabSessionState(tabId: string, state: ITabViewSessionState) {

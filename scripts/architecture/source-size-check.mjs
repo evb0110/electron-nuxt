@@ -94,9 +94,9 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1558,
-        reason: 'transitional workspace component hotspot',
-        stage: 'Future workspace component extraction',
+        maxLines: 1555,
+        reason: 'transitional workspace component hotspot after viewer adapter binding extraction',
+        stage: 'Stage S - viewer adapter interface',
     },
     'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts': {
         maxLines: 1264,
@@ -104,7 +104,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 2/Stage 4 - Annotation action/runtime contract split',
     },
     'app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue': {
-        maxLines: 1113,
+        maxLines: 1070,
         reason: 'transitional deferred workspace host hotspot',
         stage: 'Future workspace host extraction',
     },
@@ -124,7 +124,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 2/Stage 3 - OCR job manager lifecycle split',
     },
     'app/modules/workspace-shell/components/AppShellRoot.vue': {
-        maxLines: 1253,
+        maxLines: 1111,
         reason: 'transitional app shell root hotspot',
         stage: 'Future workspace shell extraction',
     },

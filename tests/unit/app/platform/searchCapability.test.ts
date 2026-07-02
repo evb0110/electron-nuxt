@@ -249,7 +249,9 @@ const browserSearchWorkerClientMock = vi.hoisted(() => ({
     BrowserSearchWorkerUnavailableError: class BrowserSearchWorkerUnavailableError extends Error {},
 }));
 const pdfjsModule = vi.hoisted(() => ({
+    version: '5.7.284',
     GlobalWorkerOptions: { workerSrc: undefined as string | undefined },
+    PDFDataRangeTransport: function MockPdfDataRangeTransport() {},
     OPS: {
         beginText: 1,
         setFont: 2,

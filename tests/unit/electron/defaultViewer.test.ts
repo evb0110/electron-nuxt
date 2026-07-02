@@ -16,9 +16,11 @@ const mocks = vi.hoisted(() => ({
         warn: vi.fn(),
     },
     readFile: vi.fn(),
-    saveSettings: vi.fn(),
     shell: {openExternal: vi.fn()},
     te: vi.fn((key: string) => key),
+    updateSettings: vi.fn(async (updater: (settings: Record<string, unknown>) => unknown) => {
+        await updater({});
+    }),
 }));
 
 vi.mock('electron', () => ({
@@ -31,7 +33,7 @@ vi.mock('fs/promises', () => ({readFile: mocks.readFile}));
 
 vi.mock('@electron/settings', () => ({
     loadSettings: mocks.loadSettings,
-    saveSettings: mocks.saveSettings,
+    updateSettings: mocks.updateSettings,
 }));
 
 vi.mock('@electron/te', () => ({te: mocks.te}));
@@ -57,6 +59,9 @@ describe('default viewer prompt', () => {
         mocks.shell.openExternal.mockRejectedValue(new Error('unsupported protocol'));
         mocks.dialog.showMessageBox.mockResolvedValueOnce({ response: 0 });
         mocks.dialog.showMessageBox.mockResolvedValue({ response: 0 });
+        mocks.updateSettings.mockImplementation(async (updater: (settings: Record<string, unknown>) => unknown) => {
+            await updater({});
+        });
     });
 
     it('shows fallback instructions when Windows default-app settings cannot be opened', async () => {
@@ -84,7 +89,32 @@ describe('default viewer prompt', () => {
         await promptSetDefaultViewer({} as never);
 
         expect(mocks.dialog.showMessageBox).not.toHaveBeenCalled();
-        expect(mocks.saveSettings).toHaveBeenCalledWith({suppressDefaultViewerPrompt: true});
+        expect(mocks.updateSettings).toHaveBeenCalledOnce();
+        const updater = mocks.updateSettings.mock.calls[0]?.[0] as (settings: Record<string, unknown>) => unknown;
+        expect(updater({})).toEqual({suppressDefaultViewerPrompt: true});
+        expect(updater({suppressDefaultViewerPrompt: true})).toBeUndefined();
+    });
+
+    it('persists prompt suppression as a partial patch after dialog latency', async () => {
+        mocks.loadSettings.mockResolvedValueOnce({
+            locale: 'en',
+            suppressDefaultViewerPrompt: false,
+        });
+        let patch: unknown;
+        mocks.updateSettings.mockImplementationOnce(async (updater: (settings: Record<string, unknown>) => unknown) => {
+            const latestSettings = {
+                locale: 'ru',
+                suppressDefaultViewerPrompt: false,
+                tabMemoryPolicy: 'keep-active',
+            };
+            patch = await updater(latestSettings);
+        });
+        const { promptSetDefaultViewer } = await loadDefaultViewerModule();
+
+        await promptSetDefaultViewer({} as never);
+
+        expect(mocks.updateSettings).toHaveBeenCalledOnce();
+        expect(patch).toEqual({suppressDefaultViewerPrompt: true});
     });
 
     it.each([
@@ -108,9 +138,9 @@ describe('default viewer prompt', () => {
 
         expect(mocks.dialog.showMessageBox).toHaveBeenCalled();
         expect(mocks.dialog.showMessageBox.mock.invocationCallOrder[0]).toBeLessThan(
-            mocks.saveSettings.mock.invocationCallOrder[0]!,
+            mocks.updateSettings.mock.invocationCallOrder[0]!,
         );
-        expect(mocks.saveSettings).toHaveBeenCalledWith({suppressDefaultViewerPrompt: true});
+        expect(mocks.updateSettings).toHaveBeenCalledOnce();
     });
 
     it('ignores invalid JSON while checking known settings files', async () => {
@@ -121,9 +151,9 @@ describe('default viewer prompt', () => {
 
         expect(mocks.dialog.showMessageBox).toHaveBeenCalled();
         expect(mocks.dialog.showMessageBox.mock.invocationCallOrder[0]).toBeLessThan(
-            mocks.saveSettings.mock.invocationCallOrder[0]!,
+            mocks.updateSettings.mock.invocationCallOrder[0]!,
         );
-        expect(mocks.saveSettings).toHaveBeenCalledWith({suppressDefaultViewerPrompt: true});
+        expect(mocks.updateSettings).toHaveBeenCalledOnce();
     });
 });
 

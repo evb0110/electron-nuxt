@@ -63,8 +63,12 @@ import {
 } from '@electron/windowTabTransfer';
 import { promptSetDefaultViewer } from '@electron/promptSetDefaultViewer';
 import { createLogger } from '@electron/utils/createLogger';
-import { sweepStaleDefaultAppTempPdfs } from '@electron/features/documents/public';
 import {
+    sweepStaleDefaultAppTempPdfs,
+    sweepStaleOcrTempArtifacts,
+} from '@electron/features/documents/public';
+import {
+    configureUpdateInstallShutdown,
     initializeUpdates,
     shutdownUpdates,
 } from '@electron/updates';
@@ -73,6 +77,7 @@ import {
     registerAppProtocolScheme,
     setupAppProtocolHandler,
 } from '@electron/protocol';
+import { resetSettingsCacheAfterUserDataPathChange } from '@electron/settings';
 
 app.setName(app.isPackaged ? 'EVB Viewer' : 'EVB Viewer Dev');
 registerAppProtocolScheme();
@@ -88,6 +93,7 @@ if (automationUserDataDir) {
 } else {
     app.setPath('userData', join(app.getPath('appData'), app.name));
 }
+resetSettingsCacheAfterUserDataPathChange();
 
 const logger = createLogger('main');
 const macOpenFileRouter = createMacOpenFileRouter({ logger });
@@ -284,6 +290,9 @@ shutdownCoordinator = createShutdownCoordinator({
     logger,
     runCleanupSteps: performShutdownCleanup,
 });
+configureUpdateInstallShutdown((install) => {
+    shutdownCoordinator?.requestGracefulQuit({ afterCleanup: install });
+});
 
 function broadcastUpdateStatus(status: IAppUpdateStatus) {
     for (const window of getAllRegisteredAppWindows()) {
@@ -326,6 +335,7 @@ void runInitSequence({
     shouldResetRendererReadyOnNavigation,
     shutdownCoordinator,
     sweepStaleDefaultAppTempPdfs,
+    sweepStaleOcrTempArtifacts,
 })
     .then(() => syncAgentMcpServerWithSettings())
     .catch((error) => {

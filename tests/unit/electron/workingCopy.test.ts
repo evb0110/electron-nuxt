@@ -311,6 +311,47 @@ describe('workingCopy', () => {
             'second-start',
         ]);
     });
+
+    it('waits for queued mutations before clearing all working copies', async () => {
+        const { setWorkingCopyOriginalPath } = await import('@electron/file-access/workingCopyStore');
+        const { clearAllWorkingCopies } = await import('@electron/file-access/workingCopyCleanup');
+        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+        const originalPath = join(tempRoot, 'drain-original.pdf');
+        const workingDir = join(tempRoot, 'evb-viewer', 'pdf-work-drain');
+        const workingPath = join(workingDir, 'drain-original.pdf');
+        const blockedMutation = deferred<undefined>();
+        const operations: string[] = [];
+        mkdirSync(workingDir, {recursive: true});
+        writeFileSync(originalPath, new Uint8Array([1]));
+        writeFileSync(workingPath, new Uint8Array([2]));
+        setWorkingCopyOriginalPath(workingPath, originalPath);
+
+        const mutation = enqueueWorkingCopyMutation(workingPath, async () => {
+            operations.push('mutation-start');
+            await blockedMutation.promise;
+            operations.push(`dir-exists:${existsSync(workingDir)}`);
+        });
+        await waitForSettledQueueTurn();
+
+        const clearPromise = clearAllWorkingCopies().then(() => {
+            operations.push('clear-done');
+        });
+        await waitForSettledQueueTurn();
+
+        expect(existsSync(workingDir)).toBe(true);
+        expect(operations).toEqual(['mutation-start']);
+
+        blockedMutation.resolve(undefined);
+        await mutation;
+        await clearPromise;
+
+        expect(operations).toEqual([
+            'mutation-start',
+            'dir-exists:true',
+            'clear-done',
+        ]);
+        expect(existsSync(workingDir)).toBe(false);
+    });
 });
 
 function deferred<T>() {

@@ -3,7 +3,7 @@ import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { refreshMenu } from '@electron/menu';
 import {
-    requireOpenPath,
+    requireRevealPath,
     type TOpenPath,
 } from '@electron/file-access/openPathCapabilities';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
@@ -44,7 +44,7 @@ async function resolveRevealablePath(filePath: string, owner?: TOpenPathOwner) {
 
     const allowedRevealPath = (() => {
         try {
-            return requireOpenPath(resolve(filePath), owner);
+            return requireRevealPath(resolve(filePath), owner);
         } catch {
             return null;
         }

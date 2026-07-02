@@ -75,8 +75,12 @@ class DOMMatrixSsrStub {
 
 interface IPdfjsSsrGlobalScope {DOMMatrix?: new () => DOMMatrixSsrStub;}
 
+function isBrowserDocumentRuntime() {
+    return typeof window !== 'undefined' && typeof document !== 'undefined';
+}
+
 export function ensurePdfjsSsrGlobals() {
-    if (!import.meta.server) {
+    if (!import.meta.server && isBrowserDocumentRuntime()) {
         return;
     }
 

@@ -174,4 +174,35 @@ describe('workerTask', () => {
             });
         }
     });
+
+    it('passes opt-in resource limits to result workers', async () => {
+        mocks.throwConstructorError = false;
+        mocks.nextMessage = {
+            type: 'result',
+            ok: true,
+            data: 'ok',
+        };
+        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
+
+        await expect(runResultWorkerTask({
+            workerPath: '/tmp/worker.js',
+            workerData: { ok: true },
+            invalidPayloadMessage: 'invalid payload',
+            createWorkerExitError: code => new Error(`exit: ${code}`),
+            resourceLimits: {
+                maxOldGenerationSizeMb: 256,
+                maxYoungGenerationSizeMb: 32,
+                stackSizeMb: 8,
+            },
+        })).resolves.toBe('ok');
+
+        expect(mocks.workerCtor).toHaveBeenCalledWith('/tmp/worker.js', {
+            workerData: { ok: true },
+            resourceLimits: {
+                maxOldGenerationSizeMb: 256,
+                maxYoungGenerationSizeMb: 32,
+                stackSizeMb: 8,
+            },
+        });
+    });
 });

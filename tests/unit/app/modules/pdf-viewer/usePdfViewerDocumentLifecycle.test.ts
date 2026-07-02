@@ -707,4 +707,82 @@ describe('usePdfViewerDocumentLifecycle', () => {
 
         expect(loadPdf).toHaveBeenCalledWith(reloadSource, undefined);
     });
+
+    it('emits current PDF load failures without treating stale cancellations as errors', async () => {
+        const currentPage = ref(1);
+        const visibleRange = ref({
+            start: 1,
+            end: 1,
+        });
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
+        const numPages = ref(1);
+        const loadError = shallowRef<unknown | null>(new Error('worker unavailable'));
+        const emitLoadError = vi.fn();
+
+        const { scheduleLoadFromSource } = usePdfViewerDocumentLifecycle({
+            viewerContainer: ref(cast<HTMLElement>({ querySelector: vi.fn(() => null) })),
+            src: computed(() =>
+                new Blob([new Uint8Array([1])], { type: 'application/pdf' }),
+            ),
+            zoom: computed(() => 1),
+            zoomMode: computed(() => 'fit-width' as const),
+            effectiveScale: ref(1),
+            currentPage,
+            visibleRange,
+            basePageWidth: ref(612),
+            basePageHeight: ref(792),
+            annotationUiManager: shallowRef(null),
+            annotationCommentsCache: ref([]),
+            activeCommentStableKey: ref(null),
+            pdfDocument,
+            numPages,
+            isLoading: ref(false),
+            loadError,
+            getRenderVersion: () => 1,
+            loadPdf: vi.fn(async () => null),
+            ensurePageMetricsInRange: vi.fn(async () => false),
+            getPage: vi.fn(async () => ({}) as PDFPageProxy),
+            renderVisiblePages: vi.fn(async () => {}),
+            getVisibleRange: () => visibleRange.value,
+            reRenderVisiblePagesAndSyncCurrentPage: vi.fn(async () => {}),
+            syncCurrentPageFromViewport: vi.fn(async () => {}),
+            applySearchHighlights: vi.fn(),
+            updateVisibleRange: vi.fn(),
+            scrollToPage: vi.fn(),
+            cleanupRenderedPages: vi.fn(),
+            invalidateScaleCache: vi.fn(),
+            resetScale: vi.fn(),
+            resetInsets: vi.fn(),
+            setupPagePlaceholders: vi.fn(),
+            computeFitWidthScale: vi.fn(() => true),
+            computeSkeletonInsets: vi.fn(async () => {}),
+            invalidateRenderedPages: vi.fn(),
+            consumePendingInvalidation: () => null,
+            commentSync: {
+                incrementSyncToken: vi.fn(),
+                scheduleAnnotationCommentsSync: vi.fn(),
+            },
+            editor: {
+                destroyAnnotationEditor: vi.fn(),
+                initAnnotationEditor: vi.fn(),
+            },
+            pinCurrentPageDuringRecovery: vi.fn(),
+            suppressNextZoomRerender: vi.fn(),
+            beginVisualReloadTransition: vi.fn(() => 17),
+            endVisualReloadTransition: vi.fn(),
+            emitLoadError,
+            emit: vi.fn(),
+        });
+
+        scheduleLoadFromSource();
+        await flushLifecycleTasks();
+
+        expect(emitLoadError).toHaveBeenCalledExactlyOnceWith(loadError.value);
+
+        loadError.value = null;
+        scheduleLoadFromSource();
+        await flushLifecycleTasks();
+
+        expect(emitLoadError).toHaveBeenCalledTimes(1);
+    });
 });

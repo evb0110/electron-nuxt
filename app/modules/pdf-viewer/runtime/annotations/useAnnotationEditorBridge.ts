@@ -6,7 +6,7 @@ import {
 import {
     EventBus,
     GenericL10n,
-} from '@app/services/pdfjs/viewerRuntimeLib';
+} from '@app/services/pdfjs/getPdfjsViewerRuntimeProbeFailures';
 import type { AnnotationEditorUIManager as TAnnotationEditorUIManager } from 'pdfjs-dist';
 import type { EventBus as TEventBus } from 'pdfjs-dist/types/web/event_utils';
 import type { GenericL10n as TGenericL10n } from 'pdfjs-dist/types/web/genericl10n';

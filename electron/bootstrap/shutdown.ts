@@ -24,6 +24,8 @@ interface ICreateShutdownCoordinatorOptions {
     runCleanupSteps: () => Promise<void>;
 }
 
+interface IGracefulQuitOptions { afterCleanup?: () => void }
+
 export function runShutdownSteps(
     logger: ILogger,
     steps: IShutdownStep[],
@@ -49,6 +51,7 @@ export function runShutdownSteps(
 export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOptions) {
     let gracefulShutdownPromise: Promise<void> | null = null;
     let gracefulQuitForceTimer: NodeJS.Timeout | null = null;
+    let gracefulQuitAfterCleanup: (() => void) | null = null;
     let isQuittingAfterCleanup = false;
     let isFatalShutdownInProgress = false;
 
@@ -94,9 +97,12 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
                 }
             })();
         },
-        requestGracefulQuit() {
+        requestGracefulQuit(quitOptions?: IGracefulQuitOptions) {
             if (isQuittingAfterCleanup) {
                 return;
+            }
+            if (quitOptions?.afterCleanup) {
+                gracefulQuitAfterCleanup = quitOptions.afterCleanup;
             }
             gracefulShutdownPromise ??= performCleanup().catch((error) => {
                 options.logger.error(`Graceful shutdown cleanup failed: ${getErrorMessage(error)}`);
@@ -117,6 +123,17 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
                     return;
                 }
                 isQuittingAfterCleanup = true;
+                const afterCleanup = gracefulQuitAfterCleanup;
+                gracefulQuitAfterCleanup = null;
+                if (afterCleanup) {
+                    try {
+                        afterCleanup();
+                    } catch (error) {
+                        options.logger.error(`Graceful quit post-cleanup action failed: ${getErrorMessage(error)}`);
+                        options.app.quit();
+                    }
+                    return;
+                }
                 options.app.quit();
             });
         },

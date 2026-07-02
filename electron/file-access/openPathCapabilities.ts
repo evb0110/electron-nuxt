@@ -10,6 +10,7 @@ const logger = createLogger('open-path-capabilities');
 interface IOpenPathGrant { expiresAtMs: number; }
 
 const allowedOpenPathsByOwner = new Map<number, Map<string, IOpenPathGrant>>();
+const allowedRevealPathsByOwner = new Map<number, Map<string, IOpenPathGrant>>();
 const ownerCleanupRegistered = new Set<number>();
 const MAX_ALLOWED_OPEN_PATHS = (() => {
     const parsed = Number.parseInt(process.env.EVB_ALLOWED_OPEN_PATHS_MAX ?? '2048', 10);
@@ -35,11 +36,14 @@ function normalizeOpenPath(filePath: string) {
     return normalizePossiblyEncodedExistingPath(normalizedPath);
 }
 
-function pruneAllowedOpenPaths(now = Date.now()) {
+function pruneAllowedPathMap(
+    allowedPathsByOwner: Map<number, Map<string, IOpenPathGrant>>,
+    now: number,
+) {
     for (const [
         ownerId,
         allowedOpenPaths,
-    ] of allowedOpenPathsByOwner.entries()) {
+    ] of allowedPathsByOwner.entries()) {
         for (const [
             filePath,
             grant,
@@ -58,22 +62,31 @@ function pruneAllowedOpenPaths(now = Date.now()) {
         }
 
         if (allowedOpenPaths.size === 0) {
-            allowedOpenPathsByOwner.delete(ownerId);
+            allowedPathsByOwner.delete(ownerId);
         }
     }
 }
 
-function getAllowedOpenPaths(ownerId: number) {
-    let allowedOpenPaths = allowedOpenPathsByOwner.get(ownerId);
+function pruneAllowedPaths(now = Date.now()) {
+    pruneAllowedPathMap(allowedOpenPathsByOwner, now);
+    pruneAllowedPathMap(allowedRevealPathsByOwner, now);
+}
+
+function getAllowedPaths(
+    allowedPathsByOwner: Map<number, Map<string, IOpenPathGrant>>,
+    ownerId: number,
+) {
+    let allowedOpenPaths = allowedPathsByOwner.get(ownerId);
     if (!allowedOpenPaths) {
         allowedOpenPaths = new Map<string, IOpenPathGrant>();
-        allowedOpenPathsByOwner.set(ownerId, allowedOpenPaths);
+        allowedPathsByOwner.set(ownerId, allowedOpenPaths);
     }
     return allowedOpenPaths;
 }
 
-function removeAllowedOpenPathsForOwner(ownerId: number) {
+function removeAllowedPathsForOwner(ownerId: number) {
     allowedOpenPathsByOwner.delete(ownerId);
+    allowedRevealPathsByOwner.delete(ownerId);
     ownerCleanupRegistered.delete(ownerId);
 }
 
@@ -91,7 +104,7 @@ function registerOwnerCleanup(owner: number | WebContents, ownerId: number) {
     }
 
     if (typeof owner.isDestroyed === 'function' && owner.isDestroyed()) {
-        removeAllowedOpenPathsForOwner(ownerId);
+        removeAllowedPathsForOwner(ownerId);
         return;
     }
 
@@ -104,7 +117,7 @@ function registerOwnerCleanup(owner: number | WebContents, ownerId: number) {
         owner.removeListener?.('destroyed', cleanup);
         owner.removeListener?.('render-process-gone', cleanup);
         owner.removeListener?.('did-start-navigation', handleNavigation);
-        removeAllowedOpenPathsForOwner(ownerId);
+        removeAllowedPathsForOwner(ownerId);
     };
     const handleNavigation = (
         _event: unknown,
@@ -127,52 +140,76 @@ function isDestroyedOwner(owner: number | WebContents) {
         && owner.isDestroyed();
 }
 
-function allowOpenPathForWebContents(owner: number | WebContents, filePath: string) {
+function allowPathForWebContents(
+    allowedPathsByOwner: Map<number, Map<string, IOpenPathGrant>>,
+    owner: number | WebContents,
+    filePath: string,
+) {
     const normalizedPath = normalizeOpenPath(filePath);
     if (!normalizedPath) {
         return null;
     }
 
     if (isDestroyedOwner(owner)) {
-        removeAllowedOpenPathsForOwner(getOwnerId(owner));
+        removeAllowedPathsForOwner(getOwnerId(owner));
         return null;
     }
 
     const ownerId = getOwnerId(owner);
     registerOwnerCleanup(owner, ownerId);
-    const allowedOpenPaths = getAllowedOpenPaths(ownerId);
+    const allowedOpenPaths = getAllowedPaths(allowedPathsByOwner, ownerId);
     allowedOpenPaths.delete(normalizedPath);
     allowedOpenPaths.set(normalizedPath, {expiresAtMs: Date.now() + OPEN_PATH_CAPABILITY_TTL_MS});
-    pruneAllowedOpenPaths();
+    pruneAllowedPaths();
     return normalizedPath as TOpenPath;
 }
 
-function allowOpenPathsForWebContents(owner: number | WebContents, filePaths: string[]) {
+function allowPathsForWebContents(
+    allowedPathsByOwner: Map<number, Map<string, IOpenPathGrant>>,
+    owner: number | WebContents,
+    filePaths: string[],
+) {
     for (const filePath of filePaths) {
-        allowOpenPathForWebContents(owner, filePath);
+        allowPathForWebContents(allowedPathsByOwner, owner, filePath);
     }
 }
 
 export function allowOpenPath(filePath: string, owner?: number | WebContents) {
     if (owner !== undefined) {
-        return allowOpenPathForWebContents(owner, filePath);
+        return allowPathForWebContents(allowedOpenPathsByOwner, owner, filePath);
     }
 
-    return allowOpenPathForWebContents(0, filePath);
+    return allowPathForWebContents(allowedOpenPathsByOwner, 0, filePath);
 }
 
 export function allowOpenPaths(filePaths: string[], owner?: number | WebContents) {
-    allowOpenPathsForWebContents(owner ?? 0, filePaths);
+    allowPathsForWebContents(allowedOpenPathsByOwner, owner ?? 0, filePaths);
 }
 
-function isAllowedOpenPath(filePath: string, owner?: number | WebContents) {
+export function allowRevealPath(filePath: string, owner?: number | WebContents) {
+    if (owner !== undefined) {
+        return allowPathForWebContents(allowedRevealPathsByOwner, owner, filePath);
+    }
+
+    return allowPathForWebContents(allowedRevealPathsByOwner, 0, filePath);
+}
+
+export function allowRevealPaths(filePaths: string[], owner?: number | WebContents) {
+    allowPathsForWebContents(allowedRevealPathsByOwner, owner ?? 0, filePaths);
+}
+
+function isAllowedPath(
+    allowedPathsByOwner: Map<number, Map<string, IOpenPathGrant>>,
+    filePath: string,
+    owner?: number | WebContents,
+) {
     const normalizedPath = normalizeOpenPath(filePath);
     if (!normalizedPath) {
         return false;
     }
 
     const ownerId = getOwnerId(owner ?? 0);
-    const allowedOpenPaths = allowedOpenPathsByOwner.get(ownerId);
+    const allowedOpenPaths = allowedPathsByOwner.get(ownerId);
     const grant = allowedOpenPaths?.get(normalizedPath);
     if (!grant) {
         return false;
@@ -181,7 +218,7 @@ function isAllowedOpenPath(filePath: string, owner?: number | WebContents) {
     if (grant.expiresAtMs <= Date.now()) {
         allowedOpenPaths?.delete(normalizedPath);
         if (allowedOpenPaths?.size === 0) {
-            allowedOpenPathsByOwner.delete(ownerId);
+            allowedPathsByOwner.delete(ownerId);
         }
         return false;
     }
@@ -199,7 +236,27 @@ export function requireOpenPath(rawPath: string, owner?: number | WebContents): 
         throw new Error('Path not accessible');
     }
 
-    if (!isAllowedOpenPath(normalizedPath, owner)) {
+    if (!isAllowedPath(allowedOpenPathsByOwner, normalizedPath, owner)) {
+        throw new Error(`Path not allowed: ${rawPath}`);
+    }
+
+    return normalizedPath as TOpenPath;
+}
+
+export function requireRevealPath(rawPath: string, owner?: number | WebContents): TOpenPath {
+    if (typeof rawPath !== 'string' || rawPath.trim() === '') {
+        throw new Error('Path not accessible');
+    }
+
+    const normalizedPath = normalizeOpenPath(rawPath);
+    if (!normalizedPath) {
+        throw new Error('Path not accessible');
+    }
+
+    if (
+        !isAllowedPath(allowedRevealPathsByOwner, normalizedPath, owner)
+        && !isAllowedPath(allowedOpenPathsByOwner, normalizedPath, owner)
+    ) {
         throw new Error(`Path not allowed: ${rawPath}`);
     }
 
@@ -213,6 +270,16 @@ export function removeAllowedOpenPath(filePath: string) {
     }
     for (const allowedOpenPaths of allowedOpenPathsByOwner.values()) {
         allowedOpenPaths.delete(normalizedPath);
+    }
+}
+
+export function removeAllowedRevealPath(filePath: string) {
+    const normalizedPath = normalizeOpenPath(filePath);
+    if (!normalizedPath) {
+        return;
+    }
+    for (const allowedRevealPaths of allowedRevealPathsByOwner.values()) {
+        allowedRevealPaths.delete(normalizedPath);
     }
 }
 

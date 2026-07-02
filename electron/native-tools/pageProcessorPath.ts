@@ -6,6 +6,7 @@ import {
 } from '@electron/native-tools/resolveNativeToolPath';
 
 interface IResolvePageProcessorPathOptions {
+    allowPackagedDiagnosticsPaths?: boolean;
     currentDir?: string;
     env?: NodeJS.ProcessEnv;
     envOverridePath?: string;
@@ -62,6 +63,7 @@ function createPageProcessorResolverOptions(options: IResolvePageProcessorPathOp
         binaryName,
         binaryRelativePath: getPageProcessorBinaryRelativePath(binaryName),
         crateName: PAGE_PROCESSOR_RESOURCE_ROOT,
+        allowPackagedDiagnosticsPaths: options.allowPackagedDiagnosticsPaths,
         currentDir: options.currentDir ?? __dirname,
         envOverridePath,
         exists: options.exists,

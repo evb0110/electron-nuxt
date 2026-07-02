@@ -44,6 +44,7 @@ function createDefaultsSetup(settings: Partial<ISettingsData> = {}) {
     const effectiveZoom = ref(2);
     const zoomMode = ref<TZoomMode>('custom');
     const pdfSrc = ref<TPdfSource | null>(null);
+    const documentSourceKey = ref<unknown>(null);
 
     const defaults = scope.run(() => useWorkspaceViewerDefaults({
         appSettings,
@@ -55,6 +56,7 @@ function createDefaultsSetup(settings: Partial<ISettingsData> = {}) {
         effectiveZoom,
         zoomMode,
         pdfSrc,
+        documentSourceKey,
     }));
 
     if (!defaults) {
@@ -71,6 +73,7 @@ function createDefaultsSetup(settings: Partial<ISettingsData> = {}) {
         effectiveZoom,
         zoomMode,
         pdfSrc,
+        documentSourceKey,
         defaults,
         stop: () => scope.stop(),
     };
@@ -163,6 +166,27 @@ describe('useWorkspaceViewerDefaults', () => {
             expect(setup.appSettings.value.defaultZoomPreset).toBe(DEFAULT_SETTINGS.defaultZoomPreset);
             expect(setup.fitMode.value).toBe('width');
             expect(setup.zoomMode.value).toBe('fit-width');
+        } finally {
+            setup.stop();
+        }
+    });
+
+    it('applies viewer defaults when a non-PDF document source opens', async () => {
+        const setup = createDefaultsSetup({
+            defaultZoomPreset: '125',
+            defaultViewMode: 'facing',
+            defaultContinuousScroll: true,
+        });
+
+        try {
+            setup.documentSourceKey.value = 'djvu:/docs/scan.djvu';
+            await nextTick();
+
+            expect(setup.viewMode.value).toBe('facing');
+            expect(setup.continuousScroll.value).toBe(true);
+            expect(setup.zoom.value).toBe(1.25);
+            expect(setup.effectiveZoom.value).toBe(1.25);
+            expect(setup.zoomMode.value).toBe('custom');
         } finally {
             setup.stop();
         }

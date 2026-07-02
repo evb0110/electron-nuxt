@@ -153,6 +153,42 @@ describe('open path capabilities', () => {
         expect(() => requireOpenPath(filePath, owner as never)).toThrow('Path not allowed');
     });
 
+    it('keeps reveal-only grants separate from full open grants', async () => {
+        const filePath = join(tempRoot, 'revealed-only.pdf');
+        writeFileSync(filePath, new Uint8Array([1]));
+
+        const owner = createOwner(45);
+        const {
+            allowRevealPath,
+            requireOpenPath,
+            requireRevealPath,
+        } = await import('@electron/file-access/openPathCapabilities');
+
+        expect(allowRevealPath(filePath, owner as never)).not.toBeNull();
+
+        expect(() => requireRevealPath(filePath, owner as never)).not.toThrow();
+        expect(() => requireOpenPath(filePath, owner as never)).toThrow('Path not allowed');
+
+        triggerDestroyed(owner);
+
+        expect(() => requireRevealPath(filePath, owner as never)).toThrow('Path not allowed');
+    });
+
+    it('allows full open grants to satisfy reveal checks', async () => {
+        const filePath = join(tempRoot, 'opened-can-reveal.pdf');
+        writeFileSync(filePath, new Uint8Array([1]));
+
+        const owner = createOwner(46);
+        const {
+            allowOpenPath,
+            requireRevealPath,
+        } = await import('@electron/file-access/openPathCapabilities');
+
+        expect(allowOpenPath(filePath, owner as never)).not.toBeNull();
+
+        expect(() => requireRevealPath(filePath, owner as never)).not.toThrow();
+    });
+
     it('registers one cleanup listener per owner', async () => {
         const firstPath = join(tempRoot, 'first.pdf');
         const secondPath = join(tempRoot, 'second.pdf');

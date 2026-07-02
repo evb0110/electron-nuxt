@@ -667,6 +667,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         pdfDocumentResult,
         annotations,
         currentPage: viewerCurrentPage,
+        currentPageAuthority: singlePageScroll.currentPageAuthority,
         pagedNavigationTargetPage: singlePageScroll.pagedNavigationTargetPage,
         navigationAnchorPage,
         visibleRange,
@@ -714,6 +715,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         setCurrentPageFitRerenderTransitionActive: active => {
             isCurrentPageFitRerenderTransitionActive.value = active;
         },
+        emitLoadError: viewerEvents.loadError,
         onDocumentLoadStateChange,
         emit,
     });

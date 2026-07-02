@@ -28,6 +28,10 @@ import {
     tryWritePdfWithNativeImageCombiner,
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import {
+    abortErrorFromSignal,
+    isAbortError,
+} from '@electron/utils/abort';
+import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
@@ -40,7 +44,10 @@ interface INativePdfAssemblerProgress {
     estimatedRemainingMs: number | null;
 }
 
-interface INativePdfAssemblerOptions {onProgress?: (progress: INativePdfAssemblerProgress) => void;}
+interface INativePdfAssemblerOptions {
+    onProgress?: (progress: INativePdfAssemblerProgress) => void;
+    signal?: AbortSignal;
+}
 
 interface IProgressState {
     processed: number;
@@ -113,6 +120,12 @@ function emitProgress(
     });
 }
 
+function throwIfAborted(signal: AbortSignal | undefined) {
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+}
+
 function getResourceLimits(defaultMaxPages = IN_MEMORY_NATIVE_ASSEMBLER_MAX_PAGES): INativePdfAssemblerResourceLimits {
     return {
         maxOutputBytes: parseIntegerEnv('EVB_PDF_COMBINE_MAX_OUTPUT_MB', 512, 1, 4096) * 1024 * 1024,
@@ -154,6 +167,7 @@ async function flushImageChunk(
         return 0;
     }
 
+    throwIfAborted(options?.signal);
     const chunkInputPaths = [...imagePaths];
     const chunkPath = join(tempDir, `image-chunk-${chunkPaths.length + 1}-${randomUUID()}.pdf`);
     const onProgress = (chunkProgress: INativePdfAssemblerProgress) => emitProgress(
@@ -164,7 +178,9 @@ async function flushImageChunk(
     const ok = await tryWritePdfWithNativeImageCombiner(chunkInputPaths, chunkPath, {
         maxPages: limits.maxPages,
         onProgress,
+        ...(options?.signal ? { signal: options.signal } : {}),
     });
+    throwIfAborted(options?.signal);
     if (!ok) {
         return null;
     }
@@ -215,7 +231,7 @@ async function getOptionalDjvuPageCount(inputPath: string) {
     }
 }
 
-async function mergePdfChunks(chunkPaths: string[], outputPath: string) {
+async function mergePdfChunks(chunkPaths: string[], outputPath: string, signal?: AbortSignal) {
     await runQpdfCommand([
         '--empty',
         '--pages',
@@ -226,6 +242,7 @@ async function mergePdfChunks(chunkPaths: string[], outputPath: string) {
         timeoutMs: QPDF_TIMEOUT_MS,
         allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
         commandLabel: 'qpdf(native-pdf-assembler)',
+        ...(signal ? { signal } : {}),
     });
     await assertNonEmptyPdfOutput(outputPath, 'Assembling PDF inputs');
 }
@@ -238,6 +255,7 @@ async function writePdfFromInputPathsNativeWithTempDir(
     options?: INativePdfAssemblerOptions,
 ): Promise<boolean> {
     try {
+        throwIfAborted(options?.signal);
         const progress: IProgressState = {
             processed: 0,
             total: inputPaths.length,
@@ -249,6 +267,7 @@ async function writePdfFromInputPathsNativeWithTempDir(
         let pageCount = 0;
 
         for (const inputPath of inputPaths) {
+            throwIfAborted(options?.signal);
             if (isNativePdfImageCombineBitmapPath(inputPath)) {
                 imageChunkPaths.push(inputPath);
                 continue;
@@ -288,6 +307,7 @@ async function writePdfFromInputPathsNativeWithTempDir(
             emitProgress(progress, options, progress.processed);
         }
 
+        throwIfAborted(options?.signal);
         const addedImagePages = await flushImageChunk(
             imageChunkPaths,
             tempDir,
@@ -309,14 +329,19 @@ async function writePdfFromInputPathsNativeWithTempDir(
         if (chunkPaths.length === 1) {
             await copyFile(chunkPaths[0]!, outputPath);
             await assertNonEmptyPdfOutput(outputPath, 'Assembling PDF inputs');
+            throwIfAborted(options?.signal);
             emitProgress(progress, options, progress.total);
             return true;
         }
 
-        await mergePdfChunks(chunkPaths, outputPath);
+        await mergePdfChunks(chunkPaths, outputPath, options?.signal);
+        throwIfAborted(options?.signal);
         emitProgress(progress, options, progress.total);
         return true;
     } catch (error) {
+        if (isAbortError(error)) {
+            throw error;
+        }
         log.warn(`Native PDF assembler failed, falling back to JS combine: ${getErrorMessage(error)}`);
         return false;
     }
@@ -388,6 +413,9 @@ export async function tryCreatePdfFromInputPathsNative(
         }
         return await readLimitedPdfOutput(outputPath, limits);
     } catch (error) {
+        if (isAbortError(error)) {
+            throw error;
+        }
         log.warn(`Native PDF assembler failed, falling back to JS combine: ${getErrorMessage(error)}`);
         return null;
     } finally {

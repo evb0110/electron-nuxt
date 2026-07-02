@@ -11,8 +11,12 @@ import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/creat
 import { isWorkspaceExpose } from '@app/modules/workspace-shell/expose/isWorkspaceExpose';
 import { requiredWorkspaceExposeMethods } from '@app/modules/workspace-shell/expose/requiredWorkspaceExposeMethods';
 import {
+    workspaceExposeCommandRegistry,
     workspaceExposeMethodDescriptors,
+    workspaceExposeMenuCommandDescriptors,
     workspaceExposeRequiredMethodNames,
+    workspaceExposeToolbarCommandDescriptors,
+    type TWorkspaceExposeCommandName,
     type TWorkspaceExposeMethod,
 } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
@@ -22,6 +26,10 @@ type TRequiredWorkspaceExposeMethod = typeof requiredWorkspaceExposeMethods[numb
 
 function getDescriptorMethodNames() {
     return Object.values(workspaceExposeMethodDescriptors).flat();
+}
+
+function getRegistryMethodNames() {
+    return workspaceExposeCommandRegistry.map(descriptor => descriptor.name);
 }
 
 function getSortedDescriptorMethodNames() {
@@ -171,11 +179,13 @@ function createDeferredWorkspaceExposeDeps(workspace: IWorkspaceExpose | null) {
 describe('workspace expose contract', () => {
     it('keeps the descriptor method union exhaustive for workspace expose methods', () => {
         expectTypeOf<TRequiredWorkspaceExposeMethod>().toEqualTypeOf<TWorkspaceExposeMethod>();
+        expectTypeOf<TWorkspaceExposeCommandName>().toEqualTypeOf<TWorkspaceExposeMethod>();
     });
 
     it('derives required workspace expose methods from the descriptor method surface', () => {
         const descriptorMethodNames = getSortedDescriptorMethodNames();
 
+        expect([...getRegistryMethodNames()].sort()).toEqual(descriptorMethodNames);
         expect([...workspaceExposeRequiredMethodNames].sort()).toEqual(descriptorMethodNames);
         expect([...requiredWorkspaceExposeMethods].sort()).toEqual(descriptorMethodNames);
     });
@@ -188,6 +198,70 @@ describe('workspace expose contract', () => {
         expect(getSortedExposeMethodNames(realExpose)).toEqual(descriptorMethodNames);
         expect(getSortedExposeMethodNames(deferredExpose)).toEqual(descriptorMethodNames);
         expect(getSortedExposeMethodNames(realExpose)).toEqual(getSortedExposeMethodNames(deferredExpose));
+    });
+
+    it('keeps menu command descriptors on the registry command surface', () => {
+        const registryMethodNames = new Set(getRegistryMethodNames());
+
+        for (const descriptor of workspaceExposeMenuCommandDescriptors) {
+            expect(registryMethodNames.has(descriptor.name), descriptor.name).toBe(true);
+            expect(descriptor.menu.actionName).toBeTruthy();
+            expect(descriptor.menu.register).toBeTruthy();
+        }
+    });
+
+    it('keeps toolbar command descriptors on the registry command surface', () => {
+        const registryMethodNames = new Set(getRegistryMethodNames());
+        const toolbarEvents = new Set<string>();
+
+        for (const descriptor of workspaceExposeToolbarCommandDescriptors) {
+            expect(registryMethodNames.has(descriptor.name), descriptor.name).toBe(true);
+            expect(descriptor.toolbar.eventName).toBeTruthy();
+            expect(toolbarEvents.has(descriptor.toolbar.eventName), descriptor.toolbar.eventName).toBe(false);
+            toolbarEvents.add(descriptor.toolbar.eventName);
+        }
+
+        expect(toolbarEvents).toEqual(new Set([
+            'capture-region',
+            'convert-to-pdf',
+            'crop',
+            'delete-pages',
+            'disable-drag',
+            'enable-drag',
+            'export-docx',
+            'export-images',
+            'export-multi-page-tiff',
+            'extract-pages',
+            'fit-height',
+            'fit-width',
+            'go-to-page',
+            'insert-image-from-file',
+            'insert-pages',
+            'ocr-complete',
+            'optimize-pdf-for-interaction',
+            'paste-image-from-clipboard',
+            'print',
+            'print-current-page',
+            'quick-note',
+            'redo',
+            'repair-save',
+            'rotate-ccw',
+            'rotate-cw',
+            'save',
+            'save-as',
+            'toggle-continuous-scroll',
+            'toggle-sidebar',
+            'undo',
+        ]));
+    });
+
+    it('classifies every registry command as sync or async', () => {
+        for (const descriptor of workspaceExposeCommandRegistry) {
+            expect([
+                'async',
+                'sync',
+            ]).toContain(descriptor.kind);
+        }
     });
 
     it('accepts values that match the workspace expose contract', () => {

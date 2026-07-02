@@ -28,6 +28,10 @@ const RECENT_OPEN_TIMEOUT_MS = 12_000;
 const RECENT_STARTUP_STABILITY_MS = 1_500;
 const RECENT_OPEN_STABILITY_MS = 2_500;
 const RECENT_POLL_INTERVAL_MS = 50;
+const TOOLBAR_OPEN_TRANSITION_POLL_MS = 25;
+const TOOLBAR_MIN_VISIBLE_HEIGHT_PX = 40;
+const TOOLBAR_MAX_OPEN_SHIFT_PX = 2;
+const TOOLBAR_MIN_VISIBLE_CONTROL_COUNT = 4;
 
 interface IRecentOpenDomState {
     hasHost: boolean;
@@ -37,6 +41,134 @@ interface IRecentOpenDomState {
     recentRowVisible: boolean;
     visibleRecentRows: number;
     visibleText: string;
+}
+interface IToolbarTransitionSample {
+    atMs: number;
+    hasShell: boolean;
+    hasWorkspace: boolean;
+    owner: 'shell' | 'workspace' | 'none';
+    shellHeight: number;
+    workspaceTop: number;
+    toolbarHeight: number;
+    toolbarText: string;
+    toolbarVisible: boolean;
+    visibleControlCount: number;
+    visibleIconCount: number;
+}
+
+async function startToolbarTransitionSampling(session: IElectronE2ESession) {
+    await evaluateInPage(session.page, (pollMs: number) => {
+        const transitionWindow = window as Window & {
+            __evbToolbarOpenTransitionInterval?: number;
+            __evbToolbarOpenTransitionSamples?: IToolbarTransitionSample[];
+        };
+        const samples: IToolbarTransitionSample[] = [];
+        const startedAt = performance.now();
+
+        function isVisible(element: HTMLElement | null) {
+            if (!element?.isConnected) {
+                return false;
+            }
+
+            let current: HTMLElement | null = element;
+            while (current) {
+                const style = window.getComputedStyle(current);
+                if (
+                    style.display === 'none'
+                    || style.visibility === 'hidden'
+                    || Number(style.opacity || '1') <= 0.05
+                ) {
+                    return false;
+                }
+                current = current.parentElement;
+            }
+
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+        }
+
+        function countVisible(toolbar: HTMLElement | null, selector: string) {
+            if (!toolbar) {
+                return 0;
+            }
+            return Array.from(toolbar.querySelectorAll<HTMLElement>(selector))
+                .filter(isVisible)
+                .length;
+        }
+
+        function sampleToolbar() {
+            const shell = document.querySelector<HTMLElement>('.editor-global-toolbar-shell');
+            const workspace = document.querySelector<HTMLElement>('.workspace-main-shell');
+            const shellToolbar = shell?.querySelector<HTMLElement>(':scope > .toolbar') ?? null;
+            const hostToolbar = document.querySelector<HTMLElement>('#editor-global-toolbar-host .toolbar');
+            const visibleHostToolbar = isVisible(hostToolbar);
+            const visibleShellToolbar = isVisible(shellToolbar);
+            const toolbar = visibleHostToolbar ? hostToolbar : (visibleShellToolbar ? shellToolbar : null);
+            const shellRect = shell?.getBoundingClientRect();
+            const workspaceRect = workspace?.getBoundingClientRect();
+            const toolbarRect = toolbar?.getBoundingClientRect();
+            const owner = visibleHostToolbar ? 'workspace' : (visibleShellToolbar ? 'shell' : 'none');
+
+            samples.push({
+                atMs: Math.round(performance.now() - startedAt),
+                hasShell: Boolean(shell),
+                hasWorkspace: Boolean(workspace),
+                owner,
+                shellHeight: shellRect?.height ?? 0,
+                workspaceTop: workspaceRect?.top ?? 0,
+                toolbarHeight: toolbarRect?.height ?? 0,
+                toolbarText: toolbar?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+                toolbarVisible: Boolean(toolbar && isVisible(toolbar)),
+                visibleControlCount: countVisible(toolbar, 'button, [role="button"], input, select'),
+                visibleIconCount: countVisible(toolbar, '.iconify, svg, [class*="i-ph-"]'),
+            });
+        }
+
+        window.clearInterval(transitionWindow.__evbToolbarOpenTransitionInterval);
+        sampleToolbar();
+        transitionWindow.__evbToolbarOpenTransitionSamples = samples;
+        transitionWindow.__evbToolbarOpenTransitionInterval = window.setInterval(sampleToolbar, pollMs);
+    }, TOOLBAR_OPEN_TRANSITION_POLL_MS);
+}
+
+async function stopToolbarTransitionSampling(session: IElectronE2ESession) {
+    return evaluateInPage(session.page, () => {
+        const transitionWindow = window as Window & {
+            __evbToolbarOpenTransitionInterval?: number;
+            __evbToolbarOpenTransitionSamples?: IToolbarTransitionSample[];
+        };
+        window.clearInterval(transitionWindow.__evbToolbarOpenTransitionInterval);
+        delete transitionWindow.__evbToolbarOpenTransitionInterval;
+        return transitionWindow.__evbToolbarOpenTransitionSamples ?? [];
+    });
+}
+
+function assertToolbarTransitionStable(samples: IToolbarTransitionSample[]) {
+    const relevantSamples = samples.filter(sample => sample.hasShell && sample.hasWorkspace);
+    expect(relevantSamples.length, JSON.stringify(samples)).toBeGreaterThan(5);
+
+    const collapsedSamples = relevantSamples.filter(sample => sample.shellHeight < TOOLBAR_MIN_VISIBLE_HEIGHT_PX);
+    expect(collapsedSamples, JSON.stringify(samples)).toEqual([]);
+
+    const absentToolbarSamples = relevantSamples.filter(sample => (
+        !sample.toolbarVisible
+        || sample.owner === 'none'
+        || sample.toolbarHeight < TOOLBAR_MIN_VISIBLE_HEIGHT_PX
+    ));
+    expect(absentToolbarSamples, JSON.stringify(samples)).toEqual([]);
+
+    const sparseToolbarSamples = relevantSamples.filter(sample => (
+        sample.visibleControlCount < TOOLBAR_MIN_VISIBLE_CONTROL_COUNT
+        && sample.visibleIconCount < TOOLBAR_MIN_VISIBLE_CONTROL_COUNT
+    ));
+    expect(sparseToolbarSamples, JSON.stringify(samples)).toEqual([]);
+
+    const workspaceTops = relevantSamples.map(sample => sample.workspaceTop);
+    const workspaceTopDelta = Math.max(...workspaceTops) - Math.min(...workspaceTops);
+    expect(workspaceTopDelta, JSON.stringify(samples)).toBeLessThanOrEqual(TOOLBAR_MAX_OPEN_SHIFT_PX);
+
+    expect(relevantSamples.some(sample => sample.owner === 'shell'), JSON.stringify(samples)).toBe(true);
+    expect(relevantSamples.some(sample => sample.owner === 'workspace'), JSON.stringify(samples)).toBe(true);
 }
 
 async function readRecentOpenDomState(
@@ -236,8 +368,10 @@ describe('Electron E2E - Recent Files', () => {
         }
 
         await assertRecentListStaysStableBeforeOpen(session, basename(fixturePath));
+        await startToolbarTransitionSampling(session);
         await clickRecentFile(session, basename(fixturePath));
         await waitForRecentPdfOpen(session, basename(fixturePath));
+        assertToolbarTransitionStable(await stopToolbarTransitionSampling(session));
         await assertRecentPdfStaysLoaded(session, basename(fixturePath));
     });
 });

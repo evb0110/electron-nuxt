@@ -10,6 +10,7 @@ import { isPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-pag
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
+import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 
 interface ITextLayerRenderContext {
     container: HTMLElement;
@@ -41,6 +42,7 @@ interface IUsePdfRendererTextLayerControllerOptions {
     clearSelectionBeforePageLayerTeardown: TClearSelectionBeforePageLayerTeardown;
     logNonCriticalStageError: (pageNumber: number, stage: string, error: unknown) => void;
     onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
+    renderSupervisor?: IPdfRenderSupervisor | undefined;
 }
 
 export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLayerControllerOptions) => {
@@ -56,6 +58,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         clearSelectionBeforePageLayerTeardown,
         logNonCriticalStageError,
         onRenderStall,
+        renderSupervisor,
     } = options;
 
     async function renderTextLayerForPage(
@@ -122,6 +125,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                     cancelActiveTextLayerRenderIfCurrent(pageNumber, version, requestId);
                 },
                 onRenderStall,
+                renderSupervisor,
             );
             isTextLayerRendered = true;
         } catch (textLayerError) {

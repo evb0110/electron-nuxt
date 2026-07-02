@@ -11,6 +11,7 @@ import type {
 } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type {
     ITabContextAvailability,
     TDirectionalCommandAvailability,
@@ -24,6 +25,7 @@ import {
     getDocumentWorkingCopyCapability,
 } from '@app/utils/platformDocuments';
 import type { IWorkspaceSplitCacheLike } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
+import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 
 const TAB_TRANSITION_CACHE_GRACE_MS = 1200;
 const DIRECTION_ORDER = [
@@ -38,6 +40,7 @@ interface IUseAppShellDirectionalTabsOptions {
     panes: Ref<IEditorPaneState[]>;
     tabs: Ref<ITab[]>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
+    getDocumentRecord: (tabId: string | null | undefined) => IWorkspaceDocumentRecord | null;
     isTabTransitionBusy: ComputedRef<boolean>;
     getPaneById: (paneId: string | null | undefined) => IEditorPaneState | null;
     getTabById: (tabId: string | null | undefined) => ITab | null;
@@ -91,6 +94,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         panes,
         tabs,
         workspaceRefs,
+        getDocumentRecord,
         isTabTransitionBusy,
         getPaneById,
         getTabById,
@@ -187,9 +191,19 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
 
         const timer = setTimeout(() => {
             splitCacheCleanupTimers.delete(tabId);
+            const snapshot = getDocumentRecord(tabId)?.toolbarSnapshot;
+            if (hasWorkspaceViewerDocumentCapabilities(snapshot?.viewerCapabilities)) {
+                workspaceSplitCache.clear(tabId, entryId);
+                return;
+            }
             const workspace = workspaceRefs.value.get(tabId);
-            // DjVu mode has hasPdf=false; without this check the cache entry would never be cleared
-            if (workspace && (workspaceHasPdf(workspace) || workspace.getToolbarSnapshot().isDjvuMode)) {
+            if (
+                workspace
+                && (
+                    workspaceHasPdf(workspace)
+                    || hasWorkspaceViewerDocumentCapabilities(workspace.getToolbarSnapshot().viewerCapabilities)
+                )
+            ) {
                 workspaceSplitCache.clear(tabId, entryId);
             }
         }, TAB_TRANSITION_CACHE_GRACE_MS);

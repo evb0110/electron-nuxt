@@ -13,6 +13,7 @@ import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-re
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
+import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 
 interface IUsePdfRendererCanvasControllerOptions {
     canvasRenderer: ReturnType<typeof usePdfCanvasRenderer>;
@@ -24,6 +25,7 @@ interface IUsePdfRendererCanvasControllerOptions {
     cancelActiveRenderTask: (pageNumber: number) => void;
     cancelActiveRenderTaskIfCurrent: (pageNumber: number, version: number, requestId: number) => void;
     onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
+    renderSupervisor?: IPdfRenderSupervisor | undefined;
 }
 
 export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasControllerOptions) => {
@@ -37,6 +39,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         cancelActiveRenderTask,
         cancelActiveRenderTaskIfCurrent,
         onRenderStall,
+        renderSupervisor,
     } = options;
 
     function releasePageResources(
@@ -169,6 +172,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
                 cancelActiveRenderTaskIfCurrent(pageNumber, version, requestId);
             },
             onRenderStall,
+            renderSupervisor,
         );
     }
 
@@ -187,6 +191,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
             () => getRenderVersion() === version && shouldContinue(),
             undefined,
             onRenderStall,
+            renderSupervisor,
         );
         return getRenderVersion() === version && shouldContinue() ? pdfPage : null;
     }
@@ -252,6 +257,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
                 prepareAbortController.abort();
             },
             onRenderStall,
+            renderSupervisor,
         );
         if (!preparedCanvasRender) {
             return null;

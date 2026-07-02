@@ -3,7 +3,10 @@
     "compilerOptions": {
         "noEmit": true
     },
-    "files": ["types/vendor/utif.d.ts"],
+    "files": [
+        "types/vendor/utif.d.ts",
+        ".nuxt/types/imports.d.ts"
+    ],
     "include": [
         "app/**/*.ts",
         "app/**/*.vue",

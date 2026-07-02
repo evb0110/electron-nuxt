@@ -47,7 +47,7 @@
     />
 
     <DjvuConvertDialog
-        v-if="canUseDjvu && isDjvuMode"
+        v-if="showDjvuConversionUi"
         :open="showConvertDialog"
         :djvu-path="djvuPath"
         @convert="handleDjvuConvert"
@@ -97,8 +97,7 @@ defineProps<{
     totalPages: number;
     currentPage: number;
     viewMode: TPdfPrintDialogProps['defaultViewMode'];
-    canUseDjvu: boolean;
-    isDjvuMode: boolean;
+    showDjvuConversionUi: boolean;
     showConvertDialog: boolean;
     djvuPath: TDjvuConvertDialogProps['djvuPath'];
 }>();

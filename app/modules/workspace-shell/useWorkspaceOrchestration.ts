@@ -25,7 +25,6 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type { TTabUpdate } from '@app/types/tabs';
 import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/useWorkspaceViewState';
@@ -38,13 +37,13 @@ import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tab
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { WORKSPACE_PAGE_NAVIGATION_LOCK_MS } from '@app/modules/workspace-shell/workspacePageNavigationLockMs';
+import { useWorkspaceActiveViewerAdapter } from '@app/modules/workspace-shell/viewers/useWorkspaceActiveViewerAdapter';
 
 interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;
     initialViewState?: ITabViewSessionState | null;
     pendingDocumentPath?: TReadableRef<TDocumentRef | null> | undefined;
     emit: {
-        (e: 'update-tab', updates: TTabUpdate): void;
         (e: 'open-in-new-tab', result: TDocumentRef | TOpenFileResult): void;
         (e: 'request-close-tab'): void;
         (e: 'open-settings'): void;
@@ -54,6 +53,7 @@ interface IWorkspaceOrchestrationDeps {
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
+const WORKSPACE_PAGE_NAVIGATION_TARGET_SETTLE_MS = 200;
 
 function readExposedNumber(value: unknown) {
     if (typeof value === 'number' && Number.isFinite(value)) {
@@ -83,10 +83,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         loadRecentFiles,
         removeRecentFile,
         pickFileToOpen,
-        openFileWithDjvuCleanup,
-        openFileDirectWithDjvuCleanup,
-        openFileDirectBatchWithDjvuCleanup,
-        closeFileWithDjvuCleanup,
+        openFileWithViewerLifecycle,
+        openFileDirectWithViewerLifecycle,
+        openFileDirectBatchWithViewerLifecycle,
+        closeFileWithViewerLifecycle,
         hasPdf,
         pdfSrc,
         pdfData,
@@ -96,7 +96,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isDirty,
         pdfError,
         pendingDjvu,
-        openBatchProgress,
         loadPdfFromPath,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
@@ -125,7 +124,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             description: t('errors.recent.notFoundDescription', {name: file.fileName}),
         });
     }
-
     const sidebarSearch = useWorkspaceSidebarSearchSyncController({
         workingCopyPath,
         ...(deps.initialViewState !== undefined ? { initialViewState: deps.initialViewState } : {}),
@@ -559,6 +557,23 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         }, WORKSPACE_PAGE_NAVIGATION_LOCK_MS);
     }
 
+    function settleProgrammaticPageNavigationTarget(page: number) {
+        if (programmaticPageNavigationTimer !== null) {
+            clearTimeout(programmaticPageNavigationTimer);
+        }
+        logPdfRenderTrace('workspace-programmatic-page-navigation-settle', {
+            page,
+            holdMs: WORKSPACE_PAGE_NAVIGATION_TARGET_SETTLE_MS,
+            currentPage: currentPage.value,
+        });
+        programmaticPageNavigationTimer = setTimeout(() => {
+            programmaticPageNavigationTimer = null;
+            if (programmaticPageNavigationTarget.value === page) {
+                clearProgrammaticPageNavigationTarget('target-settled');
+            }
+        }, WORKSPACE_PAGE_NAVIGATION_TARGET_SETTLE_MS);
+    }
+
     function shouldAcceptViewerCurrentPageUpdate(page: number) {
         const targetPage = programmaticPageNavigationTarget.value;
         if (targetPage === null) {
@@ -585,7 +600,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             currentPage: currentPage.value,
             reason: 'target-caught-up',
         });
-        clearProgrammaticPageNavigationTarget('target-caught-up');
+        settleProgrammaticPageNavigationTarget(page);
         return true;
     }
 
@@ -638,16 +653,15 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         undoHistory: workspaceUndoTimeline.undoTimeline,
         redoHistory: workspaceUndoTimeline.redoTimeline,
     });
-    const {
-        preparePdfReloadWaiter,
-        waitForPdfReload,
-    } = pdfHistory;
-
-    const hasOpenDocument = computed(() => (
-        hasPdf.value
-        || (isDjvuMode.value && Boolean(djvuSourcePath.value))
-    ));
-
+    const preparePdfReloadWaiter = pdfHistory.preparePdfReloadWaiter;
+    const waitForPdfReload = pdfHistory.waitForPdfReload;
+    const { activeViewerAdapter } = useWorkspaceActiveViewerAdapter({
+        djvuSourcePath,
+        isDjvuMode,
+        pdfSrc,
+    });
+    const hasOpenDocument = computed(() => hasPdf.value || activeViewerAdapter.value?.capabilities.closeableDocument === true);
+    const canMutatePages = computed(() => activeViewerAdapter.value?.capabilities.pdfMutationActions === true);
     const annotationActions = usePageAnnotationActions({
         pdfViewerRef,
         annotationTool,
@@ -741,10 +755,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         setSelectedThumbnailPages,
         requestThumbnailInvalidation,
         pdfViewerRef,
+        canMutatePages,
         pageContextMenu,
         closePageContextMenu,
         handleExportImages,
-        isDjvuMode,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         preparePdfReloadWaiter,
@@ -763,10 +777,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         bookmarksDirty,
         persistAllAnnotationNotes,
         pickFileToOpen,
-        openFileWithDjvuCleanup,
-        openFileDirectWithDjvuCleanup,
-        openFileDirectBatchWithDjvuCleanup,
-        closeFileWithDjvuCleanup,
+        openFileWithViewerLifecycle,
+        openFileDirectWithViewerLifecycle,
+        openFileDirectBatchWithViewerLifecycle,
+        closeFileWithViewerLifecycle,
         closeAllDropdowns,
         emitOpenInNewTab: (pathOrResult) => emit('open-in-new-tab', pathOrResult),
         removeRecentFile,
@@ -906,7 +920,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         originalPath,
         hasPendingTabChanges,
         pdfData,
-        openFileWithDjvuCleanup,
+        openFileWithViewerLifecycle,
         waitForPdfReload,
         loadPdfFromPath,
         runWithDocumentOperationLease: documentOperationLease.runExclusive,
@@ -922,14 +936,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfViewerRef,
         originalPath,
         closeFile,
-        openBatchProgress,
-        isActive,
-        fileName,
-        hasPendingTabChanges,
         isDjvuMode,
         djvuSourcePath,
         showSettings,
-        emitUpdateTab: (updates) => emit('update-tab', updates),
         emitOpenSettings: () => emit('open-settings'),
         onOpenDjvuError: (error) => {
             pdfError.value = error instanceof Error ? error.message : t('errors.djvu.open');

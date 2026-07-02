@@ -50,7 +50,7 @@ const mocks = vi.hoisted(() => {
         args: string[];
         proc: MockProcess;
     }
-    type TSpawnMode = 'success' | 'fail-ranges' | 'hang-ranges' | 'hang-registered';
+    type TSpawnMode = 'success' | 'fail-ranges' | 'fail-merge' | 'hang-ranges' | 'hang-merge' | 'hang-registered';
 
     const spawnCalls: ISpawnCall[] = [];
     let spawnMode: TSpawnMode = 'success';
@@ -58,6 +58,10 @@ const mocks = vi.hoisted(() => {
 
     function isRangeDdjvuCall(command: string, args: string[]) {
         return command === '/tools/ddjvu' && args.some(arg => arg.startsWith('-page='));
+    }
+
+    function isQpdfCall(command: string) {
+        return command === '/tools/qpdf';
     }
 
     function isRegisteredCombineCall(command: string) {
@@ -77,11 +81,19 @@ const mocks = vi.hoisted(() => {
             if (spawnMode === 'hang-ranges' && isRangeDdjvuCall(command, args)) {
                 return;
             }
+            if (spawnMode === 'hang-merge' && isQpdfCall(command)) {
+                return;
+            }
             if (spawnMode === 'hang-registered' && isRegisteredCombineCall(command)) {
                 return;
             }
             if (spawnMode === 'fail-ranges' && isRangeDdjvuCall(command, args)) {
                 proc.stderr.emit('data', Buffer.from('range conversion failed'));
+                proc.close(1);
+                return;
+            }
+            if (spawnMode === 'fail-merge' && isQpdfCall(command)) {
+                proc.stderr.emit('data', Buffer.from('merge failed'));
                 proc.close(1);
                 return;
             }
@@ -256,6 +268,21 @@ describe('convertDjvuToPdfFile', () => {
         });
     });
 
+    it('uses total page count to guard the pdf-lib chunk merge fallback', async () => {
+        mocks.setSpawnMode('fail-merge');
+
+        const result = await convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-large-merge', { pageCount: 257 });
+
+        expect(result.success).toBe(true);
+        expect(mocks.writeFile).not.toHaveBeenCalled();
+        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.spawnCalls.filter(call => (
+            call.command === '/tools/ddjvu'
+            && !call.args.some(arg => arg.startsWith('-page='))
+        ))).toHaveLength(1);
+        expect(mocks.loggerWarn.mock.calls.some(call => String(call[0]).includes('pdf-lib merge'))).toBe(false);
+    });
+
     it('does not restart a canceled parallel conversion as a single-process conversion', async () => {
         mocks.setSpawnMode('hang-ranges');
 
@@ -274,6 +301,32 @@ describe('convertDjvuToPdfFile', () => {
             fileSize: 0,
             error: 'DjVu conversion canceled',
         });
+        expect(mocks.spawnCalls.filter(call => (
+            call.command === '/tools/ddjvu'
+            && !call.args.some(arg => arg.startsWith('-page='))
+        ))).toHaveLength(0);
+    });
+
+    it('does not run the pdf-lib merge fallback after qpdf merge cancellation', async () => {
+        mocks.setSpawnMode('hang-merge');
+
+        const convertPromise = convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'job-merge-cancel', {pageCount: 24});
+        await vi.waitFor(() => {
+            expect(mocks.spawnCalls.some(call => call.command === '/tools/qpdf')).toBe(true);
+        });
+
+        const canceled = await cancelConversion('job-merge-cancel');
+        const result = await convertPromise;
+
+        expect(canceled).toBe(true);
+        expect(result).toEqual({
+            success: false,
+            outputPath: '/output.pdf',
+            fileSize: 0,
+            error: 'DjVu conversion canceled',
+        });
+        expect(mocks.writeFile).not.toHaveBeenCalled();
+        expect(mocks.readFile).not.toHaveBeenCalled();
         expect(mocks.spawnCalls.filter(call => (
             call.command === '/tools/ddjvu'
             && !call.args.some(arg => arg.startsWith('-page='))

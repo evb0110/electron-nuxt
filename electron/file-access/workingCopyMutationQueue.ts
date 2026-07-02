@@ -29,11 +29,26 @@ function notifyWorkingCopyMutationSettled(workingCopyPath: string) {
     }
 }
 
+function getWorkingCopyQueueKey(workingCopyPath: string) {
+    return normalizePathForLookup(workingCopyPath) || workingCopyPath;
+}
+
+export async function drainWorkingCopyMutations(workingCopyPath?: string) {
+    if (workingCopyPath !== undefined) {
+        await (workingCopyMutationQueue.get(getWorkingCopyQueueKey(workingCopyPath)) ?? Promise.resolve());
+        return;
+    }
+
+    while (workingCopyMutationQueue.size > 0) {
+        await Promise.allSettled([...workingCopyMutationQueue.values()]);
+    }
+}
+
 export function enqueueWorkingCopyMutation<T>(
     workingCopyPath: string,
     operation: () => Promise<T>,
 ) {
-    const queueKey = normalizePathForLookup(workingCopyPath) || workingCopyPath;
+    const queueKey = getWorkingCopyQueueKey(workingCopyPath);
     const previousTail = workingCopyMutationQueue.get(queueKey) ?? Promise.resolve();
     const operationPromise = previousTail
         .then(operation)

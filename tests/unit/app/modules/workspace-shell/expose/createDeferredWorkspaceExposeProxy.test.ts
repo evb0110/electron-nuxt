@@ -5,8 +5,14 @@ import {
     vi,
 } from 'vitest';
 import { createDeferredWorkspaceExposeProxy } from '@app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy';
-import { workspaceExposeRequiredMethodNames } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import {
+    workspaceExposeRequiredMethodNames,
+    WorkspaceExposeCommandUnavailableError,
+} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
+import {
+    createDefaultWorkspaceToolbarSnapshot,
+    type IWorkspaceExpose,
+} from '@app/types/workspaceExpose';
 import { cast } from '@tests/helpers/cast';
 
 function createWorkspace(overrides: Partial<IWorkspaceExpose> = {}) {
@@ -79,6 +85,58 @@ describe('createDeferredWorkspaceExposeProxy', () => {
         expect(runAgentAction).toHaveBeenCalledWith('file.save', {tabId: 'tab-1'}, undefined);
     });
 
+    it('forwards generated argument-bearing commands through the registry wrapper', async () => {
+        const handleGoToPage = vi.fn();
+        const setCustomZoomFromDisplay = vi.fn();
+        const scrollToPage = vi.fn();
+        const workspace = createWorkspace({
+            handleGoToPage,
+            scrollToPage,
+            setCustomZoomFromDisplay,
+        });
+        const deps = createDeps(workspace);
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        proxy.handleGoToPage(8);
+        proxy.scrollToPage?.(9);
+        proxy.setCustomZoomFromDisplay(1.35);
+        await Promise.resolve();
+
+        expect(deps.withLoadedWorkspace).toHaveBeenCalledWith('handleGoToPage', expect.any(Function));
+        expect(deps.withLoadedWorkspace).toHaveBeenCalledWith('scrollToPage', expect.any(Function));
+        expect(deps.withLoadedWorkspace).toHaveBeenCalledWith('setCustomZoomFromDisplay', expect.any(Function));
+        expect(handleGoToPage).toHaveBeenCalledWith(8);
+        expect(scrollToPage).toHaveBeenCalledWith(9);
+        expect(setCustomZoomFromDisplay).toHaveBeenCalledWith(1.35);
+    });
+
+    it('preserves toolbar snapshot and document-open settle defaults', async () => {
+        const depsWithoutWorkspace = createDeps(null);
+        const proxyWithoutWorkspace = createDeferredWorkspaceExposeProxy(depsWithoutWorkspace);
+
+        expect(proxyWithoutWorkspace.getToolbarSnapshot()).toEqual(createDefaultWorkspaceToolbarSnapshot());
+        await expect(proxyWithoutWorkspace.waitForDocumentOpenSettled()).resolves.toBeUndefined();
+
+        const waitForDocumentOpenSettled = vi.fn(async () => {});
+        const toolbarSnapshot = {
+            ...createDefaultWorkspaceToolbarSnapshot(),
+            isDjvuMode: true,
+            totalPages: 120,
+        };
+        const workspace = createWorkspace({
+            getToolbarSnapshot: vi.fn(() => toolbarSnapshot),
+            waitForDocumentOpenSettled,
+        });
+        const deps = createDeps(workspace);
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        expect(proxy.getToolbarSnapshot()).toEqual(toolbarSnapshot);
+        await proxy.waitForDocumentOpenSettled();
+
+        expect(deps.withLoadedWorkspace).toHaveBeenCalledWith('waitForDocumentOpenSettled', expect.any(Function));
+        expect(waitForDocumentOpenSettled).toHaveBeenCalledOnce();
+    });
+
     it('returns an MCP-safe assistant action error when no workspace can mount', async () => {
         const deps = createDeps(null);
         const proxy = createDeferredWorkspaceExposeProxy(deps);
@@ -135,4 +193,15 @@ describe('createDeferredWorkspaceExposeProxy', () => {
         expect(deps.log).toHaveBeenCalledWith('handleCombineImages', error);
     });
 
+    it('logs a typed unavailable error for direct commands before mount', async () => {
+        const deps = createDeps(null);
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        await expect(proxy.handleCombineImages()).resolves.toBe(false);
+
+        expect(deps.log).toHaveBeenCalledWith(
+            'handleCombineImages',
+            expect.any(WorkspaceExposeCommandUnavailableError),
+        );
+    });
 });

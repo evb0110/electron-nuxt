@@ -16,6 +16,11 @@ import { fileURLToPath } from 'url';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
+import { abortErrorFromSignal } from '@electron/utils/abort';
+import {
+    createDetachedChildProcessSpawnOptions,
+    terminateDetachedChildProcess,
+} from '@electron/utils/nativeChildProcess';
 
 interface INativePdfImageCombineProgress {
     processed: number;
@@ -28,9 +33,19 @@ interface INativePdfImageCombineProgress {
 interface INativePdfImageCombineOptions {
     maxPages?: number;
     onProgress?: (progress: INativePdfImageCombineProgress) => void;
+    signal?: AbortSignal;
 }
 
 type TNativeProgressPayload = INativePdfImageCombineProgress & {type: 'progress';};
+type TNativePdfImageCombineTermination =
+    | {
+        kind: 'resolve';
+        ok: boolean;
+    }
+    | {
+        kind: 'reject';
+        error: Error;
+    };
 
 const logger = createLogger('nativePdfImageCombine');
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -286,7 +301,12 @@ function runNativePdfImageCombine(
     options?: INativePdfImageCombineOptions,
     extraArgs: string[] = [],
 ) {
-    return new Promise<boolean>((resolve) => {
+    return new Promise<boolean>((resolve, reject) => {
+        if (options?.signal?.aborted) {
+            reject(abortErrorFromSignal(options.signal));
+            return;
+        }
+
         const args = [
             '--output',
             outputPath,
@@ -298,7 +318,7 @@ function runNativePdfImageCombine(
         }
         const maxPages = normalizeMaxPagesForEnv(options?.maxPages);
 
-        const proc = spawn(binaryPath, args, {
+        const proc = spawn(binaryPath, args, createDetachedChildProcessSpawnOptions({
             ...(maxPages ? {env: {
                 ...process.env,
                 EVB_PDF_COMBINE_MAX_PAGES: maxPages,
@@ -310,20 +330,76 @@ function runNativePdfImageCombine(
                 'pipe',
                 'pipe',
             ],
-        });
+        }));
 
         let settled = false;
         let stdoutBuffer = '';
         let stderr = '';
-        let timedOut = false;
+        let abortHandler: (() => void) | null = null;
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        let forceSettleHandle: ReturnType<typeof setTimeout> | null = null;
+        let pendingTermination: TNativePdfImageCombineTermination | null = null;
+
+        const cleanup = () => {
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+                timeoutHandle = null;
+            }
+            if (forceSettleHandle) {
+                clearTimeout(forceSettleHandle);
+                forceSettleHandle = null;
+            }
+            if (abortHandler) {
+                options?.signal?.removeEventListener('abort', abortHandler);
+                abortHandler = null;
+            }
+        };
 
         const finish = (ok: boolean) => {
             if (settled) {
                 return;
             }
             settled = true;
-            clearTimeout(timeoutHandle);
+            cleanup();
             resolve(ok);
+        };
+
+        const fail = (error: Error) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            cleanup();
+            reject(error);
+        };
+
+        const settleAfterTermination = (completion: TNativePdfImageCombineTermination) => {
+            if (pendingTermination !== completion) {
+                return;
+            }
+            pendingTermination = null;
+            if (completion.kind === 'reject') {
+                fail(completion.error);
+                return;
+            }
+            finish(completion.ok);
+        };
+
+        const requestTermination = (completion: TNativePdfImageCombineTermination) => {
+            if (settled || pendingTermination) {
+                return;
+            }
+            pendingTermination = completion;
+            proc.stdout?.removeAllListeners('data');
+            proc.stderr?.removeAllListeners('data');
+            proc.stdout?.destroy?.();
+            proc.stderr?.destroy?.();
+            void terminateDetachedChildProcess(proc, 1_000)
+                .finally(() => settleAfterTermination(completion));
+            forceSettleHandle = setTimeout(() => {
+                settleAfterTermination(completion);
+            }, 3_000);
+            forceSettleHandle.unref?.();
         };
 
         const handleProgressLine = (line: string) => {
@@ -346,18 +422,36 @@ function runNativePdfImageCombine(
             }
         };
 
-        const timeoutHandle = setTimeout(() => {
-            timedOut = true;
-            proc.kill('SIGKILL');
+        timeoutHandle = setTimeout(() => {
+            logger.warn(`Native image PDF combine timed out after ${NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS}ms`);
+            requestTermination({
+                kind: 'resolve',
+                ok: false,
+            });
         }, NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS);
         timeoutHandle.unref?.();
+
+        if (options?.signal) {
+            abortHandler = () => {
+                requestTermination({
+                    kind: 'reject',
+                    error: abortErrorFromSignal(options.signal!),
+                });
+            };
+            options.signal.addEventListener('abort', abortHandler, { once: true });
+            if (options.signal.aborted) {
+                abortHandler();
+            }
+        }
 
         proc.stdout?.on('data', (data: Buffer) => {
             stdoutBuffer += data.toString('utf8');
             if (Buffer.byteLength(stdoutBuffer, 'utf8') > NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES) {
                 logger.warn(`Native image PDF combine stdout line exceeded ${NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES} bytes`);
-                proc.kill('SIGKILL');
-                finish(false);
+                requestTermination({
+                    kind: 'resolve',
+                    ok: false,
+                });
                 return;
             }
             let lineBreak = stdoutBuffer.indexOf('\n');
@@ -379,14 +473,16 @@ function runNativePdfImageCombine(
         });
 
         proc.on('close', (code) => {
+            if (settled) {
+                return;
+            }
+            if (pendingTermination) {
+                settleAfterTermination(pendingTermination);
+                return;
+            }
             if (stdoutBuffer) {
                 handleProgressLine(stdoutBuffer);
                 stdoutBuffer = '';
-            }
-            if (timedOut) {
-                logger.warn(`Native image PDF combine timed out after ${NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS}ms`);
-                finish(false);
-                return;
             }
             if (code !== 0) {
                 const detail = stderr.trim();

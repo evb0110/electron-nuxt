@@ -13,6 +13,7 @@ import type {
     PDFDocumentProxy,
 } from '@app/types/pdf';
 import { isAnchoredCurrentPageSyncSource } from '@app/modules/pdf-viewer/runtime/rerender-strategy/isAnchoredCurrentPageSyncSource';
+import type { TZoomInteractionLockOperationId } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
 
 const CURRENT_PAGE_SYNC_SAMPLE_COUNT = 3;
 export { summarizeViewerMetrics };
@@ -21,6 +22,7 @@ export interface ICurrentPageSyncOptions {
     source?: string;
     stabilize?: boolean;
     resizeAnchor?: IResizeAnchorContext | null;
+    zoomLockOperationId?: TZoomInteractionLockOperationId | null;
 }
 
 export interface IResizeAnchorContext {
@@ -54,6 +56,16 @@ interface IUsePdfViewerCurrentPageSyncOptions {
         numPages: number,
     ) => number;
     emitCurrentPage: (page: number) => void;
+    canSyncCurrentPageFromViewport?: ((source: string) => boolean) | undefined;
+    commitCurrentPageFromViewport?: ((
+        page: number,
+        context: {
+            fallbackToCurrent: boolean;
+            previousPage: number;
+            samples: number[] | null;
+            source: string;
+        },
+    ) => boolean) | undefined;
 }
 
 export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyncOptions) => {
@@ -67,6 +79,8 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
         getMostVisiblePage,
         updateCurrentPage,
         emitCurrentPage,
+        canSyncCurrentPageFromViewport,
+        commitCurrentPageFromViewport,
     } = options;
 
     let currentPageSyncRunId = 0;
@@ -176,8 +190,21 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
         if (!changed) {
             return;
         }
+        if (commitCurrentPageFromViewport) {
+            commitCurrentPageFromViewport(page, {
+                fallbackToCurrent,
+                previousPage: previous,
+                samples,
+                source,
+            });
+            return;
+        }
         currentPage.value = page;
         emitCurrentPage(page);
+    }
+
+    function canAcceptViewportCurrentPage(source: string) {
+        return canSyncCurrentPageFromViewport?.(source) ?? true;
     }
 
     async function resolveStableCurrentPageFromViewport(syncRunId: number, source: string) {
@@ -251,8 +278,15 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
         }
 
         const source = options.source ?? 'default';
+        if (!canAcceptViewportCurrentPage(source)) {
+            return;
+        }
+
         const syncRunId = ++currentPageSyncRunId;
         if (options.resizeAnchor && isAnchoredCurrentPageSyncSource(source)) {
+            if (!canAcceptViewportCurrentPage(source)) {
+                return;
+            }
             BrowserLogger.diagnostic(
                 'pdf-nav',
                 `[anchor] fixed current-page sync source=${source}`
@@ -283,6 +317,7 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
                 !stablePage
                 || syncRunId !== currentPageSyncRunId
                 || !isCurrentPageSyncDocumentReady()
+                || !canAcceptViewportCurrentPage(source)
             ) {
                 return;
             }
@@ -297,6 +332,9 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
         }
 
         const previousPage = currentPage.value;
+        if (!canAcceptViewportCurrentPage(source)) {
+            return;
+        }
         const page = updateCurrentPage(viewerContainer.value, numPages.value);
         emitCurrentPageIfChanged(page, source, null, false, previousPage);
     }

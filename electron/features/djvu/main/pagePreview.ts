@@ -3,6 +3,7 @@ import {
     mkdtemp,
     readFile,
     rm,
+    stat,
 } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -18,6 +19,7 @@ import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
 import { getDjvuNativeToolPaths } from '@electron/djvu/nativeToolPaths';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { convertDjvuPageToImage } from '@electron/features/djvu/main/ddjvuConversion';
+import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
 const DJVU_PAGE_SIZE_TIMEOUT_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_DJVU_PAGE_SIZE_TIMEOUT_MS ?? '30000', 10);
@@ -34,6 +36,18 @@ const DJVU_PAGE_SIZE_MAX_STDOUT_BYTES = (() => {
     return parsed;
 })();
 const DJVU_PREVIEW_SUBSAMPLE_MAX = 12;
+const DJVU_PREVIEW_MAX_PIXELS = parseIntegerEnv(
+    'EVB_DJVU_PREVIEW_MAX_PIXELS',
+    45_000_000,
+    1_000_000,
+    500_000_000,
+);
+const DJVU_PREVIEW_MAX_NETPBM_BYTES = parseIntegerEnv(
+    'EVB_DJVU_PREVIEW_MAX_NETPBM_MB',
+    192,
+    1,
+    1024,
+) * 1024 * 1024;
 
 function parsePositiveInteger(value: string | undefined) {
     if (!value) {
@@ -57,6 +71,65 @@ function normalizePreviewSubsample(options: IDjvuPagePreviewOptions | undefined)
         throw new Error(`Invalid DjVu preview subsample value (expected 1-${DJVU_PREVIEW_SUBSAMPLE_MAX})`);
     }
     return subsample;
+}
+
+async function readDjvuPageSizeForPreview(djvuPath: string, pageNumber: number) {
+    const dpi = await getDjvuResolution(djvuPath);
+    const { djvused } = getDjvuNativeToolPaths();
+    const result = await runNativeCommand(djvused, [
+        djvuPath,
+        '-e',
+        `select ${pageNumber}; size`,
+    ], {
+        env: buildDjvuRuntimeEnv(),
+        timeoutMs: DJVU_PAGE_SIZE_TIMEOUT_MS,
+        maxStdoutBytes: DJVU_PAGE_SIZE_MAX_STDOUT_BYTES,
+        commandLabel: 'djvused(page-size)',
+        defaultCwdToCommandDir: true,
+        prependCommandDirToPath: true,
+        includeProcessEnv: true,
+        windowsHide: true,
+        rejectOnStdoutTruncation: true,
+    });
+    return parseDjvuPageSizeOutput(result.stdout, dpi)[0] ?? null;
+}
+
+function getMinimumPreviewSubsample(pageSize: Omit<IDjvuPageSize, 'dpi'> | null) {
+    if (!pageSize) {
+        return 1;
+    }
+    if (pageSize.width <= 0 || pageSize.height <= 0) {
+        return 1;
+    }
+    const pixels = pageSize.width * pageSize.height;
+    if (!Number.isFinite(pixels) || pixels <= DJVU_PREVIEW_MAX_PIXELS) {
+        return 1;
+    }
+    return Math.min(
+        DJVU_PREVIEW_SUBSAMPLE_MAX,
+        Math.max(1, Math.ceil(Math.sqrt(pixels / DJVU_PREVIEW_MAX_PIXELS))),
+    );
+}
+
+async function resolvePreviewSubsample(
+    djvuPath: string,
+    pageNumber: number,
+    options: IDjvuPagePreviewOptions | undefined,
+) {
+    const requestedSubsample = normalizePreviewSubsample(options) ?? 1;
+    const pageSize = await readDjvuPageSizeForPreview(djvuPath, pageNumber).catch(() => null);
+    return Math.max(requestedSubsample, getMinimumPreviewSubsample(pageSize));
+}
+
+async function assertPreviewNetpbmReadSafe(ppmPath: string) {
+    const ppmStat = await stat(ppmPath);
+    if (!ppmStat.isFile()) {
+        throw new Error(`DjVu preview output is not a regular file: ${ppmPath}`);
+    }
+    if (ppmStat.size > DJVU_PREVIEW_MAX_NETPBM_BYTES) {
+        const maxMb = Math.floor(DJVU_PREVIEW_MAX_NETPBM_BYTES / (1024 * 1024));
+        throw new Error(`DjVu preview output exceeds safe read limit (${maxMb}MB): ${ppmPath}`);
+    }
 }
 
 function parseSizeLine(line: string): Omit<IDjvuPageSize, 'dpi'> | null {
@@ -119,7 +192,7 @@ export async function renderDjvuPagePreview(
     if (!Number.isInteger(pageNumber) || pageNumber < 1) {
         throw new Error(`Invalid DjVu page number: ${pageNumber}`);
     }
-    const subsample = normalizePreviewSubsample(options);
+    const subsample = await resolvePreviewSubsample(djvuPath, pageNumber, options);
 
     const tempDir = await mkdtemp(join(tmpdir(), 'djvu-preview-'));
     const ppmPath = join(tempDir, `page-${pageNumber}-${randomUUID()}.ppm`);
@@ -139,6 +212,7 @@ export async function renderDjvuPagePreview(
             throw new Error(result.error ?? `Failed to render DjVu page ${pageNumber}`);
         }
 
+        await assertPreviewNetpbmReadSafe(ppmPath);
         const ppmBytes = await readFile(ppmPath);
         const {
             width,

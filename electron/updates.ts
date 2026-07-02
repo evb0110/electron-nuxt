@@ -68,6 +68,16 @@ let listenersRegistered = false;
 let progressBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
 let lastProgressBroadcastAt = 0;
 const autoUpdaterListenerUnsubscribe: Array<() => void> = [];
+type TUpdateInstallShutdownRequester = (install: () => void) => void;
+let requestUpdateInstallShutdown: TUpdateInstallShutdownRequester = (install) => {
+    install();
+};
+
+export function configureUpdateInstallShutdown(requester: TUpdateInstallShutdownRequester | null) {
+    requestUpdateInstallShutdown = requester ?? ((install) => {
+        install();
+    });
+}
 
 function getCurrentVersion() {
     return normalizeVersion(app.getVersion()) || null;
@@ -707,7 +717,9 @@ export async function installDownloadedUpdate() {
     } catch (error) {
         logger.warn(`Failed to clear skipped update version before install: ${getErrorMessage(error)}`);
     }
-    autoUpdater.quitAndInstall(false, true);
+    requestUpdateInstallShutdown(() => {
+        autoUpdater.quitAndInstall(false, true);
+    });
     return { started: true };
 }
 

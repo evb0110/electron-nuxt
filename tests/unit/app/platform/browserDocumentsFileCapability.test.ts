@@ -27,7 +27,9 @@ const utifMock = vi.hoisted(() => ({
     toRGBA8: vi.fn(() => new Uint8Array()),
 }));
 const pdfjsModule = vi.hoisted(() => ({
+    version: '5.7.284',
     GlobalWorkerOptions: {},
+    PDFDataRangeTransport: function MockPdfDataRangeTransport() {},
     VerbosityLevel: {ERRORS: 3},
     getDocument: vi.fn(() => ({promise: Promise.resolve({destroy: vi.fn(async () => {})})})),
 }));

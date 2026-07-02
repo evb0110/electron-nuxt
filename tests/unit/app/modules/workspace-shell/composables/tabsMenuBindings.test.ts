@@ -8,6 +8,7 @@ import { delay } from 'es-toolkit/promise';
 import { ref } from 'vue';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
+import { workspaceExposeMenuCommandDescriptors } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import { cast } from '@tests/helpers/cast';
 
 async function flushMicrotasks() {
@@ -145,6 +146,35 @@ function createMenuApi(options: { legacyDocumentsMenu?: boolean } = {}) {
     };
 }
 
+function createRegistryMenuApi() {
+    const callbacks = new Map<string, () => void>();
+    const documentMenu: Record<string, unknown> = {};
+    const djvu: Record<string, unknown> = {};
+
+    for (const descriptor of workspaceExposeMenuCommandDescriptors) {
+        const target = descriptor.menu.source === 'djvu' ? djvu : documentMenu;
+        target[descriptor.menu.register] = vi.fn((callback: () => void) => {
+            callbacks.set(descriptor.name, callback);
+            return () => {
+                callbacks.delete(descriptor.name);
+            };
+        });
+    }
+
+    return {
+        api: cast<Parameters<typeof registerTabsMenuBindings>[0]>({
+            documentMenu,
+            settings: {},
+            updates: {},
+            djvu,
+            windowTabs: {},
+        }),
+        emit(commandName: string) {
+            callbacks.get(commandName)?.();
+        },
+    };
+}
+
 describe('registerTabsMenuBindings', () => {
     it('routes menu open-file through the placeholder-aware fallback handler', async () => {
         const handleFallbackToolbarOpenFile = vi.fn(async () => {});
@@ -218,6 +248,23 @@ describe('registerTabsMenuBindings', () => {
         await flushMicrotasks();
 
         expect(handlePrintCurrentPage).toHaveBeenCalledTimes(1);
+    });
+
+    it('routes every registry-backed menu command to the active workspace command surface', async () => {
+        const workspaceCommands: Record<string, unknown> = {hasPdf: true};
+        for (const descriptor of workspaceExposeMenuCommandDescriptors) {
+            workspaceCommands[descriptor.name] = vi.fn();
+        }
+        const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(cast<IWorkspaceExpose>(workspaceCommands))});
+        const menuApi = createRegistryMenuApi();
+
+        registerTabsMenuBindings(menuApi.api, deps);
+        for (const descriptor of workspaceExposeMenuCommandDescriptors) {
+            menuApi.emit(descriptor.name);
+            await flushMicrotasks();
+
+            expect(workspaceCommands[descriptor.name], descriptor.name).toHaveBeenCalledTimes(1);
+        }
     });
 
     it('serializes external open requests so later launches wait for the first one', async () => {

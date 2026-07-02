@@ -22,7 +22,7 @@ export interface IPageOpsHandlersDeps {
     }>;
     closePageContextMenu: () => void;
     onExportPages: (pages: number[]) => void;
-    isDjvuMode?: Ref<boolean>;
+    canMutatePages?: Ref<boolean>;
     onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
     ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
@@ -52,7 +52,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         pageContextMenu,
         closePageContextMenu,
         onExportPages,
-        isDjvuMode,
+        canMutatePages,
         onExtractedDocument,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
@@ -87,7 +87,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     });
 
     function isPdfPageOperationBlocked() {
-        return isDjvuMode?.value === true;
+        return canMutatePages?.value === false;
     }
 
     async function runStructuralPageMutation(run: () => Promise<boolean>) {

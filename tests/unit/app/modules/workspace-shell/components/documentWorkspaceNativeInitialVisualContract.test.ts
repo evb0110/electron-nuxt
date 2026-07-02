@@ -21,29 +21,22 @@ describe('DocumentWorkspace native initial visual contract', () => {
             'utf8',
         );
 
-        const standardPdfBlock = workspaceSource.slice(
-            workspaceSource.indexOf('<PdfViewer'),
-            workspaceSource.indexOf('/>', workspaceSource.indexOf('<PdfViewer')),
-        );
-        const nativePdfBlock = workspaceSource.slice(
-            workspaceSource.indexOf('<NativePdfViewer'),
-            workspaceSource.indexOf('/>', workspaceSource.indexOf('<NativePdfViewer')),
-        );
-        const djvuBlock = workspaceSource.slice(
-            workspaceSource.indexOf('<DjvuViewer'),
-            workspaceSource.indexOf('/>', workspaceSource.indexOf('<DjvuViewer')),
+        const dynamicViewerBlock = workspaceSource.slice(
+            workspaceSource.indexOf('<component'),
+            workspaceSource.indexOf('/>', workspaceSource.indexOf('<component')),
         );
 
-        expect(standardPdfBlock).not.toContain('suppress-loading-overlay');
-
-        for (const viewerBlock of [
-            nativePdfBlock,
-            djvuBlock,
-        ]) {
-            expect(viewerBlock).not.toContain('suppress-initial-placeholder');
-            expect(viewerBlock).toContain('@initial-visual-pending="handleDocumentInitialVisualPending"');
-            expect(viewerBlock).toContain('@initial-visual-ready="handleDocumentInitialVisualReady"');
-        }
+        expect(workspaceSource).not.toContain('<PdfViewer');
+        expect(workspaceSource).not.toContain('<NativePdfViewer');
+        expect(workspaceSource).not.toContain('<DjvuViewer');
+        expect(dynamicViewerBlock).toContain(':is="activeViewerComponent"');
+        expect(dynamicViewerBlock).toContain('v-bind="activeViewerProps"');
+        expect(dynamicViewerBlock).toContain('v-on="activeViewerListeners"');
+        expect(dynamicViewerBlock).toContain(':ref="bindActiveViewerRef"');
+        expect(workspaceSource).not.toContain('suppress-loading-overlay');
+        expect(workspaceSource).not.toContain('suppress-initial-placeholder');
+        expect(workspaceSource).toContain('onInitialVisualPending: handleDocumentInitialVisualPending');
+        expect(workspaceSource).toContain('onInitialVisualReady: handleDocumentInitialVisualReady');
 
         expect(workspaceSource).not.toContain(':show-opening-surface');
         expect(workspaceSource).not.toContain('showOpeningSurface');
@@ -92,7 +85,7 @@ describe('DocumentWorkspace native initial visual contract', () => {
         expect(workspaceSource).toContain('showWorkspaceTransitionSkeleton.value');
         expect(workspaceSource).toContain('!initialDocumentVisualReady.value');
         expect(workspaceSource).toContain('getDocumentKindFromPath');
-        expect(alertsSource).toContain('isDjvuMode || djvuPendingOpen || djvuOpening');
+        expect(alertsSource).toContain('showDjvuConversionUi || djvuPendingOpen || djvuOpening');
         expect(alertsSource).toContain('djvuOpening || djvuShowBanner || djvuPendingOpen');
         expect(alertsSource).toContain(':is-opening="djvuOpening || djvuPendingOpen"');
         expect(alertsSource).not.toContain('defineAsyncComponent');

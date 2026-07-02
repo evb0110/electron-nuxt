@@ -1,4 +1,10 @@
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
+import {
+    createPdfRenderSupervisor,
+    type IPdfRenderSupervisor,
+    type IPdfRenderSupervisorTimer,
+    type TPdfRenderSupervisorWatchdogCause,
+} from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 interface IPagedNavigationHold {
@@ -20,6 +26,7 @@ interface IPagedNavigationAuthorityTraceContext {
 }
 
 interface IPagedNavigationHoldWatchdogEvent {
+    cause: TPdfRenderSupervisorWatchdogCause;
     delayMs: number;
     runId: number;
     targetPage: number;
@@ -59,6 +66,7 @@ interface ICreatePagedNavigationAuthorityOptions {
     emitNavigationFeedbackPage?: ((page: number | null) => void) | undefined;
     getFeedbackTraceContext: () => IPagedNavigationAuthorityTraceContext;
     now?: (() => number) | undefined;
+    renderSupervisor?: IPdfRenderSupervisor | undefined;
 }
 
 type TPagedNavigationTargetScrollOptions =
@@ -66,13 +74,14 @@ type TPagedNavigationTargetScrollOptions =
     | undefined;
 
 export function createPagedNavigationAuthority(options: ICreatePagedNavigationAuthorityOptions) {
+    const renderSupervisor = options.renderSupervisor ?? createPdfRenderSupervisor();
     const hold = shallowRef<IPagedNavigationHold | null>(null);
     let feedbackState: INavigationFeedbackState = {
         page: null,
         runId: null,
     };
     let targetScrollOptions: TPagedNavigationTargetScrollOptions;
-    let programmaticReleaseTimer: ReturnType<typeof setTimeout> | null = null;
+    let programmaticReleaseTimer: IPdfRenderSupervisorTimer | null = null;
 
     function getNow() {
         return options.now?.() ?? Date.now();
@@ -213,12 +222,9 @@ export function createPagedNavigationAuthority(options: ICreatePagedNavigationAu
     }
 
     function clearProgrammaticReleaseTimer() {
-        if (!programmaticReleaseTimer) {
-            return false;
-        }
-        clearTimeout(programmaticReleaseTimer);
+        const didClear = renderSupervisor.clearTimer(programmaticReleaseTimer);
         programmaticReleaseTimer = null;
-        return true;
+        return didClear;
     }
 
     function scheduleProgrammaticRelease(scheduleOptions: IScheduleProgrammaticNavigationReleaseOptions) {
@@ -227,13 +233,20 @@ export function createPagedNavigationAuthority(options: ICreatePagedNavigationAu
             return;
         }
 
-        programmaticReleaseTimer = setTimeout(() => {
-            programmaticReleaseTimer = null;
-            scheduleOptions.onRelease();
-            if (scheduleOptions.isActive() && !scheduleOptions.isDisposed()) {
-                scheduleProgrammaticRelease(scheduleOptions);
-            }
-        }, scheduleOptions.resolveDelayMs());
+        const delayMs = scheduleOptions.resolveDelayMs();
+        programmaticReleaseTimer = renderSupervisor.armTimer({
+            cause: 'navigation-programmatic-release',
+            delayMs,
+            key: 'navigation-programmatic-release',
+            metadata: { delayMs },
+            onFire: () => {
+                programmaticReleaseTimer = null;
+                scheduleOptions.onRelease();
+                if (scheduleOptions.isActive() && !scheduleOptions.isDisposed()) {
+                    scheduleProgrammaticRelease(scheduleOptions);
+                }
+            },
+        });
     }
 
     function hasProgrammaticReleaseTimer() {

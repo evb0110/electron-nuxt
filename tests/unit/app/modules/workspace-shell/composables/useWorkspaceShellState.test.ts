@@ -5,11 +5,17 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
+import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 
 describe('useWorkspaceShellState', () => {
-    it('treats a mounted document hint as an active document before the workspace catches up', () => {
+    it('treats a document record hint as an active document before the workspace catches up', () => {
         const shellState = useWorkspaceShellState({
-            activeWorkspace: ref({ hasPdf: false }),
+            activeDocumentRecord: ref(createWorkspaceDocumentRecord({tab: {
+                fileName: 'example.pdf',
+                originalPath: null,
+                isDirty: false,
+                isDjvu: false,
+            }})),
             activeTabId: ref<string | null>('tab-1'),
             tabs: ref([{
                 id: 'tab-1',
@@ -29,7 +35,7 @@ describe('useWorkspaceShellState', () => {
 
     it('returns null when there is no active tab', () => {
         const shellState = useWorkspaceShellState({
-            activeWorkspace: ref(null),
+            activeDocumentRecord: ref(null),
             activeTabId: ref<string | null>(null),
             tabs: ref([]),
         });
@@ -41,13 +47,22 @@ describe('useWorkspaceShellState', () => {
         expect(shellState.tabCount.value).toBe(0);
     });
 
-    it('reads save availability from the active workspace toolbar snapshot', () => {
-        const canSave = ref(false);
-        const shellState = useWorkspaceShellState({
-            activeWorkspace: ref({
+    it('reads save availability from the active document record toolbar snapshot', () => {
+        const activeDocumentRecord = ref(createWorkspaceDocumentRecord({
+            tab: {
+                fileName: 'example.pdf',
+                originalPath: null,
+                isDirty: false,
+                isDjvu: false,
+            },
+            toolbarSnapshot: {
                 hasPdf: true,
-                getToolbarSnapshot: () => ({ canSave: canSave.value }),
-            }),
+                canSave: false,
+                canRepairSave: true,
+            },
+        }));
+        const shellState = useWorkspaceShellState({
+            activeDocumentRecord,
             activeTabId: ref<string | null>('tab-1'),
             tabs: ref([{
                 id: 'tab-1',
@@ -61,7 +76,13 @@ describe('useWorkspaceShellState', () => {
         expect(shellState.activeWorkspaceCanSave.value).toBe(false);
         expect(shellState.activeWorkspaceCanRepairSave.value).toBe(true);
 
-        canSave.value = true;
+        activeDocumentRecord.value = createWorkspaceDocumentRecord({
+            ...activeDocumentRecord.value,
+            toolbarSnapshot: {
+                ...activeDocumentRecord.value.toolbarSnapshot,
+                canSave: true,
+            },
+        });
 
         expect(shellState.activeWorkspaceCanSave.value).toBe(true);
     });

@@ -95,6 +95,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
     });
 
     afterEach(async () => {
+        vi.unstubAllEnvs();
         await rm(tempDir, {
             recursive: true,
             force: true,
@@ -220,6 +221,62 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             'background',
         ]);
         expect(mocks.runRegisteredDjvuProcess).not.toHaveBeenCalled();
+    });
+
+    it('does not read oversized foreground probes during compact classification', async () => {
+        vi.stubEnv('EVB_DJVU_COMPACT_NETPBM_MAX_MB', '1');
+        vi.resetModules();
+        const { buildCompactDjvuAwarePdfFromDjvu: buildCompactWithSmallNetpbmCap } = await import(
+            '@electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu'
+        );
+        mocks.renderDjvuPageToImage.mockImplementation(async (
+            _inputPath: string,
+            outputPath: string,
+            _pageNumber: number,
+            _jobId: string,
+            options: {
+                mode?: string;
+                format?: string
+            } = {},
+        ) => {
+            await mkdir(dirname(outputPath), {recursive: true});
+            if (options.mode === 'foreground') {
+                await writeFile(outputPath, Buffer.alloc(1024 * 1024 + 1));
+            } else {
+                await writeFile(outputPath, ppm(5, 5, [
+                    220,
+                    221,
+                    222,
+                ]));
+            }
+            return {
+                success: true,
+                outputPath,
+                fileSize: 12,
+            };
+        });
+
+        const result = await buildCompactWithSmallNetpbmCap({
+            jobId: 'job-4',
+            djvuPath: '/input.djvu',
+            outputPath: join(tempDir, 'oversized-probe.pdf'),
+            tempDir,
+            pageCount: 44,
+            sourceDpi: 300,
+            pageSizes: pageSizes(44),
+            pages: [44],
+        });
+
+        expect(result.success).toBe(true);
+        if (!result.success) {
+            throw new Error('Expected compact export to succeed through fallback');
+        }
+        const pageSpecs = result.pageSpecs ?? [];
+        expect(pageSpecs[0]?.reason).toContain('Netpbm input exceeds safe read limit (1MB)');
+        expect(renderModesForPage(44)).toEqual([
+            'foreground',
+            'full',
+        ]);
     });
 });
 

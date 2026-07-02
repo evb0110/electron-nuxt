@@ -79,8 +79,7 @@
 
         <WorkspaceDocumentAlerts
             :pdf-error="pdfError"
-            :can-use-djvu="canUseDjvu"
-            :is-djvu-mode="isDjvuMode"
+            :show-djvu-conversion-ui="showDjvuConversionUi"
             :djvu-pending-open="pendingDjvuDocumentOpen"
             :djvu-opening="djvuBannerOpening"
             :djvu-error="djvuError"
@@ -172,92 +171,12 @@
                 :suppress-empty-state="suppressEmptyState || isDocumentOpenPlaceholderVisible"
             >
                 <template #document>
-                    <PdfViewer
-                        v-if="showStandardPdfViewer"
-                        ref="pdfViewerRef"
-                        :src="pdfSrc!"
-                        :reload-src="pdfReloadSrc"
-                        :source-pdf-data="viewerSourcePdfData"
-                        :is-any-saving="isAnySaving"
-                        :zoom="zoom"
-                        :zoom-mode="zoomMode"
-                        :fit-mode="fitMode"
-                        :view-mode="viewMode"
-                        :current-page="currentPage"
-                        :drag-mode="dragMode"
-                        :continuous-scroll="continuousScroll"
-                        :is-resizing="isResizingSidebar"
-                        :is-active="isRenderActive"
-                        :annotation-tool="annotationTool"
-                        :annotation-cursor-mode="annotationCursorMode"
-                        :annotation-keep-active="annotationKeepActive"
-                        :annotation-settings="annotationSettings"
-                        :search-page-matches="viewerSearchPageMatches"
-                        :current-search-match="viewerCurrentSearchMatch"
-                        :current-search-match-navigation-id="currentResultNavigationId"
-                        :working-copy-path="workingCopyPath"
-                        :author-name="appSettings.authorName"
-                        @update:zoom="zoom = $event"
-                        @update:zoom-mode="zoomMode = $event"
-                        @update:fit-mode="fitMode = $event"
-                        @update:effective-zoom="effectiveZoom = $event"
-                        @update:current-page="handleViewerCurrentPageUpdate"
-                        @update:navigation-feedback-page="navigationFeedbackPage = $event"
-                        @update:total-pages="handleViewerTotalPagesUpdate"
-                        @update:document="pdfDocument = $event"
-                        @loading="isLoading = $event"
-                        @initial-visual-pending="handleDocumentInitialVisualPending"
-                        @initial-visual-ready="handleDocumentInitialVisualReady"
-                        @annotation-state="handleAnnotationState"
-                        @annotation-modified="handleAnnotationModified"
-                        @annotation-comments="handleAnnotationComments"
-                        @annotation-open-note="annotationSession.handleOpenAnnotationNote"
-                        @annotation-comment-click="annotationSession.handleAnnotationCommentClick"
-                        @annotation-context-menu="annotationSession.handleViewerAnnotationContextMenu"
-                        @annotation-tool-auto-reset="handleAnnotationToolAutoReset"
-                        @annotation-tool-cancel="handleAnnotationToolCancel"
-                        @annotation-setting="handleAnnotationSettingChange"
-                        @annotation-note-placement-change="annotationPlacingPageNote = $event"
-                        @shape-context-menu="annotationSession.handleShapeContextMenu"
-                        @image-placement-finalize="annotationSession.handleFinalizePlacedImage"
-                    />
-                    <NativePdfViewer
-                        v-else-if="showNativePdfViewer"
-                        ref="nativePdfViewerRef"
-                        :src="nativePdfSourcePath"
-                        :zoom="zoom"
-                        :zoom-mode="zoomMode"
-                        :fit-mode="fitMode"
-                        :view-mode="viewMode"
-                        :continuous-scroll="continuousScroll"
-                        :drag-mode="dragMode"
-                        :is-active="isRenderActive"
-                        @update:effective-zoom="effectiveZoom = $event"
-                        @update:current-page="handleViewerCurrentPageUpdate"
-                        @update:total-pages="handleViewerTotalPagesUpdate"
-                        @update:document="pdfDocument = $event"
-                        @loading="isLoading = $event"
-                        @initial-visual-pending="handleDocumentInitialVisualPending"
-                        @initial-visual-ready="handleDocumentInitialVisualReady"
-                    />
-                    <DjvuViewer
-                        v-else-if="showNativeDjvuViewer"
-                        ref="djvuViewerRef"
-                        :src="djvuSourcePath!"
-                        :zoom="zoom"
-                        :zoom-mode="zoomMode"
-                        :fit-mode="fitMode"
-                        :view-mode="viewMode"
-                        :continuous-scroll="continuousScroll"
-                        :drag-mode="dragMode"
-                        :is-active="isRenderActive"
-                        @update:effective-zoom="effectiveZoom = $event"
-                        @update:current-page="handleViewerCurrentPageUpdate"
-                        @update:total-pages="handleViewerTotalPagesUpdate"
-                        @update:document="pdfDocument = $event"
-                        @loading="isLoading = $event"
-                        @initial-visual-pending="handleDocumentInitialVisualPending"
-                        @initial-visual-ready="handleDocumentInitialVisualReady"
+                    <component
+                        :is="activeViewerComponent"
+                        v-if="activeViewerAdapter"
+                        :ref="bindActiveViewerRef"
+                        v-bind="activeViewerProps"
+                        v-on="activeViewerListeners"
                     />
                 </template>
                 <template #transition>
@@ -365,7 +284,7 @@
         />
 
         <DjvuConversionOverlay
-            v-if="canUseDjvu"
+            v-if="showDjvuConversionUi"
             :is-converting="conversionState.isConverting && !djvuIsLoadingPages"
             :phase="conversionState.phase"
             :percent="conversionState.percent"
@@ -396,8 +315,7 @@
             :total-pages="totalPages"
             :current-page="currentPage"
             :view-mode="viewMode"
-            :can-use-djvu="canUseDjvu"
-            :is-djvu-mode="isDjvuMode"
+            :show-djvu-conversion-ui="showDjvuConversionUi"
             :show-convert-dialog="showConvertDialog"
             :djvu-path="djvuSourcePath"
             @export-submit="handleExportScopeDialogSubmit"
@@ -425,7 +343,6 @@ import '@app/assets/css/pdf-debug-overlays.scss';
 import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
 import { PdfSidebar } from '@app/modules/pdf-viewer/public/component-exports/pdfSidebar';
 import { PdfStatusBar } from '@app/modules/pdf-viewer/public/component-exports/pdfStatusBar';
-import { PdfViewer } from '@app/modules/pdf-viewer/public/component-exports/pdfViewer';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { bucketPageCount } from '@app/utils/analytics';
 import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
@@ -454,10 +371,11 @@ import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables
 import { useWorkspaceViewerVisibility } from '@app/modules/workspace-shell/composables/useWorkspaceViewerVisibility';
 import { useDocumentWorkspaceVisualOpeningState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceVisualOpeningState';
 import { useDocumentTransitionSkeletonLease } from '@app/modules/workspace-shell/composables/useDocumentTransitionSkeletonLease';
+import { useDocumentWorkspaceDocumentRecord } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceDocumentRecord';
+import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
 import WorkspaceDocumentTransitionSkeleton from '@app/modules/workspace-shell/components/WorkspaceDocumentTransitionSkeleton.vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { TTabUpdate } from '@app/types/tabs';
 import type { TStartSection } from '@app/types/startSection';
 import type { IPdfPageMatches } from '@app/types/pdf';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
@@ -465,6 +383,7 @@ import type {
     IWorkspaceExpose,
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
+import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     getDocumentMenuCapability,
@@ -476,10 +395,10 @@ import { getDocumentKindFromPath } from '@app/utils/supportedDocumentPaths';
 import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
 import type { IRecentFile } from '@contracts/shared';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import { useWorkspaceViewerAdapterBinding } from '@app/modules/workspace-shell/viewers/useWorkspaceViewerAdapterBinding';
 
 const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/modules/djvu-viewer/public').then(componentModule => componentModule.DjvuConversionOverlay));
-const DjvuViewer = defineAsyncComponent(() => import('@app/modules/djvu-viewer/public').then(componentModule => componentModule.DjvuViewer));
-const NativePdfViewer = defineAsyncComponent(() => import('@app/modules/native-pdf-viewer/public').then(componentModule => componentModule.NativePdfViewer));
 
 const {
     fullscreenSupported,
@@ -504,22 +423,12 @@ const {
     pendingDocumentPath?: TDocumentRef | null | undefined;
     startSection?: TStartSection | undefined;
 }>();
-
-const canTeleportToolbar = ref(false);
-const canTeleportStatus = ref(false);
-
-function refreshTeleportHosts() {
-    if (!import.meta.client) {
-        return;
-    }
-
-    canTeleportToolbar.value = Boolean(document.getElementById('editor-global-toolbar-host'));
-    canTeleportStatus.value = Boolean(document.getElementById('editor-global-status-host'));
-}
-
-onMounted(() => {
-    refreshTeleportHosts();
-    void nextTick(refreshTeleportHosts);
+const {
+    canTeleportStatus,
+    canTeleportToolbar,
+} = useWorkspaceHostTeleportAvailability({
+    toolbarHostId: 'editor-global-toolbar-host',
+    statusHostId: 'editor-global-status-host',
 });
 const { isDesktopRuntime } = useRuntimeEnvironment();
 const hasDesktopRuntime = computed(() => isDesktopRuntime.value);
@@ -528,9 +437,8 @@ const canUseDjvu = true;
 const toolbarSurface = DESKTOP_EDITOR_READER_COMMAND_SURFACE;
 const isOcrRunning = ref(false);
 const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
-
 const emit = defineEmits<{
-    'update-tab': [updates: TTabUpdate];
+    'update-document-record': [record: IWorkspaceDocumentRecord];
     'update:start-section': [section: TStartSection];
     'open-in-new-tab': [result: TDocumentRef | TOpenFileResult];
     'request-close-tab': [];
@@ -886,6 +794,8 @@ const {
 });
 
 const {
+    activeViewerAdapter,
+    activeViewerCapabilities,
     nativePdfSourcePath,
     showNativePdfViewer,
     showStandardPdfViewer,
@@ -915,6 +825,7 @@ const {
     pdfSrc,
     showSidebar,
 });
+
 const {
     scheduleStartupOpenVisualReady,
     dispatchStartupOpenVisualReady,
@@ -950,6 +861,66 @@ const {
     onInitialVisualReady: handlePdfInitialVisualReady,
     pendingDocumentOpen,
     pdfError,
+});
+
+const {
+    activeViewerComponent,
+    activeViewerProps,
+    activeViewerListeners,
+    bindActiveViewerRef,
+} = useWorkspaceViewerAdapterBinding({
+    activeViewerAdapter,
+    annotationCursorMode,
+    annotationKeepActive,
+    annotationSettings,
+    annotationTool,
+    authorName: computed(() => appSettings.value.authorName),
+    continuousScroll,
+    currentResultNavigationId,
+    currentSearchMatch: viewerCurrentSearchMatch,
+    currentPage,
+    djvuSourcePath,
+    dragMode,
+    fitMode,
+    isAnySaving,
+    isRenderActive,
+    isResizingSidebar,
+    nativePdfSourcePath,
+    pageMatches: viewerSearchPageMatches,
+    pdfReloadSrc,
+    pdfSrc,
+    pdfViewerRef,
+    nativePdfViewerRef,
+    djvuViewerRef,
+    sourcePdfData: viewerSourcePdfData,
+    viewMode,
+    workingCopyPath,
+    zoom,
+    zoomMode,
+    onAnnotationCommentClick: annotationSession.handleAnnotationCommentClick,
+    onAnnotationComments: handleAnnotationComments,
+    onAnnotationContextMenu: annotationSession.handleViewerAnnotationContextMenu,
+    onAnnotationModified: handleAnnotationModified,
+    onAnnotationNotePlacementChange: value => { annotationPlacingPageNote.value = value; },
+    onAnnotationOpenNote: annotationSession.handleOpenAnnotationNote,
+    onAnnotationSetting: handleAnnotationSettingChange,
+    onAnnotationState: handleAnnotationState,
+    onAnnotationToolAutoReset: handleAnnotationToolAutoReset,
+    onAnnotationToolCancel: handleAnnotationToolCancel,
+    onCurrentPageUpdate: handleViewerCurrentPageUpdate,
+    onDocumentUpdate: value => { pdfDocument.value = value as typeof pdfDocument.value; },
+    onEffectiveZoomUpdate: value => { effectiveZoom.value = value; },
+    onFitModeUpdate: value => { fitMode.value = value as typeof fitMode.value; },
+    onImagePlacementFinalize: annotationSession.handleFinalizePlacedImage,
+    onInitialVisualPending: handleDocumentInitialVisualPending,
+    onInitialVisualReady: handleDocumentInitialVisualReady,
+    onLoadError: handlePdfViewerLoadError,
+    onLoading: value => { isLoading.value = value; },
+    onNavigationFeedbackPageUpdate: value => { navigationFeedbackPage.value = value; },
+    onShapeContextMenu: annotationSession.handleShapeContextMenu,
+    onTotalPagesUpdate: handleViewerTotalPagesUpdate,
+    onZoomModeUpdate: value => { zoomMode.value = value as typeof zoomMode.value; },
+    onZoomUpdate: value => { zoom.value = value; },
 });
 
 const {
@@ -1010,6 +981,16 @@ const djvuBannerOpening = computed(() => (
             showNativeDjvuViewer.value
             && !initialDocumentVisualReady.value
         )
+    )
+));
+const showDjvuConversionUi = computed(() => (
+    canUseDjvu
+    && (
+        activeViewerCapabilities.value?.conversionBanner === true
+        || activeViewerCapabilities.value?.conversionDialog === true
+        || pendingDjvuDocumentOpen.value
+        || Boolean(djvuOpeningPath.value)
+        || conversionState.value.isConverting
     )
 ));
 const {
@@ -1111,6 +1092,7 @@ const {
 });
 const workspaceToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => ({
     hasPdf: toolbarHasPdf.value,
+    viewerCapabilities: activeViewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities(),
     isOpeningDocument: isOpeningDocumentForToolbarDisplay.value,
     hasOpenError: Boolean(pdfError.value) || Boolean(djvuError.value),
     isPreparingPrint: isPreparingPrint.value,
@@ -1143,8 +1125,21 @@ const workspaceToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => ({
     currentPage: isOpeningDocumentForToolbarDisplay.value ? 1 : currentPage.value,
     totalPages: isOpeningDocumentForToolbarDisplay.value ? 0 : totalPages.value,
 }));
+useDocumentWorkspaceDocumentRecord({
+    pendingDocumentOpen,
+    pendingDocumentPath: computed(() => pendingDocumentPath),
+    openBatchProgress,
+    hasPdf,
+    isDjvuMode,
+    fileName: fileLifecycle.fileName,
+    originalPath,
+    isDirty: hasPendingUnsavedChanges,
+    djvuSourcePath,
+    toolbarSnapshot: workspaceToolbarSnapshot,
+    formatPendingBatchLabel: values => t('tabs.preparingBatch', values),
+    publishRecord: record => emit('update-document-record', record),
+});
 const pageOpBatchEtaText = computed(() => formatEtaDuration(pageOpBatchProgress.value?.estimatedRemainingMs ?? null));
-
 function handleDeletePages() {
     const pages = selectedThumbnailPages.value;
     if (pages.length > 0) {
@@ -1238,7 +1233,6 @@ function handleViewerCurrentPageUpdate(page: number) {
     });
     currentPage.value = page;
 }
-
 watch(pdfSrc, (src) => {
     navigationFeedbackPage.value = null;
     if (src) {
@@ -1246,14 +1240,16 @@ watch(pdfSrc, (src) => {
         scheduleStartupOpenVisualReady('pdf-src');
     }
 });
-
+function handlePdfViewerLoadError(error: unknown) {
+    const message = getErrorMessage(error).trim();
+    pdfError.value = message || t('errors.file.open');
+}
 watch(showNativePreviewViewer, (visible) => {
     if (visible) {
         navigationFeedbackPage.value = null;
         scheduleStartupOpenVisualReady(showNativePdfViewer.value ? 'native-pdf-src' : 'djvu-src');
     }
 });
-
 watch([
     pdfError,
     djvuError,
@@ -1515,6 +1511,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     pageOpsInsert: documentControls.pageOpsInsert,
     totalPages,
     isDjvuMode,
+    viewerCapabilities: computed(() => activeViewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities()),
     openConvertDialog,
     captureSplitPayload,
     restoreSplitPayload,

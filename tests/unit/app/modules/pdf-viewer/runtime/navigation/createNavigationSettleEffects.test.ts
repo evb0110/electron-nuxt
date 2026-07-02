@@ -6,6 +6,10 @@ import {
 } from 'vitest';
 import { nextTick } from 'vue';
 import { createNavigationSettleEffects } from '@app/modules/pdf-viewer/runtime/navigation/createNavigationSettleEffects';
+import {
+    createPdfRenderSupervisor,
+    type IPdfRenderSupervisorEvent,
+} from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 
 describe('createNavigationSettleEffects', () => {
     it('reapplies mutation-driven continuous navigation layout synchronously', () => {
@@ -122,67 +126,67 @@ describe('createNavigationSettleEffects', () => {
                 recoveryRenderMs: 30,
                 abandonMs: 40,
                 stallLogMs: 50,
-                onReadyRetry: event => events.push(`ready:${event.runId}:${event.targetPage}:${event.delayMs}`),
-                onRecovery: event => events.push(`recovery:${event.runId}:${event.targetPage}:${event.delayMs}`),
-                onAbandon: event => events.push(`abandon:${event.runId}:${event.targetPage}:${event.delayMs}`),
-                onStillWaiting: event => events.push(`waiting:${event.runId}:${event.targetPage}:${event.delayMs}`),
+                onReadyRetry: event => events.push(`${event.cause}:${event.runId}:${event.targetPage}:${event.delayMs}`),
+                onRecovery: event => events.push(`${event.cause}:${event.runId}:${event.targetPage}:${event.delayMs}`),
+                onAbandon: event => events.push(`${event.cause}:${event.runId}:${event.targetPage}:${event.delayMs}`),
+                onStillWaiting: event => events.push(`${event.cause}:${event.runId}:${event.targetPage}:${event.delayMs}`),
             });
 
             vi.advanceTimersByTime(9);
             expect(events).toEqual([]);
 
             vi.advanceTimersByTime(1);
-            expect(events).toEqual(['ready:11:4:10']);
+            expect(events).toEqual(['navigation-hold-ready-retry:11:4:10']);
 
             vi.advanceTimersByTime(10);
             expect(events).toEqual([
-                'ready:11:4:10',
-                'ready:11:4:20',
+                'navigation-hold-ready-retry:11:4:10',
+                'navigation-hold-ready-retry:11:4:20',
             ]);
 
             vi.advanceTimersByTime(9);
             expect(events).toEqual([
-                'ready:11:4:10',
-                'ready:11:4:20',
+                'navigation-hold-ready-retry:11:4:10',
+                'navigation-hold-ready-retry:11:4:20',
             ]);
 
             vi.advanceTimersByTime(1);
             expect(events).toEqual([
-                'ready:11:4:10',
-                'ready:11:4:20',
-                'recovery:11:4:30',
+                'navigation-hold-ready-retry:11:4:10',
+                'navigation-hold-ready-retry:11:4:20',
+                'navigation-hold-recovery:11:4:30',
             ]);
 
             vi.advanceTimersByTime(9);
             expect(events).toEqual([
-                'ready:11:4:10',
-                'ready:11:4:20',
-                'recovery:11:4:30',
+                'navigation-hold-ready-retry:11:4:10',
+                'navigation-hold-ready-retry:11:4:20',
+                'navigation-hold-recovery:11:4:30',
             ]);
 
             vi.advanceTimersByTime(1);
             expect(events).toEqual([
-                'ready:11:4:10',
-                'ready:11:4:20',
-                'recovery:11:4:30',
-                'abandon:11:4:40',
+                'navigation-hold-ready-retry:11:4:10',
+                'navigation-hold-ready-retry:11:4:20',
+                'navigation-hold-recovery:11:4:30',
+                'navigation-hold-abandon:11:4:40',
             ]);
 
             vi.advanceTimersByTime(9);
             expect(events).toEqual([
-                'ready:11:4:10',
-                'ready:11:4:20',
-                'recovery:11:4:30',
-                'abandon:11:4:40',
+                'navigation-hold-ready-retry:11:4:10',
+                'navigation-hold-ready-retry:11:4:20',
+                'navigation-hold-recovery:11:4:30',
+                'navigation-hold-abandon:11:4:40',
             ]);
 
             vi.advanceTimersByTime(1);
             expect(events).toEqual([
-                'ready:11:4:10',
-                'ready:11:4:20',
-                'recovery:11:4:30',
-                'abandon:11:4:40',
-                'waiting:11:4:50',
+                'navigation-hold-ready-retry:11:4:10',
+                'navigation-hold-ready-retry:11:4:20',
+                'navigation-hold-recovery:11:4:30',
+                'navigation-hold-abandon:11:4:40',
+                'navigation-hold-still-waiting:11:4:50',
             ]);
         } finally {
             vi.useRealTimers();
@@ -315,6 +319,36 @@ describe('createNavigationSettleEffects', () => {
                 'paged:3:6',
                 'search',
                 'latest-search',
+            ]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('classifies navigation settle and continuous watchdog causes through the supervisor', () => {
+        vi.useFakeTimers();
+        try {
+            const supervisorEvents: IPdfRenderSupervisorEvent[] = [];
+            const renderSupervisor = createPdfRenderSupervisor({ onEvent: event => supervisorEvents.push(event) });
+            const effects = createNavigationSettleEffects({
+                getLayoutObserverElements: () => [],
+                hasLayoutMutation: () => false,
+                onLayoutReapply: vi.fn(),
+                renderSupervisor,
+            });
+
+            effects.armPagedSettle(1, 2, 10, vi.fn());
+            effects.armSearchSettle(20, vi.fn());
+            effects.armContinuousRender([30], vi.fn());
+            effects.armContinuousTargetFallback(40, vi.fn());
+
+            vi.advanceTimersByTime(40);
+
+            expect(supervisorEvents.map(event => event.cause)).toEqual([
+                'navigation-paged-settle',
+                'navigation-search-settle',
+                'navigation-continuous-render',
+                'navigation-continuous-target-fallback',
             ]);
         } finally {
             vi.useRealTimers();

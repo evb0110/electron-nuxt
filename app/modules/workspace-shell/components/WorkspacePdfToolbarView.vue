@@ -100,7 +100,7 @@
                 :open="ocrPopupOpen"
                 :is-exporting-docx="ocrIsExportingDocx"
                 :external-error="ocrExternalError"
-                :disabled="snapshot.isDjvuMode || toolbarControlsDisabled"
+                :disabled="snapshot.viewerCapabilities.conversionBanner || toolbarControlsDisabled"
                 :hide-trigger="isCollapsed(3)"
                 @update:open="handleOcrPopupOpenUpdate"
                 @update:running="handleOcrRunningUpdate"
@@ -162,7 +162,7 @@
                 :show-document-section="isDesktopRuntime"
                 can-combine-files
                 can-print-current-page
-                :can-convert-to-pdf="canUseDjvu && snapshot.isDjvuMode"
+                :can-convert-to-pdf="canUseDjvu && snapshot.viewerCapabilities.conversionDialog"
                 :is-preparing-print="snapshot.isPreparingPrint"
                 :is-preparing-current-page-print="snapshot.isPreparingCurrentPagePrint"
                 :is-fullscreen="isFullscreen"

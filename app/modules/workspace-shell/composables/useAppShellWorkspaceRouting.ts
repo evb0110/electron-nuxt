@@ -7,12 +7,14 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
+import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
+import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 
 interface IResolvedTabAction {
     tab: ITab;
@@ -25,6 +27,7 @@ interface IUseAppShellWorkspaceRoutingOptions {
     activeWorkspace: ComputedRef<IWorkspaceExpose | null>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     waitForWorkspace: (tabId: string, timeoutMs?: number) => Promise<IWorkspaceExpose | null>;
+    getDocumentRecord: (tabId: string | null | undefined) => IWorkspaceDocumentRecord | null;
     createTab: (options: {
         paneId?: string | null;
         activate?: boolean;
@@ -63,6 +66,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         activeWorkspace,
         workspaceRefs,
         waitForWorkspace,
+        getDocumentRecord,
         createTab,
         getTabById,
         updateTab,
@@ -81,13 +85,25 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         });
     }
 
-    function workspaceOccupiesTab(workspace: IWorkspaceExpose) {
+    function recordOccupiesTab(record: IWorkspaceDocumentRecord | null) {
+        const snapshot = record?.toolbarSnapshot;
+        return hasWorkspaceViewerDocumentCapabilities(snapshot?.viewerCapabilities)
+            || snapshot?.isOpeningDocument === true
+            || snapshot?.hasOpenError === true;
+    }
+
+    function workspaceOccupiesTab(tabId: string, workspace: IWorkspaceExpose) {
+        const record = getDocumentRecord(tabId);
+        if (record) {
+            return recordOccupiesTab(record);
+        }
+
         if (workspaceHasPdf(workspace)) {
             return true;
         }
 
         const snapshot = readWorkspaceToolbarSnapshot(workspace);
-        return snapshot?.isDjvuMode === true
+        return hasWorkspaceViewerDocumentCapabilities(snapshot?.viewerCapabilities)
             || snapshot?.isOpeningDocument === true
             || snapshot?.hasOpenError === true;
     }
@@ -96,7 +112,8 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         return Boolean(
             tab
             && !tabHasDocumentHint(tab)
-            && (!workspace || !workspaceOccupiesTab(workspace)),
+            && !recordOccupiesTab(getDocumentRecord(tab.id))
+            && (!workspace || !workspaceOccupiesTab(tab.id, workspace)),
         );
     }
 
@@ -149,7 +166,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             return false;
         }
 
-        if (!openOptions.reuseAlreadyReserved && workspaceOccupiesTab(workspace)) {
+        if (!openOptions.reuseAlreadyReserved && workspaceOccupiesTab(tabId, workspace)) {
             return false;
         }
 
@@ -212,7 +229,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         }
 
         const resolvedWorkspace = workspace ?? await resolveWorkspaceForTab(tabId);
-        if (resolvedWorkspace && tabId !== attemptedExistingTabId && !workspaceOccupiesTab(resolvedWorkspace)) {
+        if (resolvedWorkspace && tabId && tabId !== attemptedExistingTabId && !workspaceOccupiesTab(tabId, resolvedWorkspace)) {
             seedTabDocumentHint(tabId, pathOrResult);
             const opened = await openDocumentInWorkspace(resolvedWorkspace, pathOrResult);
             if (opened) {

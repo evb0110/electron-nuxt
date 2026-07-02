@@ -1192,6 +1192,11 @@ export async function scrollViewerToPage(page: Page, pageNumber: number) {
 
     const scrollCommand = await callWorkspaceCommand(page, 'scrollToPage', [pageNumber]);
     if (scrollCommand.called) {
+        try {
+            await waitForToolbarCurrentPage(page, pageNumber, 5_000);
+        } catch {
+            await goToPageViaToolbar(page, pageNumber);
+        }
         return;
     }
 

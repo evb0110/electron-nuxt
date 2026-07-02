@@ -51,6 +51,7 @@
 
     /* Chrome-density tokens — kept in rem so they scale with --app-ui-scale via root font-size. */
     --app-toolbar-control-size: 2.25rem;
+    --app-toolbar-row-height: calc(var(--app-toolbar-control-size) + var(--app-space-3xl) + var(--app-space-3xl) + 2px);
     --app-toolbar-icon-size: 1.125rem;
     --app-toolbar-control-radius: 0.5rem;
     --app-toolbar-control-padding-x: 0.625rem;

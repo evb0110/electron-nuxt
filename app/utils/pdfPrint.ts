@@ -16,10 +16,10 @@ import {
     resolvePdfLibCropBox,
     resolvePdfLibMediaBox,
 } from '@pdf-core';
-import {
-    getPdfjsAssetDir,
-    getViewerAssetResolver,
-} from '@app/utils/viewerAssets';
+import pdfjsLib, {
+    createPdfjsDocumentOptions,
+    preparePdfjsBrowserRuntime,
+} from '@app/services/pdfjs/runtimeLib';
 import type {
     PDFDocumentProxy,
     PDFPageProxy,
@@ -104,14 +104,7 @@ function toPageBoundingBox(box: IPdfPageBox): PageBoundingBox {
 }
 
 async function getPdfjsPrintLib() {
-    const pdfjsLib = await import('pdfjs-dist');
-    const globalWorkerOptions = pdfjsLib.GlobalWorkerOptions as { workerSrc?: string };
-    const workerSrc = getViewerAssetResolver().pdfWorkerUrl();
-
-    if (globalWorkerOptions.workerSrc !== workerSrc) {
-        globalWorkerOptions.workerSrc = workerSrc;
-    }
-
+    await preparePdfjsBrowserRuntime(pdfjsLib);
     return pdfjsLib;
 }
 
@@ -235,13 +228,7 @@ export async function renderPdfPagesForBrowserPrint(
         : clonePdfBytes(printablePdf);
     const loadingTask = pdfjsLib.getDocument({
         data: pdfData,
-        verbosity: pdfjsLib.VerbosityLevel.ERRORS,
-        standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
-        cMapUrl: getPdfjsAssetDir('cmaps'),
-        cMapPacked: true,
-        wasmUrl: getPdfjsAssetDir('wasm'),
-        iccUrl: getPdfjsAssetDir('iccs'),
-        useSystemFonts: false,
+        ...createPdfjsDocumentOptions(pdfjsLib),
     });
     let pdfDocument: PDFDocumentProxy;
     try {

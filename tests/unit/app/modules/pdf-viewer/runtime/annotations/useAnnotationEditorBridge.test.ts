@@ -95,7 +95,7 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({
     PixelsPerInch: { PDF_TO_CSS_UNITS: 1 },
 }));
 
-vi.mock('@app/services/pdfjs/viewerRuntimeLib', () => ({
+vi.mock('@app/services/pdfjs/getPdfjsViewerRuntimeProbeFailures', () => ({
     EventBus: FakeEventBus,
     GenericL10n: FakeGenericL10n,
 }));

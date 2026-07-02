@@ -19,6 +19,7 @@ interface IUseWorkspaceViewerDefaultsOptions {
     effectiveZoom: Ref<number>;
     zoomMode: Ref<TZoomMode>;
     pdfSrc: Ref<TPdfSource | null>;
+    documentSourceKey?: Ref<unknown>;
 }
 
 export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsOptions) => {
@@ -74,8 +75,10 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
         setCustomZoomFromDisplay(Number(options.appSettings.value.defaultZoomPreset) / 100);
     }
 
-    watch(options.pdfSrc, (nextSrc, previousSrc) => {
-        if (nextSrc && !previousSrc) {
+    const defaultsSourceKey = computed(() => options.documentSourceKey?.value ?? options.pdfSrc.value);
+
+    watch(defaultsSourceKey, (nextSource, previousSource) => {
+        if (nextSource && !previousSource) {
             applyWorkspaceViewerDefaults();
         }
     });

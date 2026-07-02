@@ -12,6 +12,7 @@
             :start-section-by-tab-id="startSectionByTabId"
             :tab-lifecycle-by-id="tabLifecycleById"
             :view-state-by-tab-id="viewStateByTabId"
+            :document-records-by-tab-id="documentRecordsByTabId"
             :zen-mode="zenMode"
             :zen-active-tab-id="zenActiveTabId"
             :is-fullscreen="isFullscreen"
@@ -24,7 +25,7 @@
             @move-tab-direction="handleMoveTabDirection"
             @tab-context-command="handleTabContextCommand"
             @set-workspace-ref="handleSetWorkspaceRef"
-            @update-tab="handleUpdateTab"
+            @update-document-record="handleUpdateDocumentRecord"
             @update-tab-session-state="handleUpdateTabSessionState"
             @update-tab-start-section="handleUpdateTabStartSection"
             @open-in-new-tab="handleOpenInNewTab"
@@ -48,15 +49,13 @@ import type {
     ITabContextAvailability,
     TTabContextCommand,
 } from '@app/types/tabContextMenu';
-import type {
-    ITab,
-    TTabUpdate,
-} from '@app/types/tabs';
+import type {ITab} from '@app/types/tabs';
 import type { TStartSection } from '@app/types/startSection';
 import type {
     ITabLifecycleState,
     ITabViewSessionState,
 } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 
 defineOptions({ name: 'EditorPanesHost' });
 
@@ -71,6 +70,7 @@ defineProps<{
     startSectionByTabId: Record<string, TStartSection>;
     tabLifecycleById: Record<string, ITabLifecycleState>;
     viewStateByTabId: Record<string, ITabViewSessionState>;
+    documentRecordsByTabId: Record<string, IWorkspaceDocumentRecord>;
     zenMode: boolean;
     zenActiveTabId: string | null;
     isFullscreen: boolean;
@@ -91,7 +91,7 @@ const emit = defineEmits<{
     ];
     'tab-context-command': [paneId: string, tabId: string, command: TTabContextCommand];
     'set-workspace-ref': [tabId: string, el: unknown];
-    'update-tab': [tabId: string, updates: TTabUpdate];
+    'update-document-record': [tabId: string, record: IWorkspaceDocumentRecord];
     'update-tab-session-state': [tabId: string, state: ITabViewSessionState];
     'update-tab-start-section': [tabId: string, section: TStartSection];
     'open-in-new-tab': [result: string | TOpenFileResult, paneId?: string];
@@ -139,8 +139,8 @@ function handleSetWorkspaceRef(tabId: string, el: unknown) {
     emit('set-workspace-ref', tabId, el);
 }
 
-function handleUpdateTab(tabId: string, updates: TTabUpdate) {
-    emit('update-tab', tabId, updates);
+function handleUpdateDocumentRecord(tabId: string, record: IWorkspaceDocumentRecord) {
+    emit('update-document-record', tabId, record);
 }
 
 function handleUpdateTabSessionState(tabId: string, state: ITabViewSessionState) {

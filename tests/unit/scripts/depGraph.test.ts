@@ -89,6 +89,46 @@ describe('dependency graph', () => {
         expect(graph.unresolvedInternalImports).toEqual([]);
     });
 
+    it('resolves @evb workspace package aliases into package graph edges', async () => {
+        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        await mkdir(join(projectRoot, 'app'), { recursive: true });
+        await mkdir(join(projectRoot, 'packages/contracts'), { recursive: true });
+        await mkdir(join(projectRoot, 'packages/i18n-core'), { recursive: true });
+        await writeFile(
+            join(projectRoot, 'app/usesContracts.ts'),
+            'import { contract } from \'@evb/contracts\';\nexport const appContract = contract;\n',
+        );
+        await writeFile(join(projectRoot, 'packages/contracts/index.ts'), 'export const contract = true;\n');
+        await writeFile(
+            join(projectRoot, 'packages/i18n-core/index.ts'),
+            'import { format } from \'@evb/i18n-core/messageFormat\';\nexport const i18n = format;\n',
+        );
+        await writeFile(join(projectRoot, 'packages/i18n-core/messageFormat.ts'), 'export const format = true;\n');
+
+        const graph = await buildDependencyGraph({
+            projectRoot,
+            roots: [
+                'app',
+                'packages/contracts',
+                'packages/i18n-core',
+            ],
+        });
+
+        expect(graph.unresolvedInternalImports).toEqual([]);
+        expect(graph.edges).toEqual(expect.arrayContaining([
+            {
+                source: 'app/usesContracts.ts',
+                specifier: '@evb/contracts',
+                target: 'packages/contracts/index.ts',
+            },
+            {
+                source: 'packages/i18n-core/index.ts',
+                specifier: '@evb/i18n-core/messageFormat',
+                target: 'packages/i18n-core/messageFormat.ts',
+            },
+        ]));
+    });
+
     it('reports strongly connected import components as dependency cycles', async () => {
         const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
         await mkdir(join(projectRoot, 'app'), { recursive: true });

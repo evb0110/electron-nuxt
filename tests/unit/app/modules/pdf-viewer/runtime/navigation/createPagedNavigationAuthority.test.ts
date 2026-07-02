@@ -5,12 +5,19 @@ import {
     vi,
 } from 'vitest';
 import { createPagedNavigationAuthority } from '@app/modules/pdf-viewer/runtime/navigation/createPagedNavigationAuthority';
+import {
+    createPdfRenderSupervisor,
+    type IPdfRenderSupervisorEvent,
+} from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 
-function createAuthorityHarness() {
+function createAuthorityHarness(options?: { onSupervisorEvent?: ((event: IPdfRenderSupervisorEvent) => void) | undefined; }) {
     let now = 100;
     const emittedFeedbackPages: Array<number | null> = [];
     const armHoldWatchdog = vi.fn();
     const clearHoldWatchdog = vi.fn();
+    const renderSupervisor = options?.onSupervisorEvent
+        ? createPdfRenderSupervisor({ onEvent: options.onSupervisorEvent })
+        : undefined;
     const authority = createPagedNavigationAuthority({
         armHoldWatchdog,
         clearHoldWatchdog,
@@ -20,6 +27,7 @@ function createAuthorityHarness() {
             pagedNavigationTargetPage: 2,
         }),
         now: () => now,
+        renderSupervisor,
     });
 
     const setNow = (nextNow: number) => {
@@ -168,7 +176,8 @@ describe('paged navigation authority', () => {
     it('owns the programmatic release timer lifecycle without changing release policy', () => {
         vi.useFakeTimers();
         try {
-            const {authority} = createAuthorityHarness();
+            const supervisorEvents: IPdfRenderSupervisorEvent[] = [];
+            const {authority} = createAuthorityHarness({ onSupervisorEvent: event => supervisorEvents.push(event) });
             let active = true;
             let releases = 0;
 
@@ -195,6 +204,10 @@ describe('paged navigation authority', () => {
 
             expect(releases).toBe(2);
             expect(authority.hasProgrammaticReleaseTimer()).toBe(false);
+            expect(supervisorEvents.map(event => event.cause)).toEqual([
+                'navigation-programmatic-release',
+                'navigation-programmatic-release',
+            ]);
         } finally {
             vi.useRealTimers();
         }

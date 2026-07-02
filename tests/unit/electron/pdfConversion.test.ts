@@ -313,7 +313,7 @@ describe('createPdfFromInputPaths worker fallback', () => {
             '/tmp/output.pdf',
             undefined,
         );
-        expect(mocks.stat).toHaveBeenCalledTimes(1);
+        expect(mocks.stat).toHaveBeenCalledTimes(2);
         expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
         expect(mocks.writeFile).toHaveBeenCalledWith('/tmp/.staged-output.tmp', new Uint8Array([
             9,
@@ -335,10 +335,20 @@ describe('createPdfFromInputPaths worker fallback', () => {
         const workerScript = mocks.workerCtor.mock.calls[0]?.[0] as string;
         const workerOptions = mocks.workerCtor.mock.calls[0]?.[1] as {
             eval?: boolean;
+            resourceLimits?: {
+                maxOldGenerationSizeMb?: number;
+                maxYoungGenerationSizeMb?: number;
+                stackSizeMb?: number;
+            };
             workerData?: { inputPaths?: string[] };
         };
         expect(workerScript).toContain('pdfCombineWorker');
         expect(workerOptions.eval).toBeUndefined();
+        expect(workerOptions.resourceLimits).toMatchObject({
+            maxOldGenerationSizeMb: 512,
+            maxYoungGenerationSizeMb: 64,
+            stackSizeMb: 8,
+        });
         expect(workerOptions.workerData?.inputPaths).toEqual(['/tmp/input.pdf']);
         expect(mocks.create).toHaveBeenCalledTimes(1);
         expect(mocks.load).toHaveBeenCalledTimes(1);
@@ -434,5 +444,24 @@ describe('createPdfFromInputPaths worker fallback', () => {
             force: true,
         });
         expect(mocks.load).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects oversized converted DjVu temp PDFs before reading them into pdf-lib', async () => {
+        mocks.stat
+            .mockResolvedValueOnce({
+                isFile: () => true,
+                size: 1024,
+            })
+            .mockResolvedValueOnce({
+                isFile: () => true,
+                size: 513 * 1024 * 1024,
+            });
+
+        await expect(createPdfFromInputPaths(['/tmp/scan.djvu']))
+            .rejects
+            .toThrow(/Converted DjVu PDF is too large to combine safely: \/tmp\/pdf-combine-djvu-test\/.+\.pdf/u);
+
+        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.load).not.toHaveBeenCalled();
     });
 });

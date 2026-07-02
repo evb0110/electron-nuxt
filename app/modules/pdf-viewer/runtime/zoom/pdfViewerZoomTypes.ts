@@ -1,6 +1,8 @@
 import type { Ref } from 'vue';
 import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 
+export type TZoomInteractionLockOperationId = number;
+
 export interface IViewerStateForLog {
     scrollTop: number;
     scrollLeft: number;

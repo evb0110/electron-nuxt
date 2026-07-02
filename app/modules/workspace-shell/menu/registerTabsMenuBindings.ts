@@ -9,6 +9,11 @@ import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
 import type { IDjvuCapability } from '@contracts/electronApiDjvu';
 import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import {
+    invokeWorkspaceExposeCommand,
+    workspaceExposeMenuCommandDescriptors,
+    type TWorkspaceExposeMethod,
+} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 
 export interface ITabsMenuBindingApi {
     documentMenu: IDocumentsMenuCapability;
@@ -41,173 +46,49 @@ export interface ITabsMenuBindingDeps {
 type TCleanup = () => void;
 type TMenuRunAction = (actionName: string, action: () => unknown) => void;
 type TNoArgMenuRegister = (handler: () => void) => unknown;
-type TDocumentMenuApi = IDocumentsMenuCapability;
-interface IDocumentMenuAction {
-    name: string;
-    register: keyof TDocumentMenuApi;
-    run: (deps: ITabsMenuBindingDeps) => unknown;
-}
-
-const documentMenuActions: IDocumentMenuAction[] = [
-    {
-        name: 'open-pdf',
-        register: 'onMenuOpenPdf',
-        run: deps => deps.handleFallbackToolbarOpenFile(),
-    },
-    {
-        name: 'insert-image-from-file',
-        register: 'onMenuInsertImageFromFile',
-        run: deps => deps.activeWorkspace.value?.handleInsertImageFromFile(),
-    },
-    {
-        name: 'paste-image-from-clipboard',
-        register: 'onMenuPasteImageFromClipboard',
-        run: deps => deps.activeWorkspace.value?.handlePasteImageFromClipboard(),
-    },
-    {
-        name: 'save',
-        register: 'onMenuSave',
-        run: deps => deps.activeWorkspace.value?.handleSave(),
-    },
-    {
-        name: 'repair-save',
-        register: 'onMenuRepairSave',
-        run: deps => deps.activeWorkspace.value?.handleRepairSave(),
-    },
-    {
-        name: 'optimize-pdf-for-interaction',
-        register: 'onMenuOptimizePdfForInteraction',
-        run: deps => deps.activeWorkspace.value?.handleOptimizePdfForInteraction(),
-    },
-    {
-        name: 'save-as',
-        register: 'onMenuSaveAs',
-        run: deps => deps.activeWorkspace.value?.handleSaveAs(),
-    },
-    {
-        name: 'print',
-        register: 'onMenuPrint',
-        run: deps => deps.activeWorkspace.value?.handlePrint(),
-    },
-    {
-        name: 'print-current-page',
-        register: 'onMenuPrintCurrentPage',
-        run: deps => deps.activeWorkspace.value?.handlePrintCurrentPage(),
-    },
-    {
-        name: 'export-docx',
-        register: 'onMenuExportDocx',
-        run: deps => deps.activeWorkspace.value?.handleExportDocx(),
-    },
-    {
-        name: 'export-images',
-        register: 'onMenuExportImages',
-        run: deps => deps.activeWorkspace.value?.handleExportImages(),
-    },
-    {
-        name: 'export-multi-page-tiff',
-        register: 'onMenuExportMultiPageTiff',
-        run: deps => deps.activeWorkspace.value?.handleExportMultiPageTiff(),
-    },
-    {
-        name: 'undo',
-        register: 'onMenuUndo',
-        run: deps => deps.activeWorkspace.value?.handleUndo(),
-    },
-    {
-        name: 'redo',
-        register: 'onMenuRedo',
-        run: deps => deps.activeWorkspace.value?.handleRedo(),
-    },
-    {
-        name: 'zoom-in',
-        register: 'onMenuZoomIn',
-        run: deps => deps.activeWorkspace.value?.handleZoomIn(),
-    },
-    {
-        name: 'zoom-out',
-        register: 'onMenuZoomOut',
-        run: deps => deps.activeWorkspace.value?.handleZoomOut(),
-    },
-    {
-        name: 'actual-size',
-        register: 'onMenuActualSize',
-        run: deps => deps.activeWorkspace.value?.handleActualSize(),
-    },
-    {
-        name: 'fit-width',
-        register: 'onMenuFitWidth',
-        run: deps => deps.activeWorkspace.value?.handleFitWidth(),
-    },
-    {
-        name: 'fit-height',
-        register: 'onMenuFitHeight',
-        run: deps => deps.activeWorkspace.value?.handleFitHeight(),
-    },
-    {
-        name: 'view-mode-single',
-        register: 'onMenuViewModeSingle',
-        run: deps => deps.activeWorkspace.value?.handleViewModeSingle(),
-    },
-    {
-        name: 'view-mode-facing',
-        register: 'onMenuViewModeFacing',
-        run: deps => deps.activeWorkspace.value?.handleViewModeFacing(),
-    },
-    {
-        name: 'view-mode-facing-first-single',
-        register: 'onMenuViewModeFacingFirstSingle',
-        run: deps => deps.activeWorkspace.value?.handleViewModeFacingFirstSingle(),
-    },
-    {
-        name: 'delete-pages',
-        register: 'onMenuDeletePages',
-        run: deps => deps.activeWorkspace.value?.handleDeletePages(),
-    },
-    {
-        name: 'extract-pages',
-        register: 'onMenuExtractPages',
-        run: deps => deps.activeWorkspace.value?.handleExtractPages(),
-    },
-    {
-        name: 'rotate-cw',
-        register: 'onMenuRotateCw',
-        run: deps => deps.activeWorkspace.value?.handleRotateCw(),
-    },
-    {
-        name: 'rotate-ccw',
-        register: 'onMenuRotateCcw',
-        run: deps => deps.activeWorkspace.value?.handleRotateCcw(),
-    },
-    {
-        name: 'insert-pages',
-        register: 'onMenuInsertPages',
-        run: deps => deps.activeWorkspace.value?.handleInsertPages(),
-    },
-];
+type TWorkspaceMenuApi = Partial<IDocumentsMenuCapability> | Partial<IDjvuCapability>;
 
 function toCleanup(value: unknown): TCleanup | null {
     return typeof value === 'function' ? value as TCleanup : null;
 }
 
 function getNoArgDocumentMenuRegister(
-    documents: Partial<TDocumentMenuApi> | undefined,
-    key: keyof TDocumentMenuApi,
+    menuApi: TWorkspaceMenuApi | undefined,
+    key: string,
 ): TNoArgMenuRegister | null {
-    const register = documents?.[key];
+    const register = (menuApi as Record<string, unknown> | undefined)?.[key];
     return typeof register === 'function' ? register as TNoArgMenuRegister : null;
 }
 
-function registerDocumentMenuActions(
-    documents: Partial<TDocumentMenuApi> | undefined,
+function resolveWorkspaceMenuApi(
+    menuApi: Partial<ITabsMenuBindingApi>,
+    source: 'documentMenu' | 'djvu' | undefined,
+) {
+    return source === 'djvu' ? menuApi.djvu : menuApi.documentMenu;
+}
+
+function runWorkspaceMenuCommand(
+    deps: ITabsMenuBindingDeps,
+    commandName: TWorkspaceExposeMethod,
+) {
+    const workspace = deps.activeWorkspace.value;
+    if (!workspace) {
+        return undefined;
+    }
+
+    return invokeWorkspaceExposeCommand(workspace, commandName);
+}
+
+function registerWorkspaceMenuActions(
+    menuApi: Partial<ITabsMenuBindingApi>,
     deps: ITabsMenuBindingDeps,
     runMenuAction: TMenuRunAction,
 ) {
     const cleanups: TCleanup[] = [];
-    for (const binding of documentMenuActions) {
-        const register = getNoArgDocumentMenuRegister(documents, binding.register);
+    for (const binding of workspaceExposeMenuCommandDescriptors) {
+        const register = getNoArgDocumentMenuRegister(resolveWorkspaceMenuApi(menuApi, binding.menu.source), binding.menu.register);
         const cleanup = toCleanup(register?.(() => {
-            runMenuAction(binding.name, () => binding.run(deps));
+            runMenuAction(binding.menu.actionName, () => runWorkspaceMenuCommand(deps, binding.name));
         }));
         if (cleanup) {
             cleanups.push(cleanup);
@@ -270,7 +151,10 @@ export function registerTabsMenuBindings(
     };
 
     const cleanups = [
-        ...registerDocumentMenuActions(documentMenu, deps, runMenuAction),
+        documentMenu?.onMenuOpenPdf?.(() => {
+            runMenuAction('open-pdf', () => deps.handleFallbackToolbarOpenFile());
+        }),
+        ...registerWorkspaceMenuActions(api, deps, runMenuAction),
         documentMenu?.onMenuOpenRecentFile?.((path) => {
             enqueueDocumentOpenAction('open-recent-file', () => deps.openPathInAppropriateTab(path));
         }),
@@ -291,9 +175,6 @@ export function registerTabsMenuBindings(
         }),
         api.updates?.onMenuCheckForUpdates?.(() => {
             runMenuAction('check-for-updates', () => deps.checkForUpdates());
-        }),
-        api.djvu?.onMenuConvertToPdf?.(() => {
-            runMenuAction('convert-to-pdf', () => deps.activeWorkspace.value?.handleConvertToPdf());
         }),
         api.windowTabs?.onMenuNewTab?.(() => {
             runMenuAction('new-tab', () => deps.createTab());

@@ -57,6 +57,7 @@ export interface IPdfViewerEmit {
     (e: 'update:loading', loading: boolean): void;
     (e: 'update:document', document: PDFDocumentProxy | null): void;
     (e: 'loading', loading: boolean): void;
+    (e: 'load-error', error: unknown): void;
     (e: 'annotation-state', state: IAnnotationEditorState): void;
     (e: 'annotation-modified', payload?: IAnnotationModifiedPayload): void;
     (e: 'annotation-comments', comments: IAnnotationCommentSummary[]): void;

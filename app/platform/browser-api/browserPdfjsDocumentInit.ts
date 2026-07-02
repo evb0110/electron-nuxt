@@ -1,12 +1,12 @@
 import type * as PdfjsLibNamespace from 'pdfjs-dist';
+import pdfjsLib, {
+    createPdfjsDocumentOptions,
+    preparePdfjsBrowserRuntime,
+} from '@app/services/pdfjs/runtimeLib';
 import {
     BROWSER_DOCUMENT_CHUNK_SIZE,
     browserDocumentStore,
 } from '@app/platform/browserDocumentStore';
-import {
-    getPdfjsAssetDir,
-    getViewerAssetResolver,
-} from '@app/utils/viewerAssets';
 import { toUint8Array } from '@app/platform/browser-api/browserBytes';
 
 const PDFJS_RANGE_CHUNK_SIZE = Math.max(512 * 1024, BROWSER_DOCUMENT_CHUNK_SIZE);
@@ -14,33 +14,17 @@ const PDFJS_RANGE_CHUNK_SIZE = Math.max(512 * 1024, BROWSER_DOCUMENT_CHUNK_SIZE)
 type TPdfjsLib = typeof PdfjsLibNamespace;
 type TPdfjsDocumentInit = Parameters<TPdfjsLib['getDocument']>[0];
 
-let pdfjsLibPromise: Promise<TPdfjsLib> | null = null;
-
 interface ICreateBrowserPdfjsDocumentInitOptions { onRangeReadFailure?: (error: Error) => void; }
 
 async function getPdfjsLib() {
-    pdfjsLibPromise ??= import('pdfjs-dist');
-    const pdfjsLib = await pdfjsLibPromise;
-    const globalWorkerOptions = pdfjsLib.GlobalWorkerOptions as { workerSrc?: string };
-    const workerSrc = getViewerAssetResolver().pdfWorkerUrl();
-
-    if (globalWorkerOptions.workerSrc !== workerSrc) {
-        globalWorkerOptions.workerSrc = workerSrc;
-    }
-
+    await preparePdfjsBrowserRuntime(pdfjsLib);
     return pdfjsLib;
 }
 
 function createPdfjsDocumentInit(pdfjsLib: TPdfjsLib, data: Uint8Array) {
     const init = {
         data: toUint8Array(data),
-        verbosity: pdfjsLib.VerbosityLevel.ERRORS,
-        standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
-        cMapUrl: getPdfjsAssetDir('cmaps'),
-        cMapPacked: true,
-        wasmUrl: getPdfjsAssetDir('wasm'),
-        iccUrl: getPdfjsAssetDir('iccs'),
-        useSystemFonts: false,
+        ...createPdfjsDocumentOptions(pdfjsLib),
     } satisfies TPdfjsDocumentInit;
     return init;
 }
@@ -117,13 +101,7 @@ async function createPdfjsDocumentInitFromBrowserDocument(
         rangeChunkSize: PDFJS_RANGE_CHUNK_SIZE,
         disableAutoFetch: true,
         disableStream: true,
-        verbosity: pdfjsLib.VerbosityLevel.ERRORS,
-        standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
-        cMapUrl: getPdfjsAssetDir('cmaps'),
-        cMapPacked: true,
-        wasmUrl: getPdfjsAssetDir('wasm'),
-        iccUrl: getPdfjsAssetDir('iccs'),
-        useSystemFonts: false,
+        ...createPdfjsDocumentOptions(pdfjsLib),
     } satisfies TPdfjsDocumentInit;
     return init;
 }

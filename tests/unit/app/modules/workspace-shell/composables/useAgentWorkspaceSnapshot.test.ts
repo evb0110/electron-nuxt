@@ -11,6 +11,7 @@ import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IRecentFile } from '@contracts/shared';
+import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { cast } from '@tests/helpers/cast';
 
 function createWorkspace(overrides: Partial<ReturnType<IWorkspaceExpose['getToolbarSnapshot']>>) {
@@ -100,6 +101,26 @@ describe('buildAgentWorkspaceSnapshot', () => {
             originalPath: '/tmp/Previous.pdf',
             timestamp: Date.UTC(2026, 4, 31),
         }]);
+        const documentRecordsByTabId = ref<Record<string, ReturnType<typeof createWorkspaceDocumentRecord>>>({
+            'tab-pdf': createWorkspaceDocumentRecord({toolbarSnapshot: {
+                hasPdf: true,
+                currentPage: 12,
+                totalPages: 80,
+            }}),
+            'tab-djvu': createWorkspaceDocumentRecord({
+                tab: {
+                    fileName: 'Reader.djvu',
+                    originalPath: '/tmp/Reader.djvu',
+                    isDirty: false,
+                    isDjvu: true,
+                },
+                toolbarSnapshot: {
+                    isDjvuMode: true,
+                    currentPage: 3,
+                    totalPages: 9,
+                },
+            }),
+        });
 
         const snapshot = buildAgentWorkspaceSnapshot({
             panes,
@@ -110,6 +131,7 @@ describe('buildAgentWorkspaceSnapshot', () => {
             recentFiles,
             recentFilesResolved: ref(true),
             workspaceRefs,
+            documentRecordsByTabId,
             getPaneByTabId: tabId => panes.value.find(pane => pane.tabIds.includes(tabId)) ?? null,
         });
 
@@ -186,6 +208,7 @@ describe('buildAgentWorkspaceSnapshot', () => {
             timestamp: Date.UTC(2026, 5, 1),
             fileSize: 1234,
         }]);
+        const documentRecordsByTabId = ref<Record<string, ReturnType<typeof createWorkspaceDocumentRecord>>>({'tab-empty': createWorkspaceDocumentRecord()});
 
         const snapshot = buildAgentWorkspaceSnapshot({
             panes,
@@ -196,6 +219,7 @@ describe('buildAgentWorkspaceSnapshot', () => {
             recentFiles,
             recentFilesResolved: ref(true),
             workspaceRefs,
+            documentRecordsByTabId,
             getPaneByTabId: tabId => panes.value.find(pane => pane.tabIds.includes(tabId)) ?? null,
         });
 

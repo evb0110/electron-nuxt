@@ -71,7 +71,7 @@ function createOptions(
         pdfViewerRef: ref(null),
         documentViewerRef: ref(null),
         pdfData: ref<Uint8Array | null>(null),
-        openFileWithDjvuCleanup: vi.fn(async (): Promise<TDocumentOpenOutcome> => ({ status: 'cancelled' })),
+        openFileWithViewerLifecycle: vi.fn(async (): Promise<TDocumentOpenOutcome> => ({ status: 'cancelled' })),
         waitForPdfReload: vi.fn(async () => {}),
         loadPdfFromPath: vi.fn(async () => {}),
     };

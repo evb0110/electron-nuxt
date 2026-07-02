@@ -1,6 +1,9 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { Worker } from 'worker_threads';
+import {
+    Worker,
+    type ResourceLimits,
+} from 'worker_threads';
 import { isRecord } from '@contracts/runtimeGuards';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
@@ -43,6 +46,7 @@ interface IRunResultWorkerTaskBaseOptions {
     timeoutMs?: number;
     createCancelMessage?: (reason: 'abort' | 'timeout') => unknown;
     cooperativeCancelDelayMs?: number;
+    resourceLimits?: ResourceLimits;
 }
 
 interface IDecodedResultWorkerTaskOptions<T> extends IRunResultWorkerTaskBaseOptions {decodeResult: TResultWorkerDecoder<T>;}
@@ -197,6 +201,17 @@ function getAbortReason(signal: AbortSignal) {
         return reason;
     }
     return new DOMException('The operation was aborted', 'AbortError');
+}
+
+function createWorkerOptions(workerData: unknown, resourceLimits: ResourceLimits | undefined) {
+    const workerOptions: {
+        workerData: unknown;
+        resourceLimits?: ResourceLimits;
+    } = { workerData };
+    if (resourceLimits) {
+        workerOptions.resourceLimits = resourceLimits;
+    }
+    return workerOptions;
 }
 
 function terminateWorkerAfterTask(worker: Worker) {
@@ -394,7 +409,7 @@ export async function runResultWorkerTask<T>(
     return new Promise<T | unknown>((resolve, reject) => {
         let worker: Worker;
         try {
-            worker = new Worker(workerPath, { workerData });
+            worker = new Worker(workerPath, createWorkerOptions(workerData, options.resourceLimits));
         } catch (error) {
             const buildStartError = createStartError === null
                 ? undefined
@@ -430,7 +445,7 @@ export function startStreamingWorkerTask<T>(
     }
     let worker: Worker;
     try {
-        worker = new Worker(workerPath, { workerData });
+        worker = new Worker(workerPath, createWorkerOptions(workerData, options.resourceLimits));
     } catch (error) {
         throw createStartupError(getErrorMessage(error));
     }

@@ -36,8 +36,8 @@ vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations', () 
 
 const { usePageOpsHandlers } = await import('@app/modules/workspace-shell/composables/usePageOpsHandlers');
 
-function createHarness(options: { isDjvuMode?: Ref<boolean> } = {}) {
-    const { isDjvuMode = ref(false) } = options;
+function createHarness(options: { canMutatePages?: Ref<boolean> } = {}) {
+    const { canMutatePages = ref(true) } = options;
     const invalidateThumbnailPages = vi.fn();
     const invalidatePages = vi.fn();
     const onExportPages = vi.fn();
@@ -63,7 +63,7 @@ function createHarness(options: { isDjvuMode?: Ref<boolean> } = {}) {
         pageContextMenu,
         closePageContextMenu: vi.fn(),
         onExportPages,
-        isDjvuMode,
+        canMutatePages,
         ensureHistoryBaselineForExternalMutation: vi.fn(async () => true),
         reloadWorkingCopyIntoHistory: vi.fn(async () => true),
         preparePdfReloadWaiter,
@@ -220,7 +220,7 @@ describe('usePageOpsHandlers crop reload strategy', () => {
             pageContextMenu,
             preparePdfReloadWaiter,
             setSelectedThumbnailPages,
-        } = createHarness({ isDjvuMode: ref(true) });
+        } = createHarness({ canMutatePages: ref(false) });
 
         await expect(handlers.pageOpsDelete([2], 10)).resolves.toBe(false);
         await expect(handlers.pageOpsExtract([2])).resolves.toBe(false);

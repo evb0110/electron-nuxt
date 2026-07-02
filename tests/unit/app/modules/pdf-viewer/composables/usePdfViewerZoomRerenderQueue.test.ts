@@ -178,8 +178,50 @@ describe('usePdfViewerZoomRerenderQueue', () => {
             expect(reRenderVisiblePagesAndSyncCurrentPage.mock.calls.some(([syncOptions]) => (
                 syncOptions?.resizeAnchor?.page === 2
             ))).toBe(false);
-            expect(setZoomRerenderBusy).toHaveBeenCalledWith(true);
-            expect(setZoomRerenderBusy).toHaveBeenLastCalledWith(false);
+            expect(setZoomRerenderBusy).toHaveBeenCalledWith(
+                true,
+                expect.objectContaining({ reason: expect.any(String) }),
+            );
+            expect(setZoomRerenderBusy).toHaveBeenLastCalledWith(
+                false,
+                expect.objectContaining({ reason: 'queue-end' }),
+            );
+        } finally {
+            queue.cleanupZoomRerenderQueue();
+        }
+    });
+
+    it('signals render completion with the current zoom lock operation id', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(1_000);
+        const {
+            queue,
+            setZoomRerenderBusy,
+        } = createQueueHarness({ isZoomInteractionLocked: () => false });
+
+        try {
+            queue.enqueueZoomSync({
+                source: 'zoom-gesture-change',
+                resizeAnchor: createResizeAnchor(1),
+                zoomLockOperationId: 42,
+            });
+
+            await flushQueuedRerenderFrame();
+
+            expect(setZoomRerenderBusy).toHaveBeenCalledWith(
+                true,
+                expect.objectContaining({
+                    operationId: 42,
+                    reason: 'zoom-watch-enqueue',
+                }),
+            );
+            expect(setZoomRerenderBusy).toHaveBeenLastCalledWith(
+                false,
+                expect.objectContaining({
+                    operationId: 42,
+                    reason: 'queue-end',
+                }),
+            );
         } finally {
             queue.cleanupZoomRerenderQueue();
         }

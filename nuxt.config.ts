@@ -399,6 +399,7 @@ export default defineNuxtConfig({
     },
 
     vite: {
+        worker: {format: 'es'},
         css: {
             preprocessorOptions: {
                 scss: {

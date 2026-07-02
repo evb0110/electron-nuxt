@@ -415,6 +415,55 @@ describe('updates robustness', () => {
         });
     });
 
+    it('routes downloaded update installation through the configured shutdown hook', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+        });
+
+        const updates = await loadUpdatesModule();
+        const installAfterCleanup: Array<() => void> = [];
+        updates.configureUpdateInstallShutdown((install) => {
+            installAfterCleanup.push(install);
+        });
+
+        updates.initializeUpdates(() => undefined);
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: true});
+        expect(mocks.updateSettings).toHaveBeenCalled();
+        expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+
+        const [install] = installAfterCleanup;
+        expect(install).toBeTypeOf('function');
+        if (typeof install !== 'function') {
+            throw new Error('Expected shutdown hook to receive the update installer');
+        }
+        install();
+        expect(mocks.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
+    });
+
+    it('installs downloaded updates immediately when no shutdown hook is configured', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+        });
+
+        const updates = await loadUpdatesModule();
+
+        updates.initializeUpdates(() => undefined);
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: true});
+        expect(mocks.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
+    });
+
     it('throttles download progress broadcasts but still flushes the terminal update immediately', async () => {
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');

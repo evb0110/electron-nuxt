@@ -99,18 +99,8 @@ export async function loadSettings(): Promise<ISettingsData> {
     return parsed;
 }
 
-export async function saveSettings(settings: ISettingsData) {
-    const safeSettings = sanitizeSettings(settings);
-    const storagePath = getStoragePath();
-    await queueSettingsMutation(async () => {
-        try {
-            await writeSettingsAtomically(storagePath, safeSettings);
-            settingsCache = safeSettings;
-        } catch (err) {
-            logger.error(`Failed to save settings: ${getErrorMessage(err)}`);
-            throw err;
-        }
-    });
+export function resetSettingsCacheAfterUserDataPathChange() {
+    settingsCache = null;
 }
 
 export async function updateSettings(
