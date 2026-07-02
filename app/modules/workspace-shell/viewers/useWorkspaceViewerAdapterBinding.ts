@@ -10,6 +10,8 @@ import type {
 } from '@app/modules/pdf-viewer/public';
 import type { IWorkspaceViewerAdapter } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 
+type TReadableRef<T> = ComputedRef<T> | Ref<T>;
+
 interface IWorkspaceViewerAdapterBindingOptions {
     activeViewerAdapter: ComputedRef<IWorkspaceViewerAdapter | null>;
     annotationCursorMode: Ref<unknown> | ComputedRef<unknown>;
@@ -25,7 +27,7 @@ interface IWorkspaceViewerAdapterBindingOptions {
     dragMode: Ref<boolean>;
     fitMode: Ref<unknown>;
     isAnySaving: Ref<boolean>;
-    isRenderActive: boolean;
+    isRenderActive: TReadableRef<boolean>;
     isResizingSidebar: Ref<boolean>;
     nativePdfSourcePath: Ref<TDocumentRef | null> | ComputedRef<TDocumentRef | null>;
     pageMatches: Ref<unknown> | ComputedRef<unknown>;
@@ -75,7 +77,7 @@ export const useWorkspaceViewerAdapterBinding = (options: IWorkspaceViewerAdapte
             viewMode: options.viewMode.value,
             continuousScroll: options.continuousScroll.value,
             dragMode: options.dragMode.value,
-            isActive: options.isRenderActive,
+            isActive: options.isRenderActive.value,
         };
     }
 

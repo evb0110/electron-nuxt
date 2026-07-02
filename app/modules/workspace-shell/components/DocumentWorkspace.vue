@@ -883,7 +883,7 @@ const {
     dragMode,
     fitMode,
     isAnySaving,
-    isRenderActive,
+    isRenderActive: computed(() => isRenderActive),
     isResizingSidebar,
     nativePdfSourcePath,
     pageMatches: viewerSearchPageMatches,
