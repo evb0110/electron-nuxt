@@ -78,8 +78,10 @@ import {
     setupAppProtocolHandler,
 } from '@electron/protocol';
 import { resetSettingsCacheAfterUserDataPathChange } from '@electron/settings';
+import { configureMacKeychainAccess } from '@electron/security/macKeychainAccess';
 
 app.setName(app.isPackaged ? 'EVB Viewer' : 'EVB Viewer Dev');
+configureMacKeychainAccess(app);
 registerAppProtocolScheme();
 if (process.platform === 'win32') {
     app.setAppUserModelId('com.evb.viewer');
