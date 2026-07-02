@@ -79,7 +79,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Finding 4 Stage D - Save controller port alignment',
     },
     'app/modules/djvu-viewer/components/DjvuViewer.vue': {
-        maxLines: 692,
+        maxLines: 609,
         reason: 'transitional DjVu viewer UI shell after preview runtime, scroll orchestration, and viewer-owned initial placeholder extraction',
         stage: 'Finding 9 Stage B - DjVu preview runtime and scroll controller extraction',
     },

@@ -313,7 +313,6 @@ const workspaceLoadErrorDescription = computed(() => {
     }
     return t('errors.workspace.loadDescriptionWithMessage', { message });
 });
-
 const hasPdf = computed(() => {
     const value = mountedWorkspace.value?.hasPdf;
     if (typeof value === 'boolean') {

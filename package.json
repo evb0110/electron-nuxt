@@ -179,6 +179,7 @@
     "@electron/asar": "^3.4.1",
     "@iconify-json/circle-flags": "^1.2.10",
     "@iconify-json/ph": "^1.2.2",
+    "@napi-rs/canvas": "0.1.100",
     "@nuxt/eslint": "^1.15.2",
     "@nuxt/icon": "^2.2.3",
     "@nuxt/ui": "^4.8.2",

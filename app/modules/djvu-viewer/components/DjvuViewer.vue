@@ -69,7 +69,6 @@ import DjvuPageContent from '@app/modules/djvu-viewer/components/DjvuPageContent
 import { clamp } from 'es-toolkit/math';
 import {
     getSpreadStartForPage,
-    getViewColumnCount,
     isStandaloneSpreadPage,
 } from '@app/utils/pdfViewMode';
 import {
@@ -78,6 +77,7 @@ import {
 } from '@app/modules/djvu-viewer/runtime/useDjvuPreviewRuntime';
 import { useDjvuContinuousScrollController } from '@app/modules/djvu-viewer/runtime/useDjvuContinuousScrollController';
 import { useDjvuPageFlipWheelController } from '@app/modules/djvu-viewer/runtime/useDjvuPageFlipWheelController';
+import { useDjvuViewerLayout } from '@app/modules/djvu-viewer/runtime/useDjvuViewerLayout';
 import {
     capturePageAnchorScrollSnapshot,
     restorePageAnchorScrollSnapshot,
@@ -118,10 +118,7 @@ const { t } = useTypedI18n();
 const DJVU_BASE_MARGIN = 16;
 const DJVU_CONTINUOUS_OVERSCAN_VIEWPORTS = 2;
 const DJVU_CONTINUOUS_RENDER_MARGIN_PAGES = 3;
-const DJVU_PREVIEW_DEVICE_PIXEL_RATIO_CAP = 1;
 const DJVU_PAGE_SNAPSHOT_SELECTOR = '[data-page-number]';
-const DJVU_BASE_UNITS_PER_INCH = 72;
-const DJVU_FALLBACK_DPI = 300;
 
 const viewerContainer = ref<HTMLElement | null>(null);
 const pageElements = new Map<number, HTMLElement>();
@@ -160,52 +157,6 @@ const renderedPagesSurfaceClass = computed(() => {
     ];
 });
 
-const continuousScrollSurfaceWidth = computed(() => {
-    if (!isContinuousScroll.value) {
-        return 0;
-    }
-
-    const maxPageWidth = pageSizes.value.reduce((maxWidth, pageSize, index) => {
-        const scale = getPageDisplayScale(index + 1);
-        return Math.max(maxWidth, Math.round(pageSize.width * scale));
-    }, 0);
-
-    return Math.max(
-        containerWidth.value,
-        maxPageWidth + DJVU_BASE_MARGIN * 2,
-        1,
-    );
-});
-
-function getFitHeightAvailableHeight() {
-    return Math.max(1, containerHeight.value - DJVU_BASE_MARGIN * 2);
-}
-
-function getPageCssScale(pageSize: IDjvuPageSize | null | undefined) {
-    const dpi = pageSize?.dpi;
-    const safeDpi = typeof dpi === 'number' && Number.isFinite(dpi) && dpi > 0
-        ? dpi
-        : DJVU_FALLBACK_DPI;
-    return DJVU_BASE_UNITS_PER_INCH / safeDpi;
-}
-
-function getPageBaseWidth(pageSize: IDjvuPageSize) {
-    return pageSize.width * getPageCssScale(pageSize);
-}
-
-function getPageBaseHeight(pageSize: IDjvuPageSize) {
-    return pageSize.height * getPageCssScale(pageSize);
-}
-
-function resolveFitHeightZoomForPageSize(pageSize: IDjvuPageSize | null | undefined) {
-    const baseHeight = pageSize ? getPageBaseHeight(pageSize) : 0;
-    if (!baseHeight || baseHeight <= 0) {
-        return manualZoom.value;
-    }
-
-    return Math.max(0.1, getFitHeightAvailableHeight() / baseHeight);
-}
-
 const manualZoom = computed(() => {
     const candidate = zoom ?? 1;
     if (!Number.isFinite(candidate) || candidate <= 0) {
@@ -213,65 +164,25 @@ const manualZoom = computed(() => {
     }
     return candidate;
 });
-const currentSpreadWidth = computed(() => {
-    const pageNumbers = renderedPageNumbers.value;
-    if (pageNumbers.length === 0) {
-        return null;
-    }
-    let total = 0;
-    for (const pageNumber of pageNumbers) {
-        const pageSize = pageSizes.value[pageNumber - 1];
-        if (pageSize && pageSize.width > 0) {
-            total += getPageBaseWidth(pageSize);
-        }
-    }
-    return total > 0 ? total : null;
-});
 
-function fitWidthAvailable() {
-    // Continuous scroll stacks pages vertically (single column).
-    // Page-flip may show multi-column spreads.
-    const columns = isContinuousScroll.value
-        ? 1
-        : getViewColumnCount(viewMode.value, totalPages.value);
-    return Math.max(1, containerWidth.value - DJVU_BASE_MARGIN * (columns + 1));
-}
-
-function resolveFitHeightZoom() {
-    const currentPageSize = pageSizes.value[currentPage.value - 1] ?? pageSizes.value[0] ?? null;
-    return resolveFitHeightZoomForPageSize(currentPageSize);
-}
-
-function resolveFitWidthBaseWidth() {
-    const currentPageSize = pageSizes.value[currentPage.value - 1];
-    const baseWidth = isContinuousScroll.value
-        ? (currentPageSize ? getPageBaseWidth(currentPageSize) : null)
-        : currentSpreadWidth.value;
-    return baseWidth && baseWidth > 0 ? baseWidth : null;
-}
-
-function resolveFitWidthZoom() {
-    const baseWidth = resolveFitWidthBaseWidth();
-    if (baseWidth === null) {
-        return manualZoom.value;
-    }
-
-    return Math.max(0.1, fitWidthAvailable() / baseWidth);
-}
-
-const effectiveZoom = computed(() => {
-    if (zoomMode.value === 'custom') {
-        return manualZoom.value;
-    }
-
-    if (zoomMode.value === 'fit-height') {
-        return resolveFitHeightZoom();
-    }
-
-    // Fit-width: use current page/spread width for the displayed zoom %.
-    // In continuous scroll each page is scaled independently in getPageShellStyle;
-    // effectiveZoom reflects the current page for the toolbar display.
-    return resolveFitWidthZoom();
+const {
+    continuousScrollSurfaceWidth,
+    effectiveZoom,
+    getNeededDeviceWidth,
+    getPageDisplayScale,
+    syncHorizontalScrollForZoomMode,
+} = useDjvuViewerLayout({
+    containerHeight,
+    containerWidth,
+    currentPage,
+    getRenderedPageNumbers: () => renderedPageNumbers.value,
+    isContinuousScroll,
+    manualZoom,
+    pageSizes,
+    totalPages,
+    viewMode,
+    viewerContainer,
+    zoomMode,
 });
 
 function syncRuntimeLoadedPages() {
@@ -318,58 +229,6 @@ function getPageShellStyle(pageNumber: number) {
             }
             : {}),
     };
-}
-
-function getPageZoom(pageNumber: number) {
-    const pageSize = pageSizes.value[pageNumber - 1];
-    if (isContinuousScroll.value && pageSize) {
-        if (zoomMode.value === 'fit-width' && pageSize.width > 0) {
-            return Math.max(0.1, fitWidthAvailable() / getPageBaseWidth(pageSize));
-        }
-        if (zoomMode.value === 'fit-height') {
-            return resolveFitHeightZoomForPageSize(pageSize);
-        }
-    }
-
-    return effectiveZoom.value;
-}
-
-function getPageDisplayScale(pageNumber: number) {
-    const pageSize = pageSizes.value[pageNumber - 1];
-    if (!pageSize) {
-        return 1;
-    }
-
-    return getPageZoom(pageNumber) * getPageCssScale(pageSize);
-}
-
-function getNeededDeviceWidth(pageNumber: number) {
-    const pageSize = pageSizes.value[pageNumber - 1];
-    if (!pageSize) {
-        return 1;
-    }
-
-    const cssWidth = Math.max(1, Math.round(pageSize.width * getPageDisplayScale(pageNumber)));
-    const devicePixelRatio = typeof window !== 'undefined'
-        ? Math.min(window.devicePixelRatio || 1, DJVU_PREVIEW_DEVICE_PIXEL_RATIO_CAP)
-        : 1;
-    return Math.max(1, Math.ceil(cssWidth * devicePixelRatio));
-}
-
-function syncHorizontalScrollForZoomMode() {
-    const container = viewerContainer.value;
-    if (!container) {
-        return;
-    }
-
-    if (zoomMode.value === 'fit-width') {
-        container.scrollLeft = 0;
-        return;
-    }
-
-    if (zoomMode.value === 'fit-height' && container.scrollWidth <= container.clientWidth) {
-        container.scrollLeft = 0;
-    }
 }
 
 function scrollActiveSpreadIntoView() {
