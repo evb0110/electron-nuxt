@@ -4,6 +4,7 @@ import type {
     IPdfViewerTransactionRenderRequest,
     TPdfViewerTransactionPriority,
 } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
+import { createDocumentViewportRenderRequest } from '@app/utils/document-viewer/viewport/createDocumentViewportRenderRequest';
 
 export interface ICreatePdfViewerTransactionRenderRequestOptions {
     transaction: IPdfViewerTransaction;
@@ -24,22 +25,19 @@ export interface ICreatePdfViewerTransactionRenderRequestOptions {
 export function createPdfViewerTransactionRenderRequest(
     options: ICreatePdfViewerTransactionRenderRequestOptions,
 ): IPdfViewerTransactionRenderRequest {
-    const range = options.range ?? options.transaction.target?.range ?? {
-        start: options.transaction.target?.page ?? 1,
-        end: options.transaction.target?.page ?? 1,
-    };
     return {
-        transactionId: options.transaction.id,
-        renderRequestId: options.renderRequestId,
-        documentVersion: options.transaction.documentRef.documentVersion,
-        renderVersion: options.renderVersion,
-        source: options.transaction.source,
-        range,
-        requiredRange: options.requiredRange ?? range,
-        buffer: options.buffer ?? 0,
-        preserveRenderedPages: options.preserveRenderedPages ?? false,
-        preserveInFlightRequiredPages: options.preserveInFlightRequiredPages ?? false,
-        forceRerender: options.forceRerender ?? false,
+        ...createDocumentViewportRenderRequest({
+            transaction: options.transaction,
+            renderRequestId: options.renderRequestId,
+            renderVersion: options.renderVersion,
+            range: options.range,
+            requiredRange: options.requiredRange,
+            buffer: options.buffer,
+            preserveRenderedPages: options.preserveRenderedPages,
+            preserveInFlightRequiredPages: options.preserveInFlightRequiredPages,
+            forceRerender: options.forceRerender,
+            priority: options.priority ?? 'authoritative',
+        }),
         ...(options.renderWindowOverride ? { renderWindowOverride: options.renderWindowOverride } : {}),
         ...(options.maxCanvasPixelsOverride !== undefined
             ? { maxCanvasPixelsOverride: options.maxCanvasPixelsOverride }

@@ -23,7 +23,7 @@ function getDispatcherWindow() {
     return typeof window === 'undefined' ? null : window;
 }
 
-export function installDirectOpenAutomationDispatcher() {
+function installDirectOpenAutomationDispatcher() {
     const dispatcherWindow = getDispatcherWindow();
     if (!dispatcherWindow) {
         return () => {};

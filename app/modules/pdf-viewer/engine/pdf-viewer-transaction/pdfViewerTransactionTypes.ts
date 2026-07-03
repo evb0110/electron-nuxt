@@ -1,6 +1,19 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { TPdfViewMode } from '@contracts/shared';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { TPdfRerenderSource } from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
+import type {
+    IDocumentViewportDocumentRef,
+    IDocumentViewportRenderRequest,
+    IDocumentViewportTransactionBase,
+    IDocumentViewportTransactionBeginEvent,
+    IDocumentViewportTransactionCancellation,
+    IDocumentViewportTransactionCancelEvent,
+    IDocumentViewportTransactionAdvanceEvent,
+    IDocumentViewportTransactionConsumeFitRenderHandoffEvent,
+    IDocumentViewportTransactionMachineState,
+    TDocumentViewportTransactionState,
+} from '@app/utils/document-viewer/viewport/documentViewportTransactionTypes';
 
 export type TPdfViewerTransactionKind =
     | 'navigation'
@@ -34,16 +47,7 @@ export type TPdfViewerTransactionSource =
     | 'continuous-warm'
     | 'dpr-change';
 
-export type TPdfViewerTransactionState =
-    | 'preparing'
-    | 'layout-ready'
-    | 'visible-range-committed'
-    | 'scroll-applied'
-    | 'render-requested'
-    | 'render-settled'
-    | 'current-page-committed'
-    | 'settled'
-    | 'cancelled';
+export type TPdfViewerTransactionState = TDocumentViewportTransactionState;
 
 export type TPdfViewerTransactionPriority =
     | 'authoritative'
@@ -51,30 +55,16 @@ export type TPdfViewerTransactionPriority =
     | 'warm'
     | 'recovery';
 
-export interface IPdfViewerTransactionDocumentRef {
-    document: PDFDocumentProxy | null;
-    documentLoadToken: number;
-    documentVersion: number;
-}
-
-export interface IPdfViewerTransactionTarget {
-    page: number;
-    range: IPageRange;
-    anchor: 'top' | 'center' | 'bottom' | 'marker' | null;
-    markerRect?: {
-        left: number;
-        top: number;
-        width: number;
-        height: number;
-    } | null;
-}
+export interface IPdfViewerTransactionDocumentRef extends IDocumentViewportDocumentRef<PDFDocumentProxy> {}
 
 export interface IPdfViewerTransactionFitPlan {
     mode: 'none' | 'fit-width' | 'fit-height';
     scalePage: number | null;
     hydrateRange: IPageRange | null;
+    viewMode: TPdfViewMode | null;
     invalidateRangeAfterScaleChange: boolean;
     suppressLegacyPagedRowRender: boolean;
+    pagedTargetRenderHandoff: 'pending' | 'consumed' | null;
 }
 
 export interface IPdfViewerTransactionScrollPlan {
@@ -84,105 +74,64 @@ export interface IPdfViewerTransactionScrollPlan {
     holdProgrammaticNavigationMs: number;
 }
 
-export interface IPdfViewerTransactionRenderRequest {
-    transactionId: number;
-    renderRequestId: number;
-    documentVersion: number;
-    renderVersion: number;
-    source: TPdfRerenderSource | TPdfViewerTransactionSource;
-    range: IPageRange;
-    requiredRange: IPageRange;
-    buffer: number;
-    preserveRenderedPages: boolean;
-    preserveInFlightRequiredPages: boolean;
-    forceRerender: boolean;
+export interface IPdfViewerTransactionRenderRequest extends IDocumentViewportRenderRequest<
+    undefined,
+    number,
+    number,
+    TPdfRerenderSource | TPdfViewerTransactionSource,
+    TPdfViewerTransactionPriority
+> {
     renderWindowOverride?: IPageRange | undefined;
     maxCanvasPixelsOverride?: number | undefined;
     prioritizeTextLayer?: boolean | undefined;
-    priority: TPdfViewerTransactionPriority;
 }
 
-export interface IPdfViewerTransactionCancellation {
-    reason:
-        | 'superseded'
-        | 'document-changed'
-        | 'reload'
-        | 'zoom'
-        | 'resize'
-        | 'user-scroll'
-        | 'inactive'
-        | 'timeout'
-        | 'disposed';
-    supersededByTransactionId?: number | undefined;
-    cancelInFlightRenders: boolean;
-    bumpRenderVersion: boolean;
-    clearTimers: boolean;
-    preserveVisualContent: boolean;
-}
+export type TPdfViewerTransactionCancellationReason =
+    | 'superseded'
+    | 'document-changed'
+    | 'reload'
+    | 'zoom'
+    | 'resize'
+    | 'user-scroll'
+    | 'inactive'
+    | 'timeout'
+    | 'disposed';
 
-export interface IPdfViewerTransaction {
-    id: number;
-    kind: TPdfViewerTransactionKind;
-    source: TPdfViewerTransactionSource;
-    state: TPdfViewerTransactionState;
-    documentRef: IPdfViewerTransactionDocumentRef;
-    target: IPdfViewerTransactionTarget | null;
-    fitPlan: IPdfViewerTransactionFitPlan;
-    scrollPlan: IPdfViewerTransactionScrollPlan | null;
-    renderRequest: IPdfViewerTransactionRenderRequest | null;
-    createdAtMs: number;
-    userViewportInteractionEpoch: number;
-    cancellation: IPdfViewerTransactionCancellation | null;
-}
+export interface IPdfViewerTransactionCancellation extends IDocumentViewportTransactionCancellation<TPdfViewerTransactionCancellationReason> {}
 
-export interface IPdfViewerTransactionMachineState {
-    active: IPdfViewerTransaction | null;
-    cancelled: IPdfViewerTransaction[];
-    settled: IPdfViewerTransaction | null;
-    nextTransactionId: number;
-    nextRenderRequestId: number;
-    renderVersion: number;
-}
+export interface IPdfViewerTransaction extends IDocumentViewportTransactionBase<
+    TPdfViewerTransactionKind,
+    TPdfViewerTransactionSource,
+    PDFDocumentProxy,
+    IPageRange,
+    IPdfViewerTransactionRenderRequest,
+    IPdfViewerTransactionFitPlan,
+    IPdfViewerTransactionScrollPlan,
+    IPdfViewerTransactionCancellation
+> {}
 
-export type TPdfViewerTransactionAdvanceState = Exclude<
-    TPdfViewerTransactionState,
-    'preparing' | 'cancelled'
->;
+export interface IPdfViewerTransactionMachineState extends IDocumentViewportTransactionMachineState<IPdfViewerTransaction> {}
 
-export interface IPdfViewerTransactionBeginEvent {
-    type: 'BEGIN';
-    transaction: Omit<
-        IPdfViewerTransaction,
-        'id' | 'state' | 'renderRequest' | 'cancellation'
-    > & {
-        id?: number | undefined;
-        state?: TPdfViewerTransactionState | undefined;
-        renderRequest?: IPdfViewerTransactionRenderRequest | null | undefined;
-    };
-}
+export interface IPdfViewerTransactionBeginEvent extends IDocumentViewportTransactionBeginEvent<IPdfViewerTransaction> {}
 
-export interface IPdfViewerTransactionAdvanceEvent {
-    type: 'ADVANCE';
-    transactionId: number;
-    state: TPdfViewerTransactionAdvanceState;
-    renderRequest?: IPdfViewerTransactionRenderRequest | null | undefined;
-}
+export interface IPdfViewerTransactionAdvanceEvent extends IDocumentViewportTransactionAdvanceEvent<IPdfViewerTransaction> {}
 
-export interface IPdfViewerTransactionCancelEvent {
-    type: 'CANCEL';
-    transactionId?: number | undefined;
-    cancellation: IPdfViewerTransactionCancellation;
-}
+export interface IPdfViewerTransactionCancelEvent extends IDocumentViewportTransactionCancelEvent<IPdfViewerTransaction> {}
+
+export interface IPdfViewerTransactionConsumeFitRenderHandoffEvent extends IDocumentViewportTransactionConsumeFitRenderHandoffEvent {}
 
 export type TPdfViewerTransactionEvent =
     | IPdfViewerTransactionBeginEvent
     | IPdfViewerTransactionAdvanceEvent
-    | IPdfViewerTransactionCancelEvent;
+    | IPdfViewerTransactionCancelEvent
+    | IPdfViewerTransactionConsumeFitRenderHandoffEvent;
 
 export const DEFAULT_PDF_VIEWER_TRANSACTION_FIT_PLAN: IPdfViewerTransactionFitPlan = {
     mode: 'none',
     scalePage: null,
     hydrateRange: null,
+    viewMode: null,
     invalidateRangeAfterScaleChange: false,
     suppressLegacyPagedRowRender: false,
+    pagedTargetRenderHandoff: null,
 };

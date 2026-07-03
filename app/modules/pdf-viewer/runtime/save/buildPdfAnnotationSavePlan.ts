@@ -1,4 +1,5 @@
 import type { IPdfLiveAnnotationChangeSummary } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
+import type { IPdfViewerAnnotationSavePlan } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 
 export interface IPdfAnnotationSavePlanInput {
     hasPendingReplayableEmbeddedChanges: boolean;
@@ -9,7 +10,7 @@ export interface IPdfAnnotationSavePlanInput {
 
 export function buildPdfAnnotationSavePlan(
     input: IPdfAnnotationSavePlanInput,
-) {
+): IPdfViewerAnnotationSavePlan {
     if (
         input.hasPendingReplayableEmbeddedChanges
         && !input.hasEditorOnlyAnnotationsPendingMaterialization

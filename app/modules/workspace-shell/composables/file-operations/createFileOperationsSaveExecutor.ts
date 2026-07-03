@@ -1,4 +1,3 @@
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { TPdfSaveMode } from '@app/types/pdfContracts';
 import type { IPdfPersistResult } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -16,10 +15,6 @@ import type {
     IFileOperationsSaveStatePorts,
     IFileOperationsSaveViewerPorts,
 } from '@app/modules/workspace-shell/composables/file-operations/saveRolePorts';
-import type {
-    IBuildSerializedSaveResultOptions,
-    ISerializationBasePdfBytesOptions,
-} from '@app/modules/workspace-shell/composables/file-operations/createFileOperationsSaveSource';
 
 const RENDERER_SERIALIZED_SAVE_MAX_WORKING_COPY_BYTES = 512 * 1024 * 1024;
 
@@ -59,7 +54,7 @@ interface IFileOperationsOptimizeCopyExecutionConfig {
 
 export interface IFileOperationsSaveExecutorPorts {
     state: Pick<IFileOperationsSaveStatePorts, 'documentIdentity' | 'metadata'>;
-    pdf: Pick<IFileOperationsSavePdfPorts, 'source'>;
+    pdf: Pick<IFileOperationsSavePdfPorts, 'source' | 'serialization'>;
     persistence: IFileOperationsSavePersistencePorts;
     viewer: Pick<IFileOperationsSaveViewerPorts, 'markup' | 'shapes'>;
 }
@@ -100,31 +95,9 @@ export interface IFileOperationsSaveExecutorCompletionServices {
     restorePreparedShapeState: (snapshot: unknown) => Promise<void>;
 }
 
-export interface IFileOperationsSaveExecutorSourceServices {
-    buildAnnotationSavePlan: (
-        opts?: ISerializationBasePdfBytesOptions,
-    ) => {
-        route: string;
-        reason: string; 
-    };
-    buildSerializedSaveResult: (
-        rawData: Uint8Array,
-        pendingTexts: Map<string, string> | null,
-        pendingDeletes: IAnnotationCommentSummary[] | null,
-        opts?: IBuildSerializedSaveResultOptions,
-    ) => Promise<{
-        finalBytes: Uint8Array;
-        saveMode: TPdfSaveMode;
-    } | null>;
-    getSerializationBasePdfBytes: (
-        opts?: ISerializationBasePdfBytesOptions,
-    ) => Promise<Uint8Array | null>;
-}
-
 export interface IFileOperationsSaveExecutorServices {
     clearSaveIndicator: (mode: TSaveFlowMode) => void;
     completion: IFileOperationsSaveExecutorCompletionServices;
-    source: IFileOperationsSaveExecutorSourceServices;
     timedSavePhase: <T>(
         phase: string,
         operation: () => Promise<T>,
@@ -241,7 +214,11 @@ export function createFileOperationsSaveExecutor(
                 untitledBookmarkLabel: state.metadata.untitledBookmarkLabel ?? '',
                 totalPages: state.metadata.totalPages?.value ?? pdf.source.pdfDocument.value?.numPages ?? 0,
             },
-            source: {getSourcePdfData: pdf.source.getSourcePdfData},
+            source: {
+                getSourcePdfData: pdf.source.getSourcePdfData,
+                serializePdfForSave: pdf.serialization.serializePdfForSave,
+            },
+            serializeResult: true,
         };
     }
 
@@ -334,55 +311,6 @@ export function createFileOperationsSaveExecutor(
         } finally {
             await completion.restorePreparedShapeState(preparedShapeStateSnapshot);
         }
-    }
-
-    async function saveSerializedChanges(
-        rawData: Uint8Array | null,
-        pendingTexts: Map<string, string> | null,
-        pendingDeletes: IAnnotationCommentSummary[] | null,
-        annotationCommentsSnapshot: IAnnotationCommentSummary[],
-        shapeStateDirty: boolean,
-        includeManagedShapesForLiveSource: boolean,
-        forceRewrite: boolean,
-        reloadWaiter: IPostSaveReloadWaiter | null,
-        mode: TSaveFlowMode,
-        saveMode: TPdfSaveMode,
-        persist: (
-            data: Uint8Array,
-            opts: IPersistSerializedOptions,
-        ) => Promise<IPdfPersistResult>,
-        preserveLoadedSource = false,
-        expectedWorkingPath: TDocumentRef | null = null,
-        saveStateSnapshot?: ISaveStateSnapshot,
-    ) {
-        if (!rawData) {
-            return false;
-        }
-
-        const saveResult = await services.source.buildSerializedSaveResult(rawData, pendingTexts, pendingDeletes, {
-            includeShapes: shapeStateDirty || includeManagedShapesForLiveSource,
-            rewriteShapeState: shapeStateDirty,
-            forceRewrite,
-            saveMode,
-            annotationCommentsSnapshot,
-        });
-        if (!saveResult) {
-            return false;
-        }
-        const completionSaveStateSnapshot = preserveLoadedSource && !reloadWaiter
-            ? completion.refreshAnnotationSaveStateSnapshot(saveStateSnapshot)
-            : saveStateSnapshot;
-
-        return persistSerializedSaveResult(
-            saveResult,
-            shapeStateDirty,
-            reloadWaiter,
-            mode,
-            persist,
-            preserveLoadedSource,
-            expectedWorkingPath,
-            completionSaveStateSnapshot,
-        );
     }
 
     async function saveUnserializedWorkingCopy(
@@ -483,41 +411,37 @@ export function createFileOperationsSaveExecutor(
     }
 
     async function runSerializedSaveFlow(
-        rawData: Uint8Array | null,
-        pendingTexts: Map<string, string> | null,
-        pendingDeletes: IAnnotationCommentSummary[] | null,
-        annotationCommentsSnapshot: IAnnotationCommentSummary[],
+        saveResult: {
+            finalBytes: Uint8Array;
+            saveMode: TPdfSaveMode;
+        } | null,
         shapeStateDirty: boolean,
         reloadWaiter: IPostSaveReloadWaiter | null,
         mode: TSaveFlowMode,
-        saveMode: TPdfSaveMode,
         persist: (
             data: Uint8Array,
             opts: IPersistSerializedOptions,
         ) => Promise<IPdfPersistResult>,
         preserveLoadedSource = false,
-        includeManagedShapesForLiveSource = false,
-        forceRewrite = false,
         expectedWorkingPath: TDocumentRef | null,
         saveStateSnapshot: ISaveStateSnapshot,
         onPersistenceSettled?: () => void,
     ) {
-        const saveSucceeded = await saveSerializedChanges(
-            rawData,
-            pendingTexts,
-            pendingDeletes,
-            annotationCommentsSnapshot,
-            shapeStateDirty,
-            includeManagedShapesForLiveSource,
-            forceRewrite,
-            reloadWaiter,
-            mode,
-            saveMode,
-            persist,
-            preserveLoadedSource,
-            expectedWorkingPath,
-            saveStateSnapshot,
-        );
+        const completionSaveStateSnapshot = preserveLoadedSource && !reloadWaiter
+            ? completion.refreshAnnotationSaveStateSnapshot(saveStateSnapshot)
+            : saveStateSnapshot;
+        const saveSucceeded = saveResult
+            ? await persistSerializedSaveResult(
+                saveResult,
+                shapeStateDirty,
+                reloadWaiter,
+                mode,
+                persist,
+                preserveLoadedSource,
+                expectedWorkingPath,
+                completionSaveStateSnapshot,
+            )
+            : false;
         onPersistenceSettled?.();
         await completion.finalizeSaveReload(reloadWaiter, saveSucceeded, {
             completeSaveStateOnSuccess: Boolean(reloadWaiter),
@@ -805,7 +729,15 @@ export function createFileOperationsSaveExecutor(
             context,
             {allowNativeMutationPlan: false},
         );
-        const rawData = saveTransaction.baseBytes ?? saveTransaction.serializedBytes;
+        const finalBytes = saveTransaction.serializedResult?.finalBytes
+            ?? saveTransaction.serializedBytes
+            ?? saveTransaction.baseBytes;
+        const saveResult = finalBytes
+            ? {
+                finalBytes,
+                saveMode: saveTransaction.serializedResult?.saveMode ?? config.saveMode,
+            }
+            : null;
         const persistenceExpectedWorkingPath = resolveExpectedWorkingPathForPersistence(
             context.savePlan.staleTargetProtection.expectedWorkingPath,
             context.savePlan.staleTargetProtection.expectedOriginalPath,
@@ -814,18 +746,12 @@ export function createFileOperationsSaveExecutor(
         try {
             if (persistenceExpectedWorkingPath) {
                 saveSucceeded = await runSerializedSaveFlow(
-                    rawData,
-                    saveTransaction.pendingEmbeddedTextUpdates,
-                    saveTransaction.pendingEmbeddedAnnotationDeletes,
-                    saveTransaction.annotationCommentsSnapshot,
+                    saveResult,
                     context.shapeStateDirty,
                     context.reloadWaiter.current,
                     config.mode,
-                    config.saveMode,
                     config.persistSerialized,
                     context.savePlan.livePdfjsAnnotationSession.canPreserve,
-                    context.savePlan.pdfjsSourceMaterialization.includeManagedShapesForLiveSource,
-                    config.forceRewrite === true,
                     persistenceExpectedWorkingPath,
                     context.saveStateSnapshot,
                     () => services.clearSaveIndicator(config.mode),

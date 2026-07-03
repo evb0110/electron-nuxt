@@ -24,6 +24,29 @@ export type TPdfViewerSaveTransactionSource =
     | 'serialized-rewrite'
     | 'native-mutation-plan';
 
+export type TPdfViewerAnnotationSaveRoute =
+    | 'source-clean'
+    | 'source-replay'
+    | 'pdfjs-materialize';
+
+export type TPdfViewerAnnotationSaveReason =
+    | 'pending-embedded-annotation-operations'
+    | 'live-pdfjs-ids-covered-by-embedded-operations'
+    | 'unreplayable-live-pdfjs-annotation-ids'
+    | 'unknown-live-pdfjs-annotation-storage'
+    | 'live-pdfjs-annotation-storage'
+    | 'editor-only-annotations-pending-materialization'
+    | 'saved-pdfjs-annotation-baseline-diverged'
+    | 'live-pdfjs-annotation-baseline-diverged'
+    | 'no-live-pdfjs-annotation-work';
+
+export interface IPdfViewerAnnotationSavePlan {
+    route: TPdfViewerAnnotationSaveRoute;
+    expectedCost: 'small' | 'full-document';
+    reason: TPdfViewerAnnotationSaveReason;
+    unreplayableLiveAnnotationIds: string[];
+}
+
 export interface IPdfViewerSaveTransactionNativeCapabilities {
     hasNativePdfMutationCapability: boolean;
     canPersistNativeMetadataMutations: boolean;
@@ -97,12 +120,19 @@ export interface IPdfViewerConsumedPendingEmbeddedMutations {
     commit(): void;
 }
 
+export interface IPdfViewerSaveTransactionSerializedResult {
+    finalBytes: Uint8Array;
+    saveMode: TPdfSaveMode;
+    source: TPdfViewerSaveTransactionSource;
+}
+
 export interface IPdfViewerSaveTransactionResult {
     source: TPdfViewerSaveTransactionSource;
     baseBytes: Uint8Array | null;
     serializedBytes: Uint8Array | null;
+    serializedResult: IPdfViewerSaveTransactionSerializedResult | null;
     nativeMutationPlan: INativePdfMutationPlan | null;
-    annotationSavePlan: unknown | null;
+    annotationSavePlan: IPdfViewerAnnotationSavePlan;
     annotationCommentsSnapshot: IAnnotationCommentSummary[];
     pendingEmbeddedTextUpdates: Map<string, string>;
     pendingEmbeddedAnnotationDeletes: IAnnotationCommentSummary[];

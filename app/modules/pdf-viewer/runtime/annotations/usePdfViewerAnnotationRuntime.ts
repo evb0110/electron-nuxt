@@ -17,6 +17,7 @@ import {
 } from '@app/modules/pdf-viewer/annotations/public';
 import { usePdfShapeTool } from '@app/modules/pdf-viewer/tools/public';
 import { useAnnotationMutationService } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService';
+import { useAnnotationMutationVisualEffects } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationVisualEffects';
 import { usePdfViewerPortalAnnotationHandlers } from '@app/modules/pdf-viewer/runtime/annotations/usePdfViewerPortalAnnotationHandlers';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -253,32 +254,10 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
     const highlightComposable = annotations.highlight;
     const commentCrud = annotations.crud;
     const annotationColorCommands = usePdfAnnotationColorCommands({
-        viewerContainer: options.viewerContainer,
         pdfDocument: options.pdfDocument,
-        annotationSettings: options.annotationSettings,
         annotations,
         annotationCommentModel,
         emitForcedAnnotationMutation,
-        refreshEditedTextMarkupPage: (pageNumber) => {
-            runGuardedTask(
-                () => options.renderVisiblePages(
-                    {
-                        start: pageNumber,
-                        end: pageNumber,
-                    },
-                    {
-                        preserveRenderedPages: true,
-                        forceRerender: true,
-                        bufferOverride: 0,
-                    },
-                ),
-                {
-                    category: 'user-visible-operation',
-                    scope: 'annotations',
-                    message: `Failed to refresh edited text markup page ${pageNumber}`,
-                },
-            );
-        },
     });
     const {
         focusAnnotationComment,
@@ -307,6 +286,8 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         markAnnotationLocallyDeleted: annotationCommentModel.markLocallyDeleted,
         restoreAnnotationLocally: annotationCommentModel.restoreLocally,
         removeAnnotationFromInternalCache: annotationCommentModel.removeFromInternalCache,
+        findAnnotationCommentByStableKey: stableKey =>
+            annotationCommentsCache.value.find(comment => comment.stableKey === stableKey) ?? null,
         clearPendingMarkerMoves: annotationCommentModel.clearPendingMarkerMoves,
         handleMarkerMove: annotationCommentModel.handleMarkerMove,
         findEditorForComment: commentCrud.findEditorForComment,
@@ -322,10 +303,18 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         flushAnnotationCommentsForSave: annotations.commentSync.syncAnnotationComments,
     });
 
+    useAnnotationMutationVisualEffects({
+        viewerContainer: options.viewerContainer,
+        annotationCommentsCache,
+        annotationSettings: options.annotationSettings,
+        renderVisiblePages: options.renderVisiblePages,
+        visualEffects: annotationMutationService.visualEffects,
+    });
+
     const portalHandlers = usePdfViewerPortalAnnotationHandlers({
         activeCommentStableKey,
         suppressAnnotationId: managedEmbeddedPdfShapes.suppressAnnotationId,
-        removeAnnotationFromDom: commentCrud.removeAnnotationFromDom,
+        removeAnnotationFromDom: annotationMutationService.enqueueAnnotationDomRemoval,
         refreshHiddenAnnotationPage: managedEmbeddedPdfShapes.refreshHiddenAnnotationPage,
         emitAnnotationOpenNote: options.emitAnnotationOpenNote,
         emitAnnotationContextMenu: options.emitAnnotationContextMenu,
@@ -337,10 +326,6 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
             },
             { source: 'user' },
         ),
-        findEditorForComment: commentCrud.findEditorForComment,
-        addPendingCommentEditorKey: key => annotations.commentSync.pendingCommentEditorKeys.add(key),
-        getEditorPendingKey: annotations.identity.getEditorPendingKey,
-        markModified: emitForcedAnnotationMutation,
         getAnnotationTool: () => options.annotationTool.value,
         cancelAnnotationTool: options.emitAnnotationToolCancel,
         isCommentPlacementActive: () => highlightComposable.isPlacingComment.value,

@@ -8,8 +8,10 @@ import {
     ref,
     shallowRef,
 } from 'vue';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePdfViewerTransactionController } from '@app/modules/pdf-viewer/runtime/transactions/usePdfViewerTransactionController';
 import type { IPdfNavigationState } from '@app/modules/pdf-viewer/runtime/navigation/navigationMachine';
+import { cast } from '@tests/helpers/cast';
 
 function createNavigationState(overrides: Partial<IPdfNavigationState> = {}) {
     return shallowRef<IPdfNavigationState>({
@@ -229,6 +231,99 @@ describe('usePdfViewerTransactionController', () => {
                 reason: 'reload',
                 bumpRenderVersion: true,
             },
+        });
+    });
+
+    it('consumes active and settled paged-target fit render handoffs once', () => {
+        const document = cast<PDFDocumentProxy>({});
+        const controller = usePdfViewerTransactionController({
+            navigationState: createNavigationState({
+                status: 'idle',
+                targetPage: null,
+            }),
+            currentPage: ref(1),
+            visibleRange: ref({
+                start: 1,
+                end: 1,
+            }),
+            numPages: ref(10),
+            viewMode: ref('single'),
+            pdfDocument: shallowRef(document),
+            userViewportInteractionEpoch: ref(0),
+            getDocumentVersion: () => 3,
+        });
+
+        const activeTransaction = controller.beginTransaction({
+            kind: 'rerender',
+            source: 'fit-paged-target',
+            page: 4,
+            range: {
+                start: 4,
+                end: 5,
+            },
+            fitPlan: {
+                mode: 'fit-height',
+                scalePage: 4,
+                hydrateRange: {
+                    start: 4,
+                    end: 5,
+                },
+                viewMode: 'facing',
+                pagedTargetRenderHandoff: 'pending',
+            },
+        });
+
+        expect(controller.advanceTransaction(activeTransaction?.id ?? 0, 'render-requested')).toBe(true);
+        expect(controller.consumePagedTargetFitRenderHandoff({
+            document,
+            fitMode: 'height',
+            page: 4,
+            viewMode: 'facing',
+            continuousScroll: false,
+            isResizing: false,
+        })).toEqual({
+            start: 4,
+            end: 5,
+        });
+        expect(controller.consumePagedTargetFitRenderHandoff({
+            document,
+            fitMode: 'height',
+            page: 4,
+            viewMode: 'facing',
+            continuousScroll: false,
+            isResizing: false,
+        })).toBeNull();
+
+        const settledTransaction = controller.beginTransaction({
+            kind: 'rerender',
+            source: 'fit-paged-target',
+            page: 6,
+            range: {
+                start: 6,
+                end: 6,
+            },
+            fitPlan: {
+                mode: 'fit-width',
+                scalePage: 6,
+                hydrateRange: {
+                    start: 6,
+                    end: 6,
+                },
+                viewMode: 'single',
+                pagedTargetRenderHandoff: 'pending',
+            },
+        });
+        controller.advanceTransaction(settledTransaction?.id ?? 0, 'settled');
+        expect(controller.consumePagedTargetFitRenderHandoff({
+            document,
+            fitMode: 'width',
+            page: 6,
+            viewMode: 'single',
+            continuousScroll: false,
+            isResizing: false,
+        })).toEqual({
+            start: 6,
+            end: 6,
         });
     });
 });

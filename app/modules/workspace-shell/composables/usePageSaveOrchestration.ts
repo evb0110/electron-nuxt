@@ -12,7 +12,6 @@ import type {
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
 import {
-    getEmbeddedMutationBaseData as resolveEmbeddedMutationBaseData,
     usePdfSerialization,
     capturePdfReloadSnapshot,
     createPdfReloadWaiter,
@@ -562,11 +561,16 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     }
 
     async function getEmbeddedMutationBaseData() {
-        return resolveEmbeddedMutationBaseData({
-            hasAnnotationChanges,
-            runSaveTransaction: request => pdfViewerRef.value?.runSaveTransaction(request) ?? Promise.reject(new Error('Missing PDF viewer save transaction')),
-            getSourcePdfData,
+        if (!hasAnnotationChanges()) {
+            return getSourcePdfData();
+        }
+
+        const result = await pdfViewerRef.value?.runSaveTransaction({
+            mode: 'embedded-mutation',
+            forcePdfjsMaterialize: true,
+            serializeResult: false,
         });
+        return result?.serializedBytes ?? result?.baseBytes ?? null;
     }
 
     return {

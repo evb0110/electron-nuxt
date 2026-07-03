@@ -19,7 +19,6 @@ import {
     createFileOperationsSaveExecutor,
     type IPersistSerializedOptions,
 } from '@app/modules/workspace-shell/composables/file-operations/createFileOperationsSaveExecutor';
-import { createFileOperationsSaveSource } from '@app/modules/workspace-shell/composables/file-operations/createFileOperationsSaveSource';
 
 const SLOW_SAVE_PHASE_WARN_MS = 5_000;
 const SLOW_SAVE_TOTAL_WARN_MS = 10_000;
@@ -160,10 +159,7 @@ export const useFileOperationsSaveController = (ports: IFileOperationsSaveAdapte
         lifecycle,
     });
 
-    const {
-        getAnnotationCommentsForSave,
-        prepareSaveContext,
-    } = createFileOperationsSaveContext({
+    const { prepareSaveContext } = createFileOperationsSaveContext({
         state: {
             documentIdentity,
             annotations,
@@ -178,16 +174,6 @@ export const useFileOperationsSaveController = (ports: IFileOperationsSaveAdapte
         lifecycle,
     }, {
         captureSaveStateSnapshot,
-        timedSavePhase,
-    });
-
-    const saveSource = createFileOperationsSaveSource({pdf: {
-        source: pdfSource,
-        serialization,
-    }}, {
-        getAnnotationCommentsForSave,
-        logSavePhase,
-        nowMs,
         timedSavePhase,
     });
 
@@ -209,7 +195,10 @@ export const useFileOperationsSaveController = (ports: IFileOperationsSaveAdapte
             documentIdentity,
             metadata,
         },
-        pdf: {source: pdfSource},
+        pdf: {
+            source: pdfSource,
+            serialization,
+        },
         persistence: {
             file,
             ...(nativeWorkingCopy ? { nativeWorkingCopy } : {}),
@@ -229,7 +218,6 @@ export const useFileOperationsSaveController = (ports: IFileOperationsSaveAdapte
             refreshAnnotationSaveStateSnapshot,
             restorePreparedShapeState,
         },
-        source: saveSource,
         timedSavePhase,
         trackSaveCompleted,
     });

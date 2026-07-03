@@ -415,7 +415,7 @@ describe('useFileOperationsSaveController', () => {
         expect(deps.isSaving.value).toBe(false);
     });
 
-    it('skips serialized persistence when the original target changes after source bytes are prepared', async () => {
+    it('skips serialized persistence when the original target changes after the transaction is prepared', async () => {
         const sourceBytes = createDeferred<Uint8Array>();
         const pendingTexts = new Map<string, string>();
         pendingTexts.set('ann:0:3856R', 'Updated note');
@@ -436,7 +436,7 @@ describe('useFileOperationsSaveController', () => {
         sourceBytes.resolve(new Uint8Array([1]));
 
         await expect(savePromise).resolves.toBe(false);
-        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(deps.saveFile).not.toHaveBeenCalled();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
         expect(deps.restorePendingEmbeddedTextUpdates).toHaveBeenCalledWith(pendingTexts);
@@ -444,7 +444,7 @@ describe('useFileOperationsSaveController', () => {
         expect(deps.isSaving.value).toBe(false);
     });
 
-    it('skips serialized persistence when the working copy target changes after source bytes are prepared', async () => {
+    it('skips serialized persistence when the working copy target changes after the transaction is prepared', async () => {
         const sourceBytes = createDeferred<Uint8Array | null>();
         const pendingTexts = new Map<string, string>();
         pendingTexts.set('ann:0:3856R', 'Updated note');
@@ -464,7 +464,7 @@ describe('useFileOperationsSaveController', () => {
         sourceBytes.resolve(new Uint8Array([1]));
 
         await expect(savePromise).resolves.toBe(false);
-        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(deps.saveFile).not.toHaveBeenCalled();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
         expect(deps.restorePendingEmbeddedTextUpdates).toHaveBeenCalledWith(pendingTexts);
@@ -496,7 +496,7 @@ describe('useFileOperationsSaveController', () => {
 
         await expect(savePromise).resolves.toBe(false);
         expect(cancel).toHaveBeenCalledOnce();
-        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(deps.saveFile).not.toHaveBeenCalled();
         expect(deps.clearPendingPersistedShapeStateForNextReload).toHaveBeenCalledOnce();
         expectWorkspaceSaveNotMarked(deps);
@@ -532,7 +532,7 @@ describe('useFileOperationsSaveController', () => {
 
         await expect(savePromise).resolves.toBe(false);
         expect(trySaveEmbeddedNoteTextUpdates).not.toHaveBeenCalled();
-        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(deps.saveFile).not.toHaveBeenCalled();
         expect(deps.restorePendingEmbeddedTextUpdates).toHaveBeenCalledWith(pendingTexts);
         expectWorkspaceSaveNotMarked(deps);

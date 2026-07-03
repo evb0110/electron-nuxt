@@ -27,8 +27,10 @@ const fitPlan: IPdfViewerTransactionFitPlan = {
     mode: 'none',
     scalePage: null,
     hydrateRange: null,
+    viewMode: null,
     invalidateRangeAfterScaleChange: false,
     suppressLegacyPagedRowRender: false,
+    pagedTargetRenderHandoff: null,
 };
 
 const scrollPlan: IPdfViewerTransactionScrollPlan = {
@@ -187,5 +189,62 @@ describe('pdf viewer transaction reducer', () => {
         expect(warm).toBe(active);
         expect(recovery).toBe(active);
         expect(active.active?.target?.page).toBe(2);
+    });
+
+    it('marks active and settled fit render handoffs as consumed once', () => {
+        const pagedTargetBeginEvent = beginEvent({
+            kind: 'rerender',
+            source: 'fit-paged-target',
+            page: 4,
+        });
+        const active = reducePdfViewerTransactionMachine(
+            createPdfViewerTransactionMachineState(),
+            {
+                ...pagedTargetBeginEvent,
+                transaction: {
+                    ...pagedTargetBeginEvent.transaction,
+                    fitPlan: {
+                        ...fitPlan,
+                        mode: 'fit-height',
+                        scalePage: 4,
+                        hydrateRange: {
+                            start: 4,
+                            end: 4,
+                        },
+                        viewMode: 'single',
+                        pagedTargetRenderHandoff: 'pending',
+                    },
+                },
+            },
+        );
+        const renderRequested = reducePdfViewerTransactionMachine(active, {
+            type: 'ADVANCE',
+            transactionId: active.active?.id ?? 0,
+            state: 'render-requested',
+        });
+        const consumedActive = reducePdfViewerTransactionMachine(renderRequested, {
+            type: 'CONSUME_FIT_RENDER_HANDOFF',
+            transactionId: active.active?.id ?? 0,
+        });
+
+        expect(consumedActive.active).toMatchObject({
+            state: 'current-page-committed',
+            fitPlan: { pagedTargetRenderHandoff: 'consumed' },
+        });
+
+        const settled = reducePdfViewerTransactionMachine(renderRequested, {
+            type: 'ADVANCE',
+            transactionId: active.active?.id ?? 0,
+            state: 'settled',
+        });
+        const consumedSettled = reducePdfViewerTransactionMachine(settled, {
+            type: 'CONSUME_FIT_RENDER_HANDOFF',
+            transactionId: active.active?.id ?? 0,
+        });
+
+        expect(consumedSettled.settled).toMatchObject({
+            state: 'settled',
+            fitPlan: { pagedTargetRenderHandoff: 'consumed' },
+        });
     });
 });

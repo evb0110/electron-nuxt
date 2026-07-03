@@ -20,15 +20,11 @@ export { usePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdf
 export { usePdfSerialization } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';
 export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 export type { INativePdfMutationPlan } from '@app/modules/pdf-viewer/runtime/save/buildNativePdfMutationPlanForSave';
-export { buildPdfAnnotationSavePlan } from '@app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan';
-export { getEmbeddedMutationBaseData } from '@app/modules/pdf-viewer/runtime/save/getEmbeddedMutationBaseData';
-export { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
 export {
     collectLivePdfJsAnnotationChangeFingerprint,
     collectLivePdfJsAnnotationChangeIds,
     resetLivePdfJsAnnotationStorageModifiedState,
 } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
-export { getPdfAnnotationIdFromStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
 export { annotationCommentsMatch } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/annotationCommentsMatch';
 export { selectPreferredAnnotationComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-identity/selectPreferredAnnotationComment';
 export { mergeAnnotationCommentSaveSnapshot } from '@app/modules/pdf-viewer/engine/annotation-comment-save-snapshot/mergeAnnotationCommentSaveSnapshot';

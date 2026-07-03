@@ -19,7 +19,6 @@ import { getCommentText } from '@app/modules/pdf-viewer/engine/pdf-annotation-ed
 import { hasEditorCommentPayload } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/hasEditorCommentPayload';
 import { errorToLogText } from '@app/modules/pdf-viewer/engine/annotation-css-utils/errorToLogText';
 import { escapeCssAttr } from '@app/modules/pdf-viewer/engine/annotation-css-utils/escapeCssAttr';
-import { removeAnnotationCommentDom } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/removeAnnotationCommentDom';
 import { findAnnotationSummaryFromPoint as findAnnotationSummaryFromPointHelper } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findAnnotationSummaryFromPoint';
 import { findEditorByAnnotationElementId as findEditorByAnnotationElementIdHelper } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findEditorByAnnotationElementId';
 import { findEditorForComment as findEditorForCommentHelper } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findEditorForComment';
@@ -1103,22 +1102,12 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         );
     }
 
-    function removeAnnotationFromDom(comment: IAnnotationCommentSummary) {
-        const container = viewerContainer.value;
-        if (!container) {
-            return;
-        }
-
-        removeAnnotationCommentDom(container, comment);
-    }
-
     return {
         findEditorForComment,
         findEditorByAnnotationElementId,
         focusAnnotationComment,
         updateAnnotationComment,
         deleteAnnotationComment,
-        removeAnnotationFromDom,
         findEditorFromTarget,
         findEditorSummaryFromTarget,
         findAnnotationSummaryFromTarget,

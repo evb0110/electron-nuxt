@@ -16,7 +16,18 @@ import {
     type IFileOperationsSaveExecutorServices,
 } from '@app/modules/workspace-shell/composables/file-operations/createFileOperationsSaveExecutor';
 import type { TWorkspaceSavePersistenceRoute } from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePlan';
+import type {
+    IPdfViewerAnnotationSavePlan,
+    IPdfViewerSaveTransactionResult,
+} from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 import { cast } from '@tests/helpers/cast';
+
+const cleanAnnotationSavePlan: IPdfViewerAnnotationSavePlan = {
+    route: 'source-clean',
+    expectedCost: 'small',
+    reason: 'no-live-pdfjs-annotation-work',
+    unreplayableLiveAnnotationIds: [],
+};
 
 function createPersistResult() {
     return {
@@ -27,10 +38,7 @@ function createPersistResult() {
     };
 }
 
-function createExecutorFixture(overrides: {runSaveTransaction?: () => Promise<{
-    baseBytes: Uint8Array | null;
-    serializedBytes: Uint8Array | null;
-}>;} = {}) {
+function createExecutorFixture(overrides: {runSaveTransaction?: () => Promise<Partial<IPdfViewerSaveTransactionResult>>;} = {}) {
     const ports: IFileOperationsSaveExecutorPorts = {
         state: {
             documentIdentity: {
@@ -42,24 +50,31 @@ function createExecutorFixture(overrides: {runSaveTransaction?: () => Promise<{
                 bookmarksDirty: ref(false),
             },
         },
-        pdf: {source: {
-            pdfDocument: shallowRef(null),
-            runSaveTransaction: vi.fn(async () => ({
-                source: 'source-clean' as const,
-                baseBytes: new Uint8Array([1]),
-                serializedBytes: null,
-                nativeMutationPlan: null,
-                annotationSavePlan: null,
-                annotationCommentsSnapshot: [],
-                pendingEmbeddedTextUpdates: new Map(),
-                pendingEmbeddedAnnotationDeletes: [],
-                restoreConsumedPendingEmbeddedMutations: vi.fn(),
-                commitConsumedPendingEmbeddedMutations: vi.fn(),
-                ...(overrides.runSaveTransaction ? await overrides.runSaveTransaction() : {}),
-            })),
-            saveDocument: vi.fn(async () => new Uint8Array([7])),
-            getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
-        }},
+        pdf: {
+            source: {
+                pdfDocument: shallowRef(null),
+                runSaveTransaction: vi.fn(async () => ({
+                    source: 'source-clean' as const,
+                    baseBytes: new Uint8Array([1]),
+                    serializedBytes: null,
+                    serializedResult: null,
+                    nativeMutationPlan: null,
+                    annotationSavePlan: cleanAnnotationSavePlan,
+                    annotationCommentsSnapshot: [],
+                    pendingEmbeddedTextUpdates: new Map(),
+                    pendingEmbeddedAnnotationDeletes: [],
+                    restoreConsumedPendingEmbeddedMutations: vi.fn(),
+                    commitConsumedPendingEmbeddedMutations: vi.fn(),
+                    ...(overrides.runSaveTransaction ? await overrides.runSaveTransaction() : {}),
+                })),
+                saveDocument: vi.fn(async () => new Uint8Array([7])),
+                getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
+            },
+            serialization: {serializePdfForSave: vi.fn(async data => new Uint8Array([
+                ...data,
+                5,
+            ]))},
+        },
         persistence: {
             file: {
                 validatePdfPath: vi.fn(async () => ({
@@ -93,20 +108,6 @@ function createExecutorFixture(overrides: {runSaveTransaction?: () => Promise<{
             primePersistedShapeStateForSave: vi.fn(async () => null),
             refreshAnnotationSaveStateSnapshot: vi.fn(snapshot => snapshot),
             restorePreparedShapeState: vi.fn(async () => undefined),
-        },
-        source: {
-            buildAnnotationSavePlan: vi.fn(() => ({
-                route: 'source-clean',
-                reason: 'test',
-            })),
-            buildSerializedSaveResult: vi.fn(async (rawData, _pendingTexts, _pendingDeletes, opts) => ({
-                finalBytes: new Uint8Array([
-                    ...rawData,
-                    5,
-                ]),
-                saveMode: opts?.saveMode ?? 'rewrite',
-            })),
-            getSerializationBasePdfBytes: vi.fn(async () => new Uint8Array([1])),
         },
         timedSavePhase: vi.fn(async (_phase, operation) => operation()),
         trackSaveCompleted: vi.fn(),
@@ -203,7 +204,8 @@ describe('createFileOperationsSaveExecutor', () => {
             saveMode: 'rewrite',
             expectedWorkingPath: '/tmp/work.pdf',
         });
-        expect(services.source.getSerializationBasePdfBytes).not.toHaveBeenCalled();
+        expect(ports.pdf.source.runSaveTransaction).not.toHaveBeenCalled();
+        expect(ports.pdf.serialization.serializePdfForSave).not.toHaveBeenCalled();
         expect(services.completion.finalizeSuccessfulSave).toHaveBeenCalledWith(
             expect.objectContaining({success: true}),
             expect.objectContaining({resetAnnotationStorage: false}),
@@ -226,9 +228,45 @@ describe('createFileOperationsSaveExecutor', () => {
         await expect(fixture.executor.executeSelectedSavePath(config, context)).resolves.toBe(false);
 
         expect(fixture.ports.pdf.source.runSaveTransaction).toHaveBeenCalledOnce();
-        expect(fixture.services.source.buildSerializedSaveResult).not.toHaveBeenCalled();
         expect(config.persistSerialized).not.toHaveBeenCalled();
         expect(fixture.services.completion.finalizeSaveReload).toHaveBeenCalledWith(null, false);
+        expect(context.reloadWaiter.markFinalized).toHaveBeenCalledOnce();
+    });
+
+    it('persists the serialized transaction result when a rewrite is selected', async () => {
+        const serializedResult = {
+            finalBytes: new Uint8Array([
+                8,
+                9,
+            ]),
+            saveMode: 'rewrite' as const,
+            source: 'serialized-rewrite' as const,
+        };
+        const fixture = createExecutorFixture({runSaveTransaction: async () => ({
+            source: 'serialized-rewrite' as const,
+            baseBytes: new Uint8Array([1]),
+            serializedBytes: new Uint8Array([2]),
+            serializedResult,
+        })});
+        const config = createExecutionConfig();
+        const context = createContext('serialized-rewrite');
+
+        await expect(fixture.executor.executeSelectedSavePath(config, context)).resolves.toBe(true);
+
+        expect(fixture.ports.pdf.source.runSaveTransaction).toHaveBeenCalledWith(expect.objectContaining({
+            source: {
+                getSourcePdfData: fixture.ports.pdf.source.getSourcePdfData,
+                serializePdfForSave: fixture.ports.pdf.serialization.serializePdfForSave,
+            },
+            serializeResult: true,
+        }));
+        expect(config.persistSerialized).toHaveBeenCalledWith(serializedResult.finalBytes, {
+            saveMode: 'rewrite',
+            preserveLoadedSource: true,
+            expectedWorkingPath: '/tmp/work.pdf',
+        });
+        expect(fixture.services.completion.primePersistedShapeStateForSave)
+            .toHaveBeenCalledWith(serializedResult.finalBytes, false);
         expect(context.reloadWaiter.markFinalized).toHaveBeenCalledOnce();
     });
 });

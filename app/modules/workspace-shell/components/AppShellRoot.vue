@@ -177,10 +177,10 @@ import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
-import { useTabSessionStore } from '@app/modules/workspace-shell/composables/useTabSessionStore';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import { useBrowserInstallHint } from '@app/modules/workspace-shell/composables/useBrowserInstallHint';
 import { useDirectOpenAutomationDispatcherShell } from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
+import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
 import type {
     TPdfViewMode,
     TTabMemoryPolicy,
@@ -264,15 +264,33 @@ const {
 const fullscreenSupported = ref(true);
 let zenModeRequestInFlight = false;
 const workspaceSplitCache = useWorkspaceSplitCache();
-const {
-    lifecycleByTabId: tabLifecycleById,
-    updateViewState: updateTabViewStateInStore,
-} = useTabSessionStore({
-    activeTabId,
-    panes,
-    policy: computed(() => appSettings.value.tabMemoryPolicy),
-    tabs,
+const tabActivationOrder = ref<string[]>([]);
+watch(activeTabId, (tabId) => {
+    if (!tabId) {
+        return;
+    }
+
+    tabActivationOrder.value = [
+        tabId,
+        ...tabActivationOrder.value.filter(candidate => candidate !== tabId),
+    ];
+}, { immediate: true });
+watch(tabs, (nextTabs) => {
+    const tabIds = new Set(nextTabs.map(tab => tab.id));
+    tabActivationOrder.value = tabActivationOrder.value.filter(tabId => tabIds.has(tabId));
 });
+const tabLifecycleById = computed(() => Object.fromEntries(
+    resolveTabLifecycleStates({
+        activeTabId: activeTabId.value,
+        activationOrder: tabActivationOrder.value,
+        panes: panes.value,
+        policy: appSettings.value.tabMemoryPolicy,
+        tabs: tabs.value,
+    }).map(state => [
+        state.tabId,
+        state,
+    ]),
+));
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 const {
     checkForUpdates,
@@ -313,7 +331,6 @@ const {
 });
 function updateTabViewState(tabId: string, state: IWorkspaceDocumentRecord['viewState']) {
     applySessionViewState(tabId, state);
-    updateTabViewStateInStore(tabId, state);
 }
 
 function setWorkspaceRef(tabId: string, el: unknown) {
@@ -322,15 +339,7 @@ function setWorkspaceRef(tabId: string, el: unknown) {
 
 const globalToolbarHostRef = ref<HTMLElement | null>(null);
 const { hasWorkspaceToolbarContent } = useWorkspaceToolbarContentPresence(globalToolbarHostRef);
-function persistActiveTabViewState() {
-    const tabId = activeTabId.value;
-    const record = getDocumentRecord(tabId);
-    if (tabId && record) {
-        updateTabViewState(tabId, record.viewState);
-    }
-}
 function activateTab(paneId: string, tabId: string) {
-    persistActiveTabViewState();
     activateEditorTab(paneId, tabId);
 }
 const activeTab = computed(() => activeTabId.value ? getTabById(activeTabId.value) : null);
@@ -388,7 +397,6 @@ function handleDocumentRecordUpdate(tabId: string, record: IWorkspaceDocumentRec
     setSessionWorkspaceDocumentRecord(tabId, record);
     const sessionRecord = getDocumentRecord(tabId) ?? record;
     updateTabInState(tabId, sessionRecord.tab);
-    updateTabViewState(tabId, sessionRecord.viewState);
 }
 
 function runFallbackWorkspaceCommand(commandName: TWorkspaceExposeMethod, args: readonly unknown[] = []) {
@@ -623,7 +631,6 @@ const {
     mergeWindowInto,
 });
 function createTabInPane(paneId: string) {
-    persistActiveTabViewState();
     createTabInPaneFromRouting(paneId);
 }
 
@@ -843,7 +850,6 @@ useTabsShellBindings({
     activeTabId,
     activeWorkspace,
     createTab: () => {
-        persistActiveTabViewState();
         return createTab({ activate: true });
     },
     activateTab: (tabId) => {

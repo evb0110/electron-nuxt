@@ -137,13 +137,15 @@ import {
 } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
 import { createWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/document-sessions/createWorkspaceSplitCacheSessionState';
-import type {
-    IWorkspaceDocumentSessionController,
-    IWorkspaceDocumentTransaction,
-    TWorkspaceDocumentTransactionKind,
-} from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
-import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
+import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 import { useDeferredWorkspaceChunkLoader } from '@app/modules/workspace-shell/composables/useDeferredWorkspaceChunkLoader';
+import {
+    type IDocumentOpenIntent,
+    type IDocumentOpenTransactionRun,
+    resolveDocumentOpenTransactionKind,
+    resolveTransactionDocumentRef,
+    shouldSeedPendingTabHint as shouldSeedPendingTabHintForDocumentOpen,
+} from '@app/modules/workspace-shell/host/deferredWorkspaceHostDocumentOpen';
 
 const {
     hasDocumentHint = false,
@@ -232,19 +234,6 @@ function handleWorkspaceExposeReleased() {
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 const LOADER_LOG_SECTION = 'loader';
 const DOCUMENT_OPEN_SETTLE_TIMEOUT_MS = 4_000;
-
-interface IDocumentOpenTransactionRun {
-    sessionTransaction: IWorkspaceDocumentTransaction;
-    action: string;
-    target: TTabUpdate | null;
-    seededTabHint: boolean;
-}
-
-interface IDocumentOpenIntent {
-    action: string;
-    commandTarget?: TWorkspaceCommandTarget | undefined;
-    target?: TTabUpdate | null;
-}
 
 const WORKSPACE_MOUNT_POLL_INTERVAL_MS = 25;
 
@@ -531,26 +520,18 @@ function handleRetryWorkspaceMount() {
 }
 
 function shouldSeedPendingTabHint(target: TTabUpdate | null | undefined) {
-    return Boolean(
-        target
-        && !workspaceHasOpenedDocument()
-        && !workspaceSessionHasOpenedDocument(),
-    );
-}
-
-function resolveDocumentOpenTransactionKind(action: string): TWorkspaceDocumentTransactionKind {
-    return action.toLowerCase().includes('restore') ? 'restore' : 'open';
-}
-
-function resolveTransactionDocumentRef(target: TTabUpdate | null) {
-    return target?.originalPath ?? documentPath ?? null;
+    return shouldSeedPendingTabHintForDocumentOpen({
+        target,
+        hasWorkspaceOpenedDocument: workspaceHasOpenedDocument(),
+        hasWorkspaceSessionOpenedDocument: workspaceSessionHasOpenedDocument(),
+    });
 }
 
 function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
     const target = intent.target ?? null;
     const sessionTransaction = activeDocumentSession.value.beginTransaction({
         kind: resolveDocumentOpenTransactionKind(intent.action),
-        documentRef: resolveTransactionDocumentRef(target),
+        documentRef: resolveTransactionDocumentRef(target, documentPath ?? null),
     });
     const transaction: IDocumentOpenTransactionRun = {
         sessionTransaction,
@@ -1038,58 +1019,4 @@ const workspaceExpose: IWorkspaceExpose = createDeferredWorkspaceExposeProxy({
 defineExpose(workspaceExpose);
 </script>
 
-<style scoped>
-.workspace-host {
-    position: relative;
-    display: flex;
-    isolation: isolate;
-    width: 100%;
-    height: 100%;
-    min-width: 0;
-    min-height: 0;
-}
-
-.workspace-host__placeholder {
-    position: relative;
-    z-index: 0;
-    display: flex;
-    width: 100%;
-    height: 100%;
-    min-width: 0;
-    min-height: 0;
-}
-
-.workspace-host__workspace {
-    position: relative;
-    z-index: 0;
-    display: flex;
-    width: 100%;
-    height: 100%;
-    min-width: 0;
-    min-height: 0;
-}
-
-.workspace-host__loading {
-    position: absolute;
-    inset: 0;
-    z-index: 30;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
-    background: transparent;
-}
-
-.workspace-host__loading-chip {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.workspace-host__loading-label {
-    color: var(--ui-text-muted);
-    font-size: 0.875rem;
-    line-height: 1.25rem;
-}
-</style>
+<style src="./DeferredDocumentWorkspaceHost.css" scoped></style>

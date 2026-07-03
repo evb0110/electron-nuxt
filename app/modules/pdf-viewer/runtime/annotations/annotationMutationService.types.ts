@@ -4,6 +4,8 @@ import type {
     IAnnotationMarkerRect,
 } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
+import type { ITextMarkupColorMutationResult } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
+import type { IAnnotationMutationVisualEffectsState } from '@app/modules/pdf-viewer/runtime/annotations/annotationMutationVisualEffects.types';
 
 export type TAnnotationMutationSource =
     | 'user'
@@ -80,12 +82,14 @@ export interface IConsumedAnnotationEmbeddedMutations {
 
 export interface IAnnotationMutationService {
     pendingEmbeddedMutationVersion: Ref<number>;
+    visualEffects: IAnnotationMutationVisualEffectsState;
     updateComment(input: IAnnotationUpdateCommentInput, context: IAnnotationMutationContext): boolean;
     deleteAnnotation(input: IAnnotationDeleteInput, context: IAnnotationMutationContext): Promise<boolean>;
     updateColor(input: IAnnotationUpdateColorInput, context: IAnnotationMutationContext): boolean;
     updateMetadata(input: IAnnotationUpdateMetadataInput, context: IAnnotationMutationContext): boolean;
     moveMarker(input: IAnnotationMoveMarkerInput, context: IAnnotationMutationContext): boolean;
     restoreAnnotation(comment: IAnnotationCommentSummary, context: IAnnotationMutationContext): void;
+    enqueueAnnotationDomRemoval(comment: IAnnotationCommentSummary): void;
     removeAnnotationFromInternalCache(stableKey: string, context: IAnnotationMutationContext): void;
     clearPendingMarkerMoves(): void;
     suppressAnnotation(target: IAnnotationSuppressionTarget): void;
@@ -103,11 +107,12 @@ export interface IAnnotationMutationService {
 export interface IUseAnnotationMutationServiceOptions {
     updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
-    updateSelectedTextMarkupAnnotationColor: (color: string) => boolean;
-    updateTextMarkupAnnotationColor: (comment: IAnnotationCommentSummary, color: string) => boolean;
+    updateSelectedTextMarkupAnnotationColor: (color: string) => ITextMarkupColorMutationResult;
+    updateTextMarkupAnnotationColor: (comment: IAnnotationCommentSummary, color: string) => ITextMarkupColorMutationResult;
     markAnnotationLocallyDeleted: (comment: IAnnotationCommentSummary) => void;
     restoreAnnotationLocally: (comment: IAnnotationCommentSummary) => void;
     removeAnnotationFromInternalCache: (stableKey: string) => void;
+    findAnnotationCommentByStableKey?: (stableKey: string) => IAnnotationCommentSummary | null;
     clearPendingMarkerMoves: () => void;
     handleMarkerMove: (
         comment: IAnnotationCommentSummary,

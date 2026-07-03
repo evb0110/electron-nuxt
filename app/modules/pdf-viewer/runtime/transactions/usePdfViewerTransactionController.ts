@@ -3,6 +3,7 @@ import type {
     ShallowRef,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { TFitMode } from '@app/types/pdfContracts';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { IPdfNavigationState } from '@app/modules/pdf-viewer/runtime/navigation/navigationMachine';
@@ -31,6 +32,7 @@ import {
     getPdfViewerTransactionRowRange,
 } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionRange';
 import { createPdfViewerTransactionRenderRequest } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/createPdfViewerTransactionRenderRequest';
+import { isPdfViewerPagedTargetFitRenderHandoffConsumable } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/isPdfViewerPagedTargetFitRenderHandoffConsumable';
 
 interface IUsePdfViewerTransactionControllerOptions {
     navigationState: Ref<IPdfNavigationState>;
@@ -74,6 +76,15 @@ interface IPdfViewerBeginRenderTransactionOptions extends IPdfViewerBeginTransac
     maxCanvasPixelsOverride?: number | undefined;
     prioritizeTextLayer?: boolean | undefined;
     priority?: TPdfViewerTransactionPriority | undefined;
+}
+
+interface IPdfViewerConsumePagedTargetFitRenderHandoffOptions {
+    document: PDFDocumentProxy;
+    fitMode: TFitMode;
+    page: number;
+    viewMode: TPdfViewMode;
+    continuousScroll: boolean;
+    isResizing: boolean;
 }
 
 function mapNavigationSourceToTransactionSource(
@@ -363,6 +374,45 @@ export const usePdfViewerTransactionController = (
         return true;
     }
 
+    function toTransactionFitMode(fitMode: TFitMode) {
+        return fitMode === 'height' ? 'fit-height' as const : 'fit-width' as const;
+    }
+
+    function consumePagedTargetFitRenderHandoff(
+        consumeOptions: IPdfViewerConsumePagedTargetFitRenderHandoffOptions,
+    ) {
+        if (consumeOptions.continuousScroll || consumeOptions.isResizing) {
+            return null;
+        }
+
+        const currentDocumentRef = documentRef.value;
+        const matchOptions = {
+            document: consumeOptions.document,
+            documentLoadToken: currentDocumentRef.documentLoadToken,
+            documentVersion: currentDocumentRef.documentVersion,
+            fitMode: toTransactionFitMode(consumeOptions.fitMode),
+            page: consumeOptions.page,
+            viewMode: consumeOptions.viewMode,
+        };
+        const transaction = [
+            transactionMachineState.value.active,
+            transactionMachineState.value.settled,
+        ].find(candidate => isPdfViewerPagedTargetFitRenderHandoffConsumable(
+            candidate,
+            matchOptions,
+        )) ?? null;
+        const range = transaction?.fitPlan.hydrateRange ?? null;
+        if (!transaction || !range) {
+            return null;
+        }
+
+        dispatchTransactionEvent({
+            type: 'CONSUME_FIT_RENDER_HANDOFF',
+            transactionId: transaction.id,
+        });
+        return range;
+    }
+
     function setAuthoritativeFitTransactionActive(active: boolean) {
         isAuthoritativeFitTransactionActive.value = active;
     }
@@ -383,6 +433,7 @@ export const usePdfViewerTransactionController = (
         isTargetRangeCurrent,
         commitVisibleRange,
         commitCurrentPage,
+        consumePagedTargetFitRenderHandoff,
         setAuthoritativeFitTransactionActive,
     };
 };

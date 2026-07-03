@@ -67,21 +67,15 @@ import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import { PdfInitialSurfacePlaceholder } from '@app/modules/pdf-viewer/public/component-exports/pdfInitialSurfacePlaceholder';
 import DjvuPageContent from '@app/modules/djvu-viewer/components/DjvuPageContent.vue';
 import {
-    getSpreadStartForPage,
-    isStandaloneSpreadPage,
-} from '@app/utils/pdfViewMode';
-import { normalizeDocumentPageNumber } from '@app/utils/document-viewer/documentPageRange';
-import {
     useDjvuPreviewRuntime,
     type IDjvuPageState,
 } from '@app/modules/djvu-viewer/runtime/useDjvuPreviewRuntime';
-import { useDjvuContinuousScrollController } from '@app/modules/djvu-viewer/runtime/useDjvuContinuousScrollController';
+import {
+    useDjvuViewportController,
+    type IDjvuViewportController,
+} from '@app/modules/djvu-viewer/runtime/useDjvuViewportController';
 import { useDjvuPageFlipWheelController } from '@app/modules/djvu-viewer/runtime/useDjvuPageFlipWheelController';
 import { useDjvuViewerLayout } from '@app/modules/djvu-viewer/runtime/useDjvuViewerLayout';
-import {
-    capturePageAnchorScrollSnapshot,
-    restorePageAnchorScrollSnapshot,
-} from '@app/utils/document-viewer/page-anchor-scroll-snapshot/pageAnchorScrollSnapshot';
 
 interface IProps {
     src: TDocumentRef | null;
@@ -137,25 +131,10 @@ const viewMode = computed<TPdfViewMode>(() => viewModeProp ?? 'single');
 const zoomMode = computed(() => zoomModeProp ?? (
     fitMode === 'height' ? 'fit-height' : 'fit-width'
 ));
-const renderedPagesLayoutClass = computed(() => (
-    isContinuousScroll.value || renderedPageNumbers.value.length <= 1
-        ? 'flex-col items-center'
-        : 'flex-row items-start justify-center'
-));
-const renderedPagesSurfaceClass = computed(() => {
-    if (isContinuousScroll.value) {
-        return 'djvu-continuous-surface';
-    }
 
-    return [
-        'flex',
-        'min-h-full',
-        'w-fit',
-        'gap-4',
-        'p-4',
-        renderedPagesLayoutClass.value,
-    ];
-});
+function getRenderedPageNumbers() {
+    return djvuViewportController.renderedPageNumbers.value;
+}
 
 const manualZoom = computed(() => {
     const candidate = zoom ?? 1;
@@ -175,7 +154,7 @@ const {
     containerHeight,
     containerWidth,
     currentPage,
-    getRenderedPageNumbers: () => renderedPageNumbers.value,
+    getRenderedPageNumbers,
     isContinuousScroll,
     manualZoom,
     pageSizes,
@@ -206,7 +185,7 @@ function measureContainer() {
 
     containerWidth.value = Math.max(0, element.clientWidth);
     containerHeight.value = Math.max(0, element.clientHeight);
-    continuousScrollController.invalidateContinuousScrollWindowCache();
+    djvuViewportController.invalidateContinuousScrollWindowCache();
 }
 
 function getPageShellStyle(pageNumber: number) {
@@ -225,7 +204,7 @@ function getPageShellStyle(pageNumber: number) {
         ...(isContinuousScroll.value
             ? {
                 left: `${Math.max(DJVU_BASE_MARGIN, Math.round((continuousScrollSurfaceWidth.value - width) / 2))}px`,
-                top: `${continuousScrollController.getContinuousPageTop(pageNumber)}px`,
+                top: `${djvuViewportController.getContinuousPageTop(pageNumber)}px`,
             }
             : {}),
     };
@@ -241,7 +220,8 @@ function scrollActiveSpreadIntoView() {
     syncHorizontalScrollForZoomMode();
 }
 
-const continuousScrollController = useDjvuContinuousScrollController({
+const djvuViewportController: IDjvuViewportController = useDjvuViewportController({
+    clearPageFlipWheelAccumulator: () => pageFlipWheelController.clearWheelAccumulator(),
     containerHeight,
     currentPage,
     emitCurrentPage: pageNumber => emit('update:currentPage', pageNumber),
@@ -253,42 +233,31 @@ const continuousScrollController = useDjvuContinuousScrollController({
     pageSnapshotSelector: DJVU_PAGE_SNAPSHOT_SELECTOR,
     renderMarginPages: DJVU_CONTINUOUS_RENDER_MARGIN_PAGES,
     overscanViewports: DJVU_CONTINUOUS_OVERSCAN_VIEWPORTS,
+    scrollActiveSpreadIntoView,
     syncLoadedPages: syncRuntimeLoadedPages,
     totalPages,
+    viewMode,
     viewerContainer,
 });
 
-const renderedPageNumbers = computed(() => {
-    if (totalPages.value <= 0) {
-        return [] as number[];
-    }
-
+const renderedPageNumbers = computed(getRenderedPageNumbers);
+const renderedPagesLayoutClass = computed(() => (
+    isContinuousScroll.value || renderedPageNumbers.value.length <= 1
+        ? 'flex-col items-center'
+        : 'flex-row items-start justify-center'
+));
+const renderedPagesSurfaceClass = computed(() => {
     if (isContinuousScroll.value) {
-        return continuousScrollController.resolveContinuousScrollWindow()?.pageNumbers ?? [];
-    }
-
-    const spreadStart = getSpreadStartForPage(
-        currentPage.value,
-        viewMode.value,
-        totalPages.value,
-    );
-
-    if (viewMode.value === 'single' || totalPages.value === 1) {
-        return [spreadStart];
-    }
-
-    if (isStandaloneSpreadPage(spreadStart, viewMode.value, totalPages.value)) {
-        return [spreadStart];
-    }
-
-    const nextPage = spreadStart + 1;
-    if (nextPage > totalPages.value) {
-        return [spreadStart];
+        return 'djvu-continuous-surface';
     }
 
     return [
-        spreadStart,
-        nextPage,
+        'flex',
+        'min-h-full',
+        'w-fit',
+        'gap-4',
+        'p-4',
+        renderedPagesLayoutClass.value,
     ];
 });
 
@@ -298,7 +267,7 @@ const renderedPagesSurfaceStyle = computed(() => {
     }
 
     return {
-        height: `${Math.max(containerHeight.value, continuousScrollController.getContinuousDocumentHeight(), 1)}px`,
+        height: `${Math.max(containerHeight.value, djvuViewportController.getContinuousDocumentHeight(), 1)}px`,
         width: `${continuousScrollSurfaceWidth.value}px`,
     };
 });
@@ -318,8 +287,8 @@ const djvuPreviewRuntime = useDjvuPreviewRuntime({
         getSrc: () => src,
         isActive,
         isContinuousScroll,
-        resolveContinuousScrollWindow: continuousScrollController.resolveContinuousScrollWindow,
-        scrollDirection: continuousScrollController.scrollDirection,
+        resolveContinuousScrollWindow: djvuViewportController.resolveContinuousScrollWindow,
+        scrollDirection: djvuViewportController.scrollDirection,
         totalPages,
         getInitialVisualPageNumbers: () => renderedPageNumbers.value,
     },
@@ -331,11 +300,11 @@ const djvuPreviewRuntime = useDjvuPreviewRuntime({
         emitInitialVisualReady: payload => emit('initial-visual-ready', payload),
         emitLoading: value => emit('loading', value),
         emitTotalPages: value => emit('update:totalPages', value),
-        invalidateContinuousScrollWindowCache: continuousScrollController.invalidateContinuousScrollWindowCache,
+        invalidateContinuousScrollWindowCache: djvuViewportController.invalidateContinuousScrollWindowCache,
         measureContainer,
-        resetScrollState: continuousScrollController.resetScrollState,
-        resetViewerScrollPosition: continuousScrollController.resetContainerScrollPosition,
-        scheduleViewportSync: continuousScrollController.scheduleViewportSync,
+        resetScrollState: djvuViewportController.resetScrollState,
+        resetViewerScrollPosition: djvuViewportController.resetContainerScrollPosition,
+        scheduleViewportSync: djvuViewportController.scheduleViewportSync,
         syncHorizontalScrollForZoomMode,
     },
 });
@@ -356,14 +325,14 @@ function handleViewerScroll() {
         return;
     }
 
-    if (continuousScrollController.handleViewerScroll()) {
+    if (djvuViewportController.handleViewerScroll()) {
         djvuPreviewRuntime.scheduleScrollSettledPreviewRerender();
     }
 }
 
 function handleViewerWheel(event: WheelEvent) {
     if (
-        continuousScrollController.handleProjectedWheelScroll(event)
+        djvuViewportController.handleProjectedWheelScroll(event)
     ) {
         djvuPreviewRuntime.scheduleScrollSettledPreviewRerender();
     }
@@ -375,12 +344,12 @@ function retryPage(pageNumber: number) {
 }
 
 watch(effectiveZoom, (value) => {
-    continuousScrollController.invalidateContinuousScrollWindowCache();
+    djvuViewportController.notifyZoomChanged('zoom');
     emit('update:effectiveZoom', value);
 }, { immediate: true });
 
 watch(zoomMode, () => {
-    continuousScrollController.invalidateContinuousScrollWindowCache();
+    djvuViewportController.notifyZoomChanged('zoom-mode');
 });
 
 watch([
@@ -414,7 +383,7 @@ watch([
         return;
     }
 
-    continuousScrollController.restoreScrollSnapshot(snapshot, { fallbackPage: currentPage.value });
+    djvuViewportController.restoreScrollSnapshot(snapshot, { fallbackPage: currentPage.value });
 });
 
 watch(renderedPageNumbers, async () => {
@@ -443,7 +412,7 @@ watch(
     (active) => {
         if (!active) {
             pageFlipWheelController.clearWheelAccumulator();
-            continuousScrollController.cancelViewportSync();
+            djvuViewportController.cancelViewportWork('inactive');
         }
     },
 );
@@ -461,7 +430,7 @@ watch(
         await nextTick();
         syncHorizontalScrollForZoomMode();
         djvuPreviewRuntime.scheduleSettledPreviewRerender();
-        continuousScrollController.scheduleViewportSync();
+        djvuViewportController.scheduleViewportSync();
     },
     { flush: 'post' },
 );
@@ -472,7 +441,7 @@ function handleContainerResize() {
     }
     measureContainer();
     djvuPreviewRuntime.scheduleSettledPreviewRerender();
-    continuousScrollController.scheduleViewportSync();
+    djvuViewportController.scheduleViewportSync();
 }
 
 onMounted(measureContainer);
@@ -480,74 +449,23 @@ onMounted(measureContainer);
 useResizeObserver(viewerContainer, handleContainerResize);
 
 onBeforeUnmount(() => {
-    continuousScrollController.dispose();
+    djvuViewportController.dispose();
     djvuPreviewRuntime.dispose();
 });
 
 function scrollToPage(pageNumber: number) {
-    const normalizedPage = normalizeDocumentPageNumber(pageNumber, totalPages.value || 1);
-
-    if (!isContinuousScroll.value) {
-        currentPage.value = normalizedPage;
-        emit('update:currentPage', normalizedPage);
-        pageFlipWheelController.clearWheelAccumulator();
-        void nextTick().then(() => {
-            scrollActiveSpreadIntoView();
-            djvuPreviewRuntime.syncLoadedPages();
-        });
-        return;
-    }
-
-    continuousScrollController.scrollToContinuousPage(normalizedPage);
-}
-
-function getSnapshotPage(value: number | null | undefined) {
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-        return null;
-    }
-    return normalizeDocumentPageNumber(value, totalPages.value || 1);
+    djvuViewportController.scrollToPage(pageNumber);
 }
 
 function captureScrollSnapshot(): IScrollSnapshot | null {
-    return capturePageAnchorScrollSnapshot(
-        viewerContainer.value,
-        {
-            pageSelector: DJVU_PAGE_SNAPSHOT_SELECTOR,
-            preferredAnchorPage: currentPage.value,
-        },
-    );
+    return djvuViewportController.captureScrollSnapshot();
 }
 
 function restoreScrollSnapshot(
     snapshot: IScrollSnapshot | null,
     options?: { fallbackPage?: number | null },
 ) {
-    const fallbackPage = getSnapshotPage(options?.fallbackPage);
-    const anchorPage = getSnapshotPage(snapshot?.anchorPage) ?? fallbackPage;
-    if (!snapshot) {
-        if (fallbackPage !== null) {
-            scrollToPage(fallbackPage);
-        }
-        return;
-    }
-
-    if (anchorPage !== null && anchorPage !== currentPage.value) {
-        currentPage.value = anchorPage;
-        emit('update:currentPage', anchorPage);
-        continuousScrollController.invalidateContinuousScrollWindowCache();
-    }
-
-    void nextTick(() => {
-        continuousScrollController.beginProgrammaticScrollGuard();
-        restorePageAnchorScrollSnapshot(
-            viewerContainer.value,
-            snapshot,
-            { pageSelector: DJVU_PAGE_SNAPSHOT_SELECTOR },
-        );
-        continuousScrollController.updateScrollPositionFromContainer();
-        continuousScrollController.detectCurrentPageFromViewport();
-        djvuPreviewRuntime.syncLoadedPages();
-    });
+    djvuViewportController.restoreScrollSnapshot(snapshot, options);
 }
 
 defineExpose<IDocumentViewerExpose>({

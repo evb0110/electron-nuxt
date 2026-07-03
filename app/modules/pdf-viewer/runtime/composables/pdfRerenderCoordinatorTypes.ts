@@ -21,33 +21,35 @@ import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/compo
 import type { IZoomViewportAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import type {
     IPdfViewerTransaction,
+    IPdfViewerTransactionFitPlan,
     TPdfViewerTransactionSource,
     TPdfViewerTransactionState,
 } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 
 export type TFitRerenderTransitionOwner = 'current-page' | 'paged-target';
 
-export interface IPagedTargetFitRenderHandoff {
-    document: PDFDocumentProxy;
-    fitMode: TFitMode;
-    page: number;
-    range: IPageRange;
-    viewMode: TPdfViewMode;
-}
-
 export interface IRerenderCoordinatorTransactionController {
     beginTransaction: (options: {
-        kind: 'resize';
+        kind: 'rerender' | 'resize';
         source: TPdfViewerTransactionSource;
         page?: number | null | undefined;
         range?: IPageRange | undefined;
         anchor?: NonNullable<IPdfViewerTransaction['target']>['anchor'];
+        fitPlan?: Partial<IPdfViewerTransactionFitPlan> | undefined;
     }) => IPdfViewerTransaction | null;
     advanceTransaction: (
         transactionId: number,
         state: Exclude<TPdfViewerTransactionState, 'preparing' | 'cancelled'>,
     ) => boolean;
     isTransactionCurrent: (transactionId: number) => boolean;
+    consumePagedTargetFitRenderHandoff?: ((options: {
+        document: PDFDocumentProxy;
+        fitMode: TFitMode;
+        page: number;
+        viewMode: TPdfViewMode;
+        continuousScroll: boolean;
+        isResizing: boolean;
+    }) => IPageRange | null) | undefined;
 }
 
 export interface IUsePdfViewerRerenderCoordinatorOptions {

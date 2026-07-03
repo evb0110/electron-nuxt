@@ -1,4 +1,17 @@
 import type { TPageSnapAnchor } from '@app/utils/document-viewer/single-page-wheel/singlePageWheelTypes';
+import {
+    canSyncDocumentViewportNavigationFromViewport,
+    createDocumentViewportNavigationMachineState,
+    createDocumentViewportNavigationRenderSettledEvent,
+    getDocumentViewportNavigationStatusForSource,
+    getDocumentViewportNavigationTargetPageForSource,
+    getDocumentViewportNavigationTxnForSource,
+    isDocumentViewportNavigationTargetCurrent,
+    isDocumentViewportNavigationTxnCurrent,
+    reduceDocumentViewportNavigationMachine,
+    type IDocumentViewportNavigationState,
+    type TDocumentViewportNavigationEvent,
+} from '@app/utils/document-viewer/viewport/documentViewportNavigationMachine';
 
 export type TPdfNavigationSource =
     | 'paged'
@@ -6,19 +19,7 @@ export type TPdfNavigationSource =
     | 'search'
     | 'wheel';
 
-export type TPdfNavigationStatus =
-    | 'idle'
-    | 'navigating'
-    | 'settling';
-
-export interface IPdfNavigationState {
-    anchor: TPageSnapAnchor | null;
-    currentPage: number | null;
-    source: TPdfNavigationSource | null;
-    status: TPdfNavigationStatus;
-    targetPage: number | null;
-    txn: number;
-}
+export interface IPdfNavigationState extends IDocumentViewportNavigationState<TPdfNavigationSource, TPageSnapAnchor> {}
 
 interface IPdfNavigateEvent {
     anchor?: TPageSnapAnchor | null | undefined;
@@ -45,7 +46,7 @@ interface IPdfNavigationViewportCurrentPageEvent {
 
 interface IPdfNavigationCancelEvent { type: 'CANCEL' | 'DOCUMENT_CHANGED' | 'USER_SCROLL' }
 
-export type TPdfNavigationEvent =
+export type TPdfNavigationEvent = TDocumentViewportNavigationEvent<TPdfNavigationSource, TPageSnapAnchor>
     | IPdfNavigateEvent
     | IPdfNavigationScrollAppliedEvent
     | IPdfNavigationRenderSettledEvent
@@ -57,119 +58,49 @@ export function createPdfNavigationRenderSettledEvent(
     txn: number,
     page: number,
 ): TPdfNavigationEvent {
-    return {
-        page,
-        txn,
-        type: 'RENDER_SETTLED',
-    };
+    return createDocumentViewportNavigationRenderSettledEvent<TPdfNavigationSource, TPageSnapAnchor>(txn, page);
 }
 
 export function createPdfNavigationMachineState(
     txn = 0,
     currentPage: number | null = null,
 ): IPdfNavigationState {
-    return {
-        anchor: null,
-        currentPage,
-        source: null,
-        status: 'idle',
-        targetPage: null,
-        txn,
-    };
-}
-
-function eventMatchesCurrentTarget(
-    state: IPdfNavigationState,
-    event: IPdfNavigationTxnPageEvent,
-) {
-    return state.txn === event.txn && state.targetPage === event.page;
+    return createDocumentViewportNavigationMachineState<TPdfNavigationSource, TPageSnapAnchor>(txn, currentPage);
 }
 
 export function reducePdfNavigationMachine(
     state: IPdfNavigationState,
     event: TPdfNavigationEvent,
 ): IPdfNavigationState {
-    switch (event.type) {
-        case 'NAVIGATE':
-            return {
-                anchor: event.anchor ?? null,
-                currentPage: event.targetPage,
-                source: event.source,
-                status: 'navigating',
-                targetPage: event.targetPage,
-                txn: state.txn + 1,
-            };
-        case 'CURRENT_PAGE_COMMITTED':
-            if (!eventMatchesCurrentTarget(state, event)) {
-                return state;
-            }
-            return {
-                ...state,
-                currentPage: event.page,
-            };
-        case 'VIEWPORT_CURRENT_PAGE':
-            if (!canSyncPdfNavigationFromViewport(state)) {
-                return state;
-            }
-            return {
-                ...state,
-                currentPage: event.page,
-            };
-        case 'SCROLL_APPLIED':
-            if (state.status !== 'navigating' || !eventMatchesCurrentTarget(state, event)) {
-                return state;
-            }
-            return {
-                ...state,
-                status: 'settling',
-            };
-        case 'RENDER_SETTLED':
-            if (
-                (state.status !== 'navigating' && state.status !== 'settling')
-                || !eventMatchesCurrentTarget(state, event)
-            ) {
-                return state;
-            }
-            return createPdfNavigationMachineState(state.txn, state.currentPage);
-        case 'CANCEL':
-        case 'DOCUMENT_CHANGED':
-        case 'USER_SCROLL':
-            return createPdfNavigationMachineState(state.txn + 1, state.currentPage);
-    }
+    return reduceDocumentViewportNavigationMachine(state, event);
 }
 
 export function isPdfNavigationTxnCurrent(
     state: IPdfNavigationState,
     txn: number,
 ) {
-    return state.txn === txn && state.status !== 'idle';
+    return isDocumentViewportNavigationTxnCurrent(state, txn);
 }
 
 export function getPdfNavigationStatusForSource(
     state: IPdfNavigationState,
     source: TPdfNavigationSource,
 ) {
-    return state.source === source
-        ? state.status
-        : 'idle';
+    return getDocumentViewportNavigationStatusForSource(state, source);
 }
 
 export function getPdfNavigationTargetPageForSource(
     state: IPdfNavigationState,
     source: TPdfNavigationSource,
 ) {
-    return state.source === source && state.status !== 'idle'
-        ? state.targetPage
-        : null;
+    return getDocumentViewportNavigationTargetPageForSource(state, source);
 }
 
 export function getPdfNavigationTxnForSource(
     state: IPdfNavigationState,
     source: TPdfNavigationSource,
 ) {
-    return state.source === source && state.status !== 'idle'
-        ? state.txn
-        : null;
+    return getDocumentViewportNavigationTxnForSource(state, source);
 }
 
 export function isPdfNavigationTargetCurrent(
@@ -178,12 +109,9 @@ export function isPdfNavigationTargetCurrent(
     txn: number,
     targetPage: number,
 ) {
-    return state.source === source
-        && state.status !== 'idle'
-        && state.txn === txn
-        && state.targetPage === targetPage;
+    return isDocumentViewportNavigationTargetCurrent(state, source, txn, targetPage);
 }
 
 export function canSyncPdfNavigationFromViewport(state: IPdfNavigationState) {
-    return state.status === 'idle';
+    return canSyncDocumentViewportNavigationFromViewport(state);
 }

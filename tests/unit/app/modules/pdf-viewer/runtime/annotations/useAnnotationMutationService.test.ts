@@ -14,6 +14,7 @@ import type {
     IConsumedAnnotationEmbeddedMutations,
     IUseAnnotationMutationServiceOptions,
 } from '@app/modules/pdf-viewer/runtime/annotations/annotationMutationService.types';
+import type { ITextMarkupColorMutationResult } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
 import { cast } from '@tests/helpers/cast';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
@@ -55,17 +56,33 @@ function createEditor(): IPdfjsEditor {
     });
 }
 
+function createColorMutationResult(
+    comment: IAnnotationCommentSummary | null = createComment(),
+    overrides: Partial<ITextMarkupColorMutationResult> = {},
+): ITextMarkupColorMutationResult {
+    return {
+        updated: true,
+        shouldScheduleCommentSync: true,
+        shouldRefreshPage: true,
+        shouldApplyTextMarkupColor: true,
+        comment,
+        sourceColor: comment?.color ?? null,
+        ...overrides,
+    };
+}
+
 function createOptions(
     overrides: Partial<IUseAnnotationMutationServiceOptions> = {},
 ): IUseAnnotationMutationServiceOptions {
     return {
         updateAnnotationComment: vi.fn(() => true),
         deleteAnnotationComment: vi.fn(async () => true),
-        updateSelectedTextMarkupAnnotationColor: vi.fn(() => true),
-        updateTextMarkupAnnotationColor: vi.fn(() => true),
+        updateSelectedTextMarkupAnnotationColor: vi.fn(() => createColorMutationResult()),
+        updateTextMarkupAnnotationColor: vi.fn(comment => createColorMutationResult(comment)),
         markAnnotationLocallyDeleted: vi.fn(),
         restoreAnnotationLocally: vi.fn(),
         removeAnnotationFromInternalCache: vi.fn(),
+        findAnnotationCommentByStableKey: vi.fn(() => null),
         clearPendingMarkerMoves: vi.fn(),
         handleMarkerMove: vi.fn(() => true),
         findEditorForComment: vi.fn(() => null),
@@ -113,6 +130,30 @@ describe('useAnnotationMutationService', () => {
         expect(options.markAnnotationLocallyDeleted).toHaveBeenCalledWith(comment);
     });
 
+    it('enqueues deletion visual effects from delete and internal-cache removal paths', async () => {
+        const comment = createComment({
+            stableKey: 'stable-delete',
+            annotationId: '18R0',
+        });
+        const options = createOptions({findAnnotationCommentByStableKey: vi.fn(() => comment)});
+        const service = useAnnotationMutationService(options);
+
+        await expect(service.deleteAnnotation(
+            { comment },
+            { source: 'user' },
+        )).resolves.toBe(true);
+        service.removeAnnotationFromInternalCache(comment.stableKey, { source: 'user' });
+
+        expect(service.visualEffects.effects.value).toEqual([expect.objectContaining({
+            id: 1,
+            kind: 'annotation-dom-removal',
+            stableKey: 'stable-delete',
+            annotationId: '18R0',
+            commentSnapshot: comment,
+        })]);
+        expect(options.removeAnnotationFromInternalCache).toHaveBeenCalledWith('stable-delete');
+    });
+
     it('routes selected and comment-scoped color mutations', () => {
         const comment = createComment();
         const options = createOptions();
@@ -139,6 +180,79 @@ describe('useAnnotationMutationService', () => {
 
         expect(options.updateSelectedTextMarkupAnnotationColor).toHaveBeenCalledWith('#22c55e');
         expect(options.updateTextMarkupAnnotationColor).toHaveBeenCalledWith(comment, '#ef4444');
+    });
+
+    it('enqueues derived visual effects for safe color mutations', () => {
+        const comment = createComment({
+            stableKey: 'stable-color',
+            annotationId: '12R0',
+            color: '#ef4444',
+        });
+        const updatedComment = {
+            ...comment,
+            color: '#22c55e',
+        };
+        const options = createOptions({updateTextMarkupAnnotationColor: vi.fn(() => createColorMutationResult(updatedComment, {sourceColor: '#ef4444'}))});
+        const service = useAnnotationMutationService(options);
+
+        expect(service.updateColor(
+            {
+                comment,
+                color: '#22c55e',
+            },
+            { source: 'user' },
+        )).toBe(true);
+
+        expect(service.visualEffects.effects.value).toEqual([
+            expect.objectContaining({
+                id: 1,
+                kind: 'text-markup-color',
+                stableKey: 'stable-color',
+                annotationId: '12R0',
+                pageNumber: 1,
+                commentSnapshot: updatedComment,
+                color: '#22c55e',
+                sourceColor: '#ef4444',
+            }),
+            expect.objectContaining({
+                id: 2,
+                kind: 'render-page-text-markup',
+                stableKey: 'stable-color',
+                annotationId: '12R0',
+                pageNumber: 1,
+                commentSnapshot: updatedComment,
+            }),
+        ]);
+    });
+
+    it('does not enqueue duplicate text-markup overlay work for connected highlights', () => {
+        const comment = createComment({
+            stableKey: 'stable-highlight',
+            annotationId: '14R0',
+            subtype: 'Highlight',
+        });
+        const options = createOptions({updateTextMarkupAnnotationColor: vi.fn(() => createColorMutationResult(
+            {
+                ...comment,
+                color: '#22c55e',
+            },
+            { shouldApplyTextMarkupColor: false },
+        ))});
+        const service = useAnnotationMutationService(options);
+
+        expect(service.updateColor(
+            {
+                comment,
+                color: '#22c55e',
+            },
+            { source: 'user' },
+        )).toBe(true);
+
+        expect(service.visualEffects.effects.value).toEqual([expect.objectContaining({
+            kind: 'render-page-text-markup',
+            stableKey: 'stable-highlight',
+            annotationId: '14R0',
+        })]);
     });
 
     it('preserves current annotation suppression fan-out', () => {
@@ -198,6 +312,7 @@ describe('useAnnotationMutationService', () => {
         expect(editor.__evbPendingAnchorRect).toEqual(markerRect);
         expect(addPendingCommentEditorKey).toHaveBeenCalledWith('editor:2:ann-1');
         expect(markModified).toHaveBeenCalledOnce();
+        expect(service.visualEffects.effects.value).toEqual([]);
     });
 
     it('exposes save flush and pending embedded mutation consumption hooks', async () => {

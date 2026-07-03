@@ -74,17 +74,17 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 2/Stage 1 - Assistant backend session/runtime split',
     },
     'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts': {
-        maxLines: 448,
+        maxLines: 436,
         reason: 'transitional workspace save orchestration hotspot',
         stage: 'Finding 4 Stage D - Save controller port alignment',
     },
     'app/modules/djvu-viewer/components/DjvuViewer.vue': {
-        maxLines: 609,
+        maxLines: 527,
         reason: 'transitional DjVu viewer UI shell after preview runtime, scroll orchestration, and viewer-owned initial placeholder extraction',
         stage: 'Finding 9 Stage B - DjVu preview runtime and scroll controller extraction',
     },
     'scripts/electron-run/sessionManager.ts': {
-        maxLines: 1771,
+        maxLines: 1261,
         reason: 'transitional Electron dev session manager hotspot',
         stage: 'Future Electron run/session extraction',
     },
@@ -99,7 +99,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Stage S - viewer adapter interface',
     },
     'app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue': {
-        maxLines: 1066,
+        maxLines: 1022,
         reason: 'transitional deferred workspace host hotspot',
         stage: 'Future workspace host extraction',
     },
@@ -119,7 +119,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 2/Stage 3 - OCR job manager lifecycle split',
     },
     'app/modules/workspace-shell/components/AppShellRoot.vue': {
-        maxLines: 1043,
+        maxLines: 1035,
         reason: 'transitional app shell root hotspot',
         stage: 'Future workspace shell extraction',
     },

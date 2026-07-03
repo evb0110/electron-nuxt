@@ -10,7 +10,6 @@ import { shouldPreserveExistingRerenderContent } from '@app/modules/pdf-viewer/r
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import type { TPdfViewerTransactionState } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import type {
-    IPagedTargetFitRenderHandoff,
     TFitRerenderTransitionOwner,
     IUsePdfViewerRerenderCoordinatorOptions,
 } from '@app/modules/pdf-viewer/runtime/composables/pdfRerenderCoordinatorTypes';
@@ -83,7 +82,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     let resizeSettleRunId = 0;
     let isCurrentPageFitRerenderTransitionMarkedActive = false;
     let nextFitRerenderTransitionToken = 0;
-    let pagedTargetFitRenderHandoff: IPagedTargetFitRenderHandoff | null = null;
     const activeFitRerenderTransitionOwners = new Map<number, TFitRerenderTransitionOwner>();
 
     function isViewerAsyncRunActive(
@@ -251,44 +249,30 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         return targetPage === null || targetPage === page;
     }
 
-    function rememberPagedTargetFitRenderHandoff(
-        page: number,
-        document: PDFDocumentProxy,
-        range: IPageRange,
-    ) {
-        pagedTargetFitRenderHandoff = {
-            document,
-            fitMode: fitMode.value,
-            page,
-            range,
-            viewMode: viewMode.value,
-        };
-    }
-
     function consumePagedTargetFitRenderHandoff(
         page: number,
         document: PDFDocumentProxy,
     ) {
-        const handoff = pagedTargetFitRenderHandoff;
-        if (
-            !handoff
-            || handoff.page !== page
-            || handoff.document !== document
-            || handoff.fitMode !== fitMode.value
-            || handoff.viewMode !== viewMode.value
-            || !isCurrentPageFitRerenderModeActive()
-            || continuousScroll.value
-            || isResizing.value
-        ) {
+        if (!isCurrentPageFitRerenderModeActive()) {
+            return false;
+        }
+        const range = transactionController?.consumePagedTargetFitRenderHandoff?.({
+            document,
+            fitMode: fitMode.value,
+            page,
+            viewMode: viewMode.value,
+            continuousScroll: continuousScroll.value,
+            isResizing: isResizing.value,
+        }) ?? null;
+        if (!range) {
             return false;
         }
 
-        pagedTargetFitRenderHandoff = null;
-        if (commitVisibleRange?.(handoff.range) === false) {
+        if (commitVisibleRange?.(range) === false) {
             return false;
         }
         if (!commitVisibleRange) {
-            visibleRange.value = handoff.range;
+            visibleRange.value = range;
         }
         syncHorizontalScrollAfterLayoutUpdate();
         return true;
@@ -964,7 +948,23 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 if (!isRunActive()) {
                     return;
                 }
-                rememberPagedTargetFitRenderHandoff(next, document, range);
+                const transaction = transactionController?.beginTransaction({
+                    kind: 'rerender',
+                    source: 'fit-paged-target',
+                    page: next,
+                    range,
+                    fitPlan: {
+                        mode: fitMode.value === 'height' ? 'fit-height' : 'fit-width',
+                        scalePage: next,
+                        hydrateRange: range,
+                        viewMode: viewMode.value,
+                        suppressLegacyPagedRowRender: true,
+                        pagedTargetRenderHandoff: 'pending',
+                    },
+                }) ?? null;
+                if (transaction) {
+                    transactionController?.advanceTransaction(transaction.id, 'render-requested');
+                }
                 await reRenderAllVisiblePages(() => range, {
                     preserveExistingPages: true,
                     disableHorizontalAnchorRestore: true,
@@ -975,6 +975,9 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                         : PDF_RERENDER_SOURCE.FitWidthPagedTarget,
                     renderBufferOverride: 0,
                 });
+                if (transaction) {
+                    transactionController?.advanceTransaction(transaction.id, 'settled');
+                }
                 if (isRunActive()) {
                     syncHorizontalScrollAfterLayoutUpdate();
                 }

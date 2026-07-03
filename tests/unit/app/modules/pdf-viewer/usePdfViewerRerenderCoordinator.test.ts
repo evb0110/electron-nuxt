@@ -11,8 +11,10 @@ import {
     shallowRef,
 } from 'vue';
 import { usePdfViewerRerenderCoordinator } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerRerenderCoordinator';
+import { usePdfViewerTransactionController } from '@app/modules/pdf-viewer/runtime/transactions/usePdfViewerTransactionController';
 import type { IResizeAnchorContext } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import type { IBuildResizeAnchorContextOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle';
+import type { IPdfNavigationState } from '@app/modules/pdf-viewer/runtime/navigation/navigationMachine';
 import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
@@ -82,7 +84,7 @@ function createDeps(overrides: Partial<TCoordinatorDeps> = {}): TCoordinatorDeps
         end: 1,
     });
 
-    return {
+    const deps = {
         viewerContainer: ref(null),
         pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
         isLoading: ref(false),
@@ -120,6 +122,26 @@ function createDeps(overrides: Partial<TCoordinatorDeps> = {}): TCoordinatorDeps
         beginResizeTransition: vi.fn(() => 1),
         consumeSuppressedZoomRerender: vi.fn(() => false),
         ...overrides,
+    };
+    const navigationState = shallowRef<IPdfNavigationState>({
+        anchor: 'top',
+        currentPage: deps.currentPage.value,
+        source: 'paged',
+        status: 'idle',
+        targetPage: null,
+        txn: 1,
+    });
+    return {
+        ...deps,
+        transactionController: deps.transactionController ?? usePdfViewerTransactionController({
+            navigationState,
+            currentPage: deps.currentPage,
+            visibleRange: deps.visibleRange,
+            numPages: deps.numPages,
+            viewMode: cast(deps.viewMode),
+            pdfDocument: cast(deps.pdfDocument),
+            userViewportInteractionEpoch: ref(0),
+        }),
     };
 }
 

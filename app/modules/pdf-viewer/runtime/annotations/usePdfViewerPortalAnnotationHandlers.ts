@@ -3,8 +3,6 @@ import type {
     IAnnotationMarkerRect,
 } from '@app/types/annotations';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
-import type { IPdfjsEditor } from '@app/types/pdfjs';
-import { syncCommentMarkerAnchorEditor } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
 
 interface IUsePdfViewerPortalAnnotationHandlersOptions {
     activeCommentStableKey: { value: string | null };
@@ -21,19 +19,7 @@ interface IUsePdfViewerPortalAnnotationHandlersOptions {
     handleMarkerMove: (
         comment: IAnnotationCommentSummary,
         markerRect: IAnnotationMarkerRect,
-        options: {
-            markEditorPending: (
-                updated: IAnnotationCommentSummary,
-                original: IAnnotationCommentSummary,
-                pendingMarkerRect: IAnnotationMarkerRect,
-            ) => void;
-            markModified: () => void;
-        },
     ) => void;
-    findEditorForComment: (comment: IAnnotationCommentSummary) => IPdfjsEditor | null;
-    addPendingCommentEditorKey: (key: string) => void;
-    getEditorPendingKey: (editor: IPdfjsEditor, pageIndex: number) => string;
-    markModified: () => void;
     getAnnotationTool?: (() => string) | undefined;
     cancelAnnotationTool?: (() => void) | undefined;
     isCommentPlacementActive?: (() => boolean) | undefined;
@@ -76,19 +62,7 @@ export const usePdfViewerPortalAnnotationHandlers = (options: IUsePdfViewerPorta
     }
 
     function handleMarkerMove(comment: IAnnotationCommentSummary, markerRect: IAnnotationMarkerRect) {
-        options.handleMarkerMove(comment, markerRect, {
-            markEditorPending: (updated, original, pendingMarkerRect) => {
-                const editor = options.findEditorForComment(updated) ?? options.findEditorForComment(original);
-                if (!editor) {
-                    return;
-                }
-                syncCommentMarkerAnchorEditor(editor, pendingMarkerRect);
-                options.addPendingCommentEditorKey(
-                    options.getEditorPendingKey(editor, updated.pageIndex),
-                );
-            },
-            markModified: options.markModified,
-        });
+        options.handleMarkerMove(comment, markerRect);
     }
 
     return {

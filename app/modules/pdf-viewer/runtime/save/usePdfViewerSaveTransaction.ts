@@ -25,17 +25,20 @@ import {
     type IPdfLiveAnnotationChangeSummary,
 } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 import type {
+    IPdfViewerAnnotationSavePlan,
     IPdfViewerSaveTransactionRequest,
     IPdfViewerSaveTransactionResult,
     IPdfViewerConsumedPendingEmbeddedMutations,
     IPdfViewerPendingEmbeddedMutationSnapshot,
+    IPdfViewerSaveTransactionSerializedResult,
     TPdfViewerSaveTransactionSource,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 import type { INativePdfMutationPlan } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationPlanTypes';
 
 const PDF_SAVE_TIMEOUT_QUIESCE_MS = 2_000;
+const DEFAULT_TRANSACTION_SAVE_MODE = 'rewrite';
 
-type TPdfAnnotationSavePlan = ReturnType<typeof buildPdfAnnotationSavePlan>;
+type TPdfAnnotationSavePlan = IPdfViewerAnnotationSavePlan;
 
 interface IUsePdfViewerSaveTransactionOptions {
     materializePdfJsDocumentForInternalUse: () => Promise<Uint8Array | null>;
@@ -198,7 +201,7 @@ function buildAnnotationSavePlan(input: {
     liveChanges: IPdfLiveAnnotationChangeSummary;
     pendingTexts: Map<string, string>;
     pendingDeletes: IAnnotationCommentSummary[];
-}) {
+}): IPdfViewerAnnotationSavePlan {
     const replayableIds = collectReplayableEmbeddedAnnotationIds(input);
     if (input.request.forcePdfjsMaterialize) {
         return {
@@ -208,7 +211,7 @@ function buildAnnotationSavePlan(input: {
                 ? 'live-pdfjs-annotation-baseline-diverged'
                 : 'saved-pdfjs-annotation-baseline-diverged',
             unreplayableLiveAnnotationIds: Array.from(input.liveChanges.ids),
-        } as const;
+        };
     }
 
     return buildPdfAnnotationSavePlan({
@@ -270,6 +273,22 @@ function resolveAnnotationPlanSource(
         return annotationSavePlan.route;
     }
     return 'pdfjs-materialize';
+}
+
+function createSerializedResult(input: {
+    request: IPdfViewerSaveTransactionRequest;
+    resultSource: TPdfViewerSaveTransactionSource;
+    serializedBytes: Uint8Array | null;
+}): IPdfViewerSaveTransactionSerializedResult | null {
+    if (!input.request.serializeResult || !input.serializedBytes) {
+        return null;
+    }
+
+    return {
+        finalBytes: input.serializedBytes,
+        saveMode: input.request.saveMode ?? DEFAULT_TRANSACTION_SAVE_MODE,
+        source: input.resultSource,
+    };
 }
 
 export const usePdfViewerSaveTransaction = (
@@ -564,6 +583,7 @@ export const usePdfViewerSaveTransaction = (
                 source: 'native-mutation-plan',
                 baseBytes: null,
                 serializedBytes: null,
+                serializedResult: null,
                 nativeMutationPlan,
                 annotationSavePlan,
                 annotationCommentsSnapshot,
@@ -579,6 +599,7 @@ export const usePdfViewerSaveTransaction = (
                 source: resolveAnnotationPlanSource(annotationSavePlan),
                 baseBytes: null,
                 serializedBytes: null,
+                serializedResult: null,
                 nativeMutationPlan: null,
                 annotationSavePlan,
                 annotationCommentsSnapshot,
@@ -612,13 +633,19 @@ export const usePdfViewerSaveTransaction = (
             pendingTexts,
             pendingDeletes,
         });
+        const resultSource = request.source
+            ? resolveResultSource(annotationSavePlan, serializedBytes, null)
+            : 'pdfjs-materialize';
 
         return {
-            source: request.source
-                ? resolveResultSource(annotationSavePlan, serializedBytes, null)
-                : 'pdfjs-materialize',
+            source: resultSource,
             baseBytes: request.source ? baseBytes : null,
             serializedBytes,
+            serializedResult: createSerializedResult({
+                request,
+                resultSource,
+                serializedBytes,
+            }),
             nativeMutationPlan,
             annotationSavePlan,
             annotationCommentsSnapshot,
