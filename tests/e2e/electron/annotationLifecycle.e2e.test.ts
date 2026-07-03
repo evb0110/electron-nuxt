@@ -652,7 +652,7 @@ async function getCommentMarkerAnchorDebugState(page: Page) {
 async function waitForCommentMarkerAnchorState(page: Page) {
     try {
         await page.waitForFunction(() => {
-            const anchor = document.querySelector<HTMLElement>('.freeTextEditor.pdf-comment-marker-anchor-editor');
+            const anchor = Array.from(document.querySelectorAll<HTMLElement>('.freeTextEditor.pdf-comment-marker-anchor-editor')).at(-1);
             if (!anchor) {
                 return false;
             }
@@ -669,21 +669,52 @@ async function waitForCommentMarkerAnchorState(page: Page) {
     if (state.length === 0) {
         throw new Error('Expected a PDF.js FreeText sticky-note anchor');
     }
-    return state[0]!;
+    return state.at(-1)!;
 }
 
 async function getLatestCommentMarkerKey(page: Page) {
     await page.waitForFunction(() => document.querySelectorAll('.pdf-comment-marker-button').length > 0, { timeout: 8_000 });
     return page.evaluate(() => {
         const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'));
-        return markers.at(-1)?.dataset.stableKey ?? null;
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const isVisibleMarker = (marker: HTMLElement) => {
+            const rect = marker.getBoundingClientRect();
+            const style = window.getComputedStyle(marker);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0
+            );
+        };
+        const visibleActiveMarkers = activeHost
+            ? markers.filter(marker => activeHost.contains(marker) && isVisibleMarker(marker))
+            : [];
+        const visibleMarkers = markers.filter(isVisibleMarker);
+        return (visibleActiveMarkers.at(-1) ?? visibleMarkers.at(-1) ?? markers.at(-1))?.dataset.stableKey ?? null;
     });
 }
 
 async function getCommentMarkerCenter(page: Page, stableKey: string) {
     const center = await page.evaluate((targetKey: string) => {
-        const marker = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-            .find(candidate => candidate.dataset.stableKey === targetKey);
+        const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
+            .filter(candidate => candidate.dataset.stableKey === targetKey);
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const isVisibleMarker = (marker: HTMLElement) => {
+            const rect = marker.getBoundingClientRect();
+            const style = window.getComputedStyle(marker);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0
+            );
+        };
+        const marker = markers.find(marker => activeHost?.contains(marker) && isVisibleMarker(marker))
+            ?? markers.find(isVisibleMarker)
+            ?? markers.at(-1);
         if (!marker) {
             return null;
         }
@@ -721,8 +752,23 @@ async function movePointerAwayFromCommentMarker(
         x: number;
         y: number;
     }) => {
-        const marker = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-            .find(candidate => candidate.dataset.stableKey === targetKey);
+        const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
+            .filter(candidate => candidate.dataset.stableKey === targetKey);
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const isVisibleMarker = (marker: HTMLElement) => {
+            const rect = marker.getBoundingClientRect();
+            const style = window.getComputedStyle(marker);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0
+            );
+        };
+        const marker = markers.find(marker => activeHost?.contains(marker) && isVisibleMarker(marker))
+            ?? markers.find(isVisibleMarker)
+            ?? markers.at(-1);
         marker?.dispatchEvent(new PointerEvent('pointerleave', {
             bubbles: false,
             cancelable: true,
@@ -755,8 +801,23 @@ async function movePointerOverCommentMarker(
         x: number;
         y: number;
     }) => {
-        const marker = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-            .find(candidate => candidate.dataset.stableKey === targetKey);
+        const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
+            .filter(candidate => candidate.dataset.stableKey === targetKey);
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const isVisibleMarker = (marker: HTMLElement) => {
+            const rect = marker.getBoundingClientRect();
+            const style = window.getComputedStyle(marker);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0
+            );
+        };
+        const marker = markers.find(marker => activeHost?.contains(marker) && isVisibleMarker(marker))
+            ?? markers.find(isVisibleMarker)
+            ?? markers.at(-1);
         marker?.dispatchEvent(new PointerEvent('pointermove', {
             bubbles: true,
             cancelable: true,
@@ -916,8 +977,23 @@ async function collectTooltipDebugState(page: Page) {
 
 async function clickCommentMarker(page: Page, stableKey: string) {
     const clicked = await page.evaluate((targetKey: string) => {
-        const marker = Array.from(document.querySelectorAll<HTMLButtonElement>('.pdf-comment-marker-button'))
-            .find(candidate => candidate.dataset.stableKey === targetKey);
+        const markers = Array.from(document.querySelectorAll<HTMLButtonElement>('.pdf-comment-marker-button'))
+            .filter(candidate => candidate.dataset.stableKey === targetKey);
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const isVisibleMarker = (marker: HTMLElement) => {
+            const rect = marker.getBoundingClientRect();
+            const style = window.getComputedStyle(marker);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0
+            );
+        };
+        const marker = markers.find(marker => activeHost?.contains(marker) && isVisibleMarker(marker))
+            ?? markers.find(isVisibleMarker)
+            ?? markers.at(-1);
         marker?.click();
         return Boolean(marker);
     }, stableKey);
@@ -928,8 +1004,24 @@ async function clickCommentMarker(page: Page, stableKey: string) {
 
 async function dragCommentMarker(page: Page, stableKey: string, dx: number, dy: number) {
     const readDebugState = async () => page.evaluate((targetKey: string) => {
-        const marker = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-            .find(candidate => candidate.dataset.stableKey === targetKey) ?? null;
+        const matchingMarkers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
+            .filter(candidate => candidate.dataset.stableKey === targetKey);
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const isVisibleMarker = (candidate: HTMLElement) => {
+            const rect = candidate.getBoundingClientRect();
+            const style = window.getComputedStyle(candidate);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0
+            );
+        };
+        const marker = matchingMarkers.find(candidate => activeHost?.contains(candidate) && isVisibleMarker(candidate))
+            ?? matchingMarkers.find(isVisibleMarker)
+            ?? matchingMarkers.at(-1)
+            ?? null;
         const markerRect = marker?.getBoundingClientRect() ?? null;
         const center = markerRect
             ? {
@@ -942,6 +1034,24 @@ async function dragCommentMarker(page: Page, stableKey: string, dx: number, dy: 
             : null;
         return {
             markerCount: document.querySelectorAll('.pdf-comment-marker-button').length,
+            matchingMarkers: matchingMarkers.map((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return {
+                    className: candidate.className,
+                    visible: isVisibleMarker(candidate),
+                    inActiveHost: activeHost?.contains(candidate) ?? false,
+                    display: style.display,
+                    visibility: style.visibility,
+                    opacity: style.opacity,
+                    rect: {
+                        left: Math.round(rect.left),
+                        top: Math.round(rect.top),
+                        width: Math.round(rect.width),
+                        height: Math.round(rect.height),
+                    },
+                };
+            }),
             markerClassName: marker?.className ?? null,
             markerStyle: marker?.getAttribute('style') ?? null,
             markerRect: markerRect
@@ -964,8 +1074,23 @@ async function dragCommentMarker(page: Page, stableKey: string, dx: number, dy: 
     }, stableKey);
 
     const startPoint = await page.evaluate((targetKey: string) => {
-        const marker = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-            .find(candidate => candidate.dataset.stableKey === targetKey);
+        const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
+            .filter(candidate => candidate.dataset.stableKey === targetKey);
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const isVisibleMarker = (candidate: HTMLElement) => {
+            const rect = candidate.getBoundingClientRect();
+            const style = window.getComputedStyle(candidate);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0
+            );
+        };
+        const marker = markers.find(candidate => activeHost?.contains(candidate) && isVisibleMarker(candidate))
+            ?? markers.find(isVisibleMarker)
+            ?? markers.at(-1);
         if (!marker) {
             return null;
         }
@@ -984,8 +1109,23 @@ async function dragCommentMarker(page: Page, stableKey: string, dx: number, dy: 
         deltaY,
         targetKey,
     }) => {
-        const marker = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-            .find(candidate => candidate.dataset.stableKey === targetKey);
+        const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
+            .filter(candidate => candidate.dataset.stableKey === targetKey);
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const isVisibleMarker = (candidate: HTMLElement) => {
+            const rect = candidate.getBoundingClientRect();
+            const style = window.getComputedStyle(candidate);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0
+            );
+        };
+        const marker = markers.find(candidate => activeHost?.contains(candidate) && isVisibleMarker(candidate))
+            ?? markers.find(isVisibleMarker)
+            ?? markers.at(-1);
         if (!marker) {
             return false;
         }
@@ -1042,8 +1182,23 @@ async function dragCommentMarker(page: Page, stableKey: string, dx: number, dy: 
             startY,
             targetKey,
         }) => {
-            const marker = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-                .find(candidate => candidate.dataset.stableKey === targetKey);
+            const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
+                .filter(candidate => candidate.dataset.stableKey === targetKey);
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const isVisibleMarker = (candidate: HTMLElement) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 0
+                    && rect.height > 0
+                );
+            };
+            const marker = markers.find(candidate => activeHost?.contains(candidate) && isVisibleMarker(candidate))
+                ?? markers.find(isVisibleMarker)
+                ?? markers.at(-1);
             if (!marker) {
                 return false;
             }
@@ -1252,7 +1407,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             left: string;
             top: string;
         }) => {
-            const anchor = document.querySelector<HTMLElement>('.freeTextEditor.pdf-comment-marker-anchor-editor');
+            const anchor = Array.from(document.querySelectorAll<HTMLElement>('.freeTextEditor.pdf-comment-marker-anchor-editor')).at(-1);
             if (!anchor) {
                 return false;
             }

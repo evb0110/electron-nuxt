@@ -323,11 +323,12 @@ describe('macOS native tool workflow', () => {
         expect(verifier).toContain('check_macos_file_arch "$file" "$expected_macho_arch"');
     });
 
-    it('lets the release quality gate defer CI-generated host Linux resources explicitly', () => {
+    it('lets the release quality gate defer CI-generated Linux resources explicitly', () => {
         const output = runSourceMatrixAsLinuxX64Host();
 
         expect(output).toContain('== Checking linux-x64 ==');
-        expect(output).toContain('CI-GEN  tesseract: resources/tesseract/linux-x64/bin/tesseract');
+        expect(output).toMatch(/(CI-GEN|OK)\s+tesseract: resources\/tesseract\/linux-x64\/bin\/tesseract/u);
+        expect(output).toContain('CI-GEN  tesseract: resources/tesseract/linux-arm64/bin/tesseract');
         expect(output).toContain('Native tool source matrix check passed (--all).');
     });
 });

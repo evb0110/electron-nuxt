@@ -2,7 +2,8 @@ const DEFAULT_SITE_URL = 'https://evb-viewer.vercel.app';
 export const SEO_IMAGE_PATH = '/evb-viewer-seo.png';
 
 export function normalizeSiteUrl(siteUrl?: string): string {
-    const configured = siteUrl?.trim() || DEFAULT_SITE_URL;
+    const trimmedSiteUrl = siteUrl?.trim() ?? '';
+    const configured = trimmedSiteUrl.length > 0 ? trimmedSiteUrl : DEFAULT_SITE_URL;
     const withProtocol = /^https?:\/\//iu.test(configured)
         ? configured
         : `https://${configured}`;
