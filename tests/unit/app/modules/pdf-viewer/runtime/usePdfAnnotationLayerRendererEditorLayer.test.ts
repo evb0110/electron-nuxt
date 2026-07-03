@@ -128,14 +128,25 @@ class MockAnnotationEditorLayer {
     }
 }
 
+class MockAnnotationEditorUIManager {
+    get currentLayer() {
+        return null;
+    }
+}
+
 vi.mock('pdfjs-dist', () => ({
+    version: '5.7.284',
     AnnotationLayer: MockAnnotationLayer,
     AnnotationEditorLayer: MockAnnotationEditorLayer,
+    AnnotationEditorUIManager: MockAnnotationEditorUIManager,
     AnnotationEditorType: {NONE: 0},
     DrawLayer: MockDrawLayer,
 }));
 
-const { usePdfAnnotationLayerRenderer } =
+const {
+    didRenderAnnotationEditorLayer,
+    usePdfAnnotationLayerRenderer,
+} =
     await import('@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer');
 
 interface IFakeDivElement {
@@ -310,7 +321,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             null,
         );
 
-        expect(result).toBe(true);
+        expect(didRenderAnnotationEditorLayer(result)).toBe(true);
         expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(1);
         const ctorArg = annotationEditorLayerCtor.mock.calls[0]?.[0] as {textLayer?: { div?: HTMLDivElement };} | undefined;
         expect(ctorArg?.textLayer?.div).toBe(textLayerDiv);
@@ -326,12 +337,12 @@ describe('usePdfAnnotationLayerRenderer', () => {
             null,
         );
 
-        expect(secondResult).toBe(true);
+        expect(didRenderAnnotationEditorLayer(secondResult)).toBe(true);
         expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(1);
         expect(editorLayerInstances[0]?.update).toHaveBeenCalledTimes(1);
     });
 
-    it('disables the annotation editor layer for the current document after a render crash', async () => {
+    it('quarantines only the page whose annotation editor layer exhausts retries', async () => {
         const firstDocument = cast<PDFDocumentProxy>({ annotationStorage: {} });
         const secondDocument = cast<PDFDocumentProxy>({ annotationStorage: {} });
         const pdfDocument = cast<Ref<PDFDocumentProxy | null>>(ref(firstDocument));
@@ -358,7 +369,11 @@ describe('usePdfAnnotationLayerRenderer', () => {
             null,
         );
 
-        expect(firstResult).toBe(false);
+        expect(firstResult).toMatchObject({
+            ok: false,
+            reason: 'render-error',
+            retryable: true,
+        });
         expect(loggerWarn).toHaveBeenCalledTimes(1);
         expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(1);
         expect(drawLayerInstances[0]?.destroy).toHaveBeenCalledTimes(1);
@@ -366,19 +381,21 @@ describe('usePdfAnnotationLayerRenderer', () => {
         const secondResult = await renderer.renderAnnotationEditorLayer(
             container,
             annotationEditorLayerDiv,
-            createDiv(),
+            null,
             createViewport(),
             1,
             null,
         );
 
-        expect(secondResult).toBe(false);
-        expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(1);
+        expect(secondResult).toMatchObject({
+            ok: false,
+            reason: 'render-error',
+            retryable: false,
+        });
+        expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(2);
         expect(annotationEditorLayerDiv.hidden).toBe(true);
 
-        pdfDocument.value = secondDocument;
-
-        const thirdResult = await renderer.renderAnnotationEditorLayer(
+        const quarantinedResult = await renderer.renderAnnotationEditorLayer(
             container,
             annotationEditorLayerDiv,
             createDiv(),
@@ -387,9 +404,40 @@ describe('usePdfAnnotationLayerRenderer', () => {
             null,
         );
 
-        expect(thirdResult).toBe(true);
-        expect(loggerWarn).toHaveBeenCalledTimes(1);
+        expect(quarantinedResult).toEqual({
+            ok: true,
+            rendered: false,
+            reason: 'quarantined',
+        });
         expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(2);
+        expect(annotationEditorLayerDiv.hidden).toBe(true);
+
+        const pageTwoResult = await renderer.renderAnnotationEditorLayer(
+            container,
+            annotationEditorLayerDiv,
+            createDiv(),
+            createViewport(),
+            2,
+            null,
+        );
+
+        expect(didRenderAnnotationEditorLayer(pageTwoResult)).toBe(true);
+        expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(3);
+
+        pdfDocument.value = secondDocument;
+
+        const afterDocumentChangeResult = await renderer.renderAnnotationEditorLayer(
+            container,
+            annotationEditorLayerDiv,
+            createDiv(),
+            createViewport(),
+            1,
+            null,
+        );
+
+        expect(didRenderAnnotationEditorLayer(afterDocumentChangeResult)).toBe(true);
+        expect(loggerWarn).toHaveBeenCalledTimes(2);
+        expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(4);
     });
 
     it('suppresses imported embedded annotations before they are added to the annotation layer DOM', async () => {
@@ -568,7 +616,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             null,
         );
 
-        expect(firstResult).toBe(true);
+        expect(didRenderAnnotationEditorLayer(firstResult)).toBe(true);
         expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(1);
 
         hiddenAnnotationIds.value = new Set(['12R0']);
@@ -582,7 +630,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             null,
         );
 
-        expect(secondResult).toBe(true);
+        expect(didRenderAnnotationEditorLayer(secondResult)).toBe(true);
         expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(2);
         expect(drawLayerInstances[0]?.destroy).toHaveBeenCalledTimes(1);
     });
@@ -618,7 +666,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             null,
         );
 
-        expect(firstResult).toBe(true);
+        expect(didRenderAnnotationEditorLayer(firstResult)).toBe(true);
         expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(1);
 
         managedAnnotationIds.value = new Set(['42R']);
@@ -632,7 +680,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             null,
         );
 
-        expect(secondResult).toBe(true);
+        expect(didRenderAnnotationEditorLayer(secondResult)).toBe(true);
         expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(2);
         expect(drawLayerInstances[0]?.destroy).toHaveBeenCalledTimes(1);
     });

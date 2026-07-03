@@ -1,5 +1,9 @@
 import { isRecord } from '@contracts/runtimeGuards';
 import type {
+    IDocumentRevisionInfo,
+    TDocumentRevisionAuthority,
+} from '@contracts/documentRevision';
+import type {
     IOcrWorkerStartPayload,
     TOcrWorkerInboundMessage,
 } from '@electron/ocr/worker/types';
@@ -9,12 +13,50 @@ import {
     validateCreateSearchablePdfPayload,
 } from '@electron/ocr/contracts';
 
+const DOCUMENT_REVISION_AUTHORITIES: ReadonlySet<TDocumentRevisionAuthority> = new Set([
+    'browser-document-store',
+    'electron-working-copy',
+]);
+
+function parseDocumentRevisionInfo(value: unknown): IDocumentRevisionInfo | null {
+    const authority = isRecord(value) ? value.authority : undefined;
+    if (
+        !isRecord(value)
+        || value.version !== 1
+        || typeof value.documentRef !== 'string'
+        || typeof authority !== 'string'
+        || !DOCUMENT_REVISION_AUTHORITIES.has(authority as TDocumentRevisionAuthority)
+        || typeof value.token !== 'string'
+        || value.token.length === 0
+        || typeof value.contentRevision !== 'number'
+        || !Number.isSafeInteger(value.contentRevision)
+        || value.contentRevision < 1
+        || typeof value.mintedAt !== 'number'
+        || !Number.isFinite(value.mintedAt)
+    ) {
+        return null;
+    }
+
+    return {
+        version: 1,
+        documentRef: value.documentRef,
+        authority: authority as TDocumentRevisionAuthority,
+        token: value.token,
+        contentRevision: value.contentRevision,
+        mintedAt: value.mintedAt,
+    };
+}
+
 export function parseOcrWorkerStartPayload(value: unknown): IOcrWorkerStartPayload | null {
     if (!isRecord(value)) {
         return null;
     }
 
     try {
+        const documentRevision = parseDocumentRevisionInfo(value.documentRevision);
+        if (!documentRevision) {
+            return null;
+        }
         const validated = validateCreateSearchablePdfPayload(
             value.sourcePdfPath,
             value.pages,
@@ -23,6 +65,7 @@ export function parseOcrWorkerStartPayload(value: unknown): IOcrWorkerStartPaylo
         );
         const payload: IOcrWorkerStartPayload = {
             sourcePdfPath: validated.sourcePdfPath,
+            documentRevision,
             pages: validated.pages,
         };
         if (validated.options.renderDpi !== undefined) {

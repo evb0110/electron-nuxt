@@ -1,4 +1,5 @@
 import { ensurePdfjsSsrGlobals } from '@app/services/pdfjs/ensurePdfjsSsrGlobals';
+import { getPdfAnnotationEditorCompatibilityProbeFailures } from '@app/services/pdfjs/annotationEditorCompatibility';
 import {
     getPdfjsAssetDir,
     getViewerAssetResolver,
@@ -343,6 +344,7 @@ export function getPdfjsRuntimeProbeFailures(runtime: unknown = pdfjsLib) {
         ...getRuntimeNumberMapProbeFailures(runtime, 'AnnotationMode', REQUIRED_ANNOTATION_MODE_KEYS),
         ...getRuntimeNumberMapProbeFailures(runtime, 'PixelsPerInch', REQUIRED_PIXELS_PER_INCH_KEYS),
         ...getAnnotationEditorUiManagerProbeFailures(runtime),
+        ...getPdfAnnotationEditorCompatibilityProbeFailures(runtime),
         ...getPdfDateStringProbeFailures(runtime),
     ];
 }

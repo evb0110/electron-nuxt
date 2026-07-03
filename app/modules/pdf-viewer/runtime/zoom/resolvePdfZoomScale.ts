@@ -3,7 +3,7 @@ import { ZOOM } from '@app/constants/pdfLayout';
 import type {
     TFitMode,
     TZoomMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
 
 interface IZoomLimits {
     manualMin: number;

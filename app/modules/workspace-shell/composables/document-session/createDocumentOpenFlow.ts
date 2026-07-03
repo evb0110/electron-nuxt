@@ -1,10 +1,13 @@
 import { clamp } from 'es-toolkit/math';
-import type { useAnalytics } from '@app/composables/useAnalytics';
+import type {
+    IAnalyticsDocumentScope,
+    useAnalytics,
+} from '@app/composables/useAnalytics';
 import type { TTranslateFn } from '@i18n-app';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
 import type { IPdfLoadedState } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import type { IPdfConformanceDeferralOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
@@ -30,6 +33,7 @@ type TEpochGuard = ReturnType<typeof createEpochGuard>;
 
 interface ICreateDocumentOpenFlowDeps {
     analytics: TAnalytics;
+    analyticsDocumentScope: IAnalyticsDocumentScope;
     cleanupAbandonedWorkingCopy: (path: TDocumentRef) => Promise<void>;
     clearPdfConformanceProfile: () => void;
     cleanupPreviousWorkingCopy: (path: TDocumentRef, nextPath: TDocumentRef) => Promise<void>;
@@ -120,7 +124,7 @@ export function createDocumentOpenFlow(
             fileSizeBucket = null;
         }
 
-        deps.analytics.setDocumentContext({
+        deps.analyticsDocumentScope.set({
             documentKind: result.kind,
             fileExtension: getLowercaseExtension(fileName),
             fileSizeBucket,
@@ -514,6 +518,11 @@ export function createDocumentOpenFlow(
             return false;
         }
 
+        const didRefreshRevision = await refreshDocumentRevisionToken(path, options?.isCurrent);
+        if (!didRefreshRevision) {
+            return false;
+        }
+
         state.workingCopyPath.value = path;
         state.pdfData.value = nextState.pdfData;
         state.pdfSrc.value = nextState.pdfSrc;
@@ -559,6 +568,35 @@ export function createDocumentOpenFlow(
         }
 
         deps.deferPdfConformanceProfile(path, { fileSize: getLoadedPdfFileSize(nextState) });
+        return true;
+    }
+
+    async function refreshDocumentRevisionToken(
+        path: TDocumentRef,
+        isCurrent?: (() => boolean) | undefined,
+    ) {
+        if (isCurrent?.() === false) {
+            return false;
+        }
+
+        try {
+            const revision = await getDocumentFilesCapability().getDocumentRevision(path);
+            if (isCurrent?.() === false) {
+                return false;
+            }
+            state.documentRevisionInfo.value = revision;
+            state.documentRevisionToken.value = revision.token;
+        } catch (error) {
+            if (isCurrent?.() === false) {
+                return false;
+            }
+            state.documentRevisionInfo.value = null;
+            state.documentRevisionToken.value = null;
+            BrowserLogger.warn('pdf-file', 'Failed to resolve document revision', {
+                path,
+                error,
+            });
+        }
         return true;
     }
 

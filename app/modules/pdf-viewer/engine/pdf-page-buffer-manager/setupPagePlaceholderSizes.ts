@@ -1,4 +1,4 @@
-import type { IPdfPageMetric } from '@app/types/pdf';
+import type { IPdfPageMetric } from '@app/types/pdfUi';
 
 const placeholderSizeCache = new WeakMap<HTMLElement, {
     width: number;

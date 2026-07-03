@@ -1,4 +1,5 @@
 import type { IPlatformApi } from '@contracts/platformApi';
+import { BROWSER_PLATFORM_MANIFEST } from '@contracts/platformApi';
 import { inspectAllowedExternalUrl } from '@contracts/externalUrl';
 import { browserWindowTabsCapability } from '@app/platform/browserWindowTabs';
 import {
@@ -44,6 +45,7 @@ const browserShellApi: IPlatformApi['shell'] = { openExternal(url: string) {
 } };
 
 export const browserPlatformApi = {
+    manifest: BROWSER_PLATFORM_MANIFEST,
     documents: browserDocumentCapabilities.documents,
     documentPicker: browserDocumentCapabilities.documentPicker,
     documentOpen: browserDocumentCapabilities.documentOpen,

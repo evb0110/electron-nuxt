@@ -1,6 +1,7 @@
 import { parentPort } from 'worker_threads';
 import { stat } from 'fs/promises';
 import type { IPdfSearchIndex } from '@electron/search/indexBuilder';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     ISearchMatch,
     ISearchWorkerRequest,
@@ -31,6 +32,7 @@ import { collectSearchMatchWords } from '@pdf-core';
 interface ISearchRequestContext extends IResolvedSearchMatchOptions {
     requestId: string;
     pdfPath: string;
+    documentRevision: TDocumentRevisionToken;
     normalizedQuery: string;
     pageCount?: number;
     shouldWarmup: boolean;
@@ -108,6 +110,8 @@ function parseSearchWorkerRequest(value: unknown): ISearchWorkerRequest | null {
     if (
         typeof value.requestId !== 'string'
         || typeof value.pdfPath !== 'string'
+        || typeof value.documentRevision !== 'string'
+        || value.documentRevision.length === 0
         || typeof value.query !== 'string'
     ) {
         return null;
@@ -120,6 +124,7 @@ function parseSearchWorkerRequest(value: unknown): ISearchWorkerRequest | null {
     const request: ISearchWorkerRequest = {
         requestId: value.requestId,
         pdfPath: value.pdfPath,
+        documentRevision: value.documentRevision,
         query: value.query,
     };
     if (pageCount !== undefined) {
@@ -308,6 +313,7 @@ async function tryCompleteWithNativeSearch(context: ISearchRequestContext) {
         const { tryRunNativeSearch } = await import('@electron/search/nativeSearch');
         const nativeResult = await tryRunNativeSearch({
             pdfPath: context.pdfPath,
+            documentRevision: context.documentRevision,
             query: context.normalizedQuery,
             matchCase: context.matchCase,
             wholeWord: context.wholeWord,
@@ -357,6 +363,7 @@ async function createSearchRequestContext(request: ISearchWorkerRequest): Promis
     const {
         requestId,
         pdfPath,
+        documentRevision,
         query,
         pageCount,
         warmup,
@@ -380,6 +387,7 @@ async function createSearchRequestContext(request: ISearchWorkerRequest): Promis
     const context: ISearchRequestContext = {
         requestId,
         pdfPath,
+        documentRevision,
         normalizedQuery: query.trim(),
         shouldWarmup: warmup === true,
         matchCase,
@@ -397,12 +405,14 @@ async function getRequestSearchIndex(context: ISearchRequestContext) {
     const {
         requestId,
         pdfPath,
+        documentRevision,
         pageCount,
         signal,
     } = context;
 
     const streamIndexedPage = createIndexedPageResultStreamer(context);
     const ensureOptions: Parameters<typeof ensureSearchIndex>[3] = {
+        documentRevision,
         signal,
         throwIfCancelled: abortSignal => throwIfCancelled(requestId, abortSignal),
     };

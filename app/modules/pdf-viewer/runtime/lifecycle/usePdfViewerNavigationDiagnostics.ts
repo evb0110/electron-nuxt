@@ -2,10 +2,8 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import type {
-    IPageRange,
-    TPdfViewMode,
-} from '@app/types/pdf';
+import type { TPdfViewMode } from '@app/types/pdfContracts';
+import type { IPageRange } from '@app/types/pdfUi';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfNav } from '@app/utils/logPdfNav';
 

@@ -13,7 +13,7 @@ import {
     shallowRef,
 } from 'vue';
 import type { Ref } from 'vue';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { usePdfSinglePageScroll } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageScroll';
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { accumulateWheelForPageFlips } from '@app/utils/document-viewer/single-page-wheel/accumulateWheelForPageFlips';
@@ -49,8 +49,6 @@ interface IScrollHarnessOptions {
     clientHeight?: number;
     scrollHeight?: number;
     continuousScroll?: boolean;
-    suppressPagedRowRender?: () => boolean;
-    preparePagedTargetLayout?: Parameters<typeof usePdfSinglePageScroll>[0]['preparePagedTargetLayout'];
     renderVisiblePages?: TRenderVisiblePages;
     ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
     clientWidth?: number;
@@ -220,8 +218,6 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         updateCurrentPage: vi.fn((viewer: HTMLElement | null) => getMostVisiblePage(viewer)),
         renderVisiblePages,
         ensurePageMetricsInRange: options?.ensurePageMetricsInRange,
-        preparePagedTargetLayout: options?.preparePagedTargetLayout,
-        suppressPagedRowRender: options?.suppressPagedRowRender,
         isPageFreshlyRenderedForNavigation: pageNumber => freshRenderedPageNumbers.has(pageNumber),
         visibleRange,
         emitCurrentPage,
@@ -814,80 +810,6 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
     });
 
-    it('prepares paged target layout before publishing the target row', async () => {
-        const preparation = { resolve: null as (() => void) | null };
-        const preparePagedTargetLayout = vi.fn(() => new Promise<void>((resolve) => {
-            preparation.resolve = resolve;
-        }));
-        const {
-            currentPage,
-            singlePageScroll,
-        } = createSinglePageScrollHarness({
-            canvasReadyPageNumbers: [1],
-            freshRenderedPageNumbers: [1],
-            visuallyReadyPageNumbers: [1],
-            preparePagedTargetLayout,
-            suppressPagedRowRender: () => true,
-        });
-
-        const didScroll = singlePageScroll.scrollToPage(3);
-        await nextTick();
-
-        expect(didScroll).toBe(true);
-        expect(preparePagedTargetLayout).toHaveBeenCalledWith(3, expect.any(Function));
-        expect(currentPage.value).toBe(1);
-        expect(singlePageScroll.pagedNavigationTargetPage.value).toBeNull();
-
-        preparation.resolve?.();
-        await nextTick();
-        await Promise.resolve();
-        await nextTick();
-
-        expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(3);
-        expect(singlePageScroll.isNavigationHoldActiveForPage(3)).toBe(true);
-    });
-
-    it('invalidates stale paged target layout preparation after a newer click', async () => {
-        const firstPreparation = {
-            resolve: null as (() => void) | null,
-            shouldContinue: null as (() => boolean) | null,
-        };
-        const preparePagedTargetLayout = vi.fn((
-            pageNumber: number,
-            shouldContinue: () => boolean,
-        ) => {
-            if (pageNumber === 2) {
-                firstPreparation.shouldContinue = shouldContinue;
-                return new Promise<void>((resolve) => {
-                    firstPreparation.resolve = resolve;
-                });
-            }
-            return undefined;
-        });
-        const { singlePageScroll } = createSinglePageScrollHarness({
-            canvasReadyPageNumbers: [1],
-            freshRenderedPageNumbers: [1],
-            visuallyReadyPageNumbers: [1],
-            preparePagedTargetLayout,
-            suppressPagedRowRender: () => true,
-        });
-
-        singlePageScroll.scrollToPage(2);
-        await nextTick();
-        singlePageScroll.scrollToPage(3);
-
-        expect(firstPreparation.shouldContinue?.()).toBe(false);
-
-        firstPreparation.resolve?.();
-        await nextTick();
-        await Promise.resolve();
-        await nextTick();
-
-        expect(singlePageScroll.pagedNavigationTargetPage.value).toBe(3);
-        expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(false);
-        expect(singlePageScroll.isNavigationHoldActiveForPage(3)).toBe(true);
-    });
-
     it('retries paged navigation release after canvas DOM readiness settles', async () => {
         const {
             currentPage,
@@ -908,7 +830,6 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
                 1,
                 2,
             ],
-            suppressPagedRowRender: () => true,
         });
 
         singlePageScroll.scrollToPage(3);
@@ -988,13 +909,10 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         const {
             emitNavigationFeedbackPage,
             singlePageScroll,
-        } = createSinglePageScrollHarness({
-            suppressPagedRowRender: () => true,
-            visuallyReadyPageNumbers: [
-                1,
-                2,
-            ],
-        });
+        } = createSinglePageScrollHarness({visuallyReadyPageNumbers: [
+            1,
+            2,
+        ]});
 
         singlePageScroll.scrollToPage(3);
         await nextTick();
@@ -1981,20 +1899,15 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         expect(emitCurrentPage).toHaveBeenCalledWith(1);
     });
 
-    it('renders the authoritative paged target even when fit-current suppression is active', async () => {
-        const suppressPagedRowRender = vi.fn(() => true);
+    it('renders the authoritative paged target when the target page is not mounted yet', async () => {
         const {
             renderVisiblePages,
             singlePageScroll,
-        } = createSinglePageScrollHarness({
-            mountedPageNumbers: [],
-            suppressPagedRowRender,
-        });
+        } = createSinglePageScrollHarness({mountedPageNumbers: []});
 
         singlePageScroll.scrollToPage(2);
         await nextTick();
 
-        expect(suppressPagedRowRender).toHaveBeenCalled();
         expect(renderVisiblePages).toHaveBeenCalledWith(
             {
                 start: 2,
@@ -2304,23 +2217,6 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
 
         singlePageScroll.handleWheel(createWheelEvent(15, 430));
         expect(currentPage.value).toBe(3);
-    });
-
-    it('reuses in-flight paged target layout preparation for repeated same-target wheel input', () => {
-        const preparePagedTargetLayout = vi.fn(() => new Promise<void>(() => {}));
-        const {
-            currentPage,
-            singlePageScroll,
-        } = createSinglePageScrollHarness({ preparePagedTargetLayout });
-
-        singlePageScroll.handleWheel(createWheelEvent(120, 10));
-        expect(currentPage.value).toBe(1);
-        expect(preparePagedTargetLayout).toHaveBeenCalledTimes(1);
-        expect(preparePagedTargetLayout).toHaveBeenLastCalledWith(2, expect.any(Function));
-
-        singlePageScroll.handleWheel(createWheelEvent(120, 250));
-        expect(currentPage.value).toBe(1);
-        expect(preparePagedTargetLayout).toHaveBeenCalledTimes(1);
     });
 
     it('bypasses cooldown when wheel direction reverses', () => {
@@ -2714,10 +2610,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
                 markPageCanvasReady,
                 markPageVisualReady,
                 singlePageScroll,
-            } = createSinglePageScrollHarness({
-                suppressPagedRowRender: () => true,
-                visuallyReadyPageNumbers: [1],
-            });
+            } = createSinglePageScrollHarness({visuallyReadyPageNumbers: [1]});
 
             singlePageScroll.scrollToPage(2);
             expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(true);
@@ -2747,10 +2640,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
                 markPageCanvasReady,
                 markPageVisualReady,
                 singlePageScroll,
-            } = createSinglePageScrollHarness({
-                suppressPagedRowRender: () => true,
-                visuallyReadyPageNumbers: [1],
-            });
+            } = createSinglePageScrollHarness({visuallyReadyPageNumbers: [1]});
 
             singlePageScroll.scrollToPage(2);
             await nextTick();
@@ -2787,10 +2677,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
             markPageCanvasReady,
             markPageVisualReady,
             singlePageScroll,
-        } = createSinglePageScrollHarness({
-            suppressPagedRowRender: () => true,
-            visuallyReadyPageNumbers: [1],
-        });
+        } = createSinglePageScrollHarness({visuallyReadyPageNumbers: [1]});
 
         singlePageScroll.scrollToPage(2);
         await nextTick();
@@ -2815,10 +2702,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
             markPageCanvasReady,
             markPageVisualReady,
             singlePageScroll,
-        } = createSinglePageScrollHarness({
-            suppressPagedRowRender: () => true,
-            visuallyReadyPageNumbers: [1],
-        });
+        } = createSinglePageScrollHarness({visuallyReadyPageNumbers: [1]});
 
         singlePageScroll.scrollToPage(2);
         await nextTick();
@@ -2847,10 +2731,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
                 markPageCanvasReady,
                 markPageVisualReady,
                 singlePageScroll,
-            } = createSinglePageScrollHarness({
-                suppressPagedRowRender: () => true,
-                visuallyReadyPageNumbers: [1],
-            });
+            } = createSinglePageScrollHarness({visuallyReadyPageNumbers: [1]});
 
             singlePageScroll.scrollToPage(2);
             await nextTick();
@@ -2881,10 +2762,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
             const {
                 renderVisiblePages,
                 singlePageScroll,
-            } = createSinglePageScrollHarness({
-                suppressPagedRowRender: () => true,
-                visuallyReadyPageNumbers: [1],
-            });
+            } = createSinglePageScrollHarness({visuallyReadyPageNumbers: [1]});
 
             singlePageScroll.scrollToPage(2);
             await nextTick();
@@ -2917,10 +2795,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
                 currentPage,
                 emitNavigationFeedbackPage,
                 singlePageScroll,
-            } = createSinglePageScrollHarness({
-                suppressPagedRowRender: () => true,
-                visuallyReadyPageNumbers: [1],
-            });
+            } = createSinglePageScrollHarness({visuallyReadyPageNumbers: [1]});
 
             singlePageScroll.scrollToPage(2);
             await nextTick();
@@ -2950,7 +2825,6 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
                 emitNavigationFeedbackPage,
                 singlePageScroll,
             } = createSinglePageScrollHarness({
-                suppressPagedRowRender: () => true,
                 visuallyReadyPageNumbers: [1],
                 getMostVisiblePage: () => 1,
             });
@@ -2981,7 +2855,6 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
             currentPage,
             singlePageScroll,
         } = createSinglePageScrollHarness({
-            suppressPagedRowRender: () => true,
             visuallyReadyPageNumbers: [1],
             canvasReadyPageNumbers: [
                 1,
@@ -3004,7 +2877,6 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
             hidePageSkeleton,
             singlePageScroll,
         } = createSinglePageScrollHarness({
-            suppressPagedRowRender: () => true,
             visuallyReadyPageNumbers: [
                 1,
                 2,
@@ -3036,7 +2908,6 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
             currentPage,
             singlePageScroll,
         } = createSinglePageScrollHarness({
-            suppressPagedRowRender: () => true,
             visuallyReadyPageNumbers: [
                 1,
                 2,
@@ -3063,7 +2934,6 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
             markPageFreshRendered,
             singlePageScroll,
         } = createSinglePageScrollHarness({
-            suppressPagedRowRender: () => true,
             visuallyReadyPageNumbers: [
                 1,
                 2,
@@ -3093,7 +2963,6 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
             singlePageScroll,
         } = createSinglePageScrollHarness({
             viewMode: 'facing-first-single',
-            suppressPagedRowRender: () => true,
             pageGeometries: [
                 {
                     offsetTop: 20,
@@ -3148,7 +3017,6 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
             visibleRange,
         } = createSinglePageScrollHarness({
             viewMode: 'facing-first-single',
-            suppressPagedRowRender: () => true,
             pageGeometries: [
                 {
                     offsetTop: 20,
@@ -3197,10 +3065,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
             const {
                 currentPage,
                 singlePageScroll,
-            } = createSinglePageScrollHarness({
-                suppressPagedRowRender: () => true,
-                visuallyReadyPageNumbers: [1],
-            });
+            } = createSinglePageScrollHarness({visuallyReadyPageNumbers: [1]});
 
             singlePageScroll.scrollToPage(2);
 
@@ -3224,10 +3089,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
     it('replaces the held target row when the next paged navigation starts', () => {
         vi.useFakeTimers();
         try {
-            const {singlePageScroll} = createSinglePageScrollHarness({
-                suppressPagedRowRender: () => true,
-                visuallyReadyPageNumbers: [1],
-            });
+            const {singlePageScroll} = createSinglePageScrollHarness({visuallyReadyPageNumbers: [1]});
 
             singlePageScroll.scrollToPage(2);
             expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(true);
@@ -3244,10 +3106,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
     it('clears the commit hold when programmatic navigation is cancelled', () => {
         vi.useFakeTimers();
         try {
-            const {singlePageScroll} = createSinglePageScrollHarness({
-                suppressPagedRowRender: () => true,
-                visuallyReadyPageNumbers: [1],
-            });
+            const {singlePageScroll} = createSinglePageScrollHarness({visuallyReadyPageNumbers: [1]});
 
             singlePageScroll.scrollToPage(2);
             expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(true);
@@ -3267,10 +3126,7 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
                 markPageCanvasReady,
                 markPageVisualReady,
                 singlePageScroll,
-            } = createSinglePageScrollHarness({
-                suppressPagedRowRender: () => true,
-                visuallyReadyPageNumbers: [1],
-            });
+            } = createSinglePageScrollHarness({visuallyReadyPageNumbers: [1]});
 
             singlePageScroll.scrollToPage(2);
             expect(singlePageScroll.isNavigationHoldActiveForPage(2)).toBe(true);

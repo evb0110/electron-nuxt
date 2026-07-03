@@ -6,9 +6,12 @@ import { app } from 'electron';
 import { isRecord } from '@contracts/runtimeGuards';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
+import { appendTextChunkWithByteCap } from '@electron/native-tools/appendTextChunkWithByteCap';
+import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
 const logger = createLogger('agent-codex-assistant');
 const APP_SERVER_REQUEST_TIMEOUT_MS = 30_000;
+const APP_SERVER_MAX_STDERR_BYTES = parseIntegerEnv('EVB_CODEX_APP_SERVER_MAX_STDERR_BYTES', 262_144, 1_024);
 
 type TAppServerJsonRpcId = number;
 
@@ -36,12 +39,29 @@ interface IPendingAppServerRequest {
 
 type TAppServerResponseDecoder<T> = (value: unknown) => T | null;
 
+export class CodexAppServerRequestTimeoutError extends Error {
+    readonly method: string;
+    readonly timeoutMs: number;
+
+    constructor(method: string, timeoutMs: number) {
+        super(`${method} timed out after ${timeoutMs}ms.`);
+        this.name = 'CodexAppServerRequestTimeoutError';
+        this.method = method;
+        this.timeoutMs = timeoutMs;
+    }
+}
+
+export function isCodexAppServerRequestTimeoutError(error: unknown): error is CodexAppServerRequestTimeoutError {
+    return error instanceof CodexAppServerRequestTimeoutError;
+}
+
 export class CodexAppServerClient {
     private readonly child: ChildProcessWithoutNullStreams;
     private readonly pending = new Map<TAppServerJsonRpcId, IPendingAppServerRequest>();
     private nextId = 1;
     private stdoutBuffer = '';
     private stderrBuffer = '';
+    private stderrTruncated = false;
     private closed = false;
 
     constructor(
@@ -68,7 +88,7 @@ export class CodexAppServerClient {
         this.child.stdin.on('error', error => this.failAll(`Codex app-server stdin failed: ${getErrorMessage(error)}`));
         this.child.on('error', error => this.failAll(`Codex app-server failed: ${getErrorMessage(error)}`));
         this.child.on('close', (exitCode) => {
-            const detail = this.stderrBuffer.trim();
+            const detail = this.getStderrDetail();
             this.failAll(`Codex app-server exited${exitCode === null ? '' : ` with code ${exitCode}`}${detail ? `: ${detail}` : '.'}`);
         });
     }
@@ -102,7 +122,7 @@ export class CodexAppServerClient {
         return new Promise<unknown>((resolve, reject) => {
             const timeout = setTimeout(() => {
                 this.pending.delete(id);
-                reject(new Error(`${method} timed out after ${timeoutMs}ms.`));
+                reject(new CodexAppServerRequestTimeoutError(method, timeoutMs));
             }, timeoutMs);
             this.pending.set(id, {
                 method,
@@ -220,13 +240,26 @@ export class CodexAppServerClient {
     }
 
     private handleStderr(chunk: string) {
-        this.stderrBuffer += chunk;
+        const appended = appendTextChunkWithByteCap(this.stderrBuffer, Buffer.from(chunk), APP_SERVER_MAX_STDERR_BYTES);
+        this.stderrBuffer = appended.text;
+        this.stderrTruncated = this.stderrTruncated || appended.truncated;
         const lines = chunk.split(/\r?\n/u)
             .map(line => line.trim())
             .filter(Boolean);
         for (const line of lines) {
             logger.info(`[app-server] ${line}`);
         }
+    }
+
+    private getStderrDetail() {
+        const detail = this.stderrBuffer.trim();
+        if (!detail) {
+            return '';
+        }
+
+        return this.stderrTruncated
+            ? `[stderr truncated to ${APP_SERVER_MAX_STDERR_BYTES} bytes]\n${detail}`
+            : detail;
     }
 
     private handleMessage(line: string) {

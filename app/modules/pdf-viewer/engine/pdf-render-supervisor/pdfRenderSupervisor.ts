@@ -14,8 +14,14 @@ export type TPdfRenderSupervisorWatchdogCause =
     | 'navigation-hold-still-waiting'
     | 'navigation-programmatic-release';
 
+export type TPdfRenderSupervisorExplicitCause =
+    | 'annotation-editor-layer-render-failed'
+    | 'annotation-editor-layer-quarantined'
+    | 'pdfjs-compatibility-unsupported';
+
 export type TPdfRenderSupervisorCause =
     | TPdfRenderSupervisorWatchdogCause
+    | TPdfRenderSupervisorExplicitCause
     | 'stale-superseded';
 
 export interface IPdfRenderSupervisorEvent {
@@ -44,11 +50,18 @@ export interface IArmPdfRenderSupervisorTimerOptions {
     replace?: boolean | undefined;
 }
 
+export interface IReportPdfRenderSupervisorEventOptions {
+    cause: TPdfRenderSupervisorExplicitCause;
+    key: string;
+    metadata?: Record<string, unknown> | undefined;
+}
+
 export interface IPdfRenderSupervisor {
     armTimer: (options: IArmPdfRenderSupervisorTimerOptions) => IPdfRenderSupervisorTimer;
     clearTimer: (timer: IPdfRenderSupervisorTimer | null | undefined) => boolean;
     clearTimers: (timers: Array<IPdfRenderSupervisorTimer | null | undefined>) => void;
     isTimerCurrent: (timer: IPdfRenderSupervisorTimer | null | undefined) => boolean;
+    reportEvent: (options: IReportPdfRenderSupervisorEventOptions) => IPdfRenderSupervisorEvent;
 }
 
 interface ICreatePdfRenderSupervisorOptions {
@@ -92,11 +105,27 @@ function buildEvent(
     };
 }
 
+function buildExplicitEvent(
+    options: IReportPdfRenderSupervisorEventOptions,
+    now: () => number,
+    token: number,
+): IPdfRenderSupervisorEvent {
+    return {
+        cause: options.cause,
+        delayMs: 0,
+        firedAtMs: now(),
+        metadata: options.metadata,
+        ownerKey: options.key,
+        token,
+    };
+}
+
 export function createPdfRenderSupervisor(
     options: ICreatePdfRenderSupervisorOptions = {},
 ): IPdfRenderSupervisor {
     const activeTimers = new Map<string, IActivePdfRenderSupervisorTimer>();
     const tokensByKey = new Map<string, number>();
+    const explicitTokensByKey = new Map<string, number>();
     const now = options.now ?? (() => Date.now());
     const setTimeoutFn = options.setTimeoutFn ?? ((callback, delayMs) => setTimeout(callback, delayMs));
     const clearTimeoutFn = options.clearTimeoutFn ?? (handle => clearTimeout(handle));
@@ -185,10 +214,21 @@ export function createPdfRenderSupervisor(
         );
     }
 
+    function reportEvent(reportOptions: IReportPdfRenderSupervisorEventOptions) {
+        const event = buildExplicitEvent(
+            reportOptions,
+            now,
+            getNextToken(explicitTokensByKey, reportOptions.key),
+        );
+        emit(event);
+        return event;
+    }
+
     return {
         armTimer,
         clearTimer,
         clearTimers,
         isTimerCurrent,
+        reportEvent,
     };
 }

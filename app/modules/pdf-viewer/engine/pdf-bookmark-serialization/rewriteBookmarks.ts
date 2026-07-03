@@ -3,7 +3,7 @@ import {
     PDFName,
 } from 'pdf-lib';
 import type { Ref } from 'vue';
-import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { writeBookmarkOutlines } from '@app/modules/pdf-viewer/engine/pdf-bookmark-outline-writer/writeBookmarkOutlines';
 import { normalizeBookmarkEntries } from '@app/modules/pdf-viewer/engine/pdf-bookmark-serialization/normalizeBookmarkEntries';

@@ -19,7 +19,10 @@ const mocks = vi.hoisted(() => ({
     loadCompactSearchIndex: vi.fn(),
     persistCompactSearchIndex: vi.fn(),
     persistCompactSearchIndexBestEffort: vi.fn(),
+    assertWorkingCopyRevisionCurrent: vi.fn(),
 }));
+
+const DOCUMENT_REVISION = 'revision-token';
 
 vi.mock('fs', () => ({existsSync: mocks.existsSync}));
 
@@ -43,14 +46,15 @@ vi.mock('@electron/utils/atomicReplace', () => ({
 }));
 
 vi.mock('@electron/search/searchIndexSidecar', () => ({
-    COMPACT_SEARCH_INDEX_MAGIC: 'EVBSIDX1',
-    COMPACT_SEARCH_INDEX_SCHEMA_VERSION: 1,
+    COMPACT_SEARCH_INDEX_MAGIC: 'EVBSIDX2',
+    COMPACT_SEARCH_INDEX_SCHEMA_VERSION: 2,
     COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER: 1,
-    getCompactSearchIndexPath: (pdfPath: string) => `${pdfPath}.index.evb-search-v1.bin`,
+    getCompactSearchIndexPath: (pdfPath: string) => `${pdfPath}.index.evb-search-v2.bin`,
     loadCompactSearchIndex: mocks.loadCompactSearchIndex,
     persistCompactSearchIndex: mocks.persistCompactSearchIndex,
     persistCompactSearchIndexBestEffort: mocks.persistCompactSearchIndexBestEffort,
 }));
+vi.mock('@electron/file-access/documentRevisionStore', () => ({assertWorkingCopyRevisionCurrent: mocks.assertWorkingCopyRevisionCurrent}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -82,6 +86,7 @@ describe('buildSearchIndex cancellation', () => {
         mocks.loadCompactSearchIndex.mockResolvedValue(null);
         mocks.persistCompactSearchIndex.mockResolvedValue(undefined);
         mocks.persistCompactSearchIndexBestEffort.mockResolvedValue(undefined);
+        mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
         mocks.extractTextWithPdfjsWordBoxes.mockResolvedValue([]);
     });
 
@@ -99,6 +104,7 @@ describe('buildSearchIndex cancellation', () => {
         }]);
 
         const result = await buildSearchIndex('/tmp/file.pdf', [], {
+            documentRevision: DOCUMENT_REVISION,
             pageCount: 1,
             signal: controller.signal,
         });
@@ -125,6 +131,7 @@ describe('buildSearchIndex cancellation', () => {
 
         await expect(
             buildSearchIndex('/tmp/file.pdf', [], {
+                documentRevision: DOCUMENT_REVISION,
                 pageCount: 1,
                 signal: controller.signal,
             }),
@@ -141,6 +148,7 @@ describe('buildSearchIndex cancellation', () => {
 
         await expect(
             buildSearchIndex('/tmp/file.pdf', [], {
+                documentRevision: DOCUMENT_REVISION,
                 pageCount: 1,
                 signal: new AbortController().signal,
             }),
@@ -159,13 +167,15 @@ describe('buildSearchIndex assembly', () => {
         mocks.writeFile.mockResolvedValue(undefined);
         mocks.loadCompactSearchIndex.mockResolvedValue(null);
         mocks.persistCompactSearchIndexBestEffort.mockResolvedValue(undefined);
+        mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
         mocks.extractTextWithPdfjsWordBoxes.mockResolvedValue([]);
     });
 
     it('skips PDF text extraction when existing index already covers expected pages', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         const cachedIndex = {
-            schemaVersion: 6,
+            schemaVersion: 7,
+            documentRevision: {token: DOCUMENT_REVISION},
             pdfPath: '/tmp/file.pdf',
             createdAt: 1,
             pages: [
@@ -205,7 +215,10 @@ describe('buildSearchIndex assembly', () => {
             throw new Error('ENOENT');
         });
 
-        const result = await buildSearchIndex('/tmp/file.pdf', [], { pageCount: 2 });
+        const result = await buildSearchIndex('/tmp/file.pdf', [], {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 2,
+        });
 
         expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
         expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
@@ -234,7 +247,10 @@ describe('buildSearchIndex assembly', () => {
         });
         mocks.extractTextFromPdf.mockResolvedValue([]);
 
-        const result = await buildSearchIndex('/tmp/file.pdf', [], { pageCount: 3 });
+        const result = await buildSearchIndex('/tmp/file.pdf', [], {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 3,
+        });
 
         expect(result.pages).toEqual([
             expect.objectContaining({
@@ -261,9 +277,12 @@ describe('buildSearchIndex assembly', () => {
             text: 'from-pdftotext',
         }]);
 
-        const result = await buildSearchIndex('/tmp/file.pdf', [], { pageCount: 1 });
+        const result = await buildSearchIndex('/tmp/file.pdf', [], {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 1,
+        });
 
-        expect(mocks.extractTextFromPdf).toHaveBeenCalledWith('/tmp/file.pdf', { pageCount: 1 });
+        expect(mocks.extractTextFromPdf).toHaveBeenCalledWith('/tmp/file.pdf', {pageCount: 1});
         expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
         expect(result.pages).toEqual([expect.objectContaining({
             pageNumber: 1,
@@ -314,7 +333,10 @@ describe('buildSearchIndex assembly', () => {
                     ],
                 },
             ],
-            { pageCount: 2 },
+            {
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: 2,
+            },
         );
 
         expect(result.pages).toEqual([
@@ -342,6 +364,7 @@ describe('buildSearchIndex assembly', () => {
                 text: 'oversized text',
             }],
             {
+                documentRevision: DOCUMENT_REVISION,
                 pageCount: 1,
                 validateBeforePersist: () => {
                     throw new Error('over budget');
@@ -353,11 +376,12 @@ describe('buildSearchIndex assembly', () => {
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
     });
 
-    it('uses OCR v2 words as text-layer-compatible search text and persists index best-effort', async () => {
+    it('uses OCR v3 words as text-layer-compatible search text and persists index best-effort', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         mocks.existsSync.mockReturnValue(true);
         const manifest = {
-            version: 2,
+            version: 3,
+            documentRevision: { token: 'revision-token' },
             createdAt: 1,
             source: { pdfPath: '/tmp/file.pdf' },
             pageCount: 2,
@@ -379,6 +403,7 @@ describe('buildSearchIndex assembly', () => {
             if (path.endsWith('page-1.json')) {
                 return JSON.stringify({
                     pageNumber: 1,
+                    documentRevision: { token: 'revision-token' },
                     text: 'alpha ghost beta',
                     words: [
                         {
@@ -401,6 +426,7 @@ describe('buildSearchIndex assembly', () => {
             if (path.endsWith('page-2.json')) {
                 return JSON.stringify({
                     pageNumber: 2,
+                    documentRevision: { token: 'revision-token' },
                     text: 'line one\nline two',
                     words: [
                         {
@@ -424,7 +450,10 @@ describe('buildSearchIndex assembly', () => {
         });
         mocks.writeFile.mockRejectedValue(new Error('disk full'));
 
-        const result = await buildSearchIndex('/tmp/file.pdf', [], { pageCount: 2 });
+        const result = await buildSearchIndex('/tmp/file.pdf', [], {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 2,
+        });
 
         expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
         expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
@@ -439,12 +468,13 @@ describe('buildSearchIndex assembly', () => {
             }),
         ]);
         expect(result.pageCount).toBe(2);
-        expect(result.schemaVersion).toBe(6);
+        expect(result.schemaVersion).toBe(7);
         expect(result.textSource).toEqual({
             kind: 'ocr-v2-text-layer',
             version: 1,
         });
         expect(mocks.persistCompactSearchIndexBestEffort).toHaveBeenCalledWith('/tmp/file.pdf', {
+            documentRevision: DOCUMENT_REVISION,
             pageCount: 2,
             pages: [
                 expect.objectContaining({
@@ -463,7 +493,7 @@ describe('buildSearchIndex assembly', () => {
         }, undefined);
     });
 
-    it('preserves partial OCR v2 pages and fills missing pages from PDF text extraction', async () => {
+    it('preserves partial OCR v3 pages and fills missing pages from PDF text extraction', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         mocks.existsSync.mockImplementation((path: string) => (
             path.endsWith('manifest.json') || path.endsWith('page-1.json')
@@ -471,7 +501,8 @@ describe('buildSearchIndex assembly', () => {
         mocks.readFile.mockImplementation(async (path: string) => {
             if (path.endsWith('manifest.json')) {
                 return JSON.stringify({
-                    version: 2,
+                    version: 3,
+                    documentRevision: { token: 'revision-token' },
                     createdAt: 1,
                     source: { pdfPath: '/tmp/file.pdf' },
                     pageCount: 2,
@@ -487,6 +518,7 @@ describe('buildSearchIndex assembly', () => {
             if (path.endsWith('page-1.json')) {
                 return JSON.stringify({
                     pageNumber: 1,
+                    documentRevision: { token: 'revision-token' },
                     text: 'ocr page one',
                     words: [{
                         text: 'ocr',
@@ -512,7 +544,10 @@ describe('buildSearchIndex assembly', () => {
         });
         mocks.extractTextFromPdf.mockResolvedValue([]);
 
-        const result = await buildSearchIndex('/tmp/file.pdf', [], { pageCount: 2 });
+        const result = await buildSearchIndex('/tmp/file.pdf', [], {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 2,
+        });
 
         expect(mocks.extractTextWithPdfjs).toHaveBeenCalledOnce();
         expect(result.pages).toEqual([
@@ -530,7 +565,7 @@ describe('buildSearchIndex assembly', () => {
         expect(result.textSource).toBeUndefined();
     });
 
-    it('uses OCR v2 manifest pageCount as the effective count for partial sidecars', async () => {
+    it('uses OCR v3 manifest pageCount as the effective count for partial sidecars', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         mocks.existsSync.mockImplementation((path: string) => (
             path.endsWith('manifest.json') || path.endsWith('page-1.json')
@@ -538,7 +573,8 @@ describe('buildSearchIndex assembly', () => {
         mocks.readFile.mockImplementation(async (path: string) => {
             if (path.endsWith('manifest.json')) {
                 return JSON.stringify({
-                    version: 2,
+                    version: 3,
+                    documentRevision: { token: 'revision-token' },
                     createdAt: 1,
                     source: { pdfPath: '/tmp/file.pdf' },
                     pageCount: 2,
@@ -554,6 +590,7 @@ describe('buildSearchIndex assembly', () => {
             if (path.endsWith('page-1.json')) {
                 return JSON.stringify({
                     pageNumber: 1,
+                    documentRevision: { token: 'revision-token' },
                     render: {
                         dpi: 300,
                         imagePx: {
@@ -602,7 +639,7 @@ describe('buildSearchIndex assembly', () => {
         });
         mocks.extractTextFromPdf.mockResolvedValue([]);
 
-        const result = await buildSearchIndex('/tmp/file.pdf', []);
+        const result = await buildSearchIndex('/tmp/file.pdf', [], {documentRevision: DOCUMENT_REVISION});
 
         expect(mocks.extractTextWithPdfjs).toHaveBeenCalledOnce();
         expect(result.pages).toEqual([
@@ -622,7 +659,8 @@ describe('buildSearchIndex assembly', () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         mocks.existsSync.mockReturnValue(true);
         const manifest = {
-            version: 2,
+            version: 3,
+            documentRevision: { token: 'revision-token' },
             createdAt: 1,
             source: { pdfPath: '/tmp/file.pdf' },
             pageCount: 2,
@@ -644,6 +682,7 @@ describe('buildSearchIndex assembly', () => {
             if (path.endsWith('page-1.json')) {
                 return JSON.stringify({
                     pageNumber: 1,
+                    documentRevision: { token: 'revision-token' },
                     rotation: 0,
                     render: {
                         dpi: 300,
@@ -664,6 +703,7 @@ describe('buildSearchIndex assembly', () => {
             if (path.endsWith('page-2.json')) {
                 return JSON.stringify({
                     pageNumber: 2,
+                    documentRevision: { token: 'revision-token' },
                     rotation: 90,
                     render: {
                         dpi: 300,
@@ -703,6 +743,7 @@ describe('buildSearchIndex assembly', () => {
 
         const onPageIndexed = vi.fn();
         const result = await buildSearchIndex('/tmp/file.pdf', [], {
+            documentRevision: DOCUMENT_REVISION,
             pageCount: 2,
             onPageIndexed,
         });
@@ -745,7 +786,7 @@ describe('buildSearchIndex assembly', () => {
         }));
     });
 
-    it('ignores stale OCR v2 sidecar pages outside the current page count', async () => {
+    it('ignores stale OCR v3 sidecar pages outside the current page count', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         mocks.existsSync.mockImplementation((path: string) => (
             path.endsWith('manifest.json') || path.endsWith('page-3.json')
@@ -753,7 +794,8 @@ describe('buildSearchIndex assembly', () => {
         mocks.readFile.mockImplementation(async (path: string) => {
             if (path.endsWith('manifest.json')) {
                 return JSON.stringify({
-                    version: 2,
+                    version: 3,
+                    documentRevision: { token: 'revision-token' },
                     createdAt: 1,
                     source: { pdfPath: '/tmp/file.pdf' },
                     pageCount: 3,
@@ -769,6 +811,7 @@ describe('buildSearchIndex assembly', () => {
             if (path.endsWith('page-3.json')) {
                 return JSON.stringify({
                     pageNumber: 3,
+                    documentRevision: { token: 'revision-token' },
                     text: 'stale sidecar text',
                     words: [],
                 });
@@ -784,7 +827,10 @@ describe('buildSearchIndex assembly', () => {
         });
         mocks.extractTextFromPdf.mockResolvedValue([]);
 
-        const result = await buildSearchIndex('/tmp/file.pdf', [], { pageCount: 2 });
+        const result = await buildSearchIndex('/tmp/file.pdf', [], {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 2,
+        });
 
         expect(result.pages).toEqual([
             expect.objectContaining({

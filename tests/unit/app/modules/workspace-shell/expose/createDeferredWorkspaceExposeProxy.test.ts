@@ -5,6 +5,7 @@ import {
     vi,
 } from 'vitest';
 import { createDeferredWorkspaceExposeProxy } from '@app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy';
+import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
 import {
     workspaceExposeRequiredMethodNames,
     WorkspaceExposeCommandUnavailableError,
@@ -13,6 +14,7 @@ import {
     createDefaultWorkspaceToolbarSnapshot,
     type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
+import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { cast } from '@tests/helpers/cast';
 
 function createWorkspace(overrides: Partial<IWorkspaceExpose> = {}) {
@@ -46,6 +48,32 @@ function createDeps(workspace: IWorkspaceExpose | null) {
             workspace ? await run(workspace) !== false : false
         )),
     });
+}
+
+function createSession(path = '/tmp/a.pdf') {
+    return createWorkspaceDocumentSessionCore({
+        tabId: 'tab-1',
+        sessionId: 'session-1',
+        initialRecord: createWorkspaceDocumentRecord({tab: {
+            fileName: path.split('/').pop() ?? null,
+            originalPath: path,
+            isDirty: false,
+            isDjvu: false,
+        }}),
+        createTransactionId: input => `transaction-${input.nextTransactionIndex}`,
+    });
+}
+
+function replaceSessionDocument(
+    session: ReturnType<typeof createWorkspaceDocumentSessionCore>,
+    path: string,
+) {
+    session.applyWorkspaceRecord(createWorkspaceDocumentRecord({tab: {
+        fileName: path.split('/').pop() ?? null,
+        originalPath: path,
+        isDirty: false,
+        isDjvu: false,
+    }}), 'workspace');
 }
 
 describe('createDeferredWorkspaceExposeProxy', () => {
@@ -82,7 +110,29 @@ describe('createDeferredWorkspaceExposeProxy', () => {
         });
 
         expect(deps.withLoadedWorkspaceRequired).toHaveBeenCalledWith('runAgentAction', expect.any(Function));
-        expect(runAgentAction).toHaveBeenCalledWith('file.save', {tabId: 'tab-1'}, undefined);
+        expect(runAgentAction).toHaveBeenCalledWith('file.save', {tabId: 'tab-1'}, undefined, undefined);
+    });
+
+    it('forwards assistant command context through the mount-wait workspace path', async () => {
+        const context = {
+            signal: new AbortController().signal,
+            documentIdentity: null,
+            assertCurrentDocument: vi.fn(),
+        };
+        const runAgentAction = vi.fn(async () => ({ok: true}));
+        const readAgentResource = vi.fn(async () => ({ok: true}));
+        const workspace = createWorkspace({
+            readAgentResource,
+            runAgentAction,
+        });
+        const deps = createDeps(workspace);
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        await proxy.runAgentAction('file.save', {tabId: 'tab-1'}, {dryRun: true}, context);
+        await proxy.readAgentResource('evb://document/tab-1/state', context);
+
+        expect(runAgentAction).toHaveBeenCalledWith('file.save', {tabId: 'tab-1'}, {dryRun: true}, context);
+        expect(readAgentResource).toHaveBeenCalledWith('evb://document/tab-1/state', context);
     });
 
     it('forwards generated argument-bearing commands through the registry wrapper', async () => {
@@ -177,6 +227,74 @@ describe('createDeferredWorkspaceExposeProxy', () => {
             expect.any(Function),
         );
         expect(workspace.handleOpenFileWithResult).toHaveBeenCalledOnce();
+    });
+
+    it('attaches the current session command target to queued document opens', async () => {
+        const workspace = createWorkspace({handleOpenFileWithResult: vi.fn(async () => true)});
+        const session = createSession();
+        const deps = createDeps(workspace);
+        deps.documentSession = session;
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        await proxy.handleOpenFileWithResult(cast({
+            kind: 'pdf',
+            path: '/tmp/b.pdf',
+        }));
+
+        expect(deps.enqueueDocumentOpen).toHaveBeenCalledWith(
+            expect.objectContaining({
+                action: 'handleOpenFileWithResult',
+                commandTarget: expect.objectContaining({
+                    kind: 'revision',
+                    tabId: 'tab-1',
+                    sessionId: 'session-1',
+                    documentRef: '/tmp/a.pdf',
+                }),
+            }),
+            expect.any(Function),
+        );
+    });
+
+    it('drops mount-wait commands whose captured target goes stale before workspace invocation', async () => {
+        const handleSave = vi.fn(async () => true);
+        const workspace = createWorkspace({handleSave});
+        const session = createSession();
+        const deps = createDeps(workspace);
+        deps.documentSession = session;
+        deps.withLoadedWorkspace = vi.fn(async (_action, run) => {
+            replaceSessionDocument(session, '/tmp/b.pdf');
+            return run(workspace);
+        });
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        await expect(proxy.handleSave()).resolves.toBe(false);
+
+        expect(handleSave).not.toHaveBeenCalled();
+        expect(deps.log).toHaveBeenCalledWith('handleSave', expect.any(Error));
+    });
+
+    it('returns stale-command-target for assistant commands with stale session context', async () => {
+        const runAgentAction = vi.fn(async () => ({ok: true}));
+        const workspace = createWorkspace({runAgentAction});
+        const session = createSession();
+        const commandTarget = session.createCommandTarget();
+        replaceSessionDocument(session, '/tmp/b.pdf');
+        const deps = createDeps(workspace);
+        deps.documentSession = session;
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        await expect(proxy.runAgentAction('file.save', {}, undefined, {
+            signal: new AbortController().signal,
+            documentIdentity: null,
+            commandTarget,
+            assertCurrentDocument: vi.fn(),
+        })).resolves.toEqual({
+            ok: false,
+            actionId: 'file.save',
+            error: 'stale-command-target',
+        });
+
+        expect(runAgentAction).not.toHaveBeenCalled();
     });
 
     it('logs and returns false for direct method failures', async () => {

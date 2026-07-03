@@ -12,6 +12,7 @@ export interface INormalizedPdfSearchWarmIndexRequest extends IPdfSearchRequestO
 export const SEARCH_REQUEST_ID_MAX_LENGTH = 128;
 export const SEARCH_PDF_PATH_MAX_LENGTH = 4_096;
 export const SEARCH_PAGE_COUNT_DEFAULT_MAX = 20_000;
+const SEARCH_DOCUMENT_REVISION_TOKEN_MAX_LENGTH = 8_192;
 
 export function normalizeOptionalSearchRequestId(raw: unknown) {
     if (raw === undefined || raw === null) {
@@ -50,6 +51,23 @@ export function normalizeOptionalSearchPageCount(
     return raw;
 }
 
+function normalizeOptionalSearchDocumentRevision(raw: unknown) {
+    if (raw === undefined || raw === null) {
+        return undefined;
+    }
+    if (typeof raw !== 'string') {
+        throw new Error('documentRevision must be a string');
+    }
+    const documentRevision = raw.trim();
+    if (!documentRevision) {
+        return undefined;
+    }
+    if (documentRevision.length > SEARCH_DOCUMENT_REVISION_TOKEN_MAX_LENGTH) {
+        throw new Error(`documentRevision exceeds maximum length (${SEARCH_DOCUMENT_REVISION_TOKEN_MAX_LENGTH})`);
+    }
+    return documentRevision;
+}
+
 function normalizeSearchPdfPath(raw: unknown) {
     const pdfPath = typeof raw === 'string' ? raw.trim() : '';
     if (!pdfPath) {
@@ -78,6 +96,7 @@ export function normalizePdfSearchRequestPayload(
 
     const pageCount = normalizeOptionalSearchPageCount(raw.pageCount, options.pageCountMax);
     const requestId = normalizeOptionalSearchRequestId(raw.requestId);
+    const documentRevision = normalizeOptionalSearchDocumentRevision(raw.documentRevision);
     const matchCase = normalizeSearchBooleanOption(raw.matchCase);
     const wholeWord = normalizeSearchBooleanOption(raw.wholeWord);
     const useRegex = normalizeSearchBooleanOption(raw.useRegex);
@@ -92,6 +111,7 @@ export function normalizePdfSearchRequestPayload(
         query: raw.query,
         ...(pageCount === undefined ? {} : {pageCount}),
         ...(requestId === undefined ? {} : {requestId}),
+        ...(documentRevision === undefined ? {} : {documentRevision}),
         ...(matchCase === undefined ? {} : {matchCase}),
         ...(wholeWord === undefined ? {} : {wholeWord}),
         ...(useRegex === undefined ? {} : {useRegex}),
@@ -108,10 +128,12 @@ export function normalizePdfSearchWarmIndexPayload(
 
     const pageCount = normalizeOptionalSearchPageCount(raw.pageCount, options.pageCountMax);
     const requestId = normalizeOptionalSearchRequestId(raw.requestId);
+    const documentRevision = normalizeOptionalSearchDocumentRevision(raw.documentRevision);
 
     return {
         pdfPath: normalizeSearchPdfPath(raw.pdfPath),
         ...(pageCount === undefined ? {} : {pageCount}),
         ...(requestId === undefined ? {} : {requestId}),
+        ...(documentRevision === undefined ? {} : {documentRevision}),
     };
 }

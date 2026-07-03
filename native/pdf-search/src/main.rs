@@ -8,9 +8,9 @@ use std::process;
 use unicode_casefold::{Locale, UnicodeCaseFold, Variant};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const MAGIC: &[u8; 8] = b"EVBSIDX1";
-const SCHEMA_VERSION: u32 = 1;
-const HEADER_SIZE: usize = 24;
+const MAGIC: &[u8; 8] = b"EVBSIDX2";
+const SCHEMA_VERSION: u32 = 2;
+const HEADER_SIZE: usize = 64;
 const PAGE_RECORD_SIZE: usize = 24;
 
 #[derive(Debug)]
@@ -46,6 +46,7 @@ struct SearchOptions {
     context_chars: usize,
     match_case: bool,
     page_count: Option<u32>,
+    document_revision: String,
 }
 
 #[derive(Serialize, Debug, PartialEq, Eq)]
@@ -82,7 +83,7 @@ struct SearchResponse {
 }
 
 fn usage() -> &'static str {
-    "Usage: evb-pdf-search search --index <path> --query <text> [--limit <n>] [--context <n>] [--match-case] [--page-count <n>]"
+    "Usage: evb-pdf-search search --index <path> --query <text> --document-revision <token> [--limit <n>] [--context <n>] [--match-case] [--page-count <n>]"
 }
 
 fn read_u32_le(bytes: &[u8], offset: usize) -> Result<u32, CliError> {
@@ -119,7 +120,7 @@ fn usize_from_u64(value: u64, label: &str) -> Result<usize, CliError> {
     })
 }
 
-fn load_index(path: &PathBuf) -> Result<SearchIndex, Box<dyn Error>> {
+fn load_index(path: &PathBuf, expected_revision: &str) -> Result<SearchIndex, Box<dyn Error>> {
     let data = fs::read(path)?;
     if data.len() < HEADER_SIZE {
         return Err(Box::new(CliError(
@@ -139,17 +140,52 @@ fn load_index(path: &PathBuf) -> Result<SearchIndex, Box<dyn Error>> {
         ))));
     }
 
-    let page_count = read_u32_le(&data, 12)?;
-    let page_record_count = read_u32_le(&data, 16)?;
+    let header_size = usize::try_from(read_u32_le(&data, 12)?)
+        .map_err(|_| CliError("Native search index header size is too large".to_string()))?;
+    if header_size != HEADER_SIZE {
+        return Err(Box::new(CliError(
+            "Native search index header size mismatch".to_string(),
+        )));
+    }
+
+    let page_count = read_u32_le(&data, 16)?;
+    let page_record_count = read_u32_le(&data, 20)?;
+    let revision_token_byte_length = usize::try_from(read_u32_le(&data, 28)?)
+        .map_err(|_| CliError("Native search index revision token is too large".to_string()))?;
+    let revision_token_byte_offset =
+        usize_from_u64(read_u64_le(&data, 32)?, "revision token byte offset")?;
+    let page_table_offset = usize_from_u64(read_u64_le(&data, 40)?, "page table offset")?;
+    let text_data_offset = usize_from_u64(read_u64_le(&data, 48)?, "text data offset")?;
+    let revision_token_end = revision_token_byte_offset
+        .checked_add(revision_token_byte_length)
+        .ok_or_else(|| CliError("Native search index revision token offset overflow".to_string()))?;
+    if revision_token_byte_length == 0
+        || revision_token_byte_offset < HEADER_SIZE
+        || revision_token_end > page_table_offset
+    {
+        return Err(Box::new(CliError(
+            "Native search index revision token is invalid".to_string(),
+        )));
+    }
+    let revision_token = std::str::from_utf8(
+        data.get(revision_token_byte_offset..revision_token_end)
+            .ok_or_else(|| CliError("Native search index revision token is truncated".to_string()))?,
+    )?;
+    if revision_token != expected_revision {
+        return Err(Box::new(CliError(
+            "Native search index document revision mismatch".to_string(),
+        )));
+    }
+
     let page_record_count_usize = usize::try_from(page_record_count)
         .map_err(|_| CliError("Native search index page count is too large".to_string()))?;
     let table_size = page_record_count_usize
         .checked_mul(PAGE_RECORD_SIZE)
         .ok_or_else(|| CliError("Native search index table is too large".to_string()))?;
-    let minimum_size = HEADER_SIZE
+    let minimum_size = page_table_offset
         .checked_add(table_size)
         .ok_or_else(|| CliError("Native search index table offset overflow".to_string()))?;
-    if data.len() < minimum_size {
+    if text_data_offset < minimum_size || data.len() < text_data_offset {
         return Err(Box::new(CliError(
             "Native search index page table is truncated".to_string(),
         )));
@@ -157,14 +193,14 @@ fn load_index(path: &PathBuf) -> Result<SearchIndex, Box<dyn Error>> {
 
     let mut records = Vec::with_capacity(page_record_count_usize);
     for record_index in 0..page_record_count_usize {
-        let record_offset = HEADER_SIZE + record_index * PAGE_RECORD_SIZE;
+        let record_offset = page_table_offset + record_index * PAGE_RECORD_SIZE;
         let page_number = read_u32_le(&data, record_offset)?;
         let byte_offset = usize_from_u64(read_u64_le(&data, record_offset + 8)?, "byte offset")?;
         let byte_len = usize_from_u64(read_u64_le(&data, record_offset + 16)?, "byte length")?;
         let byte_end = byte_offset
             .checked_add(byte_len)
             .ok_or_else(|| CliError("Native search index page text offset overflow".to_string()))?;
-        if byte_end > data.len() {
+        if byte_offset < text_data_offset || byte_end > data.len() {
             return Err(Box::new(CliError(
                 "Native search index page text is truncated".to_string(),
             )));
@@ -218,6 +254,7 @@ fn parse_search_options(
     let mut context_chars = 32usize;
     let mut match_case = false;
     let mut page_count: Option<u32> = None;
+    let mut document_revision: Option<String> = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -245,6 +282,12 @@ fn parse_search_options(
             "--page-count" => {
                 page_count = Some(parse_u32(args.next(), "--page-count")?);
             }
+            "--document-revision" => {
+                document_revision = Some(
+                    args.next()
+                        .ok_or_else(|| CliError("Missing value for --document-revision".to_string()))?,
+                );
+            }
             "--help" | "-h" => {
                 return Err(Box::new(CliError(usage().to_string())));
             }
@@ -270,6 +313,9 @@ fn parse_search_options(
         context_chars,
         match_case,
         page_count,
+        document_revision: document_revision
+            .filter(|revision| !revision.is_empty())
+            .ok_or_else(|| CliError("Missing required --document-revision".to_string()))?,
     })
 }
 
@@ -564,7 +610,7 @@ fn run_cli(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>>
         }
         "search" => {
             let options = parse_search_options(args)?;
-            let index = load_index(&options.index_path)?;
+            let index = load_index(&options.index_path, &options.document_revision)?;
             let response = search_index(&index, &options)?;
             println!("{}", serde_json::to_string(&response)?);
             Ok(())
@@ -649,10 +695,15 @@ mod tests {
         }
     }
 
+    const TEST_DOCUMENT_REVISION: &str = "revision-token";
+
     fn serialized_index(pages: &[(u32, &str)]) -> Vec<u8> {
         let header_size = HEADER_SIZE;
+        let revision_token = TEST_DOCUMENT_REVISION.as_bytes();
         let table_size = pages.len() * PAGE_RECORD_SIZE;
-        let mut text_offset = header_size + table_size;
+        let page_table_offset = header_size + revision_token.len();
+        let text_data_offset = page_table_offset + table_size;
+        let mut text_offset = text_data_offset;
         let mut page_text = Vec::new();
         let mut records = Vec::new();
 
@@ -666,9 +717,16 @@ mod tests {
         let mut data = Vec::with_capacity(header_size + table_size + page_text.len());
         data.extend_from_slice(MAGIC);
         data.extend_from_slice(&SCHEMA_VERSION.to_le_bytes());
+        data.extend_from_slice(&(HEADER_SIZE as u32).to_le_bytes());
         data.extend_from_slice(&(pages.len() as u32).to_le_bytes());
         data.extend_from_slice(&(pages.len() as u32).to_le_bytes());
         data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&(revision_token.len() as u32).to_le_bytes());
+        data.extend_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+        data.extend_from_slice(&(page_table_offset as u64).to_le_bytes());
+        data.extend_from_slice(&(text_data_offset as u64).to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.extend_from_slice(revision_token);
 
         for (page_number, offset, byte_len) in records {
             data.extend_from_slice(&page_number.to_le_bytes());
@@ -689,6 +747,7 @@ mod tests {
             context_chars: 8,
             match_case: false,
             page_count: None,
+            document_revision: TEST_DOCUMENT_REVISION.to_string(),
         }
     }
 
@@ -705,7 +764,7 @@ mod tests {
         )
         .expect("write temp native search index");
 
-        let index = load_index(&path).expect("load native search index");
+        let index = load_index(&path, TEST_DOCUMENT_REVISION).expect("load native search index");
         fs::remove_file(&path).ok();
 
         let mut search_options = options("alpha");
@@ -726,6 +785,18 @@ mod tests {
                 r#"],"truncated":false,"pageCount":2}"#,
             ),
         );
+    }
+
+    #[test]
+    fn rejects_native_index_with_mismatched_document_revision() {
+        let path = env::temp_dir().join(format!("evb-pdf-search-revision-{}", process::id()));
+        fs::write(&path, serialized_index(&[(1, "one Alpha two")]))
+            .expect("write temp native search index");
+
+        let error = load_index(&path, "other-token").expect_err("revision mismatch should fail");
+        fs::remove_file(&path).ok();
+
+        assert!(error.to_string().contains("document revision mismatch"));
     }
 
     #[test]
@@ -924,7 +995,7 @@ mod tests {
     fn rejects_bad_index_magic() {
         let path = env::temp_dir().join(format!("evb-pdf-search-bad-magic-{}", process::id(),));
         fs::write(&path, b"not-index").expect("write temp file");
-        let result = load_index(&path);
+        let result = load_index(&path, TEST_DOCUMENT_REVISION);
         fs::remove_file(&path).ok();
 
         assert!(result.is_err());

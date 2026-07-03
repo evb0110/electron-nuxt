@@ -87,4 +87,35 @@ describe('useWorkspaceSplitCache', () => {
             totalPages: 40,
         });
     });
+
+    it('refuses entries when an expected session revision does not match', async () => {
+        const splitCache = await createSplitCache();
+        const session = {
+            sessionId: 'session-1',
+            sessionRevision: 2,
+            documentRef: '/tmp/sample.pdf',
+        };
+
+        splitCache.set('tab-session', {
+            kind: 'pdfSnapshot',
+            fileName: 'sample.pdf',
+            originalPath: '/tmp/sample.pdf',
+            snapshotPath: '/tmp/pdf-work-test/sample.pdf',
+            isDirty: false,
+        }, {session});
+
+        expect(splitCache.has('tab-session', {session})).toBe(true);
+        expect(splitCache.peek('tab-session', {session: {
+            ...session,
+            sessionRevision: 3,
+        }})).toBeNull();
+        expect(splitCache.consume('tab-session', undefined, {session: {
+            ...session,
+            sessionRevision: 3,
+        }})).toBeNull();
+        expect(splitCache.consume('tab-session', undefined, {session})).toEqual(expect.objectContaining({
+            kind: 'pdfSnapshot',
+            fileName: 'sample.pdf',
+        }));
+    });
 });

@@ -1,7 +1,5 @@
-import type {
-    IPdfPageMetric,
-    TPdfViewMode,
-} from '@app/types/pdf';
+import type { TPdfViewMode } from '@app/types/pdfContracts';
+import type { IPdfPageMetric } from '@app/types/pdfUi';
 import { clamp } from 'es-toolkit/math';
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';

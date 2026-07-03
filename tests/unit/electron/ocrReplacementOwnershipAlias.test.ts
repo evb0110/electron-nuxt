@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     originalPathSaveBaseMatches: vi.fn(),
     realpathSync: vi.fn<(path: string) => string>(),
     refreshWorkingCopyOriginalFileExpectation: vi.fn(),
+    markWorkingCopyContentChanged: vi.fn(),
     removeResultFile: vi.fn(),
     rename: vi.fn(),
     resolveAllowedReadPath: vi.fn<(path: string) => Promise<string | null>>(),
@@ -47,6 +48,8 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     normalizePathForLookup: (path: string) => path.trim(),
     refreshWorkingCopyOriginalFileExpectation: mocks.refreshWorkingCopyOriginalFileExpectation,
 }));
+
+vi.mock('@electron/file-access/documentRevisionStore', () => ({markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args)}));
 
 vi.mock('@electron/features/documents/main/originalPathSaveBaseMatches', () => ({originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches}));
 
@@ -82,6 +85,7 @@ describe('OCR replacement ownership path aliases', () => {
             '/private/var/folders/',
         ));
         mocks.refreshWorkingCopyOriginalFileExpectation.mockReturnValue(undefined);
+        mocks.markWorkingCopyContentChanged.mockResolvedValue(undefined);
         mocks.removeResultFile.mockResolvedValue(true);
         mocks.rename.mockResolvedValue(undefined);
         mocks.resolveAllowedReadPath.mockResolvedValue(canonicalOcrPath);

@@ -5,9 +5,10 @@ import type {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IShapeAnnotation } from '@app/types/annotations';
+import type { IPdfViewerSaveExpose } from '@app/modules/pdf-viewer/public';
 
 export interface IWorkspacePdfViewerForAnnotationUtils {
-    saveDocument: () => Promise<Uint8Array | null>;
+    runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
     hasShapes?: boolean | Ref<boolean>;
     getAllShapes: () => IShapeAnnotation[];
 }

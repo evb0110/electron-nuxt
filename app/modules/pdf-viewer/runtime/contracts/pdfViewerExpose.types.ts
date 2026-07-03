@@ -15,10 +15,15 @@ import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-seri
 import type {
     IPdfPageMetric,
     IScrollSnapshot,
-} from '@app/types/pdf';
+} from '@app/types/pdfUi';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import type { IPdfPagePreviewEntry } from '@app/modules/pdf-viewer/engine/pdf-page-preview/pdfPagePreviewTypes';
+import type {
+    IPdfViewerPendingEmbeddedMutationSnapshot,
+    IPdfViewerSaveTransactionRequest,
+    IPdfViewerSaveTransactionResult,
+} from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 
 export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 export type TAgentTextMarkupKind = 'highlight' | 'underline' | 'strikethrough' | 'squiggly';
@@ -131,7 +136,11 @@ export interface IPdfViewerShapePersistenceExpose {
 }
 
 export interface IPdfViewerSaveExpose {
+    runSaveTransaction: (
+        request: IPdfViewerSaveTransactionRequest,
+    ) => Promise<IPdfViewerSaveTransactionResult>;
     saveDocument: () => Promise<Uint8Array | null>;
+    materializePdfJsDocumentForInternalUse: () => Promise<Uint8Array | null>;
     commitPdfEditorsForSave?: () => Promise<void>;
 }
 
@@ -173,10 +182,21 @@ export interface IPdfViewerAnnotationCommandExpose {
 }
 
 export interface IPdfViewerAnnotationCommentExpose {
+    pendingEmbeddedMutationVersion?: number | Ref<number> | ComputedRef<number> | undefined;
     focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
     updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
+    queuePendingEmbeddedTextUpdate?: (
+        comment: IAnnotationCommentSummary,
+        text: string,
+        stableKey?: string | null | undefined,
+    ) => boolean;
+    clearPendingEmbeddedTextUpdate?: (stableKey: string) => void;
+    migratePendingEmbeddedTextUpdate?: (previousKey: string, nextKey: string) => void;
+    queuePendingEmbeddedAnnotationDelete?: (comment: IAnnotationCommentSummary) => boolean;
+    unqueuePendingEmbeddedAnnotationDelete?: (stableKey: string) => void;
+    getPendingEmbeddedMutationSnapshot?: () => IPdfViewerPendingEmbeddedMutationSnapshot;
     suppressAnnotationId: (id: string) => void;
     unsuppressAnnotationId?: (id: string) => void;
     suppressAnnotationStableKey: (stableKey: string) => void;

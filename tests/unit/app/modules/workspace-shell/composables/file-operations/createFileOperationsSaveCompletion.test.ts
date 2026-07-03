@@ -52,6 +52,18 @@ function createCompletionPorts(overrides: {
         },
         pdf: {source: {
             pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({annotationStorage: {resetModified}})),
+            runSaveTransaction: vi.fn(async () => ({
+                source: 'pdfjs-materialize' as const,
+                baseBytes: null,
+                serializedBytes: new Uint8Array([1]),
+                nativeMutationPlan: null,
+                annotationSavePlan: null,
+                annotationCommentsSnapshot: [],
+                pendingEmbeddedTextUpdates: new Map(),
+                pendingEmbeddedAnnotationDeletes: [],
+                restoreConsumedPendingEmbeddedMutations: vi.fn(),
+                commitConsumedPendingEmbeddedMutations: vi.fn(),
+            })),
             saveDocument: vi.fn(async () => new Uint8Array([1])),
             getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
         }},

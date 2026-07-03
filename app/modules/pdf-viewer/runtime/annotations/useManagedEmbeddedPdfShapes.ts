@@ -10,6 +10,7 @@ import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import type { IGuardAsyncOptions } from '@app/utils/asyncGuard';
 
 interface IManagedEmbeddedPdfShapesPageRange {
     start: number;
@@ -61,10 +62,7 @@ interface IUseManagedEmbeddedPdfShapesOptions {
     logger: IManagedEmbeddedPdfShapesLogger;
     runGuardedTask: (
         task: () => Promise<unknown>,
-        options: {
-            scope: string;
-            message: string;
-        },
+        options: IGuardAsyncOptions,
     ) => void;
     nextTick: () => Promise<void>;
     isPageRendered: (pageNumber: number) => boolean;
@@ -621,6 +619,7 @@ export const useManagedEmbeddedPdfShapes = ({
 
             if (pendingDeletedEmbeddedShapeRefreshPages.size > 0) {
                 runGuardedTask(() => flushDeletedEmbeddedShapePageRefresh(), {
+                    category: 'background-diagnostic',
                     scope: 'pdf-shapes',
                     message: 'Failed to refresh deleted embedded shape pages',
                 });
@@ -635,6 +634,7 @@ export const useManagedEmbeddedPdfShapes = ({
 
         pendingDeletedEmbeddedShapeRefreshPages.add(Math.floor(pageNumber));
         runGuardedTask(() => flushDeletedEmbeddedShapePageRefresh(), {
+            category: 'background-diagnostic',
             scope: 'pdf-shapes',
             message: 'Failed to refresh deleted embedded shape pages',
         });
@@ -689,6 +689,7 @@ export const useManagedEmbeddedPdfShapes = ({
                 path: workingCopyPath.value,
             });
             runGuardedTask(() => ensureEmbeddedShapesImportedForCurrentSource(), {
+                category: 'background-diagnostic',
                 scope: 'pdf-shapes',
                 message: 'Failed to import managed shapes after initial PDF render',
             });
@@ -705,6 +706,7 @@ export const useManagedEmbeddedPdfShapes = ({
                 settleViewerLoadSettle(token);
             }
         }, {
+            category: 'background-diagnostic',
             scope: 'pdf-shapes',
             message: 'Failed to settle managed shapes after PDF load',
         });

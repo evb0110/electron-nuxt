@@ -1,6 +1,7 @@
 import type { Ref } from 'vue';
 import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type { IWorkspaceAgentCommandContext } from '@app/types/workspaceExpose';
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/public';
 import type { IWorkspacePdfViewerAgentAnnotationNotePort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import {
@@ -201,8 +202,9 @@ export function createDocumentAgentAnnotationNoteActions(
     return [
         defineAgentActionHandler({
             ids: ['annotation.update_note'],
+            policy: {mutatesDocument: true},
             parse: parseAgentUpdateNoteInput,
-            async run(parsedInput: IAgentUpdateNoteInput) {
+            async run(parsedInput: IAgentUpdateNoteInput, _actionId, context?: IWorkspaceAgentCommandContext) {
                 const comment = options.findAgentAnnotationComment(parsedInput.input);
                 const previousText = comment.text ?? '';
                 const previousMarkerRect = comment.markerRect ?? null;
@@ -216,6 +218,7 @@ export function createDocumentAgentAnnotationNoteActions(
                 patchAgentAnnotationCommentMarker(commentForUpdate, parsedInput.markerRect, parsedInput.text);
                 options.handleOpenAnnotationNote(commentForUpdate);
                 await nextTick();
+                context?.assertCurrentDocument();
                 const updated = applyAgentAnnotationNoteTextUpdate(
                     commentForUpdate,
                     parsedInput.text,
@@ -238,6 +241,7 @@ export function createDocumentAgentAnnotationNoteActions(
                     parsedInput.markerRect ?? previousMarkerRect,
                 );
                 await nextTick();
+                context?.assertCurrentDocument();
                 patchAgentAnnotationCommentMarker(commentForUpdate, parsedInput.markerRect, parsedInput.text);
                 await nextTick();
                 return {
@@ -253,9 +257,15 @@ export function createDocumentAgentAnnotationNoteActions(
         }),
         defineAgentActionHandler({
             ids: ['annotation.update_text_markup_color'],
+            policy: {mutatesDocument: true},
             parse: parseAgentAnnotationColorInput,
-            async run(parsedInput: ReturnType<typeof parseAgentAnnotationColorInput>) {
+            async run(
+                parsedInput: ReturnType<typeof parseAgentAnnotationColorInput>,
+                _actionId,
+                context?: IWorkspaceAgentCommandContext,
+            ) {
                 const comment = options.findAgentAnnotationComment(parsedInput.input);
+                context?.assertCurrentDocument();
                 const updated = options.updateTextMarkupColorWithHistory(comment, parsedInput.color);
                 if (!updated) {
                     throw new Error('Text markup annotation color could not be updated.');

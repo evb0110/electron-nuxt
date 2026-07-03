@@ -8,8 +8,10 @@ import type {
     IWorkspaceDocumentViewerSplitPort,
     IWorkspacePdfViewerSplitPort,
 } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import type { TPdfSource } from '@app/types/pdf';
+import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type { TPdfSource } from '@app/types/pdfUi';
 import { getDocumentWorkingCopyCapability } from '@app/utils/platformDocuments';
+import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
@@ -27,6 +29,15 @@ interface IUseWorkspaceSplitPayloadOptions {
     pdfViewerRef: Ref<IWorkspacePdfViewerSplitPort | null>;
     documentViewerRef: Ref<IWorkspaceDocumentViewerSplitPort | null>;
     pdfData: Ref<Uint8Array | null>;
+    serializePdfForSave?: (
+        data: Uint8Array,
+        options?: {
+            includeShapes?: boolean;
+            rewriteShapeState?: boolean;
+            pendingTexts?: Map<string, string> | null;
+            pendingDeletes?: IAnnotationCommentSummary[] | null;
+        },
+    ) => Promise<Uint8Array>;
     openFileWithViewerLifecycle: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     waitForPdfReload: (page: number) => Promise<void>;
     loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
@@ -60,11 +71,15 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
 
     function createPdfSnapshotPayload(snapshotPath: TDocumentRef, isDirty: boolean): TPdfSnapshotSplitPayload {
         const normalizedCurrentPage = normalizeSplitPayloadPage(options.currentPage.value) ?? 1;
+        const originalBackend = resolveDocumentRefBackend(options.originalPath.value);
+        const snapshotBackend = resolveDocumentRefBackend(snapshotPath);
         return {
             kind: 'pdfSnapshot',
             fileName: options.fileName.value ?? 'document.pdf',
             originalPath: options.originalPath.value,
+            ...(originalBackend === undefined ? {} : {originalBackend}),
             snapshotPath,
+            ...(snapshotBackend === undefined ? {} : {snapshotBackend}),
             isDirty,
             currentPage: normalizedCurrentPage,
             totalPages: normalizeSplitPayloadTotalPages(options.totalPages.value, normalizedCurrentPage),
@@ -93,8 +108,20 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
 
     async function resolvePdfSnapshotData() {
         return runWithDocumentOperationLease('split-capture', async () => {
-            const viewerSnapshot = await options.pdfViewerRef.value?.saveDocument?.() ?? null;
+            const viewerTransaction = await options.pdfViewerRef.value?.runSaveTransaction({
+                mode: 'snapshot',
+                forcePdfjsMaterialize: true,
+            });
+            const viewerSnapshot = viewerTransaction?.serializedBytes ?? viewerTransaction?.baseBytes ?? null;
             if (viewerSnapshot) {
+                if (viewerTransaction && options.serializePdfForSave) {
+                    return options.serializePdfForSave(viewerSnapshot, {
+                        includeShapes: true,
+                        rewriteShapeState: true,
+                        pendingTexts: viewerTransaction.pendingEmbeddedTextUpdates,
+                        pendingDeletes: viewerTransaction.pendingEmbeddedAnnotationDeletes,
+                    });
+                }
                 return viewerSnapshot;
             }
 
@@ -143,9 +170,11 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             const normalizedCurrentPage = normalizeSplitPayloadPage(
                 options.documentViewerRef.value?.getCurrentPage?.() ?? options.currentPage.value,
             ) ?? 1;
+            const sourceBackend = resolveDocumentRefBackend(options.djvuSourcePath.value);
             return {
                 kind: 'djvu',
                 sourcePath: options.djvuSourcePath.value,
+                ...(sourceBackend === undefined ? {} : {sourceBackend}),
                 currentPage: normalizedCurrentPage,
                 totalPages: normalizeSplitPayloadTotalPages(options.totalPages.value, normalizedCurrentPage),
             };

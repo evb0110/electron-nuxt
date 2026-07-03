@@ -31,7 +31,8 @@ const MAX_NORMALIZE_DEPTH = 4;
 const FLUSH_DELAY_MS = 1_500;
 
 interface IAnalyticsBrowserState {
-    documentContext: IAnalyticsDocumentContext | null;
+    activeDocumentScopeKey: string | null;
+    documentContexts: Map<string, IAnalyticsDocumentContext>;
     flushTimer: number | null;
     isFlushing: boolean;
     lifecycleCleanup: (() => void) | null;
@@ -42,9 +43,11 @@ interface IAnalyticsBrowserState {
 }
 
 type TNormalizedAnalyticsEntry = readonly [string, JsonValue];
+const LEGACY_DOCUMENT_SCOPE_KEY = 'legacy';
 
 const analyticsBrowserState: IAnalyticsBrowserState = {
-    documentContext: null,
+    activeDocumentScopeKey: null,
+    documentContexts: new Map(),
     flushTimer: null,
     isFlushing: false,
     lifecycleCleanup: null,
@@ -53,6 +56,16 @@ const analyticsBrowserState: IAnalyticsBrowserState = {
     queue: [],
     sessionId: null,
 };
+
+export interface IAnalyticsDocumentScope {
+    readonly key: string;
+    activate: () => void;
+    clear: () => void;
+    deactivate: () => void;
+    dispose: () => void;
+    merge: (nextContext: Partial<IAnalyticsDocumentContext>) => void;
+    set: (nextContext: IAnalyticsDocumentContext | null) => void;
+}
 
 function isTruthyFlag(value: unknown) {
     return value === true
@@ -310,6 +323,41 @@ function releaseAnalyticsLifecycle() {
     clearFlushTimer();
 }
 
+function getDocumentContext(scopeKey: string | null) {
+    if (!scopeKey) {
+        return null;
+    }
+
+    return analyticsBrowserState.documentContexts.get(scopeKey) ?? null;
+}
+
+function getActiveDocumentContext() {
+    return getDocumentContext(analyticsBrowserState.activeDocumentScopeKey)
+        ?? getDocumentContext(LEGACY_DOCUMENT_SCOPE_KEY);
+}
+
+function setScopedDocumentContext(
+    scopeKey: string,
+    nextContext: IAnalyticsDocumentContext | null,
+) {
+    if (nextContext) {
+        analyticsBrowserState.documentContexts.set(scopeKey, normalizeDocumentContext(nextContext));
+        return;
+    }
+
+    analyticsBrowserState.documentContexts.delete(scopeKey);
+}
+
+function mergeScopedDocumentContext(
+    scopeKey: string,
+    nextContext: Partial<IAnalyticsDocumentContext>,
+) {
+    analyticsBrowserState.documentContexts.set(scopeKey, {
+        ...(analyticsBrowserState.documentContexts.get(scopeKey) ?? {}),
+        ...normalizeDocumentContext(nextContext),
+    });
+}
+
 export const useAnalytics = () => {
     const runtimeConfig = useRuntimeConfig();
     const enabledFlag = runtimeConfig.public?.analyticsEnabled ?? false;
@@ -320,15 +368,84 @@ export const useAnalytics = () => {
         releaseAnalyticsLifecycle();
     }
 
+    function createDocumentScope(
+        key: string,
+        options: {
+            activate?: boolean;
+            context?: IAnalyticsDocumentContext | null;
+        } = {},
+    ): IAnalyticsDocumentScope {
+        const normalizedKey = key.trim() || createBrowserSafeId();
+        let disposed = false;
+
+        if (options.context !== undefined) {
+            setScopedDocumentContext(normalizedKey, options.context);
+        }
+        if (options.activate === true) {
+            analyticsBrowserState.activeDocumentScopeKey = normalizedKey;
+        }
+
+        function assertActive() {
+            return !disposed && isClientAnalyticsEnabled(enabledFlag);
+        }
+
+        const scope: IAnalyticsDocumentScope = {
+            key: normalizedKey,
+            activate() {
+                if (disposed) {
+                    return;
+                }
+                analyticsBrowserState.activeDocumentScopeKey = normalizedKey;
+            },
+            clear() {
+                if (!assertActive()) {
+                    return;
+                }
+                analyticsBrowserState.documentContexts.delete(normalizedKey);
+            },
+            deactivate() {
+                if (analyticsBrowserState.activeDocumentScopeKey === normalizedKey) {
+                    analyticsBrowserState.activeDocumentScopeKey = null;
+                }
+            },
+            dispose() {
+                if (disposed) {
+                    return;
+                }
+                disposed = true;
+                analyticsBrowserState.documentContexts.delete(normalizedKey);
+                if (analyticsBrowserState.activeDocumentScopeKey === normalizedKey) {
+                    analyticsBrowserState.activeDocumentScopeKey = null;
+                }
+            },
+            merge(nextContext) {
+                if (!assertActive()) {
+                    return;
+                }
+                mergeScopedDocumentContext(normalizedKey, nextContext);
+            },
+            set(nextContext) {
+                if (!assertActive()) {
+                    return;
+                }
+                setScopedDocumentContext(normalizedKey, nextContext);
+            },
+        };
+
+        tryOnScopeDispose(scope.dispose);
+        return scope;
+    }
+
+    function getDefaultDocumentScopeKey() {
+        return analyticsBrowserState.activeDocumentScopeKey ?? LEGACY_DOCUMENT_SCOPE_KEY;
+    }
+
     function mergeDocumentContext(nextContext: Partial<IAnalyticsDocumentContext>) {
         if (!isClientAnalyticsEnabled(enabledFlag)) {
             return;
         }
 
-        analyticsBrowserState.documentContext = {
-            ...(analyticsBrowserState.documentContext ?? {}),
-            ...normalizeDocumentContext(nextContext),
-        };
+        mergeScopedDocumentContext(getDefaultDocumentScopeKey(), nextContext);
     }
 
     function setDocumentContext(nextContext: IAnalyticsDocumentContext | null) {
@@ -336,13 +453,11 @@ export const useAnalytics = () => {
             return;
         }
 
-        analyticsBrowserState.documentContext = nextContext
-            ? normalizeDocumentContext(nextContext)
-            : null;
+        setScopedDocumentContext(getDefaultDocumentScopeKey(), nextContext);
     }
 
     function clearDocumentContext() {
-        analyticsBrowserState.documentContext = null;
+        analyticsBrowserState.documentContexts.delete(getDefaultDocumentScopeKey());
     }
 
     function track(
@@ -361,7 +476,7 @@ export const useAnalytics = () => {
 
         const locale = getBrowserLocale();
         const normalizedPayload = normalizePayload({
-            ...(analyticsBrowserState.documentContext ?? {}),
+            ...(getActiveDocumentContext() ?? {}),
             ...(payload ?? {}),
         });
 
@@ -393,6 +508,7 @@ export const useAnalytics = () => {
 
     return {
         clearDocumentContext,
+        createDocumentScope,
         enabled: isClientAnalyticsEnabled(enabledFlag),
         flush: (useBeacon = false) => flushAnalyticsQueue(enabledFlag, useBeacon),
         installLifecycle: () => ensureAnalyticsLifecycle(enabledFlag),

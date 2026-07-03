@@ -30,6 +30,7 @@ import { useOcrErrorLocalizer } from '@app/composables/useOcrErrorLocalizer';
 import { getOcrCapability } from '@app/utils/getOcrCapability';
 import { getErrorMessage } from '@app/utils/error';
 import { exportTextAsDocx } from '@app/utils/exportTextAsDocx';
+import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 
 class OcrJobStartError extends Error {
     readonly errorEnvelope: IOcrErrorEnvelope | undefined;
@@ -708,8 +709,12 @@ export const useOcr = () => {
 
         try {
             const selectedLanguages = getDocxExportLanguages();
+            const documentRevisionToken = workingCopyPath
+                ? (await getDocumentFilesCapability().getDocumentRevision(workingCopyPath).catch(() => null))?.token ?? null
+                : null;
             return await exportTextAsDocx({
                 workingCopyPath,
+                documentRevisionToken,
                 pdfDocument,
                 hasRtl: hasRtlOcrLanguage(selectedLanguages),
                 buildDocx: createDocxFromText,

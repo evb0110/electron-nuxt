@@ -4,7 +4,7 @@ import {
     PDFName,
     PDFNumber,
 } from 'pdf-lib';
-import type { IPdfPageLabelRange } from '@app/types/pdf';
+import type { IPdfPageLabelRange } from '@app/types/pdfContracts';
 import {
     isImplicitDefaultPageLabels,
     normalizePageLabelRanges,

@@ -1,5 +1,5 @@
 import type { ComputedRef } from 'vue';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 
 interface IUsePdfViewerSourceChangeLifecycleOptions {
     src: ComputedRef<TPdfSource | null>;

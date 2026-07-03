@@ -10,7 +10,7 @@ import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacemen
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
 import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/pdfSerializationSavePayload';
 import type { IPdfSerializedPlacedImagePayload } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-placed-images/pdfSerializedPlacedImagePayload';
 import { collectMarkupSubtypeHints } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/collectMarkupSubtypeHints';

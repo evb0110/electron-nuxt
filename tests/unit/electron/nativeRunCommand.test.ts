@@ -151,4 +151,38 @@ describe('runNativeCommand', () => {
         expect(proc.stdout.destroy).toHaveBeenCalledTimes(1);
         expect(proc.stderr.destroy).toHaveBeenCalledTimes(1);
     });
+
+    it('streams output chunks and cancels named command groups', async () => {
+        const proc = new MockNativeProcess();
+        const onStdout = vi.fn();
+        const onStderr = vi.fn();
+        mocks.spawn.mockReturnValue(proc);
+        const {
+            cancelNativeCommandGroup,
+            runNativeCommand,
+        } = await import('@electron/native-tools/runNativeCommand');
+
+        const resultPromise = runNativeCommand('/bin/tool', ['--watch'], {
+            cancelGroup: 'job-1',
+            onStderr,
+            onStdout,
+        });
+        const rejection: Promise<Error> = resultPromise.then(
+            () => {
+                throw new Error('Expected command to reject');
+            },
+            error => error as Error,
+        );
+
+        proc.stdout.emit('data', Buffer.from('progress'));
+        proc.stderr.emit('data', Buffer.from('warning'));
+        expect(cancelNativeCommandGroup('job-1')).toBe(true);
+
+        const error = await rejection;
+        expect(error.message).toBe('The operation was aborted');
+        expect(onStdout).toHaveBeenCalledWith('progress');
+        expect(onStderr).toHaveBeenCalledWith('warning');
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
+        expect(cancelNativeCommandGroup('job-1')).toBe(false);
+    });
 });

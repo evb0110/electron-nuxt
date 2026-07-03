@@ -9,7 +9,7 @@ import { navigateToBookmarkDestination } from '@app/modules/pdf-viewer/engine/pd
 import { resolveBookmarkDestinationTarget } from '@app/utils/pdfOutlineHelpers';
 import type * as PdfOutlineHelpers from '@app/utils/pdfOutlineHelpers';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
 
 vi.mock('@app/utils/pdfOutlineHelpers', async (importOriginal) => {

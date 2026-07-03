@@ -1,3 +1,4 @@
+import type {IDocumentRevisionChangedEvent} from '@contracts/documentRevision';
 import type {
     IDocumentsFileCapability,
     IDocumentsMenuCapability,
@@ -42,6 +43,7 @@ export const DOCUMENTS_CHANNELS = {
     pdfNativePagePreview: 'pdf:nativePagePreview',
     fileReadText: 'file:readText',
     fileExists: 'file:exists',
+    documentRevisionGet: 'document:revision:get',
     pdfAnalyzeConformance: 'pdf:analyzeConformance',
     pdfValidateData: 'pdf:validateData',
     pdfValidatePath: 'pdf:validatePath',
@@ -53,6 +55,7 @@ export const DOCUMENTS_CHANNELS = {
     fileReplaceWorkingCopyFromPath: 'file:replaceWorkingCopyFromPath',
     fileWriteDocx: 'file:writeDocx',
     fileSave: 'file:save',
+    fileSaveStructured: 'file:saveStructured',
     fileRepairPdf: 'file:repairPdf',
     fileOptimizePdfForInteraction: 'file:optimizePdfForInteraction',
     fileOptimizePdfAsCopy: 'file:optimizePdfAsCopy',
@@ -109,6 +112,7 @@ export const DOCUMENTS_EVENT_CHANNELS = {
     pdfOptimizeProgress: 'pdf:optimize:progress',
     openDocumentDirectBatchProgress: 'dialog:openPdfDirectBatch:progress',
     openPdfDirectBatchProgress: 'dialog:openPdfDirectBatch:progress',
+    documentRevisionChanged: 'document:revision:changed',
 } as const;
 
 export type TOpenBatchProgressPayload = ICreatePdfFromInputPathsProgress & {
@@ -221,6 +225,10 @@ export interface IDocumentsInvokeMap {
         args: [path: string];
         result: Awaited<ReturnType<IDocumentsFileCapability['fileExists']>>;
     };
+    [DOCUMENTS_CHANNELS.documentRevisionGet]: {
+        args: [path: string];
+        result: Awaited<ReturnType<IDocumentsFileCapability['getDocumentRevision']>>;
+    };
     [DOCUMENTS_CHANNELS.pdfAnalyzeConformance]: {
         args: [path: string];
         result: Awaited<ReturnType<IDocumentsFileCapability['analyzePdfConformance']>>;
@@ -264,6 +272,10 @@ export interface IDocumentsInvokeMap {
     [DOCUMENTS_CHANNELS.fileSave]: {
         args: [path: string];
         result: Awaited<ReturnType<IDocumentsFileCapability['saveFile']>>;
+    };
+    [DOCUMENTS_CHANNELS.fileSaveStructured]: {
+        args: [path: string];
+        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['saveFileStructured']>>>;
     };
     [DOCUMENTS_CHANNELS.fileRepairPdf]: {
         args: [path: string];
@@ -390,6 +402,7 @@ export interface IDocumentsEventMap {
     [DOCUMENTS_EVENT_CHANNELS.menuClearRecentFiles]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.pdfOptimizeProgress]: TPdfOptimizeProgressPayload;
     [DOCUMENTS_EVENT_CHANNELS.openDocumentDirectBatchProgress]: TOpenDocumentDirectBatchProgress;
+    [DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged]: IDocumentRevisionChangedEvent;
 }
 
 export type { TOpenFileResult } from '@contracts/electronApiDocuments';

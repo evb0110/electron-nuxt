@@ -6,7 +6,7 @@ import {
     useBookmarkState,
     usePageLabelState,
 } from '@app/modules/pdf-viewer/public';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
 import { useWorkspaceUndoTimeline } from '@app/modules/workspace-shell/composables/useWorkspaceUndoTimeline';
 

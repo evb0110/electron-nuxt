@@ -5,3 +5,5 @@ export { attachSerializedPdfPersistencePort } from '@electron/features/documents
 export { assertOpenInputPathCount } from '@electron/features/documents/main/openInputPaths.service';
 export { sweepStaleDefaultAppTempPdfs } from '@electron/features/documents/main/print';
 export { sweepStaleOcrTempArtifacts } from '@electron/features/documents/main/sweepStaleOcrTempArtifacts';
+export { registerDocumentRevisionEventBridge } from '@electron/features/documents/main/registerDocumentRevisionEventBridge';
+export { registerDocumentRevisionInvalidationEffects } from '@electron/features/documents/main/registerDocumentRevisionInvalidationEffects';

@@ -43,6 +43,7 @@ import type {
     IAssistantChatSession,
     TAssistantChatSessionStore,
 } from '@electron/features/agent/assistantChatSessionStore';
+import { supersedeAssistantTurn } from '@electron/features/agent/assistantTurnLifecycle';
 import {
     getEmbeddedMcpServerDescriptor,
     isEmbeddedMcpServerRunning,
@@ -161,6 +162,8 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
                 continue;
             }
             session.threadId = null;
+            session.turnOwner = supersedeAssistantTurn(session.turnOwner);
+            session.scopeBinding = null;
             session.activeTurnId = null;
             session.turnPhase = 'idle';
         }
@@ -385,6 +388,8 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             throw new Error('Codex did not return an assistant thread.');
         }
         session.threadId = response.thread.id;
+        session.turnOwner = supersedeAssistantTurn(session.turnOwner);
+        session.scopeBinding = null;
         session.activeTurnId = null;
         session.turnPhase = 'idle';
         options.sessionStore.setActiveSession(session);

@@ -30,11 +30,14 @@ const { usePdfViewerResizeLifecycle } = await import(
     '@app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle'
 );
 
+type TResizeLifecycleOptions = Parameters<typeof usePdfViewerResizeLifecycle>[0];
+
 function createResizeLifecycle(
     isActive = ref(true),
     options?: {
         computeFitWidthScale?: () => boolean;
         pendingNavigationAnchorPage?: Readonly<Ref<number | null>>;
+        transactionController?: TResizeLifecycleOptions['transactionController'];
     },
 ) {
     const getMostVisiblePage = vi.fn(() => 2);
@@ -60,6 +63,7 @@ function createResizeLifecycle(
         summarizeVisiblePageSnapshotForLog: vi.fn(() => ({})),
         scheduleResizeAwareRerender,
         setResizeTransitionVisible,
+        transactionController: options?.transactionController,
     });
 
     return {
@@ -226,6 +230,59 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
                 source: 'resize-observer',
                 stabilize: true,
             }),
+        );
+    });
+
+    it('attaches resize observer transactions to scheduled rerenders', async () => {
+        vi.useFakeTimers();
+        const beginTransaction = vi.fn(() => ({
+            id: 12,
+            kind: 'resize' as const,
+            source: 'resize-observer' as const,
+            state: 'preparing' as const,
+            documentRef: {
+                document: null,
+                documentLoadToken: 0,
+                documentVersion: 0,
+            },
+            target: null,
+            fitPlan: {
+                mode: 'none' as const,
+                scalePage: null,
+                hydrateRange: null,
+                invalidateRangeAfterScaleChange: false,
+                suppressLegacyPagedRowRender: false,
+            },
+            scrollPlan: null,
+            renderRequest: null,
+            createdAtMs: 0,
+            userViewportInteractionEpoch: 0,
+            cancellation: null,
+        }));
+        const transactionController: NonNullable<TResizeLifecycleOptions['transactionController']> = {
+            beginTransaction,
+            cancelActiveTransaction: vi.fn(() => true),
+            isTransactionCurrent: vi.fn(() => true),
+        };
+        const {scheduleResizeAwareRerender} = createResizeLifecycle(ref(true), { transactionController });
+
+        resizeObserverMock.callback?.();
+
+        await vi.advanceTimersByTimeAsync(400);
+
+        expect(beginTransaction).toHaveBeenCalledWith({
+            kind: 'resize',
+            source: 'resize-observer',
+            page: 4,
+            range: {
+                start: 4,
+                end: 5,
+            },
+            anchor: 'center',
+        });
+        expect(scheduleResizeAwareRerender).toHaveBeenCalledWith(
+            're-render visible pages after resize',
+            expect.objectContaining({ transactionId: 12 }),
         );
     });
 });

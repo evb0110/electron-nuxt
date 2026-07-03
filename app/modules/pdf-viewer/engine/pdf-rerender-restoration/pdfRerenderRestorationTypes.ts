@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { TPdfRerenderSource } from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
 
 export interface IRoundedScrollPosition {

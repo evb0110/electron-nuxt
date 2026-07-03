@@ -9,7 +9,7 @@ import { maxWorkspaceMetadataHistoryEntries } from '@app/modules/workspace-shell
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
 
 function createHistory() {
     const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);

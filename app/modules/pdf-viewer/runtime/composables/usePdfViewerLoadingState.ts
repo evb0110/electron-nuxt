@@ -3,7 +3,7 @@ import type {
     Ref,
 } from 'vue';
 import { useMutationObserver } from '@vueuse/core';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 interface IUsePdfViewerLoadingStateOptions {

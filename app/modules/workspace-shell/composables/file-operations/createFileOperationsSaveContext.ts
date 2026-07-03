@@ -41,6 +41,7 @@ export interface IFileOperationsSaveContext {
     hasPendingTexts: boolean;
     pendingDeletes: IAnnotationCommentSummary[] | null;
     pendingTexts: Map<string, string> | null;
+    pendingChangesSource: 'viewer-service' | 'workspace-compat';
     reloadWaiter: IPostSaveReloadHandle;
     shapeStateDirty: boolean;
 }
@@ -73,6 +74,7 @@ interface IPendingEmbeddedAnnotationChanges {
     pendingDeletes: IAnnotationCommentSummary[] | null;
     hasPendingTexts: boolean;
     hasPendingDeletes: boolean;
+    source: 'viewer-service' | 'workspace-compat';
 }
 
 export function createFileOperationsSaveContext(
@@ -81,7 +83,6 @@ export function createFileOperationsSaveContext(
 ) {
     const {
         state,
-        pdf,
         annotationEdits,
         viewer,
         lifecycle,
@@ -108,11 +109,24 @@ export function createFileOperationsSaveContext(
         return true;
     }
 
-    async function commitActivePdfEditorsForSave() {
-        await pdf.source.commitPdfEditorsForSave?.();
-    }
-
     function consumePendingEmbeddedAnnotationChanges(): IPendingEmbeddedAnnotationChanges {
+        const viewerSnapshot = viewer.markup.getPendingEmbeddedMutationSnapshot?.();
+        if (viewerSnapshot) {
+            const pendingTexts = viewerSnapshot.pendingEmbeddedTextUpdates.size > 0
+                ? viewerSnapshot.pendingEmbeddedTextUpdates
+                : null;
+            const pendingDeletes = viewerSnapshot.pendingEmbeddedAnnotationDeletes.length > 0
+                ? viewerSnapshot.pendingEmbeddedAnnotationDeletes
+                : null;
+            return {
+                pendingTexts,
+                pendingDeletes,
+                hasPendingTexts: Boolean(pendingTexts && pendingTexts.size > 0),
+                hasPendingDeletes: Boolean(pendingDeletes && pendingDeletes.length > 0),
+                source: 'viewer-service',
+            };
+        }
+
         const pendingTexts = annotationEdits.consumePendingEmbeddedTextUpdates();
         const pendingDeletes = annotationEdits.consumePendingEmbeddedAnnotationDeletes();
         return {
@@ -120,6 +134,7 @@ export function createFileOperationsSaveContext(
             pendingDeletes,
             hasPendingTexts: Boolean(pendingTexts && pendingTexts.size > 0),
             hasPendingDeletes: Boolean(pendingDeletes && pendingDeletes.length > 0),
+            source: 'workspace-compat',
         };
     }
 
@@ -150,11 +165,6 @@ export function createFileOperationsSaveContext(
         if (!await persistOpenAnnotationNotes(config.persistOpenNotesAbortMessage)) {
             return null;
         }
-        await services.timedSavePhase(
-            'commit-pdf-editors-for-save',
-            commitActivePdfEditorsForSave,
-        );
-
         const saveStateSnapshot = services.captureSaveStateSnapshot();
         const pendingChanges = consumePendingEmbeddedAnnotationChanges();
         const shapeStateDirty = viewer.shapes.hasShapeChanges?.() ?? false;
@@ -186,6 +196,7 @@ export function createFileOperationsSaveContext(
             hasPendingTexts: pendingChanges.hasPendingTexts,
             pendingDeletes: pendingChanges.pendingDeletes,
             pendingTexts: pendingChanges.pendingTexts,
+            pendingChangesSource: pendingChanges.source,
             reloadWaiter: createPostSaveReloadHandle(
                 lifecycle.preparePostSaveReload,
                 savePlan.livePdfjsAnnotationSession.canPreserve,

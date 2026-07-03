@@ -20,6 +20,7 @@ interface IRunCoordinatedPdfPageRenderOptions<TTask extends ICoordinatedPdfPageR
     pageNumber: number;
     pdfPage: PDFPageProxy;
     priority: number;
+    signal?: AbortSignal | undefined;
     shouldStart?: (() => boolean) | undefined;
     startRender: () => TTask;
     onTask?: ((task: TTask) => void) | undefined;
@@ -244,11 +245,13 @@ export async function runCoordinatedPdfPageRender<TTask extends ICoordinatedPdfP
         pageNumber,
         pdfPage,
         priority,
+        signal,
         shouldStart,
         startRender,
     } = options;
 
-    await waitForCoordinatedTurn(pdfPage, owner, priority);
+    await waitForCoordinatedTurn(pdfPage, owner, priority, signal);
+    throwIfCoordinatedOperationCancelled(signal, pageNumber, owner);
 
     if (shouldStart?.() === false) {
         throw createCoordinatedRenderCancelledError(pageNumber, owner);

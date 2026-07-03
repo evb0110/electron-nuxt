@@ -36,6 +36,7 @@ const mockDocumentFiles = {
     savePdfNoteChanges: vi.fn(),
     savePdfAs: vi.fn(),
     statFile: vi.fn(),
+    getDocumentRevision: vi.fn(),
     repairPdf: vi.fn(),
     optimizePdfForInteraction: vi.fn(),
     optimizePdfAsCopy: vi.fn(),
@@ -75,6 +76,7 @@ const mockDocuments = {
     savePdfNoteChanges: vi.fn(() => failLegacyDocumentsCall('savePdfNoteChanges')),
     savePdfAs: vi.fn(() => failLegacyDocumentsCall('savePdfAs')),
     statFile: vi.fn(() => failLegacyDocumentsCall('statFile')),
+    getDocumentRevision: vi.fn(() => failLegacyDocumentsCall('getDocumentRevision')),
     cleanupFile: vi.fn(() => failLegacyDocumentsCall('cleanupFile')),
     analyzePdfConformance: vi.fn(() => failLegacyDocumentsCall('analyzePdfConformance')),
     validatePdfData: vi.fn(() => failLegacyDocumentsCall('validatePdfData')),
@@ -155,6 +157,7 @@ interface IPdfFileTestApi {
     pdfConformanceProfile: Ref<IPdfConformanceProfile | null>;
     pdfData: Ref<Uint8Array | null>;
     pdfSrc: Ref<Blob | IPdfFileTestSourcePath | null>;
+    documentRevisionToken: Ref<string | null>;
     pendingDjvu: Ref<string | null>;
     persistPdfDataSilently: (data: Uint8Array) => Promise<boolean>;
     redo: () => Promise<boolean>;
@@ -214,6 +217,15 @@ describe('usePdfFile', () => {
         mockDocumentFiles.savePdfNoteChanges.mockReset();
         mockDocumentFiles.savePdfAs.mockReset();
         mockDocumentFiles.statFile.mockReset();
+        mockDocumentFiles.getDocumentRevision.mockReset();
+        mockDocumentFiles.getDocumentRevision.mockResolvedValue({
+            version: 1,
+            documentRef: '/tmp/work.pdf',
+            authority: 'electron-working-copy',
+            contentRevision: 1,
+            mintedAt: 1,
+            token: 'revision-token',
+        });
         mockDocumentFiles.repairPdf.mockReset();
         mockDocumentFiles.optimizePdfForInteraction.mockReset();
         mockDocumentFiles.optimizePdfAsCopy.mockReset();
@@ -1193,7 +1205,7 @@ describe('usePdfFile', () => {
                 .mockResolvedValueOnce(pdfBytes.buffer)
                 .mockResolvedValueOnce(savedBytes.buffer);
             mockDocumentFiles.writeFile.mockResolvedValue(undefined);
-            mockDocumentFiles.saveFile.mockResolvedValue(undefined);
+            mockDocumentFiles.saveFile.mockResolvedValue(true);
 
             const file = createTestPdfFile();
             await file.openFile();
@@ -1224,7 +1236,7 @@ describe('usePdfFile', () => {
             mockDocumentFiles.statFile.mockResolvedValue({ size: pdfBytes.length });
             mockDocumentFiles.readFile.mockResolvedValue(pdfBytes.buffer);
             mockDocumentFiles.writeFile.mockResolvedValue(undefined);
-            mockDocumentFiles.saveFile.mockResolvedValue(undefined);
+            mockDocumentFiles.saveFile.mockResolvedValue(true);
 
             const file = createTestPdfFile();
             await file.openFile();
@@ -1272,7 +1284,7 @@ describe('usePdfFile', () => {
             mockDocumentFiles.statFile.mockResolvedValue({ size: 2 });
             mockDocumentFiles.readFile.mockResolvedValueOnce(pdfBytes.buffer);
             mockDocumentFiles.writeFile.mockResolvedValue(undefined);
-            mockDocumentFiles.saveFile.mockResolvedValue(undefined);
+            mockDocumentFiles.saveFile.mockResolvedValue(true);
             mockDocumentPdf.analyzePdfConformance
                 .mockResolvedValueOnce(unsignedProfile)
                 .mockImplementationOnce(() => conformanceGate.promise);
@@ -1498,12 +1510,11 @@ describe('usePdfFile', () => {
                 }
                 throw new Error(`unexpected path ${path}`);
             });
-            const saveGate = deferred<undefined>();
+            const saveGate = deferred<boolean>();
             mockDocumentFiles.writeFile.mockResolvedValue(undefined);
             mockDocumentFiles.saveFile.mockImplementation(async (path: string) => {
                 if (path === '/tmp/first.pdf') {
-                    await saveGate.promise;
-                    return;
+                    return saveGate.promise;
                 }
                 throw new Error(`unexpected save path ${path}`);
             });
@@ -1523,7 +1534,7 @@ describe('usePdfFile', () => {
                 workingPath: '/tmp/second.pdf',
             });
 
-            saveGate.resolve(undefined);
+            saveGate.resolve(true);
             await expect(save).resolves.toEqual({
                 success: false,
                 outPath: null,

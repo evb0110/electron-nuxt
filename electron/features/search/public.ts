@@ -1,6 +1,7 @@
 export {
     resolveSearchablePdfPath,
     resolveSearchWorkerPath,
+    searchWorkerService,
 } from '@electron/features/search/main/ipc';
 export {
     parseOptionalSearchPageCount,

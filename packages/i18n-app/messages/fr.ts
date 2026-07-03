@@ -566,7 +566,10 @@ export default {
             'codexMissingMessage': 'Installez Codex pour utiliser l’intégration MCP d’EVB Viewer.',
             'codexMissingDetail': 'Après l’installation de Codex, revenez ici et réactivez ce réglage.',
         },
-        'agentAssistant': {'disabledMessage': 'Activez EVB Assistant dans les paramètres pour utiliser la discussion avec l’assistant.'},
+        'agentAssistant': {
+            'disabledMessage': 'Activez EVB Assistant dans les paramètres pour utiliser la discussion avec l’assistant.',
+            'turnBusy': 'EVB Assistant traite encore le message précédent pour ce document.',
+        },
     },
     'optimizePdf': {
         'title': 'Optimiser le PDF',
@@ -1139,6 +1142,7 @@ export default {
             'description': 'L’application a rencontré une erreur inattendue et peut ne pas fonctionner correctement tant qu’elle n’est pas rechargée.',
             'startupTitle': 'Le démarrage de l’application a échoué',
             'startupDescription': 'L’application n’a pas pu terminer son démarrage. Rechargez-la puis réessayez.',
+            'electronPlatformContract': 'The desktop bridge is stale or incompatible. Restart the app to load the current preload contract.',
             'reload': 'Recharger l’application',
             'copy': 'Copier les détails',
             'dismiss': 'Ignorer',

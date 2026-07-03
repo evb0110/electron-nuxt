@@ -1,7 +1,5 @@
-import type {
-    IPdfPersistResult,
-    TPdfSaveMode,
-} from '@app/types/pdf';
+import type { TPdfSaveMode } from '@app/types/pdfContracts';
+import type { IPdfPersistResult } from '@app/types/pdfUi';
 import type { TTranslateFn } from '@i18n-app';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
@@ -258,6 +256,29 @@ export function createDocumentPersistence(
         }
     }
 
+    async function saveWorkingCopyToOriginal(workingPath: TDocumentRef) {
+        const documentFiles = getDocumentFilesCapability();
+        if (documentFiles.saveFileStructured) {
+            const result = await documentFiles.saveFileStructured(workingPath);
+            if (!result.ok) {
+                state.error.value = result.validation?.errors.join('\n')
+                    ?? result.message
+                    ?? deps.t('errors.file.save');
+                return false;
+            }
+            if (result.warning) {
+                BrowserLogger.warn('workspace', 'Working-copy save completed with a platform warning', result.warning);
+            }
+            return true;
+        }
+
+        const saved = await documentFiles.saveFile(workingPath);
+        if (!saved) {
+            state.error.value = deps.t('errors.file.save');
+        }
+        return saved;
+    }
+
     async function saveFile(
         data: Uint8Array,
         opts?: {
@@ -332,7 +353,9 @@ export function createDocumentPersistence(
                 });
             }
 
-            await getDocumentFilesCapability().saveFile(workingPath);
+            if (!await saveWorkingCopyToOriginal(workingPath)) {
+                return createFailedPersistResult(requestedSaveMode, false);
+            }
             if (!state.isActiveWorkingCopy(workingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale working-copy save completion', {
                     workingPath,

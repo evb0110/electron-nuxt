@@ -22,9 +22,10 @@ import type {
     TWorkerLog,
 } from '@electron/ocr/worker/types';
 import type {
-    IOcrIndexV2Manifest,
-    IOcrIndexV2Page,
+    IOcrIndexV3Manifest,
+    IOcrIndexV3Page,
 } from '@contracts/ocrIndex';
+import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import {
     OCR_TEXT_LAYER_INDEX_VERSION,
     buildOcrTextLayerIndexText,
@@ -41,6 +42,7 @@ import {
     abortErrorFromSignal,
     isAbortError,
 } from '@electron/utils/abort';
+import { assertWorkingCopyRevisionCurrent } from '@electron/file-access/documentRevisionStore';
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
@@ -63,22 +65,29 @@ function isPathInsideAnyBaseDir(baseDirs: string[], candidatePath: string) {
     return baseDirs.some(baseDir => isPathInsideBaseDir(baseDir, candidatePath));
 }
 
-function parseOcrIndexV2Manifest(rawManifest: string): IOcrIndexV2Manifest | null {
+function isDocumentRevisionStamp(value: unknown): value is { token: string } {
+    return isRecord(value)
+        && typeof value.token === 'string'
+        && value.token.length > 0;
+}
+
+function parseOcrIndexV3Manifest(rawManifest: string): IOcrIndexV3Manifest | null {
     const parsed: unknown = JSON.parse(rawManifest);
     if (!isRecord(parsed) || !isRecord(parsed.pages) || !isRecord(parsed.source)) {
         return null;
     }
     const pageCount = parsed.pageCount;
     if (
-        parsed.version !== 2
+        parsed.version !== 3
         || typeof parsed.source.pdfPath !== 'string'
+        || !isDocumentRevisionStamp(parsed.documentRevision)
         || typeof pageCount !== 'number'
         || !Number.isInteger(pageCount)
         || pageCount <= 0
     ) {
         return null;
     }
-    const pages: IOcrIndexV2Manifest['pages'] = {};
+    const pages: IOcrIndexV3Manifest['pages'] = {};
     for (const [
         rawPageNumber,
         rawPageMapping,
@@ -101,7 +110,8 @@ function parseOcrIndexV2Manifest(rawManifest: string): IOcrIndexV2Manifest | nul
         ? parsedOcr.renderDpi
         : 0;
     return {
-        version: 2,
+        version: 3,
+        documentRevision: {token: parsed.documentRevision.token},
         createdAt: typeof parsed.createdAt === 'number' && Number.isFinite(parsed.createdAt)
             ? parsed.createdAt
             : Date.now(),
@@ -117,10 +127,10 @@ function parseOcrIndexV2Manifest(rawManifest: string): IOcrIndexV2Manifest | nul
     };
 }
 
-async function readExistingOcrIndexV2Manifest(ocrDir: string): Promise<IOcrIndexV2Manifest | null> {
+async function readExistingOcrIndexV3Manifest(ocrDir: string): Promise<IOcrIndexV3Manifest | null> {
     try {
         const rawManifest = await readFile(join(ocrDir, 'manifest.json'), 'utf-8');
-        return parseOcrIndexV2Manifest(rawManifest);
+        return parseOcrIndexV3Manifest(rawManifest);
     } catch {
         return null;
     }
@@ -132,26 +142,29 @@ function parseManifestPageNumber(value: string) {
 }
 
 function shouldPreserveExistingOcrManifest(
-    manifest: IOcrIndexV2Manifest | null,
+    manifest: IOcrIndexV3Manifest | null,
     workingCopyPath: string,
     pageCount: number,
+    documentRevision: IDocumentRevisionInfo,
 ) {
     return !!manifest
         && manifest.pageCount === pageCount
+        && manifest.documentRevision.token === documentRevision.token
         && resolve(manifest.source.pdfPath) === resolve(workingCopyPath);
 }
 
 function copyPreservedPageMappings(
-    manifest: IOcrIndexV2Manifest | null,
+    manifest: IOcrIndexV3Manifest | null,
     workingCopyPath: string,
     pageCount: number,
     ocrDir: string,
+    documentRevision: IDocumentRevisionInfo,
 ) {
-    if (!manifest || !shouldPreserveExistingOcrManifest(manifest, workingCopyPath, pageCount)) {
+    if (!manifest || !shouldPreserveExistingOcrManifest(manifest, workingCopyPath, pageCount, documentRevision)) {
         return {};
     }
 
-    const pages: IOcrIndexV2Manifest['pages'] = {};
+    const pages: IOcrIndexV3Manifest['pages'] = {};
     for (const [
         rawPageNumber,
         pageMapping,
@@ -292,13 +305,15 @@ function resolveManifestPagePath(
 function parseOcrPageTextPayload(
     payload: unknown,
     expectedPageNumber: number,
+    expectedDocumentRevisionToken: string,
 ) {
     if (!isRecord(payload)) {
         return null;
     }
     if (
-        payload.pageNumber !== undefined
-        && payload.pageNumber !== expectedPageNumber
+        !isDocumentRevisionStamp(payload.documentRevision)
+        || payload.documentRevision.token !== expectedDocumentRevisionToken
+        || (payload.pageNumber !== undefined && payload.pageNumber !== expectedPageNumber)
     ) {
         return null;
     }
@@ -318,6 +333,7 @@ async function readOcrPageSearchText(
     ocrDir: string,
     pageMapping: { path: string },
     pageNumber: number,
+    documentRevisionToken: string,
 ) {
     const pagePath = resolveManifestPagePath(ocrDir, pageMapping.path);
     if (!pagePath) {
@@ -327,6 +343,7 @@ async function readOcrPageSearchText(
         return parseOcrPageTextPayload(
             JSON.parse(await readFile(pagePath, 'utf-8')),
             pageNumber,
+            documentRevisionToken,
         );
     } catch {
         return null;
@@ -335,6 +352,7 @@ async function readOcrPageSearchText(
 
 async function seedSearchSidecarTextsFromExistingCompactIndex(
     workingCopyPath: string,
+    documentRevisionToken: string,
     pageCount: number,
     existingManifestMtimeMs: number | undefined,
 ) {
@@ -343,7 +361,10 @@ async function seedSearchSidecarTextsFromExistingCompactIndex(
         kind: COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
         version: OCR_TEXT_LAYER_INDEX_VERSION,
     };
-    const loadOptions: Parameters<typeof loadCompactSearchIndex>[1] = { requiredTextSource };
+    const loadOptions: Parameters<typeof loadCompactSearchIndex>[1] = {
+        documentRevision: documentRevisionToken,
+        requiredTextSource,
+    };
     if (existingManifestMtimeMs !== undefined) {
         loadOptions.minSourceMtimeMs = existingManifestMtimeMs;
     }
@@ -363,7 +384,7 @@ async function seedSearchSidecarTextsFromExistingCompactIndex(
 async function collectCompactSearchIndexPages(
     workingCopyPath: string,
     ocrDir: string,
-    manifest: IOcrIndexV2Manifest,
+    manifest: IOcrIndexV3Manifest,
     ocrPageData: IOcrPageWithWords[],
     existingManifestMtimeMs: number | undefined,
 ) {
@@ -378,6 +399,7 @@ async function collectCompactSearchIndexPages(
 
     const textsByPage = await seedSearchSidecarTextsFromExistingCompactIndex(
         workingCopyPath,
+        manifest.documentRevision.token,
         manifest.pageCount,
         existingManifestMtimeMs,
     );
@@ -393,7 +415,12 @@ async function collectCompactSearchIndexPages(
         if (!pageMapping) {
             continue;
         }
-        const text = await readOcrPageSearchText(ocrDir, pageMapping, pageNumber);
+        const text = await readOcrPageSearchText(
+            ocrDir,
+            pageMapping,
+            pageNumber,
+            manifest.documentRevision.token,
+        );
         if (text !== null) {
             textsByPage.set(pageNumber, text);
         }
@@ -421,13 +448,14 @@ async function collectCompactSearchIndexPages(
 async function writeCompactSearchIndexForOcr(
     workingCopyPath: string,
     ocrDir: string,
-    manifest: IOcrIndexV2Manifest,
+    manifest: IOcrIndexV3Manifest,
     ocrPageData: IOcrPageWithWords[],
     existingManifestMtimeMs: number | undefined,
     log: TWorkerLog,
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
+    await assertWorkingCopyRevisionCurrent(workingCopyPath, manifest.documentRevision.token);
     const pages = await collectCompactSearchIndexPages(
         workingCopyPath,
         ocrDir,
@@ -443,6 +471,7 @@ async function writeCompactSearchIndexForOcr(
     try {
         throwIfAborted(signal);
         await persistCompactSearchIndex(workingCopyPath, {
+            documentRevision: manifest.documentRevision.token,
             pageCount: manifest.pageCount,
             pages,
             textSource: {
@@ -507,8 +536,9 @@ export async function resolveSafeOcrIndexBasePath(
     return resolvedIndexPath;
 }
 
-export async function writeOcrIndexV2(
+export async function writeOcrIndexV3(
     workingCopyPath: string,
+    documentRevision: IDocumentRevisionInfo,
     ocrPageData: IOcrPageWithWords[],
     pageCount: number,
     languages: string[],
@@ -521,13 +551,14 @@ export async function writeOcrIndexV2(
     const ocrDir = `${workingCopyPath}.ocr`;
     await mkdir(ocrDir, { recursive: true });
     const manifestPath = join(ocrDir, 'manifest.json');
-    const existingManifest = await readExistingOcrIndexV2Manifest(ocrDir);
+    const existingManifest = await readExistingOcrIndexV3Manifest(ocrDir);
     const existingManifestMtimeMs = existingManifest
         ? await statMtimeMs(manifestPath)
         : undefined;
 
-    const manifest: IOcrIndexV2Manifest = {
-        version: 2,
+    const manifest: IOcrIndexV3Manifest = {
+        version: 3,
+        documentRevision: {token: documentRevision.token},
         createdAt: Date.now(),
         source: { pdfPath: workingCopyPath },
         pageCount,
@@ -537,7 +568,7 @@ export async function writeOcrIndexV2(
             languages,
             renderDpi: extractionDpi,
         },
-        pages: copyPreservedPageMappings(existingManifest, workingCopyPath, pageCount, ocrDir),
+        pages: copyPreservedPageMappings(existingManifest, workingCopyPath, pageCount, ocrDir, documentRevision),
     };
 
     const tempPaths = new Set<string>();
@@ -547,15 +578,19 @@ export async function writeOcrIndexV2(
     }> = [];
     const writtenPagePaths = new Set<string>();
     let manifestCommitted = false;
+    let publishCommitted = false;
+    let manifestBackupPath: string | null = null;
 
     try {
+        await assertWorkingCopyRevisionCurrent(workingCopyPath, documentRevision.token);
         for (const pd of ocrPageData) {
             throwIfAborted(signal);
             const pageFile = `page-${String(pd.pageNumber).padStart(4, '0')}.json`;
 
-            const pageData: IOcrIndexV2Page = {
+            const pageData: IOcrIndexV3Page = {
                 pageNumber: pd.pageNumber,
                 rotation: 0,
+                documentRevision: {token: documentRevision.token},
                 render: {
                     dpi: extractionDpi,
                     imagePx: {
@@ -592,33 +627,44 @@ export async function writeOcrIndexV2(
         tempPaths.add(tempManifestPath);
         await writeFile(tempManifestPath, JSON.stringify(manifest), 'utf-8');
         throwIfAborted(signal);
+        await assertWorkingCopyRevisionCurrent(workingCopyPath, documentRevision.token);
+        manifestBackupPath = await moveExistingFileAside(manifestPath);
         await rename(tempManifestPath, manifestPath);
         tempPaths.delete(tempManifestPath);
         manifestCommitted = true;
+        await writeCompactSearchIndexForOcr(
+            workingCopyPath,
+            ocrDir,
+            manifest,
+            ocrPageData,
+            existingManifestMtimeMs,
+            log,
+            signal,
+        );
+        publishCommitted = true;
     } catch (error) {
         await Promise.all(Array.from(tempPaths, path => unlinkIfPresent(path)));
-        if (!manifestCommitted) {
+        if (!publishCommitted) {
+            if (manifestCommitted) {
+                await unlinkIfPresent(manifestPath);
+            }
+            if (manifestBackupPath) {
+                await renameIfPresent(manifestBackupPath, manifestPath);
+            }
             await Promise.all(Array.from(writtenPagePaths, path => unlinkIfPresent(path)));
             await Promise.all(backups.map(backup => renameIfPresent(backup.backupPath, backup.pagePath)));
         }
         throw error;
     } finally {
-        if (manifestCommitted) {
+        if (publishCommitted) {
+            if (manifestBackupPath) {
+                await unlinkIfPresent(manifestBackupPath);
+            }
             await Promise.all(backups.map(backup => unlinkIfPresent(backup.backupPath)));
         }
     }
 
-    await writeCompactSearchIndexForOcr(
-        workingCopyPath,
-        ocrDir,
-        manifest,
-        ocrPageData,
-        existingManifestMtimeMs,
-        log,
-        signal,
-    );
-
-    log('debug', `Wrote OCR index v2 to ${ocrDir} with ${ocrPageData.length} pages`);
+    log('debug', `Wrote OCR index v3 to ${ocrDir} with ${ocrPageData.length} pages`);
 }
 
 export async function writeOcrIndexV1(

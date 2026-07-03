@@ -1,5 +1,8 @@
 import type { TLocale } from '@i18n-core';
-import type { TDocumentRef } from '@contracts/documentRef';
+import type {
+    TDocumentBackend,
+    TDocumentRef,
+} from '@contracts/documentRef';
 import type { IPdfBox as IPdfGeometryBox } from '@contracts/geometry';
 import { isRecord } from '@contracts/runtimeGuards';
 
@@ -26,6 +29,7 @@ export function normalizeNonEmptyStringPaths(paths: readonly unknown[]): string[
 
 export interface IRecentFile {
     originalPath: TDocumentRef;
+    backend?: TDocumentBackend;
     fileName: string;
     timestamp: number;
     fileSize?: number;

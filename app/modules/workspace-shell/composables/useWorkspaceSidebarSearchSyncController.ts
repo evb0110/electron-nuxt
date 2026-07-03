@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useWorkspaceSearchSidebar } from '@app/modules/workspace-shell/composables/useWorkspaceSearchSidebar';
 import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
@@ -7,6 +8,7 @@ import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tab
 
 interface IWorkspaceSidebarSearchSyncControllerDeps {
     workingCopyPath: Ref<TDocumentRef | null>;
+    documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     initialViewState?: ITabViewSessionState | null;
 }
 
@@ -15,7 +17,10 @@ type TWorkspaceSidebarSearchSnapshot = readonly [boolean, unknown, number, boole
 export const useWorkspaceSidebarSearchSyncController = (
     deps: IWorkspaceSidebarSearchSyncControllerDeps,
 ) => {
-    const {workingCopyPath} = deps;
+    const {
+        workingCopyPath,
+        documentRevisionToken,
+    } = deps;
 
     const viewerShellState = useWorkspaceViewerShellState(deps.initialViewState);
     const {
@@ -29,6 +34,7 @@ export const useWorkspaceSidebarSearchSyncController = (
 
     const searchSidebar = useWorkspaceSearchSidebar({
         workingCopyPath,
+        documentRevisionToken,
         showSidebar,
         sidebarTab,
         dragMode,

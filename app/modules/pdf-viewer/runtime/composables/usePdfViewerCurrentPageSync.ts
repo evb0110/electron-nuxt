@@ -8,10 +8,8 @@ import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getVisiblePageDebugSnapshot } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getVisiblePageDebugSnapshot';
 import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
-import type {
-    IScrollSnapshot,
-    PDFDocumentProxy,
-} from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
+import type { IScrollSnapshot } from '@app/types/pdfUi';
 import { isAnchoredCurrentPageSyncSource } from '@app/modules/pdf-viewer/runtime/rerender-strategy/isAnchoredCurrentPageSyncSource';
 import type { TZoomInteractionLockOperationId } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
 
@@ -23,6 +21,7 @@ export interface ICurrentPageSyncOptions {
     stabilize?: boolean;
     resizeAnchor?: IResizeAnchorContext | null;
     zoomLockOperationId?: TZoomInteractionLockOperationId | null;
+    transactionId?: number | undefined;
 }
 
 export interface IResizeAnchorContext {

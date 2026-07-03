@@ -2,7 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
     getDocumentRefBaseName,

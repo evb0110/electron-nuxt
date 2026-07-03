@@ -1,4 +1,5 @@
 import type { IPlatformApi } from '@contracts/platformApi';
+import { BROWSER_PLATFORM_MANIFEST } from '@contracts/platformApi';
 import type { IAgentCapability } from '@contracts/agentCapability';
 import type { IDjvuCapability } from '@contracts/electronApiDjvu';
 import type {
@@ -189,6 +190,7 @@ const lazyDocumentPickerCapability: IDocumentsPickerCapability = {
     openPdfDialog: lazyAsync(pathDescriptors.documentPicker.openPdfDialog.path),
     openCombineDialog: lazyAsync(pathDescriptors.documentPicker.openCombineDialog.path),
     openFolderDialog: lazyAsync(pathDescriptors.documentPicker.openFolderDialog.path),
+    openFolderDialogStructured: lazyAsync(pathDescriptors.documentPicker.openFolderDialogStructured.path),
     openImageDialog: lazyAsync(pathDescriptors.documentPicker.openImageDialog.path),
     getPathForFile(file) {
         return browserDocumentStore.getRefForFile(file);
@@ -219,6 +221,8 @@ const lazyDocumentFilesCapability: IDocumentsFileIoCapability = {
     readFileChunks: lazyAsync(pathDescriptors.documentFiles.readFileChunks.path),
     readTextFile: lazyAsync(pathDescriptors.documentFiles.readTextFile.path),
     fileExists: lazyAsync(pathDescriptors.documentFiles.fileExists.path),
+    getDocumentRevision: lazyAsync(pathDescriptors.documentFiles.getDocumentRevision.path),
+    onDocumentRevisionChanged: lazyEvent(pathDescriptors.documentFiles.onDocumentRevisionChanged.path),
     savePdfAs: lazyAsync(pathDescriptors.documentFiles.savePdfAs.path),
     savePdfDataAs: lazyAsync(pathDescriptors.documentFiles.savePdfDataAs.path),
     savePdfDialog: lazyAsync(pathDescriptors.documentFiles.savePdfDialog.path),
@@ -227,6 +231,7 @@ const lazyDocumentFilesCapability: IDocumentsFileIoCapability = {
     replaceWorkingCopyFromPath: lazyAsync(pathDescriptors.documentFiles.replaceWorkingCopyFromPath.path),
     writeDocxFile: lazyAsync(pathDescriptors.documentFiles.writeDocxFile.path),
     saveFile: lazyAsync(pathDescriptors.documentFiles.saveFile.path),
+    saveFileStructured: lazyAsync(pathDescriptors.documentFiles.saveFileStructured.path),
     savePdfData: lazyAsync(pathDescriptors.documentFiles.savePdfData.path),
     savePdfDataChunks: lazyAsync(pathDescriptors.documentFiles.savePdfDataChunks.path),
 };
@@ -250,6 +255,7 @@ const lazyDocumentRecentFilesCapability: IDocumentsRecentFilesCapability = {rece
 const lazyDocumentWindowCapability: IDocumentsWindowCapability = {
     setWindowTitle: lazyAsync(pathDescriptors.documentWindow.setWindowTitle.path),
     showItemInFolder: lazyAsync(pathDescriptors.documentWindow.showItemInFolder.path),
+    showItemInFolderStructured: lazyAsync(pathDescriptors.documentWindow.showItemInFolderStructured.path),
 };
 
 const lazyDocumentMenuCapability: IDocumentsMenuCapability = {
@@ -429,6 +435,7 @@ const lazyHostCapability: IHostCapability = {
 };
 
 export const lazyBrowserPlatformApi = {
+    manifest: BROWSER_PLATFORM_MANIFEST,
     documents: lazyDocumentsCapability,
     documentPicker: lazyDocumentPickerCapability,
     documentOpen: lazyDocumentOpenCapability,

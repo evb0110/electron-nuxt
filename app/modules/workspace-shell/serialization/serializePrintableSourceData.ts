@@ -12,18 +12,32 @@ interface ISerializePrintableSourceDataDeps {
         data: Uint8Array,
         options?: ISerializePrintableSourceDataOptions,
     ) => Promise<Uint8Array>;
-    consumePendingEmbeddedTextUpdates: () => Map<string, string> | null;
-    restorePendingEmbeddedTextUpdates: (updates: Map<string, string> | null | undefined) => void;
-    consumePendingEmbeddedAnnotationDeletes: () => IAnnotationCommentSummary[] | null;
-    restorePendingEmbeddedAnnotationDeletes: (deletions: IAnnotationCommentSummary[] | null | undefined) => void;
+    pendingTexts?: Map<string, string> | null | undefined;
+    pendingDeletes?: IAnnotationCommentSummary[] | null | undefined;
+    consumePendingEmbeddedTextUpdates?: () => Map<string, string> | null;
+    restorePendingEmbeddedTextUpdates?: (updates: Map<string, string> | null | undefined) => void;
+    consumePendingEmbeddedAnnotationDeletes?: () => IAnnotationCommentSummary[] | null;
+    restorePendingEmbeddedAnnotationDeletes?: (deletions: IAnnotationCommentSummary[] | null | undefined) => void;
 }
 
 export async function serializePrintableSourceData(
     rawData: Uint8Array,
     deps: ISerializePrintableSourceDataDeps,
 ) {
-    const pendingTexts = deps.consumePendingEmbeddedTextUpdates();
-    const pendingDeletes = deps.consumePendingEmbeddedAnnotationDeletes();
+    if (
+        deps.pendingTexts !== undefined
+        || deps.pendingDeletes !== undefined
+    ) {
+        return deps.serializePdfForSave(rawData, {
+            includeShapes: true,
+            rewriteShapeState: true,
+            pendingTexts: deps.pendingTexts ?? null,
+            pendingDeletes: deps.pendingDeletes ?? null,
+        });
+    }
+
+    const pendingTexts = deps.consumePendingEmbeddedTextUpdates?.() ?? null;
+    const pendingDeletes = deps.consumePendingEmbeddedAnnotationDeletes?.() ?? null;
 
     try {
         return await deps.serializePdfForSave(rawData, {
@@ -33,7 +47,7 @@ export async function serializePrintableSourceData(
             pendingDeletes,
         });
     } finally {
-        deps.restorePendingEmbeddedTextUpdates(pendingTexts);
-        deps.restorePendingEmbeddedAnnotationDeletes(pendingDeletes);
+        deps.restorePendingEmbeddedTextUpdates?.(pendingTexts);
+        deps.restorePendingEmbeddedAnnotationDeletes?.(pendingDeletes);
     }
 }

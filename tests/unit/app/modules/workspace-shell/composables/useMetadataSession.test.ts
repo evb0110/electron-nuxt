@@ -10,7 +10,7 @@ import {
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
-import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 
 function createBookmark(title: string): IPdfBookmarkEntry {
     return {

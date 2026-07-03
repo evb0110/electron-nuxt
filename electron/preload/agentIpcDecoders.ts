@@ -2,12 +2,16 @@ import type {
     IAgentAssistantChatMessage,
     IAgentAssistantErrorEnvelope,
     IAgentAssistantImageAttachment,
+    IAgentCommandExecutionScope,
     IAgentAssistantState,
     TAgentAssistantErrorCode,
     TAgentAssistantEventType,
     TAgentAssistantMessageRole,
     TAgentCommand,
+    TAgentWorkspaceCommandTarget,
 } from '@contracts/agent';
+import type { TDocumentBackend } from '@contracts/documentRef';
+import { isDocumentRevisionInfo } from '@contracts/documentRevision';
 import {
     isOneOf,
     isRecord,
@@ -72,6 +76,141 @@ function normalizeOptionalTabId(value: unknown) {
         return undefined;
     }
     return normalizeNonEmptyString(value);
+}
+
+function normalizeOptionalDocumentRef(value: unknown) {
+    if (value === undefined || value === null) {
+        return null;
+    }
+    return normalizeNonEmptyString(value);
+}
+
+function normalizeNullableDocumentRef(value: unknown) {
+    if (value === null) {
+        return null;
+    }
+
+    return normalizeNonEmptyString(value);
+}
+
+function normalizeOptionalDocumentBackend(value: unknown): TDocumentBackend | null | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    return value === 'browser' || value === 'electron'
+        ? value
+        : null;
+}
+
+function normalizeOptionalDocumentRevisionToken(value: unknown) {
+    if (value === undefined) {
+        return undefined;
+    }
+
+    return normalizeNonEmptyString(value);
+}
+
+function decodeCommandTargetBase(value: Record<PropertyKey, unknown>) {
+    const tabId = normalizeNonEmptyString(value.tabId);
+    const sessionId = normalizeNonEmptyString(value.sessionId);
+    const documentRef = normalizeNullableDocumentRef(value.documentRef);
+    const documentBackend = normalizeOptionalDocumentBackend(value.documentBackend);
+    const documentRevisionToken = normalizeOptionalDocumentRevisionToken(value.documentRevisionToken);
+    if (
+        tabId === null
+        || sessionId === null
+        || documentRef === null && value.documentRef !== null
+        || documentBackend === null
+        || documentRevisionToken === null
+    ) {
+        return null;
+    }
+
+    return {
+        tabId,
+        sessionId,
+        documentRef,
+        ...(documentBackend === undefined ? {} : {documentBackend}),
+        ...(documentRevisionToken === undefined ? {} : {documentRevisionToken}),
+    };
+}
+
+function decodeWorkspaceCommandTarget(value: unknown): TAgentWorkspaceCommandTarget | null | undefined {
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+    if (!isRecord(value)) {
+        return null;
+    }
+
+    const base = decodeCommandTargetBase(value);
+    if (!base) {
+        return null;
+    }
+
+    if (value.kind === 'transaction') {
+        const transactionId = normalizeNonEmptyString(value.transactionId);
+        return transactionId === null
+            ? null
+            : {
+                kind: 'transaction',
+                ...base,
+                transactionId,
+            };
+    }
+
+    if (value.kind === 'revision') {
+        const sessionRevision = normalizeOptionalRevision(value.sessionRevision);
+        return sessionRevision === undefined || sessionRevision === null
+            ? null
+            : {
+                kind: 'revision',
+                ...base,
+                sessionRevision,
+            };
+    }
+
+    return null;
+}
+
+function decodeCommandExecutionScope(value: unknown): IAgentCommandExecutionScope | null | undefined {
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+    if (!isRecord(value)) {
+        return null;
+    }
+
+    const windowId = normalizeOptionalWindowId(value.windowId);
+    const tabId = normalizeNonEmptyString(value.tabId);
+    const documentRef = normalizeOptionalDocumentRef(value.documentRef);
+    const documentBackend = normalizeOptionalDocumentBackend(value.documentBackend);
+    const documentIdentity = value.documentIdentity === undefined || value.documentIdentity === null
+        ? null
+        : isDocumentRevisionInfo(value.documentIdentity)
+            ? value.documentIdentity
+            : undefined;
+    const commandTarget = decodeWorkspaceCommandTarget(value.commandTarget);
+    if (
+        windowId === undefined
+        || windowId === null
+        || tabId === null
+        || documentRef === null
+        || documentBackend === null
+        || documentIdentity === undefined
+        || commandTarget === null
+    ) {
+        return null;
+    }
+
+    return {
+        windowId,
+        tabId,
+        documentRef,
+        ...(documentBackend === undefined ? {} : {documentBackend}),
+        documentIdentity,
+        ...(commandTarget === undefined ? {} : {commandTarget}),
+    };
 }
 
 function decodeAgentCommand(value: unknown): TAgentCommand | null {
@@ -307,7 +446,8 @@ export function decodeAgentWorkspaceSnapshotRequest(value: unknown): IAgentEvent
     const requestId = normalizeNonEmptyString(value.requestId);
     const windowId = normalizeOptionalWindowId(value.windowId);
     const lastSeenRevision = normalizeOptionalRevision(value.lastSeenRevision);
-    if (requestId === null || windowId === null || lastSeenRevision === null) {
+    const scope = decodeCommandExecutionScope(value.scope);
+    if (requestId === null || windowId === null || lastSeenRevision === null || scope === null) {
         return null;
     }
 
@@ -315,6 +455,7 @@ export function decodeAgentWorkspaceSnapshotRequest(value: unknown): IAgentEvent
         requestId,
         ...(windowId === undefined ? {} : {windowId}),
         ...(lastSeenRevision === undefined ? {} : {lastSeenRevision}),
+        ...(scope === undefined ? {} : {scope}),
     };
 }
 
@@ -325,14 +466,16 @@ export function decodeAgentCommandRequest(value: unknown): IAgentEventMap['agent
 
     const requestId = normalizeNonEmptyString(value.requestId);
     const windowId = normalizeOptionalWindowId(value.windowId);
+    const scope = decodeCommandExecutionScope(value.scope);
     const command = decodeAgentCommand(value.command);
-    if (requestId === null || windowId === null || command === null) {
+    if (requestId === null || windowId === null || scope === null || command === null) {
         return null;
     }
 
     return {
         requestId,
         ...(windowId === undefined ? {} : {windowId}),
+        ...(scope === undefined ? {} : {scope}),
         command,
     };
 }

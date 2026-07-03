@@ -8,11 +8,11 @@ import { HORIZONTAL_SCROLL_CLAMP_EPSILON_PX } from '@app/modules/pdf-viewer/engi
 import { usePdfViewerVirtualization } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import type {
-    IPdfPageMetric,
     TFitMode,
     TPdfViewMode,
     TZoomMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type { IPdfPageMetric } from '@app/types/pdfUi';
 
 interface IUsePdfViewportViewModelOptions {
     viewerContainer: Ref<HTMLElement | null>;

@@ -3,7 +3,7 @@ import type {
     Ref,
 } from 'vue';
 import { range } from 'es-toolkit/math';
-import type { IPdfPageMetric } from '@app/types/pdf';
+import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type { TPdfViewMode } from '@contracts/shared';
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
 import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';

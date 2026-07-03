@@ -13,6 +13,10 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import { resolveResizeAnchorPage } from '@app/modules/pdf-viewer/runtime/resize-anchor/resolveResizeAnchorPage';
 import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
+import type {
+    IPdfViewerTransaction,
+    IPdfViewerTransactionCancellation,
+} from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 
 type TViewerMetrics = ReturnType<typeof summarizeViewerMetrics>;
 
@@ -52,6 +56,22 @@ interface IUsePdfViewerResizeLifecycleOptions {
         token: number;
         anchorPage: number | null;
     }) => void) | undefined;
+    transactionController?: IResizeLifecycleTransactionController | undefined;
+}
+
+interface IResizeLifecycleTransactionController {
+    beginTransaction: (options: {
+        kind: 'resize';
+        source: 'resize-observer';
+        page?: number | null | undefined;
+        range?: IResizeAnchorContext['visibleRange'] | undefined;
+        anchor?: NonNullable<IPdfViewerTransaction['target']>['anchor'];
+    }) => IPdfViewerTransaction | null;
+    cancelActiveTransaction: (
+        cancellation: IPdfViewerTransactionCancellation,
+        transactionId?: number | undefined,
+    ) => boolean;
+    isTransactionCurrent: (transactionId: number) => boolean;
 }
 
 export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycleOptions) => {
@@ -76,6 +96,33 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     let resizeTransitionToken = 0;
     let pendingResizeTransitionHideTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingResizeAnchor: IResizeAnchorContext | null = null;
+    let pendingResizeTransactionId: number | null = null;
+
+    function beginResizeObserverTransaction(anchor: IResizeAnchorContext) {
+        const transaction = options.transactionController?.beginTransaction({
+            kind: 'resize',
+            source: 'resize-observer',
+            page: anchor.page,
+            range: anchor.visibleRange,
+            anchor: 'center',
+        }) ?? null;
+        pendingResizeTransactionId = transaction?.id ?? null;
+        return pendingResizeTransactionId;
+    }
+
+    function cancelPendingResizeTransaction(reason: IPdfViewerTransactionCancellation['reason']) {
+        if (pendingResizeTransactionId === null) {
+            return;
+        }
+        options.transactionController?.cancelActiveTransaction({
+            reason,
+            cancelInFlightRenders: true,
+            bumpRenderVersion: reason === 'resize',
+            clearTimers: true,
+            preserveVisualContent: true,
+        }, pendingResizeTransactionId);
+        pendingResizeTransactionId = null;
+    }
 
     function emitResizeTransitionSignal(
         active: boolean,
@@ -246,14 +293,30 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 );
             }
             pendingResizeAnchor = null;
+            cancelPendingResizeTransaction('resize');
             return;
         }
         const anchor = pendingResizeAnchor;
+        const transactionId = pendingResizeTransactionId;
+        const isTransactionCurrent = transactionId === null
+            || options.transactionController?.isTransactionCurrent(transactionId) !== false;
         pendingResizeAnchor = null;
+        pendingResizeTransactionId = null;
+        if (!isTransactionCurrent) {
+            if (anchor) {
+                scheduleEndResizeTransition(
+                    anchor.transitionToken,
+                    'resize-stale',
+                    anchor.page,
+                );
+            }
+            return;
+        }
         scheduleResizeAwareRerender('re-render visible pages after resize', {
             source: PDF_RERENDER_SOURCE.ResizeObserver,
             stabilize: true,
             resizeAnchor: anchor,
+            ...(transactionId !== null ? { transactionId } : {}),
         });
     }, 200);
 
@@ -337,6 +400,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 ...resizeAnchor,
                 transitionToken,
             };
+            beginResizeObserverTransaction(anchoredResizeContext);
             pendingResizeAnchor = anchoredResizeContext;
             if (updated) {
                 restoreResizeAnchorAfterLayout(anchoredResizeContext, PDF_RERENDER_SOURCE.ResizeObserver);
@@ -369,6 +433,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             pendingResizeTransitionHideTimer = null;
         }
         pendingResizeAnchor = null;
+        cancelPendingResizeTransaction('disposed');
         resizeTransitionToken += 1;
         emitResizeTransitionSignal(false, 'unmount', resizeTransitionToken, currentPage.value);
     }

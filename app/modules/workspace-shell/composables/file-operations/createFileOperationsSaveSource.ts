@@ -1,8 +1,6 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type {
-    IPdfSaveResult,
-    TPdfSaveMode,
-} from '@app/types/pdf';
+import type { TPdfSaveMode } from '@app/types/pdfContracts';
+import type { IPdfSaveResult } from '@app/types/pdfUi';
 import { isTimeoutError } from '@contracts/isTimeoutError';
 import { delay } from 'es-toolkit/promise';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
@@ -123,7 +121,11 @@ export function createFileOperationsSaveSource(
 
     async function runSaveDocumentAttemptWithTimeout() {
         const savePromise = (async () => {
-            const data = await pdf.source.saveDocument();
+            const result = await pdf.source.runSaveTransaction({
+                mode: 'pdfjs-materialize',
+                forcePdfjsMaterialize: true,
+            });
+            const data = result.serializedBytes ?? result.baseBytes;
             if (!data) {
                 throw new Error('saveDocument returned no data');
             }

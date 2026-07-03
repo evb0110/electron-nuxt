@@ -176,6 +176,12 @@ export function toPersistedDocumentRecord(
         typeof value.contentToken === 'string' && value.contentToken.length > 0
             ? value.contentToken
             : undefined;
+    const contentRevision =
+        typeof value.contentRevision === 'number'
+        && Number.isSafeInteger(value.contentRevision)
+        && value.contentRevision >= 1
+            ? value.contentRevision
+            : undefined;
     const saveTarget = normalizePersistedSaveTarget(value);
     const storageMode = normalizeStorageMode(value.storageMode);
     const chunkLayout = normalizePersistedChunkLayout(value);
@@ -185,6 +191,7 @@ export function toPersistedDocumentRecord(
         retention: retention === 'transient' ? 'transient' : 'durable',
         ...(sourceRef ? { sourceRef } : {}),
         ...(contentToken ? { contentToken } : {}),
+        ...(contentRevision !== undefined ? { contentRevision } : {}),
         ...saveTarget,
         storageMode,
         ...chunkLayout,
@@ -211,6 +218,7 @@ export function createEntryFromPersistedRecord(
         data: cloneBytes(record.data),
         pendingLoad: null,
         retention: record.retention ?? defaultRetentionForKind(record.kind),
+        contentRevision: record.contentRevision ?? 1,
         saveName: record.saveName ?? record.fileName,
         saveKind: record.saveKind ?? defaultSaveKindForFileName(record.fileName),
         saveHandle: record.saveHandle ?? null,
@@ -300,6 +308,7 @@ export function createBrowserDocumentEntry(
         fileSize: input.fileSize,
         updatedAt: Date.now(),
         ...(input.contentToken ? { contentToken: input.contentToken } : {}),
+        contentRevision: input.contentRevision ?? 1,
         pendingLoad: null,
         saveName: input.fileName,
         saveKind: input.saveKind,

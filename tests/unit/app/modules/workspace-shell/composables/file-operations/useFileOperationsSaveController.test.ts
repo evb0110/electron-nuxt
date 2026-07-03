@@ -17,6 +17,7 @@ import type {
 import type { IFileOperationsSaveAdapterPorts } from '@app/modules/workspace-shell/composables/file-operations/saveRolePorts';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import { useFileOperationsSaveController as useFileOperationsSaveControllerPublic } from '@app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController';
+import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
 import { cast } from '@tests/helpers/cast';
 
 const toastAddMock = vi.fn();
@@ -111,60 +112,76 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperationsSaveCo
         didSaveAs: true,
     }));
 
+    const deps = cast<Parameters<typeof useFileOperationsSaveController>[0]>({
+        isSaving: ref(false),
+        isSavingAs: ref(false),
+        originalPath: ref('/tmp/source.pdf'),
+        workingCopyPath: ref('/tmp/work.pdf'),
+        annotationDirty: ref(false),
+        annotationComments: ref([]),
+        pageLabelsDirty: ref(false),
+        bookmarksDirty: ref(false),
+        pdfDocument: shallowRef(cast({ annotationStorage: { resetModified } })),
+        saveDocument: vi.fn(async () => new Uint8Array([1])),
+        getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
+        validatePdfPath: vi.fn(async () => ({
+            isValid: true,
+            tool: 'qpdf' as const,
+            errors: [],
+            warnings: [],
+        })),
+        saveFile,
+        saveWorkingCopy: vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        })),
+        saveWorkingCopyAs,
+        markAnnotationSaved: vi.fn(),
+        markPageLabelsSaved: vi.fn(),
+        markBookmarksSaved: vi.fn(),
+        hasAnnotationChanges: vi.fn(() => false),
+        hasShapeChanges: vi.fn(() => false),
+        serializePdfForSave: vi.fn(async (data: Uint8Array) => new Uint8Array([
+            ...data,
+            2,
+            3,
+            6,
+            4,
+            5,
+        ])),
+        persistAllAnnotationNotes: vi.fn(async (_force: boolean) => true),
+        consumePendingEmbeddedTextUpdates: vi.fn(() => null),
+        restorePendingEmbeddedTextUpdates: vi.fn(),
+        consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
+        restorePendingEmbeddedAnnotationDeletes: vi.fn(),
+        annotationNoteWindowsCount: ref(0),
+        loadRecentFiles: vi.fn(),
+        markShapeStateSaved: vi.fn(),
+        preparePersistedShapeStateForSave: vi.fn(async () => null),
+        restorePreparedPersistedShapeState: vi.fn(async () => undefined),
+        adoptPersistedShapeStateForNextReload: vi.fn(),
+        clearPendingPersistedShapeStateForNextReload: vi.fn(),
+        ...overrides,
+    });
+    if (!overrides.runSaveTransaction) {
+        const transaction = usePdfViewerSaveTransaction({
+            materializePdfJsDocumentForInternalUse: deps.saveDocument,
+            ...(deps.commitPdfEditorsForSave ? {commitPdfEditorsForSave: deps.commitPdfEditorsForSave} : {}),
+            getPdfDocument: () => deps.pdfDocument.value,
+            getAnnotationCommentsSnapshot: () => deps.getAnnotationCommentsSnapshot?.() ?? deps.annotationComments.value,
+            getMarkupSubtypeOverrides: () => deps.getMarkupSubtypeOverrides?.(),
+            getMarkupSubtypeHints: () => deps.getMarkupSubtypeHints?.(),
+            getAllShapes: () => deps.getAllShapes?.() ?? [],
+            getDeletedEmbeddedShapeAnnotationIds: () => deps.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
+            getDeletedEmbeddedShapeStableKeys: () => deps.getDeletedEmbeddedShapeStableKeys?.() ?? [],
+        });
+        deps.runSaveTransaction = vi.fn(request => transaction.runSaveTransaction(request));
+    }
+
     return {
-        deps: cast<Parameters<typeof useFileOperationsSaveController>[0]>({
-            isSaving: ref(false),
-            isSavingAs: ref(false),
-            originalPath: ref('/tmp/source.pdf'),
-            workingCopyPath: ref('/tmp/work.pdf'),
-            annotationDirty: ref(false),
-            annotationComments: ref([]),
-            pageLabelsDirty: ref(false),
-            bookmarksDirty: ref(false),
-            pdfDocument: shallowRef(cast({ annotationStorage: { resetModified } })),
-            saveDocument: vi.fn(async () => new Uint8Array([1])),
-            getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
-            validatePdfPath: vi.fn(async () => ({
-                isValid: true,
-                tool: 'qpdf' as const,
-                errors: [],
-                warnings: [],
-            })),
-            saveFile,
-            saveWorkingCopy: vi.fn(async () => ({
-                success: true,
-                outPath: '/tmp/work.pdf',
-                saveMode: 'rewrite' as const,
-                didSaveAs: false,
-            })),
-            saveWorkingCopyAs,
-            markAnnotationSaved: vi.fn(),
-            markPageLabelsSaved: vi.fn(),
-            markBookmarksSaved: vi.fn(),
-            hasAnnotationChanges: vi.fn(() => false),
-            hasShapeChanges: vi.fn(() => false),
-            serializePdfForSave: vi.fn(async (data: Uint8Array) => new Uint8Array([
-                ...data,
-                2,
-                3,
-                6,
-                4,
-                5,
-            ])),
-            persistAllAnnotationNotes: vi.fn(async (_force: boolean) => true),
-            consumePendingEmbeddedTextUpdates: vi.fn(() => null),
-            restorePendingEmbeddedTextUpdates: vi.fn(),
-            consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
-            restorePendingEmbeddedAnnotationDeletes: vi.fn(),
-            annotationNoteWindowsCount: ref(0),
-            loadRecentFiles: vi.fn(),
-            markShapeStateSaved: vi.fn(),
-            preparePersistedShapeStateForSave: vi.fn(async () => null),
-            restorePreparedPersistedShapeState: vi.fn(async () => undefined),
-            adoptPersistedShapeStateForNextReload: vi.fn(),
-            clearPendingPersistedShapeStateForNextReload: vi.fn(),
-            ...overrides,
-        }),
+        deps,
         resetModified,
         saveFile,
         saveWorkingCopyAs,
@@ -589,7 +606,7 @@ describe('useFileOperationsSaveController', () => {
         expectWorkspaceSaveMarked(deps);
     });
 
-    it('commits active PDF.js editors before collecting save state and choosing the save route', async () => {
+    it('commits active PDF.js editors inside the save transaction before materialization', async () => {
         const annotationStorage = {
             resetModified: vi.fn(),
             serializable: {
@@ -627,8 +644,10 @@ describe('useFileOperationsSaveController', () => {
 
         expect(commitPdfEditorsForSave).toHaveBeenCalledOnce();
         expect(consumePendingEmbeddedTextUpdates).toHaveBeenCalledOnce();
+        expect(consumePendingEmbeddedTextUpdates.mock.invocationCallOrder[0]!)
+            .toBeLessThan(commitPdfEditorsForSave.mock.invocationCallOrder[0]!);
         expect(commitPdfEditorsForSave.mock.invocationCallOrder[0]!)
-            .toBeLessThan(consumePendingEmbeddedTextUpdates.mock.invocationCallOrder[0]!);
+            .toBeLessThan(vi.mocked(deps.saveDocument).mock.invocationCallOrder[0]!);
         expect(deps.saveDocument).toHaveBeenCalledOnce();
         expect(deps.getSourcePdfData).not.toHaveBeenCalled();
         expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([

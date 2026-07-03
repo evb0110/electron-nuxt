@@ -103,14 +103,13 @@ interface INativePrintResult {
     success: boolean;
     canceled?: boolean;
     error?: string;
+    unsupportedReason?: string;
 }
-
-const NATIVE_PRINT_UNAVAILABLE_ERROR = 'Printing via the native desktop dialog is unavailable in the browser capability';
 
 export function isNativePrintCapabilityUnavailable(result: INativePrintResult) {
     return result.success !== true
         && result.canceled !== true
-        && result.error === NATIVE_PRINT_UNAVAILABLE_ERROR;
+        && result.unsupportedReason === 'requires-native-backend';
 }
 
 export function shouldRefreshWorkingCopyAfterSaveAs(

@@ -7,10 +7,10 @@ import { ref } from 'vue';
 import { usePdfScale } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScale';
 import { ZOOM } from '@app/constants/pdfLayout';
 import type {
-    IPdfPageMetric,
     TFitMode,
     TZoomMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type { TPdfViewMode } from '@contracts/shared';
 
 function createContainer(

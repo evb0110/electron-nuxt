@@ -54,7 +54,7 @@ import { clamp } from 'es-toolkit/math';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IPdfNativePageSize } from '@contracts/electronApiDocuments';
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import NativePdfPageContent from '@app/modules/native-pdf-viewer/components/NativePdfPageContent.vue';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/public';

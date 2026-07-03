@@ -49,6 +49,7 @@ import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
+import { markWorkingCopyContentChanged } from '@electron/file-access/documentRevisionStore';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
 import {
@@ -445,6 +446,9 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
                 syncWarningValidation = withWorkingCopySyncWarning(committedValidation, syncError);
             }
             setWorkingCopyOriginalPath(session.workingPath, session.targetPath, session.senderId);
+            if (!syncWarningValidation) {
+                await markWorkingCopyContentChanged(session.workingPath, 'save-sync', session.senderId);
+            }
             allowOpenPath(session.targetPath, session.sender);
             await addRecentFile(session.targetPath);
             updateRecentFilesMenu();
@@ -457,6 +461,7 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
             try {
                 await copyFileCopyOnWrite(session.targetPath, session.workingPath);
                 refreshWorkingCopyOriginalFileExpectation(session.workingPath, session.senderId);
+                await markWorkingCopyContentChanged(session.workingPath, 'save-sync', session.senderId);
             } catch (syncError) {
                 syncWarningValidation = withWorkingCopySyncWarning(committedValidation, syncError);
             }

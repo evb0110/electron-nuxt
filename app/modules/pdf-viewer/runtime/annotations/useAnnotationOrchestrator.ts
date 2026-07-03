@@ -14,7 +14,7 @@ import type {
 } from '@app/types/annotations';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { groupBy } from 'es-toolkit/array';
 import { useAnnotationIdentity } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationIdentity';
 import { useAnnotationSync } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync';

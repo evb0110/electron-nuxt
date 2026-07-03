@@ -879,6 +879,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         });
 
         runGuardedTask(() => renderThumbnailQueue(doc, pages, runId), {
+            category: 'user-visible-operation',
             scope: PDF_THUMBNAIL_LOG_SECTION,
             message: 'Failed to render virtual thumbnail list',
         });

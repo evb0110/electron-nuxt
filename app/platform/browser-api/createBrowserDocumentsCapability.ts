@@ -133,6 +133,9 @@ export function createBrowserDocumentsCapability(
         openPdfDialog: fileCapability.openPdfDialog,
         openCombineDialog: fileCapability.openCombineDialog,
         openFolderDialog: fileCapability.openFolderDialog,
+        ...(fileCapability.openFolderDialogStructured
+            ? {openFolderDialogStructured: fileCapability.openFolderDialogStructured}
+            : {}),
         openImageDialog: fileCapability.openImageDialog,
         getPathForFile: fileCapability.getPathForFile,
         getPathsForFiles: fileCapability.getPathsForFiles,
@@ -150,6 +153,7 @@ export function createBrowserDocumentsCapability(
         cleanupOcrTemp: fileCapability.cleanupOcrTemp,
     } satisfies IDocumentsWorkingCopyCapability;
     const optionalDocumentFileMethods = {
+        ...(fileCapability.saveFileStructured ? {saveFileStructured: fileCapability.saveFileStructured} : {}),
         ...(fileCapability.repairPdf ? {repairPdf: fileCapability.repairPdf} : {}),
         ...(fileCapability.optimizePdfForInteraction ? {optimizePdfForInteraction: fileCapability.optimizePdfForInteraction} : {}),
         ...(fileCapability.optimizePdfAsCopy ? {optimizePdfAsCopy: fileCapability.optimizePdfAsCopy} : {}),
@@ -167,6 +171,8 @@ export function createBrowserDocumentsCapability(
         readFileChunks: fileCapability.readFileChunks,
         readTextFile: fileCapability.readTextFile,
         fileExists: fileCapability.fileExists,
+        getDocumentRevision: fileCapability.getDocumentRevision,
+        onDocumentRevisionChanged: fileCapability.onDocumentRevisionChanged,
         savePdfAs: fileCapability.savePdfAs,
         savePdfDataAs: fileCapability.savePdfDataAs,
         savePdfDialog: fileCapability.savePdfDialog,
@@ -192,6 +198,9 @@ export function createBrowserDocumentsCapability(
     const documentWindow = {
         setWindowTitle: fileCapability.setWindowTitle,
         showItemInFolder: fileCapability.showItemInFolder,
+        ...(fileCapability.showItemInFolderStructured
+            ? {showItemInFolderStructured: fileCapability.showItemInFolderStructured}
+            : {}),
     } satisfies IDocumentsWindowCapability;
     const documentMenu = {...browserDocumentsMenuCapability} satisfies IDocumentsMenuCapability;
     const documentsCapability = {

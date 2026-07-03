@@ -113,4 +113,33 @@ describe('pdf render supervisor', () => {
         }));
         handles.forEach(handle => clearTimeout(handle));
     });
+
+    it('reports explicit annotation editor layer events without arming timers', () => {
+        const events: IPdfRenderSupervisorEvent[] = [];
+        const supervisor = createPdfRenderSupervisor({
+            now: () => 789,
+            onEvent: event => events.push(event),
+        });
+
+        const event = supervisor.reportEvent({
+            cause: 'annotation-editor-layer-render-failed',
+            key: 'annotation-editor-layer:3',
+            metadata: {
+                pageNumber: 3,
+                retryable: true,
+            },
+        });
+
+        expect(event).toMatchObject({
+            cause: 'annotation-editor-layer-render-failed',
+            delayMs: 0,
+            firedAtMs: 789,
+            ownerKey: 'annotation-editor-layer:3',
+            metadata: {
+                pageNumber: 3,
+                retryable: true,
+            },
+        });
+        expect(events).toEqual([event]);
+    });
 });

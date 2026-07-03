@@ -31,7 +31,10 @@ const mocks = vi.hoisted(() => {
         progress,
         stopProgress,
         hasElectronAPI: vi.fn(() => true),
-        documentPicker: { getPathsForFiles: vi.fn() },
+        documentPicker: {
+            getPathsForFiles: vi.fn(),
+            createCombinedPdfFromFiles: vi.fn(),
+        },
         documentOpen: { openDocumentDirectBatch: vi.fn() },
         documentMenu: { onOpenDocumentDirectBatchProgress },
         documentWorkingCopy: { createWorkingCopyFromData: vi.fn() },
@@ -46,11 +49,6 @@ const mocks = vi.hoisted(() => {
                 throw new Error('legacy combine working copy creation should not be used');
             }),
         },
-        browserDocumentStore: {
-            registerFile: vi.fn(),
-            remove: vi.fn(),
-        },
-        createCombinedPdfFromPaths: vi.fn(),
     };
 });
 
@@ -62,8 +60,6 @@ vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentWorkingCopyCapability: () => mocks.documentWorkingCopy,
     getDocumentsCapability: () => mocks.legacyDocuments,
 }));
-vi.mock('@app/platform/browserDocumentStore', () => ({browserDocumentStore: mocks.browserDocumentStore}));
-vi.mock('@app/platform/browser-api/public', () => ({createCombinedPdfFromPaths: mocks.createCombinedPdfFromPaths}));
 
 function createFile(name: string) {
     return { name } as File;
@@ -82,9 +78,7 @@ describe('combinePdfFiles', () => {
             workingPath: '/tmp/combined-working.pdf',
             isGenerated: true,
         });
-        mocks.browserDocumentStore.registerFile.mockResolvedValue('browser://documents/source/input.pdf');
-        mocks.browserDocumentStore.remove.mockResolvedValue(undefined);
-        mocks.createCombinedPdfFromPaths.mockResolvedValue(new Uint8Array([
+        mocks.documentPicker.createCombinedPdfFromFiles.mockResolvedValue(new Uint8Array([
             1,
             2,
             3,
@@ -175,11 +169,8 @@ describe('combinePdfFiles', () => {
             5,
             6,
         ]);
-        mocks.browserDocumentStore.registerFile
-            .mockResolvedValueOnce('browser://documents/source/first.pdf')
-            .mockResolvedValueOnce('browser://documents/source/second.png');
-        mocks.createCombinedPdfFromPaths.mockImplementation(async (
-            _refs: string[],
+        mocks.documentPicker.createCombinedPdfFromFiles.mockImplementation(async (
+            _files: File[],
             options: { onProgress?: (progress: ICombinePdfProgress) => void },
         ) => {
             options.onProgress?.({
@@ -207,16 +198,14 @@ describe('combinePdfFiles', () => {
             originalPath: 'browser://documents/working/combined.pdf',
             isGenerated: true,
         });
-        expect(mocks.createCombinedPdfFromPaths).toHaveBeenCalledWith([
-            'browser://documents/source/first.pdf',
-            'browser://documents/source/second.png',
+        expect(mocks.documentPicker.createCombinedPdfFromFiles).toHaveBeenCalledWith([
+            firstFile,
+            secondFile,
         ], {onProgress: expect.any(Function)});
         expect(mocks.documentWorkingCopy.createWorkingCopyFromData).toHaveBeenCalledWith(
             'combined.pdf',
             combinedBytes,
         );
-        expect(mocks.browserDocumentStore.remove).toHaveBeenCalledWith('browser://documents/source/first.pdf');
-        expect(mocks.browserDocumentStore.remove).toHaveBeenCalledWith('browser://documents/source/second.png');
         expect(mocks.legacyDocuments.createWorkingCopyFromData).not.toHaveBeenCalled();
     });
 });

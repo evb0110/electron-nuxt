@@ -62,7 +62,7 @@ describe('settingsPersistenceQueue', () => {
             onSaveError: vi.fn(),
         });
 
-        await queue.save();
+        await expect(queue.save()).resolves.toBe(true);
 
         expect(savePatch).not.toHaveBeenCalled();
         expect(onSaved).toHaveBeenCalledWith(snapshot);
@@ -111,5 +111,47 @@ describe('settingsPersistenceQueue', () => {
             theme: 'light',
         }));
         expect(savePatch).toHaveBeenNthCalledWith(2, { theme: 'dark' });
+    });
+
+    it('reports failed saves and pending retry status', async () => {
+        vi.useFakeTimers();
+        const snapshot = createSettings({ locale: 'fr' });
+        const saveError = new Error('temporary failure');
+        const statusChanges: Array<{
+            status: string;
+            error?: unknown;
+        }> = [];
+        const scheduler = {
+            setTimeout: vi.fn((callback: () => void, delayMs: number) => setTimeout(callback, delayMs)),
+            clearTimeout: vi.fn((timer: ReturnType<typeof setTimeout>) => clearTimeout(timer)),
+        };
+        const queue = createSettingsPersistenceQueue({
+            getSettingsSnapshot: () => snapshot,
+            getLastSavedSettings: () => null,
+            savePatch: vi.fn(async () => {
+                throw saveError;
+            }),
+            onSaved: vi.fn(),
+            onSaveError: vi.fn(),
+            onStatusChanged(status, error) {
+                statusChanges.push({
+                    status,
+                    ...(error ? { error } : {}),
+                });
+            },
+            scheduler,
+        });
+
+        await expect(queue.save()).resolves.toBe(false);
+
+        expect(queue.hasRetryScheduled()).toBe(true);
+        expect(statusChanges).toEqual([
+            { status: 'saving' },
+            {
+                status: 'retry-pending',
+                error: saveError,
+            },
+        ]);
+        vi.useRealTimers();
     });
 });

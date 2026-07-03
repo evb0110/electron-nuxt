@@ -5,7 +5,7 @@ import type { usePdfViewerAnnotationRuntime } from '@app/modules/pdf-viewer/runt
 import type { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { createPdfViewerPublicApi } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi';
 import type { TPdfViewerPublicApiSource } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi';
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
@@ -36,7 +36,9 @@ interface IUsePdfViewerPublicApiControllerOptions {
     ) => Promise<void>;
     preserveNextSourceReloadVisibleContent: NonNullable<IPdfViewerExpose['preserveNextSourceReloadVisibleContent']>;
     getPagePreview: IPdfViewerExpose['getPagePreview'];
+    runSaveTransaction: IPdfViewerExpose['runSaveTransaction'];
     saveViewerDocument: IPdfViewerExpose['saveDocument'];
+    materializePdfJsDocumentForInternalUse: IPdfViewerExpose['materializePdfJsDocumentForInternalUse'];
     renderLoadedPdfPagesForBrowserPrint: NonNullable<IPdfViewerExpose['renderLoadedPdfPagesForBrowserPrint']>;
     undoAnnotation: IPdfViewerExpose['undoAnnotation'];
     redoAnnotation: IPdfViewerExpose['redoAnnotation'];
@@ -59,15 +61,13 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
     } = options;
     const {
         annotations,
+        annotationMutationService,
         annotationCommentModel,
-        annotationColorCommands,
         annotationSettings,
         focusAnnotationComment,
-        deleteAnnotationComment,
         shapeTool,
         shapeComposable,
         selectedShapeCommands,
-        managedEmbeddedPdfShapes,
     } = annotationRuntime;
     const { currentPage } = viewerRuntime.scroll;
 
@@ -121,7 +121,9 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         clearPendingManagedShapeImportAdoption: annotationRuntime.clearPendingManagedShapeImportAdoption,
         preparePersistedManagedShapesForSave: annotationRuntime.preparePersistedManagedShapesForSave,
         restorePreparedManagedShapesAfterFailedSave: annotationRuntime.restorePreparedManagedShapesAfterFailedSave,
+        runSaveTransaction: options.runSaveTransaction,
         saveDocument: options.saveViewerDocument,
+        materializePdfJsDocumentForInternalUse: options.materializePdfJsDocumentForInternalUse,
         clearAnnotationHistory: () => options.appAnnotationHistory.clear(),
         renderLoadedPdfPagesForBrowserPrint: options.renderLoadedPdfPagesForBrowserPrint,
         markSavedShapeState: () => {
@@ -227,14 +229,46 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         redoAnnotation: options.redoAnnotation,
         registerAnnotationHistoryCommand: annotationRuntime.registerShapeHistoryCommand,
         focusAnnotationComment,
-        updateAnnotationComment: annotationRuntime.commentCrud.updateAnnotationComment,
-        deleteAnnotationComment,
+        updateAnnotationComment: (comment, text) => annotationMutationService.updateComment(
+            {
+                comment,
+                text,
+            },
+            { source: 'user' },
+        ),
+        deleteAnnotationComment: comment => annotationMutationService.deleteAnnotation(
+            { comment },
+            { source: 'user' },
+        ),
         getAnnotationCommentsSnapshot: annotationCommentModel.getSnapshot,
         getMarkupSubtypeOverrides: annotations.editor.getMarkupSubtypeOverrides,
         getMarkupSubtypeHints: annotations.editor.getMarkupSubtypeHints,
         getSelectedTextMarkupAnnotationProperties: annotations.editor.markupSubtype.getSelectedTextMarkupAnnotationProperties,
-        updateSelectedTextMarkupAnnotationColor: annotationColorCommands.updateSelectedTextMarkupAnnotationColor,
-        updateTextMarkupAnnotationColor: annotationColorCommands.updateTextMarkupAnnotationColor,
+        updateSelectedTextMarkupAnnotationColor: color => annotationMutationService.updateColor(
+            {
+                color,
+                selected: true,
+            },
+            { source: 'user' },
+        ),
+        updateTextMarkupAnnotationColor: (comment, color) => annotationMutationService.updateColor(
+            {
+                comment,
+                color,
+            },
+            { source: 'user' },
+        ),
+        pendingEmbeddedMutationVersion: annotationMutationService.pendingEmbeddedMutationVersion,
+        queuePendingEmbeddedTextUpdate: (comment, text, stableKey) => annotationMutationService.queuePendingEmbeddedTextUpdate({
+            comment,
+            text,
+            ...(stableKey !== undefined ? {stableKey} : {}),
+        }),
+        clearPendingEmbeddedTextUpdate: annotationMutationService.clearPendingEmbeddedTextUpdate,
+        migratePendingEmbeddedTextUpdate: annotationMutationService.migratePendingEmbeddedTextUpdate,
+        queuePendingEmbeddedAnnotationDelete: annotationMutationService.queuePendingEmbeddedAnnotationDelete,
+        unqueuePendingEmbeddedAnnotationDelete: annotationMutationService.unqueuePendingEmbeddedAnnotationDelete,
+        getPendingEmbeddedMutationSnapshot: annotationMutationService.getPendingEmbeddedMutationSnapshot,
         getAllShapes: shapeComposable.getAllShapes,
         getDeletedEmbeddedShapeAnnotationIds: shapeComposable.getDeletedEmbeddedAnnotationIds,
         getDeletedEmbeddedShapeStableKeys: shapeComposable.getDeletedEmbeddedShapeStableKeys,
@@ -250,17 +284,20 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         clearPendingImagePlacement: options.clearPendingImagePlacement,
         restorePendingImagePlacement: options.restorePendingImagePlacement,
         invalidatePages: options.invalidatePages,
-        suppressAnnotationId: annotationRuntime.suppressAnnotationId,
-        unsuppressAnnotationId: (annotationId) => {
-            managedEmbeddedPdfShapes.unsuppressAnnotationId(annotationId);
-            annotations.commentSync.unsuppressAnnotationId(annotationId);
-        },
-        suppressAnnotationStableKey: annotations.commentSync.suppressAnnotationStableKey,
-        unsuppressAnnotationStableKey: annotations.commentSync.unsuppressAnnotationStableKey,
+        suppressAnnotationId: annotationId => annotationMutationService.suppressAnnotation({annotationId}),
+        unsuppressAnnotationId: annotationId => annotationMutationService.unsuppressAnnotation({annotationId}),
+        suppressAnnotationStableKey: stableKey => annotationMutationService.suppressAnnotation({stableKey}),
+        unsuppressAnnotationStableKey: stableKey => annotationMutationService.unsuppressAnnotation({stableKey}),
         removeAnnotationFromDom: annotationRuntime.removeAnnotationFromDom,
-        removeAnnotationFromInternalCache: annotationCommentModel.removeFromInternalCache,
-        restoreAnnotationToInternalCache: annotationCommentModel.restoreLocally,
-        clearPendingMarkerMoves: annotationCommentModel.clearPendingMarkerMoves,
+        removeAnnotationFromInternalCache: stableKey => annotationMutationService.removeAnnotationFromInternalCache(
+            stableKey,
+            { source: 'user' },
+        ),
+        restoreAnnotationToInternalCache: comment => annotationMutationService.restoreAnnotation(
+            comment,
+            { source: 'user' },
+        ),
+        clearPendingMarkerMoves: annotationMutationService.clearPendingMarkerMoves,
         captureRegionToClipboard: options.captureRegionToClipboard,
         isCapturingRegion: options.isCapturingRegion,
         startCropSelection: options.startCropSelection,

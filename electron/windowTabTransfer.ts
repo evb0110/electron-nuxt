@@ -86,6 +86,7 @@ export class WindowTabTransferBroker {
             targetWindowId: targetWindow.id,
             tab: request.tab,
             payload: request.payload,
+            ...(request.session === undefined ? {} : {session: request.session}),
         };
 
         return new Promise<IWindowTabTransferResult>((resolve) => {
@@ -150,6 +151,7 @@ export class WindowTabTransferBroker {
 
     markWindowNotReady(windowId: number) {
         this.readyWindowIds.delete(windowId);
+        this.finishTransfersForSourceWindow(windowId, 'Source window became unavailable before transfer completion.');
     }
 
     markWindowClosed(windowId: number) {
@@ -175,6 +177,8 @@ export class WindowTabTransferBroker {
                 error: 'Target window closed before transfer acknowledgement.',
             });
         }
+
+        this.finishTransfersForSourceWindow(windowId, 'Source window closed before transfer completion.');
     }
 
     private async resolveTargetWindow(request: IWindowTabTransferRequest) {
@@ -222,6 +226,19 @@ export class WindowTabTransferBroker {
             this.finishTransfer(transferId, {
                 success: false,
                 error: `Failed to deliver transfer to target renderer: ${getErrorMessage(error)}`,
+            });
+        }
+    }
+
+    private finishTransfersForSourceWindow(windowId: number, error: string) {
+        const pendingForSourceWindow = Array.from(this.pendingTransfers.values())
+            .filter(transfer => transfer.sourceWindowId === windowId)
+            .map(transfer => transfer.transferId);
+
+        for (const transferId of pendingForSourceWindow) {
+            this.finishTransfer(transferId, {
+                success: false,
+                error,
             });
         }
     }

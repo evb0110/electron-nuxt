@@ -1,4 +1,4 @@
-import {
+import pdfjsRuntime, {
     AnnotationEditorParamsType,
     AnnotationEditorUIManager,
     PixelsPerInch,
@@ -26,7 +26,7 @@ import type {
     IPdfjsEditor,
     IPdfjsEditorConstructorLike,
 } from '@app/types/pdfjs';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { detectEditorSubtype } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/detectEditorSubtype';
 import { getCommentText } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/getCommentText';
 import { errorToLogText } from '@app/modules/pdf-viewer/engine/annotation-css-utils/errorToLogText';
@@ -41,6 +41,7 @@ import {
     setEditorDefaultParamUpdater,
     unselectAllEditors,
 } from '@app/services/pdfjs/annotationEditorAdapter';
+import { createPdfAnnotationEditorCompatibilityAdapter } from '@app/services/pdfjs/annotationEditorCompatibility';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
@@ -170,6 +171,14 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         | ((event: { details?: Partial<IAnnotationEditorState> }) => void)
         | null = null;
     let annotationStorageModifiedHandler: (() => void) | null = null;
+    const annotationEditorCompatibilityAdapter = createPdfAnnotationEditorCompatibilityAdapter({
+        failInDev: import.meta.dev,
+        runtime: {
+            version: pdfjsRuntime.version,
+            AnnotationEditorLayer: pdfjsRuntime.AnnotationEditorLayer,
+            AnnotationEditorUIManager,
+        },
+    });
 
     function getAnnotationStorageCallbacks(
         doc: PDFDocumentProxy,
@@ -417,11 +426,11 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
 
         const commentManager = createSimpleCommentManager(container);
 
-        const uiManager = new AnnotationEditorUIManager(
+        const uiManager = annotationEditorCompatibilityAdapter.wrapUiManager(new AnnotationEditorUIManager(
             container, container, null, null, commentManager, null,
             eventBus, pdfDoc, null,
             DEFAULT_PDFJS_HIGHLIGHT_COLORS, false, false, false, null, null, false,
-        );
+        ));
         annotationUiManager.value = uiManager;
 
         const markupSubtype = getMarkupSubtype();
@@ -727,6 +736,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         runGuardedTask(
             () => toolManager.setAnnotationTool(toolManager.pendingAnnotationTool.value),
             {
+                category: 'user-visible-operation',
                 scope: 'annotations',
                 message: 'Failed to restore pending annotation tool', 
             },

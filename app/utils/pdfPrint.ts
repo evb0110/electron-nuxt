@@ -10,7 +10,7 @@ import {
     sumBy,
 } from 'es-toolkit/math';
 import type { TPdfViewMode } from '@contracts/shared';
-import type { IPdfPageMetric } from '@app/types/pdf';
+import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type { IPdfPageBox } from '@pdf-core';
 import {
     resolvePdfLibCropBox,

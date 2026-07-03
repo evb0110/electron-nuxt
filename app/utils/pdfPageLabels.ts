@@ -1,9 +1,9 @@
-import { PAGE_LABEL_STYLE_VALUES } from '@app/types/pdf';
+import { PAGE_LABEL_STYLE_VALUES } from '@app/types/pdfContracts';
 import type {
     IPdfPageLabelRange,
-    IPdfPageRange,
     TPageLabelStyle,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type { IPdfPageRange } from '@app/types/pdfUi';
 import { clamp } from 'es-toolkit/math';
 
 type TNonNullPageLabelStyle = Exclude<TPageLabelStyle, null>;

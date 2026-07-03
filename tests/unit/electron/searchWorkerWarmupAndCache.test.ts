@@ -31,7 +31,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('worker_threads', () => ({parentPort: mocks.parentPort}));
 vi.mock('fs/promises', () => ({stat: mocks.stat}));
 vi.mock('@electron/search/indexBuilder', () => ({
-    SEARCH_INDEX_SCHEMA_VERSION: 6,
+    SEARCH_INDEX_SCHEMA_VERSION: 7,
     loadSearchIndex: mocks.loadSearchIndex,
     buildSearchIndex: mocks.buildSearchIndex,
 }));
@@ -46,6 +46,7 @@ vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
 }) }));
 
 const TEST_PDF_PATH = '/tmp/test-search.pdf';
+const DOCUMENT_REVISION = 'revision-token';
 const PAGE_TEXT = 'XxUniquePageTextxX';
 
 interface IIndexedSearchPageForTest {
@@ -77,7 +78,8 @@ describe('search worker warmup and cache behavior', () => {
         mocks.loadSearchIndex.mockResolvedValue(null);
         mocks.tryRunNativeSearch.mockResolvedValue(null);
         mocks.buildSearchIndex.mockResolvedValue({
-            schemaVersion: 6,
+            schemaVersion: 7,
+            documentRevision: {token: DOCUMENT_REVISION},
             pdfPath: TEST_PDF_PATH,
             createdAt: Date.now(),
             pageCount: 1,
@@ -121,6 +123,7 @@ describe('search worker warmup and cache behavior', () => {
             payload: {
                 requestId: 'native-1',
                 pdfPath: TEST_PDF_PATH,
+                documentRevision: DOCUMENT_REVISION,
                 query: ' needle ',
                 pageCount: 3,
             },
@@ -137,6 +140,7 @@ describe('search worker warmup and cache behavior', () => {
             matchCase: false,
             pageCount: 3,
             pdfPath: TEST_PDF_PATH,
+            documentRevision: DOCUMENT_REVISION,
             query: 'needle',
             useRegex: false,
             wholeWord: false,
@@ -155,6 +159,7 @@ describe('search worker warmup and cache behavior', () => {
             payload: {
                 requestId: 'warm-1',
                 pdfPath: TEST_PDF_PATH,
+                documentRevision: DOCUMENT_REVISION,
                 query: '',
                 pageCount: 1,
                 warmup: true,
@@ -195,6 +200,7 @@ describe('search worker warmup and cache behavior', () => {
                 payload: {
                     requestId: `warm-${index}`,
                     pdfPath,
+                    documentRevision: DOCUMENT_REVISION,
                     query: '',
                     pageCount: 1,
                     warmup: true,
@@ -233,6 +239,7 @@ describe('search worker warmup and cache behavior', () => {
                 payload: {
                     requestId: 'search-1',
                     pdfPath: TEST_PDF_PATH,
+                    documentRevision: DOCUMENT_REVISION,
                     query: 'unique',
                     pageCount: 1,
                 },
@@ -249,6 +256,7 @@ describe('search worker warmup and cache behavior', () => {
                 payload: {
                     requestId: 'search-2',
                     pdfPath: TEST_PDF_PATH,
+                    documentRevision: DOCUMENT_REVISION,
                     query: 'text',
                     pageCount: 1,
                 },
@@ -287,6 +295,7 @@ describe('search worker warmup and cache behavior', () => {
             payload: {
                 requestId: 'warm-stale',
                 pdfPath: TEST_PDF_PATH,
+                documentRevision: DOCUMENT_REVISION,
                 query: '',
                 pageCount: 1,
                 warmup: true,
@@ -300,7 +309,8 @@ describe('search worker warmup and cache behavior', () => {
 
     it('rebuilds current-schema on-disk indexes when the PDF is newer', async () => {
         mocks.loadSearchIndex.mockResolvedValue({
-            schemaVersion: 6,
+            schemaVersion: 7,
+            documentRevision: {token: DOCUMENT_REVISION},
             pdfPath: TEST_PDF_PATH,
             createdAt: Date.now(),
             pageCount: 1,
@@ -319,6 +329,7 @@ describe('search worker warmup and cache behavior', () => {
             payload: {
                 requestId: 'warm-source-newer',
                 pdfPath: TEST_PDF_PATH,
+                documentRevision: DOCUMENT_REVISION,
                 query: '',
                 pageCount: 1,
                 warmup: true,
@@ -342,7 +353,8 @@ describe('search worker warmup and cache behavior', () => {
                 text: 'needle on the first page',
             });
             return {
-                schemaVersion: 6,
+                schemaVersion: 7,
+                documentRevision: {token: DOCUMENT_REVISION},
                 pdfPath: TEST_PDF_PATH,
                 createdAt: Date.now(),
                 pageCount: 2,
@@ -368,6 +380,7 @@ describe('search worker warmup and cache behavior', () => {
             payload: {
                 requestId: 'search-stream',
                 pdfPath: TEST_PDF_PATH,
+                documentRevision: DOCUMENT_REVISION,
                 query: 'needle',
                 pageCount: 2,
             },

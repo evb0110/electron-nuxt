@@ -14,7 +14,7 @@ import { usePdfViewerRerenderCoordinator } from '@app/modules/pdf-viewer/runtime
 import type { IResizeAnchorContext } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import type { IBuildResizeAnchorContextOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle';
 import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
 
 function createResizeAnchor(page: number): IResizeAnchorContext {
@@ -1050,6 +1050,11 @@ describe('usePdfViewerRerenderCoordinator', () => {
             const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(4));
             const scheduleResizeAwareRerender = vi.fn();
             const beginResizeTransition = vi.fn(() => 7);
+            const transactionController = {
+                beginTransaction: vi.fn(() => cast({ id: 21 })),
+                advanceTransaction: vi.fn(() => true),
+                isTransactionCurrent: vi.fn(() => true),
+            };
 
             usePdfViewerRerenderCoordinator(createDeps({
                 currentPage: ref(4),
@@ -1069,6 +1074,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 computeFitWidthScale: vi.fn(() => true),
                 getMostVisiblePage: vi.fn(() => 4),
                 beginResizeTransition,
+                transactionController,
             }));
 
             isResizing.value = false;
@@ -1081,10 +1087,21 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 trustPreferredAnchorPage: true,
             });
             expect(beginResizeTransition).toHaveBeenCalledWith('resize-settle', 4);
+            expect(transactionController.beginTransaction).toHaveBeenCalledWith({
+                kind: 'resize',
+                source: 'resize-settle',
+                page: 4,
+                range: {
+                    start: 4,
+                    end: 4,
+                },
+                anchor: 'center',
+            });
             expect(scheduleResizeAwareRerender).toHaveBeenCalledWith(
                 're-render visible pages after resize settle',
                 expect.objectContaining({
                     source: 'resize-settle',
+                    transactionId: 21,
                     resizeAnchor: expect.objectContaining({
                         page: 4,
                         transitionToken: 7,
@@ -1386,5 +1403,32 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 rerenderSource: 'resize-settle',
             }),
         );
+    });
+
+    it('advances resize rerender transactions through render and settle', async () => {
+        const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+        const syncCurrentPageFromViewport = vi.fn(async () => {});
+        const transactionController = {
+            beginTransaction: vi.fn(() => cast({ id: 31 })),
+            advanceTransaction: vi.fn(() => true),
+            isTransactionCurrent: vi.fn(() => true),
+        };
+        const { reRenderVisiblePagesAndSyncCurrentPage } = usePdfViewerRerenderCoordinator(createDeps({
+            reRenderAllVisiblePages,
+            syncCurrentPageFromViewport,
+            transactionController,
+        }));
+
+        await reRenderVisiblePagesAndSyncCurrentPage({
+            source: 'resize-settle',
+            stabilize: true,
+            resizeAnchor: createResizeAnchor(3),
+            transactionId: 31,
+        });
+
+        expect(transactionController.advanceTransaction).toHaveBeenCalledWith(31, 'render-requested');
+        expect(transactionController.advanceTransaction).toHaveBeenCalledWith(31, 'settled');
+        expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
+        expect(syncCurrentPageFromViewport).toHaveBeenCalledWith(expect.objectContaining({transactionId: 31}));
     });
 });

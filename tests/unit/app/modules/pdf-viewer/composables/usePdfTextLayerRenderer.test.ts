@@ -88,6 +88,8 @@ vi.mock('@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss', () => ({
     isHighlightDebugVerboseEnabled: () => false,
 }));
 
+const TEST_DOCUMENT_REVISION = 'revision-token';
+
 const { usePdfTextLayerRenderer } = await import('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer');
 
 function domRectLike(options: {
@@ -162,6 +164,7 @@ describe('usePdfTextLayerRenderer', () => {
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
             workingCopyPath: ref('/tmp/ocr.pdf'),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
         const textLayerDiv = document.createElement('div');
@@ -211,6 +214,7 @@ describe('usePdfTextLayerRenderer', () => {
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
             workingCopyPath: ref('/tmp/scanned.pdf'),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
         const textLayerDiv = document.createElement('div');
@@ -278,6 +282,7 @@ describe('usePdfTextLayerRenderer', () => {
                 }],
             }),
             workingCopyPath: ref(null),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
 
@@ -336,6 +341,7 @@ describe('usePdfTextLayerRenderer', () => {
             searchPageMatches: ref(pageMatches),
             currentSearchMatch: ref(null),
             workingCopyPath: ref(null),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
 
@@ -395,6 +401,7 @@ describe('usePdfTextLayerRenderer', () => {
                 endOffset: 4,
             }),
             workingCopyPath: ref(null),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
 
@@ -444,6 +451,7 @@ describe('usePdfTextLayerRenderer', () => {
                 endOffset: 4,
             }),
             workingCopyPath: ref(null),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
 
@@ -511,6 +519,7 @@ describe('usePdfTextLayerRenderer', () => {
                 endOffset: 7,
             }),
             workingCopyPath: ref(null),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
         const textLayer = cast<HTMLElement>({dataset: {pdfTextLayerReady: 'true'}});
@@ -597,6 +606,7 @@ describe('usePdfTextLayerRenderer', () => {
             searchPageMatches: ref(pageMatches),
             currentSearchMatch,
             workingCopyPath: ref(null),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
 
@@ -681,6 +691,7 @@ describe('usePdfTextLayerRenderer', () => {
                 endOffset: 7,
             }),
             workingCopyPath: ref(null),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
 
@@ -757,6 +768,7 @@ describe('usePdfTextLayerRenderer', () => {
                 endOffset: 7,
             }),
             workingCopyPath: ref(null),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
 
@@ -819,6 +831,7 @@ describe('usePdfTextLayerRenderer', () => {
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
             workingCopyPath: ref(null),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
         const textLayerDiv = document.createElement('div');
@@ -852,6 +865,7 @@ describe('usePdfTextLayerRenderer', () => {
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
             workingCopyPath: ref(null),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
         const container = document.createElement('div');

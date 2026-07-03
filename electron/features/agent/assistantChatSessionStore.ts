@@ -16,9 +16,16 @@ import {
     ASSISTANT_DEFAULT_SPEED_MODE,
     CODEX_ASSISTANT_DEFAULT_MODEL,
 } from '@contracts/agentModels';
+import { isDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { ClaudeAgentAssistantSession } from '@electron/features/agent/claudeAgentSdkAssistant';
 import { withAssistantErrorEnvelope } from '@electron/features/agent/assistantErrorEnvelope';
 import type { IAssistantSelection } from '@electron/features/agent/assistantProviderStatus';
+import {
+    createInitialAssistantTurnOwner,
+    isAssistantTurnActive,
+    type IAssistantSessionScopeBinding,
+    type TAssistantTurnOwnerState,
+} from '@electron/features/agent/assistantTurnLifecycle';
 
 export interface IAssistantChatSession {
     provider: TAgentAssistantProviderId;
@@ -27,6 +34,10 @@ export interface IAssistantChatSession {
     effort: TAgentAssistantEffort;
     speedMode: TAgentAssistantSpeedMode;
     threadId: string | null;
+    lastSenderWindowId: number | null;
+    turnOwner: TAssistantTurnOwnerState;
+    sendInFlight: Promise<unknown> | null;
+    scopeBinding: IAssistantSessionScopeBinding | null;
     activeTurnId: string | null;
     turnPhase: TAgentAssistantTurnPhase;
     messages: IAgentAssistantChatMessage[];
@@ -74,6 +85,9 @@ export function cloneAssistantScope(scope: IAgentAssistantChatScope): IAgentAssi
         title: scope.title,
         ...(scope.tabId == null ? {} : { tabId: scope.tabId }),
         ...(scope.documentRef == null ? {} : { documentRef: scope.documentRef }),
+        ...(scope.documentBackend === undefined ? {} : {documentBackend: scope.documentBackend}),
+        ...(scope.documentIdentity == null ? {} : { documentIdentity: { ...scope.documentIdentity } }),
+        ...(scope.commandTarget === undefined ? {} : {commandTarget: {...scope.commandTarget}}),
     };
 }
 
@@ -94,6 +108,11 @@ export function normalizeAssistantScope(scope: IAgentAssistantChatScope | null |
         title: title && title.length > 0 ? title : null,
         ...(scope.tabId?.trim() ? { tabId: scope.tabId.trim() } : {}),
         ...(scope.documentRef?.trim() ? { documentRef: scope.documentRef.trim() } : {}),
+        ...(scope.documentBackend === 'browser' || scope.documentBackend === 'electron'
+            ? {documentBackend: scope.documentBackend}
+            : {}),
+        ...(isDocumentRevisionInfo(scope.documentIdentity) ? { documentIdentity: { ...scope.documentIdentity } } : {}),
+        ...(scope.commandTarget === undefined ? {} : {commandTarget: {...scope.commandTarget}}),
     } satisfies IAgentAssistantChatScope;
 }
 
@@ -116,6 +135,7 @@ function cloneAssistantMessage(message: IAgentAssistantChatMessage): IAgentAssis
 
 function isEvictableChatSession(session: IAssistantChatSession) {
     return session.activeTurnId === null
+        && !isAssistantTurnActive(session.turnOwner)
         && session.turnPhase !== 'starting'
         && session.turnPhase !== 'running'
         && session.turnPhase !== 'interrupting';
@@ -268,6 +288,10 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             effort: selection.effort,
             speedMode: selection.speedMode,
             threadId: null,
+            lastSenderWindowId: null,
+            turnOwner: createInitialAssistantTurnOwner(),
+            sendInFlight: null,
+            scopeBinding: null,
             activeTurnId: null,
             turnPhase: 'idle',
             messages: [],

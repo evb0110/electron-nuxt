@@ -4,6 +4,7 @@ import type {
     IOcrSearchablePdfOptions,
     TOcrProgressPhase,
 } from '@contracts/electronApiOcr';
+import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 export type { IRunCommandResult } from '@electron/utils/runElectronCommand';
 
 export interface IWorkerPaths {
@@ -46,6 +47,7 @@ export interface IOcrFileResult {
 
 export interface IOcrWorkerStartPayload {
     sourcePdfPath: string;
+    documentRevision: IDocumentRevisionInfo;
     pages: IOcrPdfPageRequest[];
     renderDpi?: number;
     options?: IOcrSearchablePdfOptions;

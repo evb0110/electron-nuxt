@@ -13,6 +13,21 @@ import { createSerializeCurrentPdfForEmbeddedFallback } from '@app/modules/works
 import { hasAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
 import { hasViewerShapeChanges } from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';
 
+function createSaveTransaction(bytes: Uint8Array | null) {
+    return vi.fn(async () => ({
+        source: 'pdfjs-materialize' as const,
+        baseBytes: null,
+        serializedBytes: bytes,
+        nativeMutationPlan: null,
+        annotationSavePlan: null,
+        annotationCommentsSnapshot: [],
+        pendingEmbeddedTextUpdates: new Map(),
+        pendingEmbeddedAnnotationDeletes: [],
+        restoreConsumedPendingEmbeddedMutations: vi.fn(),
+        commitConsumedPendingEmbeddedMutations: vi.fn(),
+    }));
+}
+
 describe('hasViewerShapeChanges', () => {
     it('unwraps ref-backed viewer shape state', () => {
         expect(hasViewerShapeChanges({ hasShapes: ref(true) })).toBe(true);
@@ -30,7 +45,7 @@ describe('hasAnnotationChanges', () => {
     it('returns true when viewer reports shape changes through a ref', () => {
         const result = hasAnnotationChanges({
             pdfViewerRef: ref({
-                saveDocument: async () => new Uint8Array([]),
+                runSaveTransaction: createSaveTransaction(new Uint8Array([])),
                 hasShapes: ref(true),
                 getAllShapes: () => [],
             }),
@@ -43,7 +58,7 @@ describe('hasAnnotationChanges', () => {
     it('returns false when viewer shape ref is false', () => {
         const result = hasAnnotationChanges({
             pdfViewerRef: ref({
-                saveDocument: async () => new Uint8Array([]),
+                runSaveTransaction: createSaveTransaction(new Uint8Array([])),
                 hasShapes: ref(false),
                 getAllShapes: () => [],
             }),
@@ -103,13 +118,13 @@ describe('createSerializeCurrentPdfForEmbeddedFallback', () => {
             2,
             3,
         ]);
-        const saveDocument = vi.fn(async () => savedBytes);
+        const runSaveTransaction = createSaveTransaction(savedBytes);
         const waitForPdfReload = vi.fn(async () => undefined);
         const loadPdfFromData = vi.fn(async () => undefined);
 
         const serialize = createSerializeCurrentPdfForEmbeddedFallback({
             pdfViewerRef: ref({
-                saveDocument,
+                runSaveTransaction,
                 getAllShapes: () => [],
             }),
             currentPage: ref(7),
@@ -121,7 +136,10 @@ describe('createSerializeCurrentPdfForEmbeddedFallback', () => {
         const result = await serialize();
 
         expect(result).toBe(savedBytes);
-        expect(saveDocument).toHaveBeenCalledTimes(1);
+        expect(runSaveTransaction).toHaveBeenCalledWith({
+            mode: 'embedded-mutation',
+            forcePdfjsMaterialize: true,
+        });
         expect(waitForPdfReload).toHaveBeenCalledWith(7);
         expect(loadPdfFromData).toHaveBeenCalledWith(new Uint8Array([
             1,
@@ -136,7 +154,7 @@ describe('createSerializeCurrentPdfForEmbeddedFallback', () => {
     it('returns false when viewer save returns null', async () => {
         const serialize = createSerializeCurrentPdfForEmbeddedFallback({
             pdfViewerRef: ref({
-                saveDocument: async () => null,
+                runSaveTransaction: createSaveTransaction(null),
                 getAllShapes: () => [],
             }),
             currentPage: ref(1),

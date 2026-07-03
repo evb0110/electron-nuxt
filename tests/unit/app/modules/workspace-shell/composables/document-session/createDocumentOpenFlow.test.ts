@@ -56,9 +56,19 @@ interface IResetHistoryTestOptions {
 
 function createOpenFlowHarness() {
     const state = createDocumentSessionState({ isDesktopRuntime: ref(true) });
+    const analyticsDocumentScope = {
+        activate: vi.fn(),
+        clear: vi.fn(),
+        deactivate: vi.fn(),
+        dispose: vi.fn(),
+        key: 'test-document-scope',
+        merge: vi.fn(),
+        set: vi.fn(),
+    };
     const deps = {
         analytics: {
             clearDocumentContext: vi.fn(),
+            createDocumentScope: vi.fn(() => analyticsDocumentScope),
             enabled: false,
             flush: vi.fn(async () => undefined),
             installLifecycle: vi.fn(),
@@ -66,6 +76,7 @@ function createOpenFlowHarness() {
             setDocumentContext: vi.fn(),
             track: vi.fn(),
         },
+        analyticsDocumentScope,
         cleanupAbandonedWorkingCopy: vi.fn(async () => undefined),
         clearPdfConformanceProfile: vi.fn(),
         cleanupPreviousWorkingCopy: vi.fn(async () => undefined),
@@ -80,6 +91,7 @@ function createOpenFlowHarness() {
     };
 
     return {
+        analyticsDocumentScope,
         deps,
         openFlow: createDocumentOpenFlow(state, deps),
         state,
@@ -129,6 +141,7 @@ describe('createDocumentOpenFlow', () => {
     it('tracks preselected opens with the split document files stat capability', async () => {
         mocks.documentFiles.statFile.mockResolvedValueOnce({ size: 2 * 1024 * 1024 });
         const {
+            analyticsDocumentScope,
             deps,
             openFlow,
             state,
@@ -145,6 +158,11 @@ describe('createDocumentOpenFlow', () => {
         expect(state.pendingDjvu.value).toBe('/tmp/scan.djvu');
         expect(mocks.documentFiles.statFile).toHaveBeenCalledWith('/tmp/scan.djvu');
         expect(mocks.legacyDocuments.statFile).not.toHaveBeenCalled();
+        expect(analyticsDocumentScope.set).toHaveBeenCalledWith(expect.objectContaining({
+            documentKind: 'djvu',
+            fileExtension: 'djvu',
+            fileSizeBucket: '1mb_to_10mb',
+        }));
         expect(deps.analytics.track).toHaveBeenCalledWith('document_opened', expect.objectContaining({
             documentKind: 'djvu',
             fileExtension: 'djvu',

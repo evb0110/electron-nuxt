@@ -1,4 +1,4 @@
-import type { IPdfPersistResult } from '@app/types/pdf';
+import type { IPdfPersistResult } from '@app/types/pdfUi';
 import { resetLivePdfJsAnnotationStorageModifiedState } from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {

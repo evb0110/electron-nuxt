@@ -1,5 +1,6 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { createDocxFromTextAsync } from '@app/utils/docx';
 import { useOcrErrorLocalizer } from '@app/composables/useOcrErrorLocalizer';
 import { useAnalytics } from '@app/composables/useAnalytics';
@@ -17,6 +18,7 @@ export const useDocxExport = () => {
 
     async function exportDocx(params: {
         workingCopyPath: TDocumentRef | null;
+        documentRevisionToken: TDocumentRevisionToken | null;
         pdfDocument: PDFDocumentProxy | null;
         selectedLanguages?: string[];
     }) {
@@ -32,6 +34,7 @@ export const useDocxExport = () => {
             const hasRtl = hasRtlOcrLanguage(selectedLanguages);
             return await exportTextAsDocx({
                 workingCopyPath: params.workingCopyPath,
+                documentRevisionToken: params.documentRevisionToken,
                 pdfDocument: params.pdfDocument,
                 hasRtl,
                 buildDocx: createDocxFromTextAsync,

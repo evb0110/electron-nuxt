@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IScrollSnapshot } from '@app/types/pdfUi';
 import { captureScrollSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/captureScrollSnapshot';
 import { restoreScrollFromSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/restoreScrollFromSnapshot';
 

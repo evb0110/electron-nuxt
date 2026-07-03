@@ -4,6 +4,7 @@ import type {
     IAgentAssistantEvent,
     IAgentAssistantImageAttachment,
     IAgentAssistantState,
+    IAgentAssistantStateRequest,
     TAgentAssistantEffort,
     TAgentAssistantLoginMode,
     TAgentAssistantMessageRole,
@@ -52,7 +53,7 @@ import {
 } from '@app/modules/agent-panel/utils/assistantImageAttachments';
 import { isAssistantSelectionLocked } from '@app/modules/agent-panel/utils/isAssistantSelectionLocked';
 import { formatAssistantMessage } from '@app/modules/agent-panel/utils/formatAssistantMessage';
-import { getAgentAssistantPanelView } from '@app/modules/workspace-shell/public';
+import { getAgentAssistantPanelView } from '@app/modules/agent-panel/utils/getAgentAssistantPanelView';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
@@ -507,14 +508,62 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         isSending.value = optimisticState.status.runtimeState === 'busy';
     }
 
-    function createAssistantStateRequest() {
+    function isActiveAssistantTurnPhase(phase: IAgentAssistantState['status']['turn']['phase']) {
+        return phase === 'starting'
+            || phase === 'running'
+            || phase === 'interrupting';
+    }
+
+    function createAssistantStateRequestForScope(
+        scope: IAgentAssistantChatScope | null,
+    ): IAgentAssistantStateRequest {
         return {
-            scope: chatScope.value ? cloneAssistantScope(chatScope.value) : null,
+            scope: scope ? cloneAssistantScope(scope) : null,
             provider: selectedProvider.value,
             model: selectedModel.value,
             effort: selectedEffort.value,
             speedMode: selectedSpeedMode.value,
         };
+    }
+
+    function createAssistantStateRequest() {
+        return createAssistantStateRequestForScope(chatScope.value);
+    }
+
+    function createAssistantStateRequestFromState(
+        assistantState: IAgentAssistantState,
+    ): IAgentAssistantStateRequest {
+        return {
+            scope: assistantState.scope ? cloneAssistantScope(assistantState.scope) : null,
+            provider: assistantState.status.provider,
+            model: assistantState.status.model,
+            effort: normalizeEffortValue(assistantState.status.effort) ?? selectedEffort.value,
+            speedMode: normalizeSpeedModeValue(assistantState.status.speedMode) ?? selectedSpeedMode.value,
+        };
+    }
+
+    function interruptAssistantStateBestEffort(
+        assistantState: IAgentAssistantState | null,
+        title: string,
+    ) {
+        if (
+            !assistantState
+            || !assistantState.scope
+            || !isActiveAssistantTurnPhase(assistantState.status.turn.phase)
+        ) {
+            return;
+        }
+
+        sendGeneration += 1;
+        guardAsync(getAgentCapability().interruptAssistant(createAssistantStateRequestFromState(assistantState)), {
+            category: 'user-visible-operation',
+            scope: 'assistant',
+            message: title,
+            onError: error => reportAssistantActionError(error, {
+                title,
+                log: false,
+            }),
+        });
     }
 
     function isCurrentScopeState(nextState: IAgentAssistantState) {
@@ -668,6 +717,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
                 isSwitchingAssistant.value = false;
             }
         }), {
+            category: 'user-visible-operation',
             scope: 'assistant',
             message: 'Failed to switch assistant provider',
             onError: error => handleAssistantActionError(error, {
@@ -728,6 +778,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         }
 
         guardAsync(refreshState(), {
+            category: 'background-diagnostic',
             scope: 'assistant',
             message: 'Failed to refresh assistant state after app focus',
         });
@@ -1022,6 +1073,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     }
 
     watch(() => chatScope.value?.key ?? null, () => {
+        interruptAssistantStateBestEffort(state.value, 'Failed to interrupt assistant turn before switching scope');
         stateGeneration += 1;
         sendGeneration += 1;
         state.value = null;
@@ -1031,6 +1083,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         composerError.value = '';
         isSending.value = false;
         guardAsync(refreshState(), {
+            category: 'user-visible-operation',
             scope: 'assistant',
             message: 'Failed to refresh assistant state for document',
         });
@@ -1042,6 +1095,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     onMounted(() => {
         unsubscribe = getAgentCapability().onAssistantEvent(handleAssistantEvent);
         guardAsync(refreshState(), {
+            category: 'user-visible-operation',
             scope: 'assistant',
             message: 'Failed to load assistant state',
         });
@@ -1053,6 +1107,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     useEventListener(defaultWindow, 'keydown', handleExpandedImageKeydown);
 
     onUnmounted(() => {
+        interruptAssistantStateBestEffort(state.value, 'Failed to interrupt assistant turn before closing panel');
         stopCopiedMessageReset();
         unsubscribe?.();
         unsubscribe = null;

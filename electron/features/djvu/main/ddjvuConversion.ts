@@ -1,5 +1,3 @@
-import { spawn } from 'child_process';
-import type { ChildProcess } from 'child_process';
 import { existsSync } from 'fs';
 import {
     mkdtemp,
@@ -22,12 +20,12 @@ import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
 import { getDjvuNativeToolPaths } from '@electron/djvu/nativeToolPaths';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
-import { describeProcessExitCode } from '@electron/utils/describeProcessExitCode';
 import { getErrorMessage } from '@electron/utils/error';
 import {
-    createDetachedChildProcessSpawnOptions,
-    terminateDetachedChildProcess,
-} from '@electron/utils/nativeChildProcess';
+    cancelNativeCommandGroup,
+    runNativeCommand,
+} from '@electron/native-tools/runNativeCommand';
+import type { IRunCommandOptions } from '@electron/native-tools/runNativeCommand';
 
 interface IDjvuConversionOptions {
     subsample?: number;
@@ -97,7 +95,7 @@ const DJVU_PDFLIB_FALLBACK_MAX_TOTAL_BYTES = (() => {
     return parsed * 1024 * 1024;
 })();
 
-const activeProcesses = new Map<string, ChildProcess>();
+const activeProcessIds = new Set<string>();
 const canceledProcessIds = new Set<string>();
 const logger = createLogger('djvu-convert');
 const DJVU_CONVERSION_CANCELED_MESSAGE = 'DjVu conversion canceled';
@@ -550,36 +548,23 @@ export async function runRegisteredDjvuProcess(
 
 export async function cancelConversion(jobId: string) {
     let canceled = false;
-    const terminations: Array<Promise<void>> = [];
 
-    // Cancel the exact job ID
-    const proc = activeProcesses.get(jobId);
-    if (proc) {
+    if (activeProcessIds.has(jobId)) {
         canceledProcessIds.add(jobId);
-        terminations.push(killProcess(proc));
-        activeProcesses.delete(jobId);
+        cancelNativeCommandGroup(jobId);
         canceled = true;
     }
 
-    // Cancel any child workers belonging to this job (range-N, pgm-N)
-    for (const [
-        id,
-        childProc,
-    ] of activeProcesses) {
+    for (const id of activeProcessIds) {
         if (id.startsWith(`${jobId}-`)) {
             canceledProcessIds.add(id);
-            terminations.push(killProcess(childProc));
-            activeProcesses.delete(id);
+            cancelNativeCommandGroup(id);
             canceled = true;
         }
     }
 
-    await Promise.all(terminations);
+    await Promise.resolve();
     return canceled;
-}
-
-async function killProcess(proc: ChildProcess) {
-    await terminateDetachedChildProcess(proc, DJVU_KILL_GRACE_MS);
 }
 
 interface IRunProcessOptions {
@@ -588,34 +573,6 @@ interface IRunProcessOptions {
     onStdout?: (chunk: string) => void;
     timeoutMs?: number;
     maxStderrBytes?: number;
-}
-
-function appendWithCap(current: string, chunk: Buffer, maxBytes: number) {
-    if (maxBytes <= 0) {
-        return {
-            value: '',
-            truncated: true,
-        };
-    }
-
-    const nextValue = current + chunk.toString();
-    if (Buffer.byteLength(nextValue, 'utf8') <= maxBytes) {
-        return {
-            value: nextValue,
-            truncated: false,
-        };
-    }
-
-    const keepBytes = Math.max(1, Math.floor(maxBytes * 0.9));
-    let tail = nextValue;
-    while (Buffer.byteLength(tail, 'utf8') > keepBytes && tail.length > 1) {
-        tail = tail.slice(Math.floor(tail.length * 0.1));
-    }
-
-    return {
-        value: tail,
-        truncated: true,
-    };
 }
 
 async function runProcess(
@@ -627,144 +584,41 @@ async function runProcess(
     success: false;
     error: string 
 }> {
-    return new Promise((resolve) => {
-        const timeoutMs = options.timeoutMs ?? DJVU_PROCESS_TIMEOUT_MS;
-        const maxStderrBytes = options.maxStderrBytes ?? DJVU_MAX_STDERR_BYTES;
-        let proc: ChildProcess;
-        try {
-            proc = spawn(command, args, createDetachedChildProcessSpawnOptions({
-                shell: false,
-                stdio: [
-                    'ignore',
-                    'pipe',
-                    'pipe',
-                ],
-                ...(options.env ? { env: options.env } : {}),
-            }));
-        } catch (error) {
-            resolve({
-                success: false,
-                error: getErrorMessage(error),
-            });
-            return;
-        }
-
-        activeProcesses.set(processId, proc);
-        let stderr = '';
-        let stderrTruncated = false;
-        let settled = false;
-        let timeoutHandle: NodeJS.Timeout | null = null;
-        let timedOut = false;
-        let forceFinalizeHandle: NodeJS.Timeout | null = null;
-
-        const finalize = (result: { success: true } | {
-            success: false;
-            error: string;
-        }) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            activeProcesses.delete(processId);
-            canceledProcessIds.delete(processId);
-            if (timeoutHandle) {
-                clearTimeout(timeoutHandle);
-                timeoutHandle = null;
-            }
-            if (forceFinalizeHandle) {
-                clearTimeout(forceFinalizeHandle);
-                forceFinalizeHandle = null;
-            }
-            resolve(result);
+    activeProcessIds.add(processId);
+    try {
+        const commandOptions: IRunCommandOptions = {
+            cancelGroup: processId,
+            commandLabel: command,
+            maxStderrBytes: options.maxStderrBytes ?? DJVU_MAX_STDERR_BYTES,
+            terminationGraceMs: DJVU_KILL_GRACE_MS,
+            timeoutMs: options.timeoutMs ?? DJVU_PROCESS_TIMEOUT_MS,
         };
-
-        proc.stdout?.on('data', (data: Buffer) => {
-            // Drain stdout to avoid child process back-pressure stalls.
-            options.onStdout?.(data.toString());
-        });
-
-        proc.stderr?.on('data', (data: Buffer) => {
-            const chunk = data.toString();
-            const appended = appendWithCap(stderr, data, maxStderrBytes);
-            stderr = appended.value;
-            stderrTruncated = stderrTruncated || appended.truncated;
-            options.onStderr?.(chunk);
-        });
-
-        if (timeoutMs > 0) {
-            timeoutHandle = setTimeout(() => {
-                timedOut = true;
-                const pid = proc.pid;
-                if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
-                    void terminateDetachedChildProcess(proc, DJVU_KILL_GRACE_MS).finally(() => {
-                        finalize({
-                            success: false,
-                            error: `${command} timed out after ${timeoutMs}ms`,
-                        });
-                    });
-                } else {
-                    try {
-                        proc.kill('SIGTERM');
-                    } catch {
-                        // Process may already be gone.
-                    }
-                }
-                // Guarantee settlement even if the child never emits 'close'/'error'
-                // after forced termination.
-                forceFinalizeHandle = setTimeout(() => {
-                    finalize({
-                        success: false,
-                        error: `${command} timed out after ${timeoutMs}ms`,
-                    });
-                }, DJVU_KILL_GRACE_MS + 1_000);
-                forceFinalizeHandle.unref?.();
-            }, timeoutMs);
-            timeoutHandle.unref?.();
+        if (options.env !== undefined) {
+            commandOptions.env = options.env;
         }
-
-        proc.on('error', (err) => {
-            if (canceledProcessIds.has(processId)) {
-                finalize({
-                    success: false,
-                    error: DJVU_CONVERSION_CANCELED_MESSAGE,
-                });
-                return;
-            }
-            finalize({
+        if (options.onStderr !== undefined) {
+            commandOptions.onStderr = options.onStderr;
+        }
+        if (options.onStdout !== undefined) {
+            commandOptions.onStdout = options.onStdout;
+        }
+        await runNativeCommand(command, args, commandOptions);
+        return { success: true };
+    } catch (error) {
+        if (canceledProcessIds.has(processId)) {
+            return {
                 success: false,
-                error: err.message,
-            });
-        });
-
-        proc.on('close', (code) => {
-            const exitCode = typeof code === 'number' ? code : -1;
-            if (canceledProcessIds.has(processId)) {
-                finalize({
-                    success: false,
-                    error: DJVU_CONVERSION_CANCELED_MESSAGE,
-                });
-                return;
-            }
-            if (timedOut) {
-                finalize({
-                    success: false,
-                    error: `${command} timed out after ${timeoutMs}ms`,
-                });
-                return;
-            }
-            if (exitCode !== 0) {
-                const stderrSummary = stderrTruncated
-                    ? `[stderr truncated to ${maxStderrBytes} bytes]\n${stderr}`
-                    : stderr;
-                finalize({
-                    success: false,
-                    error: `${command} exited with code ${describeProcessExitCode(exitCode)}: ${stderrSummary}`,
-                });
-                return;
-            }
-            finalize({ success: true });
-        });
-    });
+                error: DJVU_CONVERSION_CANCELED_MESSAGE,
+            };
+        }
+        return {
+            success: false,
+            error: getErrorMessage(error),
+        };
+    } finally {
+        activeProcessIds.delete(processId);
+        canceledProcessIds.delete(processId);
+    }
 }
 
 function shouldSkipSingleProcessFallback(error: string | undefined) {

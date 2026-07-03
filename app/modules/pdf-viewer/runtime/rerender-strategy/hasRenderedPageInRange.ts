@@ -1,4 +1,4 @@
-import type { IPageRange } from '@app/types/pdf';
+import type { IPageRange } from '@app/types/pdfUi';
 
 
 export function hasRenderedPageInRange(

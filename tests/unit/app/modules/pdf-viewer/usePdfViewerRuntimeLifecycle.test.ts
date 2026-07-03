@@ -14,7 +14,7 @@ import {
     shallowRef,
 } from 'vue';
 import { usePdfViewerRuntimeLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerRuntimeLifecycle';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 
 const lifecycleMocks = vi.hoisted(() => ({
     applySearchHighlights: vi.fn(),

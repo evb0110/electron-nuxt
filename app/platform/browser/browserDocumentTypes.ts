@@ -15,6 +15,7 @@ export interface IBrowserPersistedDocumentRecord {
     fileSize: number;
     updatedAt: number;
     contentToken?: string;
+    contentRevision?: number;
     saveName?: string;
     saveKind?: 'pdf' | 'docx' | 'generic';
     saveHandle?: FileSystemFileHandle | null;
@@ -87,6 +88,7 @@ export interface IBrowserDocumentEntryInput {
     data: Uint8Array;
     fileSize: number;
     contentToken?: string;
+    contentRevision?: number;
     saveKind: IBrowserDocumentEntry['saveKind'];
     saveHandle: FileSystemFileHandle | null;
     storageMode: TBrowserDocumentStorageMode;

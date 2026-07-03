@@ -1,4 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentSaveResult } from '@contracts/electronApiDocuments';
 import {
     BROWSER_MAX_FULL_READ_BYTES,
     browserDocumentStore,
@@ -10,6 +11,7 @@ import {
     saveBytesToPickerOrDownload,
     writeDocumentRefToHandle,
 } from '@app/platform/browser-api/browserFilePickerAdapter';
+import { getErrorMessage } from '@app/utils/error';
 
 function buildBrowserLargeJobError(
     label: string,
@@ -85,4 +87,35 @@ export async function saveWorkingBytesToSource(
 
     await browserDocumentStore.touchRecentFile(sourceRef);
     return true;
+}
+
+export async function saveWorkingBytesToSourceStructured(
+    workingCopyPath: TDocumentRef,
+    getBrowserLargeSaveHandleHint: () => string,
+): Promise<TDocumentSaveResult> {
+    try {
+        const saved = await saveWorkingBytesToSource(workingCopyPath, getBrowserLargeSaveHandleHint);
+        if (!saved) {
+            return {
+                ok: false,
+                reason: 'user-canceled',
+                externalWriteCommitted: false,
+                validation: null,
+            };
+        }
+        return {
+            ok: true,
+            externalWriteCommitted: true,
+            workingCopyRefreshed: true,
+            validation: null,
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            reason: 'write-failed',
+            message: getErrorMessage(error),
+            externalWriteCommitted: false,
+            validation: null,
+        };
+    }
 }

@@ -55,6 +55,7 @@ interface IPersistedSearchDocumentCacheRecord {
     pdfPath: string;
     fileSize: number;
     contentSignature?: string;
+    documentRevision?: string;
     pageCount: number;
     pageTexts: string[];
     textBytes?: number;
@@ -241,6 +242,7 @@ function parsePersistedSearchCacheRecord(value: unknown): IPersistedSearchDocume
         pdfPath: value.pdfPath,
         fileSize: value.fileSize,
         ...(typeof value.contentSignature === 'string' ? { contentSignature: value.contentSignature } : {}),
+        ...(typeof value.documentRevision === 'string' ? { documentRevision: value.documentRevision } : {}),
         pageCount: value.pageCount,
         pageTexts: parsedPageTexts,
         ...(textBytes !== undefined ? { textBytes } : {}),
@@ -430,6 +432,7 @@ function createPersistedSearchCacheRecord(
     pdfPath: string,
     fileSize: number,
     contentSignature: string,
+    documentRevision: string,
     pageCount: number,
     pageTexts: string[],
     textSource: ISearchDocumentTextSource = PDFJS_TEXT_SOURCE,
@@ -440,6 +443,7 @@ function createPersistedSearchCacheRecord(
         pdfPath,
         fileSize,
         contentSignature,
+        documentRevision,
         pageCount,
         pageTexts,
         textBytes: estimatePageTextBytes(pageTexts),
@@ -590,8 +594,8 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
     const activeSearchRequests = new Set<string>();
     const activeWorkerSearchRequests = new Map<string, number>();
 
-    function getMemoryCacheKey(pdfPath: string, contentSignature: string) {
-        return `${pdfPath}\0${contentSignature}`;
+    function getMemoryCacheKey(pdfPath: string, documentRevision: string) {
+        return `${pdfPath}\0${documentRevision}`;
     }
 
     function deleteDocumentMemoryCaches(pdfPath: string) {
@@ -691,6 +695,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         record: IPersistedSearchDocumentCacheRecord | null,
         fileSize: number,
         contentSignature: string,
+        documentRevision: string,
         expectedPageCount?: number,
     ) {
         if (!record) {
@@ -703,6 +708,9 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             return null;
         }
         if (record.contentSignature !== contentSignature) {
+            return null;
+        }
+        if (record.documentRevision !== documentRevision) {
             return null;
         }
         if (
@@ -861,9 +869,10 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         pdfPath: string,
         fileSize: number,
         contentSignature: string,
+        documentRevision: string,
         options: IIterateSearchPagesOptions,
     ) {
-        const memoryCacheKey = getMemoryCacheKey(pdfPath, contentSignature);
+        const memoryCacheKey = getMemoryCacheKey(pdfPath, documentRevision);
         let cache = getDocumentCache(memoryCacheKey);
         const cachedPageCount = cache.pageCount;
 
@@ -885,6 +894,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             persistedRecord,
             fileSize,
             contentSignature,
+            documentRevision,
             options.expectedPageCount,
         );
         if (validPersistedRecord) {
@@ -950,6 +960,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                     pdfPath,
                     fileSize,
                     contentSignature,
+                    documentRevision,
                     pageCount,
                     pageTexts,
                 ));
@@ -970,12 +981,20 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 pdfPath,
                 fileSize,
                 contentSignature,
+                documentRevision,
                 extractedDocumentText.pageCount,
                 extractedDocumentText.pageTexts,
             ));
         }
 
         return !canceled;
+    }
+
+    async function resolveSearchDocumentRevision(pdfPath: string, requestedRevision: string | undefined) {
+        const currentRevision = await browserDocumentStore.getDocumentRevision(pdfPath);
+        return requestedRevision === currentRevision.token
+            ? requestedRevision
+            : currentRevision.token;
     }
 
     const capability: ISearchCapability = {
@@ -1001,7 +1020,8 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 await assertSearchWithinBrowserBudget(pdfPath);
                 const { size } = await browserDocumentStore.stat(pdfPath);
                 const contentSignature = await browserDocumentStore.getContentSignature(pdfPath);
-                await iterateSearchPages(pdfPath, size, contentSignature, {
+                const documentRevision = await resolveSearchDocumentRevision(pdfPath, options.documentRevision);
+                await iterateSearchPages(pdfPath, size, contentSignature, documentRevision, {
                     requestId,
                     ...(options.pageCount !== undefined ? {expectedPageCount: options.pageCount} : {}),
                     streamDirectExtraction: true,
@@ -1077,7 +1097,8 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 await assertSearchWithinBrowserBudget(pdfPath);
                 const { size } = await browserDocumentStore.stat(pdfPath);
                 const contentSignature = await browserDocumentStore.getContentSignature(pdfPath);
-                const completed = await iterateSearchPages(pdfPath, size, contentSignature, {
+                const documentRevision = await resolveSearchDocumentRevision(pdfPath, options.documentRevision);
+                const completed = await iterateSearchPages(pdfPath, size, contentSignature, documentRevision, {
                     ...(requestId !== undefined ? {requestId} : {}),
                     ...(options.pageCount !== undefined ? {expectedPageCount: options.pageCount} : {}),
                     onPage: async () => {

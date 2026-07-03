@@ -344,6 +344,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     function runRendererDocumentShortcutAction(action: TRendererDocumentShortcutAction) {
         const guard = (operation: unknown) => {
             guardAsync(Promise.resolve(operation), {
+                category: 'user-visible-operation',
                 scope: 'tabs-shell',
                 message: `Renderer document shortcut failed: ${action}`,
             });

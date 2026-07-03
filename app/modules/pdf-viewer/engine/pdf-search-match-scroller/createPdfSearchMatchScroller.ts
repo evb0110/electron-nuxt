@@ -43,12 +43,20 @@ interface IPdfSearchMatchScrollerDeps {
         options?: ISearchNavigationTargetOptions,
     ) => void;
     endSearchNavigation?: (settleMs?: number) => void;
+    beginSearchTransaction?: (
+        pageNumber: number,
+        options?: ISearchNavigationTargetOptions,
+    ) => number | null;
+    isSearchTransactionCurrent?: (transactionId: number) => boolean;
+    settleSearchTransaction?: (transactionId: number) => void;
+    cancelSearchTransaction?: (transactionId: number) => void;
     isPageRenderPending?: (pageNumber: number) => boolean;
 }
 
 interface IPendingRequestToken {
     id: number;
     canceled: boolean;
+    transactionId: number | null;
 }
 
 type TWaitForMatchAndScrollResult = 'scrolled' | 'canceled' | 'timed-out';
@@ -132,13 +140,37 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
     function cancelActiveRequest(settleMs = 0) {
         if (activeToken) {
             activeToken.canceled = true;
+            if (activeToken.transactionId !== null) {
+                deps.cancelSearchTransaction?.(activeToken.transactionId);
+            }
             activeToken = null;
         }
         deps.endSearchNavigation?.(settleMs);
     }
 
+    function settleActiveRequest(settleMs = 0) {
+        if (activeToken) {
+            if (activeToken.transactionId !== null) {
+                deps.settleSearchTransaction?.(activeToken.transactionId);
+            }
+            activeToken = null;
+        }
+        deps.endSearchNavigation?.(settleMs);
+    }
+
+    function cancelTokenRequestIfCurrent(token: IPendingRequestToken) {
+        if (activeToken?.id === token.id) {
+            cancelActiveRequest(0);
+        }
+    }
+
     function isTokenActive(token: IPendingRequestToken) {
-        return !token.canceled && activeToken?.id === token.id;
+        return !token.canceled
+            && activeToken?.id === token.id
+            && (
+                token.transactionId === null
+                || deps.isSearchTransactionCurrent?.(token.transactionId) !== false
+            );
     }
 
     function isStillTargetingPage(targetPageIndex: number) {
@@ -202,6 +234,7 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
 
         while (true) {
             if (!isTokenActive(token)) {
+                cancelTokenRequestIfCurrent(token);
                 return 'canceled';
             }
 
@@ -332,7 +365,7 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         if (didScroll) {
             logPdfNav('[PDF-NAV] fast-path: scrollToCurrentMatch succeeded immediately');
             deps.suppressSnap?.();
-            cancelActiveRequest(SEARCH_SCROLL_SETTLE_MS);
+            settleActiveRequest(SEARCH_SCROLL_SETTLE_MS);
         }
 
         return didScroll;
@@ -348,6 +381,10 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
             `[PDF-NAV] revealing search target page=${pageNumber} before match-ready scroll`
             + ` marker=${markerRect ? 'true' : 'false'}`,
         );
+        const transactionId = deps.beginSearchTransaction?.(
+            pageNumber,
+            markerRect ? { markerRect } : undefined,
+        ) ?? null;
         deps.beginSearchNavigation?.(pageNumber);
         if (markerRect) {
             deps.revealSearchNavigationTarget?.(pageNumber, { markerRect });
@@ -355,7 +392,10 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
             deps.revealSearchNavigationTarget?.(pageNumber);
         }
         deps.scheduleRenderForSinglePage(pageNumber);
-        return Date.now();
+        return {
+            initialRenderRequestAt: Date.now(),
+            transactionId,
+        };
     }
 
     function fallbackToPageScroll(matchPageIndex: number, requestId: number) {
@@ -372,7 +412,7 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
             preferExactDom: true,
             ...(markerRect ? { markerRect } : {}),
         });
-        cancelActiveRequest(0);
+        settleActiveRequest(0);
     }
 
     async function finishDeferredSearchMatchScroll(
@@ -392,7 +432,7 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
 
         if (result === 'scrolled') {
             deps.suppressSnap?.();
-            cancelActiveRequest(SEARCH_SCROLL_SETTLE_MS);
+            settleActiveRequest(SEARCH_SCROLL_SETTLE_MS);
             return;
         }
 
@@ -435,10 +475,15 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         const token: IPendingRequestToken = {
             id: requestId,
             canceled: false,
+            transactionId: null,
         };
         activeToken = token;
 
-        const initialRenderRequestAt = beginTargetPageNavigation(matchPageIndex);
+        const {
+            initialRenderRequestAt,
+            transactionId,
+        } = beginTargetPageNavigation(matchPageIndex);
+        token.transactionId = transactionId;
 
         void nextTick(async () => {
             try {

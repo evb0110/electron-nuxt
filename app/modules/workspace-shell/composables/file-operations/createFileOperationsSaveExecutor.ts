@@ -1,14 +1,9 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type {
-    IPdfPersistResult,
-    TPdfSaveMode,
-} from '@app/types/pdf';
+import type { TPdfSaveMode } from '@app/types/pdfContracts';
+import type { IPdfPersistResult } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
-import {
-    buildNativePdfMutationPlanForSave,
-    type INativePdfMutationPlan,
-} from '@app/modules/pdf-viewer/public';
+import type { INativePdfMutationPlan } from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { toPdfDateString } from '@app/utils/pdfDate';
 import type { IFileOperationsSaveContext } from '@app/modules/workspace-shell/composables/file-operations/createFileOperationsSaveContext';
@@ -150,7 +145,6 @@ export function createFileOperationsSaveExecutor(
         state,
         pdf,
         persistence,
-        viewer,
     } = ports;
     const { completion } = services;
 
@@ -204,35 +198,62 @@ export function createFileOperationsSaveExecutor(
         return Boolean(persistence.nativeMutations?.trySavePdfNativeMutations);
     }
 
-    function logNativePdfMutationSkip(
-        opts: {
-            pendingTexts: Map<string, string> | null;
-            pendingDeletes: IAnnotationCommentSummary[] | null;
-            shapeStateDirty: boolean;
-            forcePdfjsMaterialize: boolean;
-            savedPdfjsAnnotationBaselineDirty?: boolean;
-            includeManagedShapesForLiveSource: boolean;
-            forceRewrite: boolean;
-            pageLabelsDirty: boolean;
-            bookmarksDirty: boolean;
+    function buildSaveTransactionRequest(
+        config: IFileOperationsSaveExecutionConfig,
+        context: IFileOperationsSaveContext,
+        options: {
+            allowNativeMutationPlan: boolean;
+            planOnly?: boolean;
         },
-        event: string,
-        reason: string,
-        details: Record<string, unknown> = {},
     ) {
-        BrowserLogger.debug('workspace', event, () => ({
-            reason,
-            pendingTexts: opts.pendingTexts?.size ?? 0,
-            pendingDeletes: opts.pendingDeletes?.length ?? 0,
-            shapeStateDirty: opts.shapeStateDirty,
-            forcePdfjsMaterialize: opts.forcePdfjsMaterialize,
-            savedPdfjsAnnotationBaselineDirty: opts.savedPdfjsAnnotationBaselineDirty,
-            includeManagedShapesForLiveSource: opts.includeManagedShapesForLiveSource,
-            forceRewrite: opts.forceRewrite,
-            pageLabelsDirty: opts.pageLabelsDirty,
-            bookmarksDirty: opts.bookmarksDirty,
-            ...details,
-        }));
+        return {
+            mode: 'persist' as const,
+            saveMode: config.saveMode,
+            saveFlowMode: config.mode,
+            forcePdfjsMaterialize: context.savePlan.pdfjsSourceMaterialization.required,
+            includeManagedShapes: context.savePlan.pdfjsSourceMaterialization.includeManagedShapesForLiveSource,
+            rewriteShapeState: context.shapeStateDirty,
+            forceRewrite: config.forceRewrite === true,
+            ...(options.planOnly !== undefined ? {planOnly: options.planOnly} : {}),
+            annotationCommentsSnapshot: context.annotationCommentsSnapshot,
+            ...(context.pendingChangesSource === 'viewer-service'
+                ? {consumePendingEmbeddedMutations: true}
+                : {
+                    pendingEmbeddedTextUpdates: context.pendingTexts,
+                    pendingEmbeddedAnnotationDeletes: context.pendingDeletes,
+                }),
+            dirtyState: {
+                annotationDirty: context.dirtyState.annotationDirty,
+                hasAnnotationChanges: context.dirtyState.annotationChanges,
+                hasLivePdfJsAnnotationChanges: context.dirtyState.livePdfJsAnnotations,
+                savedPdfjsAnnotationBaselineDirty: context.dirtyState.savedPdfjsAnnotationBaseline,
+                shapeStateDirty: context.shapeStateDirty,
+            },
+            nativeCapabilities: {
+                hasNativePdfMutationCapability: options.allowNativeMutationPlan && hasNativePdfMutationCapability(),
+                canPersistNativeMetadataMutations: options.allowNativeMutationPlan && canPersistNativeMetadataMutations(),
+            },
+            documentStructure: {
+                pageLabelsDirty: context.dirtyState.pageLabels,
+                pageLabelRanges: state.metadata.pageLabelRanges?.value ?? [],
+                bookmarksDirty: context.dirtyState.bookmarks,
+                bookmarkItems: state.metadata.bookmarkItems?.value ?? [],
+                untitledBookmarkLabel: state.metadata.untitledBookmarkLabel ?? '',
+                totalPages: state.metadata.totalPages?.value ?? pdf.source.pdfDocument.value?.numPages ?? 0,
+            },
+            source: {getSourcePdfData: pdf.source.getSourcePdfData},
+        };
+    }
+
+    async function runSaveTransactionForContext(
+        config: IFileOperationsSaveExecutionConfig,
+        context: IFileOperationsSaveContext,
+        options: {
+            allowNativeMutationPlan: boolean;
+            planOnly?: boolean;
+        },
+    ) {
+        return pdf.source.runSaveTransaction(buildSaveTransactionRequest(config, context, options));
     }
 
     function resolveExpectedWorkingPathForPersistence(
@@ -557,56 +578,6 @@ export function createFileOperationsSaveExecutor(
         return saveSucceeded;
     }
 
-    function buildNativeMutationPlanForContext(
-        config: IFileOperationsSaveExecutionConfig,
-        context: IFileOperationsSaveContext,
-    ) {
-        const annotationWorkDirty = context.dirtyState.annotationDirty
-            || (context.dirtyState.annotationChanges && !context.dirtyState.shapes);
-        const nativeMutationPlanContext = {
-            mode: config.mode,
-            pendingTexts: context.pendingTexts,
-            pendingDeletes: context.pendingDeletes,
-            shapeStateDirty: context.shapeStateDirty,
-            forcePdfjsMaterialize: context.savePlan.pdfjsSourceMaterialization.forcePdfjsMaterialize,
-            includeManagedShapesForLiveSource: context.savePlan.pdfjsSourceMaterialization.includeManagedShapesForLiveSource,
-            forceRewrite: config.forceRewrite === true,
-            savedPdfjsAnnotationBaselineDirty: context.dirtyState.savedPdfjsAnnotationBaseline,
-            pageLabelsDirty: context.dirtyState.pageLabels,
-            bookmarksDirty: context.dirtyState.bookmarks,
-        };
-        const nativeMutationPlanResult = buildNativePdfMutationPlanForSave({
-            ...nativeMutationPlanContext,
-            annotationCommentsSnapshot: context.annotationCommentsSnapshot,
-            hasNativePdfMutationCapability: hasNativePdfMutationCapability(),
-            annotationSavePlan: services.source.buildAnnotationSavePlan({
-                pendingTexts: context.pendingTexts,
-                pendingDeletes: context.pendingDeletes,
-            }),
-            annotationDirty: context.dirtyState.annotationDirty,
-            hasAnnotationChanges: context.dirtyState.annotationChanges,
-            hasLivePdfJsAnnotationChanges: context.dirtyState.livePdfJsAnnotations,
-            canPersistNativeMetadataMutations: canPersistNativeMetadataMutations(),
-            totalPageCount: state.metadata.totalPages?.value ?? pdf.source.pdfDocument.value?.numPages ?? 0,
-            pageLabelRanges: state.metadata.pageLabelRanges?.value ?? null,
-            bookmarkItems: state.metadata.bookmarkItems?.value ?? null,
-            untitledBookmarkLabel: state.metadata.untitledBookmarkLabel ?? '',
-            shapes: context.shapeStateDirty ? viewer.shapes.getAllShapes?.() ?? null : null,
-            deletedEmbeddedShapeAnnotationIds: context.shapeStateDirty ? viewer.shapes.getDeletedEmbeddedShapeAnnotationIds?.() ?? [] : [],
-            deletedEmbeddedShapeStableKeys: context.shapeStateDirty ? viewer.shapes.getDeletedEmbeddedShapeStableKeys?.() ?? [] : [],
-            markupSubtypeOverrides: annotationWorkDirty ? viewer.markup.getMarkupSubtypeOverrides?.() : undefined,
-            markupSubtypeHints: annotationWorkDirty ? viewer.markup.getMarkupSubtypeHints?.() ?? [] : [],
-        });
-        nativeMutationPlanResult.skipEvents.forEach(({
-            event,
-            reason,
-            details,
-        }) => {
-            logNativePdfMutationSkip(nativeMutationPlanContext, event, reason, details);
-        });
-        return nativeMutationPlanResult.plan;
-    }
-
     async function persistNativeMutationPlanForContext(
         config: IFileOperationsSaveExecutionConfig,
         context: IFileOperationsSaveContext,
@@ -731,8 +702,17 @@ export function createFileOperationsSaveExecutor(
         config: IFileOperationsSaveExecutionConfig,
         context: IFileOperationsSaveContext,
     ) {
-        const nativeMutationPlan = buildNativeMutationPlanForContext(config, context);
+        const saveTransaction = await runSaveTransactionForContext(
+            config,
+            context,
+            {
+                allowNativeMutationPlan: true,
+                planOnly: true,
+            },
+        );
+        const nativeMutationPlan = saveTransaction.nativeMutationPlan;
         if (!nativeMutationPlan) {
+            saveTransaction.restoreConsumedPendingEmbeddedMutations();
             return {status: 'fall-through' as const};
         }
 
@@ -740,6 +720,7 @@ export function createFileOperationsSaveExecutor(
         try {
             const persisted = await persistNativeMutationPlanForContext(config, context, nativeMutationPlan);
             if (!persisted) {
+                saveTransaction.restoreConsumedPendingEmbeddedMutations();
                 return {status: 'fall-through' as const};
             }
             const prepared = await prepareNativeShapeSaveCompletion(nativeMutationPlan);
@@ -752,12 +733,18 @@ export function createFileOperationsSaveExecutor(
                 prepared.canMarkShapeStateSaved,
             );
             if (saveSucceeded) {
+                saveTransaction.commitConsumedPendingEmbeddedMutations();
                 preparedShapeStateSnapshot = null;
+            } else {
+                saveTransaction.restoreConsumedPendingEmbeddedMutations();
             }
             return {
                 status: 'completed' as const,
                 saveSucceeded,
             };
+        } catch (error) {
+            saveTransaction.restoreConsumedPendingEmbeddedMutations();
+            throw error;
         } finally {
             await completion.restorePreparedShapeState(preparedShapeStateSnapshot);
         }
@@ -813,36 +800,48 @@ export function createFileOperationsSaveExecutor(
         context: IFileOperationsSaveContext,
     ) {
         await assertRendererSerializedSaveAllowed(context);
-        const rawData = await services.source.getSerializationBasePdfBytes({
-            forcePdfjsMaterialize: context.savePlan.pdfjsSourceMaterialization.required,
-            pendingDeletes: context.pendingDeletes,
-            pendingTexts: context.pendingTexts,
-        });
+        const saveTransaction = await runSaveTransactionForContext(
+            config,
+            context,
+            {allowNativeMutationPlan: false},
+        );
+        const rawData = saveTransaction.baseBytes ?? saveTransaction.serializedBytes;
         const persistenceExpectedWorkingPath = resolveExpectedWorkingPathForPersistence(
             context.savePlan.staleTargetProtection.expectedWorkingPath,
             context.savePlan.staleTargetProtection.expectedOriginalPath,
         );
         let saveSucceeded = false;
-        if (persistenceExpectedWorkingPath) {
-            saveSucceeded = await runSerializedSaveFlow(
-                rawData,
-                context.pendingTexts,
-                context.pendingDeletes,
-                context.annotationCommentsSnapshot,
-                context.shapeStateDirty,
-                context.reloadWaiter.current,
-                config.mode,
-                config.saveMode,
-                config.persistSerialized,
-                context.savePlan.livePdfjsAnnotationSession.canPreserve,
-                context.savePlan.pdfjsSourceMaterialization.includeManagedShapesForLiveSource,
-                config.forceRewrite === true,
-                persistenceExpectedWorkingPath,
-                context.saveStateSnapshot,
-                () => services.clearSaveIndicator(config.mode),
-            );
-        } else {
-            await completion.finalizeSaveReload(context.reloadWaiter.current, false);
+        try {
+            if (persistenceExpectedWorkingPath) {
+                saveSucceeded = await runSerializedSaveFlow(
+                    rawData,
+                    saveTransaction.pendingEmbeddedTextUpdates,
+                    saveTransaction.pendingEmbeddedAnnotationDeletes,
+                    saveTransaction.annotationCommentsSnapshot,
+                    context.shapeStateDirty,
+                    context.reloadWaiter.current,
+                    config.mode,
+                    config.saveMode,
+                    config.persistSerialized,
+                    context.savePlan.livePdfjsAnnotationSession.canPreserve,
+                    context.savePlan.pdfjsSourceMaterialization.includeManagedShapesForLiveSource,
+                    config.forceRewrite === true,
+                    persistenceExpectedWorkingPath,
+                    context.saveStateSnapshot,
+                    () => services.clearSaveIndicator(config.mode),
+                );
+                if (saveSucceeded) {
+                    saveTransaction.commitConsumedPendingEmbeddedMutations();
+                } else {
+                    saveTransaction.restoreConsumedPendingEmbeddedMutations();
+                }
+            } else {
+                saveTransaction.restoreConsumedPendingEmbeddedMutations();
+                await completion.finalizeSaveReload(context.reloadWaiter.current, false);
+            }
+        } catch (error) {
+            saveTransaction.restoreConsumedPendingEmbeddedMutations();
+            throw error;
         }
         context.reloadWaiter.markFinalized();
         return saveSucceeded;

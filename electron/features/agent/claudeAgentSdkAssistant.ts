@@ -206,10 +206,10 @@ export interface IClaudeAgentAssistantInit {
 export interface IClaudeAgentAssistantCallbacks {
     onInitialized(info: IClaudeAgentAssistantInit): void;
     onTurnStarted(turnId: string): void;
-    onAssistantDelta(messageId: string, delta: string): void;
-    onAssistantMessage(messageId: string, text: string, pending: boolean): void;
+    onAssistantDelta(turnId: string | null, messageId: string, delta: string): void;
+    onAssistantMessage(turnId: string | null, messageId: string, text: string, pending: boolean): void;
     onTurnCompleted(turnId: string | null): void;
-    onError(message: string): void;
+    onError(turnId: string | null, message: string): void;
 }
 
 export interface IClaudeAgentAssistantSessionOptions {
@@ -891,12 +891,6 @@ export class ClaudeAgentAssistantSession {
         return this.queryFastMode;
     }
 
-    // fallow-ignore-next-line unused-class-member
-    get id() {
-        return this.sessionId;
-    }
-
-    // fallow-ignore-next-line unused-class-member
     async sendMessage(
         text: string,
         attachments: IAgentAssistantImageAttachment[],
@@ -1049,14 +1043,14 @@ export class ClaudeAgentAssistantSession {
             }
 
             if (!this.closing && !this.interrupting) {
-                this.options.callbacks.onError('Claude assistant session ended.');
+                this.options.callbacks.onError(this.currentTurnId, 'Claude assistant session ended.');
             }
         } catch (error) {
             if (this.closing || this.interrupting || isInterruptedErrorMessage(getErrorMessage(error))) {
                 this.completeTurn();
                 return;
             }
-            this.options.callbacks.onError(getErrorMessage(error));
+            this.options.callbacks.onError(this.currentTurnId, getErrorMessage(error));
         }
     }
 
@@ -1069,7 +1063,7 @@ export class ClaudeAgentAssistantSession {
         if (message.type === 'stream_event') {
             const delta = extractTextDelta(message);
             if (delta && this.currentAssistantMessageId) {
-                this.options.callbacks.onAssistantDelta(this.currentAssistantMessageId, delta);
+                this.options.callbacks.onAssistantDelta(this.currentTurnId, this.currentAssistantMessageId, delta);
             }
             return;
         }
@@ -1077,7 +1071,7 @@ export class ClaudeAgentAssistantSession {
         if (message.type === 'assistant') {
             const text = extractAssistantText(message);
             if (text && this.currentAssistantMessageId) {
-                this.options.callbacks.onAssistantMessage(this.currentAssistantMessageId, text, true);
+                this.options.callbacks.onAssistantMessage(this.currentTurnId, this.currentAssistantMessageId, text, true);
             }
             return;
         }
@@ -1085,7 +1079,7 @@ export class ClaudeAgentAssistantSession {
         if (message.type === 'result') {
             const error = getResultErrorMessage(message);
             if (error) {
-                this.options.callbacks.onError(error);
+                this.options.callbacks.onError(this.currentTurnId, error);
                 return;
             }
             this.completeTurn();

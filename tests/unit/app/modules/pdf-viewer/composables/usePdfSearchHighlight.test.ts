@@ -8,7 +8,7 @@ import {
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
-} from '@app/types/pdf';
+} from '@app/types/pdfUi';
 import { buildVisualMatchesWithCurrent } from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
 import {
     clearTextLayerTextMapping,

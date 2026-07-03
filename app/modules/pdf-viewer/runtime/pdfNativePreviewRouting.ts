@@ -1,7 +1,7 @@
 import type {
     IPdfPathSource,
     TPdfSource,
-} from '@app/types/pdf';
+} from '@app/types/pdfUi';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 
 export const PDFJS_NATIVE_PREVIEW_MIN_BYTES = 512 * 1024 * 1024;

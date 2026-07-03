@@ -2,7 +2,8 @@ import type { Ref } from 'vue';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
+import type { IPageRange } from '@app/types/pdfUi';
 import type {
     ICurrentPageSyncOptions,
     IResizeAnchorContext,
@@ -12,6 +13,12 @@ import {
     isResizePdfRerenderSource,
     normalizePdfRerenderSource,
 } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
+import type {
+    IPdfViewerTransaction,
+    IPdfViewerTransactionCancellation,
+    TPdfViewerTransactionSource,
+    TPdfViewerTransactionState,
+} from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import type { TZoomInteractionLockOperationId } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
@@ -22,6 +29,27 @@ interface IZoomRerenderBusySignal {
     operationId?: TZoomInteractionLockOperationId | null | undefined;
     reason: string;
 }
+
+interface IZoomQueueTransactionController {
+    beginTransaction: (options: {
+        kind: 'zoom';
+        source: TPdfViewerTransactionSource;
+        page?: number | null | undefined;
+        range?: IPageRange | undefined;
+        anchor?: NonNullable<IPdfViewerTransaction['target']>['anchor'];
+    }) => IPdfViewerTransaction | null;
+    advanceTransaction: (
+        transactionId: number,
+        state: Exclude<TPdfViewerTransactionState, 'preparing' | 'cancelled'>,
+    ) => boolean;
+    cancelActiveTransaction: (
+        cancellation: IPdfViewerTransactionCancellation,
+        transactionId?: number | undefined,
+    ) => boolean;
+    isTransactionCurrent: (transactionId: number) => boolean;
+}
+
+interface IPendingZoomSyncOptions extends ICurrentPageSyncOptions {transactionId?: number | undefined;}
 
 interface IUsePdfViewerZoomRerenderQueueOptions {
     pdfDocument: Ref<PDFDocumentProxy | null>;
@@ -37,6 +65,7 @@ interface IUsePdfViewerZoomRerenderQueueOptions {
         busy: boolean,
         signal?: IZoomRerenderBusySignal,
     ) => TZoomInteractionLockOperationId | null | undefined) | undefined;
+    transactionController?: IZoomQueueTransactionController | undefined;
 }
 
 export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerenderQueueOptions) => {
@@ -51,9 +80,10 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
         isZoomInteractionLocked,
         isZoomGestureSessionLocked,
         setZoomRerenderBusy,
+        transactionController,
     } = options;
 
-    let pendingZoomSyncOptions: ICurrentPageSyncOptions | null = null;
+    let pendingZoomSyncOptions: IPendingZoomSyncOptions | null = null;
     let zoomRerenderFrameScheduled = false;
     let zoomRerenderDeferredTimer: ReturnType<typeof setTimeout> | null = null;
     let zoomRerenderQueueProcessing = false;
@@ -66,6 +96,80 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
     } | null = null;
     let lastReportedZoomBusy = false;
     let activeZoomRerenderLockOperationId: TZoomInteractionLockOperationId | null = null;
+    let activeZoomTransactionId: number | null = null;
+
+    function mapZoomRerenderSourceToTransactionSource(
+        source: string | null | undefined,
+    ): TPdfViewerTransactionSource {
+        const normalizedSource = normalizePdfRerenderSource(
+            source,
+            PDF_RERENDER_SOURCE.ZoomChange,
+        );
+        switch (normalizedSource) {
+            case PDF_RERENDER_SOURCE.ZoomGestureChange:
+                return 'zoom-gesture';
+            case PDF_RERENDER_SOURCE.ZoomSettle:
+                return 'zoom-settle';
+            default:
+                return 'zoom-change';
+        }
+    }
+
+    function beginZoomTransaction(syncOptions: ICurrentPageSyncOptions) {
+        const transaction = transactionController?.beginTransaction({
+            kind: 'zoom',
+            source: mapZoomRerenderSourceToTransactionSource(syncOptions.source),
+            page: syncOptions.resizeAnchor?.page ?? null,
+            range: syncOptions.resizeAnchor?.visibleRange,
+            anchor: syncOptions.resizeAnchor ? 'center' : null,
+        }) ?? null;
+        activeZoomTransactionId = transaction?.id ?? activeZoomTransactionId;
+        return transaction?.id;
+    }
+
+    function isZoomTransactionCurrent(syncOptions: IPendingZoomSyncOptions) {
+        return syncOptions.transactionId === undefined
+            || transactionController?.isTransactionCurrent(syncOptions.transactionId) !== false;
+    }
+
+    function cancelActiveZoomTransaction(reason: IPdfViewerTransactionCancellation['reason']) {
+        if (activeZoomTransactionId === null) {
+            return;
+        }
+        transactionController?.cancelActiveTransaction({
+            reason,
+            cancelInFlightRenders: true,
+            bumpRenderVersion: reason === 'zoom',
+            clearTimers: true,
+            preserveVisualContent: true,
+        }, activeZoomTransactionId);
+        activeZoomTransactionId = null;
+    }
+
+    function advanceZoomTransaction(
+        syncOptions: IPendingZoomSyncOptions,
+        state: Exclude<TPdfViewerTransactionState, 'preparing' | 'cancelled'>,
+    ) {
+        if (syncOptions.transactionId === undefined) {
+            return true;
+        }
+        const isCurrent = transactionController?.advanceTransaction(
+            syncOptions.transactionId,
+            state,
+        ) !== false;
+        if (state === 'settled' && activeZoomTransactionId === syncOptions.transactionId) {
+            activeZoomTransactionId = null;
+        }
+        return isCurrent;
+    }
+
+    function stripZoomTransactionId(syncOptions: IPendingZoomSyncOptions): ICurrentPageSyncOptions {
+        const {
+            transactionId: _transactionId,
+            ...currentPageSyncOptions
+        } = syncOptions;
+        return currentPageSyncOptions;
+    }
 
     function isZoomRerenderBusy() {
         return zoomRerenderQueueProcessing
@@ -176,10 +280,14 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
 
     function enqueueZoomSettleRerender() {
         zoomGestureLowResRerenderUsed = false;
-        pendingZoomSyncOptions = {
+        const syncOptions: ICurrentPageSyncOptions = {
             source: PDF_RERENDER_SOURCE.ZoomSettle,
             stabilize: true,
             resizeAnchor: buildResizeAnchorContext(),
+        };
+        pendingZoomSyncOptions = {
+            ...syncOptions,
+            transactionId: beginZoomTransaction(syncOptions),
         };
         reportZoomBusyStateIfChanged('zoom-settle-enqueue');
         scheduleZoomRerender();
@@ -220,6 +328,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
             return;
         }
         runGuardedTask(() => reRenderVisiblePagesAndSyncCurrentPage(syncOptions), {
+            category: 'user-visible-operation',
             scope: 'pdf-viewer',
             message: `Failed to ${stage}`,
         });
@@ -254,6 +363,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
             syncSource: normalizePdfRerenderSource(deferred.syncOptions.source),
         });
         runGuardedTask(() => reRenderVisiblePagesAndSyncCurrentPage(deferred.syncOptions), {
+            category: 'user-visible-operation',
             scope: 'pdf-viewer',
             message: `Failed to ${deferred.stage} (deferred until zoom settled)`,
         });
@@ -269,6 +379,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
             isLoading: isLoading.value,
         });
         pendingZoomSyncOptions = null;
+        cancelActiveZoomTransaction('zoom');
     }
 
     function takeNextPendingZoomSyncOptions() {
@@ -312,7 +423,15 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
                 }
 
                 logZoomQueueRun(nextSyncOptions);
-                await reRenderVisiblePagesAndSyncCurrentPage(nextSyncOptions);
+                if (!isZoomTransactionCurrent(nextSyncOptions)) {
+                    continue;
+                }
+                advanceZoomTransaction(nextSyncOptions, 'render-requested');
+                await reRenderVisiblePagesAndSyncCurrentPage(stripZoomTransactionId(nextSyncOptions));
+                if (!isZoomTransactionCurrent(nextSyncOptions)) {
+                    continue;
+                }
+                advanceZoomTransaction(nextSyncOptions, 'settled');
             }
         } finally {
             finishZoomRerenderQueueProcessing();
@@ -379,6 +498,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
             BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-queue-frame-fired', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] frame fired');
             await processPendingZoomRerenderQueue();
         }, {
+            category: 'user-visible-operation',
             scope: 'pdf-viewer',
             message: 'Failed to re-render visible pages after zoom change',
         });
@@ -394,6 +514,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
 
     function resetZoomRerenderQueueState(reason: string) {
         pendingZoomSyncOptions = null;
+        cancelActiveZoomTransaction('zoom');
         cancelDeferredResizeRerender(`zoom-queue-reset:${reason}`);
         clearZoomRerenderDeferredTimer();
         clearZoomSettleCheckTimer();
@@ -403,7 +524,11 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
     }
 
     function enqueueZoomSync(syncOptions: ICurrentPageSyncOptions) {
-        pendingZoomSyncOptions = syncOptions;
+        const transactionId = beginZoomTransaction(syncOptions);
+        pendingZoomSyncOptions = {
+            ...syncOptions,
+            transactionId,
+        };
         adoptPendingZoomLockOperation('zoom-watch-adopt-operation');
         reportZoomBusyStateIfChanged('zoom-watch-enqueue');
         scheduleZoomRerender();
@@ -415,6 +540,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
 
     function cleanupZoomRerenderQueue() {
         pendingZoomSyncOptions = null;
+        cancelActiveZoomTransaction('disposed');
         clearZoomRerenderDeferredTimer();
         clearZoomSettleCheckTimer();
         zoomRerenderFrameScheduled = false;

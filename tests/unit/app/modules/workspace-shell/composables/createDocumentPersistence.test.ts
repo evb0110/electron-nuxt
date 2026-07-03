@@ -204,6 +204,24 @@ describe('createDocumentPersistence', () => {
         expectBroadWorkingCopyFacadeNotUsed();
     });
 
+    it('keeps the working copy dirty when a browser save is canceled', async () => {
+        const {
+            deps,
+            persistence,
+            state,
+        } = createPersistenceHarness();
+        mocks.documentFilesCapability.saveFile.mockResolvedValueOnce(false);
+
+        const result = await persistence.saveWorkingCopy();
+
+        expect(result.success).toBe(false);
+        expect(state.isDirty.value).toBe(true);
+        expect(deps.markCurrentHistoryEntryClean).not.toHaveBeenCalled();
+        expect(mocks.documentFilesCapability.saveFile).toHaveBeenCalledWith('/tmp/old-working.pdf');
+        expectBroadFilePersistenceFacadeNotUsed();
+        expectBroadWorkingCopyFacadeNotUsed();
+    });
+
     it('repairs the working copy through the split file IO capability', async () => {
         const { persistence } = createPersistenceHarness();
 

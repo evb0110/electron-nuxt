@@ -71,6 +71,7 @@ describe('usePdfRendererSinglePageController', () => {
             renderingPageRequestIds,
             activeRenderTasks: new Map(),
             getRenderVersion: () => renderVersion,
+            getRenderDocumentToken: () => 'doc-1',
             getVisibleRenderRequestId: () => 1,
             summarizePageDom: () => ({}),
             clearSelectionBeforePageLayerTeardown: vi.fn(),
@@ -91,6 +92,7 @@ describe('usePdfRendererSinglePageController', () => {
             scheduleRenderForSinglePage: vi.fn(),
             scheduleMissingRenderTargetRetry: vi.fn(),
             clearMissingRenderTargetRetry: vi.fn(),
+            waitForRenderLifecycleDelay: vi.fn(async () => true),
             renderTextLayerForPage: vi.fn(async () => {
                 renderVersion = 2;
                 return false;
@@ -99,7 +101,10 @@ describe('usePdfRendererSinglePageController', () => {
                 shouldContinue: true,
                 annotationLayerInstance: null,
             })),
-            renderAnnotationEditorLayer: vi.fn(async () => true),
+            renderAnnotationEditorLayer: vi.fn(async () => ({
+                ok: true,
+                rendered: true,
+            } as const)),
             getViewportForAnnotationEditorLayer: vi.fn(() => ({}) as never),
             scheduleOcrDebugForPage: vi.fn(),
             logNonCriticalStageError: vi.fn(),
@@ -134,7 +139,10 @@ describe('usePdfRendererSinglePageController', () => {
         const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
         const releasePageResources = vi.fn();
         const getViewportForAnnotationEditorLayer = vi.fn(() => ({}) as never);
-        const renderAnnotationEditorLayer = vi.fn(async () => true);
+        const renderAnnotationEditorLayer = vi.fn(async () => ({
+            ok: true,
+            rendered: true,
+        } as const));
 
         const controller = usePdfRendererSinglePageController({
             isActive: true,
@@ -147,6 +155,7 @@ describe('usePdfRendererSinglePageController', () => {
             renderingPageRequestIds: new Map(),
             activeRenderTasks: new Map(),
             getRenderVersion: () => renderVersion,
+            getRenderDocumentToken: () => 'doc-1',
             getVisibleRenderRequestId: () => 1,
             summarizePageDom: () => ({}),
             clearSelectionBeforePageLayerTeardown: vi.fn(),
@@ -168,6 +177,7 @@ describe('usePdfRendererSinglePageController', () => {
             scheduleRenderForSinglePage: vi.fn(),
             scheduleMissingRenderTargetRetry: vi.fn(),
             clearMissingRenderTargetRetry: vi.fn(),
+            waitForRenderLifecycleDelay: vi.fn(async () => true),
             renderTextLayerForPage: vi.fn(async () => true),
             renderAnnotationLayersForPage: vi.fn(async () => ({
                 shouldContinue: true,
@@ -191,7 +201,12 @@ describe('usePdfRendererSinglePageController', () => {
         const { root } = createPageRoot();
         const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
         const releasePageResources = vi.fn();
-        const renderAnnotationEditorLayer = vi.fn(async () => false);
+        const renderAnnotationEditorLayer = vi.fn(async () => ({
+            ok: false,
+            reason: 'render-error',
+            error: new Error('failed'),
+            retryable: false,
+        } as const));
 
         const controller = usePdfRendererSinglePageController({
             isActive: true,
@@ -204,6 +219,7 @@ describe('usePdfRendererSinglePageController', () => {
             renderingPageRequestIds: new Map(),
             activeRenderTasks: new Map(),
             getRenderVersion: () => 1,
+            getRenderDocumentToken: () => 'doc-1',
             getVisibleRenderRequestId: () => 1,
             summarizePageDom: () => ({}),
             clearSelectionBeforePageLayerTeardown: vi.fn(),
@@ -222,6 +238,7 @@ describe('usePdfRendererSinglePageController', () => {
             scheduleRenderForSinglePage: vi.fn(),
             scheduleMissingRenderTargetRetry: vi.fn(),
             clearMissingRenderTargetRetry: vi.fn(),
+            waitForRenderLifecycleDelay: vi.fn(async () => true),
             renderTextLayerForPage: vi.fn(async () => true),
             renderAnnotationLayersForPage: vi.fn(async () => ({
                 shouldContinue: true,

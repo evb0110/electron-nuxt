@@ -7,6 +7,7 @@ import { usePdfMountedPageRenderRecovery } from '@app/modules/pdf-viewer/runtime
 import { usePdfViewerRenderingRuntime } from '@app/modules/pdf-viewer/runtime/rendering/usePdfViewerRenderingRuntime';
 import { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
 import { usePdfViewerRuntime } from '@app/modules/pdf-viewer/runtime/usePdfViewerRuntime';
+import { usePdfViewerTransactionController } from '@app/modules/pdf-viewer/runtime/transactions/usePdfViewerTransactionController';
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { usePdfViewportViewModel } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewportViewModel';
 import { usePdfViewerViewportLifecycle } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewerViewportLifecycle';
@@ -42,7 +43,7 @@ import type {
     IAnnotationModifiedPayload,
     ILinkAnnotation,
 } from '@app/types/annotations';
-import type { IPageRange } from '@app/types/pdf';
+import type { IPageRange } from '@app/types/pdfUi';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 
 export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdfViewerEmit) => {
@@ -69,6 +70,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         currentSearchMatchNavigationId,
         requestedCurrentPage,
         workingCopyPath,
+        documentRevisionToken,
         continuousScroll,
         isActive,
         authorName,
@@ -146,6 +148,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         currentPage: viewerCurrentPage,
         visibleRange,
         getMostVisiblePage,
+        getVisiblePageRange,
         scrollToPage: scrollToPageInternal,
         updateCurrentPage,
         updateVisibleRange,
@@ -267,6 +270,8 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         pageRangesIntersect(range, visibleRange.value)
     );
     let getNavigationRenderTargetPage = (): number | null => null;
+    const userViewportInteractionEpoch = ref(0);
+    let transactionController: ReturnType<typeof usePdfViewerTransactionController> | null = null;
     const {
         setupPagePlaceholders,
         renderVisiblePages,
@@ -305,10 +310,35 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         },
         revealSearchNavigationTarget: (pageNumber, options) => singlePageScroll.revealSearchNavigationTarget(pageNumber, options),
         endSearchNavigation: (settleMs?: number) => singlePageScroll.endSearchNavigation(settleMs),
+        beginSearchTransaction: (pageNumber, options) => (
+            transactionController?.beginTransaction({
+                kind: 'search',
+                source: 'search-navigation',
+                page: pageNumber,
+                anchor: options?.markerRect ? 'marker' : 'top',
+                markerRect: options?.markerRect ?? null,
+            })?.id ?? null
+        ),
+        isSearchTransactionCurrent: transactionId => (
+            transactionController?.isTransactionCurrent(transactionId) ?? true
+        ),
+        settleSearchTransaction: transactionId => {
+            transactionController?.advanceTransaction(transactionId, 'settled');
+        },
+        cancelSearchTransaction: transactionId => {
+            transactionController?.cancelActiveTransaction({
+                reason: 'superseded',
+                cancelInFlightRenders: false,
+                bumpRenderVersion: false,
+                clearTimers: true,
+                preserveVisualContent: true,
+            }, transactionId);
+        },
         searchPageMatches,
         currentSearchMatch,
         currentSearchMatchNavigationId,
         workingCopyPath,
+        documentRevisionToken,
         onRenderStall: relayPageRenderStall,
         isVisibleRenderRangeCurrent: range => isVisibleRenderRangeCurrent(range),
         onPageCanvasMounted: pageNumber => {
@@ -350,82 +380,12 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
                 renderBufferOverride: 0,
             }),
             {
+                category: 'user-visible-operation',
                 scope: 'pdf-viewer',
                 message: 'Failed to re-render PDF pages after display scale change',
             },
         );
     });
-    /**
-     * In paged fit-height/fit-width mode, current-page changes are rendered by
-     * `usePdfViewerRerenderCoordinator` after it hydrates the destination page
-     * metrics and recomputes scale. The generic paged row render would draw the
-     * same target at the previous scale first, then get cancelled by the fit
-     * rerender; on the 422 MB Girgas PDF that same-page cancel/restart was the
-     * source of the infinite last-page skeleton.
-     */
-    function shouldSuppressPagedFitRowRender() {
-        return (
-            !continuousScroll.value
-            && !isResizing.value
-            && (
-                (fitMode.value === 'height' && zoomMode.value === 'fit-height')
-                || (fitMode.value === 'width' && zoomMode.value === 'fit-width')
-            )
-        );
-    }
-    function isUsablePageMetric(pageNumber: number) {
-        const metric = pageMetrics.value[pageNumber - 1];
-        return typeof metric?.width === 'number'
-            && Number.isFinite(metric.width)
-            && metric.width > 0
-            && typeof metric.height === 'number'
-            && Number.isFinite(metric.height)
-            && metric.height > 0;
-    }
-    function getPageRangeNumbers(startPage: number, endPage: number) {
-        const pages: number[] = [];
-        for (let pageNumber = startPage; pageNumber <= endPage; pageNumber += 1) {
-            pages.push(pageNumber);
-        }
-        return pages;
-    }
-    function isTargetRowMetricReady(startPage: number, endPage: number) {
-        return getPageRangeNumbers(startPage, endPage).every(isUsablePageMetric);
-    }
-    function applyPreparedPagedTargetLayout(pageNumber: number, startPage: number, endPage: number) {
-        const didScaleChange = computeFitWidthScale(viewerContainer.value, { page: pageNumber });
-        setupPagePlaceholders();
-        if (didScaleChange) {
-            invalidateRenderedPages(getPageRangeNumbers(startPage, endPage));
-        }
-    }
-    function preparePagedTargetLayout(
-        pageNumber: number,
-        shouldContinue: () => boolean,
-    ) {
-        if (!shouldSuppressPagedFitRowRender() || numPages.value <= 0) {
-            return;
-        }
-
-        const rowBounds = getPageRowBoundsForViewMode({
-            pageNumber,
-            viewMode: viewMode.value,
-            totalPages: numPages.value,
-        });
-        if (isTargetRowMetricReady(rowBounds.start, rowBounds.end)) {
-            applyPreparedPagedTargetLayout(pageNumber, rowBounds.start, rowBounds.end);
-            return;
-        }
-
-        return (async () => {
-            await pdfDocumentResult.ensurePageMetricsInRange(rowBounds.start, rowBounds.end);
-            await nextTick();
-            if (!shouldContinue() || !shouldSuppressPagedFitRowRender()) {
-                return;
-            }
-            applyPreparedPagedTargetLayout(pageNumber, rowBounds.start, rowBounds.end);
-        })();
-    }
     const singlePageScroll = usePdfSinglePageNavigationController({
         viewerContainer,
         numPages,
@@ -439,10 +399,10 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         scrollToPageInternal,
         updateVisibleRange,
         updateCurrentPage,
+        commitVisibleRange: (range, options) => transactionController?.commitVisibleRange(range, options),
+        commitCurrentPage: (page, options) => transactionController?.commitCurrentPage(page, options),
         renderVisiblePages,
         ensurePageMetricsInRange: pdfDocumentResult.ensurePageMetricsInRange,
-        preparePagedTargetLayout,
-        suppressPagedRowRender: shouldSuppressPagedFitRowRender,
         isPageFreshlyRenderedForNavigation,
         visibleRange,
         emitCurrentPage: viewerEvents.updateCurrentPage,
@@ -450,13 +410,20 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         requestedCurrentPage,
         cancelPendingSearchScroll,
     });
+    transactionController = usePdfViewerTransactionController({
+        navigationState: singlePageScroll.navigationState,
+        currentPage: viewerCurrentPage,
+        visibleRange,
+        numPages,
+        viewMode,
+        pdfDocument,
+        userViewportInteractionEpoch,
+        emitCurrentPage: viewerEvents.updateCurrentPage,
+    });
     getNavigationRenderTargetPage = () => (
-        singlePageScroll.pagedNavigationTargetPage.value
-        ?? singlePageScroll.searchNavigationTargetPage.value
-        ?? singlePageScroll.continuousNavigationTargetPage.value
+        transactionController?.targetPage.value ?? null
     );
     const { navigationAnchorPage } = singlePageScroll;
-    const userViewportInteractionEpoch = ref(0);
 
     function markUserViewportInteraction() {
         userViewportInteractionEpoch.value += 1;
@@ -482,6 +449,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
                     : undefined,
             );
         }, {
+            category: 'user-visible-operation',
             scope: 'pdf-viewer',
             message: 'Failed to navigate PDF link destination',
         });
@@ -608,7 +576,9 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         },
         { immediate: true },
     );
-    const isCurrentPageFitRerenderTransitionActive = ref(false);
+    const isAuthoritativeFitTransactionActive = computed(() => (
+        transactionController?.isAuthoritativeFitTransactionActive.value ?? false
+    ));
     usePdfViewerSourceChangeLifecycle({
         src,
         isAnySaving,
@@ -671,6 +641,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         pagedNavigationTargetPage: singlePageScroll.pagedNavigationTargetPage,
         navigationAnchorPage,
         visibleRange,
+        commitVisibleRange: range => transactionController?.commitVisibleRange(range),
         effectiveScale,
         basePageWidth,
         basePageHeight,
@@ -691,6 +662,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         applySearchHighlights,
         isPageRendered,
         getMostVisiblePage,
+        getVisiblePageRange,
         updateCurrentPage,
         updateVisibleRange,
         scrollToPage: (
@@ -713,8 +685,9 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         beginVisualReloadTransition,
         endVisualReloadTransition,
         setCurrentPageFitRerenderTransitionActive: active => {
-            isCurrentPageFitRerenderTransitionActive.value = active;
+            transactionController?.setAuthoritativeFitTransactionActive(active);
         },
+        transactionController: transactionController ?? undefined,
         emitLoadError: viewerEvents.loadError,
         onDocumentLoadStateChange,
         emit,
@@ -805,7 +778,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         isLoading,
         hasDocument: computed(() => Boolean(pdfDocument.value)),
         numPages,
-        suppressRecovery: isCurrentPageFitRerenderTransitionActive,
+        suppressRecovery: isAuthoritativeFitTransactionActive,
         isPageMounted: hasMountedPageContainer,
         shouldRecoverPage: pageNumber => (
             shouldShowNavigationSkeleton(pageNumber)
@@ -821,6 +794,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
                 }
         ),
         renderVisiblePages,
+        transactionController: transactionController ?? undefined,
     });
     const {
         handleViewerMouseDown,
@@ -853,7 +827,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         viewerContainer,
         isVisualReloadTransitionActive,
         suppressLoadingOverlay,
-        suppressPagedBufferRender: isCurrentPageFitRerenderTransitionActive,
+        suppressPagedBufferRender: isAuthoritativeFitTransactionActive,
         skeletonContentInsets,
         pagesToRender,
         skeletonTrackedPages,
@@ -916,6 +890,8 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         captureViewerScrollSnapshot,
         restoreViewerScrollSnapshot,
         applyFitWidthToCurrentPage,
+        materializePdfJsDocumentForInternalUse,
+        runSaveTransaction,
         saveViewerDocument,
         renderLoadedPdfPagesForBrowserPrint,
     } = usePdfViewerExposeControllers({
@@ -923,6 +899,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         currentPage: viewerCurrentPage,
         pdfDocument,
         annotationUiManager,
+        annotationRuntime,
         isLoading,
         continuousScroll,
         fitMode,
@@ -958,7 +935,9 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         renderVisiblePages,
         preserveNextSourceReloadVisibleContent,
         getPagePreview,
+        runSaveTransaction,
         saveViewerDocument,
+        materializePdfJsDocumentForInternalUse,
         renderLoadedPdfPagesForBrowserPrint,
         undoAnnotation,
         redoAnnotation,

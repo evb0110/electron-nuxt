@@ -12,7 +12,7 @@ import type {
 import type {
     IPdfPageMetric,
     TPdfSource,
-} from '@app/types/pdf';
+} from '@app/types/pdfUi';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
@@ -45,6 +45,7 @@ function destroyPdfDocumentDeferred(
 ) {
     try {
         guardAsync(document.destroy(), {
+            category: 'background-diagnostic',
             scope: 'pdf-document',
             message,
             onError: (error) => {
@@ -384,6 +385,7 @@ export const usePdfDocument = () => {
         loadingTask = null;
         try {
             guardAsync(task.destroy(), {
+                category: 'background-diagnostic',
                 scope: 'pdf-document',
                 message: rejectedMessage,
                 onError: (destroyError) => {

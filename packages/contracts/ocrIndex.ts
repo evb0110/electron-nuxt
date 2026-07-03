@@ -1,9 +1,9 @@
 import type { IOcrWord } from '@contracts/shared';
+import type { IDocumentRevisionStamp } from '@contracts/documentRevision';
 
 export type TOcrIndexRotation = 0 | 90 | 180 | 270;
 
-export interface IOcrIndexV2Manifest {
-    version: 2;
+interface IOcrIndexManifestBase {
     createdAt: number;
     source: { pdfPath: string };
     pageCount: number;
@@ -16,7 +16,7 @@ export interface IOcrIndexV2Manifest {
     pages: Record<number, { path: string }>;
 }
 
-export interface IOcrIndexV2Page {
+interface IOcrIndexPageBase {
     pageNumber: number;
     rotation: TOcrIndexRotation;
     render: {
@@ -29,3 +29,14 @@ export interface IOcrIndexV2Page {
     text: string;
     words: IOcrWord[];
 }
+
+export interface IOcrIndexV2Manifest extends IOcrIndexManifestBase { version: 2; }
+
+export interface IOcrIndexV2Page extends IOcrIndexPageBase {}
+
+export interface IOcrIndexV3Manifest extends IOcrIndexManifestBase {
+    version: 3;
+    documentRevision: IDocumentRevisionStamp;
+}
+
+export interface IOcrIndexV3Page extends IOcrIndexPageBase { documentRevision: IDocumentRevisionStamp; }

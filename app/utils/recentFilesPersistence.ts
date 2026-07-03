@@ -1,6 +1,10 @@
 import type { IRecentFile } from '@contracts/shared';
 import { take } from 'es-toolkit/array';
 import {
+    inferDocumentRefBackend,
+    type TDocumentBackend,
+} from '@contracts/documentRef';
+import {
     getOptionalNumber,
     getOptionalString,
     isRecord,
@@ -19,6 +23,18 @@ interface IRecentFilesCookieSnapshot {
     truncated: boolean;
 }
 
+function normalizeRecentFileBackend(value: unknown, originalPath: unknown): TDocumentBackend | null {
+    if (value === 'browser' || value === 'electron') {
+        return value;
+    }
+    if (typeof originalPath !== 'string') {
+        return null;
+    }
+
+    const inferred = inferDocumentRefBackend(originalPath);
+    return inferred === 'unknown' ? null : inferred;
+}
+
 function normalizeRecentFileTuple(value: unknown): IRecentFile | null {
     if (!Array.isArray(value)) {
         return null;
@@ -29,16 +45,19 @@ function normalizeRecentFileTuple(value: unknown): IRecentFile | null {
     const fileName = tuple[1];
     const timestamp = tuple[2];
     const fileSize = tuple[3];
+    const backend = normalizeRecentFileBackend(tuple[4], originalPath);
     if (
         typeof originalPath !== 'string'
         || typeof fileName !== 'string'
         || typeof timestamp !== 'number'
+        || backend === null
     ) {
         return null;
     }
 
     return {
         originalPath,
+        backend,
         fileName,
         timestamp,
         ...(typeof fileSize === 'number' ? {fileSize} : {}),
@@ -79,6 +98,7 @@ function buildRecentFilesCookiePayload(recentFiles: IRecentFile[], truncated: bo
             file.fileName,
             file.timestamp,
             file.fileSize ?? null,
+            file.backend ?? inferDocumentRefBackend(file.originalPath),
         ]),
     };
 }
@@ -91,13 +111,15 @@ export function normalizeRecentFile(value: unknown): IRecentFile | null {
     const originalPath = getOptionalString(value, 'originalPath');
     const fileName = getOptionalString(value, 'fileName');
     const timestamp = getOptionalNumber(value, 'timestamp');
-    if (!originalPath || !fileName || timestamp === null) {
+    const backend = normalizeRecentFileBackend(value.backend, originalPath);
+    if (!originalPath || !fileName || timestamp === null || backend === null) {
         return null;
     }
 
     const fileSize = getOptionalNumber(value, 'fileSize');
     return {
         originalPath,
+        backend,
         fileName,
         timestamp,
         ...(fileSize === null ? {} : {fileSize}),

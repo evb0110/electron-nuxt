@@ -57,7 +57,7 @@ describe('useSettings', () => {
         } = useSettings();
 
         settings.value.locale = 'fr';
-        await save();
+        await expect(save()).resolves.toBe(true);
 
         expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({ locale: 'fr' }));
     });
@@ -70,7 +70,7 @@ describe('useSettings', () => {
         } = useSettings();
 
         Reflect.set(settings.value, 'locale', 'xx');
-        await save();
+        await expect(save()).resolves.toBe(true);
 
         expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({ locale: 'en' }));
     });
@@ -145,19 +145,28 @@ describe('useSettings', () => {
 
         const { useSettings } = await import('@app/composables/useSettings');
         const {
+            isSettingsSavePendingRetry,
             settings,
             save,
+            settingsSaveError,
+            settingsSaveStatus,
         } = useSettings();
 
         settings.value.locale = 'fr';
-        await save();
+        await expect(save()).resolves.toBe(false);
         expect(mockSave).toHaveBeenCalledTimes(1);
+        expect(settingsSaveStatus.value).toBe('retry-pending');
+        expect(settingsSaveError.value).toBe('temporary failure');
+        expect(isSettingsSavePendingRetry.value).toBe(true);
 
         settings.value.locale = 'de';
         await vi.advanceTimersByTimeAsync(1_000);
 
         expect(mockSave).toHaveBeenCalledTimes(2);
         expect(mockSave).toHaveBeenLastCalledWith(expect.objectContaining({ locale: 'de' }));
+        expect(settingsSaveStatus.value).toBe('idle');
+        expect(settingsSaveError.value).toBeNull();
+        expect(isSettingsSavePendingRetry.value).toBe(false);
         vi.useRealTimers();
     });
 

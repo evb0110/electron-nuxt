@@ -1,5 +1,6 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TTranslateFn } from '@i18n-app';
 import {
     getDocumentRefBaseName,
@@ -16,6 +17,7 @@ type TDocxBuilder = (text: string, hasRtl: boolean) => Uint8Array | Promise<Uint
 
 export async function exportTextAsDocx(params: {
     workingCopyPath: TDocumentRef | null;
+    documentRevisionToken: TDocumentRevisionToken | null;
     pdfDocument: PDFDocumentProxy | null;
     hasRtl: boolean;
     buildDocx: TDocxBuilder;
@@ -35,7 +37,9 @@ export async function exportTextAsDocx(params: {
         }
 
         try {
-            let text = params.workingCopyPath ? await loadOcrText(params.workingCopyPath) : null;
+            let text = params.workingCopyPath && params.documentRevisionToken
+                ? await loadOcrText(params.workingCopyPath, params.documentRevisionToken)
+                : null;
             if (!text && params.pdfDocument) {
                 text = await extractPdfText(params.pdfDocument);
             }

@@ -10,7 +10,7 @@ import type {
     PDFDocumentProxy,
     TFitMode,
     TZoomMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
 import type { IPdfViewerEmit } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 
 export interface IPdfViewerEventAdapter {

@@ -2,7 +2,7 @@ import {isFiniteNumber} from '@contracts/runtimeGuards';
 import type {
     IScrollSnapshot,
     TAnchorPageOutsideEdge,
-} from '@app/types/pdf';
+} from '@app/types/pdfUi';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import { MAX_PAGE_OUTSIDE_ANCHOR_OFFSET_PX } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/maxPageOutsideAnchorOffsetPx';
 import { BrowserLogger } from '@app/utils/browserLogger';

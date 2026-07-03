@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => ({
     optimizeLargePdfForSave: vi.fn(),
     optimizePdfForSave: vi.fn(),
     copyFileCopyOnWrite: vi.fn(),
+    markWorkingCopyContentChanged: vi.fn(),
 }));
 
 vi.mock('@electron/utils/atomicReplace', () => ({
@@ -58,6 +59,7 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     normalizePathForLookup: (path: string) => path.trim(),
     refreshWorkingCopyOriginalFileExpectation: (...args: unknown[]) => mocks.refreshWorkingCopyOriginalFileExpectation(...args),
 }));
+vi.mock('@electron/file-access/documentRevisionStore', () => ({markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args)}));
 vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args)}));
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args)}));
@@ -108,6 +110,7 @@ describe('workingCopySave', () => {
             errors: [],
             warnings: [],
         });
+        mocks.markWorkingCopyContentChanged.mockResolvedValue({});
         mocks.copyFileCopyOnWrite.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, await readFile(sourcePath));
         });
@@ -146,6 +149,51 @@ describe('workingCopySave', () => {
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledWith(workingPath, 42);
         expect(mocks.atomicReplace.mock.invocationCallOrder[0]!)
             .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[0]!);
+        expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
+    });
+
+    it('returns a structured success result for working-copy saves', async () => {
+        const workingPath = join(tempRoot, 'structured-working.pdf');
+        const originalPath = join(tempRoot, 'structured-original.pdf');
+        writeFileSync(workingPath, 'new-working');
+        writeFileSync(originalPath, 'old-original');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        const { handleFileSaveStructured } = await import('@electron/features/documents/main/workingCopySave');
+
+        await expect(handleFileSaveStructured(context, workingPath))
+            .resolves
+            .toMatchObject({
+                ok: true,
+                externalWriteCommitted: true,
+                workingCopyRefreshed: true,
+                validation: {isValid: true},
+            });
+        expect(readFileSyncUtf8(originalPath)).toBe('new-working');
+    });
+
+    it('returns structured partial success when original refresh fails after save', async () => {
+        const workingPath = join(tempRoot, 'refresh-fail-working.pdf');
+        const originalPath = join(tempRoot, 'refresh-fail-original.pdf');
+        writeFileSync(workingPath, 'new-working');
+        writeFileSync(originalPath, 'old-original');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        mocks.refreshWorkingCopyOriginalFileExpectation.mockImplementationOnce(() => {
+            throw new Error('refresh failed');
+        });
+        const { handleFileSaveStructured } = await import('@electron/features/documents/main/workingCopySave');
+
+        await expect(handleFileSaveStructured(context, workingPath))
+            .resolves
+            .toMatchObject({
+                ok: true,
+                externalWriteCommitted: true,
+                workingCopyRefreshed: false,
+                warning: {
+                    reason: 'refresh-failed',
+                    message: 'refresh failed',
+                },
+            });
+        expect(readFileSyncUtf8(originalPath)).toBe('new-working');
     });
 
     it('routes serialized PDF save and working-copy copy-back through the shared mutation queue', async () => {
@@ -175,6 +223,7 @@ describe('workingCopySave', () => {
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledWith(workingPath, 42);
         expect(mocks.copyFileCopyOnWrite.mock.invocationCallOrder[0]!)
             .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[0]!);
+        expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith(workingPath, 'save-sync', 42);
     });
 
     it('skips copy-back when the original file changed since the working copy was opened', async () => {
@@ -220,6 +269,7 @@ describe('workingCopySave', () => {
         expect(readFileSyncUtf8(originalPath)).toBe('serialized-pdf');
         expect(readFileSyncUtf8(workingPath)).toBe('old-working');
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
+        expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
     });
 
     it('repairs through qpdf before atomically replacing the original and working copy', async () => {
@@ -257,6 +307,7 @@ describe('workingCopySave', () => {
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledWith(workingPath, 42);
         expect(mocks.copyFileCopyOnWrite.mock.invocationCallOrder[0]!)
             .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[0]!);
+        expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith(workingPath, 'save-sync', 42);
     });
 
     it('optimizes the current PDF for interaction through qpdf before replacing the original', async () => {
@@ -277,6 +328,7 @@ describe('workingCopySave', () => {
         expect(readFileSyncUtf8(originalPath)).toBe('working-pdf');
         expect(readFileSyncUtf8(workingPath)).toBe('working-pdf');
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledWith(workingPath, 42);
+        expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith(workingPath, 'save-sync', 42);
     });
 });
 

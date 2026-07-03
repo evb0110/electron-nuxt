@@ -48,6 +48,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             canRepairSave,
             canOptimizePdf,
         }), {
+            category: 'background-diagnostic',
             scope: 'menu-sync',
             message: 'Failed to sync menu document state',
         });
@@ -65,6 +66,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             return;
         }
         guardAsync(setMenuTabCount(tabCount), {
+            category: 'background-diagnostic',
             scope: 'menu-sync',
             message: 'Failed to sync menu tab count',
         });

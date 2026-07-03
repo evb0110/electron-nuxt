@@ -1,7 +1,7 @@
 import type {
     IPdfConformanceProfile,
     TPdfSaveMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
 
 export function shouldForcePdfSaveAs(
     mode: TPdfSaveMode,

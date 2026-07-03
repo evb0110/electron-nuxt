@@ -14,10 +14,8 @@ import {
 import type { Ref } from 'vue';
 import { usePdfRenderViewModel } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
 import { PDF_VIEWER_PAGE_SKELETON_DELAY_MS } from '@app/constants/timeouts';
-import type {
-    PDFDocumentProxy,
-    TPdfSource,
-} from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
+import type { TPdfSource } from '@app/types/pdfUi';
 import { cast } from '@tests/helpers/cast';
 
 function createHarness(options?: {

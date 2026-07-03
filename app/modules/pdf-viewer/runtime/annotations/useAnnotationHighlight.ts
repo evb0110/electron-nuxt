@@ -1,15 +1,10 @@
 import { AnnotationEditorType } from '@app/services/pdfjs/runtimeLib';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
-import type {
-    Ref,
-    ShallowRef,
-} from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { delay } from 'es-toolkit/promise';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
-    TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type {
@@ -21,6 +16,12 @@ import type {
     ICreateTextMarkupFromTextResult,
     TAgentTextMarkupKind,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
+import type {
+    IEditorSnapshot,
+    IHighlightCommentContext,
+    IHighlightToolManager,
+    IUseAnnotationHighlightOptions,
+} from '@app/modules/pdf-viewer/runtime/annotations/annotationHighlightTypes';
 import { markerRectCenterDistance } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/markerRectCenterDistance';
 import { getCommentText } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/getCommentText';
 import { toMarkerRectFromEditor } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/toMarkerRectFromEditor';
@@ -61,78 +62,6 @@ const ANNOTATION_EDITOR_MARKER_RECT_RETRY_DELAY_MS = 16;
 const SELECTION_CLEAR_FALLBACK_DELAY_MS = 80;
 const SCROLL_RESTORE_FALLBACK_DELAY_MS = 48;
 const CREATED_EDITOR_SETTLE_DELAY_MS = 60;
-
-interface IHighlightIdentity {
-    getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
-    getEditorPendingKey: (editor: IPdfjsEditor, pageIndex: number) => string;
-}
-
-interface IHighlightMarkupSubtype {
-    toolToMarkupSubtype: Partial<Record<TAnnotationTool, TMarkupSubtype>>;
-    isSelectionMarkupTool: (tool: TAnnotationTool) => boolean;
-    setEditorMarkupSubtypeOverride: (
-        e: IPdfjsEditor,
-        pi: number,
-        s: TMarkupSubtype,
-        opts?: { preferEditorColor?: boolean },
-    ) => void;
-    resolveEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number) => TMarkupSubtype | null;
-    resolveEditorSubtypeFromPresentation: (e: IPdfjsEditor) => TMarkupSubtype | null;
-    syncMarkupSubtypePresentationForEditors: () => void;
-}
-
-interface IHighlightSync {
-    pendingCommentEditorKeys: Set<string>;
-    scheduleAnnotationCommentsSync: (immediate?: boolean) => void;
-    toEditorSummary: (editor: IPdfjsEditor, pageIndex: number, text: string) => IAnnotationCommentSummary;
-}
-
-interface IHighlightToolManager {
-    updateModeWithRetry: (
-        uiManager: AnnotationEditorUIManager,
-        mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
-        pageNumber?: number,
-    ) => Promise<unknown>;
-    maybeAutoResetAnnotationTool: () => void;
-}
-
-interface IUseAnnotationHighlightOptions {
-    viewerContainer: Ref<HTMLElement | null>;
-    annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
-    numPages: {value: number};
-    currentPage: Ref<number>;
-    annotationTool: Ref<TAnnotationTool>;
-    getIdentity: () => IHighlightIdentity;
-    getMarkupSubtype: () => IHighlightMarkupSubtype;
-    getSync: () => IHighlightSync;
-    getToolManager: () => IHighlightToolManager;
-    ensureAnnotationEditorLayerReady?: (pageNumber: number) => Promise<void>;
-    deferCreatedEditorUndoToStorage?: boolean;
-    stopDrag: () => void;
-    emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
-    emitAnnotationNotePlacementChange: (active: boolean) => void;
-}
-
-interface IHighlightCommentContext {
-    targetEditor: IPdfjsEditor | null;
-    pageIndex: number;
-    selectionPreviewText: string;
-    editorSnapshot: IEditorSnapshot;
-    getEditorsForPage: (pageIndex: number) => IPdfjsEditor[];
-    identity: IHighlightIdentity;
-    markupSubtypeOverride: TMarkupSubtype | null;
-    markupSubtype: IHighlightMarkupSubtype;
-    commentSync: IHighlightSync;
-    modeRestoredPromise: Promise<void>;
-    registerCreatedEditorUndo: (editor: IPdfjsEditor | null) => boolean;
-    applySubtypeOverrideToEditor: (editor: IPdfjsEditor | null) => boolean;
-    clearEditorSelectionVisuals: (editor: IPdfjsEditor | null) => void;
-}
-
-interface IEditorSnapshot {
-    editorsBeforeRefs: Set<IPdfjsEditor>;
-    editorsBeforeIds: Set<string>;
-}
 
 export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) => {
     const {
@@ -1212,6 +1141,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             return;
         }
         runGuardedTask(() => maybeApplySelectionMarkup(), {
+            category: 'user-visible-operation',
             scope: 'annotations',
             message: 'Failed to apply selection markup on pointer up',
         });

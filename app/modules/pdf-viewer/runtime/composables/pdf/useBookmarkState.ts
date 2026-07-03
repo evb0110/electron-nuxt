@@ -1,7 +1,5 @@
-import type {
-    IPdfBookmarkChangePayload,
-    IPdfBookmarkEntry,
-} from '@app/types/pdf';
+import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
+import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
 
 export const useBookmarkState = (deps: {
     markDirty: () => void;

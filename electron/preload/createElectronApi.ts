@@ -3,6 +3,7 @@ import type {
     webUtils,
 } from 'electron';
 import type { IElectronAPI } from '@contracts/electronApi';
+import { ELECTRON_PLATFORM_MANIFEST } from '@contracts/platformManifest';
 import type {
     IDocumentsFileIoCapability,
     IDocumentsMenuCapability,
@@ -234,6 +235,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         cleanupOcrTemp: baseDocuments.cleanupOcrTemp,
     } satisfies IDocumentsWorkingCopyCapability;
     const optionalDocumentFileMethods = {
+        ...(baseDocuments.saveFileStructured ? {saveFileStructured: baseDocuments.saveFileStructured} : {}),
         ...(baseDocuments.repairPdf ? {repairPdf: baseDocuments.repairPdf} : {}),
         ...(baseDocuments.optimizePdfForInteraction ? {optimizePdfForInteraction: baseDocuments.optimizePdfForInteraction} : {}),
         ...(baseDocuments.optimizePdfAsCopy ? {optimizePdfAsCopy: baseDocuments.optimizePdfAsCopy} : {}),
@@ -257,6 +259,8 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         readFileChunks: baseDocuments.readFileChunks,
         readTextFile: baseDocuments.readTextFile,
         fileExists: baseDocuments.fileExists,
+        getDocumentRevision: baseDocuments.getDocumentRevision,
+        onDocumentRevisionChanged: baseDocuments.onDocumentRevisionChanged,
         savePdfAs: baseDocuments.savePdfAs,
         savePdfDataAs: baseDocuments.savePdfDataAs,
         savePdfDialog: baseDocuments.savePdfDialog,
@@ -334,6 +338,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
     };
 
     const api = {
+        manifest: ELECTRON_PLATFORM_MANIFEST,
         documents,
         documentPicker,
         documentOpen,

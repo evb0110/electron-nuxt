@@ -40,6 +40,7 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
+import { markWorkingCopyContentChanged } from '@electron/file-access/documentRevisionStore';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -270,6 +271,7 @@ async function runNativeNoteCommand(
             try {
                 await measureNativeNotePhase(phaseTimings, 'sync-requesting-working-copy', () =>
                     syncNativeOutputToRequestingWorkingCopy(originalPath, normalizedWorkingPath, senderId));
+                await markWorkingCopyContentChanged(normalizedWorkingPath, 'native-mutation', senderId);
             } catch (syncError) {
                 log.warn(`Native note save committed, but working copy sync failed: ${JSON.stringify({
                     command: options.command,
@@ -386,6 +388,7 @@ async function runNativeWorkingCopyCommand(
 
             await measureNativeNotePhase(phaseTimings, 'atomic-replace-working-copy', () =>
                 atomicReplace(tempPath, normalizedWorkingPath));
+            await markWorkingCopyContentChanged(normalizedWorkingPath, 'native-mutation', senderId);
             log.debug(`Native working-copy mutation phase timings: ${JSON.stringify({
                 command: options.command,
                 totalMs: Math.round((performance.now() - operationStart) * 10) / 10,

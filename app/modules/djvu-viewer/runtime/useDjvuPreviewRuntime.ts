@@ -603,6 +603,17 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         });
     }
 
+    function withPreviewRequestId(renderOptions: unknown, previewRequestId: string) {
+        if (renderOptions && typeof renderOptions === 'object' && !Array.isArray(renderOptions)) {
+            return {
+                ...renderOptions,
+                previewRequestId,
+            };
+        }
+
+        return { previewRequestId };
+    }
+
     async function ensurePageLoaded(pageNumber: number) {
         const pageState = state.pageStates.value[pageNumber - 1];
         const worker = activeWorker;
@@ -614,6 +625,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         pageState.status = 'loading';
         pageState.token += 1;
         const token = pageState.token;
+        const previewRequestId = `${generation}:${pageNumber}:${token}`;
         const previewPlan = getPreviewResolutionPlan(pageNumber);
 
         try {
@@ -623,7 +635,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
             const {
                 objectUrl,
                 renderedPx,
-            } = await worker.renderPageObjectUrl(pageNumber, renderOptions);
+            } = await worker.renderPageObjectUrl(pageNumber, withPreviewRequestId(renderOptions, previewRequestId));
             const currentState = getCurrentPagePreviewLoadState(pageNumber, token, generation, worker);
             if (!currentState) {
                 discardStalePageObjectUrl(worker, objectUrl);

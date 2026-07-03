@@ -12,6 +12,7 @@ const annotationLayerCtor = vi.fn();
 const annotationLayerRender = vi.fn(async (_options: unknown) => {});
 
 vi.mock('@app/services/pdfjs/runtimeLib', () => ({
+    default: {version: '5.7.284'},
     AnnotationLayer: class MockAnnotationLayer {
         constructor(options: unknown) {
             annotationLayerCtor(options);
@@ -23,9 +24,14 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({
     },
     AnnotationEditorLayer: class MockAnnotationEditorLayer {
         disable() {}
+        destroy() {}
     },
     AnnotationEditorUIManager: class MockAnnotationEditorUIManager {
         readonly kind = 'mock';
+
+        get currentLayer() {
+            return null;
+        }
     },
     AnnotationEditorType: {},
     DrawLayer: class MockDrawLayer {

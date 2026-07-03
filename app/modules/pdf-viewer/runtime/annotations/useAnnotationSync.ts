@@ -12,7 +12,7 @@ import type {
     ILinkAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { detectEditorSubtype } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/detectEditorSubtype';
 import { getCommentText } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/getCommentText';
@@ -797,6 +797,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         stop: cancelDebouncedSync,
     } = useTimeoutFn(() => {
         runGuardedTask(() => syncAnnotationComments(), {
+            category: 'background-diagnostic',
             scope: 'annotations',
             message: 'Failed to synchronize annotation comments (debounced)',
         });
@@ -806,6 +807,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         if (immediate) {
             cancelDebouncedSync();
             runGuardedTask(() => syncAnnotationComments(), {
+                category: 'background-diagnostic',
                 scope: 'annotations',
                 message: 'Failed to synchronize annotation comments',
             });

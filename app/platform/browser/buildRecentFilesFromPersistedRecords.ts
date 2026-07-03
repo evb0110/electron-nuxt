@@ -13,6 +13,7 @@ export function buildRecentFilesFromPersistedRecords(
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .map<IRecentFile>(record => ({
             originalPath: record.ref,
+            backend: 'browser',
             fileName: record.saveName ?? record.fileName,
             timestamp: record.updatedAt,
             fileSize: record.fileSize,

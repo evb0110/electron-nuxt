@@ -1,10 +1,10 @@
 import type { PageViewport } from 'pdfjs-dist';
 import type { IOcrWord } from '@contracts/shared';
-import type { IOcrIndexV2Page } from '@contracts/ocrIndex';
+import type { IOcrIndexV3Page } from '@contracts/ocrIndex';
 
 export function transformOcrWordToViewport(
     word: IOcrWord,
-    ocrPageData: IOcrIndexV2Page,
+    ocrPageData: IOcrIndexV3Page,
     pageWidth: number,
     pageHeight: number,
     viewport: PageViewport,

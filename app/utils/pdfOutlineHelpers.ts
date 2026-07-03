@@ -7,7 +7,7 @@ import type {
     IBookmarkItem,
     IBookmarkLocation,
 } from '@app/types/pdfOutline';
-import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     getOptionalArray,

@@ -1,11 +1,12 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
-    IOcrIndexV2Manifest,
-    IOcrIndexV2Page,
+    IOcrIndexV3Manifest,
+    IOcrIndexV3Page,
 } from '@contracts/ocrIndex';
 
-export type IOcrManifest = IOcrIndexV2Manifest;
-export type IOcrPageData = IOcrIndexV2Page;
+export type IOcrManifest = IOcrIndexV3Manifest;
+export type IOcrPageData = IOcrIndexV3Page;
 
 export interface IOcrTextContentCacheStats {
     manifestEntries: number;
@@ -20,10 +21,10 @@ export interface IOcrTextContentCacheOptions {
 }
 
 export interface IOcrTextContentCache {
-    getManifest(workingCopyPath: TDocumentRef): IOcrManifest | null | undefined;
-    setManifest(workingCopyPath: TDocumentRef, manifest: IOcrManifest | null): void;
-    getPageData(workingCopyPath: TDocumentRef, pageNumber: number): IOcrPageData | undefined;
-    setPageData(workingCopyPath: TDocumentRef, pageNumber: number, pageData: IOcrPageData): void;
+    getManifest(workingCopyPath: TDocumentRef, documentRevisionToken: TDocumentRevisionToken): IOcrManifest | null | undefined;
+    setManifest(workingCopyPath: TDocumentRef, documentRevisionToken: TDocumentRevisionToken, manifest: IOcrManifest | null): void;
+    getPageData(workingCopyPath: TDocumentRef, documentRevisionToken: TDocumentRevisionToken, pageNumber: number): IOcrPageData | undefined;
+    setPageData(workingCopyPath: TDocumentRef, documentRevisionToken: TDocumentRevisionToken, pageNumber: number, pageData: IOcrPageData): void;
     clearCache(workingCopyPath?: TDocumentRef): void;
     getStats(): IOcrTextContentCacheStats;
 }

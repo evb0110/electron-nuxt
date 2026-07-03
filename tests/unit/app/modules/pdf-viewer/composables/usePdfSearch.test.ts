@@ -6,7 +6,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { Ref } from 'vue';
+import {
+    ref,
+    type Ref,
+} from 'vue';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 
 interface IPdfSearchTestExcerpt {
@@ -33,7 +36,11 @@ interface IPdfSearchTestProgress {
     truncated?: boolean;
 }
 
-interface IPdfSearchRunOptions { requestId: string }
+interface IPdfSearchRunOptions {
+    documentRevision?: string;
+    pageCount?: number;
+    requestId: string;
+}
 
 interface IPdfSearchRunResult {
     results: unknown[];
@@ -90,9 +97,9 @@ const mockSearch = {
 vi.mock('@app/utils/getSearchCapability', () => ({ getSearchCapability: () => mockSearch }));
 vi.mock('#imports', () => ({ useTypedI18n: () => ({ t: (key: string) => key }) }));
 
-async function createPdfSearch(): Promise<IPdfSearchTestApi> {
+async function createPdfSearch(options?: { documentRevisionToken?: Ref<string | null> }): Promise<IPdfSearchTestApi> {
     const { usePdfSearch } = await import('@app/modules/pdf-viewer/runtime/composables/usePdfSearch');
-    return usePdfSearch() as IPdfSearchTestApi;
+    return usePdfSearch(options) as IPdfSearchTestApi;
 }
 
 describe('usePdfSearch', () => {
@@ -686,6 +693,80 @@ describe('usePdfSearch', () => {
         expect(applied).toBe(false);
         expect(search.searchError.value).toBe('errors.search.browserTooLarge');
         expect(search.results.value).toEqual([]);
+        expect(search.isSearching.value).toBe(false);
+    });
+
+    it('passes the current document revision and ignores stale progress and results', async () => {
+        const documentRevisionToken = ref<string | null>('revision-a');
+        let requestId = '';
+        let progressListener: (progress: {
+            requestId: string;
+            processed: number;
+            total: number;
+            results?: Array<{
+                pageNumber: number;
+                pageMatchIndex: number;
+                matchIndex: number;
+                startOffset: number;
+                endOffset: number;
+            }>;
+        }) => void = () => {
+            throw new Error('Progress listener was not registered');
+        };
+        let resolveSearch: (value: {
+            results: Array<{
+                pageNumber: number;
+                pageMatchIndex: number;
+                matchIndex: number;
+                startOffset: number;
+                endOffset: number;
+            }>;
+            truncated: boolean;
+        }) => void = () => {};
+
+        mockSearch.onProgress.mockImplementation((listener) => {
+            progressListener = listener;
+            return vi.fn();
+        });
+        mockSearch.run.mockImplementation(async (_pdfPath, _query, options) => {
+            requestId = options.requestId;
+            expect(options.documentRevision).toBe('revision-a');
+            return new Promise((resolve) => {
+                resolveSearch = resolve;
+            });
+        });
+        const search = await createPdfSearch({documentRevisionToken});
+
+        const searchPromise = search.search('alpha', '/tmp/work.pdf', 1);
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+
+        documentRevisionToken.value = 'revision-b';
+        progressListener({
+            requestId,
+            processed: 1,
+            total: 1,
+            results: [{
+                pageNumber: 1,
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                startOffset: 0,
+                endOffset: 5,
+            }],
+        });
+        resolveSearch({
+            results: [{
+                pageNumber: 1,
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                startOffset: 0,
+                endOffset: 5,
+            }],
+            truncated: false,
+        });
+
+        await expect(searchPromise).resolves.toBe(false);
+        expect(search.results.value).toEqual([]);
+        expect(search.searchProgress.value).toBeUndefined();
         expect(search.isSearching.value).toBe(false);
     });
 });

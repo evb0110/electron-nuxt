@@ -1,10 +1,8 @@
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import { resolveCurrentSpreadBaseWidth } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveCurrentSpreadBaseWidth';
-import type {
-    IPdfPageMetric,
-    TPdfViewMode,
-} from '@app/types/pdf';
+import type { TPdfViewMode } from '@app/types/pdfContracts';
+import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type { IRenderedSpreadHorizontalBounds } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/pdfHorizontalScrollClampTypes';
 
 export function getCurrentSpreadRenderedBoundsFromMetrics(options: {

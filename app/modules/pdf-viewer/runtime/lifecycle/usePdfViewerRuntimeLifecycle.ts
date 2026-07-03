@@ -10,15 +10,17 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type {
-    IPageRange,
-    IScrollSnapshot,
     PDFDocumentProxy,
     PDFPageProxy,
     TFitMode,
-    TPdfSource,
     TPdfViewMode,
     TZoomMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type {
+    IPageRange,
+    IScrollSnapshot,
+    TPdfSource,
+} from '@app/types/pdfUi';
 import type { usePdfDocument } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
 import type { IFitScalePageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScale';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
@@ -31,6 +33,7 @@ import { usePdfViewerResizeLifecycle } from '@app/modules/pdf-viewer/runtime/com
 import { usePdfViewerRerenderCoordinator } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerRerenderCoordinator';
 import { usePdfViewerRenderStallRecovery } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerRenderStallRecovery';
 import { usePdfViewerZoomRerenderQueue } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerZoomRerenderQueue';
+import type { usePdfViewerTransactionController } from '@app/modules/pdf-viewer/runtime/transactions/usePdfViewerTransactionController';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { usePdfViewerActivationRestore } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerActivationRestore';
 import { usePdfViewerAnnotationRuntimeBridge } from '@app/modules/pdf-viewer/runtime/annotations/usePdfViewerAnnotationRuntimeBridge';
@@ -46,6 +49,7 @@ import type {
 import type { TZoomInteractionLockOperationId } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
 
 type TPdfDocumentResult = ReturnType<typeof usePdfDocument>;
+type TPdfViewerRuntimeTransactionController = ReturnType<typeof usePdfViewerTransactionController>;
 
 interface IZoomRerenderBusySignal {
     operationId?: TZoomInteractionLockOperationId | null | undefined;
@@ -90,6 +94,7 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
         start: number;
         end: number;
     }>;
+    commitVisibleRange?: ((range: IPageRange) => boolean | undefined) | undefined;
     effectiveScale: Ref<number>;
     basePageWidth: Ref<number | null>;
     basePageHeight: Ref<number | null>;
@@ -136,6 +141,7 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
         container: HTMLElement | null,
         numPages: number,
     ) => number;
+    getVisiblePageRange?: ((container: HTMLElement | null, numPages: number) => IPageRange) | undefined;
     updateCurrentPage: (
         container: HTMLElement | null,
         numPages: number,
@@ -172,6 +178,7 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     beginVisualReloadTransition: (reason: string) => number;
     endVisualReloadTransition: (token: number, reason: string) => void;
     setCurrentPageFitRerenderTransitionActive?: ((active: boolean) => void) | undefined;
+    transactionController?: TPdfViewerRuntimeTransactionController | undefined;
     emitLoadError?: ((error: unknown) => void) | undefined;
     emit: {
         (e: 'update:zoom', value: number): void;
@@ -228,6 +235,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         applySearchHighlights,
         isPageRendered,
         getMostVisiblePage,
+        getVisiblePageRange,
         updateCurrentPage,
         updateVisibleRange,
         scrollToPage,
@@ -245,6 +253,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         beginVisualReloadTransition,
         endVisualReloadTransition,
         setCurrentPageFitRerenderTransitionActive,
+        transactionController,
         emitLoadError,
         emit,
     } = options;
@@ -316,6 +325,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         scheduleReload: (isReload = false) => {
             scheduleLoadFromSource(isReload);
         },
+        transactionController,
     });
 
     function isPageNearVisible(page: number) {
@@ -345,11 +355,10 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
                 viewMode: viewMode.value,
                 totalPages: numPages.value,
             });
-            visibleRange.value = {
+            return {
                 start: rowBounds.start,
                 end: rowBounds.end,
             };
-            return visibleRange.value;
         }
         updateVisibleRange(viewerContainer.value, numPages.value);
         return visibleRange.value;
@@ -368,11 +377,13 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         currentPage,
         visibleRange,
         viewMode,
+        getVisiblePageRange,
         updateVisibleRange,
         scrollToPage,
         renderVisiblePages,
         isPageRendered,
         applySearchHighlights,
+        transactionController,
     });
 
     let rerenderVisiblePagesAndSyncCurrentPage: (
@@ -449,6 +460,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         summarizeVisiblePageSnapshotForLog,
         scheduleResizeAwareRerender: (stage, syncOptions) => scheduleResizeAwareRerender(stage, syncOptions),
         setResizeTransitionVisible,
+        transactionController,
     });
 
     const {
@@ -485,6 +497,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         syncCurrentPageFromViewport: (options) => syncCurrentPageFromViewport(options),
         getUserViewportInteractionEpoch,
         applySearchHighlights,
+        getVisiblePageRange,
         updateVisibleRange,
         scrollToPage,
         cleanupRenderedPages,
@@ -503,6 +516,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         suppressNextZoomRerender,
         beginVisualReloadTransition,
         endVisualReloadTransition,
+        transactionController,
         emitLoadError,
         onDocumentLoadStateChange: options.onDocumentLoadStateChange,
         emit,
@@ -518,6 +532,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         isZoomInteractionLocked,
         isZoomGestureSessionLocked,
         setZoomRerenderBusy,
+        transactionController,
     });
     resetZoomRerenderQueueState = zoomRerenderQueue.resetZoomRerenderQueueState;
     scheduleResizeAwareRerender = zoomRerenderQueue.scheduleResizeAwareRerender;
@@ -533,6 +548,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         pagedNavigationTargetPage: options.pagedNavigationTargetPage,
         navigationAnchorPage: options.navigationAnchorPage,
         visibleRange,
+        commitVisibleRange: options.commitVisibleRange,
         zoom,
         fitMode,
         viewMode,
@@ -565,6 +581,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         beginResizeTransition,
         consumeSuppressedZoomRerender,
         setCurrentPageFitRerenderTransitionActive,
+        transactionController,
     });
     rerenderVisiblePagesAndSyncCurrentPage = reRenderVisiblePagesAndSyncCurrentPageFromCoordinator;
 
@@ -612,6 +629,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
             }
             if (pdfDocument.value && !isLoading.value) {
                 runGuardedTask(() => renderActiveDocumentAfterActivation(runId), {
+                    category: 'user-visible-operation',
                     scope: 'pdf-viewer',
                     message: 'Failed to restore PDF rendering after tab activation',
                 });

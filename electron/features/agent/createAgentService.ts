@@ -63,8 +63,8 @@ export function createAgentService(): IAgentService {
         startAssistantLogin: (context, request) =>
             startAgentAssistantLogin(request, context.parentWindow),
         cancelAssistantLogin: () => cancelAgentAssistantLogin(),
-        sendAssistantMessage: (_context, request) =>
-            sendAgentAssistantMessage(request),
+        sendAssistantMessage: (context, request) =>
+            sendAgentAssistantMessage(request, { windowId: context.parentWindow?.id ?? null }),
         interruptAssistant: (_context, request) =>
             interruptAgentAssistant(request),
         resetAssistantChat: (_context, request) =>

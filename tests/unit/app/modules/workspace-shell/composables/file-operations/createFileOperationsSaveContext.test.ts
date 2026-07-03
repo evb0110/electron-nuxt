@@ -63,6 +63,18 @@ function createContextPorts(overrides: {
         },
         pdf: {source: {
             pdfDocument: shallowRef(null),
+            runSaveTransaction: vi.fn(async () => ({
+                source: 'pdfjs-materialize' as const,
+                baseBytes: null,
+                serializedBytes: new Uint8Array([1]),
+                nativeMutationPlan: null,
+                annotationSavePlan: null,
+                annotationCommentsSnapshot: [],
+                pendingEmbeddedTextUpdates: new Map(),
+                pendingEmbeddedAnnotationDeletes: [],
+                restoreConsumedPendingEmbeddedMutations: vi.fn(),
+                commitConsumedPendingEmbeddedMutations: vi.fn(),
+            })),
             saveDocument: vi.fn(async () => new Uint8Array([1])),
             getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
             commitPdfEditorsForSave: overrides.commitPdfEditorsForSave ?? vi.fn(async () => undefined),
@@ -124,7 +136,7 @@ describe('createFileOperationsSaveContext', () => {
         expect(preparePostSaveReload).not.toHaveBeenCalled();
     });
 
-    it('commits editors before pending edit consumption and assembles the save plan context', async () => {
+    it('consumes pending edits and assembles the save plan context without owning PDF.js commit', async () => {
         const callOrder: string[] = [];
         const phases: string[] = [];
         const pendingTexts = new Map([[
@@ -160,12 +172,12 @@ describe('createFileOperationsSaveContext', () => {
         );
 
         expect(context).not.toBeNull();
-        expect(phases).toEqual(['commit-pdf-editors-for-save']);
+        expect(phases).toEqual([]);
         expect(callOrder).toEqual([
-            'commit-editors',
             'consume-texts',
             'consume-deletes',
         ]);
+        expect(commitPdfEditorsForSave).not.toHaveBeenCalled();
         expect(context?.dirtyState).toMatchObject({
             pageLabels: true,
             pendingTexts: true,

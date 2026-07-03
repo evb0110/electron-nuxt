@@ -1,5 +1,5 @@
 import type { IAgentAssistantStatus } from '@contracts/agent';
-import { getAgentAssistantPanelView } from '@app/modules/workspace-shell/agent/getAgentAssistantPanelView';
+import { getAgentAssistantPanelView } from '@app/modules/agent-panel/public/agentAssistantPanelView';
 
 export type TSettingsAssistantAction = 'install' | 'update' | 'sign-in';
 export type TSettingsAssistantActionLabelKey =

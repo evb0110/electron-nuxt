@@ -1,3 +1,5 @@
+import type { IPdfViewerTransactionRenderRequest } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
+
 export interface IRenderVisiblePagesOptions {
     preserveRenderedPages?: boolean;
     bufferOverride?: number;
@@ -10,4 +12,5 @@ export interface IRenderVisiblePagesOptions {
     markRenderedPageStale?: boolean;
     preserveInFlightRequiredPages?: boolean;
     prioritizeTextLayer?: boolean;
+    transactionRequest?: IPdfViewerTransactionRenderRequest;
 }

@@ -5,6 +5,7 @@ const SETTINGS_SAVE_RETRY_INITIAL_DELAY_MS = 1_000;
 const SETTINGS_SAVE_RETRY_MAX_DELAY_MS = 30_000;
 
 type TSettingsSaveTimer = ReturnType<typeof setTimeout>;
+export type TSettingsPersistenceStatus = 'idle' | 'saving' | 'retry-pending';
 
 export interface ISettingsPersistenceScheduler {
     setTimeout: (callback: () => void, delayMs: number) => TSettingsSaveTimer;
@@ -17,13 +18,14 @@ export interface ISettingsPersistenceQueueOptions {
     savePatch: (patch: Partial<ISettingsData>) => Promise<void>;
     onSaved: (settings: ISettingsData) => void;
     onSaveError: (error: unknown) => void;
+    onStatusChanged?: (status: TSettingsPersistenceStatus, error?: unknown) => void;
     scheduler?: ISettingsPersistenceScheduler;
     retryInitialDelayMs?: number;
     retryMaxDelayMs?: number;
 }
 
 export interface ISettingsPersistenceQueue {
-    save: () => Promise<void>;
+    save: () => Promise<boolean>;
     clearRetryTimer: () => void;
     hasRetryScheduled: () => boolean;
 }
@@ -61,10 +63,14 @@ export function createSettingsPersistenceQueue(
     const scheduler = options.scheduler ?? DEFAULT_SETTINGS_PERSISTENCE_SCHEDULER;
     const retryInitialDelayMs = options.retryInitialDelayMs ?? SETTINGS_SAVE_RETRY_INITIAL_DELAY_MS;
     const retryMaxDelayMs = options.retryMaxDelayMs ?? SETTINGS_SAVE_RETRY_MAX_DELAY_MS;
-    let saveInFlight: Promise<void> | null = null;
+    let saveInFlight: Promise<boolean> | null = null;
     let saveDirty = false;
     let saveRetryTimer: TSettingsSaveTimer | null = null;
     let saveRetryDelayMs = retryInitialDelayMs;
+
+    function setStatus(status: TSettingsPersistenceStatus, error?: unknown) {
+        options.onStatusChanged?.(status, error);
+    }
 
     function clearRetryTimer() {
         if (!saveRetryTimer) {
@@ -100,11 +106,13 @@ export function createSettingsPersistenceQueue(
                 options.onSaveError(error);
                 saveDirty = true;
                 scheduleSaveRetry();
-                return;
+                setStatus('retry-pending', error);
+                return false;
             }
 
             if (!saveDirty) {
-                return;
+                setStatus('idle');
+                return true;
             }
         }
     }
@@ -116,6 +124,7 @@ export function createSettingsPersistenceQueue(
         }
 
         clearRetryTimer();
+        setStatus('saving');
         saveInFlight = runSaveQueue().finally(() => {
             saveInFlight = null;
         });

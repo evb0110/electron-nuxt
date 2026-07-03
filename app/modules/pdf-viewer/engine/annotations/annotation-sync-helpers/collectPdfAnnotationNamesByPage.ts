@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import {
     PDFArray,
     PDFDocument,

@@ -30,6 +30,13 @@ export interface IAnnotationNoteWindowDeps {
         comment: IAnnotationCommentSummary,
         text: string,
     ) => boolean;
+    queuePendingEmbeddedTextUpdate?: (
+        stableKey: string,
+        comment: IAnnotationCommentSummary,
+        text: string,
+    ) => boolean;
+    clearPendingEmbeddedTextUpdate?: (stableKey: string) => void;
+    migratePendingEmbeddedTextUpdate?: (previousKey: string, nextKey: string) => void;
     isAnnotationCommentSyncReady?: () => boolean;
 }
 
@@ -40,6 +47,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         annotationComments,
         markAnnotationDirty,
         updateAnnotationCommentInViewer,
+        queuePendingEmbeddedTextUpdate: queuePendingEmbeddedTextUpdateInViewer,
+        clearPendingEmbeddedTextUpdate: clearPendingEmbeddedTextUpdateInViewer,
+        migratePendingEmbeddedTextUpdate: migratePendingEmbeddedTextUpdateInViewer,
         isAnnotationCommentSyncReady = () => true,
     } = deps;
 
@@ -54,6 +64,35 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     const annotationNoteDebounceTimers = new Map<string, IAnnotationNoteDebounceTimer>();
     const pendingEmbeddedTextUpdates = new Map<string, string>();
     let annotationNoteOrderCounter = 0;
+
+    function queuePendingEmbeddedTextUpdate(
+        stableKey: string,
+        comment: IAnnotationCommentSummary,
+        text: string,
+    ) {
+        if (queuePendingEmbeddedTextUpdateInViewer?.(stableKey, comment, text) === true) {
+            return;
+        }
+        pendingEmbeddedTextUpdates.set(stableKey, text);
+    }
+
+    function clearPendingEmbeddedTextUpdate(stableKey: string) {
+        clearPendingEmbeddedTextUpdateInViewer?.(stableKey);
+        pendingEmbeddedTextUpdates.delete(stableKey);
+    }
+
+    function migratePendingEmbeddedTextUpdate(previousKey: string, nextKey: string) {
+        migratePendingEmbeddedTextUpdateInViewer?.(previousKey, nextKey);
+        if (pendingEmbeddedTextUpdates.has(previousKey) && !pendingEmbeddedTextUpdates.has(nextKey)) {
+            const pendingText = pendingEmbeddedTextUpdates.get(previousKey);
+            pendingEmbeddedTextUpdates.delete(previousKey);
+            if (typeof pendingText === 'string') {
+                pendingEmbeddedTextUpdates.set(nextKey, pendingText);
+            }
+        } else if (pendingEmbeddedTextUpdates.has(previousKey)) {
+            pendingEmbeddedTextUpdates.delete(previousKey);
+        }
+    }
 
     tryOnScopeDispose(() => {
         annotationNoteDebounceTimers.forEach(({ timerId }) => {
@@ -79,6 +118,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             timerId: setTimeout(() => {
                 annotationNoteDebounceTimers.delete(entry.stableKey);
                 runGuardedTask(() => Promise.resolve(persistAnnotationNote(entry.stableKey, false)), {
+                    category: 'background-diagnostic',
                     scope: 'annotations',
                     message: `Failed to persist annotation note for ${entry.stableKey}`,
                 });
@@ -203,15 +243,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             clearAnnotationNoteDebouncedSaver(previousKey);
         }
 
-        if (pendingEmbeddedTextUpdates.has(previousKey) && !pendingEmbeddedTextUpdates.has(nextKey)) {
-            const pendingText = pendingEmbeddedTextUpdates.get(previousKey);
-            pendingEmbeddedTextUpdates.delete(previousKey);
-            if (typeof pendingText === 'string') {
-                pendingEmbeddedTextUpdates.set(nextKey, pendingText);
-            }
-        } else if (pendingEmbeddedTextUpdates.has(previousKey)) {
-            pendingEmbeddedTextUpdates.delete(previousKey);
-        }
+        migratePendingEmbeddedTextUpdate(previousKey, nextKey);
     }
 
     function bringAnnotationNoteToFront(stableKey: string) {
@@ -346,7 +378,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         if (annotationNoteWindows.value.length !== before) {
             clearAnnotationNoteDebouncedSaver(stableKey);
             if (options.clearPendingEmbeddedTextUpdate) {
-                pendingEmbeddedTextUpdates.delete(stableKey);
+                clearPendingEmbeddedTextUpdate(stableKey);
             }
         }
     }
@@ -430,7 +462,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         nextText: string,
     ) {
         const pendingKey = targetComment.stableKey || stableKey;
-        pendingEmbeddedTextUpdates.set(pendingKey, nextText);
+        queuePendingEmbeddedTextUpdate(pendingKey, targetComment, nextText);
         BrowserLogger.debug('annotations', 'Deferred embedded note text update to serialization pipeline', {
             stableKey: pendingKey,
             source: targetComment.source,

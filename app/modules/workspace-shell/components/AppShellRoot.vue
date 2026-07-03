@@ -77,6 +77,7 @@
                 :tab-lifecycle-by-id="tabLifecycleById"
                 :view-state-by-tab-id="viewStateByTabId"
                 :document-records-by-tab-id="documentRecordsByTabId"
+                :document-sessions-by-tab-id="documentSessionsByTabId"
                 :zen-mode="isFullscreen"
                 :zen-active-tab-id="activeTabId"
                 :is-fullscreen="isFullscreen"
@@ -140,18 +141,10 @@
 </template>
 
 <script setup lang="ts">
-import {
-    useEventListener,
-    useLocalStorage,
-    useTimeoutFn,
-} from '@vueuse/core';
+import { useEventListener } from '@vueuse/core';
 import { logicNot } from '@vueuse/math';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    BROWSER_INSTALL_HINT_COOKIE_KEY,
-    BROWSER_INSTALL_HINT_STORAGE_KEY,
-} from '@app/utils/browserRuntimePersistence';
 import { resolveAppWindowTitle } from '@app/utils/appWindowTitle';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { syncBrowserWindowTitle } from '@app/platform/browserWindowTabs';
@@ -173,6 +166,7 @@ import { useShellWorkspaceToolbar } from '@app/modules/workspace-shell/composabl
 import { useMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 import { useWorkspaceDocumentRecords } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentRecords';
+import { useWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import { useWorkspaceToolbarContentPresence } from '@app/modules/workspace-shell/composables/useWorkspaceToolbarContentPresence';
 import { useTabsShellBindings } from '@app/modules/workspace-shell/composables/useTabsShellBindings';
@@ -187,6 +181,7 @@ import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composa
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useTabSessionStore } from '@app/modules/workspace-shell/composables/useTabSessionStore';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
+import { useBrowserInstallHint } from '@app/modules/workspace-shell/composables/useBrowserInstallHint';
 import type {
     TPdfViewMode,
     TTabMemoryPolicy,
@@ -200,6 +195,7 @@ import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/stat
 import { getHostCapability } from '@app/utils/getHostCapability';
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
+import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 import {
     invokeWorkspaceExposeCommand,
     workspaceExposeToolbarCommandDescriptors,
@@ -247,6 +243,15 @@ const {
     isBrowserRuntime,
     isDesktopRuntime,
 } = useRuntimeEnvironment();
+const {
+    browserInstallUrl,
+    dismissBrowserInstallHint,
+    handleBrowserInstallHintClick,
+    showBrowserInstallHint,
+} = useBrowserInstallHint({
+    analytics,
+    isBrowserRuntime,
+});
 const shouldWaitForDesktopBridge = logicNot(isBrowserRuntime);
 const isFullscreen = ref(false);
 const assistantPanel = useAssistantPanel();
@@ -258,36 +263,10 @@ const {
 } = useAssistantPanelResize();
 const fullscreenSupported = ref(true);
 let zenModeRequestInFlight = false;
-const runtimeConfig = useRuntimeConfig();
-const browserInstallHintCookie = useCookie<string | null>(
-    BROWSER_INSTALL_HINT_COOKIE_KEY,
-    {
-        default: () => null,
-        maxAge: 365 * 24 * 60 * 60,
-    },
-);
-const browserInstallHintStorageDismissed = useLocalStorage(
-    BROWSER_INSTALL_HINT_STORAGE_KEY,
-    false,
-);
-const browserInstallHintDismissed = computed(() => (
-    browserInstallHintCookie.value !== null
-    || browserInstallHintStorageDismissed.value
-));
-const isBrowserInstallHintClientReady = ref(false);
-const didTrackViewerSession = useState(
-    'analytics:viewer-session-started',
-    () => false,
-);
-const didTrackInstallHintShown = useState(
-    'analytics:install-hint-shown',
-    () => false,
-);
 const workspaceSplitCache = useWorkspaceSplitCache();
 const {
     lifecycleByTabId: tabLifecycleById,
-    updateViewState: updateTabViewState,
-    viewStateByTabId,
+    updateViewState: updateTabViewStateInStore,
 } = useTabSessionStore({
     activeTabId,
     panes,
@@ -315,22 +294,42 @@ const {
 } = useDirtyTabCloseDialog({tabs});
 
 const {
+    activeDocumentRecord,
     activeWorkspace,
-    setWorkspaceRef,
+    documentRecordsByTabId,
+    documentSessionsByTabId,
+    applyViewState: applySessionViewState,
+    getDocumentRecord,
+    removeDocumentRecord: removeSessionDocumentRecord,
+    seedTabDocumentRecord: seedSessionTabDocumentRecord,
+    setWorkspaceDocumentRecord: setSessionWorkspaceDocumentRecord,
+    setWorkspaceRef: setSessionWorkspaceRef,
+    viewStateByTabId,
     waitForWorkspace,
     workspaceRefs,
-} = useWorkspaceRefRegistry({ activeTabId });
+} = useWorkspaceDocumentSessions({
+    activeTabId,
+    tabs,
+});
+const {setWorkspaceRef: setWorkspaceRefInRegistry} = useWorkspaceRefRegistry({ activeTabId });
 const {
-    activeDocumentRecord,
-    documentRecordsByTabId,
-    getDocumentRecord,
-    removeDocumentRecord,
-    seedTabDocumentRecord,
-    setWorkspaceDocumentRecord,
+    removeDocumentRecord: removeLegacyDocumentRecord,
+    seedTabDocumentRecord: seedLegacyTabDocumentRecord,
+    setWorkspaceDocumentRecord: setLegacyWorkspaceDocumentRecord,
 } = useWorkspaceDocumentRecords({
     activeTabId,
     tabs,
 });
+function updateTabViewState(tabId: string, state: IWorkspaceDocumentRecord['viewState']) {
+    applySessionViewState(tabId, state);
+    updateTabViewStateInStore(tabId, state);
+}
+
+function setWorkspaceRef(tabId: string, el: unknown) {
+    setSessionWorkspaceRef(tabId, el);
+    setWorkspaceRefInRegistry(tabId, el);
+}
+
 const globalToolbarHostRef = ref<HTMLElement | null>(null);
 const { hasWorkspaceToolbarContent } = useWorkspaceToolbarContentPresence(globalToolbarHostRef);
 function persistActiveTabViewState() {
@@ -367,6 +366,7 @@ const {
     activePaneId,
     activeTabId,
     workspaceRefs,
+    documentSessionsByTabId,
     getDocumentRecord,
     workspaceSplitCache,
     workspaceRestoreTracker,
@@ -381,21 +381,28 @@ const {
 });
 function updateTab(tabId: string, updates: Partial<ITab>) {
     updateTabInState(tabId, updates);
-    seedTabDocumentRecord(tabId, updates);
+    seedSessionTabDocumentRecord(tabId, updates);
+    seedLegacyTabDocumentRecord(tabId, updates);
 }
 
 function removeTabFromState(tabId: string) {
-    removeDocumentRecord(tabId); removeTabFromLifecycleState(tabId);
+    removeSessionDocumentRecord(tabId);
+    removeLegacyDocumentRecord(tabId);
+    removeTabFromLifecycleState(tabId);
 }
 
 function closeTabInState(paneId: string, tabId: string) {
-    removeDocumentRecord(tabId); closeTabInLifecycleState(paneId, tabId);
+    removeSessionDocumentRecord(tabId);
+    removeLegacyDocumentRecord(tabId);
+    closeTabInLifecycleState(paneId, tabId);
 }
 
 function handleDocumentRecordUpdate(tabId: string, record: IWorkspaceDocumentRecord) {
-    setWorkspaceDocumentRecord(tabId, record);
-    updateTabInState(tabId, record.tab);
-    updateTabViewState(tabId, record.viewState);
+    setSessionWorkspaceDocumentRecord(tabId, record);
+    const sessionRecord = getDocumentRecord(tabId) ?? record;
+    setLegacyWorkspaceDocumentRecord(tabId, sessionRecord);
+    updateTabInState(tabId, sessionRecord.tab);
+    updateTabViewState(tabId, sessionRecord.viewState);
 }
 
 function runFallbackWorkspaceCommand(commandName: TWorkspaceExposeMethod, args: readonly unknown[] = []) {
@@ -408,6 +415,7 @@ function runFallbackWorkspaceCommand(commandName: TWorkspaceExposeMethod, args: 
     const result: unknown = invokeWorkspaceExposeCommand(workspace, commandName, args);
     if (result instanceof Promise) {
         guardAsync(result, {
+            category: 'user-visible-operation',
             scope: 'shell',
             message: `Fallback workspace command failed: ${commandName}`,
         });
@@ -460,6 +468,7 @@ function setZenMode(active: boolean) {
                 zenModeRequestInFlight = false;
             }),
         {
+            category: 'user-visible-operation',
             scope: 'shell',
             message: 'Failed to toggle zen mode',
         },
@@ -499,6 +508,7 @@ onMounted(() => {
             unsubscribeZenModeChange = unsubscribe;
         })(),
         {
+            category: 'background-diagnostic',
             scope: 'shell',
             message: 'Failed to read zen mode state',
         },
@@ -593,6 +603,7 @@ const {
     cleanupEmptyPanes,
     closeTabInState,
     workspaceRefs,
+    documentSessionsByTabId,
     waitForWorkspace,
     updateTab,
     workspaceRestoreTracker,
@@ -662,6 +673,9 @@ const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
     }
 
     const documentRef = tab.originalPath;
+    const documentBackend = resolveDocumentRefBackend(documentRef);
+    const documentIdentity = activeDocumentRecord.value?.documentIdentity ?? null;
+    const commandTarget = documentSessionsByTabId.value[tab.id]?.createCommandTarget();
     const title = tab.fileName ?? documentRef ?? null;
     return {
         kind: 'document',
@@ -669,6 +683,9 @@ const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
         title,
         tabId: tab.id,
         ...(documentRef ? { documentRef } : {}),
+        ...(documentBackend === undefined ? {} : {documentBackend}),
+        ...(documentIdentity ? { documentIdentity } : {}),
+        ...(commandTarget ? { commandTarget } : {}),
     };
 });
 const assistantPanelEnabled = computed(() => isDesktopRuntime.value && appSettings.value.assistantPanelEnabled);
@@ -718,6 +735,7 @@ useAgentWorkspaceSnapshot({
     recentFilesResolved,
     workspaceRefs,
     documentRecordsByTabId,
+    documentSessionsByTabId,
     shouldWaitForDesktopBridge: () => shouldWaitForDesktopBridge.value,
     getPaneByTabId,
     activateTab,
@@ -746,6 +764,7 @@ function closeToolPage() {
 function handleCombineOpenResult(result: TOpenFileResult) {
     closeToolPage();
     guardAsync(openResultInAppropriateTab(result), {
+        category: 'user-visible-operation',
         scope: 'shell',
         message: 'Failed to open combined PDF',
     });
@@ -765,6 +784,7 @@ const {
     panes,
     tabs,
     workspaceRefs,
+    documentSessionsByTabId,
     getDocumentRecord,
     isTabTransitionBusy,
     getPaneById,
@@ -793,67 +813,12 @@ const { cleanup: cleanupExternalFileDrop } = useExternalFileDrop({
     isEnabled: computed(() => activeToolPage.value === null),
 });
 
-const browserInstallUrl = computed(() => {
-    if (!isBrowserRuntime.value) {
-        return undefined;
-    }
-
-    const url = typeof runtimeConfig.public.landingUrl === 'string'
-        ? runtimeConfig.public.landingUrl.trim()
-        : '';
-    return url || undefined;
-});
-const showBrowserInstallHint = computed(() => (
-    isBrowserRuntime.value
-    && isBrowserInstallHintClientReady.value
-    && Boolean(browserInstallUrl.value)
-    && !browserInstallHintDismissed.value
-));
-
 const windowTitle = computed(() => resolveAppWindowTitle({
     appTitle: t('app.title'),
     webTitle: t('app.webTitle'),
     fileName: activeTab.value?.fileName ?? null,
     isBrowserRuntime: isBrowserRuntime.value,
 }));
-
-function getBrowserInstallHost() {
-    if (!browserInstallUrl.value) {
-        return null;
-    }
-
-    try {
-        return new URL(browserInstallUrl.value).host;
-    } catch {
-        return null;
-    }
-}
-
-function trackBrowserInstallHint(action: 'shown' | 'clicked' | 'dismissed' | 'auto_dismissed') {
-    analytics.track('browser_install_hint_interacted', {
-        action,
-        destinationHost: getBrowserInstallHost(),
-    });
-}
-
-function handleBrowserInstallHintClick() {
-    trackBrowserInstallHint('clicked');
-}
-
-function dismissBrowserInstallHint(reason: 'manual' | 'auto' = 'manual') {
-    if (browserInstallHintDismissed.value) {
-        return;
-    }
-
-    trackBrowserInstallHint(reason === 'auto' ? 'auto_dismissed' : 'dismissed');
-
-    if (!import.meta.client || !isBrowserRuntime.value) {
-        return;
-    }
-
-    browserInstallHintCookie.value = '1';
-    browserInstallHintStorageDismissed.value = true;
-}
 
 let windowTitleSyncGeneration = 0;
 watch(windowTitle, (nextTitle) => {
@@ -879,43 +844,10 @@ watch(windowTitle, (nextTitle) => {
         }
         await getDocumentWindowCapability().setWindowTitle(nextTitle);
     })(), {
+        category: 'background-diagnostic',
         scope: 'window-title',
         message: 'Failed to sync window title',
     });
-}, { immediate: true });
-
-const BROWSER_INSTALL_HINT_AUTO_DISMISS_MS = 60_000;
-const { start: startBrowserInstallHintAutoDismiss } = useTimeoutFn(
-    () => dismissBrowserInstallHint('auto'),
-    BROWSER_INSTALL_HINT_AUTO_DISMISS_MS,
-    { immediate: false },
-);
-
-onMounted(() => {
-    isBrowserInstallHintClientReady.value = true;
-
-    if (isBrowserRuntime.value && !didTrackViewerSession.value) {
-        didTrackViewerSession.value = true;
-        analytics.track('viewer_session_started', {
-            installHintVisible: showBrowserInstallHint.value,
-            installHintDestinationHost: getBrowserInstallHost(),
-        }, { includeReferrer: true });
-    }
-
-    if (!isBrowserRuntime.value || browserInstallHintDismissed.value) {
-        return;
-    }
-
-    startBrowserInstallHintAutoDismiss();
-});
-
-watch(showBrowserInstallHint, (isVisible) => {
-    if (!isBrowserRuntime.value || !isVisible || didTrackInstallHintShown.value) {
-        return;
-    }
-
-    didTrackInstallHintShown.value = true;
-    trackBrowserInstallHint('shown');
 }, { immediate: true });
 
 useTabsShellBindings({

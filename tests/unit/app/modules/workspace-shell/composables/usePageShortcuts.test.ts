@@ -7,7 +7,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import type { TAnnotationTool } from '@app/types/annotations';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({

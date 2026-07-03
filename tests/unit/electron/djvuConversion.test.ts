@@ -19,11 +19,20 @@ const mocks = vi.hoisted(() => {
             return this;
         }
 
+        removeListener(event: string, listener: TMockListener) {
+            this.listeners.get(event)?.delete(listener);
+            return this;
+        }
+
         emit(event: string, ...args: unknown[]) {
             for (const listener of this.listeners.get(event) ?? []) {
                 listener(...args);
             }
         }
+
+        unpipe = vi.fn();
+
+        destroy = vi.fn();
     }
 
     class MockProcess extends MockEmitter {

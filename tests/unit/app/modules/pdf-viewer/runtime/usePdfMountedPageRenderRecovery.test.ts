@@ -19,6 +19,9 @@ import {
     type IPdfRenderSupervisorEvent,
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 
+type TMountedRecoveryOptions = Parameters<typeof usePdfMountedPageRenderRecovery>[0];
+type TMountedRecoveryTransactionController = NonNullable<TMountedRecoveryOptions['transactionController']>;
+
 async function flushTimersAndTicks() {
     await vi.runOnlyPendingTimersAsync();
     await nextTick();
@@ -29,6 +32,7 @@ function createHarness(options?: {
     isPageMounted?: ((pageNumber: number) => boolean) | undefined;
     onSupervisorEvent?: ((event: IPdfRenderSupervisorEvent) => void) | undefined;
     suppressRecovery?: Ref<boolean>;
+    transactionController?: TMountedRecoveryTransactionController;
 }) {
     const scope = effectScope();
     const isActive = ref(true);
@@ -51,6 +55,7 @@ function createHarness(options?: {
         shouldRecoverPage: pageNumber => pagesNeedingRender.value.has(pageNumber),
         renderVisiblePages,
         renderSupervisor,
+        transactionController: options?.transactionController,
     }));
 
     if (!recovery) {
@@ -340,6 +345,88 @@ describe('usePdfMountedPageRenderRecovery', () => {
                 bufferOverride: 0,
                 preserveInFlightRequiredPages: true,
             },
+        );
+
+        scope.stop();
+    });
+
+    it('runs mounted page render recovery through a recovery transaction', async () => {
+        vi.useFakeTimers();
+        const transactionController: TMountedRecoveryTransactionController = {
+            beginTransaction: vi.fn(() => ({ id: 81 })),
+            advanceTransaction: vi.fn(() => true),
+            cancelActiveTransaction: vi.fn(() => true),
+            isTransactionCurrent: vi.fn(() => true),
+        };
+        const {
+            pagesNeedingRender,
+            recovery,
+            renderVisiblePages,
+            scope,
+        } = createHarness({ transactionController });
+        pagesNeedingRender.value = new Set([928]);
+
+        recovery.queueMountedPageRender(928);
+        await flushTimersAndTicks();
+
+        expect(transactionController.beginTransaction).toHaveBeenCalledWith({
+            kind: 'recovery',
+            source: 'mounted-page-recovery',
+            page: 928,
+            range: {
+                start: 928,
+                end: 928,
+            },
+            anchor: 'top',
+        });
+        expect(transactionController.advanceTransaction).toHaveBeenCalledWith(81, 'render-requested');
+        expect(transactionController.advanceTransaction).toHaveBeenCalledWith(81, 'settled');
+        expect(transactionController.cancelActiveTransaction).not.toHaveBeenCalled();
+        expect(renderVisiblePages).toHaveBeenCalledOnce();
+
+        scope.stop();
+    });
+
+    it('cancels mounted page recovery when cleaned up during an active render pass', async () => {
+        vi.useFakeTimers();
+        const transactionController: TMountedRecoveryTransactionController = {
+            beginTransaction: vi.fn(() => ({ id: 82 })),
+            advanceTransaction: vi.fn(() => true),
+            cancelActiveTransaction: vi.fn(() => true),
+            isTransactionCurrent: vi.fn(() => true),
+        };
+        let resolveRender!: () => void;
+        const {
+            pagesNeedingRender,
+            recovery,
+            renderVisiblePages,
+            scope,
+        } = createHarness({ transactionController });
+        pagesNeedingRender.value = new Set([928]);
+        renderVisiblePages.mockImplementation(async () => {
+            await new Promise<void>((resolve) => {
+                resolveRender = resolve;
+            });
+        });
+
+        recovery.queueMountedPageRender(928);
+        await vi.runOnlyPendingTimersAsync();
+        await nextTick();
+        await Promise.resolve();
+
+        recovery.cleanupMountedPageRenderRecovery();
+        resolveRender();
+        await Promise.resolve();
+
+        expect(transactionController.cancelActiveTransaction).toHaveBeenCalledWith(
+            {
+                reason: 'disposed',
+                cancelInFlightRenders: false,
+                bumpRenderVersion: false,
+                clearTimers: true,
+                preserveVisualContent: true,
+            },
+            82,
         );
 
         scope.stop();

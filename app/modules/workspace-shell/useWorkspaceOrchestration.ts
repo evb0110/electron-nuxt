@@ -38,8 +38,10 @@ import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { WORKSPACE_PAGE_NAVIGATION_LOCK_MS } from '@app/modules/workspace-shell/workspacePageNavigationLockMs';
 import { useWorkspaceActiveViewerAdapter } from '@app/modules/workspace-shell/viewers/useWorkspaceActiveViewerAdapter';
+import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
 
 interface IWorkspaceOrchestrationDeps {
+    analyticsDocumentScope?: IAnalyticsDocumentScope | undefined;
     isActive: Ref<boolean>;
     initialViewState?: ITabViewSessionState | null;
     pendingDocumentPath?: TReadableRef<TDocumentRef | null> | undefined;
@@ -75,7 +77,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     } = deps;
     const { t } = useTypedI18n();
 
-    const fileLifecycle = useWorkspaceFileLifecycleController();
+    const fileLifecycle = useWorkspaceFileLifecycleController({analyticsDocumentScope: deps.analyticsDocumentScope});
     const {
         isDjvuMode,
         djvuSourcePath,
@@ -91,6 +93,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfSrc,
         pdfData,
         workingCopyPath,
+        documentRevisionInfo,
+        documentRevisionToken,
         originalPath,
         fileName,
         isDirty,
@@ -126,6 +130,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     }
     const sidebarSearch = useWorkspaceSidebarSearchSyncController({
         workingCopyPath,
+        documentRevisionToken,
         ...(deps.initialViewState !== undefined ? { initialViewState: deps.initialViewState } : {}),
     });
     const {
@@ -262,7 +267,18 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     } = annotationSession;
 
     const pendingEmbeddedAnnotationDeletes = shallowRef(new Map<string, IAnnotationCommentSummary>());
-    const pendingEmbeddedAnnotationDeleteCount = computed(() => pendingEmbeddedAnnotationDeletes.value.size);
+    function getPendingEmbeddedMutationVersion() {
+        const version = pdfViewerRef.value?.pendingEmbeddedMutationVersion;
+        return version === undefined ? 0 : unref(version);
+    }
+
+    function getPendingEmbeddedAnnotationDeletesSnapshot() {
+        getPendingEmbeddedMutationVersion();
+        return pdfViewerRef.value?.getPendingEmbeddedMutationSnapshot?.().pendingEmbeddedAnnotationDeletes
+            ?? Array.from(pendingEmbeddedAnnotationDeletes.value.values());
+    }
+
+    const pendingEmbeddedAnnotationDeleteCount = computed(() => getPendingEmbeddedAnnotationDeletesSnapshot().length);
     const nativeSavedFreeTextNoteStableKeys = shallowRef(new Set<string>());
     const undoableOpenEmptyEditorNoteCount = computed(() => (
         annotationNoteWindows.value.some((note) => {
@@ -280,7 +296,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     ));
     const thumbnailHiddenAnnotationIds = computed(() => {
         const ids = new Set<string>();
-        pendingEmbeddedAnnotationDeletes.value.forEach((comment) => {
+        getPendingEmbeddedAnnotationDeletesSnapshot().forEach((comment) => {
             const stableRef = comment.stableKey.trim().match(/^ann:\d+:(\d+R(?:\d+)?)$/iu)?.[1] ?? null;
             [
                 comment.annotationId,
@@ -435,6 +451,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfViewerRef,
         requestDocxExport: (selectedLanguages?: string[]) => exportDocx({
             workingCopyPath: workingCopyPath.value,
+            documentRevisionToken: documentRevisionToken.value,
             pdfDocument: pdfDocument.value,
             ...(selectedLanguages !== undefined ? { selectedLanguages } : {}),
         }),
@@ -794,7 +811,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
         await persistAllAnnotationNotes(true);
 
-        const rawData = await pdfViewerRef.value?.saveDocument?.()
+        const printTransaction = await pdfViewerRef.value?.runSaveTransaction({
+            mode: 'print',
+            forcePdfjsMaterialize: true,
+        });
+        const rawData = printTransaction?.serializedBytes
+            ?? printTransaction?.baseBytes
             ?? pdfData.value
             ?? await readWorkingCopyBytes();
         if (!rawData) {
@@ -803,10 +825,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
         return serializePrintableSourceData(rawData, {
             serializePdfForSave,
-            consumePendingEmbeddedTextUpdates,
-            restorePendingEmbeddedTextUpdates,
-            consumePendingEmbeddedAnnotationDeletes,
-            restorePendingEmbeddedAnnotationDeletes,
+            pendingTexts: printTransaction?.pendingEmbeddedTextUpdates ?? null,
+            pendingDeletes: printTransaction?.pendingEmbeddedAnnotationDeletes ?? null,
         });
     }
 
@@ -895,6 +915,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationPlacingPageNote,
         pdfViewerRef,
         documentViewerRef,
+        serializePdfForSave,
         shapePropertiesPopoverVisible: computed(() => shapePropertiesPopover.value.visible),
         annotationContextMenuVisible: computed(() => annotationContextMenu.value.visible),
         pageContextMenuVisible: computed(() => pageContextMenu.value.visible),
@@ -945,6 +966,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         },
         pdfSrc,
         workingCopyPath,
+        documentRevisionInfo,
+        documentRevisionToken,
         pdfError,
         dragMode,
         showSidebar,

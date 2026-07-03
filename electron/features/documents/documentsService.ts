@@ -2,6 +2,7 @@ import type {
     BrowserWindow,
     WebContents,
 } from 'electron';
+import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
@@ -19,6 +20,7 @@ import type {
     IPdfOptimizeOptions,
     IPdfOptimizeResult,
     IPdfSaveAsOptions,
+    TDocumentSaveResult,
 } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
@@ -38,7 +40,10 @@ export interface IDocumentsDialogContext extends IDocumentsWebContentsContext { 
 
 export interface IDocumentsSenderIdContext { senderId?: number; }
 
-export interface IDocumentsWindowContext { window: BrowserWindow | null; }
+export interface IDocumentsWindowContext {
+    senderId?: number;
+    window: BrowserWindow | null;
+}
 
 export interface IDocumentsOpenPathContext { owner?: TOpenPathOwner; }
 
@@ -96,6 +101,7 @@ export interface IDocumentsService {
     ) => Promise<IPdfNativePagePreview>;
     readTextFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<string>;
     fileExists: (context: IDocumentsSenderIdContext, filePath: string) => boolean;
+    getDocumentRevision: (context: IDocumentsSenderIdContext, filePath: string) => Promise<IDocumentRevisionInfo>;
     analyzePdfConformance: (context: IDocumentsSenderIdContext, filePath: string) => Promise<IPdfConformanceProfile>;
     validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfValidationResult>;
     validatePdfPath: (context: IDocumentsSenderIdContext, filePath: string) => Promise<IPdfValidationResult>;
@@ -103,7 +109,7 @@ export interface IDocumentsService {
         success: boolean;
         error?: string;
     }>;
-    openPdfInDefaultAppPath: (filePath: string, fileName?: string) => Promise<{
+    openPdfInDefaultAppPath: (context: IDocumentsSenderIdContext, filePath: string, fileName?: string) => Promise<{
         success: boolean;
         error?: string;
     }>;
@@ -125,6 +131,7 @@ export interface IDocumentsService {
     ) => Promise<boolean>;
     writeDocxFile: (context: IDocumentsSenderIdContext, filePath: string, data: Uint8Array) => Promise<boolean>;
     saveFile: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<boolean>;
+    saveFileStructured: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<TDocumentSaveResult>;
     repairPdf: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<IPdfValidationResult>;
     optimizePdfForInteraction: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<IPdfValidationResult>;
     optimizePdfAsCopy: (

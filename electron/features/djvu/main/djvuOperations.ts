@@ -38,6 +38,89 @@ import type {
 } from '@contracts/electronApiDjvu';
 
 const logger = createLogger('djvu-operations');
+const DJVU_PREVIEW_MAX_IN_FLIGHT_PER_SENDER = 2;
+
+interface IDjvuPreviewSenderQueue {
+    inFlight: number;
+    latestRequestIds: Map<string, string>;
+    waiters: Array<() => void>;
+}
+
+const previewQueuesBySender = new Map<number, IDjvuPreviewSenderQueue>();
+
+function getPreviewQueue(senderId: number) {
+    const existingQueue = previewQueuesBySender.get(senderId);
+    if (existingQueue) {
+        return existingQueue;
+    }
+
+    const queue: IDjvuPreviewSenderQueue = {
+        inFlight: 0,
+        latestRequestIds: new Map(),
+        waiters: [],
+    };
+    previewQueuesBySender.set(senderId, queue);
+    return queue;
+}
+
+function getPreviewRequestKey(djvuPath: string, pageNumber: number) {
+    return `${djvuPath}\u0000${pageNumber}`;
+}
+
+function isPreviewRequestSuperseded(queue: IDjvuPreviewSenderQueue, requestKey: string, requestId: string | undefined) {
+    return Boolean(requestId && queue.latestRequestIds.get(requestKey) !== requestId);
+}
+
+function acquirePreviewSlot(queue: IDjvuPreviewSenderQueue) {
+    if (queue.inFlight < DJVU_PREVIEW_MAX_IN_FLIGHT_PER_SENDER && queue.waiters.length === 0) {
+        queue.inFlight += 1;
+        return true;
+    }
+
+    return new Promise<void>((resolve) => {
+        queue.waiters.push(resolve);
+    });
+}
+
+function releasePreviewSlot(senderId: number, queue: IDjvuPreviewSenderQueue) {
+    const nextWaiter = queue.waiters.shift();
+    if (nextWaiter) {
+        nextWaiter();
+        return;
+    }
+    queue.inFlight = Math.max(0, queue.inFlight - 1);
+    if (queue.inFlight === 0 && queue.waiters.length === 0 && queue.latestRequestIds.size === 0) {
+        previewQueuesBySender.delete(senderId);
+    }
+}
+
+async function runCoalescedPreviewRequest<TResult>(
+    senderId: number,
+    requestKey: string,
+    requestId: string | undefined,
+    render: () => Promise<TResult>,
+) {
+    const queue = getPreviewQueue(senderId);
+    if (requestId) {
+        queue.latestRequestIds.set(requestKey, requestId);
+    }
+
+    const acquiredSlot = acquirePreviewSlot(queue);
+    if (acquiredSlot !== true) {
+        await acquiredSlot;
+    }
+    try {
+        if (isPreviewRequestSuperseded(queue, requestKey, requestId)) {
+            throw new Error('DjVu preview request superseded');
+        }
+        return await render();
+    } finally {
+        if (requestId && queue.latestRequestIds.get(requestKey) === requestId) {
+            queue.latestRequestIds.delete(requestKey);
+        }
+        releasePreviewSlot(senderId, queue);
+    }
+}
 
 function requireDjvuOpenPath(
     path: unknown,
@@ -187,7 +270,12 @@ export async function handleDjvuRenderPagePreview(
     if (!Number.isInteger(pageNumber) || pageNumber < 1) {
         throw new Error(`Invalid DjVu page number: ${pageNumber}`);
     }
-    return renderDjvuPagePreview(normalizedDjvuPath, pageNumber, options);
+    return runCoalescedPreviewRequest(
+        context.senderId,
+        getPreviewRequestKey(normalizedDjvuPath, pageNumber),
+        options?.previewRequestId,
+        () => renderDjvuPagePreview(normalizedDjvuPath, pageNumber, options),
+    );
 }
 
 export async function handleDjvuCleanupTemp(

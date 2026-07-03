@@ -3,7 +3,7 @@ import type {
     Ref,
 } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 import {
     isPathPdfSource,
     shouldUseNativePdfPreview,

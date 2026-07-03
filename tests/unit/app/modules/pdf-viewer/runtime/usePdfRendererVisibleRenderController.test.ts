@@ -6,8 +6,35 @@ import {
     vi,
 } from 'vitest';
 import { usePdfRendererVisibleRenderController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererVisibleRenderController';
+import type { IPdfViewerTransactionRenderRequest } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { cast } from '@tests/helpers/cast';
+
+function createTransactionRequest(
+    overrides: Partial<IPdfViewerTransactionRenderRequest> = {},
+): IPdfViewerTransactionRenderRequest {
+    return {
+        transactionId: 41,
+        renderRequestId: 12,
+        documentVersion: 3,
+        renderVersion: 50,
+        source: 'paged-navigation',
+        range: {
+            start: 16,
+            end: 16,
+        },
+        requiredRange: {
+            start: 16,
+            end: 16,
+        },
+        buffer: 0,
+        preserveRenderedPages: true,
+        preserveInFlightRequiredPages: false,
+        forceRerender: false,
+        priority: 'authoritative',
+        ...overrides,
+    };
+}
 
 function createControllerHarness(options?: {
     activeRequestId?: number;
@@ -45,6 +72,7 @@ function createControllerHarness(options?: {
         renderingPages,
         renderingPageRequestIds,
         getRenderVersion: () => renderVersion,
+        getRenderDocumentToken: () => 'doc-1',
         getVisibleRenderRequestId: () => activeRequestId,
         nextVisibleRenderRequestId,
         ensurePageMetricsInRange,
@@ -134,6 +162,7 @@ describe('usePdfRendererVisibleRenderController', () => {
             renderingPages: new Map<number, number>(),
             renderingPageRequestIds: new Map<number, number>(),
             getRenderVersion: () => 50,
+            getRenderDocumentToken: () => 'doc-1',
             getVisibleRenderRequestId: () => 10,
             nextVisibleRenderRequestId: () => 10,
             ensurePageMetricsInRange: vi.fn(async () => true),
@@ -296,6 +325,103 @@ describe('usePdfRendererVisibleRenderController', () => {
             });
         }
     });
+
+    it('skips stale transaction render requests before scheduling work', async () => {
+        const renderSingleVisiblePage = vi.fn(async () => undefined);
+        const ensurePageMetricsInRange = vi.fn(async () => true);
+        const renderVisiblePages = usePdfRendererVisibleRenderController({
+            container: ref(cast<HTMLElement>({
+                querySelector: vi.fn(() => null),
+                querySelectorAll: vi.fn(() => []),
+            })),
+            currentPage: ref(16),
+            numPages: ref(20),
+            isActive: true,
+            bufferPages: 0,
+            renderConcurrency: 1,
+            effectiveScale: 1,
+            renderedPages: new Set<number>(),
+            staleRenderedPages: new Set<number>(),
+            renderingPages: new Map<number, number>(),
+            renderingPageRequestIds: new Map<number, number>(),
+            getRenderVersion: () => 50,
+            getRenderDocumentToken: () => 'doc-1',
+            getVisibleRenderRequestId: () => 12,
+            nextVisibleRenderRequestId: () => 13,
+            setVisibleRenderRequestId: requestId => requestId,
+            isRenderRequestCurrent: () => false,
+            ensurePageMetricsInRange,
+            setupPagePlaceholders: vi.fn(),
+            cleanupPage: vi.fn(),
+            cancelObsoleteInFlightRenders: vi.fn(),
+            renderSingleVisiblePage,
+            scheduleMissingRenderTargetRetry: vi.fn(),
+            throttleMs: 0,
+        });
+
+        await renderVisiblePages.renderTransactionPages(createTransactionRequest());
+
+        expect(ensurePageMetricsInRange).not.toHaveBeenCalled();
+        expect(renderSingleVisiblePage).not.toHaveBeenCalled();
+    });
+
+    it('passes transaction metadata to missing-target retry scheduling', async () => {
+        const request = createTransactionRequest();
+        let visibleRenderRequestId = 0;
+        const scheduleMissingRenderTargetRetry = vi.fn();
+        const warnSpy = vi.spyOn(BrowserLogger, 'warnThrottled').mockImplementation(() => {});
+        const renderVisiblePages = usePdfRendererVisibleRenderController({
+            container: ref(cast<HTMLElement>({
+                querySelector: vi.fn(() => null),
+                querySelectorAll: vi.fn(() => []),
+            })),
+            currentPage: ref(16),
+            numPages: ref(20),
+            isActive: true,
+            bufferPages: 0,
+            renderConcurrency: 1,
+            effectiveScale: 1,
+            renderedPages: new Set<number>(),
+            staleRenderedPages: new Set<number>(),
+            renderingPages: new Map<number, number>(),
+            renderingPageRequestIds: new Map<number, number>(),
+            getRenderVersion: () => 50,
+            getRenderDocumentToken: () => 'doc-1',
+            getVisibleRenderRequestId: () => visibleRenderRequestId,
+            nextVisibleRenderRequestId: () => {
+                visibleRenderRequestId += 1;
+                return visibleRenderRequestId;
+            },
+            setVisibleRenderRequestId: (requestId) => {
+                visibleRenderRequestId = requestId;
+                return visibleRenderRequestId;
+            },
+            isRenderRequestCurrent: candidate => candidate === request,
+            ensurePageMetricsInRange: vi.fn(async () => true),
+            setupPagePlaceholders: vi.fn(),
+            cleanupPage: vi.fn(),
+            cancelObsoleteInFlightRenders: vi.fn(),
+            renderSingleVisiblePage: vi.fn(async () => undefined),
+            scheduleMissingRenderTargetRetry,
+            throttleMs: 0,
+        });
+
+        await renderVisiblePages.renderTransactionPages(request);
+
+        expect(scheduleMissingRenderTargetRetry).toHaveBeenCalledWith(
+            16,
+            50,
+            12,
+            true,
+            {
+                start: 16,
+                end: 16,
+            },
+            'doc-1',
+            request,
+        );
+        warnSpy.mockRestore();
+    });
 });
 
 type TVisibleRenderControllerOptions = Parameters<typeof usePdfRendererVisibleRenderController>[0];
@@ -351,6 +477,7 @@ function createBufferClampHarness(options: {
         renderingPages: new Map<number, number>(),
         renderingPageRequestIds: new Map<number, number>(),
         getRenderVersion: () => 3,
+        getRenderDocumentToken: () => 'doc-1',
         getVisibleRenderRequestId: () => visibleRenderRequestId,
         nextVisibleRenderRequestId: () => {
             visibleRenderRequestId += 1;

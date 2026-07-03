@@ -15,6 +15,7 @@ import type {
     IWorkspaceSplitCacheLike,
 } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 
 interface IUseAppShellTabLifecycleOptions {
     panes: Ref<IEditorPaneState[]>;
@@ -22,6 +23,7 @@ interface IUseAppShellTabLifecycleOptions {
     activePaneId: Ref<string | null>;
     activeTabId: Ref<string | null>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
+    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentSessionController>>;
     getDocumentRecord: (tabId: string | null | undefined) => IWorkspaceDocumentRecord | null;
     workspaceSplitCache: IWorkspaceSplitCacheLike;
     workspaceRestoreTracker: IWorkspaceRestoreTrackerLike;
@@ -84,6 +86,7 @@ export const useAppShellTabLifecycle = (
         activePaneId,
         activeTabId,
         workspaceRefs,
+        documentSessionsByTabId,
         getDocumentRecord,
         workspaceSplitCache,
         workspaceRestoreTracker,
@@ -177,7 +180,16 @@ export const useAppShellTabLifecycle = (
             && !tab.isDjvu;
     }
 
+    function getDocumentSession(tabId: string | null | undefined) {
+        return tabId ? documentSessionsByTabId?.value[tabId] ?? null : null;
+    }
+
     function recordHasCloseableDocument(tabId: string | null | undefined) {
+        const sessionCloseable = getDocumentSession(tabId)?.snapshot.value.closeable;
+        if (sessionCloseable !== undefined) {
+            return sessionCloseable;
+        }
+
         const snapshot = getDocumentRecord(tabId)?.toolbarSnapshot;
         return hasWorkspaceViewerDocumentCapabilities(snapshot?.viewerCapabilities);
     }
@@ -391,7 +403,8 @@ export const useAppShellTabLifecycle = (
     }
 
     async function resolveClosePersistence(tabId: string, tab: ITab) {
-        if (!tab.isDirty) {
+        const isDirty = getDocumentSession(tabId)?.snapshot.value.dirty ?? tab.isDirty;
+        if (!isDirty) {
             return true;
         }
 
@@ -402,6 +415,9 @@ export const useAppShellTabLifecycle = (
     function workspaceHasCloseableDocument(tabId: string, workspace: IWorkspaceExpose | undefined): workspace is IWorkspaceExpose {
         if (!workspace) {
             return false;
+        }
+        if (getDocumentSession(tabId)?.snapshot.value.closeable === true) {
+            return true;
         }
         if (recordHasCloseableDocument(tabId)) {
             return true;
@@ -416,12 +432,20 @@ export const useAppShellTabLifecycle = (
         workspace: IWorkspaceExpose,
         shouldPersistBeforeClose: boolean,
     ) {
+        const session = getDocumentSession(tabId);
+        const transaction = session?.beginTransaction({
+            kind: 'close',
+            documentRef: session.snapshot.value.identity.documentRef,
+        }) ?? null;
         workspaceRestoreTracker.start(tabId);
         let closed = false;
         try {
             closed = await workspace.handleCloseFileFromUi({ persist: shouldPersistBeforeClose });
         } finally {
             workspaceRestoreTracker.finish(tabId);
+            if (transaction) {
+                session?.finishTransaction(transaction.id, closed ? 'committed' : 'cancelled');
+            }
         }
 
         if (

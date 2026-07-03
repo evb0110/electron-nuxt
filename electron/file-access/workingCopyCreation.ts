@@ -32,6 +32,10 @@ import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOrigin
 import { WorkingCopyMissingError } from '@electron/file-access/workingCopyMissingError';
 import { createLogger } from '@electron/utils/createLogger';
 import { getAppTempDir } from '@electron/utils/appTempDir';
+import {
+    ensureWorkingCopyRevision,
+    markWorkingCopyContentChanged,
+} from '@electron/file-access/documentRevisionStore';
 
 const logger = createLogger('working-copy');
 
@@ -53,6 +57,7 @@ export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContent
         }
 
         setWorkingCopyOriginalPath(workingPath, originalPath, ownerWebContentsId);
+        await ensureWorkingCopyRevision(workingPath, ownerWebContentsId);
 
         return workingPath;
     } catch (error) {
@@ -86,6 +91,7 @@ export async function createWorkingCopyFromPath(
 
         const role = resolveWorkingCopyRoleForPathClone(sourcePath, ownerWebContentsId);
         setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId, {role});
+        await ensureWorkingCopyRevision(workingPath, ownerWebContentsId);
 
         return workingPath;
     } catch (error) {
@@ -122,6 +128,7 @@ export async function createWorkingCopyFromData(
             const role = isKnownWorkingCopyOriginalPath(normalizedOriginalPath, ownerWebContentsId) ? 'snapshot' : 'current';
             setWorkingCopyOriginalPath(workingPath, normalizedOriginalPath, ownerWebContentsId, {role});
         }
+        await ensureWorkingCopyRevision(workingPath, ownerWebContentsId);
 
         return workingPath;
     } catch (error) {
@@ -170,6 +177,7 @@ export async function ensureWorkingCopyDirectory(workingPath: string, senderWebC
         setWorkingCopyOriginalPath(normalizedWorkingPath, originalPath, mapping.ownerWebContentsId, {role});
         forgetRetiredWorkingCopyOriginal(normalizedWorkingPath);
     }
+    await markWorkingCopyContentChanged(normalizedWorkingPath, 'replace-working-copy', senderWebContentsId);
     logger.warn(`Recreated missing working copy directory for "${normalizedWorkingPath}"`);
     return true;
 }

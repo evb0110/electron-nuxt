@@ -10,6 +10,7 @@ import {
 } from '@electron/utils/pathValidator';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
+import { markWorkingCopyContentChanged } from '@electron/file-access/documentRevisionStore';
 import { consumeAllowedDocxWritePath } from '@electron/file-access/docxExportPaths';
 import {
     copyFileAtomic,
@@ -90,6 +91,7 @@ export async function handleFileWrite(
             }
             await writeFileAtomic(resolvedPath, payload);
         }
+        await markWorkingCopyContentChanged(resolvedPath, 'write', senderId);
         return true;
     });
 }
@@ -140,6 +142,7 @@ export async function handleReplaceWorkingCopyFromPath(
         if (shouldRefreshOriginalSaveBase) {
             refreshWorkingCopyOriginalFileExpectation(resolvedWorkingCopyPath, senderId);
         }
+        await markWorkingCopyContentChanged(resolvedWorkingCopyPath, 'ocr-apply', senderId);
         return true;
     });
 }

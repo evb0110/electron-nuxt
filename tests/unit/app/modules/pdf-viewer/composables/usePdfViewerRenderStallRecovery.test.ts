@@ -14,6 +14,11 @@ import {
     type IPdfRenderSupervisorEvent,
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 
+type TRenderStallRecoveryOptions = Parameters<typeof usePdfViewerRenderStallRecovery>[0];
+type TRenderStallRecoveryTransactionController = NonNullable<
+    TRenderStallRecoveryOptions['transactionController']
+>;
+
 describe('usePdfViewerRenderStallRecovery', () => {
     it('invalidates stalled pages and retries page render when rendering stalls', async () => {
         vi.useFakeTimers();
@@ -83,6 +88,133 @@ describe('usePdfViewerRenderStallRecovery', () => {
                     timeoutMs: 15_000,
                 }),
             }));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('runs page-level stalled render recovery through a recovery transaction', async () => {
+        vi.useFakeTimers();
+        try {
+            const transactionController: TRenderStallRecoveryTransactionController = {
+                beginTransaction: vi.fn(() => ({ id: 71 })),
+                advanceTransaction: vi.fn(() => true),
+                cancelActiveTransaction: vi.fn(() => true),
+                isTransactionCurrent: vi.fn(() => true),
+            };
+            const renderVisiblePages = vi.fn().mockResolvedValue(undefined);
+            const recovery = usePdfViewerRenderStallRecovery({
+                src: computed(
+                    () => ({
+                        kind: 'path' as const,
+                        path: '/tmp/test.pdf',
+                        size: 1,
+                    }),
+                ),
+                isLoading: ref(false),
+                isAnySaving: ref(false),
+                numPages: ref(8),
+                currentPage: ref(4),
+                visibleRange: ref({
+                    start: 3,
+                    end: 5,
+                }),
+                viewerContainer: ref(null),
+                summarizeViewerMetricsForLog: () => null,
+                cancelInFlightPageRenders: vi.fn(),
+                renderVisiblePages,
+                scheduleReload: vi.fn(),
+                transactionController,
+            });
+
+            recovery.handlePageRenderStall({
+                pageNumber: 4,
+                stage: 'canvas-render',
+                timeoutMs: 15_000,
+            });
+
+            vi.runAllTimers();
+            await Promise.resolve();
+
+            expect(transactionController.beginTransaction).toHaveBeenCalledWith({
+                kind: 'recovery',
+                source: 'render-stall-recovery',
+                page: 4,
+                range: {
+                    start: 4,
+                    end: 4,
+                },
+                anchor: 'top',
+            });
+            expect(transactionController.advanceTransaction).toHaveBeenCalledWith(71, 'render-requested');
+            expect(transactionController.advanceTransaction).toHaveBeenCalledWith(71, 'settled');
+            expect(transactionController.cancelActiveTransaction).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('cancels the page-level recovery transaction when reset', async () => {
+        vi.useFakeTimers();
+        try {
+            const transactionController: TRenderStallRecoveryTransactionController = {
+                beginTransaction: vi.fn(() => ({ id: 72 })),
+                advanceTransaction: vi.fn(() => true),
+                cancelActiveTransaction: vi.fn(() => true),
+                isTransactionCurrent: vi.fn(() => true),
+            };
+            let resolveRender!: () => void;
+            const renderVisiblePages = vi.fn(async () => {
+                await new Promise<void>((resolve) => {
+                    resolveRender = resolve;
+                });
+            });
+            const recovery = usePdfViewerRenderStallRecovery({
+                src: computed(
+                    () => ({
+                        kind: 'path' as const,
+                        path: '/tmp/test.pdf',
+                        size: 1,
+                    }),
+                ),
+                isLoading: ref(false),
+                isAnySaving: ref(false),
+                numPages: ref(8),
+                currentPage: ref(4),
+                visibleRange: ref({
+                    start: 3,
+                    end: 5,
+                }),
+                viewerContainer: ref(null),
+                summarizeViewerMetricsForLog: () => null,
+                cancelInFlightPageRenders: vi.fn(),
+                renderVisiblePages,
+                scheduleReload: vi.fn(),
+                transactionController,
+            });
+
+            recovery.handlePageRenderStall({
+                pageNumber: 4,
+                stage: 'canvas-render',
+                timeoutMs: 15_000,
+            });
+            vi.runAllTimers();
+            await Promise.resolve();
+
+            recovery.resetRenderStallRecoveryState();
+            resolveRender();
+            await Promise.resolve();
+
+            expect(transactionController.cancelActiveTransaction).toHaveBeenCalledWith(
+                {
+                    reason: 'superseded',
+                    cancelInFlightRenders: false,
+                    bumpRenderVersion: false,
+                    clearTimers: true,
+                    preserveVisualContent: true,
+                },
+                72,
+            );
         } finally {
             vi.useRealTimers();
         }

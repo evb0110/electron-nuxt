@@ -2,7 +2,7 @@ import type { PageViewport } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IOcrWord } from '@contracts/shared';
 import type {
-    IOcrIndexV2Page,
+    IOcrIndexV3Page,
     TOcrIndexRotation,
 } from '@contracts/ocrIndex';
 import { createWordBoxOverlays } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/createWordBoxOverlays';
@@ -99,19 +99,21 @@ export const usePdfWordBoxes = () => {
 
     async function loadOcrPageData(
         workingCopyPath: TDocumentRef,
+        documentRevisionToken: string,
         pageNumber: number,
-    ): Promise<IOcrIndexV2Page | null> {
-        const manifest = await loadCachedOcrManifest(workingCopyPath, 'ocr-debug');
+    ): Promise<IOcrIndexV3Page | null> {
+        const manifest = await loadCachedOcrManifest(workingCopyPath, documentRevisionToken, 'ocr-debug');
         if (!manifest) {
             return null;
         }
-        return loadCachedOcrPageData(workingCopyPath, pageNumber, manifest, 'ocr-debug');
+        return loadCachedOcrPageData(workingCopyPath, documentRevisionToken, pageNumber, manifest, 'ocr-debug');
     }
 
     async function renderOcrDebugBoxes(
         pageContainer: HTMLElement,
         pageNumber: number,
         workingCopyPath: TDocumentRef | null,
+        documentRevisionToken: string | null,
         viewport: PageViewport,
         pageWidth: number,
         pageHeight: number,
@@ -120,14 +122,14 @@ export const usePdfWordBoxes = () => {
             return;
         }
 
-        if (!workingCopyPath) {
+        if (!workingCopyPath || !documentRevisionToken) {
             BrowserLogger.debug('ocr-debug', 'No working copy path, skipping debug boxes');
             return;
         }
 
         clearOcrDebugBoxes(pageContainer);
 
-        const ocrPageData = await loadOcrPageData(workingCopyPath, pageNumber);
+        const ocrPageData = await loadOcrPageData(workingCopyPath, documentRevisionToken, pageNumber);
 
         if (!ocrPageData) {
             BrowserLogger.debug('ocr-debug', `No OCR index found for page ${pageNumber}`);

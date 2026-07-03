@@ -20,6 +20,7 @@ import type {
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const { resolveAnnotationCommentTextMarkupColor } = vi.hoisted(() => ({resolveAnnotationCommentTextMarkupColor: vi.fn(() => null as string | null)}));
 
@@ -122,12 +123,12 @@ function installSplitImagePickerPlatform(imagePath: string, options: { cleanupEr
 
     vi.stubGlobal('window', {
         ...globalThis,
-        electronAPI: {
+        electronAPI: createElectronPlatformApiFixture({
             documentFiles,
             documentPicker,
             documentWorkingCopy,
             documents: legacyDocuments,
-        },
+        }),
     });
 
     return {
@@ -181,6 +182,21 @@ function createHarness() {
         updateShape: vi.fn(),
         getSelectedShape: vi.fn(() => selectedShape.value),
         deleteSelectedShape: vi.fn(),
+        runSaveTransaction: vi.fn(async () => ({
+            source: 'pdfjs-materialize' as const,
+            baseBytes: null,
+            serializedBytes: new Uint8Array([
+                9,
+                9,
+            ]),
+            nativeMutationPlan: null,
+            annotationSavePlan: null,
+            annotationCommentsSnapshot: [],
+            pendingEmbeddedTextUpdates: new Map(),
+            pendingEmbeddedAnnotationDeletes: [],
+            restoreConsumedPendingEmbeddedMutations: vi.fn(),
+            commitConsumedPendingEmbeddedMutations: vi.fn(),
+        })),
         saveDocument: vi.fn(async () => new Uint8Array([
             9,
             9,

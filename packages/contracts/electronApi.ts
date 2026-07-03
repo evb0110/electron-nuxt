@@ -3,6 +3,7 @@ import type { IPlatformApi } from '@contracts/platformApi';
 export type * from '@contracts/agent';
 export type * from '@contracts/agentCapability';
 export type * from '@contracts/pdfConformance';
+export type * from '@contracts/documentRevision';
 export type * from '@contracts/electronApiCommon';
 export type * from '@contracts/electronApiDocuments';
 export type * from '@contracts/electronApiOcr';

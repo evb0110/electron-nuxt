@@ -32,6 +32,7 @@ const legacyDocumentsMock = vi.hoisted(() => ({
         throw new Error('Legacy documents.cleanupFile should not be used for DOCX export');
     }),
 }));
+const TEST_DOCUMENT_REVISION = 'revision-token';
 
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentsCapability: () => legacyDocumentsMock,
@@ -69,6 +70,7 @@ describe('useDocxExport', () => {
 
         const result = await exportState.exportDocx({
             workingCopyPath: '/tmp/work.pdf',
+            documentRevisionToken: TEST_DOCUMENT_REVISION,
             pdfDocument: {} as PDFDocumentProxy,
             selectedLanguages: ['heb'],
         });
@@ -80,6 +82,7 @@ describe('useDocxExport', () => {
             'extractPdfText',
         ]);
         expect(loadOcrTextMock).toHaveBeenCalledTimes(1);
+        expect(loadOcrTextMock).toHaveBeenCalledWith('/tmp/work.pdf', TEST_DOCUMENT_REVISION);
         expect(extractPdfTextMock).toHaveBeenCalledTimes(1);
         expect(createDocxFromTextAsyncMock).toHaveBeenCalledWith('pdf text', true);
         expect(documentFilesMock.saveDocxAs).toHaveBeenCalledWith('/tmp/work.pdf');
@@ -118,6 +121,7 @@ describe('useDocxExport', () => {
 
         const result = await exportState.exportDocx({
             workingCopyPath: '/tmp/work.pdf',
+            documentRevisionToken: TEST_DOCUMENT_REVISION,
             pdfDocument: {} as PDFDocumentProxy,
         });
 
@@ -141,6 +145,7 @@ describe('useDocxExport', () => {
 
         const result = await exportState.exportDocx({
             workingCopyPath: 'browser://documents/working/work.pdf',
+            documentRevisionToken: TEST_DOCUMENT_REVISION,
             pdfDocument: {} as PDFDocumentProxy,
         });
 

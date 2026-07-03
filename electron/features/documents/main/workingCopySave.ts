@@ -3,6 +3,10 @@ import {
     writeFile,
 } from 'fs/promises';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
+import type {
+    TDocumentSaveFailureReason,
+    TDocumentSaveResult,
+} from '@contracts/electronApiDocuments';
 import {
     atomicReplace,
     makeSiblingTempPath,
@@ -18,6 +22,7 @@ import { WorkingCopyMissingError } from '@electron/file-access/workingCopyMissin
 import { normalizeIpcWritePayload } from '@electron/features/documents/main/documentFileWriteAtomic';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
+import { markWorkingCopyContentChanged } from '@electron/file-access/documentRevisionStore';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { originalPathSaveBaseMatches } from '@electron/features/documents/main/originalPathSaveBaseMatches';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -48,6 +53,30 @@ function createOriginalChangedValidationResult(): IPdfValidationResult {
         tool: 'qpdf',
         errors: ['Original file changed on disk; save skipped to avoid overwriting external edits'],
         warnings: [],
+    };
+}
+
+function getValidationSaveFailureReason(validation: IPdfValidationResult) {
+    return validation.errors.some(error => error.includes('Original file changed on disk'))
+        ? 'stale'
+        : 'validation-failed';
+}
+
+function createSaveFailureResult(
+    reason: TDocumentSaveFailureReason,
+    error?: unknown,
+    options: {
+        externalWriteCommitted?: boolean;
+        validation?: IPdfValidationResult | null;
+    } = {},
+): TDocumentSaveResult {
+    const message = error === undefined ? undefined : getErrorMessage(error);
+    return {
+        ok: false,
+        reason,
+        ...(message === undefined ? {} : {message}),
+        ...(options.externalWriteCommitted === undefined ? {} : {externalWriteCommitted: options.externalWriteCommitted}),
+        ...(options.validation === undefined ? {} : {validation: options.validation}),
     };
 }
 
@@ -133,18 +162,36 @@ export async function handleFileSave(
     context: IDocumentsSenderIdContext,
     workingPath: string,
 ) {
-    const senderId = requireSenderId(context);
-    if (!workingPath || workingPath.trim() === '') {
-        throw new Error('Invalid file path');
+    const result = await handleFileSaveStructured(context, workingPath);
+    if (result.ok) {
+        return true;
     }
 
-    const normalizedWorkingPath = workingPath.trim();
-    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
+    if (result.reason === 'working-copy-missing') {
+        throw new WorkingCopyMissingError(result.message);
+    }
+    if (result.reason === 'validation-failed' || result.reason === 'stale') {
+        throw new Error(`PDF validation failed: ${result.validation?.errors.join('; ') ?? result.message ?? 'unknown error'}`);
+    }
 
+    throw new Error(`Failed to save: ${result.message ?? result.reason}`);
+}
+
+export async function handleFileSaveStructured(
+    context: IDocumentsSenderIdContext,
+    workingPath: string,
+): Promise<TDocumentSaveResult> {
     try {
-        const validation = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+        const senderId = requireSenderId(context);
+        if (!workingPath || workingPath.trim() === '') {
+            return createSaveFailureResult('write-failed', new Error('Invalid file path'));
+        }
+
+        const normalizedWorkingPath = workingPath.trim();
+        const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
+        const saveResult = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
             if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
-                throw new Error('Working copy path is not managed');
+                throw new WorkingCopyMissingError('Working copy path is not managed');
             }
 
             const queuedValidation = await replaceOriginalWithValidatedTemp(
@@ -155,19 +202,59 @@ export async function handleFileSave(
                 { optimize: 'large' },
             );
             if (queuedValidation.isValid) {
-                refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
+                try {
+                    refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
+                    return {
+                        validation: queuedValidation,
+                        workingCopyRefreshed: true,
+                    };
+                } catch (refreshError) {
+                    return {
+                        validation: queuedValidation,
+                        workingCopyRefreshed: false,
+                        refreshError,
+                    };
+                }
             }
-            return queuedValidation;
+
+            return {
+                validation: queuedValidation,
+                workingCopyRefreshed: false,
+            };
         });
-        if (!validation.isValid) {
-            throw new Error(`PDF validation failed: ${validation.errors.join('; ')}`);
+
+        if (!saveResult.validation.isValid) {
+            return createSaveFailureResult(
+                getValidationSaveFailureReason(saveResult.validation),
+                undefined,
+                {
+                    externalWriteCommitted: false,
+                    validation: saveResult.validation,
+                },
+            );
         }
-        return true;
+
+        return {
+            ok: true,
+            externalWriteCommitted: true,
+            workingCopyRefreshed: saveResult.workingCopyRefreshed,
+            validation: saveResult.validation,
+            ...(saveResult.refreshError === undefined ? {} : {warning: {
+                reason: 'refresh-failed',
+                message: getErrorMessage(saveResult.refreshError),
+            }}),
+        };
     } catch (err) {
         if (err instanceof WorkingCopyMissingError) {
-            throw err;
+            return createSaveFailureResult('working-copy-missing', err, {
+                externalWriteCommitted: false,
+                validation: null,
+            });
         }
-        throw new Error(`Failed to save: ${getErrorMessage(err)}`);
+        return createSaveFailureResult('write-failed', err, {
+            externalWriteCommitted: false,
+            validation: null,
+        });
     }
 }
 
@@ -202,6 +289,7 @@ export async function handleSerializedPdfSave(
                 try {
                     await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
                     refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
+                    await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
                 } catch (syncError) {
                     return withWorkingCopySyncWarning(queuedValidation, syncError);
                 }
@@ -251,6 +339,7 @@ export async function handleRepairPdfSave(
                 try {
                     await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
                     refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
+                    await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
                 } catch (syncError) {
                     return withWorkingCopySyncWarning(queuedValidation, syncError);
                 }
@@ -300,6 +389,7 @@ export async function handleOptimizePdfForInteraction(
                 try {
                     await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
                     refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId);
+                    await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
                 } catch (syncError) {
                     return withWorkingCopySyncWarning(queuedValidation, syncError);
                 }

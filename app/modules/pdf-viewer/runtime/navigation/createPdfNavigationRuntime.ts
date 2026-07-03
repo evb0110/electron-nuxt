@@ -16,10 +16,18 @@ import type {
 import type { Ref } from 'vue';
 
 type TPdfCurrentPageEmitter = (page: number) => void;
+type TPdfCurrentPageCommitter = (
+    page: number,
+    options: {
+        previousPage: number;
+        transactionId?: number | undefined;
+    },
+) => boolean | undefined;
 
 interface IPdfNavigationRuntimeOptions {
     currentPage?: Ref<number> | undefined;
     emitCurrentPage?: TPdfCurrentPageEmitter | undefined;
+    commitCurrentPage?: TPdfCurrentPageCommitter | undefined;
 }
 
 interface IPdfCurrentPageCommitOptions { previousPage?: number | undefined }
@@ -42,6 +50,21 @@ export function createPdfNavigationRuntime(options: IPdfNavigationRuntimeOptions
         }
 
         const previous = previousPage ?? options.currentPage.value;
+        const transactionId = state.value.status === 'idle'
+            ? undefined
+            : state.value.txn;
+        const didCommit = options.commitCurrentPage?.(
+            currentPage,
+            transactionId !== undefined
+                ? {
+                    previousPage: previous,
+                    transactionId,
+                }
+                : { previousPage: previous },
+        );
+        if (didCommit !== undefined) {
+            return didCommit;
+        }
         if (options.currentPage.value !== currentPage) {
             options.currentPage.value = currentPage;
         }
@@ -163,9 +186,11 @@ export function createPdfNavigationRuntime(options: IPdfNavigationRuntimeOptions
 export function createPdfNavigationRuntimeForCurrentPage(
     currentPage: Ref<number>,
     emitCurrentPage?: TPdfCurrentPageEmitter | undefined,
+    commitCurrentPage?: TPdfCurrentPageCommitter | undefined,
 ) {
     return createPdfNavigationRuntime({
         currentPage,
         emitCurrentPage,
+        commitCurrentPage,
     });
 }

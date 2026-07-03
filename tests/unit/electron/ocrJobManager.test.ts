@@ -42,6 +42,7 @@ const mocks = vi.hoisted(() => ({
     })),
     unlink: vi.fn(async () => {}),
     sendToLiveWindow: vi.fn(),
+    getWorkingCopyRevision: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -94,6 +95,18 @@ vi.mock('@electron/ocr/languageModels', () => ({
 vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: mocks.getOcrToolPaths}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('@electron/utils/sendToLiveWindow', () => ({sendToLiveWindow: mocks.sendToLiveWindow}));
+vi.mock('@electron/file-access/documentRevisionStore', () => ({getWorkingCopyRevision: mocks.getWorkingCopyRevision}));
+
+function createDocumentRevision(documentRef: string) {
+    return {
+        version: 1 as const,
+        documentRef,
+        authority: 'electron-working-copy' as const,
+        token: `revision-token:${documentRef}`,
+        contentRevision: 1,
+        mintedAt: 1,
+    };
+}
 
 function createContext(senderId: number) {
     const sender = {
@@ -164,6 +177,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             size: 1024,
             isFile: () => true,
         });
+        mocks.getWorkingCopyRevision.mockImplementation(async (documentRef: string) => createDocumentRevision(documentRef));
     });
 
     afterEach(async () => {

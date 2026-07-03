@@ -1,4 +1,4 @@
-import type { IPageRange } from '@app/types/pdf';
+import type { IPageRange } from '@app/types/pdfUi';
 import type {
     MaybeRefOrGetter,
     Ref,
@@ -9,6 +9,34 @@ import {
     type IPdfRenderSupervisor,
     type IPdfRenderSupervisorTimer,
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
+import type {
+    IPdfViewerTransactionCancellation,
+    TPdfViewerTransactionState,
+} from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
+
+type TMountedPageRecoveryAdvanceState = Exclude<
+    TPdfViewerTransactionState,
+    'preparing' | 'cancelled'
+>;
+
+interface IMountedPageRecoveryTransactionController {
+    beginTransaction: (options: {
+        kind: 'recovery';
+        source: 'mounted-page-recovery';
+        page: number;
+        range: IPageRange;
+        anchor: 'top';
+    }) => { id: number } | null;
+    advanceTransaction: (
+        transactionId: number,
+        state: TMountedPageRecoveryAdvanceState,
+    ) => boolean;
+    cancelActiveTransaction: (
+        cancellation: IPdfViewerTransactionCancellation,
+        transactionId?: number,
+    ) => boolean;
+    isTransactionCurrent: (transactionId: number) => boolean;
+}
 
 interface IUsePdfMountedPageRenderRecoveryOptions {
     isActive: MaybeRefOrGetter<boolean>;
@@ -37,6 +65,7 @@ interface IUsePdfMountedPageRenderRecoveryOptions {
     ) => Promise<void>;
     resolveRecoveryRange?: ((pageNumber: number) => IPageRange | null | undefined) | undefined;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
+    transactionController?: IMountedPageRecoveryTransactionController | undefined;
 }
 
 const MOUNTED_PAGE_RENDER_RETRY_DELAYS_MS = [
@@ -86,6 +115,98 @@ export const usePdfMountedPageRenderRecovery = (options: IUsePdfMountedPageRende
     let retryTimer: IPdfRenderSupervisorTimer | null = null;
     let isRenderPassActive = false;
     let recoveryRunId = 0;
+    let activeRecoveryTransactionId: number | null = null;
+
+    function createRecoveryCancellation(
+        reason: IPdfViewerTransactionCancellation['reason'],
+    ): IPdfViewerTransactionCancellation {
+        return {
+            reason,
+            cancelInFlightRenders: false,
+            bumpRenderVersion: false,
+            clearTimers: true,
+            preserveVisualContent: true,
+        };
+    }
+
+    function cancelRecoveryTransaction(
+        transactionId: number | null,
+        reason: IPdfViewerTransactionCancellation['reason'],
+    ) {
+        if (transactionId === null) {
+            return true;
+        }
+        if (
+            options.transactionController
+            && !options.transactionController.isTransactionCurrent(transactionId)
+        ) {
+            if (activeRecoveryTransactionId === transactionId) {
+                activeRecoveryTransactionId = null;
+            }
+            return true;
+        }
+        const didCancel = options.transactionController?.cancelActiveTransaction(
+            createRecoveryCancellation(reason),
+            transactionId,
+        ) ?? true;
+        if (activeRecoveryTransactionId === transactionId) {
+            activeRecoveryTransactionId = null;
+        }
+        return didCancel;
+    }
+
+    function isRecoveryTransactionCurrent(transactionId: number | null) {
+        return transactionId === null
+            || options.transactionController?.isTransactionCurrent(transactionId) !== false;
+    }
+
+    function beginRecoveryTransaction(
+        pageNumbers: number[],
+        ranges: IPageRange[],
+    ) {
+        const firstPage = pageNumbers[0];
+        const firstRange = ranges[0];
+        if (firstPage === undefined || firstRange === undefined) {
+            return null;
+        }
+        const range = {
+            start: Math.min(...ranges.map(item => item.start)),
+            end: Math.max(...ranges.map(item => item.end)),
+        };
+        const transaction = options.transactionController?.beginTransaction({
+            kind: 'recovery',
+            source: 'mounted-page-recovery',
+            page: firstPage,
+            range,
+            anchor: 'top',
+        });
+        if (options.transactionController && !transaction) {
+            return null;
+        }
+        activeRecoveryTransactionId = transaction?.id ?? null;
+        return activeRecoveryTransactionId;
+    }
+
+    function advanceRecoveryTransaction(
+        transactionId: number | null,
+        state: TMountedPageRecoveryAdvanceState,
+    ) {
+        if (transactionId === null) {
+            return true;
+        }
+        return options.transactionController?.advanceTransaction(transactionId, state) ?? true;
+    }
+
+    function settleRecoveryTransaction(transactionId: number | null) {
+        if (transactionId === null) {
+            return true;
+        }
+        const didSettle = options.transactionController?.advanceTransaction(transactionId, 'settled') ?? true;
+        if (activeRecoveryTransactionId === transactionId) {
+            activeRecoveryTransactionId = null;
+        }
+        return didSettle;
+    }
 
     function clearRetryTimer() {
         renderSupervisor.clearTimer(retryTimer);
@@ -217,14 +338,28 @@ export const usePdfMountedPageRenderRecovery = (options: IUsePdfMountedPageRende
                 return;
             }
 
-            for (const range of getRecoveryRenderRanges(getRecoverablePages())) {
+            const recoverablePages = getRecoverablePages();
+            const ranges = getRecoveryRenderRanges(recoverablePages);
+            const transactionId = beginRecoveryTransaction(recoverablePages, ranges);
+            if (options.transactionController && transactionId === null) {
+                return;
+            }
+            advanceRecoveryTransaction(transactionId, 'render-requested');
+            for (const range of ranges) {
+                if (!isRecoveryTransactionCurrent(transactionId)) {
+                    return;
+                }
                 await options.renderVisiblePages(range, {
                     preserveRenderedPages: true,
                     bufferOverride: 0,
                     preserveInFlightRequiredPages: true,
                 });
             }
+            if (isRecoveryTransactionCurrent(transactionId)) {
+                settleRecoveryTransaction(transactionId);
+            }
         } catch (error) {
+            cancelRecoveryTransaction(activeRecoveryTransactionId, 'timeout');
             BrowserLogger.error(
                 'pdf-renderer',
                 'Failed to recover mounted PDF page render',
@@ -284,6 +419,7 @@ export const usePdfMountedPageRenderRecovery = (options: IUsePdfMountedPageRende
 
     function cleanupMountedPageRenderRecovery() {
         recoveryRunId += 1;
+        cancelRecoveryTransaction(activeRecoveryTransactionId, 'disposed');
         clearRetryTimer();
         pendingPages.clear();
         isRenderPassActive = false;

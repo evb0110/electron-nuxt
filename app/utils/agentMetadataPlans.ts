@@ -7,7 +7,7 @@ import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type {
     IPdfPageLabelRange,
     TPageLabelStyle,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
 import {
     buildPageLabelsFromRanges,
     derivePageLabelRangesFromLabels,

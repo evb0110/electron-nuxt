@@ -1,34 +1,85 @@
 import { BrowserLogger } from '@app/utils/browserLogger';
 
+export type TGuardAsyncCategory = 'background-diagnostic' | 'user-visible-operation';
+
 export interface IGuardAsyncOptions {
+    category: TGuardAsyncCategory;
     scope: string;
     message: string;
+    signal?: AbortSignal;
     onError?: (error: unknown) => void;
+}
+
+function isErrorWithName(error: unknown, name: string) {
+    return error instanceof Error && error.name === name;
+}
+
+function isExpectedCancellation(error: unknown, options: IGuardAsyncOptions) {
+    if (options.signal?.aborted) {
+        return true;
+    }
+
+    if (
+        isErrorWithName(error, 'AbortError')
+        || isErrorWithName(error, 'RenderingCancelledException')
+        || isErrorWithName(error, 'AbortException')
+    ) {
+        return true;
+    }
+
+    if (error && typeof error === 'object' && 'code' in error) {
+        const code = (error as {code?: unknown}).code;
+        return code === 'ABORT_ERR' || code === 'ERR_CANCELED';
+    }
+
+    return false;
+}
+
+function runGuardAsyncErrorHandler(
+    error: unknown,
+    options: IGuardAsyncOptions,
+) {
+    if (!options.onError) {
+        return;
+    }
+
+    try {
+        options.onError(error);
+    } catch (onErrorError) {
+        BrowserLogger.debug(
+            options.scope,
+            'Async guard onError handler failed',
+            onErrorError,
+        );
+    }
+}
+
+function logGuardAsyncError(
+    error: unknown,
+    options: IGuardAsyncOptions,
+) {
+    if (isExpectedCancellation(error, options)) {
+        BrowserLogger.debug(options.scope, options.message, {
+            category: options.category,
+            canceled: true,
+            error,
+        });
+        return;
+    }
+
+    BrowserLogger.error(options.scope, options.message, {
+        category: options.category,
+        error,
+    });
 }
 
 export function guardAsync(
     promise: Promise<unknown>,
     options: IGuardAsyncOptions,
 ) {
-    const {
-        scope,
-        message,
-        onError,
-    } = options;
-
     void promise.catch((error) => {
-        if (onError) {
-            try {
-                onError(error);
-            } catch (onErrorError) {
-                BrowserLogger.debug(
-                    scope,
-                    'Async guard onError handler failed',
-                    onErrorError,
-                );
-            }
-        }
-        BrowserLogger.error(scope, message, error);
+        runGuardAsyncErrorHandler(error, options);
+        logGuardAsyncError(error, options);
     });
 }
 
@@ -39,17 +90,7 @@ export function runGuardedTask(
     try {
         guardAsync(task(), options);
     } catch (error) {
-        if (options.onError) {
-            try {
-                options.onError(error);
-            } catch (onErrorError) {
-                BrowserLogger.debug(
-                    options.scope,
-                    'Async guard onError handler failed',
-                    onErrorError,
-                );
-            }
-        }
-        BrowserLogger.error(options.scope, options.message, error);
+        runGuardAsyncErrorHandler(error, options);
+        logGuardAsyncError(error, options);
     }
 }

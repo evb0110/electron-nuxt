@@ -1,6 +1,7 @@
 import type { TPageNumber } from '@contracts/pageNumbers';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import type { IOcrWord } from '@contracts/shared';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { isRecord } from '@contracts/runtimeGuards';
 
 export interface IPdfSearchExcerpt {
@@ -108,6 +109,7 @@ export interface IResolvedSearchMatchOptions {
 export interface IPdfSearchRequestOptions extends ISearchMatchOptions {
     requestId?: string;
     pageCount?: number;
+    documentRevision?: TDocumentRevisionToken;
 }
 
 export const SEARCH_REQUEST_ID_MAX_LENGTH = 128;

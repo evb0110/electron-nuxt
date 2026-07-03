@@ -2,7 +2,7 @@ import {isFiniteNumber} from '@contracts/runtimeGuards';
 import type {
     IScrollSnapshot,
     TAnchorPageOutsideEdge,
-} from '@app/types/pdf';
+} from '@app/types/pdfUi';
 import { clamp } from 'es-toolkit/math';
 
 const PAGE_NUMBER_BASE = 10;

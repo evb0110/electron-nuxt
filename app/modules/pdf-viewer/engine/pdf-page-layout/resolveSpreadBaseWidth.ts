@@ -1,8 +1,6 @@
 import {isFinitePositive} from '@contracts/runtimeGuards';
-import type {
-    IPdfPageMetric,
-    TPdfViewMode,
-} from '@app/types/pdf';
+import type { TPdfViewMode } from '@app/types/pdfContracts';
+import type { IPdfPageMetric } from '@app/types/pdfUi';
 import {
     clamp,
     sumBy,

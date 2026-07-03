@@ -10,7 +10,7 @@ import {
     shallowRef,
 } from 'vue';
 import { useDocumentTransitions } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 
 function createDeps() {
     return {

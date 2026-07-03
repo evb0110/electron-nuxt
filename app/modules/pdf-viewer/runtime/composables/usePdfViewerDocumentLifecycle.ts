@@ -9,26 +9,30 @@ import { runGuardedTask } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type {
-    IPageRange,
-    IScrollSnapshot,
     PDFDocumentProxy,
     PDFPageProxy,
-    TPdfSource,
     TZoomMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type {
+    IPageRange,
+    TPdfSource,
+} from '@app/types/pdfUi';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { tracePdfAnnotationSaveDom } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveDom';
 import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
-import { hasPdfPageAnnotationVisualContentForSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/hasPdfPageAnnotationVisualContentForSnapshotRelease';
-import type { TPdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotRelease';
-import { preservePdfPageAnnotationVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/preservePdfPageAnnotationVisualSnapshot';
-import { schedulePdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/schedulePdfLayerVisualSnapshotRelease';
+import {
+    usePdfViewerPreservedVisibleContent,
+    type IPreservedScrollPosition,
+    type IPreservedVisibleContentRequest,
+    type IPreservedVisibleContentState,
+} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerPreservedVisibleContent';
+import { usePdfViewerInitialRenderRecovery } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerInitialRenderRecovery';
 import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';
+import type {
+    IPdfViewerTransactionCancellation,
+    TPdfViewerTransactionState,
+} from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 
-const INITIAL_CONTENT_SHORT_WAIT_MS = 40;
-const INITIAL_CONTENT_LONG_WAIT_MS = 80;
-const PRESERVED_VISUAL_SNAPSHOT_CAPTURE_MAX_DELAY_MS = 15_000;
-const PRESERVED_VISUAL_SNAPSHOT_RELEASE_MAX_DELAY_MS = 2_500;
 const RELOAD_RECOVERY_PAGE_PIN_MS = 900;
 
 interface IReloadPlan {
@@ -48,20 +52,46 @@ interface IVisualReloadTransition {
     settle: (reason: string) => void;
 }
 
-interface IPreservedScrollPosition {
-    left: number;
-    top: number;
-}
+type TReloadTransactionAdvanceState = Exclude<
+    TPdfViewerTransactionState,
+    'preparing' | 'cancelled'
+>;
 
-interface IPreservedVisibleContentRequest {
-    scrollSnapshot?: IScrollSnapshot | null;
-    pageToRestore?: number | null;
-}
-
-interface IPreservedVisibleContentState {
-    scrollPosition: IPreservedScrollPosition | null;
-    pageToRestore: number | null;
-    visualSnapshotRelease: TPdfLayerVisualSnapshotRelease | null;
+interface IReloadTransactionController {
+    beginTransaction: (options: {
+        kind: 'reload';
+        source: 'reload';
+        page: number;
+        range: IPageRange;
+        anchor: 'top';
+        scrollPlan: {
+            preferExactDom: boolean;
+            commitCurrentPageOnScroll: boolean;
+            suppressSnapAfterScroll: boolean;
+            holdProgrammaticNavigationMs: number;
+        };
+    }) => { id: number } | null;
+    advanceTransaction: (
+        transactionId: number,
+        state: TReloadTransactionAdvanceState,
+    ) => boolean;
+    cancelActiveTransaction: (
+        cancellation: IPdfViewerTransactionCancellation,
+        transactionId?: number,
+    ) => boolean;
+    isTransactionCurrent: (transactionId: number) => boolean;
+    commitVisibleRange: (
+        range: IPageRange,
+        options?: { transactionId?: number | undefined },
+    ) => boolean;
+    commitCurrentPage: (
+        page: number,
+        options?: {
+            emitCurrentPage?: boolean | undefined;
+            previousPage?: number | undefined;
+            transactionId?: number | undefined;
+        },
+    ) => boolean;
 }
 
 interface ICommentSyncLike {
@@ -118,6 +148,7 @@ interface IUsePdfViewerDocumentLifecycleOptions {
     }) => Promise<void>;
     getUserViewportInteractionEpoch?: (() => number) | undefined;
     applySearchHighlights: () => void;
+    getVisiblePageRange?: ((container: HTMLElement | null, numPages: number) => IPageRange) | undefined;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => void;
     cleanupRenderedPages: () => void;
@@ -146,6 +177,7 @@ interface IUsePdfViewerDocumentLifecycleOptions {
     suppressNextZoomRerender: (targetZoom: number) => void;
     beginVisualReloadTransition: (reason: string) => number;
     endVisualReloadTransition: (token: number, reason: string) => void;
+    transactionController?: IReloadTransactionController | undefined;
     emitLoadError?: ((error: unknown) => void) | undefined;
     onDocumentLoadStateChange?: ((payload: {
         token: number;
@@ -166,85 +198,156 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
     const isLoadFromSourceActive = ref(false);
     let shouldPreserveNextSourceReloadVisibleContent = false;
     let nextPreservedVisibleContentState: IPreservedVisibleContentState | null = null;
+    let activeReloadTransactionId: number | null = null;
+    const {
+        capturePreservedVisibleContentState,
+        releasePreservedVisualSnapshotNow,
+        schedulePreservedVisualSnapshotRelease,
+    } = usePdfViewerPreservedVisibleContent({
+        viewerContainer: options.viewerContainer,
+        currentPage: options.currentPage,
+    });
+    const { scheduleRecoverInitialRender } = usePdfViewerInitialRenderRecovery({
+        viewerContainer: options.viewerContainer,
+        pdfDocument: options.pdfDocument,
+        numPages: options.numPages,
+        isLoading: options.isLoading,
+        computeFitWidthScale: options.computeFitWidthScale,
+        updateVisibleRange: options.updateVisibleRange,
+        reRenderVisiblePagesAndSyncCurrentPage: options.reRenderVisiblePagesAndSyncCurrentPage,
+        renderVisiblePages: options.renderVisiblePages,
+        getVisibleRange: options.getVisibleRange,
+        syncCurrentPageFromViewport: options.syncCurrentPageFromViewport,
+    });
 
-    function hasRenderedPageCanvas() {
-        const container = options.viewerContainer.value;
-        if (!container) {
-            return false;
-        }
-        return Boolean(
-            container.querySelector('.page_container .page_canvas canvas'),
-        );
+    function beginReloadTransaction(plan: IReloadPlan) {
+        const range = {
+            start: plan.resolvedPageToRestore,
+            end: plan.resolvedPageToRestore,
+        };
+        const transaction = options.transactionController?.beginTransaction({
+            kind: 'reload',
+            source: 'reload',
+            page: plan.resolvedPageToRestore,
+            range,
+            anchor: 'top',
+            scrollPlan: {
+                preferExactDom: true,
+                commitCurrentPageOnScroll: true,
+                suppressSnapAfterScroll: true,
+                holdProgrammaticNavigationMs: RELOAD_RECOVERY_PAGE_PIN_MS,
+            },
+        });
+        activeReloadTransactionId = transaction?.id ?? null;
+        return activeReloadTransactionId;
     }
 
-    function hasRenderedTextLayerContent() {
-        const container = options.viewerContainer.value;
-        if (!container) {
+    function isReloadTransactionCurrent(transactionId: number | null) {
+        return transactionId === null
+            || options.transactionController?.isTransactionCurrent(transactionId) !== false;
+    }
+
+    function advanceReloadTransaction(
+        transactionId: number | null,
+        state: TReloadTransactionAdvanceState,
+    ) {
+        if (transactionId === null) {
+            return true;
+        }
+        return options.transactionController?.advanceTransaction(transactionId, state) ?? true;
+    }
+
+    function settleReloadTransaction(transactionId: number | null) {
+        const didAdvance = advanceReloadTransaction(transactionId, 'settled');
+        if (activeReloadTransactionId === transactionId) {
+            activeReloadTransactionId = null;
+        }
+        return didAdvance;
+    }
+
+    function cancelReloadTransaction(
+        transactionId: number | null,
+        cancellation: IPdfViewerTransactionCancellation,
+    ) {
+        if (transactionId === null) {
+            return true;
+        }
+        if (
+            options.transactionController
+            && !options.transactionController.isTransactionCurrent(transactionId)
+        ) {
+            if (activeReloadTransactionId === transactionId) {
+                activeReloadTransactionId = null;
+            }
+            return true;
+        }
+        const didCancel = options.transactionController?.cancelActiveTransaction(
+            cancellation,
+            transactionId,
+        ) ?? true;
+        if (activeReloadTransactionId === transactionId) {
+            activeReloadTransactionId = null;
+        }
+        return didCancel;
+    }
+
+    function createReloadCancellation(
+        reason: IPdfViewerTransactionCancellation['reason'],
+        preserveVisualContent: boolean,
+    ): IPdfViewerTransactionCancellation {
+        return {
+            reason,
+            cancelInFlightRenders: true,
+            bumpRenderVersion: reason === 'document-changed' || reason === 'reload',
+            clearTimers: true,
+            preserveVisualContent,
+        };
+    }
+
+    function commitReloadCurrentPage(page: number, transactionId: number | null) {
+        const didCommit = options.transactionController?.commitCurrentPage(
+            page,
+            {
+                ...(transactionId !== null ? { transactionId } : {}),
+                emitCurrentPage: false,
+            },
+        );
+        if (didCommit !== undefined) {
+            return didCommit;
+        }
+        options.currentPage.value = page;
+        return true;
+    }
+
+    function commitReloadVisibleRange(range: IPageRange, transactionId: number | null) {
+        const didCommit = options.transactionController?.commitVisibleRange(
+            range,
+            transactionId !== null ? { transactionId } : undefined,
+        );
+        if (didCommit !== undefined) {
+            return didCommit;
+        }
+        options.visibleRange.value = range;
+        return true;
+    }
+
+    function commitReloadViewportVisibleRange(transactionId: number | null) {
+        const range = options.getVisiblePageRange?.(
+            options.viewerContainer.value,
+            options.numPages.value,
+        );
+        if (range) {
+            return commitReloadVisibleRange(range, transactionId);
+        }
+        if (!isReloadTransactionCurrent(transactionId)) {
             return false;
         }
-        return Boolean(
-            container.querySelector(
-                '.page_container .text-layer span, .page_container .textLayer span',
-            ),
-        );
+        options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
+        return true;
     }
 
     function logAsyncStageError(stage: string, error: unknown) {
         BrowserLogger.error('pdf-viewer', `Failed to ${stage}`, error);
-    }
-
-    function hasRenderedInitialContent() {
-        return hasRenderedPageCanvas() || hasRenderedTextLayerContent();
-    }
-
-    function refreshVisibleRangeForRecovery() {
-        options.computeFitWidthScale(options.viewerContainer.value);
-        options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
-    }
-
-    async function recoverInitialRenderIfNeeded() {
-        if (!options.pdfDocument.value || options.isLoading.value || options.numPages.value <= 0) {
-            return;
-        }
-        if (hasRenderedInitialContent()) {
-            return;
-        }
-        await nextTick();
-        await delay(INITIAL_CONTENT_SHORT_WAIT_MS);
-        if (hasRenderedInitialContent()) {
-            return;
-        }
-
-        refreshVisibleRangeForRecovery();
-        try {
-            await options.reRenderVisiblePagesAndSyncCurrentPage();
-        } catch (error) {
-            logAsyncStageError(
-                're-render visible pages during initial recovery',
-                error,
-            );
-        }
-
-        await nextTick();
-        await delay(INITIAL_CONTENT_LONG_WAIT_MS);
-        if (hasRenderedInitialContent()) {
-            return;
-        }
-
-        refreshVisibleRangeForRecovery();
-        try {
-            await options.renderVisiblePages(options.getVisibleRange());
-            await options.syncCurrentPageFromViewport({ source: 'recover-initial-render' });
-        } catch (error) {
-            logAsyncStageError('render visible pages during initial recovery', error);
-        }
-    }
-
-    function scheduleRecoverInitialRender() {
-        runGuardedTask(() => recoverInitialRenderIfNeeded(), {
-            scope: 'pdf-viewer',
-            message: 'Failed to recover initial PDF render',
-        });
     }
 
     async function waitForZoomPropSync(targetZoom: number) {
@@ -278,149 +381,11 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         options.emit('annotation-comments', []);
     }
 
-    function normalizePreservedPageNumber(value: number | null | undefined) {
-        return typeof value === 'number' && Number.isFinite(value)
-            ? Math.max(1, Math.floor(value))
-            : null;
-    }
-
-    function asHtmlElement(value: Element | null | undefined) {
-        if (!value) {
-            return null;
-        }
-        if (typeof HTMLElement === 'undefined') {
-            return value as HTMLElement;
-        }
-        return value instanceof HTMLElement ? value : null;
-    }
-
-    function findPreservedPageContainer(pageNumber: number | null | undefined) {
-        const container = options.viewerContainer.value;
-        const normalizedPage = normalizePreservedPageNumber(pageNumber) ?? options.currentPage.value;
-        return asHtmlElement(
-            container?.querySelector(`.page_container[data-page="${normalizedPage}"]`),
-        );
-    }
-
-    function createTracedPreservedVisualSnapshotRelease(
-        release: TPdfLayerVisualSnapshotRelease | null,
-        pageNumber: number | null,
-        pageContainer: HTMLElement | null,
-    ) {
-        if (!release) {
-            return null;
-        }
-
-        let released = false;
-        return () => {
-            if (released) {
-                return;
-            }
-            released = true;
-            tracePdfAnnotationSaveDom(
-                'document-lifecycle:preserved-visual-snapshot:release',
-                pageContainer,
-                { pageNumber },
-            );
-            release();
-        };
-    }
-
-    function capturePreservedVisualSnapshot(pageNumber: number | null) {
-        const snapshotPage = normalizePreservedPageNumber(pageNumber) ?? options.currentPage.value;
-        const pageContainer = findPreservedPageContainer(snapshotPage);
-        const release = createTracedPreservedVisualSnapshotRelease(
-            preservePdfPageAnnotationVisualSnapshot(pageContainer, null),
-            snapshotPage,
-            pageContainer,
-        );
-        tracePdfAnnotationSaveDom(
-            'document-lifecycle:preserved-visual-snapshot:capture',
-            pageContainer,
-            {
-                hasSnapshot: Boolean(release),
-                pageNumber: snapshotPage,
-            },
-        );
-        schedulePdfLayerVisualSnapshotRelease(release, {
-            maxDelayMs: PRESERVED_VISUAL_SNAPSHOT_CAPTURE_MAX_DELAY_MS,
-            minFrames: 1,
-            waitFor: () => false,
-        });
-        return release;
-    }
-
-    function releasePreservedVisualSnapshotNow(
-        state: IPreservedVisibleContentState | null,
-        reason: string,
-    ) {
-        if (!state?.visualSnapshotRelease) {
-            return;
-        }
-        tracePdfAnnotationSaveEvent(
-            'document-lifecycle:preserved-visual-snapshot:release-now',
-            {
-                pageNumber: state.pageToRestore,
-                reason,
-            },
-        );
-        state.visualSnapshotRelease();
-        state.visualSnapshotRelease = null;
-    }
-
-    function schedulePreservedVisualSnapshotRelease(
-        plan: IReloadPlan,
-        reason: string,
-    ) {
-        const state = plan.preservedVisibleContent;
-        if (!state?.visualSnapshotRelease) {
-            return;
-        }
-
-        const release = state.visualSnapshotRelease;
-        state.visualSnapshotRelease = null;
-        const pageNumber = plan.resolvedPageToRestore;
-        tracePdfAnnotationSaveDom(
-            'document-lifecycle:preserved-visual-snapshot:schedule-release',
-            findPreservedPageContainer(pageNumber),
-            {
-                pageNumber,
-                reason,
-            },
-        );
-        schedulePdfLayerVisualSnapshotRelease(release, {
-            maxDelayMs: PRESERVED_VISUAL_SNAPSHOT_RELEASE_MAX_DELAY_MS,
-            minFrames: 1,
-            waitFor: () => hasPdfPageAnnotationVisualContentForSnapshotRelease(
-                findPreservedPageContainer(pageNumber),
-            ),
-        });
-    }
-
     function releasePlanPreservedVisualSnapshotNow(
         plan: IReloadPlan,
         reason: string,
     ) {
         releasePreservedVisualSnapshotNow(plan.preservedVisibleContent, reason);
-    }
-
-    function capturePreservedVisibleContentState(
-        request?: IPreservedVisibleContentRequest,
-    ): IPreservedVisibleContentState {
-        const container = options.viewerContainer.value;
-        const requestPage = normalizePreservedPageNumber(request?.pageToRestore);
-        const snapshotPage = normalizePreservedPageNumber(request?.scrollSnapshot?.anchorPage);
-        const pageToRestore = requestPage ?? snapshotPage ?? options.currentPage.value;
-        return {
-            scrollPosition: container
-                ? {
-                    left: container.scrollLeft,
-                    top: container.scrollTop,
-                }
-                : null,
-            pageToRestore,
-            visualSnapshotRelease: capturePreservedVisualSnapshot(pageToRestore),
-        };
     }
 
     function computeReloadPlan(isReload: boolean): IReloadPlan {
@@ -483,7 +448,11 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         };
     }
 
-    function applyPreLoadStateReset(plan: IReloadPlan, isReload: boolean) {
+    function applyPreLoadStateReset(
+        plan: IReloadPlan,
+        isReload: boolean,
+        transactionId: number | null,
+    ) {
         if (!plan.shouldPreserveVisibleContent) {
             options.emit('update:document', null);
         }
@@ -496,7 +465,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             if (isReload || plan.shouldPreserveReloadDisplayZoom) {
                 options.invalidateScaleCache();
             }
-            options.currentPage.value = plan.pageToRestore;
+            commitReloadCurrentPage(plan.pageToRestore, transactionId);
         } else {
             options.cleanupRenderedPages();
             if (isReload || plan.shouldPreserveReloadDisplayZoom) {
@@ -505,18 +474,21 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 options.resetScale();
             }
             options.resetInsets();
-            options.currentPage.value = plan.pageToRestore;
-            options.visibleRange.value = {
+            commitReloadCurrentPage(plan.pageToRestore, transactionId);
+            commitReloadVisibleRange({
                 start: plan.pageToRestore,
                 end: plan.pageToRestore,
-            };
+            }, transactionId);
         }
         if (!plan.shouldPreserveVisibleContent) {
             options.editor.destroyAnnotationEditor();
         }
     }
 
-    function cleanupPreservedVisibleContentAfterLoadFailure(plan: IReloadPlan) {
+    function cleanupPreservedVisibleContentAfterLoadFailure(
+        plan: IReloadPlan,
+        transactionId: number | null,
+    ) {
         if (!plan.shouldPreserveVisibleContent) {
             return;
         }
@@ -526,10 +498,10 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         options.cleanupRenderedPages();
         options.editor.destroyAnnotationEditor();
         options.resetInsets();
-        options.visibleRange.value = {
+        commitReloadVisibleRange({
             start: plan.pageToRestore,
             end: plan.pageToRestore,
-        };
+        }, transactionId);
     }
 
     function restoreSelectiveReloadBaseDimensions(
@@ -547,13 +519,17 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         }
     }
 
-    function applyPostLoadDocumentMetadata(plan: IReloadPlan) {
+    function applyPostLoadDocumentMetadata(plan: IReloadPlan, transactionId: number | null) {
         options.emit('update:document', options.pdfDocument.value);
         options.editor.initAnnotationEditor();
 
-        options.currentPage.value = Math.min(plan.resolvedPageToRestore, options.numPages.value);
+        const nextPage = Math.min(plan.resolvedPageToRestore, options.numPages.value);
+        const didCommitCurrentPage = commitReloadCurrentPage(nextPage, transactionId);
         options.emit('update:totalPages', options.numPages.value);
-        options.emit('update:currentPage', options.currentPage.value);
+        if (didCommitCurrentPage) {
+            options.emit('update:currentPage', options.currentPage.value);
+        }
+        return didCommitCurrentPage;
     }
 
     function resolveMetricHydrationStartPage(plan: IReloadPlan, isReload: boolean) {
@@ -576,6 +552,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 );
             },
             {
+                category: 'background-diagnostic',
                 scope: 'pdf-viewer',
                 message: 'Failed to compute PDF skeleton insets',
             },
@@ -607,21 +584,27 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 }
             },
             {
+                category: 'background-diagnostic',
                 scope: 'pdf-viewer',
                 message: 'Failed to run deferred PDF load work',
             },
         );
     }
 
-    function pinCurrentPageToRestoreTarget(plan: IReloadPlan) {
-        options.currentPage.value = Math.min(plan.resolvedPageToRestore, options.numPages.value);
-        options.emit('update:currentPage', options.currentPage.value);
+    function pinCurrentPageToRestoreTarget(plan: IReloadPlan, transactionId: number | null) {
+        const nextPage = Math.min(plan.resolvedPageToRestore, options.numPages.value);
+        const didCommitCurrentPage = commitReloadCurrentPage(nextPage, transactionId);
+        if (didCommitCurrentPage) {
+            options.emit('update:currentPage', options.currentPage.value);
+        }
+        return didCommitCurrentPage;
     }
 
     function scheduleWarmBufferedRender(
         plan: IReloadPlan,
         activeLoadToken: number,
         documentVersion: number,
+        transactionId: number | null,
         settleVisualReloadTransition: (reason: string) => void,
         settleDocumentLoadAfterRender: boolean,
     ) {
@@ -631,30 +614,39 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                     if (!isActiveLoadedDocument(activeLoadToken, documentVersion)) {
                         return;
                     }
-                    if (plan.shouldPreserveVisibleContent) {
-                        pinCurrentPageToRestoreTarget(plan);
+                    if (!isReloadTransactionCurrent(transactionId)) {
                         return;
                     }
+                    if (plan.shouldPreserveVisibleContent) {
+                        pinCurrentPageToRestoreTarget(plan, transactionId);
+                        return;
+                    }
+                    advanceReloadTransaction(transactionId, 'render-requested');
                     await options.renderVisiblePages(options.getVisibleRange());
-                    if (!isActiveLoadedDocument(activeLoadToken, documentVersion)) {
+                    if (
+                        !isActiveLoadedDocument(activeLoadToken, documentVersion)
+                        || !isReloadTransactionCurrent(transactionId)
+                    ) {
                         return;
                     }
                     if (!plan.shouldPinReloadPage) {
                         return;
                     }
 
-                    pinCurrentPageToRestoreTarget(plan);
+                    pinCurrentPageToRestoreTarget(plan, transactionId);
                     options.scrollToPage(options.currentPage.value);
                     await nextTick();
-                    options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
+                    commitReloadViewportVisibleRange(transactionId);
                 } finally {
                     settleVisualReloadTransition('warm-render-complete');
+                    settleReloadTransaction(transactionId);
                     if (settleDocumentLoadAfterRender) {
                         settleDocumentLoad(activeLoadToken);
                     }
                 }
             },
             {
+                category: 'user-visible-operation',
                 scope: 'pdf-viewer',
                 message: 'Failed to warm buffered PDF pages after initial render',
             },
@@ -698,6 +690,10 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
 
     function invalidateDocumentLoad() {
         scheduledLoadToken += 1;
+        cancelReloadTransaction(
+            activeReloadTransactionId,
+            createReloadCancellation('document-changed', false),
+        );
         if (isLoadFromSourceActive.value) {
             options.onDocumentLoadStateChange?.({
                 token: documentLoadToken,
@@ -762,11 +758,13 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         plan: IReloadPlan,
         activeLoadToken: number,
         documentVersion: number,
+        transactionId: number | null,
         visualReload: IVisualReloadTransition,
         settleVisualReloadTransition: (reason: string) => void,
     ) {
         if (plan.shouldPreserveVisibleContent) {
             settleVisualReloadTransition('preserved-load-complete');
+            settleReloadTransaction(transactionId);
             settleDocumentLoad(activeLoadToken);
             schedulePostInitialLoadWork(activeLoadToken, documentVersion);
             return true;
@@ -778,6 +776,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             plan,
             activeLoadToken,
             documentVersion,
+            transactionId,
             settleVisualReloadTransition,
             false,
         );
@@ -821,6 +820,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
     async function renderInitialLoadedPage(
         plan: IReloadPlan,
         preservedScrollPosition: IPreservedScrollPosition | null,
+        transactionId: number | null,
     ) {
         const initialRange = {
             start: options.currentPage.value,
@@ -836,6 +836,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 currentPageContainer,
                 { pageNumber: options.currentPage.value },
             );
+            advanceReloadTransaction(transactionId, 'render-requested');
             await options.renderVisiblePages(initialRange, {
                 preserveRenderedPages: true,
                 bufferOverride: 0,
@@ -851,6 +852,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             return;
         }
 
+        advanceReloadTransaction(transactionId, 'render-requested');
         await options.renderVisiblePages(initialRange, { bufferOverride: 0 });
     }
 
@@ -859,6 +861,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         activeLoadToken: number,
         loadedVersion: number,
         viewportInteractionEpoch: number,
+        transactionId: number | null,
     ) {
         if (
             plan.shouldPreserveVisibleContent
@@ -880,8 +883,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         }
 
         options.scrollToPage(plan.resolvedPageToRestore);
-        options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
-        return true;
+        return commitReloadViewportVisibleRange(transactionId);
     }
 
     async function loadFromSource(isReload = false) {
@@ -889,6 +891,10 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             releasePreservedVisualSnapshotNow(nextPreservedVisibleContentState, 'empty-source');
             shouldPreserveNextSourceReloadVisibleContent = false;
             nextPreservedVisibleContentState = null;
+            cancelReloadTransaction(
+                activeReloadTransactionId,
+                createReloadCancellation('document-changed', false),
+            );
             clearAnnotationCacheForEmptySource();
             return;
         }
@@ -896,9 +902,14 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         const activeLoadToken = startDocumentLoad();
         const viewportInteractionEpoch = options.getUserViewportInteractionEpoch?.() ?? 0;
         let settleTransferredToFinish = false;
+        let activeReloadPlan: IReloadPlan | null = null;
+        let reloadTransactionId: number | null = null;
+        let reloadCancellation: IPdfViewerTransactionCancellation | null = null;
 
         try {
             const plan = computeReloadPlan(isReload);
+            activeReloadPlan = plan;
+            reloadTransactionId = beginReloadTransaction(plan);
             tracePdfAnnotationSaveEvent(
                 'document-lifecycle:load-from-source:plan',
                 {
@@ -918,12 +929,16 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 savedVisibleRange,
             } = captureSelectiveReloadState(plan);
 
-            applyPreLoadStateReset(plan, isReload);
+            applyPreLoadStateReset(plan, isReload, reloadTransactionId);
 
             const loaded = await loadPdfForPlan(plan, isReload);
             if (!isDocumentLoadActive(activeLoadToken)) {
                 releasePlanPreservedVisualSnapshotNow(plan, 'load-superseded');
                 settleVisualReloadTransition('load-superseded');
+                reloadCancellation = createReloadCancellation(
+                    'superseded',
+                    plan.shouldPreserveVisibleContent,
+                );
                 return;
             }
             if (!loaded) {
@@ -931,18 +946,34 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 if (loadError) {
                     options.emitLoadError?.(loadError);
                 }
-                cleanupPreservedVisibleContentAfterLoadFailure(plan);
+                cleanupPreservedVisibleContentAfterLoadFailure(plan, reloadTransactionId);
                 settleVisualReloadTransition('load-aborted');
+                reloadCancellation = createReloadCancellation(
+                    'reload',
+                    plan.shouldPreserveVisibleContent,
+                );
                 return;
             }
             if (!isLoadedDocumentVersionActive(loaded.version)) {
                 releasePlanPreservedVisualSnapshotNow(plan, 'load-version-superseded');
                 settleVisualReloadTransition('load-version-superseded');
+                reloadCancellation = createReloadCancellation(
+                    'superseded',
+                    plan.shouldPreserveVisibleContent,
+                );
                 return;
             }
 
             restoreSelectiveReloadBaseDimensions(plan, savedBaseWidth, savedBaseHeight);
-            applyPostLoadDocumentMetadata(plan);
+            if (!applyPostLoadDocumentMetadata(plan, reloadTransactionId)) {
+                releasePlanPreservedVisualSnapshotNow(plan, 'metadata-commit-superseded');
+                settleVisualReloadTransition('metadata-commit-superseded');
+                reloadCancellation = createReloadCancellation(
+                    'superseded',
+                    plan.shouldPreserveVisibleContent,
+                );
+                return;
+            }
             restorePreservedScrollPosition(plan, preservedScrollPosition);
             if (!plan.shouldPreserveVisibleContent) {
                 await options.ensurePageMetricsInRange(
@@ -952,6 +983,10 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
                     releasePlanPreservedVisualSnapshotNow(plan, 'metric-prime-superseded');
                     settleVisualReloadTransition('metric-prime-superseded');
+                    reloadCancellation = createReloadCancellation(
+                        'superseded',
+                        plan.shouldPreserveVisibleContent,
+                    );
                     return;
                 }
             }
@@ -962,6 +997,10 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
                 releasePlanPreservedVisualSnapshotNow(plan, 'before-initial-render-superseded');
                 settleVisualReloadTransition('before-initial-render-superseded');
+                reloadCancellation = createReloadCancellation(
+                    'superseded',
+                    plan.shouldPreserveVisibleContent,
+                );
                 return;
             }
 
@@ -975,6 +1014,10 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                     if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
                         releasePlanPreservedVisualSnapshotNow(plan, 'zoom-sync-superseded');
                         settleVisualReloadTransition('zoom-sync-superseded');
+                        reloadCancellation = createReloadCancellation(
+                            'superseded',
+                            plan.shouldPreserveVisibleContent,
+                        );
                         return;
                     }
                 }
@@ -985,10 +1028,15 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                         activeLoadToken,
                         loaded.version,
                         viewportInteractionEpoch,
+                        reloadTransactionId,
                     );
                     if (!reconciled) {
                         releasePlanPreservedVisualSnapshotNow(plan, 'fresh-scroll-superseded');
                         settleVisualReloadTransition('fresh-scroll-superseded');
+                        reloadCancellation = createReloadCancellation(
+                            'superseded',
+                            plan.shouldPreserveVisibleContent,
+                        );
                         return;
                     }
                 }
@@ -998,21 +1046,37 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                     if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
                         releasePlanPreservedVisualSnapshotNow(plan, 'restore-scroll-superseded');
                         settleVisualReloadTransition('restore-scroll-superseded');
+                        reloadCancellation = createReloadCancellation(
+                            'superseded',
+                            plan.shouldPreserveVisibleContent,
+                        );
                         return;
                     }
                 }
             } else if (savedVisibleRange) {
-                options.visibleRange.value = savedVisibleRange;
+                commitReloadVisibleRange(savedVisibleRange, reloadTransactionId);
             }
 
             if (!plan.shouldPreserveVisibleContent) {
-                options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
+                if (!commitReloadViewportVisibleRange(reloadTransactionId)) {
+                    releasePlanPreservedVisualSnapshotNow(plan, 'visible-range-commit-superseded');
+                    settleVisualReloadTransition('visible-range-commit-superseded');
+                    reloadCancellation = createReloadCancellation(
+                        'superseded',
+                        plan.shouldPreserveVisibleContent,
+                    );
+                    return;
+                }
             }
             try {
-                await renderInitialLoadedPage(plan, preservedScrollPosition);
+                await renderInitialLoadedPage(plan, preservedScrollPosition, reloadTransactionId);
                 if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
                     releasePlanPreservedVisualSnapshotNow(plan, 'initial-render-superseded');
                     settleVisualReloadTransition('initial-render-superseded');
+                    reloadCancellation = createReloadCancellation(
+                        'superseded',
+                        plan.shouldPreserveVisibleContent,
+                    );
                     return;
                 }
                 if (
@@ -1030,34 +1094,70 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                     if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
                         releasePlanPreservedVisualSnapshotNow(plan, 'post-render-scroll-superseded');
                         settleVisualReloadTransition('post-render-scroll-superseded');
+                        reloadCancellation = createReloadCancellation(
+                            'superseded',
+                            plan.shouldPreserveVisibleContent,
+                        );
                         return;
                     }
-                    options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
+                    if (!commitReloadViewportVisibleRange(reloadTransactionId)) {
+                        releasePlanPreservedVisualSnapshotNow(plan, 'post-render-range-superseded');
+                        settleVisualReloadTransition('post-render-range-superseded');
+                        reloadCancellation = createReloadCancellation(
+                            'superseded',
+                            plan.shouldPreserveVisibleContent,
+                        );
+                        return;
+                    }
                 }
                 if (plan.shouldPinReloadPage) {
-                    pinCurrentPageToRestoreTarget(plan);
+                    if (!pinCurrentPageToRestoreTarget(plan, reloadTransactionId)) {
+                        releasePlanPreservedVisualSnapshotNow(plan, 'pin-current-page-superseded');
+                        settleVisualReloadTransition('pin-current-page-superseded');
+                        reloadCancellation = createReloadCancellation(
+                            'superseded',
+                            plan.shouldPreserveVisibleContent,
+                        );
+                        return;
+                    }
                 } else {
                     await options.syncCurrentPageFromViewport({ source: 'load-from-source' });
                     if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
                         releasePlanPreservedVisualSnapshotNow(plan, 'current-page-sync-superseded');
                         settleVisualReloadTransition('current-page-sync-superseded');
+                        reloadCancellation = createReloadCancellation(
+                            'superseded',
+                            plan.shouldPreserveVisibleContent,
+                        );
                         return;
                     }
                 }
             } catch (error) {
                 releasePlanPreservedVisualSnapshotNow(plan, 'initial-render-error');
                 settleVisualReloadTransition('initial-render-error');
+                reloadCancellation = createReloadCancellation(
+                    'reload',
+                    plan.shouldPreserveVisibleContent,
+                );
                 logAsyncStageError('render visible pages after source load', error);
             }
             settleTransferredToFinish = finishLoadedSource(
                 plan,
                 activeLoadToken,
                 loaded.version,
+                reloadTransactionId,
                 visualReload,
                 settleVisualReloadTransition,
             );
         } finally {
             if (!settleTransferredToFinish) {
+                cancelReloadTransaction(
+                    reloadTransactionId,
+                    reloadCancellation ?? createReloadCancellation(
+                        'reload',
+                        activeReloadPlan?.shouldPreserveVisibleContent ?? false,
+                    ),
+                );
                 settleDocumentLoad(activeLoadToken);
             }
         }
@@ -1071,6 +1171,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             }
             await loadFromSource(isReload);
         }, {
+            category: 'user-visible-operation',
             scope: 'pdf-viewer',
             message: 'Failed to load PDF source',
         });

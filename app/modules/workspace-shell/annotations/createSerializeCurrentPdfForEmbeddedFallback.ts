@@ -14,7 +14,11 @@ export function createSerializeCurrentPdfForEmbeddedFallback(deps: ISerializeEmb
             deps.workingCopyPath.value === capturedWorkingCopy
             && Boolean(deps.pdfViewerRef.value)
         );
-        const rawData = await deps.pdfViewerRef.value.saveDocument();
+        const saveTransaction = await deps.pdfViewerRef.value.runSaveTransaction({
+            mode: 'embedded-mutation',
+            forcePdfjsMaterialize: true,
+        });
+        const rawData = saveTransaction.serializedBytes ?? saveTransaction.baseBytes;
         if (!rawData) {
             return null;
         }

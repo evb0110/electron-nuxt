@@ -1,16 +1,22 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
 import {
+    ClaudeAgentAssistantSession,
     getClaudeAgentSdkInfo,
     getClaudeAssistantModelLabel,
     normalizeClaudeAssistantModel,
     normalizeClaudeSdkModelList,
     shouldUseClaudeAssistantFastMode,
 } from '@electron/features/agent/claudeAgentSdkAssistant';
+
+const sdkMocks = vi.hoisted(() => ({query: vi.fn()}));
+
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: sdkMocks.query }));
 
 vi.mock('electron', () => ({ app: { getVersion: () => 'test' } }));
 
@@ -20,7 +26,53 @@ vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
     error: vi.fn(),
 }) }));
 
+class FakeClaudeQuery {
+    private readonly messages: unknown[] = [];
+    private readonly resolvers: Array<(value: IteratorResult<unknown>) => void> = [];
+
+    readonly accountInfo = vi.fn(async () => null);
+    readonly supportedModels = vi.fn(async () => []);
+    readonly setModel = vi.fn(async () => undefined);
+    readonly interrupt = vi.fn(async () => undefined);
+    readonly close = vi.fn();
+
+    push(message: unknown) {
+        const resolver = this.resolvers.shift();
+        if (resolver) {
+            resolver({
+                value: message,
+                done: false,
+            });
+            return;
+        }
+        this.messages.push(message);
+    }
+
+    [Symbol.asyncIterator](): AsyncIterator<unknown> {
+        return {next: () => {
+            const message = this.messages.shift();
+            if (message) {
+                return Promise.resolve({
+                    value: message,
+                    done: false,
+                });
+            }
+            return new Promise<IteratorResult<unknown>>(resolve => this.resolvers.push(resolve));
+        }};
+    }
+}
+
+async function settleAsyncTicks(count = 3) {
+    for (let index = 0; index < count; index += 1) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+}
+
 describe('claudeAgentSdkAssistant', () => {
+    beforeEach(() => {
+        sdkMocks.query.mockReset();
+    });
+
     it('keeps full versioned Claude model ids and labels known ids', () => {
         expect(normalizeClaudeAssistantModel('claude-opus-4-8')).toBe('claude-opus-4-8');
         expect(normalizeClaudeAssistantModel(' claude-fable-5 ')).toBe('claude-fable-5');
@@ -121,5 +173,60 @@ describe('claudeAgentSdkAssistant', () => {
             executablePath: null,
             error: 'Claude Code executable was not found. Install Claude Code or set CLAUDE_CODE_PATH to a local claude executable.',
         });
+    });
+
+    it('includes the active turn id on assistant deltas, messages, and errors', async () => {
+        const fakeQuery = new FakeClaudeQuery();
+        sdkMocks.query.mockReturnValue(fakeQuery);
+        const callbacks = {
+            onInitialized: vi.fn(),
+            onTurnStarted: vi.fn(),
+            onAssistantDelta: vi.fn(),
+            onAssistantMessage: vi.fn(),
+            onTurnCompleted: vi.fn(),
+            onError: vi.fn(),
+        };
+        const session = new ClaudeAgentAssistantSession({
+            cwd: '/tmp',
+            model: 'opus',
+            effort: 'low',
+            speedMode: 'standard',
+            mcpServerName: 'evb_viewer_embedded',
+            mcpServerUrl: 'http://127.0.0.1:3000',
+            mcpToken: 'token',
+            executablePath: '/usr/bin/claude',
+            callbacks,
+        });
+
+        const turnId = await session.sendMessage('Hello', [], 'opus');
+        fakeQuery.push({
+            type: 'stream_event',
+            event: {
+                type: 'content_block_delta',
+                delta: {
+                    type: 'text_delta',
+                    text: 'Hi',
+                },
+            },
+        });
+        fakeQuery.push({
+            type: 'assistant',
+            message: { content: [{
+                type: 'text',
+                text: 'Hi there',
+            }] },
+        });
+        fakeQuery.push({
+            type: 'result',
+            subtype: 'error_during_execution',
+            is_error: true,
+            result: 'Claude exploded politely.',
+        });
+        await settleAsyncTicks();
+
+        expect(callbacks.onTurnStarted).toHaveBeenCalledWith(turnId);
+        expect(callbacks.onAssistantDelta).toHaveBeenCalledWith(turnId, expect.any(String), 'Hi');
+        expect(callbacks.onAssistantMessage).toHaveBeenCalledWith(turnId, expect.any(String), 'Hi there', true);
+        expect(callbacks.onError).toHaveBeenCalledWith(turnId, 'Claude exploded politely.');
     });
 });

@@ -61,6 +61,7 @@ export const usePdfViewerAnnotationRuntimeBridge = (options: IUsePdfViewerAnnota
 
     function scheduleSetAnnotationTool(tool: TAnnotationTool, stage: string) {
         runGuardedTask(() => editor.setAnnotationTool(tool), {
+            category: 'user-visible-operation',
             scope: 'pdf-viewer',
             message: `Failed to ${stage}`,
         });

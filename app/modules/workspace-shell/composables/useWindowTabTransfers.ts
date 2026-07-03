@@ -1,6 +1,7 @@
 import type { Ref } from 'vue';
 import type {
     ITransferredTabState,
+    IWindowTabTransferSessionState,
     IWindowTabIncomingTransfer,
     TSplitPayload,
     TWindowTabTransferTarget,
@@ -19,6 +20,10 @@ import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { getErrorMessage } from '@app/utils/error';
 import { withTimeout } from 'es-toolkit/promise';
+import { createWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/document-sessions/createWorkspaceSplitCacheSessionState';
+import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
+import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 
 interface IPaneLike {
     paneId: string;
@@ -63,6 +68,7 @@ interface IUseWindowTabTransfersOptions {
     cleanupEmptyPanes: () => void;
     closeTabInState: (paneId: string, tabId: string) => void;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
+    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentSessionController>>;
     waitForWorkspace: (tabId: string, timeoutMs?: number) => Promise<IWorkspaceExpose | null>;
     workspaceRestoreTracker: {
         start: (tabId: string) => void;
@@ -75,12 +81,19 @@ interface IUseWindowTabTransfersOptions {
 const DEFAULT_CAPTURE_TIMEOUT_MS = 4000;
 const MERGE_CAPTURE_TIMEOUT_MS = 4000;
 
-function buildTransferredTabState(tab: ITab): ITransferredTabState {
+function buildTransferredTabState(
+    tab: ITab,
+    session: IWorkspaceDocumentSessionController | null,
+): ITransferredTabState {
+    const sessionTab = session?.toDocumentRecord().tab;
+    const originalPath = sessionTab?.originalPath ?? tab.originalPath;
+    const originalBackend = resolveDocumentRefBackend(originalPath);
     return {
-        fileName: tab.fileName,
-        originalPath: tab.originalPath,
-        isDirty: tab.isDirty,
-        isDjvu: tab.isDjvu,
+        fileName: sessionTab?.fileName ?? tab.fileName,
+        originalPath,
+        ...(originalBackend === undefined ? {} : {originalBackend}),
+        isDirty: sessionTab?.isDirty ?? tab.isDirty,
+        isDjvu: sessionTab?.isDjvu ?? tab.isDjvu,
     };
 }
 
@@ -108,6 +121,21 @@ function canReuseIncomingTransferTab(
 
 export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) => {
     const { t } = useTypedI18n();
+
+    function getDocumentSession(tabId: string | null | undefined) {
+        return tabId ? options.documentSessionsByTabId?.value[tabId] ?? null : null;
+    }
+
+    function getTransferSessionState(tabId: string): IWindowTabTransferSessionState | null {
+        return createWorkspaceSplitCacheSessionState(getDocumentSession(tabId));
+    }
+
+    function isCommandTargetCurrent(
+        session: IWorkspaceDocumentSessionController | null,
+        target: TWorkspaceCommandTarget | null,
+    ) {
+        return !target || session?.validateCommandTarget(target).ok === true;
+    }
 
     function getIncomingTransferTabContext(targetPane: IPaneLike) {
         const existingTabId = targetPane.tabIds[0] ?? null;
@@ -239,6 +267,12 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         tabId: string,
         timeoutMs = DEFAULT_CAPTURE_TIMEOUT_MS,
     ): Promise<TSplitPayload | null> {
+        const session = getDocumentSession(tabId);
+        const commandTarget = session?.createCommandTarget() ?? null;
+        if (!isCommandTargetCurrent(session, commandTarget)) {
+            return null;
+        }
+
         try {
             return await withTimeout(async () => {
                 const workspace = await options.waitForWorkspace(tabId, timeoutMs);
@@ -246,7 +280,21 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                     return null;
                 }
 
-                return workspace.captureSplitPayload();
+                if (!isCommandTargetCurrent(session, commandTarget)) {
+                    return null;
+                }
+
+                const payload = await workspace.captureSplitPayload();
+                if (!isCommandTargetCurrent(session, commandTarget)) {
+                    await cleanupSplitPayloadSnapshot(payload, {
+                        logSection: 'tabs',
+                        context: 'capture-workspace-payload-stale-session',
+                        metadata: { tabId },
+                    });
+                    return null;
+                }
+
+                return payload;
             }, timeoutMs);
         } catch (error) {
             BrowserLogger.error('tabs', 'Failed to capture split payload', {
@@ -374,12 +422,14 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             return 'failed';
         }
 
+        const transferSession = getTransferSessionState(tab.id);
         let transferResult;
         try {
             transferResult = await getWindowTabsCapability().transfer({
                 target,
-                tab: buildTransferredTabState(tab),
+                tab: buildTransferredTabState(tab, getDocumentSession(tab.id)),
                 payload,
+                ...(transferSession === null ? {} : {session: transferSession}),
             });
         } catch (error) {
             BrowserLogger.error('tabs', 'Cross-window transfer threw before completion', {

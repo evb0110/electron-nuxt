@@ -9,9 +9,14 @@ import type {
 } from '@app/modules/pdf-viewer/engine/ocr-text-content-cache/ocrTextContentCacheTypes';
 import { createOcrTextContentCache } from '@app/modules/pdf-viewer/engine/ocr-text-content-cache/createOcrTextContentCache';
 
+const DOC_A_REVISION = 'doc-a-revision';
+const DOC_B_REVISION = 'doc-b-revision';
+const DOC_C_REVISION = 'doc-c-revision';
+
 function makeManifest(id: string): IOcrManifest {
     return {
-        version: 2,
+        version: 3,
+        documentRevision: {token: `${id}-revision`},
         createdAt: 1,
         source: {pdfPath: `/tmp/${id}.pdf`},
         pageCount: 1,
@@ -29,6 +34,7 @@ function makePageData(text: string): IOcrPageData {
     return {
         pageNumber: 1,
         rotation: 0 as const,
+        documentRevision: {token: 'page-revision'},
         render: {
             dpi: 300,
             imagePx: {
@@ -55,23 +61,23 @@ describe('ocrTextContentCache', () => {
             maxPageBytes: 1000,
         });
 
-        cache.setManifest('/tmp/doc-a.pdf', makeManifest('doc-a'));
-        cache.setManifest('/tmp/doc-b.pdf', makeManifest('doc-b'));
-        expect(cache.getManifest('/tmp/doc-a.pdf')).toEqual(makeManifest('doc-a'));
+        cache.setManifest('/tmp/doc-a.pdf', DOC_A_REVISION, makeManifest('doc-a'));
+        cache.setManifest('/tmp/doc-b.pdf', DOC_B_REVISION, makeManifest('doc-b'));
+        expect(cache.getManifest('/tmp/doc-a.pdf', DOC_A_REVISION)).toEqual(makeManifest('doc-a'));
 
-        cache.setManifest('/tmp/doc-c.pdf', makeManifest('doc-c'));
-        expect(cache.getManifest('/tmp/doc-a.pdf')).toEqual(makeManifest('doc-a'));
-        expect(cache.getManifest('/tmp/doc-b.pdf')).toBeUndefined();
+        cache.setManifest('/tmp/doc-c.pdf', DOC_C_REVISION, makeManifest('doc-c'));
+        expect(cache.getManifest('/tmp/doc-a.pdf', DOC_A_REVISION)).toEqual(makeManifest('doc-a'));
+        expect(cache.getManifest('/tmp/doc-b.pdf', DOC_B_REVISION)).toBeUndefined();
 
         const firstPage = makePageData('a'.repeat(150));
         const secondPage = makePageData('b'.repeat(150));
 
-        cache.setPageData('/tmp/doc-a.pdf', 1, firstPage);
-        expect(cache.getPageData('/tmp/doc-a.pdf', 1)).toEqual(firstPage);
-        cache.setPageData('/tmp/doc-b.pdf', 1, secondPage);
+        cache.setPageData('/tmp/doc-a.pdf', DOC_A_REVISION, 1, firstPage);
+        expect(cache.getPageData('/tmp/doc-a.pdf', DOC_A_REVISION, 1)).toEqual(firstPage);
+        cache.setPageData('/tmp/doc-b.pdf', DOC_B_REVISION, 1, secondPage);
 
-        expect(cache.getPageData('/tmp/doc-a.pdf', 1)).toBeUndefined();
-        expect(cache.getPageData('/tmp/doc-b.pdf', 1)).toEqual(secondPage);
+        expect(cache.getPageData('/tmp/doc-a.pdf', DOC_A_REVISION, 1)).toBeUndefined();
+        expect(cache.getPageData('/tmp/doc-b.pdf', DOC_B_REVISION, 1)).toEqual(secondPage);
         expect(cache.getStats().pageEntries).toBe(1);
         expect(cache.getStats().pageBytes).toBeLessThanOrEqual(1000);
     });
@@ -79,16 +85,16 @@ describe('ocrTextContentCache', () => {
     it('clears a single path without touching other cached documents', () => {
         const cache = createOcrTextContentCache();
 
-        cache.setManifest('/tmp/doc-a.pdf', makeManifest('doc-a'));
-        cache.setManifest('/tmp/doc-b.pdf', makeManifest('doc-b'));
-        cache.setPageData('/tmp/doc-a.pdf', 1, makePageData('alpha'));
-        cache.setPageData('/tmp/doc-b.pdf', 1, makePageData('beta'));
+        cache.setManifest('/tmp/doc-a.pdf', DOC_A_REVISION, makeManifest('doc-a'));
+        cache.setManifest('/tmp/doc-b.pdf', DOC_B_REVISION, makeManifest('doc-b'));
+        cache.setPageData('/tmp/doc-a.pdf', DOC_A_REVISION, 1, makePageData('alpha'));
+        cache.setPageData('/tmp/doc-b.pdf', DOC_B_REVISION, 1, makePageData('beta'));
 
         cache.clearCache('/tmp/doc-a.pdf');
 
-        expect(cache.getManifest('/tmp/doc-a.pdf')).toBeUndefined();
-        expect(cache.getPageData('/tmp/doc-a.pdf', 1)).toBeUndefined();
-        expect(cache.getManifest('/tmp/doc-b.pdf')).toEqual(makeManifest('doc-b'));
-        expect(cache.getPageData('/tmp/doc-b.pdf', 1)).toEqual(makePageData('beta'));
+        expect(cache.getManifest('/tmp/doc-a.pdf', DOC_A_REVISION)).toBeUndefined();
+        expect(cache.getPageData('/tmp/doc-a.pdf', DOC_A_REVISION, 1)).toBeUndefined();
+        expect(cache.getManifest('/tmp/doc-b.pdf', DOC_B_REVISION)).toEqual(makeManifest('doc-b'));
+        expect(cache.getPageData('/tmp/doc-b.pdf', DOC_B_REVISION, 1)).toEqual(makePageData('beta'));
     });
 });

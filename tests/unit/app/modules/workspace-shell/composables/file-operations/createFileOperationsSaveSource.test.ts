@@ -50,6 +50,18 @@ function createSource(overrides: {
     const ports: IFileOperationsSaveSourcePorts = {pdf: {
         source: {
             pdfDocument: shallowRef(overrides.pdfDocument ?? null),
+            runSaveTransaction: vi.fn(async () => ({
+                source: 'pdfjs-materialize' as const,
+                baseBytes: null,
+                serializedBytes: await (overrides.saveDocument ?? (async () => new Uint8Array([7])))(),
+                nativeMutationPlan: null,
+                annotationSavePlan: null,
+                annotationCommentsSnapshot: [],
+                pendingEmbeddedTextUpdates: new Map(),
+                pendingEmbeddedAnnotationDeletes: [],
+                restoreConsumedPendingEmbeddedMutations: vi.fn(),
+                commitConsumedPendingEmbeddedMutations: vi.fn(),
+            })),
             saveDocument: vi.fn(overrides.saveDocument ?? (async () => new Uint8Array([7]))),
             getSourcePdfData: vi.fn(overrides.getSourcePdfData ?? (async () => new Uint8Array([9]))),
         },
@@ -113,7 +125,11 @@ describe('createFileOperationsSaveSource', () => {
         const bytes = await saveSource.getSerializationBasePdfBytes();
 
         expect(Array.from(bytes ?? [])).toEqual([7]);
-        expect(ports.pdf.source.saveDocument).toHaveBeenCalledOnce();
+        expect(ports.pdf.source.runSaveTransaction).toHaveBeenCalledWith({
+            mode: 'pdfjs-materialize',
+            forcePdfjsMaterialize: true,
+        });
+        expect(ports.pdf.source.saveDocument).not.toHaveBeenCalled();
         expect(ports.pdf.source.getSourcePdfData).not.toHaveBeenCalled();
     });
 });

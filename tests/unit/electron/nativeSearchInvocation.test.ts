@@ -25,16 +25,27 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolComm
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: (...args: unknown[]) => mocks.resolveNativeToolPath(...args)}));
 
 vi.mock('@electron/search/indexBuilder', () => ({
-    SEARCH_INDEX_SCHEMA_VERSION: 6,
+    SEARCH_INDEX_SCHEMA_VERSION: 7,
     loadSearchIndex: (...args: unknown[]) => mocks.loadSearchIndex(...args),
 }));
 
+const DOCUMENT_REVISION = 'revision-token';
+
 function createNativeSearchHeader() {
-    const header = Buffer.alloc(24);
-    header.write('EVBSIDX1', 0, 'ascii');
-    header.writeUInt32LE(1, 8);
-    header.writeUInt32LE(1, 12);
+    const revisionTokenLength = Buffer.byteLength(DOCUMENT_REVISION, 'utf8');
+    const pageTableOffset = 64 + revisionTokenLength;
+    const textDataOffset = pageTableOffset + 24;
+    const header = Buffer.alloc(textDataOffset);
+    header.write('EVBSIDX2', 0, 'ascii');
+    header.writeUInt32LE(2, 8);
+    header.writeUInt32LE(64, 12);
     header.writeUInt32LE(1, 16);
+    header.writeUInt32LE(1, 20);
+    header.writeUInt32LE(revisionTokenLength, 28);
+    header.writeBigUInt64LE(64n, 32);
+    header.writeBigUInt64LE(BigInt(pageTableOffset), 40);
+    header.writeBigUInt64LE(BigInt(textDataOffset), 48);
+    header.write(DOCUMENT_REVISION, 64, 'utf8');
     return header;
 }
 
@@ -50,21 +61,27 @@ describe('native search invocation', () => {
             if (path === '/tmp/doc.pdf') {
                 return {mtimeMs: 100};
             }
-            if (path === '/tmp/doc.pdf.index.evb-search-v1.bin') {
+            if (path === '/tmp/doc.pdf.index.evb-search-v2.bin') {
                 return {mtimeMs: 200};
             }
             throw new Error(`Unexpected stat path: ${path}`);
         });
         mocks.open.mockResolvedValue({
-            read: vi.fn(async (buffer: Buffer) => {
-                createNativeSearchHeader().copy(buffer);
-                return {bytesRead: 24};
+            read: vi.fn(async (
+                buffer: Buffer,
+                offset = 0,
+                length = buffer.length,
+                position = 0,
+            ) => {
+                const bytesRead = createNativeSearchHeader().copy(buffer, offset, position, position + length);
+                return {bytesRead};
             }),
-            stat: vi.fn(async () => ({size: 48})),
+            stat: vi.fn(async () => ({size: 64 + DOCUMENT_REVISION.length + 24})),
             close: vi.fn(async () => undefined),
         });
         mocks.loadSearchIndex.mockResolvedValue({
-            schemaVersion: 6,
+            schemaVersion: 7,
+            documentRevision: {token: DOCUMENT_REVISION},
             pdfPath: '/tmp/doc.pdf',
             createdAt: 1,
             pageCount: 1,
@@ -103,6 +120,7 @@ describe('native search invocation', () => {
 
         await expect(tryRunNativeSearch({
             pdfPath: '/tmp/doc.pdf',
+            documentRevision: DOCUMENT_REVISION,
             query: 'needle',
             matchCase: false,
             wholeWord: false,
@@ -122,9 +140,11 @@ describe('native search invocation', () => {
             [
                 'search',
                 '--index',
-                '/tmp/doc.pdf.index.evb-search-v1.bin',
+                '/tmp/doc.pdf.index.evb-search-v2.bin',
                 '--query',
                 'needle',
+                '--document-revision',
+                DOCUMENT_REVISION,
                 '--limit',
                 '500',
                 '--context',

@@ -12,6 +12,7 @@ import {
     normalizePdfSearchWarmIndexPayload,
 } from '@electron/features/search/searchRequestPayload';
 import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/workingCopyStore';
+import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import { SearchWorkerService } from '@electron/features/search/main/searchWorkerService';
 import { SEARCH_PAGE_COUNT_MAX } from '@electron/features/search/main/searchRequestValidation';
@@ -91,6 +92,14 @@ function normalizeSearchOperationContext(context: ISearchSenderContext): ISearch
     };
 }
 
+async function resolveSearchDocumentRevision(
+    resolvedPdfPath: string,
+    parsedDocumentRevision: string | undefined,
+    senderId: number,
+) {
+    return parsedDocumentRevision ?? (await getWorkingCopyRevision(resolvedPdfPath, senderId)).token;
+}
+
 export async function handlePdfSearch(
     context: ISearchSenderContext,
     request: unknown,
@@ -128,6 +137,7 @@ export async function handlePdfSearch(
 
     const dispatchPayload: Parameters<typeof searchWorkerService.dispatchSearchRequest>[1] = {
         resolvedPdfPath,
+        documentRevision: await resolveSearchDocumentRevision(resolvedPdfPath, parsedRequest.documentRevision, operationContext.senderId),
         query,
         requestIdPrefix: 'search',
     };
@@ -171,6 +181,7 @@ export async function handlePdfSearchWarmIndex(
 
     const dispatchPayload: Parameters<typeof searchWorkerService.dispatchSearchRequest>[1] = {
         resolvedPdfPath,
+        documentRevision: await resolveSearchDocumentRevision(resolvedPdfPath, parsedRequest.documentRevision, operationContext.senderId),
         query: '',
         warmup: true,
         requestIdPrefix: 'search-warm',

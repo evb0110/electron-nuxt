@@ -96,6 +96,32 @@ function decodeDjvuViewingError(payload: unknown): IDjvuViewingErrorEvent | null
     };
 }
 
+function normalizeDjvuPagePreviewOptions(options: IDjvuPagePreviewOptions | undefined) {
+    if (options === undefined) {
+        return undefined;
+    }
+    if (!isRecord(options)) {
+        throw new TypeError('renderPagePreview.options must be an object');
+    }
+
+    const normalizedOptions: IDjvuPagePreviewOptions = {};
+    const subsample = options.subsample;
+    if (subsample !== undefined) {
+        if (typeof subsample !== 'number' || !Number.isInteger(subsample) || subsample < 1) {
+            throw new TypeError('renderPagePreview.options.subsample must be a positive integer');
+        }
+        normalizedOptions.subsample = subsample;
+    }
+    const previewRequestId = options.previewRequestId;
+    if (previewRequestId !== undefined) {
+        if (typeof previewRequestId !== 'string' || previewRequestId.trim() === '') {
+            throw new TypeError('renderPagePreview.options.previewRequestId must be a non-empty string');
+        }
+        normalizedOptions.previewRequestId = previewRequestId.trim();
+    }
+    return normalizedOptions;
+}
+
 export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapability {
     const invoke = createTypedIpcInvoker<IDjvuInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: DJVU_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const eventSubscriber = createTypedIpcEventSubscriber<IDjvuEventMap>(ipcRenderer);
@@ -123,7 +149,7 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
             pageNumber: number,
             options?: IDjvuPagePreviewOptions,
         ) =>
-            invoke(DJVU_CHANNELS.renderPagePreview, djvuPath, pageNumber, options),
+            invoke(DJVU_CHANNELS.renderPagePreview, djvuPath, pageNumber, normalizeDjvuPagePreviewOptions(options)),
         estimateSizes: (djvuPath: TDocumentRef) => invoke(DJVU_CHANNELS.estimateSizes, djvuPath),
         cleanupTemp: (tempPdfPath: TDocumentRef) => invoke(DJVU_CHANNELS.cleanupTemp, tempPdfPath),
         onProgress: (callback: (progress: IDjvuProgress) => void): (() => void) =>

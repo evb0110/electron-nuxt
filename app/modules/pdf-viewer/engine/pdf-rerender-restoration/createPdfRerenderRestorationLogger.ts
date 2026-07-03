@@ -1,4 +1,4 @@
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IScrollSnapshot } from '@app/types/pdfUi';
 import { restoreScrollFromSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/restoreScrollFromSnapshot';
 import { getMostVisiblePageFromDom } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getMostVisiblePageFromDom';
 import { BrowserLogger } from '@app/utils/browserLogger';

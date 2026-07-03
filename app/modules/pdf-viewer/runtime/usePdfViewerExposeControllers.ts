@@ -10,13 +10,16 @@ import type {
 import { usePdfViewerScrollSnapshot } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfViewerScrollSnapshot';
 import { usePdfViewerFitWidthController } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewerFitWidthController';
 import { usePdfViewerSavePrintController } from '@app/modules/pdf-viewer/runtime/usePdfViewerSavePrintController';
+import type { usePdfViewerAnnotationRuntime } from '@app/modules/pdf-viewer/runtime/annotations/usePdfViewerAnnotationRuntime';
 import type {
-    IPageRange,
-    IScrollSnapshot,
     TFitMode,
     TPdfViewMode,
     TZoomMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type {
+    IPageRange,
+    IScrollSnapshot,
+} from '@app/types/pdfUi';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 
 
@@ -25,6 +28,7 @@ interface IUsePdfViewerExposeControllersOptions {
     currentPage: Ref<number>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
+    annotationRuntime: ReturnType<typeof usePdfViewerAnnotationRuntime>;
     isLoading: Ref<boolean>;
     continuousScroll: ComputedRef<boolean>;
     fitMode: ComputedRef<TFitMode>;
@@ -93,11 +97,22 @@ export const usePdfViewerExposeControllers = (options: IUsePdfViewerExposeContro
 
     const {
         commitPdfEditorsForSave,
+        materializePdfJsDocumentForInternalUse,
+        runSaveTransaction,
         saveViewerDocument,
         renderLoadedPdfPagesForBrowserPrint,
     } = usePdfViewerSavePrintController({
         getPdfDocument: () => options.pdfDocument.value,
         getAnnotationUiManager: () => options.annotationUiManager.value,
+        flushAnnotationMutationsForSave: options.annotationRuntime.annotationMutationService.flushForSave,
+        consumePendingEmbeddedMutations: options.annotationRuntime.annotationMutationService.consumePendingEmbeddedMutations,
+        getPendingEmbeddedMutationSnapshot: options.annotationRuntime.annotationMutationService.getPendingEmbeddedMutationSnapshot,
+        getAnnotationCommentsSnapshot: options.annotationRuntime.annotationCommentModel.getSnapshot,
+        getMarkupSubtypeOverrides: options.annotationRuntime.annotations.editor.getMarkupSubtypeOverrides,
+        getMarkupSubtypeHints: options.annotationRuntime.annotations.editor.getMarkupSubtypeHints,
+        getAllShapes: options.annotationRuntime.shapeComposable.getAllShapes,
+        getDeletedEmbeddedShapeAnnotationIds: options.annotationRuntime.shapeComposable.getDeletedEmbeddedAnnotationIds,
+        getDeletedEmbeddedShapeStableKeys: options.annotationRuntime.shapeComposable.getDeletedEmbeddedShapeStableKeys,
     });
 
     return {
@@ -105,6 +120,8 @@ export const usePdfViewerExposeControllers = (options: IUsePdfViewerExposeContro
         restoreViewerScrollSnapshot,
         applyFitWidthToCurrentPage,
         commitPdfEditorsForSave,
+        materializePdfJsDocumentForInternalUse,
+        runSaveTransaction,
         saveViewerDocument,
         renderLoadedPdfPagesForBrowserPrint,
     };

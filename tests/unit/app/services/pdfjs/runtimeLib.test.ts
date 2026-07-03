@@ -19,6 +19,7 @@ function createStaticFunction(properties: Record<string, unknown> = {}) {
 
 function createAnnotationEditorUIManager() {
     return class MockAnnotationEditorUIManager {
+        get currentLayer() { return null; }
         public addCommands() {}
         public addEditListeners() {}
         public addToAnnotationStorage() {}
@@ -35,6 +36,13 @@ function createAnnotationEditorUIManager() {
     };
 }
 
+function createAnnotationEditorLayer() {
+    return class MockAnnotationEditorLayer {
+        public disable() {}
+        public destroy() {}
+    };
+}
+
 function createCompatibleRuntime(overrides: Record<PropertyKey, unknown> = {}) {
     return {
         version: '5.7.284',
@@ -43,7 +51,7 @@ function createCompatibleRuntime(overrides: Record<PropertyKey, unknown> = {}) {
         VerbosityLevel: {ERRORS: 0},
         PDFDataRangeTransport: function MockPdfDataRangeTransport() {},
         AnnotationLayer: createStaticFunction(),
-        AnnotationEditorLayer: createStaticFunction(),
+        AnnotationEditorLayer: createAnnotationEditorLayer(),
         AnnotationEditorParamsType: {
             RESIZE: 1,
             CREATE: 2,

@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { TWorkspaceUndoSource } from '@app/types/workspaceUndoSource';
 import { capturePdfReloadSnapshot } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/capturePdfReloadSnapshot';
 import { createPdfReloadWaiter } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';

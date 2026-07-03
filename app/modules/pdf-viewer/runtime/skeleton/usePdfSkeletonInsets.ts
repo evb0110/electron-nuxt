@@ -3,10 +3,8 @@ import type {
     InjectionKey,
     MaybeRefOrGetter,
 } from 'vue';
-import type {
-    IContentInsets,
-    PDFPageProxy,
-} from '@app/types/pdf';
+import type { PDFPageProxy } from '@app/types/pdfContracts';
+import type { IContentInsets } from '@app/types/pdfUi';
 import { clamp } from 'es-toolkit/math';
 
 interface IPdfSkeletonContext {

@@ -159,11 +159,13 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IResolvedSearchMatchOptions } from '@contracts/search';
 import type {
-    IPdfBookmarkChangePayload,
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
+} from '@app/types/pdfContracts';
+import type {
+    IPdfBookmarkChangePayload,
     IPdfSearchMatch,
-} from '@app/types/pdf';
+} from '@app/types/pdfUi';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,

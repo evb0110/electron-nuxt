@@ -5,13 +5,44 @@ import type {
 import { clamp } from 'es-toolkit/math';
 import { PDF_PAGE_STALL_RECOVERY_COOLDOWN_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
 import {
     createPdfRenderSupervisor,
     type IPdfRenderSupervisor,
     type IPdfRenderSupervisorTimer,
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
+import type {
+    IPdfViewerTransactionCancellation,
+    TPdfViewerTransactionState,
+} from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
+
+type TRenderStallRecoveryAdvanceState = Exclude<
+    TPdfViewerTransactionState,
+    'preparing' | 'cancelled'
+>;
+
+interface IRenderStallRecoveryTransactionController {
+    beginTransaction: (options: {
+        kind: 'recovery';
+        source: 'render-stall-recovery';
+        page: number;
+        range: {
+            start: number;
+            end: number;
+        };
+        anchor: 'top';
+    }) => { id: number } | null;
+    advanceTransaction: (
+        transactionId: number,
+        state: TRenderStallRecoveryAdvanceState,
+    ) => boolean;
+    cancelActiveTransaction: (
+        cancellation: IPdfViewerTransactionCancellation,
+        transactionId?: number,
+    ) => boolean;
+    isTransactionCurrent: (transactionId: number) => boolean;
+}
 
 interface IUsePdfViewerRenderStallRecoveryOptions {
     src: ComputedRef<TPdfSource | null>;
@@ -39,6 +70,7 @@ interface IUsePdfViewerRenderStallRecoveryOptions {
     ) => Promise<void>;
     scheduleReload: (isReload?: boolean) => void;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
+    transactionController?: IRenderStallRecoveryTransactionController | undefined;
 }
 
 export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStallRecoveryOptions) => {
@@ -62,6 +94,84 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
     let renderStallRecoveryTimer: IPdfRenderSupervisorTimer | null = null;
     let pendingInvalidation: number[] | null = null;
     let pageLevelRecoveryRunId = 0;
+    let activeRecoveryTransactionId: number | null = null;
+
+    function createRecoveryCancellation(
+        reason: IPdfViewerTransactionCancellation['reason'],
+    ): IPdfViewerTransactionCancellation {
+        return {
+            reason,
+            cancelInFlightRenders: false,
+            bumpRenderVersion: false,
+            clearTimers: true,
+            preserveVisualContent: true,
+        };
+    }
+
+    function cancelRecoveryTransaction(reason: IPdfViewerTransactionCancellation['reason']) {
+        const transactionId = activeRecoveryTransactionId;
+        if (transactionId === null) {
+            return true;
+        }
+        if (
+            options.transactionController
+            && !options.transactionController.isTransactionCurrent(transactionId)
+        ) {
+            activeRecoveryTransactionId = null;
+            return true;
+        }
+        const didCancel = options.transactionController?.cancelActiveTransaction(
+            createRecoveryCancellation(reason),
+            transactionId,
+        ) ?? true;
+        activeRecoveryTransactionId = null;
+        return didCancel;
+    }
+
+    function beginRecoveryTransaction(pages: number[]) {
+        const range = {
+            start: pages[0]!,
+            end: pages[pages.length - 1]!,
+        };
+        const transaction = options.transactionController?.beginTransaction({
+            kind: 'recovery',
+            source: 'render-stall-recovery',
+            page: range.start,
+            range,
+            anchor: 'top',
+        });
+        if (options.transactionController && !transaction) {
+            return null;
+        }
+        activeRecoveryTransactionId = transaction?.id ?? null;
+        return activeRecoveryTransactionId;
+    }
+
+    function isRecoveryTransactionCurrent(transactionId: number | null) {
+        return transactionId === null
+            || options.transactionController?.isTransactionCurrent(transactionId) !== false;
+    }
+
+    function advanceRecoveryTransaction(
+        transactionId: number | null,
+        state: TRenderStallRecoveryAdvanceState,
+    ) {
+        if (transactionId === null) {
+            return true;
+        }
+        return options.transactionController?.advanceTransaction(transactionId, state) ?? true;
+    }
+
+    function settleRecoveryTransaction(transactionId: number | null) {
+        if (transactionId === null) {
+            return true;
+        }
+        const didSettle = options.transactionController?.advanceTransaction(transactionId, 'settled') ?? true;
+        if (activeRecoveryTransactionId === transactionId) {
+            activeRecoveryTransactionId = null;
+        }
+        return didSettle;
+    }
 
     function clearRenderStallRecoveryTimer() {
         renderSupervisor.clearTimer(renderStallRecoveryTimer);
@@ -71,6 +181,7 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
     function resetRenderStallRecoveryState() {
         clearRenderStallRecoveryTimer();
         pageLevelRecoveryRunId += 1;
+        cancelRecoveryTransaction('superseded');
         pendingRenderStallRecoveryPages.clear();
         renderStallRecoveryCooldownByPage.clear();
         pendingInvalidation = null;
@@ -174,20 +285,35 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
                     },
                 );
                 const recoveryRunId = ++pageLevelRecoveryRunId;
+                const recoveryTransactionId = beginRecoveryTransaction(pages);
+                if (options.transactionController && recoveryTransactionId === null) {
+                    return;
+                }
                 void cancelInFlightPageRenders?.();
                 invalidatePages(pages);
-                void renderVisiblePages(
-                    {
-                        start: pages[0]!,
-                        end: pages[pages.length - 1]!,
-                    },
-                    {
-                        preserveRenderedPages: true,
-                        forceRerender: true,
-                        bufferOverride: 0,
-                    },
-                ).catch((error: unknown) => {
-                    if (recoveryRunId !== pageLevelRecoveryRunId || isLoading.value || !src.value) {
+                advanceRecoveryTransaction(recoveryTransactionId, 'render-requested');
+                void renderVisiblePages({
+                    start: pages[0]!,
+                    end: pages[pages.length - 1]!,
+                }, {
+                    preserveRenderedPages: true,
+                    forceRerender: true,
+                    bufferOverride: 0,
+                }).then(() => {
+                    if (
+                        recoveryRunId !== pageLevelRecoveryRunId
+                        || !isRecoveryTransactionCurrent(recoveryTransactionId)
+                    ) {
+                        return;
+                    }
+                    settleRecoveryTransaction(recoveryTransactionId);
+                }).catch((error: unknown) => {
+                    if (
+                        recoveryRunId !== pageLevelRecoveryRunId
+                        || isLoading.value
+                        || !src.value
+                        || !isRecoveryTransactionCurrent(recoveryTransactionId)
+                    ) {
                         return;
                     }
 
@@ -204,6 +330,7 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
                             error: error instanceof Error ? error.message : String(error),
                         },
                     );
+                    cancelRecoveryTransaction('timeout');
                     scheduleReload(true);
                 });
             },

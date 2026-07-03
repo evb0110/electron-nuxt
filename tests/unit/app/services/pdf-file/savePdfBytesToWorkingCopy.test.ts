@@ -93,6 +93,25 @@ describe('savePdfBytesToWorkingCopy', () => {
         expect(mocks.legacyDocuments.saveFile).not.toHaveBeenCalled();
     });
 
+    it('returns a failed validation result when the target save is canceled', async () => {
+        mocks.documentFiles.saveFile.mockResolvedValueOnce(false);
+        const data = new Uint8Array([
+            4,
+            5,
+            6,
+        ]);
+
+        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', data);
+
+        expect(result).toEqual({
+            isValid: false,
+            errors: [],
+        });
+        expect(mocks.documentPdf.validatePdfData).toHaveBeenCalledWith(data);
+        expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/working.pdf', data);
+        expect(mocks.documentFiles.saveFile).toHaveBeenCalledWith('/tmp/working.pdf');
+    });
+
     it('returns invalid validation without writing or saving', async () => {
         mocks.documentPdf.validatePdfData.mockResolvedValueOnce({
             isValid: false,

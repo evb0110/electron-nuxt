@@ -14,6 +14,7 @@ import {
     validateSearchQuery,
 } from '@electron/features/search/public';
 import { loadSearchIndex } from '@electron/search/indexBuilder';
+import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 
 export interface IAgentDocumentSearchOptions extends ISearchMatchOptions {
     query: string;
@@ -74,10 +75,12 @@ async function resolveAgentSearchPath(window: BrowserWindow, tab: IAgentTabSnaps
     if (!resolvedPdfPath) {
         throw new Error('The PDF is not available to the EVB search index yet.');
     }
+    const documentRevision = (await getWorkingCopyRevision(resolvedPdfPath, window.webContents.id)).token;
 
     return {
         requestedPath,
         resolvedPdfPath,
+        documentRevision,
     };
 }
 
@@ -88,12 +91,14 @@ async function warmAgentSearchIndex(
     const {
         requestedPath,
         resolvedPdfPath,
+        documentRevision,
     } = await resolveAgentSearchPath(window, tab);
     const pageCount = getValidatedSearchPageCount(tab);
     await agentSearchWorkerService.dispatchSearchRequest(
         createSearchEvent(window),
         {
             resolvedPdfPath,
+            documentRevision,
             query: '',
             warmup: true,
             requestIdPrefix: 'agent-warm',
@@ -101,7 +106,7 @@ async function warmAgentSearchIndex(
         },
     );
 
-    const index = await loadSearchIndex(resolvedPdfPath);
+    const index = await loadSearchIndex(resolvedPdfPath, documentRevision);
     return {
         requestedPath,
         resolvedPdfPath,
@@ -227,12 +232,14 @@ export async function searchAgentDocument(
     const {
         requestedPath,
         resolvedPdfPath,
+        documentRevision,
     } = await resolveAgentSearchPath(window, input.tab);
     const pageCount = getValidatedSearchPageCount(input.tab);
     const response: IPdfSearchResponse = await agentSearchWorkerService.dispatchSearchRequest(
         createSearchEvent(window),
         {
             resolvedPdfPath,
+            documentRevision,
             query,
             requestIdPrefix: 'agent-search',
             ...(pageCount === undefined ? {} : { pageCount }),
@@ -247,7 +254,7 @@ export async function searchAgentDocument(
         MAX_SEARCH_RESULT_LIMIT,
     );
     const results = response.results.slice(0, maxResults);
-    const index = await loadSearchIndex(resolvedPdfPath).catch((error) => {
+    const index = await loadSearchIndex(resolvedPdfPath, documentRevision).catch((error) => {
         logger.debug(`Failed to load search index after agent search: ${error instanceof Error ? error.message : String(error)}`);
         return null;
     });

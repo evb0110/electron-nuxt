@@ -29,6 +29,10 @@ const mocks = vi.hoisted(() => ({
         promise: Promise<void>;
         resolve: () => void;
     },
+    turnStartGate: null as null | {
+        promise: Promise<void>;
+        resolve: () => void;
+    },
     codexAccountReadMode: 'success',
     codexAuthStatusMode: 'signed-in',
     logger: {
@@ -36,6 +40,7 @@ const mocks = vi.hoisted(() => ({
         warn: vi.fn(),
         error: vi.fn(),
     },
+    assistantTurnBusyMessage: 'EVB Assistant is still working on the previous message for this document.',
 }));
 
 class FakeCodexAppServerProcess extends EventEmitter {
@@ -58,6 +63,10 @@ class FakeCodexAppServerProcess extends EventEmitter {
         this.emit('close', 0);
         return true;
     });
+
+    notifyAppServer(method: string, params: unknown) {
+        this.notify(method, params);
+    }
 
     private handleRequestLine(line: string) {
         const request = JSON.parse(line) as {
@@ -133,29 +142,44 @@ class FakeCodexAppServerProcess extends EventEmitter {
             }
             case 'turn/start': {
                 this.turnCount += 1;
-                this.respond(request.id, { turn: { id: `turn-${this.turnCount}` } });
+                const turnNumber = this.turnCount;
                 const text = request.params?.input?.find(item => typeof item.text === 'string')?.text ?? '';
-                if (text.includes('stream')) {
-                    this.notify('item/agentMessage/delta', {
-                        threadId: request.params?.threadId,
-                        itemId: `assistant-${this.turnCount}`,
-                        delta: 'Hello ',
-                    });
-                    this.notify('item/agentMessage/delta', {
-                        threadId: request.params?.threadId,
-                        itemId: `assistant-${this.turnCount}`,
-                        delta: 'there',
-                    });
-                    this.notify('item/completed', {
-                        threadId: request.params?.threadId,
-                        item: {
-                            type: 'agentMessage',
-                            id: `assistant-${this.turnCount}`,
-                            text: 'Hello there',
-                        },
-                    });
+                if (text.includes('timeout')) {
+                    return;
                 }
-                this.notify('turn/completed', { threadId: request.params?.threadId });
+                const finishTurnStart = () => {
+                    this.respond(request.id!, { turn: { id: `turn-${turnNumber}` } });
+                    this.notify('turn/started', {
+                        threadId: request.params?.threadId,
+                        turn: { id: `turn-${turnNumber}` },
+                    });
+                    if (text.includes('stream')) {
+                        this.notify('item/agentMessage/delta', {
+                            threadId: request.params?.threadId,
+                            itemId: `assistant-${turnNumber}`,
+                            delta: 'Hello ',
+                        });
+                        this.notify('item/agentMessage/delta', {
+                            threadId: request.params?.threadId,
+                            itemId: `assistant-${turnNumber}`,
+                            delta: 'there',
+                        });
+                        this.notify('item/completed', {
+                            threadId: request.params?.threadId,
+                            item: {
+                                type: 'agentMessage',
+                                id: `assistant-${turnNumber}`,
+                                text: 'Hello there',
+                            },
+                        });
+                    }
+                    this.notify('turn/completed', { threadId: request.params?.threadId });
+                };
+                if (mocks.turnStartGate) {
+                    void mocks.turnStartGate.promise.then(finishTurnStart);
+                    return;
+                }
+                finishTurnStart();
                 return;
             }
             default:
@@ -208,7 +232,15 @@ vi.mock('child_process', () => ({
 
 vi.mock('@electron/settings', () => ({loadSettings: mocks.loadSettings}));
 
-vi.mock('@electron/te', () => ({te: (key: string) => key === 'dialogs.agentAssistant.disabledMessage' ? mocks.assistantDisabledMessage : key}));
+vi.mock('@electron/te', () => ({te: (key: string) => {
+    if (key === 'dialogs.agentAssistant.disabledMessage') {
+        return mocks.assistantDisabledMessage;
+    }
+    if (key === 'dialogs.agentAssistant.turnBusy') {
+        return mocks.assistantTurnBusyMessage;
+    }
+    return key;
+}}));
 
 vi.mock('@electron/config', () => ({config: {automation: {noFocus: true}}}));
 
@@ -262,6 +294,32 @@ async function waitForCodexRequest(process: FakeCodexAppServerProcess, method: s
     });
 }
 
+async function waitForCodexRequestCount(process: FakeCodexAppServerProcess, method: string, count: number) {
+    if (process.requestMethods.filter(candidate => candidate === method).length >= count) {
+        return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            process.off('codex-request', onRequest);
+            reject(new Error(`Timed out waiting for Codex request ${method} count ${count}`));
+        }, 5_000);
+        function onRequest(candidate: string) {
+            if (candidate !== method) {
+                return;
+            }
+            if (process.requestMethods.filter(requestMethod => requestMethod === method).length < count) {
+                return;
+            }
+            clearTimeout(timeout);
+            process.off('codex-request', onRequest);
+            resolve();
+        }
+
+        process.on('codex-request', onRequest);
+    });
+}
+
 async function settleAsyncTicks(count = 3) {
     for (let index = 0; index < count; index += 1) {
         await new Promise(resolve => setImmediate(resolve));
@@ -274,11 +332,13 @@ describe('agent assistant opt-in gating', () => {
         vi.clearAllMocks();
         mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
         mocks.initializeGate = null;
+        mocks.turnStartGate = null;
         mocks.codexAccountReadMode = 'success';
         mocks.codexAuthStatusMode = 'signed-in';
     });
 
     afterEach(() => {
+        vi.useRealTimers();
         vi.unstubAllEnvs();
     });
 
@@ -473,6 +533,173 @@ describe('agent assistant opt-in gating', () => {
         const restoredDocumentA = await getAgentAssistantState({ scope: documentA });
         expect(restoredDocumentA.messages.map(message => message.text)).toContain('Question for A');
         expect(restoredDocumentA.messages.map(message => message.text)).not.toContain('Question for B');
+    });
+
+    it('rejects concurrent sends for the same document session', async () => {
+        const documentScope = {
+            kind: 'document',
+            key: 'document:/tmp/busy.pdf',
+            title: 'busy.pdf',
+            documentRef: '/tmp/busy.pdf',
+        } as const satisfies IAgentAssistantChatScope;
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+        mocks.getCodexCliInfo.mockResolvedValue({
+            installed: true,
+            path: '/Applications/Codex.app/Contents/Resources/codex',
+            version: '0.133.0',
+            minimumVersion: '0.133.0',
+            isVersionSupported: true,
+            managedInstallDir: '/tmp/codex',
+        });
+        mocks.startEmbeddedMcpServer.mockResolvedValue({
+            descriptor: {
+                name: 'evb_viewer_embedded',
+                url: 'http://127.0.0.1:9876',
+            },
+            token: 'test-mcp-token',
+        });
+        const process = new FakeCodexAppServerProcess();
+        mocks.spawn.mockImplementation(() => process);
+        mocks.turnStartGate = createInitializeGate();
+
+        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const firstSend = sendAgentAssistantMessage({
+            text: 'Hold this turn',
+            scope: documentScope,
+        });
+        await waitForCodexRequestCount(process, 'turn/start', 1);
+
+        const secondResult = await sendAgentAssistantMessage({
+            text: 'Second message',
+            scope: documentScope,
+        });
+
+        expect(secondResult.ok).toBe(false);
+        expect(secondResult.error).toBe(mocks.assistantTurnBusyMessage);
+        expect(process.requestMethods.filter(method => method === 'turn/start')).toHaveLength(1);
+
+        mocks.turnStartGate.resolve();
+        mocks.turnStartGate = null;
+        await expect(firstSend).resolves.toMatchObject({ ok: true });
+    });
+
+    it('ignores no-thread Codex completion while a new turn is starting', async () => {
+        const documentScope = {
+            kind: 'document',
+            key: 'document:/tmp/no-thread-completion.pdf',
+            title: 'no-thread-completion.pdf',
+            documentRef: '/tmp/no-thread-completion.pdf',
+        } as const satisfies IAgentAssistantChatScope;
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+        mocks.getCodexCliInfo.mockResolvedValue({
+            installed: true,
+            path: '/Applications/Codex.app/Contents/Resources/codex',
+            version: '0.133.0',
+            minimumVersion: '0.133.0',
+            isVersionSupported: true,
+            managedInstallDir: '/tmp/codex',
+        });
+        mocks.startEmbeddedMcpServer.mockResolvedValue({
+            descriptor: {
+                name: 'evb_viewer_embedded',
+                url: 'http://127.0.0.1:9876',
+            },
+            token: 'test-mcp-token',
+        });
+        const process = new FakeCodexAppServerProcess();
+        mocks.spawn.mockImplementation(() => process);
+
+        const {
+            getAgentAssistantState,
+            resetAgentAssistantChat,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        await expect(sendAgentAssistantMessage({
+            text: 'First completed turn',
+            scope: documentScope,
+        })).resolves.toMatchObject({ ok: true });
+        await resetAgentAssistantChat({ scope: documentScope });
+
+        mocks.turnStartGate = createInitializeGate();
+        const secondSend = sendAgentAssistantMessage({
+            text: 'Second starting turn',
+            scope: documentScope,
+        });
+        await waitForCodexRequestCount(process, 'turn/start', 2);
+
+        process.notifyAppServer('turn/completed', {});
+        await settleAsyncTicks();
+
+        const state = await getAgentAssistantState({ scope: documentScope });
+        expect(state.status.turn.phase).toBe('starting');
+
+        mocks.turnStartGate.resolve();
+        mocks.turnStartGate = null;
+        await expect(secondSend).resolves.toMatchObject({ ok: true });
+    });
+
+    it('archives timed-out Codex turns and ignores late notifications for the old thread', async () => {
+        vi.useFakeTimers();
+        const documentScope = {
+            kind: 'document',
+            key: 'document:/tmp/timeout.pdf',
+            title: 'timeout.pdf',
+            documentRef: '/tmp/timeout.pdf',
+        } as const satisfies IAgentAssistantChatScope;
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+        mocks.getCodexCliInfo.mockResolvedValue({
+            installed: true,
+            path: '/Applications/Codex.app/Contents/Resources/codex',
+            version: '0.133.0',
+            minimumVersion: '0.133.0',
+            isVersionSupported: true,
+            managedInstallDir: '/tmp/codex',
+        });
+        mocks.startEmbeddedMcpServer.mockResolvedValue({
+            descriptor: {
+                name: 'evb_viewer_embedded',
+                url: 'http://127.0.0.1:9876',
+            },
+            token: 'test-mcp-token',
+        });
+        const process = new FakeCodexAppServerProcess();
+        mocks.spawn.mockImplementation(() => process);
+
+        const {
+            getAgentAssistantState,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const resultPromise = sendAgentAssistantMessage({
+            text: 'please timeout',
+            scope: documentScope,
+        });
+        await waitForCodexRequestCount(process, 'turn/start', 1);
+        await vi.advanceTimersByTimeAsync(30_000);
+
+        const result = await resultPromise;
+        expect(result.ok).toBe(false);
+        expect(result.error).toBe('turn/start timed out after 30000ms.');
+        expect(process.requestMethods).toContain('thread/archive');
+        expect(result.state.status.threadId).toBeNull();
+        vi.useRealTimers();
+
+        process.notifyAppServer('item/completed', {
+            threadId: 'thread-1',
+            item: {
+                type: 'agentMessage',
+                id: 'late-message',
+                text: 'late text',
+            },
+        });
+        process.notifyAppServer('turn/completed', { threadId: 'thread-1' });
+        await settleAsyncTicks();
+
+        const state = await getAgentAssistantState({ scope: documentScope });
+        expect(state.messages.map(message => message.text)).not.toContain('late text');
+        expect(state.status.threadId).toBeNull();
     });
 
     it('starts fresh Codex threads for inactive document sessions after app-server exit', async () => {

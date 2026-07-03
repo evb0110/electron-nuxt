@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IScrollSnapshot } from '@app/types/pdfUi';
 import { wheelDetailLogThrottleMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelDetailLogThrottleMs';
 import { wheelZoomGestureGraceMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomGestureGraceMs';
 import { wheelZoomSessionIdleMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomSessionIdleMs';

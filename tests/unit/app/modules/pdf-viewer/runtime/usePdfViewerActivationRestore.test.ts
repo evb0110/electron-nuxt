@@ -14,8 +14,13 @@ import {
     shallowRef,
 } from 'vue';
 import { usePdfViewerActivationRestore } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerActivationRestore';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
+
+type TActivationRestoreOptions = Parameters<typeof usePdfViewerActivationRestore>[0];
+type TActivationRestoreTransactionController = NonNullable<
+    TActivationRestoreOptions['transactionController']
+>;
 
 function createViewerContainer(renderedCanvasPage: number | null = null) {
     const container = document.createElement('div');
@@ -52,12 +57,17 @@ function createHarness(options?: {
         end: number
     };
     renderedCanvasPage?: number | null;
+    transactionController?: TActivationRestoreTransactionController;
 }) {
     const pdfDocument = shallowRef<PDFDocumentProxy | null>(
         cast<PDFDocumentProxy>({ fingerprint: 'doc-a' }),
     );
     const renderVisiblePages = vi.fn(async () => {});
     const applySearchHighlights = vi.fn();
+    const visibleRange = ref(options?.visibleRange ?? {
+        start: 1,
+        end: 2,
+    });
     const restore = usePdfViewerActivationRestore({
         viewerContainer: ref(createViewerContainer(options?.renderedCanvasPage ?? null)),
         pdfDocument,
@@ -65,22 +75,22 @@ function createHarness(options?: {
         isLoading: ref(false),
         numPages: ref(4),
         currentPage: ref(options?.currentPage ?? 2),
-        visibleRange: ref(options?.visibleRange ?? {
-            start: 1,
-            end: 2,
-        }),
+        visibleRange,
         viewMode: computed(() => 'facing'),
+        getVisiblePageRange: vi.fn(() => visibleRange.value),
         updateVisibleRange: vi.fn(),
         scrollToPage: vi.fn(),
         renderVisiblePages,
         isPageRendered: vi.fn(() => false),
         applySearchHighlights,
+        transactionController: options?.transactionController,
     });
     return {
         applySearchHighlights,
         pdfDocument,
         renderVisiblePages,
         restore,
+        visibleRange,
     };
 }
 
@@ -137,5 +147,51 @@ describe('usePdfViewerActivationRestore', () => {
 
         expect(renderVisiblePages).toHaveBeenCalledTimes(1);
         expect(applySearchHighlights).not.toHaveBeenCalled();
+    });
+
+    it('runs activation restore rendering through a recovery transaction', async () => {
+        const visibleRange = ref({
+            start: 1,
+            end: 2,
+        });
+        const transactionController: TActivationRestoreTransactionController = {
+            beginTransaction: vi.fn(() => ({ id: 91 })),
+            advanceTransaction: vi.fn(() => true),
+            cancelActiveTransaction: vi.fn(() => true),
+            isTransactionCurrent: vi.fn(() => true),
+            commitVisibleRange: vi.fn((range) => {
+                visibleRange.value = range;
+                return true;
+            }),
+        };
+        const {
+            renderVisiblePages,
+            restore,
+        } = createHarness({
+            visibleRange: visibleRange.value,
+            transactionController,
+        });
+        const runId = restore.nextActivationRestoreRunId();
+
+        await restore.renderActiveDocumentAfterActivation(runId);
+
+        expect(transactionController.beginTransaction).toHaveBeenCalledWith({
+            kind: 'recovery',
+            source: 'activation-restore',
+            page: 2,
+            range: {
+                start: 1,
+                end: 2,
+            },
+            anchor: 'top',
+        });
+        expect(transactionController.commitVisibleRange).toHaveBeenCalledWith({
+            start: 1,
+            end: 2,
+        }, { transactionId: 91 });
+        expect(transactionController.advanceTransaction).toHaveBeenCalledWith(91, 'render-requested');
+        expect(transactionController.advanceTransaction).toHaveBeenCalledWith(91, 'settled');
+        expect(transactionController.cancelActiveTransaction).not.toHaveBeenCalled();
+        expect(renderVisiblePages).toHaveBeenCalledTimes(2);
     });
 });

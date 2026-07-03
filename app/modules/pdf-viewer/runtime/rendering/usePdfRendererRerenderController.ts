@@ -6,7 +6,7 @@ import type {
 import type {
     IPageRange,
     IScrollSnapshot,
-} from '@app/types/pdf';
+} from '@app/types/pdfUi';
 import { captureScrollSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/captureScrollSnapshot';
 import { collectPreservedRenderPageNumbers } from '@app/modules/pdf-viewer/engine/pdf-page-render-preservation/collectPreservedRenderPageNumbers';
 import { createPdfRerenderRestorationLogger } from '@app/modules/pdf-viewer/engine/pdf-rerender-restoration/createPdfRerenderRestorationLogger';

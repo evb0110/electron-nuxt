@@ -172,7 +172,10 @@ function createDialogContext(event: IpcMainInvokeEvent): IDocumentsDialogContext
 }
 
 function createWindowContext(event: IpcMainInvokeEvent): IDocumentsWindowContext {
-    return {window: BrowserWindow.fromWebContents(event.sender)};
+    return {
+        senderId: getSenderId(event),
+        window: BrowserWindow.fromWebContents(event.sender),
+    };
 }
 
 function createOpenPathContext(event: IpcMainInvokeEvent): IDocumentsOpenPathContext {
@@ -460,6 +463,11 @@ export function registerDocumentsIpcAdapter(
         ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileExists>
     ) =>
         service.fileExists(createSenderIdContext(event), filePath));
+    register(DOCUMENTS_CHANNELS.documentRevisionGet, (
+        event: IpcMainInvokeEvent,
+        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.documentRevisionGet>
+    ) =>
+        service.getDocumentRevision(createSenderIdContext(event), filePath));
     register(DOCUMENTS_CHANNELS.pdfAnalyzeConformance, (
         event: IpcMainInvokeEvent,
         ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfAnalyzeConformance>
@@ -487,13 +495,13 @@ export function registerDocumentsIpcAdapter(
     ) =>
         service.openPdfInDefaultAppData(data, fileName));
     register(DOCUMENTS_CHANNELS.pdfOpenInDefaultAppPath, (
-        _event: IpcMainInvokeEvent,
+        event: IpcMainInvokeEvent,
         ...[
             filePath,
             fileName,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfOpenInDefaultAppPath>
     ) =>
-        service.openPdfInDefaultAppPath(filePath, fileName));
+        service.openPdfInDefaultAppPath(createSenderIdContext(event), filePath, fileName));
     register(DOCUMENTS_CHANNELS.pdfPrintData, (
         event: IpcMainInvokeEvent,
         ...[
@@ -540,6 +548,11 @@ export function registerDocumentsIpcAdapter(
         ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSave>
     ) =>
         service.saveFile(createSenderIdContext(event), workingPath));
+    register(DOCUMENTS_CHANNELS.fileSaveStructured, (
+        event: IpcMainInvokeEvent,
+        ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSaveStructured>
+    ) =>
+        service.saveFileStructured(createSenderIdContext(event), workingPath));
     register(DOCUMENTS_CHANNELS.fileRepairPdf, (
         event: IpcMainInvokeEvent,
         ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileRepairPdf>

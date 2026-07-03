@@ -12,8 +12,10 @@ type TPageAnnotationDeleteViewer = Pick<WorkspaceOrchestration.IPdfViewerExpose,
     | 'suppressAnnotationId'
     | 'suppressAnnotationStableKey'
 > & Partial<Pick<WorkspaceOrchestration.IPdfViewerExpose,
-    'registerAnnotationHistoryCommand'
+    'queuePendingEmbeddedAnnotationDelete'
+    | 'registerAnnotationHistoryCommand'
     | 'restoreAnnotationToInternalCache'
+    | 'unqueuePendingEmbeddedAnnotationDelete'
     | 'unsuppressAnnotationId'
     | 'unsuppressAnnotationStableKey'
 >>;
@@ -110,7 +112,9 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
 
         const applyDelete = () => {
             viewer.suppressAnnotationStableKey(comment.stableKey);
-            queuePendingEmbeddedAnnotationDelete(deletionComment);
+            if (viewer.queuePendingEmbeddedAnnotationDelete?.(deletionComment) !== true) {
+                queuePendingEmbeddedAnnotationDelete(deletionComment);
+            }
             if (embeddedAnnotationId) {
                 viewer.suppressAnnotationId(embeddedAnnotationId);
             }
@@ -120,7 +124,11 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
             invalidateAnnotationPage(comment);
         };
         const undoDelete = () => {
-            unqueuePendingEmbeddedAnnotationDelete(comment.stableKey);
+            if (viewer.unqueuePendingEmbeddedAnnotationDelete) {
+                viewer.unqueuePendingEmbeddedAnnotationDelete(comment.stableKey);
+            } else {
+                unqueuePendingEmbeddedAnnotationDelete(comment.stableKey);
+            }
             viewer.unsuppressAnnotationStableKey?.(comment.stableKey);
             if (embeddedAnnotationId) {
                 viewer.unsuppressAnnotationId?.(embeddedAnnotationId);

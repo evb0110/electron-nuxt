@@ -9,6 +9,7 @@ import {
 import { delay } from 'es-toolkit/promise';
 import { useExternalFileDrop } from '@app/modules/workspace-shell/composables/useExternalFileDrop';
 import { cast } from '@tests/helpers/cast';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 type TCapturedListener = (event: DragEvent) => void;
 
@@ -87,10 +88,10 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: {
+            electronAPI: createElectronPlatformApiFixture({
                 documentPicker: { getPathsForFiles: pickerGetPathsForFiles },
                 documents: { getPathsForFiles: legacyGetPathsForFiles },
-            },
+            }),
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -114,7 +115,7 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: { documents: { getPathsForFiles: vi.fn(() => ['/docs/readme.txt']) } },
+            electronAPI: createElectronPlatformApiFixture({ documents: { getPathsForFiles: vi.fn(() => ['/docs/readme.txt']) } }),
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -136,7 +137,7 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: { documents: { getPathsForFiles: vi.fn(() => ['/docs/a.pdf']) } },
+            electronAPI: createElectronPlatformApiFixture({ documents: { getPathsForFiles: vi.fn(() => ['/docs/a.pdf']) } }),
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -164,14 +165,16 @@ describe('useExternalFileDrop', () => {
             }
         });
 
+        const documents = { getPathsForFiles: vi.fn((files: Array<{ name: string }>) => files.map((file) => {
+            if (file.name === 'file-0') {
+                return '/docs/a.pdf';
+            }
+            return '/docs/b.png';
+        })) };
+
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: { documents: { getPathsForFiles: vi.fn((files: Array<{ name: string }>) => files.map((file) => {
-                if (file.name === 'file-0') {
-                    return '/docs/a.pdf';
-                }
-                return '/docs/b.png';
-            })) } },
+            electronAPI: createElectronPlatformApiFixture({ documents }),
         });
 
         const { cleanup } = useExternalFileDrop({ openPathsInAppropriateTab });

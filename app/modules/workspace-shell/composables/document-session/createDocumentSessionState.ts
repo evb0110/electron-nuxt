@@ -6,9 +6,13 @@ import type {
 import type {
     IPdfConformanceProfile,
     TPdfSaveMode,
-    TPdfSource,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type {
+    IDocumentRevisionInfo,
+    TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import type { IOpenBatchProgressState } from '@app/modules/workspace-shell/composables/openBatchProgressState';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
@@ -29,6 +33,8 @@ export interface IDocumentSessionState {
     pendingDjvu: Ref<TDocumentRef | null>;
     requiresSaveAsOnFirstSave: Ref<boolean>;
     workingCopyPath: Ref<TDocumentRef | null>;
+    documentRevisionInfo: Ref<IDocumentRevisionInfo | null>;
+    documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     isActiveWorkingCopy: (path: TDocumentRef) => boolean;
     resetForClose: () => void;
 }
@@ -40,6 +46,8 @@ export function createDocumentSessionState(
     const pdfReloadSrc = ref<TPdfSource | null>(null);
     const pdfData = shallowRef<Uint8Array | null>(null);
     const workingCopyPath = ref<TDocumentRef | null>(null);
+    const documentRevisionInfo = ref<IDocumentRevisionInfo | null>(null);
+    const documentRevisionToken = ref<TDocumentRevisionToken | null>(null);
     const originalPath = ref<TDocumentRef | null>(null);
     const error = ref<string | null>(null);
     const isDirty = ref(false);
@@ -65,6 +73,8 @@ export function createDocumentSessionState(
         pdfReloadSrc.value = null;
         pdfData.value = null;
         workingCopyPath.value = null;
+        documentRevisionInfo.value = null;
+        documentRevisionToken.value = null;
         originalPath.value = null;
         error.value = null;
         isDirty.value = false;
@@ -91,5 +101,7 @@ export function createDocumentSessionState(
         requiresSaveAsOnFirstSave,
         resetForClose,
         workingCopyPath,
+        documentRevisionInfo,
+        documentRevisionToken,
     };
 }

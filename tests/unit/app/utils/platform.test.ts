@@ -4,6 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import {
     isElectronUserAgent,
     shouldPreferDesktopPlatform,
@@ -36,7 +37,7 @@ describe('platform runtime detection', () => {
             return { browserPlatformApi: { shell: { openExternal: vi.fn().mockResolvedValue(undefined) } } };
         });
 
-        const electronAPI = { shell: { openExternal: vi.fn().mockResolvedValue(undefined) } };
+        const electronAPI = createElectronPlatformApiFixture({ shell: { openExternal: vi.fn().mockResolvedValue(undefined) } });
         vi.stubGlobal('window', { electronAPI });
 
         const { getPlatformAPI } = await import('@app/utils/platform');

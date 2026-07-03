@@ -1,4 +1,12 @@
-import type { TDocumentRef } from '@contracts/documentRef';
+import type {
+    TDocumentBackend,
+    TDocumentRef,
+} from '@contracts/documentRef';
+import {
+    inferDocumentRefBackend,
+    isBrowserLegacyDocumentRef,
+    isNativeLegacyDocumentRef,
+} from '@contracts/documentRef';
 
 function decodeUriComponentRepeatedly(value: string, maxPasses = 3) {
     let decoded = value;
@@ -19,7 +27,20 @@ function decodeUriComponentRepeatedly(value: string, maxPasses = 3) {
 }
 
 export function isBrowserDocumentRef(documentRef: TDocumentRef | null | undefined) {
-    return typeof documentRef === 'string' && documentRef.startsWith('browser://');
+    return typeof documentRef === 'string' && isBrowserLegacyDocumentRef(documentRef);
+}
+
+export function isNativeDocumentRef(documentRef: TDocumentRef | null | undefined) {
+    return typeof documentRef === 'string' && isNativeLegacyDocumentRef(documentRef);
+}
+
+export function resolveDocumentRefBackend(documentRef: TDocumentRef | null | undefined): TDocumentBackend | undefined {
+    if (!documentRef) {
+        return undefined;
+    }
+
+    const backend = inferDocumentRefBackend(documentRef);
+    return backend === 'unknown' ? undefined : backend;
 }
 
 export function getDocumentRefBaseName(documentRef: TDocumentRef | null | undefined) {

@@ -1,9 +1,9 @@
 import type { MaybeRefOrGetter } from 'vue';
 import type {
-    IPdfPageMetric,
     TFitMode,
     TZoomMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type { TPdfViewMode } from '@contracts/shared';
 import { getViewColumnCount } from '@app/utils/pdfViewMode';
 import { BrowserLogger } from '@app/utils/browserLogger';

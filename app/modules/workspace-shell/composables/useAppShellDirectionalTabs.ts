@@ -26,6 +26,8 @@ import {
 } from '@app/utils/platformDocuments';
 import type { IWorkspaceSplitCacheLike } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import { createWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/document-sessions/createWorkspaceSplitCacheSessionState';
+import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 
 const TAB_TRANSITION_CACHE_GRACE_MS = 1200;
 const DIRECTION_ORDER = [
@@ -40,6 +42,7 @@ interface IUseAppShellDirectionalTabsOptions {
     panes: Ref<IEditorPaneState[]>;
     tabs: Ref<ITab[]>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
+    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentSessionController>>;
     getDocumentRecord: (tabId: string | null | undefined) => IWorkspaceDocumentRecord | null;
     isTabTransitionBusy: ComputedRef<boolean>;
     getPaneById: (paneId: string | null | undefined) => IEditorPaneState | null;
@@ -94,6 +97,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         panes,
         tabs,
         workspaceRefs,
+        documentSessionsByTabId,
         getDocumentRecord,
         isTabTransitionBusy,
         getPaneById,
@@ -211,6 +215,13 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         splitCacheCleanupTimers.set(tabId, timer);
     }
 
+    function setSplitCachePayload(tabId: string, payload: TSplitPayload) {
+        const session = createWorkspaceSplitCacheSessionState(documentSessionsByTabId?.value[tabId]);
+        return session
+            ? workspaceSplitCache.set(tabId, payload, {session})
+            : workspaceSplitCache.set(tabId, payload);
+    }
+
     async function captureActiveTabPayload() {
         const sourcePane = getPaneById(activePaneId.value);
         const sourceTabId = sourcePane?.activeTabId ?? null;
@@ -271,7 +282,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                 sourceTabId,
             } = activeTabPayload;
 
-            const cacheEntryId = workspaceSplitCache.set(sourceTabId, payload);
+            const cacheEntryId = setSplitCachePayload(sourceTabId, payload);
             scheduleSplitCacheCleanup(sourceTabId, cacheEntryId);
 
             const targetPayload = await createIndependentSplitRestorePayload(payload);
@@ -325,7 +336,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             if (sourceTabId) {
                 const payload = await captureWorkspacePayload(sourceTabId);
                 if (payload) {
-                    const cacheEntryId = workspaceSplitCache.set(sourceTabId, payload);
+                    const cacheEntryId = setSplitCachePayload(sourceTabId, payload);
                     scheduleSplitCacheCleanup(sourceTabId, cacheEntryId);
                 }
             }

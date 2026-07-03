@@ -6,7 +6,7 @@ import { clamp } from 'es-toolkit/math';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
-} from '@app/types/pdf';
+} from '@app/types/pdfUi';
 import { createPdfSearchMatchScroller } from '@app/modules/pdf-viewer/engine/pdf-search-match-scroller/createPdfSearchMatchScroller';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
@@ -34,6 +34,13 @@ interface IUsePdfRendererSearchControllerOptions {
         options?: Pick<IScrollToPageOptions, 'markerRect'>,
     ) => void;
     endSearchNavigation?: (settleMs?: number) => void;
+    beginSearchTransaction?: (
+        pageNumber: number,
+        options?: Pick<IScrollToPageOptions, 'markerRect'>,
+    ) => number | null;
+    isSearchTransactionCurrent?: (transactionId: number) => boolean;
+    settleSearchTransaction?: (transactionId: number) => void;
+    cancelSearchTransaction?: (transactionId: number) => void;
     isPageRenderPending?: (pageNumber: number) => boolean;
 }
 
@@ -100,6 +107,10 @@ export const usePdfRendererSearchController = (options: IUsePdfRendererSearchCon
         ...(options.beginSearchNavigation ? { beginSearchNavigation: options.beginSearchNavigation } : {}),
         ...(options.revealSearchNavigationTarget ? { revealSearchNavigationTarget: options.revealSearchNavigationTarget } : {}),
         ...(options.endSearchNavigation ? { endSearchNavigation: options.endSearchNavigation } : {}),
+        ...(options.beginSearchTransaction ? { beginSearchTransaction: options.beginSearchTransaction } : {}),
+        ...(options.isSearchTransactionCurrent ? { isSearchTransactionCurrent: options.isSearchTransactionCurrent } : {}),
+        ...(options.settleSearchTransaction ? { settleSearchTransaction: options.settleSearchTransaction } : {}),
+        ...(options.cancelSearchTransaction ? { cancelSearchTransaction: options.cancelSearchTransaction } : {}),
         ...(options.isPageRenderPending ? { isPageRenderPending: options.isPageRenderPending } : {}),
     });
 

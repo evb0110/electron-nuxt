@@ -31,6 +31,7 @@ import {
     uniq,
 } from 'es-toolkit/array';
 import { PDFDocument } from 'pdf-lib';
+import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type {
     IOcrSearchablePdfOptions,
     TOcrProgressPhase,
@@ -63,7 +64,7 @@ import { runOcrCommand } from '@electron/ocr/worker/runOcrCommand';
 import {
     resolveSafeOcrIndexBasePath,
     writeOcrIndexV1,
-    writeOcrIndexV2,
+    writeOcrIndexV3,
 } from '@electron/ocr/worker/indexWriter';
 import {
     parseInvalidOcrWorkerStartMessage,
@@ -496,6 +497,7 @@ async function resolveOcrIndexPath(sourcePdfPath: string) {
 
 async function writeOcrIndexes(
     sourcePdfPath: string,
+    documentRevision: IDocumentRevisionInfo,
     ocrPageData: IOcrPageWithWords[],
     pageCount: number,
     allLanguages: string[],
@@ -511,8 +513,9 @@ async function writeOcrIndexes(
     }
 
     try {
-        await writeOcrIndexV2(
+        await writeOcrIndexV3(
             validatedWorkingCopyPath,
+            documentRevision,
             ocrPageData,
             pageCount,
             allLanguages,
@@ -520,12 +523,12 @@ async function writeOcrIndexes(
             log,
             signal,
         );
-    } catch (v2Err) {
-        if (isAbortError(v2Err)) {
-            throw v2Err;
+    } catch (indexError) {
+        if (isAbortError(indexError)) {
+            throw indexError;
         }
-        const v2ErrMsg = getErrorMessage(v2Err);
-        const warning = `Failed to write OCR index v2: ${v2ErrMsg}`;
+        const indexErrorMessage = getErrorMessage(indexError);
+        const warning = `Failed to write OCR index v3: ${indexErrorMessage}`;
         log('warn', warning);
         warnings.push(warning);
     }
@@ -791,6 +794,7 @@ async function cleanupTempFiles(
 async function processOcrJob(
     jobId: string,
     sourcePdfPath: string,
+    documentRevision: IDocumentRevisionInfo,
     pages: IOcrPdfPageRequest[],
     options: IOcrSearchablePdfOptions = {},
 ) {
@@ -896,7 +900,15 @@ async function processOcrJob(
 
         const allLanguages = uniq(targetPages.flatMap(p => p.languages));
         sendStageProgress(jobId, targetPages, 'indexing');
-        completionMessages.push(...await writeOcrIndexes(sourcePdfPath, ocrPageData, pageCount, allLanguages, actualRenderDpi, abortController.signal));
+        completionMessages.push(...await writeOcrIndexes(
+            sourcePdfPath,
+            documentRevision,
+            ocrPageData,
+            pageCount,
+            allLanguages,
+            actualRenderDpi,
+            abortController.signal,
+        ));
         sendProgress(
             jobId,
             targetPages[targetPages.length - 1]?.pageNumber ?? 0,
@@ -964,6 +976,7 @@ parentPort?.on('message', async (rawMessage: unknown) => {
             await processOcrJob(
                 message.jobId,
                 message.data.sourcePdfPath,
+                message.data.documentRevision,
                 message.data.pages,
                 message.data.options ?? (message.data.renderDpi !== undefined ? {renderDpi: message.data.renderDpi} : {}),
             );

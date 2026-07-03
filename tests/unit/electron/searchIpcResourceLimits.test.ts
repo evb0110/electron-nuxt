@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     workerCtor: vi.fn(),
     resolveAllowedReadPath: vi.fn(),
     findWorkingCopyPathByOriginalPath: vi.fn(),
+    getWorkingCopyRevision: vi.fn(),
     appOn: vi.fn(),
     webContentsById: new Map<number, {
         isDestroyed: () => boolean;
@@ -168,6 +169,7 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
     normalizePathForLookup: (path: string) => path.trim(),
 }));
+vi.mock('@electron/file-access/documentRevisionStore', () => ({getWorkingCopyRevision: (...args: unknown[]) => mocks.getWorkingCopyRevision(...args)}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('fs', () => ({existsSync: (...args: unknown[]) => mocks.existsSync(...args)}));
 
@@ -235,6 +237,14 @@ describe('search IPC worker resource limits', () => {
 
         mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/allowed.pdf');
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
+        mocks.getWorkingCopyRevision.mockImplementation(async (documentRef: string) => ({
+            version: 1,
+            documentRef,
+            authority: 'electron-working-copy',
+            contentRevision: 1,
+            mintedAt: 1,
+            token: 'revision-token',
+        }));
         mocks.existsSync.mockReturnValue(false);
     });
 

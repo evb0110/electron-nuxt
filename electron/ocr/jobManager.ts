@@ -32,6 +32,12 @@ import {
     handleWorkerResourceMessage,
     isWorkerResourceMessage,
 } from '@electron/ocr/ocrWorkerResourceMessages';
+import { createPreparingOcrJob } from '@electron/ocr/createPreparingOcrJob';
+import { createOcrWorkingCopyInvalidationController } from '@electron/ocr/createOcrWorkingCopyInvalidationController';
+import {
+    createOcrQueueFailure,
+    type IOcrQueueStartResult,
+} from '@electron/ocr/createOcrQueueFailure';
 import type {
     IOcrActiveJob,
     IOcrPreparingJob,
@@ -47,7 +53,6 @@ import type {
     IOcrCancelResult,
     IOcrProgress,
     IOcrSearchablePdfOptions,
-    TOcrErrorCode,
     TOcrProgressPhase,
 } from '@contracts/electronApiOcr';
 import { createLogger } from '@electron/utils/createLogger';
@@ -55,6 +60,7 @@ import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 import { getErrorMessage } from '@electron/utils/error';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { sendToLiveWindow } from '@electron/utils/sendToLiveWindow';
+import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 
 const log = createLogger('ocr-ipc');
 
@@ -352,6 +358,16 @@ function cancelJobsForSender(webContentsId: number, reason: string) {
     void pendingResultFileStore.cleanupForSender(webContentsId);
 }
 
+export const { cancelOcrJobsForWorkingCopy } = createOcrWorkingCopyInvalidationController({
+    abortPreparingJob,
+    activeJobs,
+    logger: log,
+    queuedJobs,
+    removeQueuedJob,
+    terminateAndFinalizeActiveJob,
+    preparingJobs,
+});
+
 function registerSenderCleanup(context: IOcrJobOperationContext) {
     const {
         sender,
@@ -600,6 +616,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
     try {
         const data: Extract<TOcrWorkerInboundMessage, { type: 'start' }>['data'] = {
             sourcePdfPath: job.sourcePdfPath,
+            documentRevision: job.documentRevision,
             pages: job.pages,
             options: job.options,
         };
@@ -636,26 +653,6 @@ function dispatchQueuedJobs() {
     }
 }
 
-interface IOcrQueueStartResult {
-    started: boolean;
-    jobId: string;
-    error?: string;
-    errorCode?: TOcrErrorCode;
-}
-
-function createQueueFailure(
-    requestId: string,
-    error: string,
-    errorCode: TOcrErrorCode = 'OCR_INTERNAL_ERROR',
-): IOcrQueueStartResult {
-    return {
-        started: false,
-        jobId: requestId,
-        error,
-        errorCode,
-    };
-}
-
 function findQueueBlockingResult(
     context: IOcrJobOperationContext,
     scopedJobId: string,
@@ -663,14 +660,14 @@ function findQueueBlockingResult(
     options: { includePreparing: boolean },
 ): IOcrQueueStartResult | null {
     if (context.sender.isDestroyed()) {
-        return createQueueFailure(requestId, 'Renderer disconnected before OCR request could be queued');
+        return createOcrQueueFailure(requestId, 'Renderer disconnected before OCR request could be queued');
     }
 
     const isExistingJob = activeJobs.has(scopedJobId)
         || queuedJobIds.has(scopedJobId)
         || (options.includePreparing && preparingJobs.has(scopedJobId));
     if (isExistingJob) {
-        return createQueueFailure(
+        return createOcrQueueFailure(
             requestId,
             `OCR job with id "${requestId}" already exists`,
             'OCR_QUEUE_BACKPRESSURE',
@@ -678,7 +675,7 @@ function findQueueBlockingResult(
     }
 
     if (pendingResultFileStore.find(context.senderId, requestId)) {
-        return createQueueFailure(
+        return createOcrQueueFailure(
             requestId,
             `OCR job with id "${requestId}" is waiting for result-file acknowledgement`,
             'OCR_QUEUE_BACKPRESSURE',
@@ -686,22 +683,6 @@ function findQueueBlockingResult(
     }
 
     return null;
-}
-
-function createPreparingJob(
-    context: IOcrJobOperationContext,
-    scopedJobId: string,
-    requestId: string,
-): IOcrPreparingJob {
-    return {
-        lifecycleState: 'preparing',
-        scopedJobId,
-        requestId,
-        webContentsId: context.senderId,
-        requestedBytes: 0,
-        startedAtMs: Date.now(),
-        abortController: new AbortController(),
-    };
 }
 
 function getAbortedPreparationResult(
@@ -715,10 +696,10 @@ function getAbortedPreparationResult(
         throw reason;
     }
     if (cancelledJobs.has(scopedJobId)) {
-        return createQueueFailure(requestId, 'OCR job was cancelled before it started');
+        return createOcrQueueFailure(requestId, 'OCR job was cancelled before it started');
     }
     if (context.sender.isDestroyed()) {
-        return createQueueFailure(requestId, 'Renderer disconnected before OCR request could be queued');
+        return createOcrQueueFailure(requestId, 'Renderer disconnected before OCR request could be queued');
     }
     return null;
 }
@@ -755,7 +736,7 @@ async function prepareLanguageModelsForQueueJob(
 
 function getCancelledBeforeStartResult(scopedJobId: string, requestId: string) {
     return cancelledJobs.has(scopedJobId)
-        ? createQueueFailure(requestId, 'OCR job was cancelled before it started')
+        ? createOcrQueueFailure(requestId, 'OCR job was cancelled before it started')
         : null;
 }
 
@@ -763,6 +744,7 @@ function enqueuePreparedOcrJob(
     context: IOcrJobOperationContext,
     scopedJobId: string,
     sourcePdfPath: string,
+    documentRevision: IOcrQueuedJob['documentRevision'],
     pages: IOcrPdfPageRequest[],
     requestId: string,
     requestBytes: number,
@@ -779,6 +761,7 @@ function enqueuePreparedOcrJob(
         requestId,
         webContentsId: context.senderId,
         sourcePdfPath,
+        documentRevision,
         pages,
         options,
         queuedAtMs: Date.now(),
@@ -824,10 +807,11 @@ export async function handleOcrCreateSearchablePdfAsync(
             return initialBlock;
         }
         cancelledJobs.delete(scopedJobId);
+        const documentRevision = await getWorkingCopyRevision(sourcePdfPath, context.senderId);
 
         // Reserve the scoped id before long async prep to avoid duplicate in-flight
         // requests racing into the queue with the same requestId.
-        const preparingJob = createPreparingJob(context, scopedJobId, requestId);
+        const preparingJob = createPreparingOcrJob(context, scopedJobId, requestId, sourcePdfPath, documentRevision);
         preparingJobs.set(scopedJobId, preparingJob);
         isPreparingReserved = true;
         sendOcrProgressStage(context.senderId, requestId, pages, 'model-prep');
@@ -836,7 +820,7 @@ export async function handleOcrCreateSearchablePdfAsync(
         preparingJob.requestedBytes = requestBytes;
         const capacityResult = ensureQueueCapacity(requestBytes, { excludePreparingJobId: scopedJobId });
         if (!capacityResult.ok) {
-            return createQueueFailure(requestId, capacityResult.error, 'OCR_QUEUE_BACKPRESSURE');
+            return createOcrQueueFailure(requestId, capacityResult.error, 'OCR_QUEUE_BACKPRESSURE');
         }
 
         const modelPrepResult = await prepareLanguageModelsForQueueJob(
@@ -860,7 +844,7 @@ export async function handleOcrCreateSearchablePdfAsync(
         }
         const recheckedCapacityResult = ensureQueueCapacity(requestBytes, { excludePreparingJobId: scopedJobId });
         if (!recheckedCapacityResult.ok) {
-            return createQueueFailure(requestId, recheckedCapacityResult.error, 'OCR_QUEUE_BACKPRESSURE');
+            return createOcrQueueFailure(requestId, recheckedCapacityResult.error, 'OCR_QUEUE_BACKPRESSURE');
         }
         const canceledBeforeEnqueue = getCancelledBeforeStartResult(scopedJobId, requestId);
         if (canceledBeforeEnqueue) {
@@ -871,6 +855,7 @@ export async function handleOcrCreateSearchablePdfAsync(
             context,
             scopedJobId,
             sourcePdfPath,
+            documentRevision,
             pages,
             requestId,
             requestBytes,

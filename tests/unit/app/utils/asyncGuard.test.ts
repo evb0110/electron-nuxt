@@ -27,6 +27,7 @@ describe('asyncGuard', () => {
 
     it('logs rejected promises', async () => {
         guardAsync(Promise.reject(new Error('boom')), {
+            category: 'background-diagnostic',
             scope: 'test-scope',
             message: 'Failed to run task',
         });
@@ -37,7 +38,10 @@ describe('asyncGuard', () => {
         expect(loggerSpies.error).toHaveBeenCalledWith(
             'test-scope',
             'Failed to run task',
-            expect.objectContaining({ message: 'boom' }),
+            expect.objectContaining({
+                category: 'background-diagnostic',
+                error: expect.objectContaining({ message: 'boom' }),
+            }),
         );
     });
 
@@ -47,6 +51,7 @@ describe('asyncGuard', () => {
                 throw new Error('sync boom');
             },
             {
+                category: 'background-diagnostic',
                 scope: 'test-scope',
                 message: 'Failed to run task',
             },
@@ -56,7 +61,10 @@ describe('asyncGuard', () => {
         expect(loggerSpies.error).toHaveBeenCalledWith(
             'test-scope',
             'Failed to run task',
-            expect.objectContaining({ message: 'sync boom' }),
+            expect.objectContaining({
+                category: 'background-diagnostic',
+                error: expect.objectContaining({ message: 'sync boom' }),
+            }),
         );
     });
 
@@ -71,6 +79,7 @@ describe('asyncGuard', () => {
         });
 
         guardAsync(Promise.reject(new Error('boom')), {
+            category: 'user-visible-operation',
             scope: 'test-scope',
             message: 'Failed to run task',
             onError,
@@ -85,5 +94,28 @@ describe('asyncGuard', () => {
             'onError',
             'logger',
         ]);
+    });
+
+    it('logs expected cancellations at debug level', async () => {
+        const error = new DOMException('Aborted', 'AbortError');
+
+        guardAsync(Promise.reject(error), {
+            category: 'background-diagnostic',
+            scope: 'test-scope',
+            message: 'Task was canceled',
+        });
+
+        await Promise.resolve();
+
+        expect(loggerSpies.error).not.toHaveBeenCalled();
+        expect(loggerSpies.debug).toHaveBeenCalledWith(
+            'test-scope',
+            'Task was canceled',
+            expect.objectContaining({
+                category: 'background-diagnostic',
+                canceled: true,
+                error,
+            }),
+        );
     });
 });

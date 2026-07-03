@@ -10,15 +10,18 @@ import { PDF_VIEWER_PAGE_SKELETON_DELAY_MS } from '@app/constants/timeouts';
 import { logPdfNav } from '@app/utils/logPdfNav';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type {
-    IContentInsets,
     PDFDocumentProxy,
     PDFPageProxy,
     TFitMode,
-    TPdfSource,
     TZoomMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type {
+    IContentInsets,
+    TPdfSource,
+} from '@app/types/pdfUi';
 import type { ILinkAnnotation } from '@app/types/annotations';
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type { IGuardAsyncOptions } from '@app/utils/asyncGuard';
 
 interface IUsePdfRenderViewModelOptions {
     src: ComputedRef<TPdfSource | null>;
@@ -71,10 +74,7 @@ interface IUsePdfRenderViewModelOptions {
     ) => Promise<void>;
     runGuardedTask: (
         task: () => Promise<void>,
-        options: {
-            scope: string;
-            message: string;
-        },
+        options: IGuardAsyncOptions,
     ) => void;
 }
 
@@ -307,6 +307,7 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
                     },
                 ),
                 {
+                    category: 'user-visible-operation',
                     scope: 'pdf-viewer',
                     message: 'Failed to pre-render paged navigation buffer',
                 },

@@ -1,6 +1,6 @@
 import type { PDFDocument } from 'pdf-lib';
 import { PDFName } from 'pdf-lib';
-import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import { writePdfBookmarkOutlines } from '@pdf-core';
 
 export function writeBookmarkOutlines(

@@ -1,0 +1,161 @@
+import {
+    describe,
+    expect,
+    it,
+} from 'vitest';
+import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
+import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import {
+    createDefaultWorkspaceViewerCapabilities,
+    type IWorkspaceExpose,
+} from '@app/types/workspaceExpose';
+import { cast } from '@tests/helpers/cast';
+
+function createDocumentRevision(token = 'revision-1'): IDocumentRevisionInfo {
+    return {
+        version: 1,
+        token,
+        documentRef: '/tmp/working.pdf',
+        authority: 'browser-document-store',
+        contentRevision: token === 'revision-1' ? 1 : 2,
+        mintedAt: token === 'revision-1' ? 1 : 2,
+    };
+}
+
+function createWorkspace() {
+    return cast<IWorkspaceExpose>({hasPdf: true});
+}
+
+describe('createWorkspaceDocumentSessionCore', () => {
+    it('publishes document identity from workspace records', () => {
+        const session = createWorkspaceDocumentSessionCore({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+        });
+
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
+            tab: {
+                fileName: 'Document.pdf',
+                originalPath: '/tmp/original.pdf',
+                isDirty: true,
+                isDjvu: false,
+            },
+            documentIdentity: createDocumentRevision(),
+            toolbarSnapshot: {viewerCapabilities: {
+                ...createDefaultWorkspaceViewerCapabilities(),
+                closeableDocument: true,
+            }},
+        }), 'workspace');
+
+        expect(session.snapshot.value.identity).toMatchObject({
+            documentRef: '/tmp/working.pdf',
+            originalPath: '/tmp/original.pdf',
+            workingCopyPath: '/tmp/working.pdf',
+            fileName: 'Document.pdf',
+            isDjvu: false,
+            revisionInfo: {token: 'revision-1'},
+        });
+        expect(session.snapshot.value.dirty).toBe(true);
+        expect(session.snapshot.value.closeable).toBe(true);
+        expect(session.snapshot.value.phase).toBe('ready');
+    });
+
+    it('ignores stale transaction finishes', () => {
+        const session = createWorkspaceDocumentSessionCore({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+            createTransactionId: input => `tx-${input.nextTransactionIndex}`,
+        });
+        const first = session.beginTransaction({
+            kind: 'open',
+            documentRef: '/tmp/a.pdf',
+        });
+        const second = session.beginTransaction({
+            kind: 'open',
+            documentRef: '/tmp/b.pdf',
+        });
+
+        session.finishTransaction(first.id, 'committed');
+
+        expect(session.snapshot.value.activeTransaction?.id).toBe(second.id);
+        expect(session.snapshot.value.pendingDocumentPath).toBe('/tmp/b.pdf');
+    });
+
+    it('rejects stale revision command targets after identity changes', () => {
+        const session = createWorkspaceDocumentSessionCore({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+        });
+        session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
+            tab: {
+                fileName: 'Document.pdf',
+                originalPath: '/tmp/original.pdf',
+                isDirty: false,
+                isDjvu: false,
+            },
+            documentIdentity: createDocumentRevision('revision-1'),
+        }), 'workspace');
+        const target = session.createCommandTarget();
+
+        session.applyRevisionInfo(createDocumentRevision('revision-2'));
+
+        expect(session.validateCommandTarget(target)).toEqual({
+            ok: false,
+            reason: 'document-revision-token-mismatch',
+        });
+    });
+
+    it('rejects pending workspace waiters when a target goes stale', async () => {
+        const session = createWorkspaceDocumentSessionCore({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+            workspaceWaitTimeoutMs: 1000,
+        });
+        const target = session.createCommandTarget();
+        const wait = session.waitForWorkspace(target);
+
+        session.beginTransaction({
+            kind: 'open',
+            documentRef: '/tmp/next.pdf',
+        });
+
+        await expect(wait).resolves.toBeNull();
+    });
+
+    it('resolves current workspace waiters when the workspace attaches', async () => {
+        const session = createWorkspaceDocumentSessionCore({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+        });
+        const target = session.createCommandTarget();
+        const workspace = createWorkspace();
+        const wait = session.waitForWorkspace(target);
+
+        session.attachWorkspace(workspace);
+
+        await expect(wait).resolves.toBe(workspace);
+        expect(session.snapshot.value.mounted).toBe(true);
+    });
+
+    it('does not change command revision for view-only updates or mounting', () => {
+        const session = createWorkspaceDocumentSessionCore({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+        });
+        const target = session.createCommandTarget();
+
+        session.attachWorkspace(createWorkspace());
+        session.applyViewState({
+            zoom: 2,
+            effectiveZoom: 2,
+            zoomMode: 'custom',
+            fitMode: 'width',
+            viewMode: 'single',
+            showSidebar: true,
+            continuousScroll: false,
+        });
+
+        expect(session.validateCommandTarget(target)).toEqual({ok: true});
+    });
+});

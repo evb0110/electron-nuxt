@@ -62,6 +62,7 @@ const mocks = vi.hoisted(() => ({
     runCommand: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn(),
     findWorkingCopyPathByOriginalPath: vi.fn(),
+    markWorkingCopyContentChanged: vi.fn(),
     allowOpenPath: vi.fn(),
     allowOpenPaths: vi.fn(),
     requireOpenPath: vi.fn((path: string) => path),
@@ -104,6 +105,7 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     findWorkingCopyPathByOriginalPath: (...args: unknown[]) => mocks.findWorkingCopyPathByOriginalPath(...args),
     normalizePathForLookup: (path: string) => path.trim(),
 }));
+vi.mock('@electron/file-access/documentRevisionStore', () => ({markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args)}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({
     QPDF_OUTPUT_SUCCESS_EXIT_CODES: [
         0,
@@ -175,6 +177,7 @@ describe('registerPageOpsIpcAdapter', () => {
         mocks.isPdfOrImagePath.mockReturnValue(true);
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
+        mocks.markWorkingCopyContentChanged.mockResolvedValue({});
         mocks.writeFile.mockResolvedValue(undefined);
         mocks.open.mockResolvedValue({
             close: vi.fn(async () => undefined),
@@ -668,16 +671,11 @@ describe('registerPageOpsIpcAdapter', () => {
         expect(mocks.runCommand).not.toHaveBeenCalled();
     });
 
-    it('removes stale OCR artifacts after mutating the working copy', async () => {
+    it('marks stale derived artifacts after mutating the working copy', async () => {
         const handler = getHandler('page-ops:rotate');
 
         await expect(handler({sender: {id: 1}}, '/tmp/a.pdf', [1], 3, 90)).resolves.toEqual({success: true});
 
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/a.pdf.ocr', {
-            recursive: true,
-            force: true,
-        });
-        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/a.pdf.index.json');
-        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/a.pdf.index.evb-search-v1.bin');
+        expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith('/tmp/a.pdf', 'page-ops', 1);
     });
 });

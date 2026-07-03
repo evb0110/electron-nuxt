@@ -41,10 +41,8 @@ import {
 } from '@electron/features/page-ops/domain/pageNumbers';
 import { insertPagesFromSourcePaths } from '@electron/features/page-ops/main/insertPagesFromSourcePaths.service';
 import { assertOpenInputPathCount } from '@electron/features/documents/public';
-import {
-    clearWorkingCopyOcrArtifacts,
-    enqueueWorkingCopyMutation,
-} from '@electron/file-access/workingCopyMutationQueue';
+import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
+import { markWorkingCopyContentChanged } from '@electron/file-access/documentRevisionStore';
 import type { IPageOpsOperationContext } from '@electron/features/page-ops/ports';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
@@ -162,7 +160,7 @@ export async function handlePageOpsDelete(
             requireUnique: true,
         });
         const operationResult = await deletePages(queuedWorkingCopyPath, pages, expectedTotalPages, context.senderId);
-        await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
+        await markWorkingCopyContentChanged(queuedWorkingCopyPath, 'page-ops', context.senderId);
         return operationResult;
     });
     return {
@@ -235,7 +233,7 @@ export async function handlePageOpsReorder(
         });
         validateReorderPermutation(newOrder, actualPageCount);
         const operationResult = await reorderPages(queuedWorkingCopyPath, newOrder, context.senderId);
-        await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
+        await markWorkingCopyContentChanged(queuedWorkingCopyPath, 'page-ops', context.senderId);
         return operationResult;
     });
     return {
@@ -291,7 +289,7 @@ export async function handlePageOpsInsert(
             insertArgs.afterPage,
             context.senderId,
         );
-        await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
+        await markWorkingCopyContentChanged(queuedWorkingCopyPath, 'page-ops', context.senderId);
     });
     return {success: true};
 }
@@ -326,7 +324,7 @@ export async function handlePageOpsRotate(
             requireUnique: true,
         });
         await rotatePages(queuedWorkingCopyPath, pages, angle, context.senderId);
-        await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
+        await markWorkingCopyContentChanged(queuedWorkingCopyPath, 'page-ops', context.senderId);
     });
     return {success: true};
 }
@@ -361,7 +359,7 @@ export async function handlePageOpsInsertFile(
                 ? createOpenBatchProgressReporter(context, normalizedRequestId, 'page-insert')
                 : undefined,
         );
-        await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
+        await markWorkingCopyContentChanged(queuedWorkingCopyPath, 'page-ops', context.senderId);
     });
     return {success: true};
 }
@@ -401,7 +399,7 @@ export async function handlePageOpsCrop(
             requireUnique: true,
         });
         await cropPages(queuedWorkingCopyPath, pages, margins, context.senderId);
-        await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
+        await markWorkingCopyContentChanged(queuedWorkingCopyPath, 'page-ops', context.senderId);
     });
     return {success: true};
 }
@@ -427,7 +425,7 @@ export async function handlePageOpsRemoveCrop(
             requireUnique: true,
         });
         await removeCropFromPages(queuedWorkingCopyPath, pages, context.senderId);
-        await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
+        await markWorkingCopyContentChanged(queuedWorkingCopyPath, 'page-ops', context.senderId);
     });
     return {success: true};
 }

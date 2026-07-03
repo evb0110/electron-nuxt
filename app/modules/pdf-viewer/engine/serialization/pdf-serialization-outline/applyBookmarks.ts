@@ -1,5 +1,5 @@
 import type { PDFDocument } from 'pdf-lib';
-import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import { normalizeBookmarkEntries } from '@app/modules/pdf-viewer/engine/pdf-bookmark-serialization/normalizeBookmarkEntries';
 import { writeBookmarkOutlines } from '@app/modules/pdf-viewer/engine/pdf-bookmark-outline-writer/writeBookmarkOutlines';
 

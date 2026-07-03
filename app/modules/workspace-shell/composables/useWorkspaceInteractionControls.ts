@@ -18,14 +18,15 @@ import type { ISettingsData } from '@contracts/shared';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type {
     IAnnotationSettings,
+    IAnnotationCommentSummary,
     TAnnotationTool,
 } from '@app/types/annotations';
 import type {
     TFitMode,
-    TPdfSource,
     TPdfViewMode,
     TZoomMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type { TPdfSource } from '@app/types/pdfUi';
 
 interface IWorkspaceInteractionControlsOptions {
     isActive: Ref<boolean>;
@@ -44,6 +45,15 @@ interface IWorkspaceInteractionControlsOptions {
     annotationPlacingPageNote: Ref<boolean>;
     pdfViewerRef: Ref<IWorkspacePdfViewerInteractionPort | null>;
     documentViewerRef: Ref<IWorkspaceDocumentViewerSplitPort | null>;
+    serializePdfForSave?: (
+        data: Uint8Array,
+        options?: {
+            includeShapes?: boolean;
+            rewriteShapeState?: boolean;
+            pendingTexts?: Map<string, string> | null;
+            pendingDeletes?: IAnnotationCommentSummary[] | null;
+        },
+    ) => Promise<Uint8Array>;
     shapePropertiesPopoverVisible: ComputedRef<boolean>;
     annotationContextMenuVisible: ComputedRef<boolean>;
     pageContextMenuVisible: ComputedRef<boolean>;
@@ -236,6 +246,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         pdfViewerRef,
         documentViewerRef,
         pdfData,
+        ...(options.serializePdfForSave !== undefined ? { serializePdfForSave: options.serializePdfForSave } : {}),
         openFileWithViewerLifecycle,
         waitForPdfReload,
         loadPdfFromPath,

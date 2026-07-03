@@ -13,10 +13,11 @@ import {
 } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
-export const COMPACT_SEARCH_INDEX_SCHEMA_VERSION = 1;
-export const COMPACT_SEARCH_INDEX_MAGIC = 'EVBSIDX1';
-export const COMPACT_SEARCH_INDEX_HEADER_SIZE = 24;
+export const COMPACT_SEARCH_INDEX_SCHEMA_VERSION = 2;
+export const COMPACT_SEARCH_INDEX_MAGIC = 'EVBSIDX2';
+export const COMPACT_SEARCH_INDEX_HEADER_SIZE = 64;
 export const COMPACT_SEARCH_INDEX_PAGE_RECORD_SIZE = 24;
 export const COMPACT_SEARCH_INDEX_SOURCE_KIND_GENERIC = 0;
 export const COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER = 1;
@@ -39,12 +40,14 @@ export interface ICompactSearchIndexPage {
 }
 
 export interface ICompactSearchIndexPayload {
+    documentRevision: TDocumentRevisionToken;
     pageCount: number;
     pages: readonly ICompactSearchIndexPage[];
     textSource?: ICompactSearchIndexTextSource;
 }
 
 export interface ICompactSearchIndex {
+    documentRevision: TDocumentRevisionToken;
     pageCount: number;
     pages: ICompactSearchIndexPage[];
     textSource: ICompactSearchIndexTextSource;
@@ -58,6 +61,7 @@ interface ICompactSearchIndexPageRecord {
 }
 
 interface ILoadCompactSearchIndexOptions {
+    documentRevision?: TDocumentRevisionToken;
     expectedPageCount?: number;
     minSourceMtimeMs?: number;
     requiredTextSource?: ICompactSearchIndexTextSource;
@@ -148,12 +152,18 @@ function createHeaderAndRecords(
     pages: readonly ICompactSearchIndexPage[],
     signal?: AbortSignal,
 ) {
+    if (!payload.documentRevision) {
+        throw new Error('documentRevision is required for compact search index');
+    }
     assertUInt32(payload.pageCount, 'pageCount');
     assertUInt32(pages.length, 'pageRecordCount');
 
+    const revisionTokenBytes = Buffer.from(payload.documentRevision, 'utf8');
+    assertUInt32(revisionTokenBytes.byteLength, 'revisionTokenByteLength');
     const tableSize = pages.length * COMPACT_SEARCH_INDEX_PAGE_RECORD_SIZE;
-    const headerAndTableSize = COMPACT_SEARCH_INDEX_HEADER_SIZE + tableSize;
-    let nextByteOffset = BigInt(headerAndTableSize);
+    const pageTableOffset = COMPACT_SEARCH_INDEX_HEADER_SIZE + revisionTokenBytes.byteLength;
+    const textDataOffset = pageTableOffset + tableSize;
+    let nextByteOffset = BigInt(textDataOffset);
 
     const records: ICompactSearchIndexPageRecord[] = pages.map((page) => {
         throwIfAborted(signal);
@@ -168,16 +178,23 @@ function createHeaderAndRecords(
         };
     });
 
-    const headerAndTable = Buffer.alloc(headerAndTableSize);
+    const headerAndTable = Buffer.alloc(textDataOffset);
     headerAndTable.write(COMPACT_SEARCH_INDEX_MAGIC, 0, 'ascii');
     headerAndTable.writeUInt32LE(COMPACT_SEARCH_INDEX_SCHEMA_VERSION, 8);
-    headerAndTable.writeUInt32LE(payload.pageCount, 12);
-    headerAndTable.writeUInt32LE(records.length, 16);
-    headerAndTable.writeUInt32LE(encodeTextSource(payload.textSource), 20);
+    headerAndTable.writeUInt32LE(COMPACT_SEARCH_INDEX_HEADER_SIZE, 12);
+    headerAndTable.writeUInt32LE(payload.pageCount, 16);
+    headerAndTable.writeUInt32LE(records.length, 20);
+    headerAndTable.writeUInt32LE(encodeTextSource(payload.textSource), 24);
+    headerAndTable.writeUInt32LE(revisionTokenBytes.byteLength, 28);
+    headerAndTable.writeBigUInt64LE(BigInt(COMPACT_SEARCH_INDEX_HEADER_SIZE), 32);
+    headerAndTable.writeBigUInt64LE(BigInt(pageTableOffset), 40);
+    headerAndTable.writeBigUInt64LE(BigInt(textDataOffset), 48);
+    headerAndTable.writeBigUInt64LE(0n, 56);
+    revisionTokenBytes.copy(headerAndTable, COMPACT_SEARCH_INDEX_HEADER_SIZE);
 
     records.forEach((record, recordIndex) => {
         throwIfAborted(signal);
-        const offset = COMPACT_SEARCH_INDEX_HEADER_SIZE + recordIndex * COMPACT_SEARCH_INDEX_PAGE_RECORD_SIZE;
+        const offset = pageTableOffset + recordIndex * COMPACT_SEARCH_INDEX_PAGE_RECORD_SIZE;
         headerAndTable.writeUInt32LE(record.pageNumber, offset);
         headerAndTable.writeUInt32LE(record.textUtf16Length, offset + 4);
         headerAndTable.writeBigUInt64LE(record.byteOffset, offset + 8);
@@ -275,17 +292,32 @@ function parseHeader(header: Buffer) {
     if (schemaVersion !== COMPACT_SEARCH_INDEX_SCHEMA_VERSION) {
         return null;
     }
+    const headerSize = header.readUInt32LE(12);
+    if (headerSize !== COMPACT_SEARCH_INDEX_HEADER_SIZE) {
+        return null;
+    }
 
     return {
-        pageCount: header.readUInt32LE(12),
-        pageRecordCount: header.readUInt32LE(16),
-        textSource: decodeTextSource(header.readUInt32LE(20)),
+        pageCount: header.readUInt32LE(16),
+        pageRecordCount: header.readUInt32LE(20),
+        textSource: decodeTextSource(header.readUInt32LE(24)),
+        revisionTokenByteLength: header.readUInt32LE(28),
+        revisionTokenByteOffset: header.readBigUInt64LE(32),
+        pageTableOffset: header.readBigUInt64LE(40),
+        textDataOffset: header.readBigUInt64LE(48),
     };
+}
+
+function bigintToSafeNumber(value: bigint) {
+    return value <= BigInt(Number.MAX_SAFE_INTEGER)
+        ? Number(value)
+        : null;
 }
 
 function parsePageRecords(
     table: Buffer,
     fileSize: number,
+    textDataOffset: number,
 ) {
     const records: ICompactSearchIndexPageRecord[] = [];
     const seenPageNumbers = new Set<number>();
@@ -303,7 +335,11 @@ function parsePageRecords(
         if (pageNumber <= 0 || seenPageNumbers.has(pageNumber)) {
             return null;
         }
-        if (byteOffset + byteLength > fileSizeBigInt || byteLength > BigInt(Number.MAX_SAFE_INTEGER)) {
+        if (
+            byteOffset < BigInt(textDataOffset)
+            || byteOffset + byteLength > fileSizeBigInt
+            || byteLength > BigInt(Number.MAX_SAFE_INTEGER)
+        ) {
             return null;
         }
         seenPageNumbers.add(pageNumber);
@@ -381,7 +417,7 @@ function recordsFitLoadBudget(records: readonly ICompactSearchIndexPageRecord[])
 }
 
 export function getCompactSearchIndexPath(pdfPath: string) {
-    return `${pdfPath}.index.evb-search-v1.bin`;
+    return `${pdfPath}.index.evb-search-v2.bin`;
 }
 
 export async function persistCompactSearchIndex(
@@ -424,11 +460,15 @@ export async function loadCompactSearchIndex(
 ): Promise<ICompactSearchIndex | null> {
     const indexPath = getCompactSearchIndexPath(pdfPath);
     const {
+        documentRevision,
         expectedPageCount,
         minSourceMtimeMs,
         requiredTextSource,
         signal,
     } = options;
+    if (!documentRevision) {
+        return null;
+    }
 
     try {
         throwIfAborted(signal);
@@ -454,22 +494,45 @@ export async function loadCompactSearchIndex(
                 return null;
             }
 
-            const tableSize = metadata.pageRecordCount * COMPACT_SEARCH_INDEX_PAGE_RECORD_SIZE;
-            const minimumSize = COMPACT_SEARCH_INDEX_HEADER_SIZE + tableSize;
+            const revisionTokenByteOffset = bigintToSafeNumber(metadata.revisionTokenByteOffset);
+            const pageTableOffset = bigintToSafeNumber(metadata.pageTableOffset);
+            const textDataOffset = bigintToSafeNumber(metadata.textDataOffset);
             if (
-                !Number.isSafeInteger(tableSize)
-                || !Number.isSafeInteger(minimumSize)
-                || indexStat.size < minimumSize
+                revisionTokenByteOffset === null
+                || pageTableOffset === null
+                || textDataOffset === null
+                || metadata.revisionTokenByteLength <= 0
+            ) {
+                return null;
+            }
+            const revisionTokenEnd = revisionTokenByteOffset + metadata.revisionTokenByteLength;
+            const tableSize = metadata.pageRecordCount * COMPACT_SEARCH_INDEX_PAGE_RECORD_SIZE;
+            const tableEnd = pageTableOffset + tableSize;
+            if (
+                revisionTokenByteOffset < COMPACT_SEARCH_INDEX_HEADER_SIZE
+                || revisionTokenEnd > pageTableOffset
+                || textDataOffset < tableEnd
+                || !Number.isSafeInteger(tableSize)
+                || !Number.isSafeInteger(tableEnd)
+                || indexStat.size < textDataOffset
             ) {
                 return null;
             }
 
-            const table = Buffer.alloc(tableSize);
-            if (!(await readBufferAt(file, table, COMPACT_SEARCH_INDEX_HEADER_SIZE, signal))) {
+            const revisionTokenBuffer = Buffer.alloc(metadata.revisionTokenByteLength);
+            if (!(await readBufferAt(file, revisionTokenBuffer, revisionTokenByteOffset, signal))) {
+                return null;
+            }
+            if (revisionTokenBuffer.toString('utf8') !== documentRevision) {
                 return null;
             }
 
-            const records = parsePageRecords(table, indexStat.size);
+            const table = Buffer.alloc(tableSize);
+            if (!(await readBufferAt(file, table, pageTableOffset, signal))) {
+                return null;
+            }
+
+            const records = parsePageRecords(table, indexStat.size, textDataOffset);
             if (!records || !recordsFitLoadBudget(records)) {
                 return null;
             }
@@ -480,6 +543,7 @@ export async function loadCompactSearchIndex(
             }
 
             return {
+                documentRevision,
                 pageCount: metadata.pageCount,
                 pages,
                 textSource: metadata.textSource,

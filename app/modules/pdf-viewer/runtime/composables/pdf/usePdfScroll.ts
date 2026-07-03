@@ -1,4 +1,4 @@
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';

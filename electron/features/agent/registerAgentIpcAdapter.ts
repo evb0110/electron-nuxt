@@ -12,11 +12,13 @@ import type {
     IAgentAssistantSendMessageRequest,
     IAgentAssistantStateRequest,
     TAgentAssistantProviderId,
+    TAgentWorkspaceCommandTarget,
 } from '@contracts/agent';
 import {
     AGENT_CHANNELS,
     type IAgentInvokeMap,
 } from '@electron/features/agent/contract';
+import { isDocumentRevisionInfo } from '@contracts/documentRevision';
 import { createAgentService } from '@electron/features/agent/createAgentService';
 import {
     ASSISTANT_MAX_IMAGE_ATTACHMENTS,
@@ -53,6 +55,33 @@ function isAgentAssistantSpeedMode(speedMode: unknown) {
     return speedMode === 'fast' || speedMode === 'standard';
 }
 
+function isAgentWorkspaceCommandTarget(target: unknown): target is TAgentWorkspaceCommandTarget {
+    if (!isRecord(target)) {
+        return false;
+    }
+
+    if (
+        typeof target.tabId !== 'string'
+        || target.tabId.trim().length === 0
+        || typeof target.sessionId !== 'string'
+        || target.sessionId.trim().length === 0
+        || (target.documentRef !== null && typeof target.documentRef !== 'string')
+        || (target.documentBackend !== undefined && target.documentBackend !== 'browser' && target.documentBackend !== 'electron')
+        || (target.documentRevisionToken !== undefined && typeof target.documentRevisionToken !== 'string')
+    ) {
+        return false;
+    }
+
+    if (target.kind === 'transaction') {
+        return typeof target.transactionId === 'string' && target.transactionId.trim().length > 0;
+    }
+
+    return target.kind === 'revision'
+        && typeof target.sessionRevision === 'number'
+        && Number.isInteger(target.sessionRevision)
+        && target.sessionRevision >= 0;
+}
+
 function isOptionalAssistantSelection(request: Record<PropertyKey, unknown>) {
     return (
         (request.provider === undefined || isAgentAssistantProviderId(request.provider))
@@ -69,7 +98,21 @@ function isAgentAssistantChatScope(scope: unknown): scope is IAgentAssistantChat
         && scope.key.trim().length > 0
         && (scope.title === null || typeof scope.title === 'string')
         && (scope.tabId === undefined || scope.tabId === null || typeof scope.tabId === 'string')
-        && (scope.documentRef === undefined || scope.documentRef === null || typeof scope.documentRef === 'string');
+        && (scope.documentRef === undefined || scope.documentRef === null || typeof scope.documentRef === 'string')
+        && (
+            scope.documentBackend === undefined
+            || scope.documentBackend === 'browser'
+            || scope.documentBackend === 'electron'
+        )
+        && (
+            scope.documentIdentity === undefined
+            || scope.documentIdentity === null
+            || isDocumentRevisionInfo(scope.documentIdentity)
+        )
+        && (
+            scope.commandTarget === undefined
+            || isAgentWorkspaceCommandTarget(scope.commandTarget)
+        );
 }
 
 function isAgentAssistantStateRequest(request: unknown): request is IAgentAssistantStateRequest {

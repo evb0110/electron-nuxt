@@ -4,6 +4,7 @@ import * as VueUse from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
 import type * as WorkspaceOrchestration from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type { TPageAnnotationActionsPdfViewer } from '@app/modules/workspace-shell/composables/pageAnnotationActionsPdfViewer';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
@@ -27,41 +28,8 @@ import { readPageAnnotationImageFileFromClipboard } from '@app/modules/workspace
 import { resolveShapeAnnotationDefaultSettings } from '@app/modules/workspace-shell/annotations/resolveShapeAnnotationDefaultSettings';
 import { createPageAnnotationDeleteActions } from '@app/modules/workspace-shell/composables/createPageAnnotationDeleteActions';
 
-type TPdfViewerForAnnotationActions = Pick<WorkspaceOrchestration.IPdfViewerExpose,
-    'cancelCommentPlacement'
-    | 'commentAtPoint'
-    | 'commentSelection'
-    | 'deleteAnnotationComment'
-    | 'deleteSelectedShape'
-    | 'focusAnnotationComment'
-    | 'getSelectedShape'
-    | 'getSelectedTextMarkupAnnotationProperties'
-    | 'getViewerContainer'
-    | 'highlightSelection'
-    | 'invalidatePages'
-    | 'removeAnnotationFromDom'
-    | 'removeAnnotationFromInternalCache'
-    | 'saveDocument'
-    | 'selectedShapeId'
-    | 'startCommentPlacement'
-    | 'startImagePlacement'
-    | 'suppressAnnotationId'
-    | 'suppressAnnotationStableKey'
-    | 'updateAnnotationComment'
-    | 'updateSelectedTextMarkupAnnotationColor'
-    | 'updateTextMarkupAnnotationColor'
-    | 'updateShape'
-> & Partial<Pick<WorkspaceOrchestration.IPdfViewerExpose,
-    'registerAnnotationHistoryCommand'
-    | 'clearPendingImagePlacement'
-    | 'restorePendingImagePlacement'
-    | 'restoreAnnotationToInternalCache'
-    | 'unsuppressAnnotationId'
-    | 'unsuppressAnnotationStableKey'
->>;
-
 interface IPageAnnotationActionsDeps {
-    pdfViewerRef: Ref<TPdfViewerForAnnotationActions | null>;
+    pdfViewerRef: Ref<TPageAnnotationActionsPdfViewer | null>;
     annotationTool: Ref<TAnnotationTool>;
     annotationKeepActive: Ref<boolean>;
     annotationPlacingPageNote: Ref<boolean>;
@@ -1093,7 +1061,11 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         }
 
         const capturedWorkingCopy = captureActiveWorkingCopy();
-        const rawData = await pdfViewerRef.value.saveDocument();
+        const saveTransaction = await pdfViewerRef.value.runSaveTransaction({
+            mode: 'embedded-mutation',
+            forcePdfjsMaterialize: true,
+        });
+        const rawData = saveTransaction.serializedBytes ?? saveTransaction.baseBytes;
         if (!rawData) {
             return false;
         }

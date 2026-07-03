@@ -26,7 +26,7 @@
 </template>
 
 <script setup lang="ts">
-import type { IPdfSearchMatch } from '@app/types/pdf';
+import type { IPdfSearchMatch } from '@app/types/pdfUi';
 import { formatPageIndicatorWithOptions } from '@app/utils/pdfPageLabels';
 
 const { t } = useTypedI18n();

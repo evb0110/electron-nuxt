@@ -41,6 +41,7 @@ function createBindingHarness() {
         sourcePdfData: ref(null),
         viewMode: ref('single'),
         workingCopyPath: ref(null),
+        documentRevisionToken: ref(null),
         zoom: ref(1),
         zoomMode: ref('fit-width'),
         onAnnotationCommentClick: vi.fn(),

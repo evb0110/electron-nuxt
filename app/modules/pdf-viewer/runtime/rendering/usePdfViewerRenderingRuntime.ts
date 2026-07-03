@@ -15,7 +15,7 @@ import type {
     IPageRange,
     IPdfPageMatches,
     IPdfSearchMatch,
-} from '@app/types/pdf';
+} from '@app/types/pdfUi';
 
 interface IUsePdfViewerRenderingRuntimeOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -39,10 +39,18 @@ interface IUsePdfViewerRenderingRuntimeOptions {
         options?: Pick<IScrollToPageOptions, 'markerRect'>,
     ) => void;
     endSearchNavigation: (settleMs?: number) => void;
+    beginSearchTransaction?: ((
+        pageNumber: number,
+        options?: Pick<IScrollToPageOptions, 'markerRect'>,
+    ) => number | null) | undefined;
+    isSearchTransactionCurrent?: ((transactionId: number) => boolean) | undefined;
+    settleSearchTransaction?: ((transactionId: number) => void) | undefined;
+    cancelSearchTransaction?: ((transactionId: number) => void) | undefined;
     searchPageMatches: ComputedRef<Map<number, IPdfPageMatches>>;
     currentSearchMatch: ComputedRef<IPdfSearchMatch | null>;
     currentSearchMatchNavigationId: ComputedRef<number>;
     workingCopyPath: ComputedRef<string | null>;
+    documentRevisionToken: ComputedRef<string | null>;
     onRenderStall: (payload: IPageRenderStallPayload) => void;
     onPageCanvasMounted: (pageNumber: number) => void;
     onPageRendered: (pageNumber: number) => void;
@@ -72,10 +80,15 @@ export const usePdfViewerRenderingRuntime = (options: IUsePdfViewerRenderingRunt
         beginSearchNavigation: options.beginSearchNavigation,
         revealSearchNavigationTarget: options.revealSearchNavigationTarget,
         endSearchNavigation: options.endSearchNavigation,
+        ...(options.beginSearchTransaction ? { beginSearchTransaction: options.beginSearchTransaction } : {}),
+        ...(options.isSearchTransactionCurrent ? { isSearchTransactionCurrent: options.isSearchTransactionCurrent } : {}),
+        ...(options.settleSearchTransaction ? { settleSearchTransaction: options.settleSearchTransaction } : {}),
+        ...(options.cancelSearchTransaction ? { cancelSearchTransaction: options.cancelSearchTransaction } : {}),
         searchPageMatches: options.searchPageMatches,
         currentSearchMatch: options.currentSearchMatch,
         currentSearchMatchNavigationId: options.currentSearchMatchNavigationId,
         workingCopyPath: options.workingCopyPath,
+        documentRevisionToken: options.documentRevisionToken,
         onRenderStall: options.onRenderStall,
         onPageCanvasMounted: options.onPageCanvasMounted,
         onPageRendered: options.onPageRendered,

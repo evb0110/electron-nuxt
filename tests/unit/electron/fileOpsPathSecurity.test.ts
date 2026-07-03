@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
     findWorkingCopyPathByOriginalPath: vi.fn<(path: string, senderId?: number) => string | null>(),
     getWorkingCopyOriginalPath: vi.fn(),
     refreshWorkingCopyOriginalFileExpectation: vi.fn(),
+    markWorkingCopyContentChanged: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn<(path: string, senderId?: number) => Promise<boolean>>(),
     originalPathSaveBaseMatches: vi.fn(),
     isAllowedDjvuViewingPath: vi.fn<(path: string) => boolean>(),
@@ -72,6 +73,7 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     normalizePathForLookup: (path: string) => path.trim(),
     refreshWorkingCopyOriginalFileExpectation: mocks.refreshWorkingCopyOriginalFileExpectation,
 }));
+vi.mock('@electron/file-access/documentRevisionStore', () => ({markWorkingCopyContentChanged: mocks.markWorkingCopyContentChanged}));
 vi.mock('@electron/features/documents/main/originalPathSaveBaseMatches', () => ({originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches}));
 vi.mock('@electron/djvu/viewing', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
 vi.mock('@electron/ocr/createPendingResultFileStore', () => ({findPendingOcrResultFileForPath: mocks.findPendingOcrResultFileForPath}));
@@ -115,6 +117,7 @@ describe('fileOps path security', () => {
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
         mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
         mocks.originalPathSaveBaseMatches.mockResolvedValue(true);
+        mocks.markWorkingCopyContentChanged.mockResolvedValue({});
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.isAllowedDjvuViewingPath.mockReturnValue(false);
         mocks.findPendingOcrResultFileForPath.mockReturnValue({
@@ -203,6 +206,8 @@ describe('fileOps path security', () => {
             expect.stringMatching(/\/\.safe\.pdf\.\d+\..+\.tmp$/u),
             '/tmp/electron-test/safe.pdf',
         );
+        expect(mocks.markWorkingCopyContentChanged)
+            .toHaveBeenCalledWith('/tmp/electron-test/safe.pdf', 'write', 42);
     });
 
     it('queues managed working copy writes behind pending mutations', async () => {
@@ -221,6 +226,8 @@ describe('fileOps path security', () => {
         await queuedMutation;
         await writePromise;
         expect(mocks.writeFile).toHaveBeenCalledWith(new Uint8Array([9]));
+        expect(mocks.markWorkingCopyContentChanged)
+            .toHaveBeenCalledWith('/tmp/electron-test/safe.pdf', 'write', 42);
     });
 
     it('allows writes through standard macOS temp path aliases', async () => {
@@ -238,6 +245,8 @@ describe('fileOps path security', () => {
             expect.stringMatching(/\/var\/folders\/evb\/\.safe\.pdf\.\d+\..+\.tmp$/u),
             '/var/folders/evb/safe.pdf',
         );
+        expect(mocks.markWorkingCopyContentChanged)
+            .toHaveBeenCalledWith('/var/folders/evb/safe.pdf', 'write', 42);
     });
 
     it('rejects writes through non-system symlink path segments', async () => {
@@ -286,6 +295,8 @@ describe('fileOps path security', () => {
 
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledTimes(3);
         expect(mocks.writeFile).toHaveBeenCalledTimes(2);
+        expect(mocks.markWorkingCopyContentChanged)
+            .toHaveBeenCalledWith('/tmp/electron-test/safe.pdf', 'write', 42);
     });
 
     it('atomically replaces a managed working copy from an OCR result file path', async () => {
@@ -307,6 +318,8 @@ describe('fileOps path security', () => {
             expect.stringMatching(/\/\.work\.pdf\.\d+\..+\.tmp$/u),
             '/tmp/electron-test/work.pdf',
         );
+        expect(mocks.markWorkingCopyContentChanged)
+            .toHaveBeenCalledWith('/tmp/electron-test/work.pdf', 'ocr-apply', 42);
     });
 
     it('refreshes the original save base after an OCR replacement when the previous base still matches', async () => {
@@ -335,6 +348,8 @@ describe('fileOps path security', () => {
         );
         expect(mocks.rename.mock.invocationCallOrder[0]!)
             .toBeLessThan(mocks.refreshWorkingCopyOriginalFileExpectation.mock.invocationCallOrder[0]!);
+        expect(mocks.markWorkingCopyContentChanged)
+            .toHaveBeenCalledWith('/tmp/electron-test/work.pdf', 'ocr-apply', 42);
     });
 
     it('preserves the stale-original guard after an OCR replacement when the previous base no longer matches', async () => {

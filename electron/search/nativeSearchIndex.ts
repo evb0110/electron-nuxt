@@ -9,8 +9,10 @@ import {
     COMPACT_SEARCH_INDEX_MAGIC,
     COMPACT_SEARCH_INDEX_SCHEMA_VERSION,
     getCompactSearchIndexPath,
+    loadCompactSearchIndex,
     persistCompactSearchIndex,
 } from '@electron/search/searchIndexSidecar';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
 export const NATIVE_SEARCH_INDEX_SCHEMA_VERSION = COMPACT_SEARCH_INDEX_SCHEMA_VERSION;
 export const NATIVE_SEARCH_INDEX_MAGIC = COMPACT_SEARCH_INDEX_MAGIC;
@@ -18,6 +20,7 @@ export const NATIVE_SEARCH_INDEX_MAGIC = COMPACT_SEARCH_INDEX_MAGIC;
 const log = createLogger('native-search-index');
 
 interface INativeSearchIndexInput {
+    documentRevision: {token: TDocumentRevisionToken};
     pages: Array<{
         pageNumber: number;
         text: string;
@@ -46,7 +49,11 @@ async function statMtimeMs(filePath: string) {
     }
 }
 
-async function shouldRewriteNativeSearchIndex(pdfPath: string) {
+async function shouldRewriteNativeSearchIndex(
+    pdfPath: string,
+    index: INativeSearchIndexInput,
+    documentRevision: TDocumentRevisionToken,
+) {
     const [
         nativeMtimeMs,
         jsonMtimeMs,
@@ -54,15 +61,23 @@ async function shouldRewriteNativeSearchIndex(pdfPath: string) {
         statMtimeMs(getNativeSearchIndexPath(pdfPath)),
         statMtimeMs(`${pdfPath}.index.json`),
     ]);
-    return nativeMtimeMs === null || (jsonMtimeMs !== null && jsonMtimeMs > nativeMtimeMs);
+    if (nativeMtimeMs === null || (jsonMtimeMs !== null && jsonMtimeMs > nativeMtimeMs)) {
+        return true;
+    }
+    return !await loadCompactSearchIndex(pdfPath, {
+        documentRevision,
+        expectedPageCount: index.pageCount ?? index.pages.length,
+    });
 }
 
 export async function persistNativeSearchIndex(
     pdfPath: string,
     index: INativeSearchIndexInput,
+    documentRevision: TDocumentRevisionToken,
     signal?: AbortSignal,
 ) {
     await persistCompactSearchIndex(pdfPath, {
+        documentRevision,
         pageCount: index.pageCount ?? index.pages.length,
         pages: index.pages,
     }, signal);
@@ -72,14 +87,15 @@ export async function persistNativeSearchIndex(
 export async function ensureNativeSearchIndexBestEffort(
     pdfPath: string,
     index: INativeSearchIndexInput,
+    documentRevision: TDocumentRevisionToken,
     signal?: AbortSignal,
 ) {
     try {
         throwIfAborted(signal);
-        if (!(await shouldRewriteNativeSearchIndex(pdfPath))) {
+        if (!(await shouldRewriteNativeSearchIndex(pdfPath, index, documentRevision))) {
             return;
         }
-        await persistNativeSearchIndex(pdfPath, index, signal);
+        await persistNativeSearchIndex(pdfPath, index, documentRevision, signal);
     } catch (error) {
         if (isAbortError(error)) {
             throw error;

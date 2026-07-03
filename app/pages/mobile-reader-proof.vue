@@ -217,7 +217,7 @@ import type {
     TFitMode,
     TPdfViewMode,
     TZoomMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
 import ToolbarButton from '@app/components/ToolbarButton.vue';
 import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
 import { PdfPageDropdown } from '@app/modules/pdf-viewer/public/component-exports/pdfPageDropdown';

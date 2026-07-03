@@ -22,6 +22,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 })}));
 
 describe('search index JSON identity', () => {
+    const documentRevision = 'revision-token';
     let tempDir = '';
 
     beforeEach(async () => {
@@ -39,7 +40,8 @@ describe('search index JSON identity', () => {
         const pdfPath = join(tempDir, 'current.pdf');
         const otherPdfPath = join(tempDir, 'other.pdf');
         await writeFile(`${pdfPath}.index.json`, JSON.stringify({
-            schemaVersion: 6,
+            schemaVersion: 7,
+            documentRevision: {token: documentRevision},
             pdfPath: otherPdfPath,
             createdAt: Date.now(),
             pageCount: 1,
@@ -51,6 +53,6 @@ describe('search index JSON identity', () => {
 
         const { loadSearchIndex } = await import('@electron/search/indexBuilder');
 
-        await expect(loadSearchIndex(pdfPath)).resolves.toBeNull();
+        await expect(loadSearchIndex(pdfPath, documentRevision)).resolves.toBeNull();
     });
 });

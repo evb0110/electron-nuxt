@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     IResolvedSearchMatchOptions,
     ISearchMatchOptions,
@@ -11,6 +12,7 @@ interface IPageSearchDeps {
     sidebarTab: Ref<TPdfSidebarTab>;
     dragMode: Ref<boolean>;
     workingCopyPath: Ref<TDocumentRef | null>;
+    documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     totalPages: Ref<number>;
     searchQuery: Ref<string>;
     searchOptions: Ref<IResolvedSearchMatchOptions>;
@@ -19,6 +21,7 @@ interface IPageSearchDeps {
         path: TDocumentRef,
         totalPages?: number,
         options?: ISearchMatchOptions,
+        documentRevisionToken?: TDocumentRevisionToken | null,
     ) => Promise<boolean>;
     goToResult: (direction: 'next' | 'previous') => void;
     setResultIndex: (index: number) => void;
@@ -31,6 +34,7 @@ export const usePageSearch = (deps: IPageSearchDeps) => {
         sidebarTab,
         dragMode,
         workingCopyPath,
+        documentRevisionToken,
         totalPages,
         searchQuery,
         searchOptions,
@@ -63,7 +67,10 @@ export const usePageSearch = (deps: IPageSearchDeps) => {
         sidebarTab.value = 'thumbnails';
     }
 
-    watch(workingCopyPath, () => {
+    watch([
+        workingCopyPath,
+        documentRevisionToken,
+    ], () => {
         clearSearch();
     });
 
@@ -76,6 +83,7 @@ export const usePageSearch = (deps: IPageSearchDeps) => {
                 workingCopyPath.value,
                 totalPages.value > 0 ? totalPages.value : undefined,
                 searchOptions.value,
+                documentRevisionToken.value,
             );
         }
     }

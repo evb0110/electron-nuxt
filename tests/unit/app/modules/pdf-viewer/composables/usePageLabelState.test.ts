@@ -12,7 +12,7 @@ import type { Ref } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
 import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-viewer/engine/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
-import type { IPdfPageLabelRange } from '@app/types/pdf';
+import type { IPdfPageLabelRange } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
 
 function createDeferred<T>() {

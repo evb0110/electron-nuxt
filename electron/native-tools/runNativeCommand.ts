@@ -26,6 +26,7 @@ export interface IRunCommandOptions {
     maxStderrBytes?: number;
     allowedExitCodes?: number[];
     signal?: AbortSignal;
+    cancelGroup?: string;
     commandLabel?: string;
     log?: TProcessLog;
     defaultCwdToCommandDir?: boolean;
@@ -33,12 +34,19 @@ export interface IRunCommandOptions {
     includeProcessEnv?: boolean;
     windowsHide?: boolean;
     rejectOnStdoutTruncation?: boolean;
+    onStdout?: (chunk: string) => void;
+    onStderr?: (chunk: string) => void;
+    terminationGraceMs?: number;
 }
 
 const DEFAULT_MAX_STDOUT_BYTES = parseIntegerEnv('EVB_NATIVE_TOOL_MAX_STDOUT_BYTES', 262_144, 1_024);
 const DEFAULT_MAX_STDERR_BYTES = parseIntegerEnv('EVB_NATIVE_TOOL_MAX_STDERR_BYTES', 262_144, 1_024);
+const DEFAULT_TERMINATION_GRACE_MS = parseIntegerEnv('EVB_NATIVE_TOOL_TERMINATION_GRACE_MS', 1_000, 250);
 
 type TNativeProcess = ReturnType<typeof spawn>;
+type TCancelGroupHandler = () => void;
+
+const activeCancelGroups = new Map<string, Set<TCancelGroupHandler>>();
 
 interface ICommandRunContext {
     effectiveCwd: string | undefined;
@@ -136,8 +144,8 @@ function killProcessBestEffort(proc: TNativeProcess) {
     }
 }
 
-async function terminateNativeProcessBestEffort(proc: TNativeProcess) {
-    await terminateDetachedChildProcess(proc, 1_000);
+async function terminateNativeProcessBestEffort(proc: TNativeProcess, graceMs: number) {
+    await terminateDetachedChildProcess(proc, graceMs);
 }
 
 function getTruncatedOutputMessage(label: 'stdout' | 'stderr', truncated: boolean, maxBytes: number, text: string) {
@@ -159,6 +167,7 @@ export async function runNativeCommand(
         maxStderrBytes = DEFAULT_MAX_STDERR_BYTES,
         allowedExitCodes = [0],
         signal,
+        cancelGroup,
         commandLabel,
         log,
         defaultCwdToCommandDir = false,
@@ -166,6 +175,9 @@ export async function runNativeCommand(
         includeProcessEnv = true,
         windowsHide = true,
         rejectOnStdoutTruncation = false,
+        onStdout,
+        onStderr,
+        terminationGraceMs = DEFAULT_TERMINATION_GRACE_MS,
     } = options;
 
     return new Promise((resolve, reject) => {
@@ -176,6 +188,7 @@ export async function runNativeCommand(
 
         let proc: TNativeProcess | null = null;
         let abortHandler: (() => void) | null = null;
+        let cancelGroupHandler: TCancelGroupHandler | null = null;
 
         const contextOptions: IRunCommandOptions = {
             defaultCwdToCommandDir,
@@ -250,7 +263,7 @@ export async function runNativeCommand(
             }
 
             cleanupProcessOutput(targetProc, true);
-            void terminateNativeProcessBestEffort(targetProc).finally(() => {
+            void terminateNativeProcessBestEffort(targetProc, terminationGraceMs).finally(() => {
                 if (pendingTerminationError === error) {
                     finalizeReject(error);
                 }
@@ -258,7 +271,7 @@ export async function runNativeCommand(
 
             forceRejectHandle = setTimeout(() => {
                 finalizeReject(error);
-            }, 3_000);
+            }, terminationGraceMs + 2_000);
             forceRejectHandle.unref?.();
         };
 
@@ -277,6 +290,9 @@ export async function runNativeCommand(
             }
             if (signal && abortHandler) {
                 signal.removeEventListener('abort', abortHandler);
+            }
+            if (cancelGroup && cancelGroupHandler) {
+                unregisterCancelGroupHandler(cancelGroup, cancelGroupHandler);
             }
             cleanupProcessHandlers();
             complete();
@@ -300,6 +316,12 @@ export async function runNativeCommand(
             };
             signal.addEventListener('abort', abortHandler, { once: true });
         }
+        if (cancelGroup) {
+            cancelGroupHandler = () => {
+                requestTermination(createAbortError());
+            };
+            registerCancelGroupHandler(cancelGroup, cancelGroupHandler);
+        }
         if (settled) {
             return;
         }
@@ -317,8 +339,14 @@ export async function runNativeCommand(
             return;
         }
 
-        stdoutDataHandler = output.appendStdout;
-        stderrDataHandler = output.appendStderr;
+        stdoutDataHandler = (data: Buffer) => {
+            output.appendStdout(data);
+            onStdout?.(data.toString());
+        };
+        stderrDataHandler = (data: Buffer) => {
+            output.appendStderr(data);
+            onStderr?.(data.toString());
+        };
         proc.stdout?.on('data', stdoutDataHandler);
         proc.stderr?.on('data', stderrDataHandler);
 
@@ -380,4 +408,32 @@ export async function runNativeCommand(
         };
         proc.on('close', processCloseHandler);
     });
+}
+
+function registerCancelGroupHandler(cancelGroup: string, handler: TCancelGroupHandler) {
+    const handlers = activeCancelGroups.get(cancelGroup) ?? new Set<TCancelGroupHandler>();
+    handlers.add(handler);
+    activeCancelGroups.set(cancelGroup, handlers);
+}
+
+function unregisterCancelGroupHandler(cancelGroup: string, handler: TCancelGroupHandler) {
+    const handlers = activeCancelGroups.get(cancelGroup);
+    if (!handlers) {
+        return;
+    }
+    handlers.delete(handler);
+    if (handlers.size === 0) {
+        activeCancelGroups.delete(cancelGroup);
+    }
+}
+
+export function cancelNativeCommandGroup(cancelGroup: string) {
+    const handlers = activeCancelGroups.get(cancelGroup);
+    if (!handlers || handlers.size === 0) {
+        return false;
+    }
+    for (const handler of Array.from(handlers)) {
+        handler();
+    }
+    return true;
 }

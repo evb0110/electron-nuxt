@@ -41,6 +41,14 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         onRenderStall,
         renderSupervisor,
     } = options;
+    const queuedCanvasRenderAbortControllers = new Set<AbortController>();
+
+    function abortQueuedCanvasRenders() {
+        for (const controller of queuedCanvasRenderAbortControllers) {
+            controller.abort();
+        }
+        queuedCanvasRenderAbortControllers.clear();
+    }
 
     function releasePageResources(
         pageNumber: number,
@@ -84,10 +92,13 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
             ...preparedRenderResult
         } = preparedCanvasRender;
         let renderStageTimedOut = false;
+        const renderAbortController = new AbortController();
+        queuedCanvasRenderAbortControllers.add(renderAbortController);
 
         return withPageStageTimeout(
             new Promise<typeof preparedRenderResult>((resolve, reject) => {
                 if (getRenderVersion() !== version || !shouldContinue()) {
+                    renderAbortController.abort();
                     reject(new Error(`Rendering cancelled before canvas paint for page ${pageNumber}`));
                     return;
                 }
@@ -115,6 +126,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
                     pageNumber,
                     pdfPage,
                     priority: 100,
+                    signal: renderAbortController.signal,
                     shouldStart: () => !renderStageTimedOut && getRenderVersion() === version && shouldContinue(),
                     startRender: () => {
                         logPdfRenderTrace('renderer-canvas-render-start', {
@@ -169,11 +181,14 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
             () => getRenderVersion() === version && shouldContinue(),
             () => {
                 renderStageTimedOut = true;
+                renderAbortController.abort();
                 cancelActiveRenderTaskIfCurrent(pageNumber, version, requestId);
             },
             onRenderStall,
             renderSupervisor,
-        );
+        ).finally(() => {
+            queuedCanvasRenderAbortControllers.delete(renderAbortController);
+        });
     }
 
     async function loadPageForRender(
@@ -365,6 +380,7 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
     }
 
     return {
+        abortQueuedCanvasRenders,
         releasePageResources,
         renderPreparedCanvasResult,
         loadPageForRender,

@@ -8,7 +8,7 @@ import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
 import {
@@ -233,6 +233,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         pdf: {
             source: {
                 pdfDocument,
+                runSaveTransaction: request => pdfViewerRef.value?.runSaveTransaction(request) ?? Promise.reject(new Error('Missing PDF viewer save transaction')),
                 saveDocument: () => pdfViewerRef.value?.saveDocument() ?? Promise.resolve(null),
                 getSourcePdfData,
                 commitPdfEditorsForSave: () => pdfViewerRef.value?.commitPdfEditorsForSave?.() ?? Promise.resolve(),
@@ -274,6 +275,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 getMarkupSubtypeOverrides: () => pdfViewerRef.value?.getMarkupSubtypeOverrides(),
                 getMarkupSubtypeHints: () => pdfViewerRef.value?.getMarkupSubtypeHints?.(),
                 getAnnotationCommentsSnapshot: () => pdfViewerRef.value?.getAnnotationCommentsSnapshot?.(),
+                getPendingEmbeddedMutationSnapshot: () => pdfViewerRef.value?.getPendingEmbeddedMutationSnapshot?.(),
             },
             shapes: {
                 hasShapeChanges: () => hasViewerShapeChanges(pdfViewerRef.value),
@@ -562,7 +564,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     async function getEmbeddedMutationBaseData() {
         return resolveEmbeddedMutationBaseData({
             hasAnnotationChanges,
-            saveDocument: () => pdfViewerRef.value?.saveDocument() ?? Promise.resolve(null),
+            runSaveTransaction: request => pdfViewerRef.value?.runSaveTransaction(request) ?? Promise.reject(new Error('Missing PDF viewer save transaction')),
             getSourcePdfData,
         });
     }

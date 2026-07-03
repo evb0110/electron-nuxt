@@ -5,6 +5,7 @@ import {
 } from '@contracts/settings';
 import type { ISettingsData } from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { getErrorMessage } from '@app/utils/error';
 import {
     BROWSER_LOCALE_COOKIE_KEY,
     BROWSER_SETTINGS_COOKIE_KEY,
@@ -19,7 +20,8 @@ import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedSt
 import {
     createSettingsPersistenceQueue,
     type ISettingsPersistenceQueue,
-} from '@app/modules/settings/settingsPersistenceQueue';
+    type TSettingsPersistenceStatus,
+} from '@app/modules/settings/public';
 
 const PERSISTENT_SETTINGS_COOKIE_OPTIONS = {
     watch: false,
@@ -66,6 +68,9 @@ export const useSettings = () => {
             ? sanitizeSettings(initialSettings)
             : null,
     );
+    const settingsSaveStatus = useState<TSettingsPersistenceStatus>('settings:save-status', () => 'idle');
+    const settingsSaveError = useState<string | null>('settings:save-error', () => null);
+    const isSettingsSavePendingRetry = computed(() => settingsSaveStatus.value === 'retry-pending');
 
     function rememberSavedSettings(nextSettings: ISettingsData) {
         lastSavedSettings.value = sanitizeSettings(nextSettings);
@@ -125,6 +130,10 @@ export const useSettings = () => {
             onSaveError(error) {
                 BrowserLogger.error('settings', 'Failed to save settings', error);
             },
+            onStatusChanged(status, error) {
+                settingsSaveStatus.value = status;
+                settingsSaveError.value = error ? getErrorMessage(error) : null;
+            },
         });
         return settingsPersistenceQueue;
     }
@@ -145,8 +154,11 @@ export const useSettings = () => {
         settings,
         isLoaded,
         hasCookieSnapshot: hasSettingsCookieSnapshot,
+        isSettingsSavePendingRetry,
         load,
         save,
+        settingsSaveError,
+        settingsSaveStatus,
         updateSetting,
     };
 };

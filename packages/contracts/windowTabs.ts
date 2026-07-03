@@ -1,11 +1,16 @@
 import type { TaggedUnion } from 'type-fest';
-import type { TDocumentRef } from '@contracts/documentRef';
+import type {
+    TDocumentBackend,
+    TDocumentRef,
+} from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
 export interface IEmptySplitPayload {kind: 'empty';}
 
 export interface IDjvuSplitPayload {
     kind: 'djvu';
     sourcePath: TDocumentRef;
+    sourceBackend?: TDocumentBackend;
     currentPage?: number;
     totalPages?: number;
 }
@@ -14,7 +19,9 @@ export interface IPdfSnapshotSplitPayload {
     kind: 'pdfSnapshot';
     fileName: string;
     originalPath: TDocumentRef | null;
+    originalBackend?: TDocumentBackend;
     snapshotPath: TDocumentRef;
+    snapshotBackend?: TDocumentBackend;
     isDirty: boolean;
     currentPage?: number;
     totalPages?: number;
@@ -25,11 +32,20 @@ export type TSplitPayload = IEmptySplitPayload | IDjvuSplitPayload | IPdfSnapsho
 export interface ITabMetadataCore {
     fileName: string | null;
     originalPath: TDocumentRef | null;
+    originalBackend?: TDocumentBackend;
     isDirty: boolean;
     isDjvu: boolean;
 }
 
 export type ITransferredTabState = ITabMetadataCore;
+
+export interface IWindowTabTransferSessionState {
+    sessionId: string;
+    sessionRevision: number;
+    documentRef: TDocumentRef | null;
+    documentBackend?: TDocumentBackend;
+    documentRevisionToken?: TDocumentRevisionToken;
+}
 
 export type TWindowTabTransferTarget =
     | { kind: 'new-window'; }
@@ -42,6 +58,7 @@ export interface IWindowTabTransferRequest {
     target: TWindowTabTransferTarget;
     tab: ITransferredTabState;
     payload: TSplitPayload;
+    session?: IWindowTabTransferSessionState;
     timeoutMs?: number;
 }
 
@@ -51,6 +68,7 @@ export interface IWindowTabIncomingTransfer {
     targetWindowId: number;
     tab: ITransferredTabState;
     payload: TSplitPayload;
+    session?: IWindowTabTransferSessionState;
 }
 
 export interface IWindowTabTransferAck {

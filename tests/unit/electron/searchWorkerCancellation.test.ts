@@ -32,7 +32,7 @@ vi.mock('worker_threads', () => ({parentPort: mocks.parentPort}));
 vi.mock('fs/promises', () => ({stat: mocks.stat}));
 
 vi.mock('@electron/search/indexBuilder', () => ({
-    SEARCH_INDEX_SCHEMA_VERSION: 6,
+    SEARCH_INDEX_SCHEMA_VERSION: 7,
     loadSearchIndex: mocks.loadSearchIndex,
     buildSearchIndex: mocks.buildSearchIndex,
 }));
@@ -43,6 +43,8 @@ vi.mock('@electron/config/constants', () => ({
 }));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({debug: vi.fn()})}));
+
+const DOCUMENT_REVISION = 'revision-token';
 
 function createAbortError() {
     const error = new Error('The operation was aborted');
@@ -91,6 +93,7 @@ describe('search worker cancellation propagation', () => {
             payload: {
                 requestId: 'req-1',
                 pdfPath: '/tmp/test.pdf',
+                documentRevision: DOCUMENT_REVISION,
                 query: 'needle',
                 pageCount: 1,
             },

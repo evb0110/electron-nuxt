@@ -16,6 +16,7 @@ import {
     usePdfAnnotationCommentModel,
 } from '@app/modules/pdf-viewer/annotations/public';
 import { usePdfShapeTool } from '@app/modules/pdf-viewer/tools/public';
+import { useAnnotationMutationService } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService';
 import { usePdfViewerPortalAnnotationHandlers } from '@app/modules/pdf-viewer/runtime/annotations/usePdfViewerPortalAnnotationHandlers';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -28,11 +29,11 @@ import type {
     IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type {
     IPageRange,
-    PDFDocumentProxy,
     TPdfSource,
-} from '@app/types/pdf';
+} from '@app/types/pdfUi';
 
 
 interface IUsePdfViewerAnnotationRuntimeOptions {
@@ -272,6 +273,7 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
                     },
                 ),
                 {
+                    category: 'user-visible-operation',
                     scope: 'annotations',
                     message: `Failed to refresh edited text markup page ${pageNumber}`,
                 },
@@ -297,6 +299,29 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         emitForcedAnnotationMutation,
     });
 
+    const annotationMutationService = useAnnotationMutationService({
+        updateAnnotationComment: commentCrud.updateAnnotationComment,
+        deleteAnnotationComment,
+        updateSelectedTextMarkupAnnotationColor: annotationColorCommands.updateSelectedTextMarkupAnnotationColor,
+        updateTextMarkupAnnotationColor: annotationColorCommands.updateTextMarkupAnnotationColor,
+        markAnnotationLocallyDeleted: annotationCommentModel.markLocallyDeleted,
+        restoreAnnotationLocally: annotationCommentModel.restoreLocally,
+        removeAnnotationFromInternalCache: annotationCommentModel.removeFromInternalCache,
+        clearPendingMarkerMoves: annotationCommentModel.clearPendingMarkerMoves,
+        handleMarkerMove: annotationCommentModel.handleMarkerMove,
+        findEditorForComment: commentCrud.findEditorForComment,
+        addPendingCommentEditorKey: key => annotations.commentSync.pendingCommentEditorKeys.add(key),
+        getEditorPendingKey: annotations.identity.getEditorPendingKey,
+        markModified: emitForcedAnnotationMutation,
+        suppressManagedAnnotationId: managedEmbeddedPdfShapes.suppressAnnotationId,
+        unsuppressManagedAnnotationId: managedEmbeddedPdfShapes.unsuppressAnnotationId,
+        suppressCommentAnnotationId: annotations.commentSync.suppressAnnotationId,
+        unsuppressCommentAnnotationId: annotations.commentSync.unsuppressAnnotationId,
+        suppressAnnotationStableKey: annotations.commentSync.suppressAnnotationStableKey,
+        unsuppressAnnotationStableKey: annotations.commentSync.unsuppressAnnotationStableKey,
+        flushAnnotationCommentsForSave: annotations.commentSync.syncAnnotationComments,
+    });
+
     const portalHandlers = usePdfViewerPortalAnnotationHandlers({
         activeCommentStableKey,
         suppressAnnotationId: managedEmbeddedPdfShapes.suppressAnnotationId,
@@ -305,7 +330,13 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         emitAnnotationOpenNote: options.emitAnnotationOpenNote,
         emitAnnotationContextMenu: options.emitAnnotationContextMenu,
         buildAnnotationContextMenuPayload: highlightComposable.buildAnnotationContextMenuPayload,
-        handleMarkerMove: annotationCommentModel.handleMarkerMove,
+        handleMarkerMove: (comment, markerRect) => annotationMutationService.moveMarker(
+            {
+                comment,
+                rect: markerRect,
+            },
+            { source: 'user' },
+        ),
         findEditorForComment: commentCrud.findEditorForComment,
         addPendingCommentEditorKey: key => annotations.commentSync.pendingCommentEditorKeys.add(key),
         getEditorPendingKey: annotations.identity.getEditorPendingKey,
@@ -326,6 +357,7 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
 
     return {
         annotations,
+        annotationMutationService,
         annotationCommentModel,
         annotationCommentsCache,
         activeCommentStableKey,

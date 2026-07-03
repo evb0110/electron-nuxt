@@ -4,6 +4,7 @@
 
 <script setup lang="ts">
 import { AppShellRoot } from '@app/modules/workspace-shell/public/component-exports/appShellRoot';
+import { validateElectronPlatformApi } from '@app/platform/validatePlatformApi';
 import {
     isElectronUserAgent,
     waitForDesktopPlatformBridge,
@@ -34,6 +35,16 @@ onMounted(async () => {
 
         isDesktopRuntime.value = false;
         await navigateTo('/', { replace: true });
+        return;
+    }
+
+    const validation = validateElectronPlatformApi((window as Window & {electronAPI?: unknown}).electronAPI);
+    if (!validation.ok) {
+        setFatalRuntimeError(
+            'startup',
+            new Error(t('errors.runtime.electronPlatformContract')),
+            'electron-platform-contract',
+        );
         return;
     }
 

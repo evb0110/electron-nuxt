@@ -1,6 +1,6 @@
 import type { PageViewport } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IPdfRawDims } from '@app/types/pdf';
+import type { IPdfRawDims } from '@app/types/pdfUi';
 import type { IOcrWord } from '@contracts/shared';
 import { isRtlOcrLanguage } from '@contracts/ocrLanguages';
 import {
@@ -108,8 +108,11 @@ export const useOcrTextContent = () => {
     /**
      * Loads and caches the OCR manifest for a working copy path.
      */
-    async function loadManifest(workingCopyPath: TDocumentRef): Promise<IOcrManifest | null> {
-        return loadCachedOcrManifest(workingCopyPath, 'ocr');
+    async function loadManifest(
+        workingCopyPath: TDocumentRef,
+        documentRevisionToken: string,
+    ): Promise<IOcrManifest | null> {
+        return loadCachedOcrManifest(workingCopyPath, documentRevisionToken, 'ocr');
     }
 
     /**
@@ -117,10 +120,11 @@ export const useOcrTextContent = () => {
      */
     async function loadPageData(
         workingCopyPath: TDocumentRef,
+        documentRevisionToken: string,
         pageNumber: number,
         manifest: IOcrManifest,
     ): Promise<IOcrPageData | null> {
-        return loadCachedOcrPageData(workingCopyPath, pageNumber, manifest, 'ocr');
+        return loadCachedOcrPageData(workingCopyPath, documentRevisionToken, pageNumber, manifest, 'ocr');
     }
 
     /**
@@ -207,18 +211,19 @@ export const useOcrTextContent = () => {
      */
     async function getOcrTextContent(
         workingCopyPath: TDocumentRef,
+        documentRevisionToken: string,
         pageNumber: number,
         viewport: PageViewport,
     ) {
-        const manifest = await loadManifest(workingCopyPath);
-        if (!manifest || manifest.version < 2) {
+        const manifest = await loadManifest(workingCopyPath, documentRevisionToken);
+        if (!manifest) {
             return null;
         }
 
         const isRtl = manifest.ocr.languages.some(isRtlOcrLanguage);
         const textDir: TOcrTextDirection = isRtl ? 'rtl' : 'ltr';
 
-        const pageData = await loadPageData(workingCopyPath, pageNumber, manifest);
+        const pageData = await loadPageData(workingCopyPath, documentRevisionToken, pageNumber, manifest);
         if (!pageData || !pageData.words || pageData.words.length === 0) {
             return null;
         }
@@ -255,11 +260,14 @@ export const useOcrTextContent = () => {
      * Checks if OCR data is available for a document.
      *
      * @param workingCopyPath - Path to the PDF working copy
-     * @returns True if OCR manifest exists and is version 2+
+     * @returns True if OCR manifest exists
      */
-    async function hasOcrData(workingCopyPath: TDocumentRef) {
-        const manifest = await loadManifest(workingCopyPath);
-        return manifest !== null && manifest.version >= 2;
+    async function hasOcrData(
+        workingCopyPath: TDocumentRef,
+        documentRevisionToken: string,
+    ) {
+        const manifest = await loadManifest(workingCopyPath, documentRevisionToken);
+        return manifest !== null;
     }
 
     /**
@@ -271,10 +279,11 @@ export const useOcrTextContent = () => {
      */
     async function hasPageOcrData(
         workingCopyPath: TDocumentRef,
+        documentRevisionToken: string,
         pageNumber: number,
     ) {
-        const manifest = await loadManifest(workingCopyPath);
-        if (!manifest || manifest.version < 2) {
+        const manifest = await loadManifest(workingCopyPath, documentRevisionToken);
+        if (!manifest) {
             return false;
         }
         return pageNumber in manifest.pages;

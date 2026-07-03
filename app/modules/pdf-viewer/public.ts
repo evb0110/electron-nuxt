@@ -19,10 +19,7 @@ export { usePdfHistory } from '@app/modules/pdf-viewer/runtime/composables/usePd
 export { usePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
 export { usePdfSerialization } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';
 export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-export {
-    buildNativePdfMutationPlanForSave,
-    type INativePdfMutationPlan,
-} from '@app/modules/pdf-viewer/runtime/save/buildNativePdfMutationPlanForSave';
+export type { INativePdfMutationPlan } from '@app/modules/pdf-viewer/runtime/save/buildNativePdfMutationPlanForSave';
 export { buildPdfAnnotationSavePlan } from '@app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan';
 export { getEmbeddedMutationBaseData } from '@app/modules/pdf-viewer/runtime/save/getEmbeddedMutationBaseData';
 export { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';

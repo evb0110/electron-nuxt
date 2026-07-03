@@ -4,13 +4,15 @@ import type {
     ShallowRef,
 } from 'vue';
 import type {
-    IPageRange,
-    IScrollSnapshot,
     PDFDocumentProxy,
     TFitMode,
     TPdfViewMode,
     TZoomMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type {
+    IPageRange,
+    IScrollSnapshot,
+} from '@app/types/pdfUi';
 import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
 
 

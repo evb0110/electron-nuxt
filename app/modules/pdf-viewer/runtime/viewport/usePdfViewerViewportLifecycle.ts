@@ -3,12 +3,14 @@ import type {
     Ref,
 } from 'vue';
 import type {
-    IPageRange,
     TFitMode,
-    TPdfSource,
     TPdfViewMode,
     TZoomMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type {
+    IPageRange,
+    TPdfSource,
+} from '@app/types/pdfUi';
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import type { IResizeTransitionSignal } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import { BrowserLogger } from '@app/utils/browserLogger';

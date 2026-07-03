@@ -155,9 +155,9 @@
 import { uniq } from 'es-toolkit/array';
 import type {
     IPdfPageLabelRange,
-    IPdfPageRange,
     TPageLabelStyle,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type { IPdfPageRange } from '@app/types/pdfUi';
 import {
     buildWholeDocumentPageLabelRanges,
     buildPageLabelsFromRanges,

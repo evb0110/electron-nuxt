@@ -1,7 +1,7 @@
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
-} from '@app/types/pdf';
+} from '@app/types/pdfUi';
 import { findPdfSearchMatches } from '@pdf-core';
 import type { IHighlightMatchRange } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 

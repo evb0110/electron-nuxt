@@ -1,6 +1,6 @@
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import { delay } from 'es-toolkit/promise';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import {
     getAnnotationStorageEditor,

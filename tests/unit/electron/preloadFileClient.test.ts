@@ -282,6 +282,27 @@ describe('createDocumentsPreloadFileClient', () => {
         );
     });
 
+    it('invokes the structured save channel with a checked absolute working path', async () => {
+        const result = {
+            ok: true,
+            externalWriteCommitted: true,
+            workingCopyRefreshed: true,
+            validation: null,
+        };
+        const ipcRenderer = {
+            invoke: vi.fn(async () => result),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        await expect(client.saveFileStructured?.('/tmp/working.pdf')).resolves.toBe(result);
+
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.fileSaveStructured,
+            '/tmp/working.pdf',
+        );
+    });
+
     it('invokes optimize-as-copy with checked options and request id', async () => {
         const result = {
             path: '/tmp/optimized.pdf',

@@ -412,7 +412,10 @@ describe('useTabsShellBindings', () => {
         expect(errorSpy).toHaveBeenCalledWith(
             'tabs-shell',
             'Renderer document shortcut failed: open-file',
-            expect.any(Error),
+            {
+                category: 'user-visible-operation',
+                error: expect.any(Error),
+            },
         );
 
         unmount();

@@ -92,6 +92,8 @@ const mocks = vi.hoisted(() => {
         agentService,
         createAgentService: vi.fn(() => agentService),
         createDocumentsService: vi.fn(() => ({})),
+        registerDocumentRevisionEventBridge: vi.fn(),
+        registerDocumentRevisionInvalidationEffects: vi.fn(),
         allowOpenPath: vi.fn(),
         isSupportedOpenPath: vi.fn((_path: unknown) => true),
         requireOpenPath: vi.fn((..._args: unknown[]) => undefined),
@@ -121,7 +123,11 @@ vi.mock('@contracts/externalUrl', () => ({sanitizeAllowedExternalUrl: mocks.sani
 vi.mock('@electron/config', () => ({config: {renderer: {trustedUrl: 'http://127.0.0.1:41001/electron'}}}));
 vi.mock('@electron/features/agent/createAgentService', () => ({createAgentService: mocks.createAgentService}));
 vi.mock('@electron/features/documents/createDocumentsService', () => ({createDocumentsService: mocks.createDocumentsService}));
-vi.mock('@electron/features/documents/public', () => ({attachSerializedPdfPersistencePort: mocks.attachSerializedPdfPersistencePort}));
+vi.mock('@electron/features/documents/public', () => ({
+    attachSerializedPdfPersistencePort: mocks.attachSerializedPdfPersistencePort,
+    registerDocumentRevisionEventBridge: mocks.registerDocumentRevisionEventBridge,
+    registerDocumentRevisionInvalidationEffects: mocks.registerDocumentRevisionInvalidationEffects,
+}));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({
     allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args),
     requireOpenPath: (...args: unknown[]) => mocks.requireOpenPath(...args),

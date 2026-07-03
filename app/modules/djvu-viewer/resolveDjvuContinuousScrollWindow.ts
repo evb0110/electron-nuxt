@@ -1,9 +1,9 @@
-import { clamp } from 'es-toolkit/math';
 import {
     createAnchorPageWindow,
     createPageNumbersForWindow,
     EMPTY_DOCUMENT_VIEWER_PAGE_RANGE,
 } from '@app/utils/document-viewer/virtualization/pageVirtualization';
+import { normalizeDocumentPageNumber } from '@app/utils/document-viewer/documentPageRange';
 
 export interface IDjvuContinuousScrollWindow {
     start: number;
@@ -62,7 +62,7 @@ function createContinuousScrollWindow(
 }
 
 function clampPageRange(pageNumber: number, totalPages: number) {
-    return clamp(pageNumber, 1, totalPages);
+    return normalizeDocumentPageNumber(pageNumber, totalPages);
 }
 
 function resolveFallbackContinuousScrollRange(
@@ -278,7 +278,7 @@ export function resolveDjvuContinuousScrollWindow(options: IResolveDjvuContinuou
         return null;
     }
 
-    const anchorPage = clamp(options.currentPage, 1, options.totalPages);
+    const anchorPage = normalizeDocumentPageNumber(options.currentPage, options.totalPages);
     const geometry = options.geometry ?? resolveDjvuContinuousScrollGeometry(options);
     if (options.viewportHeight <= 0) {
         const {

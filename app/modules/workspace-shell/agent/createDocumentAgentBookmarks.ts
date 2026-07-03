@@ -1,8 +1,6 @@
 import type { Ref } from 'vue';
-import type {
-    IPdfBookmarkChangePayload,
-    IPdfBookmarkEntry,
-} from '@app/types/pdf';
+import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
+import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
 import { normalizeBookmarkColor } from '@app/utils/pdfOutlineHelpers';
 import {
     createAgentBookmarkPlan,

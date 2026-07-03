@@ -12,7 +12,7 @@ import {
     shallowRef,
 } from 'vue';
 import { usePdfViewerFitWidthController } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewerFitWidthController';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
 
 describe('usePdfViewerFitWidthController', () => {

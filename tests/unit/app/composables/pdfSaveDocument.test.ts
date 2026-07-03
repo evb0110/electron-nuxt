@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { savePdfDocumentWithCommittedEditors } from '@app/modules/pdf-viewer/engine/pdf-save-document/savePdfDocumentWithCommittedEditors';
 import { cast } from '@tests/helpers/cast';
 

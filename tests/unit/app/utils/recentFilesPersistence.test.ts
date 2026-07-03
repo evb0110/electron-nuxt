@@ -30,6 +30,7 @@ describe('recentFilesPersistence', () => {
     it('keeps adding recent files to the cookie payload until the encoded-size limit is reached', () => {
         const recentFiles = Array.from({ length: 12 }, (_, index) => ({
             originalPath: `browser://documents/${index}/doc-${index}.pdf`,
+            backend: 'browser' as const,
             fileName: `doc-${index}.pdf`,
             timestamp: index + 1,
             fileSize: 1024,
@@ -73,6 +74,7 @@ describe('recentFilesPersistence', () => {
         expect(snapshot).toEqual({
             recentFiles: [{
                 originalPath: '/tmp/example.pdf',
+                backend: 'electron',
                 fileName: 'example.pdf',
                 timestamp: 123,
                 fileSize: 456,
@@ -111,12 +113,14 @@ describe('recentFilesPersistence', () => {
         expect(snapshot.recentFiles).toEqual([
             {
                 originalPath: '/tmp/example.pdf',
+                backend: 'electron',
                 fileName: 'example-new.pdf',
                 timestamp: 3,
                 fileSize: 456,
             },
             {
                 originalPath: '/tmp/other.pdf',
+                backend: 'electron',
                 fileName: 'other.pdf',
                 timestamp: 2,
                 fileSize: 123,
@@ -144,6 +148,7 @@ describe('recentFilesPersistence', () => {
         expect(readBrowserRecentFilesSnapshot()).toEqual({
             recentFiles: [{
                 originalPath: 'browser://documents/cookie',
+                backend: 'browser',
                 fileName: 'cookie.pdf',
                 timestamp: 1,
                 fileSize: 2,
@@ -164,6 +169,7 @@ describe('recentFilesPersistence', () => {
         expect(readBrowserRecentFilesSnapshot()).toEqual({
             recentFiles: [{
                 originalPath: 'browser://documents/storage',
+                backend: 'browser',
                 fileName: 'storage.pdf',
                 timestamp: 3,
                 fileSize: 4,
@@ -171,5 +177,27 @@ describe('recentFilesPersistence', () => {
             hasSnapshot: true,
             truncated: false,
         });
+    });
+
+    it('drops legacy recent files whose backend cannot be inferred', () => {
+        const snapshot = parseRecentFilesCookieSnapshot(JSON.stringify({files: [
+            {
+                originalPath: 'relative.pdf',
+                fileName: 'relative.pdf',
+                timestamp: 1,
+            },
+            {
+                originalPath: 'browser://documents/known',
+                fileName: 'known.pdf',
+                timestamp: 2,
+            },
+        ]}));
+
+        expect(snapshot.recentFiles).toEqual([{
+            originalPath: 'browser://documents/known',
+            backend: 'browser',
+            fileName: 'known.pdf',
+            timestamp: 2,
+        }]);
     });
 });

@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -61,6 +62,11 @@ describe('CodexAppServerClient stdin handling', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        delete process.env.EVB_CODEX_APP_SERVER_MAX_STDERR_BYTES;
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     it('fails pending requests when the app-server stdin stream errors', async () => {
@@ -100,5 +106,49 @@ describe('CodexAppServerClient stdin handling', () => {
         }
 
         expect(onExit).toHaveBeenCalledWith(expect.stringContaining('EPIPE'));
+    });
+
+    it('rejects request timeouts with a typed timeout error', async () => {
+        vi.useFakeTimers();
+        const process = new FakeCodexAppServerProcess((_line, callback) => {
+            callback?.();
+            return true;
+        });
+        const { client } = await createClient(process);
+        const {
+            CodexAppServerRequestTimeoutError,
+            isCodexAppServerRequestTimeoutError,
+        } = await import('@electron/features/agent/codexAppServerClient');
+
+        const request = client.request('turn/start', {}, 25).catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(25);
+        const caughtError = await request;
+
+        expect(caughtError).toBeInstanceOf(CodexAppServerRequestTimeoutError);
+        expect(isCodexAppServerRequestTimeoutError(caughtError)).toBe(true);
+        expect(caughtError).toMatchObject({
+            method: 'turn/start',
+            timeoutMs: 25,
+            message: 'turn/start timed out after 25ms.',
+        });
+    });
+
+    it('reports a bounded stderr tail when the app-server exits after noisy output', async () => {
+        process.env.EVB_CODEX_APP_SERVER_MAX_STDERR_BYTES = '1024';
+        const fakeProcess = new FakeCodexAppServerProcess((_line, callback) => {
+            callback?.();
+            return true;
+        });
+        const { onExit } = await createClient(fakeProcess);
+
+        fakeProcess.stderr.write(`${'old'.repeat(700)}\nrecent-tail\n`);
+        fakeProcess.emit('close', 7);
+
+        expect(onExit).toHaveBeenCalledOnce();
+        const message = onExit.mock.calls[0]?.[0] as string;
+        expect(message).toContain('with code 7');
+        expect(message).toContain('[stderr truncated to 1024 bytes]');
+        expect(message).toContain('recent-tail');
+        expect(message.length).toBeLessThan(1400);
     });
 });

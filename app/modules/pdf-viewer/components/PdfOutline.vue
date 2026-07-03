@@ -99,10 +99,8 @@ import type {
     IBookmarkDropPayload,
     TBookmarkDisplayMode,
 } from '@app/types/pdfOutline';
-import type {
-    IPdfBookmarkChangePayload,
-    IPdfBookmarkEntry,
-} from '@app/types/pdf';
+import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
+import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {

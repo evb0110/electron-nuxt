@@ -1,6 +1,14 @@
-import type { IPlatformApi } from '@contracts/platformApi';
+import type {
+    IPlatformApi,
+    IPlatformRuntimeManifest,
+} from '@contracts/platformApi';
 import { delay } from 'es-toolkit/promise';
 import { lazyBrowserPlatformApi } from '@app/platform/lazyBrowserPlatformApi';
+import {
+    PlatformContractError,
+    validateBrowserPlatformApi,
+    validateElectronPlatformApi,
+} from '@app/platform/validatePlatformApi';
 
 interface IWindowWithPlatformApi extends Window {electronAPI?: IPlatformApi;}
 
@@ -12,8 +20,17 @@ function getElectronWindow() {
     return window as IWindowWithPlatformApi;
 }
 
-export function hasElectronAPI() {
+function getRawElectronAPI() {
     return getElectronWindow()?.electronAPI !== undefined;
+}
+
+export function hasElectronPlatformBridge() {
+    return getRawElectronAPI();
+}
+
+export function hasElectronAPI() {
+    const electronApi = getElectronWindow()?.electronAPI;
+    return electronApi !== undefined && validateElectronPlatformApi(electronApi).ok;
 }
 
 export function isDesktopPlatformActive(electronApiAvailable = hasElectronAPI()) {
@@ -55,22 +72,45 @@ export async function waitForDesktopPlatformBridge({
     retryDelayMs = 25,
     attempts = 20,
 }: IWaitForDesktopPlatformBridgeOptions = {}) {
-    if (!shouldWait || hasElectronAPI()) {
-        return hasElectronAPI();
+    if (!shouldWait || hasElectronPlatformBridge()) {
+        return hasElectronPlatformBridge();
     }
 
     for (let attempt = 0; attempt < attempts; attempt += 1) {
         await delay(retryDelayMs);
 
-        if (hasElectronAPI()) {
+        if (hasElectronPlatformBridge()) {
             return true;
         }
     }
 
-    return hasElectronAPI();
+    return hasElectronPlatformBridge();
+}
+
+export function getPlatformManifest(): IPlatformRuntimeManifest {
+    return getPlatformAPI().manifest;
+}
+
+function createPlatformContractError(result: ReturnType<typeof validateElectronPlatformApi>) {
+    return new PlatformContractError(
+        result.failures.map(failure => failure.message).join(' '),
+        result.failures,
+    );
 }
 
 export function getPlatformAPI(): IPlatformApi {
     const electronApi = getElectronWindow()?.electronAPI;
-    return electronApi ?? lazyBrowserPlatformApi;
+    if (electronApi) {
+        const result = validateElectronPlatformApi(electronApi);
+        if (!result.ok) {
+            throw createPlatformContractError(result);
+        }
+        return electronApi;
+    }
+
+    const browserResult = validateBrowserPlatformApi(lazyBrowserPlatformApi);
+    if (!browserResult.ok) {
+        throw createPlatformContractError(browserResult);
+    }
+    return lazyBrowserPlatformApi;
 }

@@ -5,13 +5,20 @@ import { useRecentFiles } from '@app/composables/useRecentFiles';
 import { useWorkspaceFileSwitch } from '@app/modules/workspace-shell/composables/useWorkspaceFileSwitch';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { createWorkspaceViewerLifecycleHooks } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
 
-export const useWorkspaceFileLifecycleController = () => {
+interface IUseWorkspaceFileLifecycleControllerOptions { analyticsDocumentScope?: IAnalyticsDocumentScope | undefined; }
+
+export const useWorkspaceFileLifecycleController = (
+    options: IUseWorkspaceFileLifecycleControllerOptions = {},
+) => {
     const {
         pdfSrc,
         pdfReloadSrc,
         pdfData,
         workingCopyPath,
+        documentRevisionInfo,
+        documentRevisionToken,
         originalPath,
         fileName,
         isDirty,
@@ -47,7 +54,7 @@ export const useWorkspaceFileLifecycleController = () => {
         fileHistorySessionVersion,
         undo,
         redo,
-    } = usePdfFile();
+    } = usePdfFile({analyticsDocumentScope: options.analyticsDocumentScope});
 
     const {
         isDjvuMode,
@@ -126,6 +133,8 @@ export const useWorkspaceFileLifecycleController = () => {
         pdfReloadSrc,
         pdfData,
         workingCopyPath,
+        documentRevisionInfo,
+        documentRevisionToken,
         originalPath,
         fileName,
         isDirty,

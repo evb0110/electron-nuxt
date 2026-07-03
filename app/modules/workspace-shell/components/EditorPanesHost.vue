@@ -13,6 +13,7 @@
             :tab-lifecycle-by-id="tabLifecycleById"
             :view-state-by-tab-id="viewStateByTabId"
             :document-records-by-tab-id="documentRecordsByTabId"
+            :document-sessions-by-tab-id="documentSessionsByTabId"
             :zen-mode="zenMode"
             :zen-active-tab-id="zenActiveTabId"
             :is-fullscreen="isFullscreen"
@@ -56,6 +57,7 @@ import type {
     ITabViewSessionState,
 } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 
 defineOptions({ name: 'EditorPanesHost' });
 
@@ -71,6 +73,7 @@ defineProps<{
     tabLifecycleById: Record<string, ITabLifecycleState>;
     viewStateByTabId: Record<string, ITabViewSessionState>;
     documentRecordsByTabId: Record<string, IWorkspaceDocumentRecord>;
+    documentSessionsByTabId: Record<string, IWorkspaceDocumentSessionController>;
     zenMode: boolean;
     zenActiveTabId: string | null;
     isFullscreen: boolean;

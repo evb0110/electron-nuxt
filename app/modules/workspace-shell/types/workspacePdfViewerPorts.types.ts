@@ -47,11 +47,15 @@ export interface IWorkspacePdfViewerAnnotationChangesPort extends
         | 'hasShapes'
     >,
     Pick<IPdfViewerSaveExpose,
-        'saveDocument'
+        'runSaveTransaction'
+        | 'saveDocument'
     > {}
 
 export interface IWorkspacePdfViewerAnnotationNotesPort extends Pick<IPdfViewerAnnotationCommentExpose,
-    'updateAnnotationComment'
+    'clearPendingEmbeddedTextUpdate'
+    | 'migratePendingEmbeddedTextUpdate'
+    | 'queuePendingEmbeddedTextUpdate'
+    | 'updateAnnotationComment'
 > {}
 
 export interface IWorkspacePdfViewerAgentAnnotationNotePort extends

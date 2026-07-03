@@ -151,6 +151,53 @@ describe('runCoordinatedPdfPageRender', () => {
         await thumbnailRun;
     });
 
+    it('aborts a queued render while it waits for the coordinated page turn', async () => {
+        const page = cast<PDFPageProxy>({ pageNumber: 1 });
+        const events: string[] = [];
+        const viewerTask = createRenderTask();
+        const queuedTask = createRenderTask();
+        const queuedAbortController = new AbortController();
+
+        const viewerRun = runCoordinatedPdfPageRender({
+            owner: 'viewer',
+            pageNumber: 1,
+            pdfPage: page,
+            priority: 100,
+            startRender: () => {
+                events.push('start viewer');
+                return viewerTask;
+            },
+        });
+        await flushAsync();
+
+        const queuedRun = runCoordinatedPdfPageRender({
+            owner: 'thumbnail',
+            pageNumber: 1,
+            pdfPage: page,
+            priority: 10,
+            signal: queuedAbortController.signal,
+            startRender: () => {
+                events.push('start queued');
+                return queuedTask;
+            },
+        }).catch(error => error as Error);
+        await flushAsync();
+
+        queuedAbortController.abort();
+
+        const queuedError = await queuedRun;
+        expect(queuedError).toBeInstanceOf(Error);
+        if (!(queuedError instanceof Error)) {
+            throw new Error('Expected queued render to reject with an Error');
+        }
+        expect(queuedError.name).toBe('RenderingCancelledException');
+        expect(events).toEqual(['start viewer']);
+        expect(queuedTask.cancel).not.toHaveBeenCalled();
+
+        viewerTask.resolve();
+        await viewerRun;
+    });
+
     it('lets viewer preparation preempt a lower-priority thumbnail render', async () => {
         const page = cast<PDFPageProxy>({ pageNumber: 1 });
         const events: string[] = [];

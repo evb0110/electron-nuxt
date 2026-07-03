@@ -3,11 +3,11 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type {
-    IPdfPageMatches,
     TFitMode,
     TPdfViewMode,
     TZoomMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type { IPdfPageMatches } from '@app/types/pdfUi';
 import type { IPdfViewerProps } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 
@@ -51,6 +51,7 @@ export const usePdfViewerPropModel = (props: Readonly<IPdfViewerProps>) => {
         currentSearchMatchNavigationId: computed(() => props.currentSearchMatchNavigationId ?? 0),
         requestedCurrentPage: computed(() => props.currentPage),
         workingCopyPath: computed(() => props.workingCopyPath ?? null),
+        documentRevisionToken: computed(() => props.documentRevisionToken ?? null),
         continuousScroll: computed(() => props.continuousScroll ?? true),
         isActive: computed(() => props.isActive ?? true),
         authorName: computed(() => props.authorName),

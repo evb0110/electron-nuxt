@@ -6,6 +6,12 @@ import {
     it,
     vi,
 } from 'vitest';
+import {
+    mkdirSync,
+    rmSync,
+    writeFileSync,
+} from 'fs';
+import { join } from 'path';
 import { pathToFileURL } from 'url';
 
 const mocks = vi.hoisted(() => {
@@ -42,7 +48,11 @@ const mocks = vi.hoisted(() => {
         printHandler,
         readdir: vi.fn<() => Promise<string[]>>(async () => []),
         randomUUID: vi.fn(() => 'print-job-id'),
-        resolveAllowedReadPath: vi.fn(async (path: string) => path),
+        ensuredReadablePaths: new Set<string>(),
+        ownedReadablePathsBySender: new Map<number, Set<string>>(),
+        findWorkingCopyPathByOriginalPath: vi.fn<(path: string, senderId?: number) => string | null>(() => null),
+        ensureWorkingCopyDirectory: vi.fn<(path: string, senderId?: number) => Promise<boolean>>(),
+        resolveAllowedReadPath: vi.fn<(path: string) => Promise<string | null>>(async (path: string) => path),
         extractPages: vi.fn(async () => {}),
         stat: vi.fn<(path: string) => Promise<{
             ctimeMs: number;
@@ -76,6 +86,8 @@ vi.mock('fs/promises', () => ({
 vi.mock('crypto', () => ({ randomUUID: mocks.randomUUID }));
 
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
+vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
+vi.mock('@electron/file-access/workingCopyStore', () => ({findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({extractPages: mocks.extractPages}));
 vi.mock('@electron/features/page-ops/public', () => ({extractPages: mocks.extractPages}));
 
@@ -96,7 +108,13 @@ const {
 
 const tempRoot = '/tmp/evb-viewer';
 const validPdfBytes = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n');
-const windowContext = {window: null};
+const senderId = 72;
+const windowContext = {
+    senderId,
+    window: null,
+};
+const sourcePdfWorkDir = join(tempRoot, 'pdf-work-print-test');
+const sourcePdfPath = join(sourcePdfWorkDir, 'source.pdf');
 
 describe('documents print', () => {
     beforeEach(() => {
@@ -104,22 +122,45 @@ describe('documents print', () => {
         mocks.browserWindowInstances.length = 0;
         mocks.appGetPath.mockReturnValue('/tmp');
         mocks.randomUUID.mockReturnValue('print-job-id');
+        mocks.ensuredReadablePaths.clear();
+        mocks.ownedReadablePathsBySender.clear();
+        mocks.ownedReadablePathsBySender.set(senderId, new Set([sourcePdfPath]));
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
+        mocks.ensureWorkingCopyDirectory.mockImplementation(async (path: string, requestedSenderId?: number) => {
+            if (typeof requestedSenderId !== 'number' || !mocks.ownedReadablePathsBySender.get(requestedSenderId)?.has(path)) {
+                return false;
+            }
+            mocks.ensuredReadablePaths.add(path);
+            return true;
+        });
         mocks.readdir.mockResolvedValue([]);
         mocks.printHandler.mockImplementation((
             _options: unknown,
             callback: (success: boolean, failureReason?: string) => void,
         ) => callback(true));
-        mocks.resolveAllowedReadPath.mockImplementation(async (path: string) => path);
+        rmSync(sourcePdfWorkDir, {
+            force: true,
+            recursive: true,
+        });
+        mkdirSync(sourcePdfWorkDir, {recursive: true});
+        writeFileSync(sourcePdfPath, validPdfBytes);
+        mocks.resolveAllowedReadPath.mockImplementation(async (path: string) => (
+            mocks.ensuredReadablePaths.has(path) ? path : null
+        ));
         mocks.stat.mockResolvedValue({
             ctimeMs: 0,
             isFile: () => true,
             mtimeMs: 0,
-            size: 1,
+            size: validPdfBytes.byteLength,
         });
     });
 
     afterEach(() => {
         vi.useRealTimers();
+        rmSync(sourcePdfWorkDir, {
+            force: true,
+            recursive: true,
+        });
     });
 
     async function settleNativePrint<T>(promise: Promise<T>) {
@@ -135,7 +176,7 @@ describe('documents print', () => {
         vi.useFakeTimers();
         const resultPromise = handlePrintPdfPath(
             windowContext,
-            '/tmp/source.pdf',
+            sourcePdfPath,
             'source.pdf',
         );
         const result = await settleNativePrint(resultPromise);
@@ -150,7 +191,7 @@ describe('documents print', () => {
             }),
         }));
         expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
-            pathToFileURL('/tmp/source.pdf').toString(),
+            pathToFileURL(sourcePdfPath).toString(),
         );
         expect(mocks.browserWindowInstances[0]?.webContents.print).toHaveBeenCalledTimes(1);
         expect(mocks.browserWindowInstances[0]?.close).not.toHaveBeenCalled();
@@ -186,7 +227,7 @@ describe('documents print', () => {
         vi.useFakeTimers();
         const resultPromise = handlePrintPdfPath(
             windowContext,
-            '/tmp/source.pdf',
+            sourcePdfPath,
             'source.pdf',
             [4],
         );
@@ -194,7 +235,7 @@ describe('documents print', () => {
 
         expect(result).toEqual({ success: true });
         expect(mocks.extractPages).toHaveBeenCalledWith(
-            '/tmp/source.pdf',
+            sourcePdfPath,
             `${tempRoot}/print-pages-print-job-id-source.pdf`,
             [4],
         );
@@ -265,12 +306,13 @@ describe('documents print', () => {
 
     it('opens an existing PDF path in the default desktop app', async () => {
         const result = await handleOpenPdfInDefaultAppPath(
-            '/tmp/source.pdf',
+            {senderId},
+            sourcePdfPath,
             'source.pdf',
         );
 
         expect(result).toEqual({ success: true });
-        expect(mocks.openPath).toHaveBeenCalledWith('/tmp/source.pdf');
+        expect(mocks.openPath).toHaveBeenCalledWith(sourcePdfPath);
     });
 
     it('writes PDF bytes to a temp file before opening the default desktop app', async () => {

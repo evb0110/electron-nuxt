@@ -1,5 +1,5 @@
 import {isFinitePositive} from '@contracts/runtimeGuards';
-import type { IPdfPageMetric } from '@app/types/pdf';
+import type { IPdfPageMetric } from '@app/types/pdfUi';
 
 
 export function resolveDocumentBaseMetric(

@@ -2,7 +2,7 @@ import type {
     IBookmarkItem,
     TBookmarkDisplayMode,
 } from '@app/types/pdfOutline';
-import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import {
     collectBookmarkIds,
     findBookmarkById,

@@ -4,7 +4,7 @@ import type {
     IAnnotationEditorState,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { BrowserLogger } from '@app/utils/browserLogger';

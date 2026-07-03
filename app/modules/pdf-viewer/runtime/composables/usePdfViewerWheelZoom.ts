@@ -8,10 +8,8 @@ import { restoreScrollFromSnapshot } from '@app/modules/pdf-viewer/engine/pdf-pa
 import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
 import { ZOOM } from '@app/constants/pdfLayout';
 import { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
-import type {
-    TPdfSource,
-    TZoomMode,
-} from '@app/types/pdf';
+import type { TZoomMode } from '@app/types/pdfContracts';
+import type { TPdfSource } from '@app/types/pdfUi';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import { wheelDetailLogThrottleMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelDetailLogThrottleMs';

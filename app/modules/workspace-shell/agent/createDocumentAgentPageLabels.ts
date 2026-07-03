@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import type { IPdfPageLabelRange } from '@app/types/pdf';
+import type { IPdfPageLabelRange } from '@app/types/pdfContracts';
 import {
     buildPageLabelsFromRanges,
     derivePageLabelRangesFromLabels,

@@ -2,7 +2,7 @@ import type { Ref } from 'vue';
 import { until } from '@vueuse/core';
 import { delay } from 'es-toolkit/promise';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { IPdfReloadWaiterViewer } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
 import { BrowserLogger } from '@app/utils/browserLogger';
 

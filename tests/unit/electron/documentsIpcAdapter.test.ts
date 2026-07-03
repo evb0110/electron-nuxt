@@ -178,7 +178,10 @@ describe('documents ipc adapter', () => {
             sender,
             senderId: 48,
         });
-        expect(service.setMenuTabCount).toHaveBeenCalledWith({window}, 3);
+        expect(service.setMenuTabCount).toHaveBeenCalledWith({
+            senderId: 48,
+            window,
+        }, 3);
         expect(mocks.fromWebContents).toHaveBeenCalledWith(sender);
     });
 
@@ -227,6 +230,33 @@ describe('documents ipc adapter', () => {
             {targetWidthPx: 900},
         );
     });
+
+    it('delegates PDF path handoff handlers with sender-owned contexts', async () => {
+        const {
+            eventRegistrar,
+            handlers,
+            registrar,
+        } = createRegistrationHarness();
+        const window = {id: 12};
+        const sender = {id: 50};
+        const service = {
+            openPdfInDefaultAppPath: vi.fn(async () => ({success: true})),
+            printPdfPath: vi.fn(async () => ({success: true})),
+        };
+        mocks.fromWebContents.mockReturnValue(window);
+        const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
+
+        registerDocumentsIpcAdapter(registrar as never, service as never, {eventRegistrar});
+        await handlers.get(DOCUMENTS_CHANNELS.pdfOpenInDefaultAppPath)?.({sender}, '/tmp/owned.pdf', 'owned.pdf');
+        await handlers.get(DOCUMENTS_CHANNELS.pdfPrintPath)?.({sender}, '/tmp/owned.pdf', 'owned.pdf', [1]);
+
+        expect(service.openPdfInDefaultAppPath).toHaveBeenCalledWith({senderId: 50}, '/tmp/owned.pdf', 'owned.pdf');
+        expect(service.printPdfPath).toHaveBeenCalledWith({
+            senderId: 50,
+            window,
+        }, '/tmp/owned.pdf', 'owned.pdf', [1]);
+    });
+
 
     it('grants renderer file-open paths to the sender webContents owner', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-documents-ipc-adapter-test-'));

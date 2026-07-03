@@ -548,7 +548,7 @@ describe('useDjvuPreviewRuntime', () => {
         });
 
         await vi.waitFor(() => expect(pageStates.value[0]?.objectUrl).toBe('blob:page-1-2'));
-        expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(1, { subsample: 2 });
+        expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(1, expect.objectContaining({ subsample: 2 }));
 
         scrollWindowRef.value = {
             start: 10,
@@ -560,11 +560,11 @@ describe('useDjvuPreviewRuntime', () => {
         runtime.syncLoadedPages();
 
         await vi.waitFor(() => expect(pageStates.value[9]?.objectUrl).toBe('blob:page-10-3'));
-        expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(10, { subsample: 3 });
+        expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(10, expect.objectContaining({ subsample: 3 }));
 
         await new Promise(resolve => setTimeout(resolve, 220));
 
-        await vi.waitFor(() => expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(10, { subsample: 2 }));
+        await vi.waitFor(() => expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(10, expect.objectContaining({ subsample: 2 })));
 
         runtime.dispose();
     });
@@ -600,7 +600,7 @@ describe('useDjvuPreviewRuntime', () => {
 
         neededDeviceWidth.value = 2_000;
         runtime.syncLoadedPages();
-        await vi.waitFor(() => expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(1, { subsample: 2 }));
+        await vi.waitFor(() => expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(1, expect.objectContaining({ subsample: 2 })));
 
         runtime.scheduleScrollSettledPreviewRerender();
         highResolutionRender.resolve({

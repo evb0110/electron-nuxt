@@ -1,7 +1,7 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
-    IOcrIndexV2Manifest,
-    IOcrIndexV2Page,
+    IOcrIndexV3Manifest,
+    IOcrIndexV3Page,
 } from '@contracts/ocrIndex';
 import { isRecord } from '@contracts/runtimeGuards';
 import { isOcrWord } from '@contracts/shared';
@@ -16,9 +16,16 @@ const OCR_INDEX_ROTATIONS: ReadonlySet<unknown> = new Set([
     270,
 ]);
 
-function isOcrIndexV2Manifest(value: unknown): value is IOcrIndexV2Manifest {
+function hasDocumentRevisionStamp(value: unknown): value is { token: string } {
     return isRecord(value)
-        && value.version === 2
+        && typeof value.token === 'string'
+        && value.token.length > 0;
+}
+
+function isOcrIndexV3Manifest(value: unknown): value is IOcrIndexV3Manifest {
+    return isRecord(value)
+        && value.version === 3
+        && hasDocumentRevisionStamp(value.documentRevision)
         && typeof value.createdAt === 'number'
         && isRecord(value.source)
         && typeof value.source.pdfPath === 'string'
@@ -33,9 +40,10 @@ function isOcrIndexV2Manifest(value: unknown): value is IOcrIndexV2Manifest {
         && Object.values(value.pages).every(page => isRecord(page) && typeof page.path === 'string');
 }
 
-function isOcrIndexV2Page(value: unknown): value is IOcrIndexV2Page {
+function isOcrIndexV3Page(value: unknown): value is IOcrIndexV3Page {
     return isRecord(value)
         && typeof value.pageNumber === 'number'
+        && hasDocumentRevisionStamp(value.documentRevision)
         && OCR_INDEX_ROTATIONS.has(value.rotation)
         && isRecord(value.render)
         && typeof value.render.dpi === 'number'
@@ -49,35 +57,37 @@ function isOcrIndexV2Page(value: unknown): value is IOcrIndexV2Page {
 
 export async function loadCachedOcrManifest(
     workingCopyPath: TDocumentRef,
+    documentRevisionToken: string,
     logScope = 'ocr',
-): Promise<IOcrIndexV2Manifest | null> {
-    const cachedManifest = sharedOcrTextContentCache.getManifest(workingCopyPath);
+): Promise<IOcrIndexV3Manifest | null> {
+    const cachedManifest = sharedOcrTextContentCache.getManifest(workingCopyPath, documentRevisionToken);
     if (cachedManifest !== undefined) {
         return cachedManifest;
     }
 
     try {
-        const manifest = await readOptionalOcrArtifactJson(workingCopyPath, 'manifest.json', isOcrIndexV2Manifest);
-        if (!manifest) {
-            sharedOcrTextContentCache.setManifest(workingCopyPath, null);
+        const manifest = await readOptionalOcrArtifactJson(workingCopyPath, 'manifest.json', isOcrIndexV3Manifest);
+        if (!manifest || manifest.documentRevision.token !== documentRevisionToken) {
+            sharedOcrTextContentCache.setManifest(workingCopyPath, documentRevisionToken, null);
             return null;
         }
-        sharedOcrTextContentCache.setManifest(workingCopyPath, manifest);
+        sharedOcrTextContentCache.setManifest(workingCopyPath, documentRevisionToken, manifest);
         return manifest;
     } catch (err) {
         BrowserLogger.warn(logScope, 'Failed to load OCR manifest', err);
-        sharedOcrTextContentCache.setManifest(workingCopyPath, null);
+        sharedOcrTextContentCache.setManifest(workingCopyPath, documentRevisionToken, null);
         return null;
     }
 }
 
 export async function loadCachedOcrPageData(
     workingCopyPath: TDocumentRef,
+    documentRevisionToken: string,
     pageNumber: number,
-    manifest: IOcrIndexV2Manifest,
+    manifest: IOcrIndexV3Manifest,
     logScope = 'ocr',
-): Promise<IOcrIndexV2Page | null> {
-    const cachedPageData = sharedOcrTextContentCache.getPageData(workingCopyPath, pageNumber);
+): Promise<IOcrIndexV3Page | null> {
+    const cachedPageData = sharedOcrTextContentCache.getPageData(workingCopyPath, documentRevisionToken, pageNumber);
     if (cachedPageData !== undefined) {
         return cachedPageData;
     }
@@ -88,11 +98,11 @@ export async function loadCachedOcrPageData(
     }
 
     try {
-        const pageData = await readOptionalOcrArtifactJson(workingCopyPath, pageMapping.path, isOcrIndexV2Page);
-        if (!pageData) {
+        const pageData = await readOptionalOcrArtifactJson(workingCopyPath, pageMapping.path, isOcrIndexV3Page);
+        if (!pageData || pageData.documentRevision.token !== documentRevisionToken) {
             throw new Error(`Invalid OCR page payload for page ${pageNumber}`);
         }
-        sharedOcrTextContentCache.setPageData(workingCopyPath, pageNumber, pageData);
+        sharedOcrTextContentCache.setPageData(workingCopyPath, documentRevisionToken, pageNumber, pageData);
         return pageData;
     } catch (err) {
         BrowserLogger.warn(logScope, `Failed to load OCR page ${pageNumber}`, err);

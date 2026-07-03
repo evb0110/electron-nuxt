@@ -11,10 +11,8 @@ import {
     vi,
 } from 'vitest';
 import { usePdfSkeletonInsets } from '@app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets';
-import type {
-    IContentInsets,
-    PDFPageProxy,
-} from '@app/types/pdf';
+import type { PDFPageProxy } from '@app/types/pdfContracts';
+import type { IContentInsets } from '@app/types/pdfUi';
 
 interface ISkeletonInsetsHarness {
     basePageHeight: ReturnType<typeof ref<number | null>>;

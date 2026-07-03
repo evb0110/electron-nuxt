@@ -9,7 +9,7 @@ import {
     capturePageAnchorScrollSnapshot,
     restorePageAnchorScrollSnapshot,
 } from '@app/utils/document-viewer/page-anchor-scroll-snapshot/pageAnchorScrollSnapshot';
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IScrollSnapshot } from '@app/types/pdfUi';
 
 function defineReadonlyNumber(element: HTMLElement, property: string, value: number) {
     Object.defineProperty(element, property, {

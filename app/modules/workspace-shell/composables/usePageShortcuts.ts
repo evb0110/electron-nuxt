@@ -5,7 +5,7 @@ import {
     whenever,
 } from '@vueuse/core';
 import type { TAnnotationTool } from '@app/types/annotations';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 import { shouldHandleRendererMenuAccelerators } from '@app/utils/shouldHandleRendererMenuAccelerators';
 
 interface IPdfViewerForShortcuts {deleteSelectedShape: () => void;}

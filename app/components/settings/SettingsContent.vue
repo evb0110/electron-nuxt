@@ -245,7 +245,7 @@ const assistantState = ref<IAgentAssistantState | null>(null);
 const assistantDeviceCode = ref('');
 const assistantAction = ref<'refresh' | 'install' | 'login' | 'cancel' | null>(null);
 const isAssistantBusy = computed(() => assistantAction.value !== null);
-let assistantPanelPreferenceSave: Promise<void> | null = null;
+let assistantPanelPreferenceSave: Promise<boolean> | null = null;
 let unsubscribeAssistantEvent: (() => void) | null = null;
 const shortcutsDescription = computed(() => isDesktopRuntime.value
     ? t('settings.shortcutsDescription')
@@ -492,15 +492,24 @@ async function updateAssistantPanelEnabled(enabled: boolean) {
     assistantPanelPreferenceSave = save().finally(() => {
         assistantPanelPreferenceSave = null;
     });
-    await assistantPanelPreferenceSave;
+    const saved = await assistantPanelPreferenceSave;
 
-    if (enabled) {
-        await refreshAssistantState();
+    if (!enabled) {
+        assistantState.value = null;
+        assistantDeviceCode.value = '';
+    }
+
+    if (!saved) {
+        toast.add({
+            color: 'error',
+            title: t('errors.file.save'),
+        });
         return;
     }
 
-    assistantState.value = null;
-    assistantDeviceCode.value = '';
+    if (enabled) {
+        await refreshAssistantState();
+    }
 }
 
 async function refreshAgentMcpStatus() {

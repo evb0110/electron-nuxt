@@ -11,7 +11,7 @@ import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/p
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
 import { resolveSpreadBaseWidth } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveSpreadBaseWidth';
-import type { IPdfPageMetric } from '@app/types/pdf';
+import type { IPdfPageMetric } from '@app/types/pdfUi';
 
 describe('pdfPageLayout', () => {
     it('builds per-page tops from variable page heights', () => {

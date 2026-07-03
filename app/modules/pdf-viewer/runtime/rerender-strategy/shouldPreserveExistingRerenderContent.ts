@@ -1,4 +1,4 @@
-import type { IPageRange } from '@app/types/pdf';
+import type { IPageRange } from '@app/types/pdfUi';
 import { shouldPreserveExistingPdfRerenderContent } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
 
 export function shouldPreserveExistingRerenderContent(options: {

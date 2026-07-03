@@ -1,6 +1,4 @@
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import { browserDocumentStore } from '@app/platform/browserDocumentStore';
-import { createCombinedPdfFromPaths } from '@app/platform/browser-api/public';
 import { hasElectronAPI } from '@app/utils/platform';
 import {
     getDocumentMenuCapability,
@@ -24,24 +22,6 @@ export interface ICombinePdfFilesOptions {
     outputName: string;
     openErrorMessage: string;
     onProgress?: (progress: ICombinePdfProgress) => void;
-}
-
-async function registerBrowserInputFiles(files: readonly ICombinePdfInputFile[]) {
-    const refs: string[] = [];
-    for (const entry of files) {
-        const ref = await browserDocumentStore.registerFile(entry.file, {
-            kind: 'source',
-            retention: 'transient',
-            saveKind: 'generic',
-            saveHandle: null,
-        });
-        refs.push(ref);
-    }
-    return refs;
-}
-
-async function cleanupRegisteredRefs(refs: string[]) {
-    await Promise.allSettled(refs.map(ref => browserDocumentStore.remove(ref)));
 }
 
 function emitCompleteProgress(
@@ -103,30 +83,30 @@ async function combineElectronFiles(options: ICombinePdfFilesOptions): Promise<T
 }
 
 async function combineBrowserFiles(options: ICombinePdfFilesOptions): Promise<TOpenFileResult> {
-    let refs: string[] = [];
     let latestProgress: ICombinePdfProgress | null = null;
-    try {
-        refs = await registerBrowserInputFiles(options.files);
-        const combinedPdf = await createCombinedPdfFromPaths(refs, {onProgress: (nextProgress) => {
+    const documentPicker = getDocumentPickerCapability();
+    if (!documentPicker.createCombinedPdfFromFiles) {
+        throw new Error(options.openErrorMessage);
+    }
+
+    const combinedPdf = await documentPicker.createCombinedPdfFromFiles(
+        options.files.map(entry => entry.file),
+        {onProgress: (nextProgress) => {
             latestProgress = nextProgress;
             options.onProgress?.(nextProgress);
-        }});
-        const workingPath = await getDocumentWorkingCopyCapability().createWorkingCopyFromData(
-            options.outputName,
-            combinedPdf,
-        );
-        emitCompleteProgress(options, latestProgress);
-        return {
-            kind: 'pdf',
-            workingPath,
-            originalPath: workingPath,
-            isGenerated: true,
-        };
-    } finally {
-        if (refs.length > 0) {
-            await cleanupRegisteredRefs(refs);
-        }
-    }
+        }},
+    );
+    const workingPath = await getDocumentWorkingCopyCapability().createWorkingCopyFromData(
+        options.outputName,
+        combinedPdf,
+    );
+    emitCompleteProgress(options, latestProgress);
+    return {
+        kind: 'pdf',
+        workingPath,
+        originalPath: workingPath,
+        isGenerated: true,
+    };
 }
 
 export function combinePdfFiles(options: ICombinePdfFilesOptions): Promise<TOpenFileResult> {

@@ -20,12 +20,16 @@ const DEFAULT_MAX_PAGE_BYTES = 64 * 1024 * 1024;
 
 const PAGE_CACHE_KEY_SEPARATOR = '\u0000';
 
-function makePageCacheKey(workingCopyPath: TDocumentRef, pageNumber: number) {
-    return `${workingCopyPath}${PAGE_CACHE_KEY_SEPARATOR}${pageNumber}`;
+function makeDocumentCacheKey(workingCopyPath: TDocumentRef, documentRevisionToken: string) {
+    return `${workingCopyPath}${PAGE_CACHE_KEY_SEPARATOR}${documentRevisionToken}`;
 }
 
-function makePageCachePrefix(workingCopyPath: TDocumentRef) {
+function makeDocumentCachePrefix(workingCopyPath: TDocumentRef) {
     return `${workingCopyPath}${PAGE_CACHE_KEY_SEPARATOR}`;
+}
+
+function makePageCacheKey(workingCopyPath: TDocumentRef, documentRevisionToken: string, pageNumber: number) {
+    return `${makeDocumentCacheKey(workingCopyPath, documentRevisionToken)}${PAGE_CACHE_KEY_SEPARATOR}${pageNumber}`;
 }
 
 function estimateOcrWordBytes(word: IOcrWord) {
@@ -146,22 +150,23 @@ export function createOcrTextContentCache(
     });
 
     return {
-        getManifest(workingCopyPath: TDocumentRef) {
-            return manifestCache.get(workingCopyPath);
+        getManifest(workingCopyPath: TDocumentRef, documentRevisionToken: string) {
+            return manifestCache.get(makeDocumentCacheKey(workingCopyPath, documentRevisionToken));
         },
-        setManifest(workingCopyPath: TDocumentRef, manifest: IOcrManifest | null) {
-            manifestCache.set(workingCopyPath, manifest);
+        setManifest(workingCopyPath: TDocumentRef, documentRevisionToken: string, manifest: IOcrManifest | null) {
+            manifestCache.set(makeDocumentCacheKey(workingCopyPath, documentRevisionToken), manifest);
         },
-        getPageData(workingCopyPath: TDocumentRef, pageNumber: number) {
-            return pageCache.get(makePageCacheKey(workingCopyPath, pageNumber));
+        getPageData(workingCopyPath: TDocumentRef, documentRevisionToken: string, pageNumber: number) {
+            return pageCache.get(makePageCacheKey(workingCopyPath, documentRevisionToken, pageNumber));
         },
-        setPageData(workingCopyPath: TDocumentRef, pageNumber: number, pageData: IOcrPageData) {
-            pageCache.set(makePageCacheKey(workingCopyPath, pageNumber), pageData);
+        setPageData(workingCopyPath: TDocumentRef, documentRevisionToken: string, pageNumber: number, pageData: IOcrPageData) {
+            pageCache.set(makePageCacheKey(workingCopyPath, documentRevisionToken, pageNumber), pageData);
         },
         clearCache(workingCopyPath?: TDocumentRef) {
             if (workingCopyPath) {
-                manifestCache.delete(workingCopyPath);
-                pageCache.clearPrefix(makePageCachePrefix(workingCopyPath));
+                const prefix = makeDocumentCachePrefix(workingCopyPath);
+                manifestCache.clearPrefix(prefix);
+                pageCache.clearPrefix(prefix);
                 return;
             }
 

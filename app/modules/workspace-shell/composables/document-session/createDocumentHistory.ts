@@ -1,5 +1,5 @@
 import { uniq } from 'es-toolkit/array';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IDocumentsFileIoCapability,

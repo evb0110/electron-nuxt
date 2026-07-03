@@ -87,6 +87,21 @@ function getHandler(channel: string) {
     return handler;
 }
 
+function createDeferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+    });
+
+    return {
+        promise,
+        reject,
+        resolve,
+    };
+}
+
 describe('registerDjvuIpcAdapter', () => {
     beforeEach(() => {
         mocks.handlers.clear();
@@ -278,6 +293,95 @@ describe('registerDjvuIpcAdapter', () => {
 
             expect(mocks.renderDjvuPagePreview).toHaveBeenCalledWith(canonicalRealPath, 1, {subsample: 3});
             expect(mocks.getDjvuPageCount).not.toHaveBeenCalled();
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('drops superseded queued native preview requests per sender before spawning conversion', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-preview-coalesce-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            const canonicalRealPath = realpathSync.native(realPath);
+            const firstPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number;
+            }>();
+            const secondPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number;
+            }>();
+            const fourthPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number;
+            }>();
+            mocks.renderDjvuPagePreview
+                .mockReturnValueOnce(firstPreview.promise)
+                .mockReturnValueOnce(secondPreview.promise)
+                .mockReturnValueOnce(fourthPreview.promise);
+
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const event = {sender: {id: 9}};
+            allowOpenPath(realPath, event.sender as never);
+            registerDjvuIpcAdapter();
+            const handler = getHandler('djvu:renderPagePreview');
+
+            const firstRun = handler(event, realPath, 1, {
+                previewRequestId: 'preview-1',
+                subsample: 3,
+            });
+            const secondRun = handler(event, realPath, 1, {
+                previewRequestId: 'preview-2',
+                subsample: 3,
+            });
+            const thirdRun = handler(event, realPath, 1, {
+                previewRequestId: 'preview-3',
+                subsample: 3,
+            });
+            const fourthRun = handler(event, realPath, 1, {
+                previewRequestId: 'preview-4',
+                subsample: 3,
+            });
+
+            await Promise.resolve();
+            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2);
+
+            firstPreview.resolve({
+                bytes: new Uint8Array([1]),
+                width: 100,
+                height: 200,
+            });
+
+            await expect(thirdRun).rejects.toThrow('DjVu preview request superseded');
+            await Promise.resolve();
+
+            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(3);
+            expect(mocks.renderDjvuPagePreview).toHaveBeenNthCalledWith(3, canonicalRealPath, 1, {
+                previewRequestId: 'preview-4',
+                subsample: 3,
+            });
+
+            secondPreview.resolve({
+                bytes: new Uint8Array([2]),
+                width: 100,
+                height: 200,
+            });
+            fourthPreview.resolve({
+                bytes: new Uint8Array([4]),
+                width: 100,
+                height: 200,
+            });
+
+            await expect(firstRun).resolves.toMatchObject({width: 100});
+            await expect(secondRun).resolves.toMatchObject({width: 100});
+            await expect(fourthRun).resolves.toMatchObject({width: 100});
         } finally {
             rmSync(tempRoot, {
                 force: true,

@@ -6,7 +6,7 @@ import type {
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type { IPdfSerializedPlacedImagePayload } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-placed-images/pdfSerializedPlacedImagePayload';
 

@@ -18,13 +18,16 @@ import {
 } from 'path';
 import { randomUUID } from 'crypto';
 import { pathToFileURL } from 'url';
-import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { extractPages } from '@electron/features/page-ops/public';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { getAppTempDir } from '@electron/utils/appTempDir';
-import type { IDocumentsWindowContext } from '@electron/features/documents/documentsService';
+import type {
+    IDocumentsSenderIdContext,
+    IDocumentsWindowContext,
+} from '@electron/features/documents/documentsService';
+import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
 
 const logger = createLogger('documents-print');
 // Low-end Windows machines can report the PDF plugin as loaded before it has painted.
@@ -229,11 +232,8 @@ async function openPdfInDefaultApp(path: string): Promise<IOpenPdfInDefaultAppRe
     }
 }
 
-async function resolveAllowedPdfPath(filePath: string) {
-    const resolvedPath = await resolveAllowedReadPath(filePath);
-    if (!resolvedPath || extname(resolvedPath).toLowerCase() !== '.pdf') {
-        throw new Error('Invalid PDF path');
-    }
+async function resolveReadablePdfPathForSender(filePath: string, senderId?: number) {
+    const resolvedPath = await resolveExistingReadablePdfPath(filePath, senderId);
     await assertPdfPathWithinSizeLimit(resolvedPath);
     return resolvedPath;
 }
@@ -453,10 +453,11 @@ export async function handleOpenPdfInDefaultAppData(
 }
 
 export async function handleOpenPdfInDefaultAppPath(
+    context: IDocumentsSenderIdContext,
     filePath: string,
     _fileName?: string,
 ): Promise<IOpenPdfInDefaultAppResult> {
-    const resolvedPath = await resolveAllowedPdfPath(filePath);
+    const resolvedPath = await resolveReadablePdfPathForSender(filePath, context.senderId);
     return openPdfInDefaultApp(resolvedPath);
 }
 
@@ -467,7 +468,7 @@ export async function handlePrintPdfPath(
     pageNumbers?: number[],
 ): Promise<IPrintPdfResult> {
     const ownerWindow = context.window ?? undefined;
-    const resolvedPath = await resolveAllowedPdfPath(filePath);
+    const resolvedPath = await resolveReadablePdfPathForSender(filePath, context.senderId);
     const normalizedPageNumbers = normalizePrintPageNumbers(pageNumbers);
     if (!normalizedPageNumbers) {
         return openNativePrintDialogForPath(ownerWindow, resolvedPath);

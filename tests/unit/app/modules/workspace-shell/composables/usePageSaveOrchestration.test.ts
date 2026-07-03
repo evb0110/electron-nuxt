@@ -12,7 +12,7 @@ import {
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { IFileOperationsSaveAdapterPorts } from '@app/modules/workspace-shell/composables/file-operations/saveRolePorts';
 import { cast } from '@tests/helpers/cast';
 

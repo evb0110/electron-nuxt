@@ -2,11 +2,13 @@ import type { TSplitPayload } from '@contracts/windowTabs';
 import type { Ref } from 'vue';
 import { omit } from 'es-toolkit/object';
 import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot';
+import type { IWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 
 interface IWorkspaceSplitCacheEntry {
     id: string;
     payload: TSplitPayload;
     createdAt: number;
+    session?: IWorkspaceSplitCacheSessionState;
 }
 
 const CACHE_TTL_MS = 2 * 60 * 1000;
@@ -49,6 +51,7 @@ function clonePayload(payload: TSplitPayload): TSplitPayload {
         return {
             kind: 'djvu',
             sourcePath: payload.sourcePath,
+            ...(payload.sourceBackend === undefined ? {} : {sourceBackend: payload.sourceBackend}),
             ...(payload.currentPage !== undefined ? { currentPage: payload.currentPage } : {}),
             ...(payload.totalPages !== undefined ? { totalPages: payload.totalPages } : {}),
         };
@@ -58,11 +61,42 @@ function clonePayload(payload: TSplitPayload): TSplitPayload {
         kind: 'pdfSnapshot',
         fileName: payload.fileName,
         originalPath: payload.originalPath,
+        ...(payload.originalBackend === undefined ? {} : {originalBackend: payload.originalBackend}),
         snapshotPath: payload.snapshotPath,
+        ...(payload.snapshotBackend === undefined ? {} : {snapshotBackend: payload.snapshotBackend}),
         isDirty: payload.isDirty,
         ...(payload.currentPage !== undefined ? { currentPage: payload.currentPage } : {}),
         ...(payload.totalPages !== undefined ? { totalPages: payload.totalPages } : {}),
     };
+}
+
+function cloneSession(
+    session: IWorkspaceSplitCacheSessionState | null | undefined,
+) {
+    return session === undefined || session === null
+        ? undefined
+        : {
+            sessionId: session.sessionId,
+            sessionRevision: session.sessionRevision,
+            documentRef: session.documentRef,
+            ...(session.documentBackend === undefined ? {} : {documentBackend: session.documentBackend}),
+            ...(session.documentRevisionToken === undefined ? {} : {documentRevisionToken: session.documentRevisionToken}),
+        };
+}
+
+function entryMatchesSession(
+    entry: IWorkspaceSplitCacheEntry,
+    expectedSession: IWorkspaceSplitCacheSessionState | null | undefined,
+) {
+    if (!expectedSession || !entry.session) {
+        return true;
+    }
+
+    return entry.session.sessionId === expectedSession.sessionId
+        && entry.session.sessionRevision === expectedSession.sessionRevision
+        && entry.session.documentRef === expectedSession.documentRef
+        && entry.session.documentBackend === expectedSession.documentBackend
+        && entry.session.documentRevisionToken === expectedSession.documentRevisionToken;
 }
 
 function omitCacheEntry(
@@ -134,7 +168,11 @@ export const useWorkspaceSplitCache = () => {
     const splitPayloadCache = useSplitPayloadCache();
     const splitPayloadCacheRevision = useSplitPayloadCacheRevision();
 
-    function set(tabId: string, payload: TSplitPayload | null | undefined) {
+    function set(
+        tabId: string,
+        payload: TSplitPayload | null | undefined,
+        options: {session?: IWorkspaceSplitCacheSessionState | null} = {},
+    ) {
         const previousEntry = splitPayloadCache.value[tabId];
 
         if (!payload || payload.kind === 'empty') {
@@ -155,12 +193,14 @@ export const useWorkspaceSplitCache = () => {
         }
 
         const id = createCacheEntryId();
+        const session = cloneSession(options.session);
         splitPayloadCache.value = {
             ...splitPayloadCache.value,
             [tabId]: {
                 id,
                 payload: clonePayload(payload),
                 createdAt: Date.now(),
+                ...(session === undefined ? {} : {session}),
             },
         };
         bumpCacheRevision(splitPayloadCacheRevision);
@@ -182,28 +222,38 @@ export const useWorkspaceSplitCache = () => {
         return id;
     }
 
-    function peek(tabId: string): {
+    function peek(
+        tabId: string,
+        options: {session?: IWorkspaceSplitCacheSessionState | null} = {},
+    ): {
         id: string;
         payload: TSplitPayload;
+        session?: IWorkspaceSplitCacheSessionState;
     } | null {
         pruneCache(splitPayloadCache, splitPayloadCacheRevision);
 
         const entry = splitPayloadCache.value[tabId];
-        if (!entry) {
+        if (!entry || !entryMatchesSession(entry, options.session)) {
             return null;
         }
 
+        const session = cloneSession(entry.session);
         return {
             id: entry.id,
             payload: clonePayload(entry.payload),
+            ...(session === undefined ? {} : {session}),
         };
     }
 
-    function consume(tabId: string, entryId?: string | null): TSplitPayload | null {
+    function consume(
+        tabId: string,
+        entryId?: string | null,
+        options: {session?: IWorkspaceSplitCacheSessionState | null} = {},
+    ): TSplitPayload | null {
         pruneCache(splitPayloadCache, splitPayloadCacheRevision);
 
         const entry = splitPayloadCache.value[tabId];
-        if (!entry || (entryId && entry.id !== entryId)) {
+        if (!entry || (entryId && entry.id !== entryId) || !entryMatchesSession(entry, options.session)) {
             return null;
         }
 
@@ -212,10 +262,17 @@ export const useWorkspaceSplitCache = () => {
         return clonePayload(entry.payload);
     }
 
-    function has(tabId: string) {
+    function has(
+        tabId: string,
+        options: {session?: IWorkspaceSplitCacheSessionState | null} = {},
+    ) {
         void splitPayloadCacheRevision.value;
         const entry = splitPayloadCache.value[tabId];
         if (!entry) {
+            return false;
+        }
+
+        if (!entryMatchesSession(entry, options.session)) {
             return false;
         }
 

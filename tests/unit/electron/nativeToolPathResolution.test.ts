@@ -136,14 +136,16 @@ describe('native tool binary path primitives', () => {
         })).toBe(path.join('/opt/homebrew/bin', 'qpdf'));
     });
 
-    it('returns the bundled path for required packaged tools even before the file exists', () => {
-        expect(getNativeToolBinaryPath({
+    it('throws a standardized missing-binary error for required packaged tools', () => {
+        expect(() => getNativeToolBinaryPath({
             dir: '/app/Contents/MacOS/native-tools/qpdf/darwin-arm64',
             exists: () => false,
             isPackaged: true,
             name: 'qpdf',
             platform: 'darwin',
-        })).toBe(path.join('/app/Contents/MacOS/native-tools/qpdf/darwin-arm64', 'bin', 'qpdf'));
+        })).toThrow(`Missing required native tool binary "qpdf" at ${
+            path.join('/app/Contents/MacOS/native-tools/qpdf/darwin-arm64', 'bin', 'qpdf')
+        }`);
     });
 
     it('keeps optional missing tools empty and Windows executables suffixed', () => {

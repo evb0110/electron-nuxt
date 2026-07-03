@@ -3,7 +3,8 @@ import type {
     Ref,
 } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TPdfSource } from '@app/types/pdfUi';
 import type {
     IDocumentViewerExpose,
     IPdfViewerExpose,
@@ -36,6 +37,7 @@ interface IWorkspaceViewerAdapterBindingOptions {
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
     nativePdfViewerRef: Ref<IDocumentViewerExpose | null>;
     djvuViewerRef: Ref<IDocumentViewerExpose | null>;
+    documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     sourcePdfData: Ref<Uint8Array | null> | ComputedRef<Uint8Array | null>;
     viewMode: Ref<unknown>;
     workingCopyPath: Ref<TDocumentRef | null>;
@@ -105,6 +107,7 @@ export const useWorkspaceViewerAdapterBinding = (options: IWorkspaceViewerAdapte
                 currentSearchMatch: options.currentSearchMatch.value,
                 currentSearchMatchNavigationId: options.currentResultNavigationId.value,
                 workingCopyPath: options.workingCopyPath.value,
+                documentRevisionToken: options.documentRevisionToken.value,
                 authorName: options.authorName.value,
             };
         }

@@ -12,7 +12,7 @@ import {
 import type { Ref } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePdfHistory } from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { TWorkspaceUndoSource } from '@app/types/workspaceUndoSource';
 import { cast } from '@tests/helpers/cast';
 

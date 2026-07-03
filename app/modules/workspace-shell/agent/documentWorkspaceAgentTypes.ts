@@ -1,12 +1,13 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { ICropMargins } from '@app/types/crop';
 import type {
-    IPdfBookmarkChangePayload,
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
 import type {
     IAnnotationCommentSummary,
     TAnnotationCommentsStatus,
@@ -45,6 +46,7 @@ export interface IUseDocumentWorkspaceAgentOptions {
     closeTextMarkupProperties: () => void;
     continuousScroll: Ref<boolean>;
     currentPage: Ref<number>;
+    documentIdentity: Ref<IDocumentRevisionInfo | null>;
     fitMode: Ref<unknown>;
     handleActualSize: () => void;
     handleAnnotationFocusComment: (comment: IAnnotationCommentSummary) => Promise<void>;

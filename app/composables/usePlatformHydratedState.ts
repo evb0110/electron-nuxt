@@ -14,7 +14,32 @@ interface IUsePlatformHydratedStateOptions<T> {
     markResolvedOnError?: (error: unknown) => boolean;
 }
 
-const loadPromises = new Map<string, Promise<unknown>>();
+interface IPlatformHydratedLoadSuccess<T> {
+    ok: true;
+    value: T;
+}
+
+interface IPlatformHydratedLoadFailure {
+    ok: false;
+    error: unknown;
+}
+
+type TPlatformHydratedLoadResult<T> =
+    | IPlatformHydratedLoadSuccess<T>
+    | IPlatformHydratedLoadFailure;
+
+interface IPlatformHydratedLoadRecord { promise: Promise<TPlatformHydratedLoadResult<unknown>> | null; }
+
+const loadRecords = new Map<string, IPlatformHydratedLoadRecord>();
+
+function getLoadRecord(key: string) {
+    let record = loadRecords.get(key);
+    if (!record) {
+        record = { promise: null };
+        loadRecords.set(key, record);
+    }
+    return record;
+}
 
 export const usePlatformHydratedState = <T>(
     options: IUsePlatformHydratedStateOptions<T>,
@@ -23,6 +48,7 @@ export const usePlatformHydratedState = <T>(
     const isLoading = useState(`${options.key}:is-loading`, () => false);
     const isResolved = useState(`${options.key}:is-resolved`, () => options.initialResolved);
     const error = useState<string | null>(`${options.key}:error`, () => null);
+    const loadRecord = getLoadRecord(options.key);
     let isDisposed = false;
     const retry = useTimeoutFn(() => {
         if (isDisposed) {
@@ -48,55 +74,67 @@ export const usePlatformHydratedState = <T>(
         retry.start();
     }
 
-    async function load() {
-        const existingPromise = loadPromises.get(options.key) as Promise<T | null> | undefined;
-        if (existingPromise) {
-            return existingPromise;
+    function startSharedLoad() {
+        if (loadRecord.promise) {
+            return loadRecord.promise as Promise<TPlatformHydratedLoadResult<T>>;
         }
+        const nextPromise = (async () => {
+            isLoading.value = true;
+            error.value = null;
+
+            try {
+                const nextValue = await options.loadValue();
+                state.value = nextValue;
+                isResolved.value = true;
+                return {
+                    ok: true,
+                    value: nextValue,
+                } satisfies IPlatformHydratedLoadSuccess<T>;
+            } catch (loadError) {
+                error.value = options.getErrorMessage?.(loadError)
+                    ?? getErrorMessage(loadError);
+                if (options.markResolvedOnError?.(loadError) ?? false) {
+                    isResolved.value = true;
+                }
+                return {
+                    ok: false,
+                    error: loadError,
+                } satisfies IPlatformHydratedLoadFailure;
+            } finally {
+                isLoading.value = false;
+                loadRecord.promise = null;
+            }
+        })();
+
+        loadRecord.promise = nextPromise;
+        return nextPromise;
+    }
+
+    async function load() {
         if (isDisposed) {
             return null;
         }
 
-        const nextPromise = (async () => {
-            isLoading.value = true;
-            error.value = null;
-            let shouldRetry = false;
+        const result = await startSharedLoad();
+        if (isDisposed) {
+            return null;
+        }
 
-            try {
-                const nextValue = await options.loadValue();
-                if (isDisposed) {
-                    return null;
-                }
-                state.value = nextValue;
-                options.onLoaded?.(nextValue);
-                isResolved.value = true;
-                clearRetryTimer();
-                return nextValue;
-            } catch (loadError) {
-                if (isDisposed) {
-                    return null;
-                }
-                error.value = options.getErrorMessage?.(loadError)
-                    ?? getErrorMessage(loadError);
-                options.onError?.(loadError);
-                shouldRetry = options.shouldRetry?.(loadError) ?? false;
-                if (!shouldRetry && (options.markResolvedOnError?.(loadError) ?? false)) {
-                    isResolved.value = true;
-                }
-                return null;
-            } finally {
-                if (!isDisposed) {
-                    isLoading.value = false;
-                }
-                loadPromises.delete(options.key);
-                if (shouldRetry && !isDisposed) {
-                    scheduleRetry();
-                }
-            }
-        })();
+        if (result.ok) {
+            options.onLoaded?.(result.value);
+            clearRetryTimer();
+            return result.value;
+        }
 
-        loadPromises.set(options.key, nextPromise);
-        return nextPromise;
+        options.onError?.(result.error);
+        const shouldRetry = options.shouldRetry?.(result.error) ?? false;
+        if (!shouldRetry && (options.markResolvedOnError?.(result.error) ?? false)) {
+            isResolved.value = true;
+        }
+        if (shouldRetry) {
+            scheduleRetry();
+        }
+        return null;
     }
 
     if (getCurrentScope()) {

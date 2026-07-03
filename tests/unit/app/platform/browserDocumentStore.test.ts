@@ -566,6 +566,67 @@ describe('BrowserDocumentStore', () => {
         await expect(store.stat(workingRef)).resolves.toEqual({ size: 6 });
     });
 
+    it('returns browser document revisions that follow source-proxy content changes', async () => {
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.createStoredDocument(
+            'revision-source.pdf',
+            new Uint8Array([1]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+        const events: Array<{
+            documentRef: string;
+            previousToken?: string;
+            token: string
+        }> = [];
+        const unsubscribe = store.onDocumentRevisionChanged((event) => {
+            const revisionEvent: {
+                documentRef: string;
+                previousToken?: string;
+                token: string
+            } = {
+                documentRef: event.documentRef,
+                token: event.token,
+            };
+            if (event.previousToken !== undefined) {
+                revisionEvent.previousToken = event.previousToken;
+            }
+            events.push(revisionEvent);
+        });
+
+        const initialRevision = await store.getDocumentRevision(workingRef);
+        await store.write(sourceRef, new Uint8Array([2]));
+        const nextRevision = await store.getDocumentRevision(workingRef);
+        unsubscribe();
+
+        expect(initialRevision).toMatchObject({
+            version: 1,
+            documentRef: workingRef,
+            authority: 'browser-document-store',
+            contentRevision: 1,
+        });
+        expect(initialRevision.token).toMatch(/^drt1:browser:/u);
+        expect(nextRevision.documentRef).toBe(workingRef);
+        expect(nextRevision.contentRevision).toBe(2);
+        expect(nextRevision.token).not.toBe(initialRevision.token);
+        expect(events).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                documentRef: sourceRef,
+                previousToken: initialRevision.token,
+                token: nextRevision.token,
+            }),
+            expect.objectContaining({
+                documentRef: workingRef,
+                previousToken: initialRevision.token,
+                token: nextRevision.token,
+            }),
+        ]));
+    });
+
     it('persists chunked documents and supports range reads without inline bytes', async () => {
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(

@@ -2,6 +2,7 @@ import type {
     ITab,
     TTabUpdate,
 } from '@app/types/tabs';
+import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     createDefaultWorkspaceViewerCapabilities,
@@ -15,12 +16,14 @@ export type TWorkspaceDocumentTabState = Pick<ITab, 'fileName' | 'originalPath' 
 
 export interface IWorkspaceDocumentRecord {
     tab: TWorkspaceDocumentTabState;
+    documentIdentity: IDocumentRevisionInfo | null;
     toolbarSnapshot: IWorkspaceToolbarSnapshot;
     viewState: ITabViewSessionState;
 }
 
 interface ICreateWorkspaceDocumentRecordOptions {
     tab?: TTabUpdate | TWorkspaceDocumentTabState | undefined;
+    documentIdentity?: IDocumentRevisionInfo | null | undefined;
     toolbarSnapshot?: Partial<IWorkspaceToolbarSnapshot> | undefined;
     viewState?: ITabViewSessionState | undefined;
 }
@@ -67,6 +70,7 @@ export function createWorkspaceDocumentRecord(
     const toolbarSnapshot = normalizeWorkspaceToolbarSnapshot(options.toolbarSnapshot);
     return {
         tab: normalizeTabState(options.tab),
+        documentIdentity: options.documentIdentity ?? null,
         toolbarSnapshot,
         viewState: options.viewState ?? createTabViewSessionState(toolbarSnapshot),
     };

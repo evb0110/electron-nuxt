@@ -1,4 +1,8 @@
-import type { IpcRenderer } from 'electron';
+import type {
+    IpcRenderer,
+    IpcRendererEvent,
+} from 'electron';
+import type { IDocumentRevisionChangedEvent } from '@contracts/documentRevision';
 import type {
     IDocumentsFileCapability,
     IDocumentChunkReadOptions,
@@ -30,6 +34,7 @@ import {
 } from '@contracts/documentPersistenceFrames';
 import {
     DOCUMENTS_CHANNELS,
+    DOCUMENTS_EVENT_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
 import { createTypedIpcInvoker } from '@electron/preload/ipcClient';
@@ -43,6 +48,8 @@ import {
 } from '@electron/features/documents/preloadShared';
 
 type TDocumentsPreloadFileClient = Omit<IDocumentsFileCapability, 'getPathForFile' | 'getPathsForFiles'>;
+type TDocumentsFileIpcRenderer = Pick<IpcRenderer, 'invoke' | 'postMessage'>
+    & Partial<Pick<IpcRenderer, 'on' | 'removeListener'>>;
 const PDF_PERSISTENCE_CHUNK_BYTES = PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES;
 const PDF_PERSISTENCE_MAX_IN_FLIGHT_CHUNKS = PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS;
 const PDF_PERSISTENCE_READY_TIMEOUT_MS = 10_000;
@@ -352,7 +359,7 @@ async function streamPdfBytesToPersistencePort(
 }
 
 export function createDocumentsPreloadFileClient(
-    ipcRenderer: Pick<IpcRenderer, 'invoke' | 'postMessage'>,
+    ipcRenderer: TDocumentsFileIpcRenderer,
 ): TDocumentsPreloadFileClient {
     const invoke = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const openDocumentDialog = () => invoke(DOCUMENTS_CHANNELS.openDocumentDialog);
@@ -444,6 +451,27 @@ export function createDocumentsPreloadFileClient(
         },
         readTextFile: (path) => invoke(DOCUMENTS_CHANNELS.fileReadText, path),
         fileExists: (path) => invoke(DOCUMENTS_CHANNELS.fileExists, path),
+        getDocumentRevision: (path) =>
+            invoke(
+                DOCUMENTS_CHANNELS.documentRevisionGet,
+                assertAbsolutePath(path, 'getDocumentRevision.path'),
+            ),
+        onDocumentRevisionChanged: (callback) => {
+            if (
+                typeof ipcRenderer.on !== 'function'
+                || typeof ipcRenderer.removeListener !== 'function'
+            ) {
+                return () => undefined;
+            }
+            const handler = (
+                _event: IpcRendererEvent,
+                payload: IDocumentRevisionChangedEvent,
+            ) => callback(payload);
+            ipcRenderer.on(DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged, handler);
+            return () => {
+                ipcRenderer.removeListener?.(DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged, handler);
+            };
+        },
         analyzePdfConformance: (path) =>
             invoke(
                 DOCUMENTS_CHANNELS.pdfAnalyzeConformance,
@@ -529,6 +557,11 @@ export function createDocumentsPreloadFileClient(
                 assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromPath.originalPath'),
             ),
         saveFile: (path) => invoke(DOCUMENTS_CHANNELS.fileSave, path),
+        saveFileStructured: (path) =>
+            invoke(
+                DOCUMENTS_CHANNELS.fileSaveStructured,
+                assertAbsolutePath(path, 'saveFileStructured.path'),
+            ),
         repairPdf: (path) =>
             invoke(
                 DOCUMENTS_CHANNELS.fileRepairPdf,

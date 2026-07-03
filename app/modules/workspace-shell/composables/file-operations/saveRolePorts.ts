@@ -11,11 +11,13 @@ import type {
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
+    TPdfSaveMode,
+} from '@app/types/pdfContracts';
+import type {
     IPdfPersistResult,
     IPdfSaveResult,
     IScrollSnapshot,
-    TPdfSaveMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IPdfNativeAnnotationDelete,
@@ -27,6 +29,7 @@ import type {
 import type {
     IMarkupSubtypeHint,
     IPdfViewerAnnotationCommentExpose,
+    IPdfViewerSaveExpose,
     IPdfViewerShapeExpose,
 } from '@app/modules/pdf-viewer/public';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
@@ -75,6 +78,7 @@ export interface IWorkspaceSaveMetadataCompletionPort {
 
 export interface IWorkspaceSavePdfSourcePort {
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
+    runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
     saveDocument: () => Promise<Uint8Array | null>;
     getSourcePdfData: () => Promise<Uint8Array | null>;
     commitPdfEditorsForSave?: () => Promise<void>;
@@ -153,6 +157,9 @@ export interface IWorkspaceSaveMarkupSourcePort {
     getMarkupSubtypeOverrides?: () => Map<string, TMarkupSubtype> | undefined;
     getMarkupSubtypeHints?: () => IMarkupSubtypeHint[] | undefined;
     getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[] | undefined;
+    getPendingEmbeddedMutationSnapshot?: () => ReturnType<
+        NonNullable<IPdfViewerAnnotationCommentExpose['getPendingEmbeddedMutationSnapshot']>
+    > | undefined;
 }
 
 export interface IWorkspaceSaveShapeQueryPort {
@@ -250,6 +257,7 @@ export interface IWorkspacePdfViewerSaveAnnotationSourcePort extends
     >,
     Pick<IPdfViewerAnnotationCommentExpose,
         'getAnnotationCommentsSnapshot'
+        | 'getPendingEmbeddedMutationSnapshot'
         | 'getMarkupSubtypeHints'
         | 'getMarkupSubtypeOverrides'
     >,

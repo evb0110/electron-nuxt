@@ -21,6 +21,9 @@ export function cloneAssistantScope(scope: IAgentAssistantChatScope): IAgentAssi
         title: scope.title,
         ...(scope.tabId == null ? {} : {tabId: scope.tabId}),
         ...(scope.documentRef == null ? {} : {documentRef: scope.documentRef}),
+        ...(scope.documentBackend === undefined ? {} : {documentBackend: scope.documentBackend}),
+        ...(scope.documentIdentity == null ? {} : {documentIdentity: {...scope.documentIdentity}}),
+        ...(scope.commandTarget === undefined ? {} : {commandTarget: {...scope.commandTarget}}),
     };
 }
 

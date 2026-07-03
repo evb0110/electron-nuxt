@@ -1,6 +1,6 @@
 import { uniq } from 'es-toolkit/array';
 import { range as createRange } from 'es-toolkit/math';
-import type { IPdfPageRange } from '@app/types/pdf';
+import type { IPdfPageRange } from '@app/types/pdfUi';
 
 export interface IPageThumbnailClickModifiers {
     shiftKey?: boolean;

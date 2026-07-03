@@ -9,6 +9,10 @@ import {
 import type { AddressInfo } from 'net';
 import { randomBytes } from 'node:crypto';
 import type {
+    IAgentTabSnapshot,
+    TAgentWorkspaceCommandTarget,
+} from '@contracts/agent';
+import type {
     ILocalMcpServerDescriptor,
     ILocalMcpServerIdentity,
     IProcessMcpRequestOptions,
@@ -21,6 +25,12 @@ import {
     requestAgentCommand,
     requestAgentWorkspaceSnapshot,
 } from '@electron/features/agent/workspaceBridge';
+import {
+    assertAssistantMcpSnapshotMatchesScope,
+    clearAssistantMcpSessionScope,
+    createAssistantCommandExecutionScope,
+    resolveAssistantMcpSessionScope,
+} from '@electron/features/agent/assistantMcpSessionScope';
 import {
     inspectAgentDocumentText,
     readAgentDocumentPages,
@@ -141,9 +151,141 @@ export function isLocalMcpServerRunning() {
     return localMcpServer !== null;
 }
 
-function createDefaultMcpRequestOptions(identity: ILocalMcpServerIdentity): IProcessMcpRequestOptions {
+function resolveInternalAssistantWindow(windowId?: number) {
+    const binding = resolveAssistantMcpSessionScope(windowId);
+    const window = getWindowByIdFromRegistry(binding.windowId);
+    if (!window) {
+        throw new Error('No live renderer window is available for the active assistant MCP turn.');
+    }
+    return {
+        binding,
+        window,
+    };
+}
+
+function assertInternalInputTabMatchesBinding(
+    tab: IAgentTabSnapshot,
+    binding: ReturnType<typeof resolveAssistantMcpSessionScope>,
+) {
+    if (tab.tabId !== binding.tabId) {
+        throw new Error('Internal EVB MCP request targeted a different tab than the active assistant turn.');
+    }
+    if (
+        binding.commandTarget
+        && !commandTargetsMatch(binding.commandTarget, tab.commandTarget)
+    ) {
+        throw new Error('The active assistant document changed before the internal EVB MCP request completed.');
+    }
+    if (binding.documentIdentity === null) {
+        return;
+    }
+    if (
+        tab.documentIdentity?.token !== binding.documentIdentity.token
+        || tab.documentIdentity.documentRef !== binding.documentIdentity.documentRef
+    ) {
+        throw new Error('The active assistant document changed before the internal EVB MCP request completed.');
+    }
+}
+
+function commandTargetsMatch(
+    expected: TAgentWorkspaceCommandTarget,
+    actual: TAgentWorkspaceCommandTarget | undefined,
+) {
+    if (!actual) {
+        return false;
+    }
+
+    if (
+        expected.kind !== actual.kind
+        || expected.tabId !== actual.tabId
+        || expected.sessionId !== actual.sessionId
+        || expected.documentRef !== actual.documentRef
+        || expected.documentBackend !== actual.documentBackend
+        || expected.documentRevisionToken !== actual.documentRevisionToken
+    ) {
+        return false;
+    }
+
+    return expected.kind === 'transaction'
+        ? actual.kind === 'transaction' && expected.transactionId === actual.transactionId
+        : actual.kind === 'revision' && expected.sessionRevision === actual.sessionRevision;
+}
+
+function createDefaultMcpRequestOptions(
+    identity: ILocalMcpServerIdentity,
+    callerKind: 'external' | 'internal',
+): IProcessMcpRequestOptions {
+    if (callerKind === 'internal') {
+        return {
+            identity,
+            callerKind,
+            getWorkspaceSnapshot: async (windowId) => {
+                const {
+                    binding,
+                    window,
+                } = resolveInternalAssistantWindow(windowId);
+                const snapshot = await requestAgentWorkspaceSnapshot(
+                    window,
+                    undefined,
+                    createAssistantCommandExecutionScope(binding),
+                );
+                assertAssistantMcpSnapshotMatchesScope(snapshot, binding);
+                return snapshot;
+            },
+            runCommand: async (command, windowId) => {
+                const {
+                    binding,
+                    window,
+                } = resolveInternalAssistantWindow(windowId);
+                const scope = createAssistantCommandExecutionScope(binding);
+                const snapshot = await requestAgentWorkspaceSnapshot(window, undefined, scope);
+                assertAssistantMcpSnapshotMatchesScope(snapshot, binding);
+                return requestAgentCommand(
+                    window,
+                    command,
+                    undefined,
+                    scope,
+                );
+            },
+            inspectDocumentText: async (input, windowId) => {
+                const {
+                    binding,
+                    window,
+                } = resolveInternalAssistantWindow(windowId);
+                if (!window) {
+                    throw new Error('No live renderer window is available for document text inspection.');
+                }
+                assertInternalInputTabMatchesBinding(input.tab, binding);
+                return inspectAgentDocumentText(window, input);
+            },
+            searchDocument: async (input, windowId) => {
+                const {
+                    binding,
+                    window,
+                } = resolveInternalAssistantWindow(windowId);
+                if (!window) {
+                    throw new Error('No live renderer window is available for document search.');
+                }
+                assertInternalInputTabMatchesBinding(input.tab, binding);
+                return searchAgentDocument(window, input);
+            },
+            readDocumentPages: async (input, windowId) => {
+                const {
+                    binding,
+                    window,
+                } = resolveInternalAssistantWindow(windowId);
+                if (!window) {
+                    throw new Error('No live renderer window is available for document page text reading.');
+                }
+                assertInternalInputTabMatchesBinding(input.tab, binding);
+                return readAgentDocumentPages(window, input);
+            },
+        };
+    }
+
     return {
         identity,
+        callerKind,
         getWorkspaceSnapshot: async (windowId) => {
             const window = resolveAgentWindow(windowId);
             return requestAgentWorkspaceSnapshot(window);
@@ -187,10 +329,7 @@ export function startLocalMcpServer() {
 
     const port = resolveConfiguredLocalMcpPort();
     const identity = createLocalMcpServerIdentity(port);
-    const options = {
-        ...createDefaultMcpRequestOptions(identity),
-        callerKind: 'external' as const,
-    };
+    const options = {...createDefaultMcpRequestOptions(identity, 'external')};
 
     const server = createServer(createHttpHandler(options, { bearerToken }));
     localMcpServer = server;
@@ -289,10 +428,7 @@ export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
         const identity = createLocalMcpServerIdentity(0);
         identity.name = ASSISTANT_MCP_SERVER_NAME;
         identity.title = `${identity.title} Assistant`;
-        const options = {
-            ...createDefaultMcpRequestOptions(identity),
-            callerKind: 'internal' as const,
-        };
+        const options = createDefaultMcpRequestOptions(identity, 'internal');
         const server = createServer(createHttpHandler(options, { bearerToken: token }));
         // Track the binding server immediately so a shutdown racing the bind can always close it.
         embeddedMcpServer = server;
@@ -364,6 +500,7 @@ export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
 }
 
 export function shutdownEmbeddedMcpServer() {
+    clearAssistantMcpSessionScope();
     const server = embeddedMcpServer;
     embeddedMcpServer = null;
     embeddedMcpServerDescriptor = null;

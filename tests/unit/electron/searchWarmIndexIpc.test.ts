@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
     workerRecords: [] as IWarmIndexMockWorkerRecord[],
     resolveAllowedReadPath: vi.fn(),
     findWorkingCopyPathByOriginalPath: vi.fn(),
+    getWorkingCopyRevision: vi.fn(),
     logger: {
         debug: vi.fn(),
         info: vi.fn(),
@@ -107,7 +108,10 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
     normalizePathForLookup: (path: string) => path.trim(),
 }));
+vi.mock('@electron/file-access/documentRevisionStore', () => ({getWorkingCopyRevision: mocks.getWorkingCopyRevision}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
+
+const DOCUMENT_REVISION = 'revision-token';
 
 function createInvokeEvent(senderId: number) {
     return { sender: {
@@ -126,6 +130,7 @@ describe('search warm-index IPC', () => {
         mocks.workerRecords.length = 0;
         mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/allowed.pdf');
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
+        mocks.getWorkingCopyRevision.mockResolvedValue({token: DOCUMENT_REVISION});
     });
 
     it('routes warm-index requests through worker warmup mode', async () => {
@@ -151,6 +156,7 @@ describe('search warm-index IPC', () => {
             payload: {
                 requestId: 'warm-req-1',
                 pdfPath: '/tmp/allowed.pdf',
+                documentRevision: DOCUMENT_REVISION,
                 query: '',
                 pageCount: 42,
                 warmup: true,

@@ -10,7 +10,6 @@ import type {
     TAnnotationTool as TContractAnnotationTool,
     TDrawableShapeTool,
 } from '@contracts/annotations';
-import type { IPdfNativeShapeAnnotation } from '@contracts/electronApiDocuments';
 export {
     ANNOTATION_TOOLS,
     DRAWABLE_SHAPE_TOOLS,
@@ -31,21 +30,17 @@ export type TShapeResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
 
 export type IShapePoint = IPoint2D;
 
-type TShapeAnnotationContractCore = Pick<
-    IPdfNativeShapeAnnotation,
-    | 'type'
-    | 'x'
-    | 'y'
-    | 'width'
-    | 'height'
-    | 'color'
-    | 'opacity'
-    | 'strokeWidth'
->;
-
-export interface IShapeAnnotation extends TShapeAnnotationContractCore {
+export interface IShapeAnnotation {
     id: string;
+    type: TShapeType;
     pageIndex: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    color: string;
+    opacity: number;
+    strokeWidth: number;
     x2?: number;
     y2?: number;
     fillColor?: string | undefined;

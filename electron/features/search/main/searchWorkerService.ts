@@ -27,10 +27,12 @@ import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { parsePageNumber } from '@contracts/pageNumbers';
 import { isOcrWord } from '@contracts/shared';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     ISearchOperationContext,
     ISearchSenderContext,
 } from '@electron/features/search/searchService';
+import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 
 interface IPendingSearchRequest {
     resolve: (response: ISearchResponse) => void;
@@ -53,6 +55,7 @@ interface ISenderSearchState {
     worker: Worker;
     activeRequestId: string | null;
     pendingByRequestId: Map<string, IPendingSearchRequest>;
+    pdfPathsByRequestId: Map<string, string>;
     pageCountsByRequestId: Map<string, number>;
     requestTimeouts: Map<string, NodeJS.Timeout>;
     idleCleanupTimer: NodeJS.Timeout | null;
@@ -61,6 +64,7 @@ interface ISenderSearchState {
 
 interface IDispatchSearchRequestPayload {
     resolvedPdfPath: string;
+    documentRevision: TDocumentRevisionToken;
     query: string;
     pageCount?: number;
     requestId?: string;
@@ -80,6 +84,7 @@ function buildSearchWorkerRequest(
         payload: {
             requestId,
             pdfPath: payload.resolvedPdfPath,
+            documentRevision: payload.documentRevision,
             query: payload.query,
             ...(payload.pageCount !== undefined ? { pageCount: payload.pageCount } : {}),
             ...(payload.warmup !== undefined ? { warmup: payload.warmup } : {}),
@@ -88,6 +93,10 @@ function buildSearchWorkerRequest(
             ...(payload.useRegex !== undefined ? { useRegex: payload.useRegex } : {}),
         },
     };
+}
+
+function getSearchPdfPathKey(pdfPath: string) {
+    return normalizePathForLookup(pdfPath) || pdfPath;
 }
 
 const log = createLogger('search-ipc');
@@ -470,6 +479,7 @@ export class SearchWorkerService {
                 resolve,
                 reject,
             });
+            state.pdfPathsByRequestId.set(requestId, payload.resolvedPdfPath);
             if (payload.pageCount !== undefined) {
                 state.pageCountsByRequestId.set(requestId, payload.pageCount);
             }
@@ -508,6 +518,7 @@ export class SearchWorkerService {
             } catch (error) {
                 this.clearRequestTimeout(state, requestId);
                 state.pendingByRequestId.delete(requestId);
+                state.pdfPathsByRequestId.delete(requestId);
                 state.pageCountsByRequestId.delete(requestId);
                 if (state.activeRequestId === requestId) {
                     state.activeRequestId = null;
@@ -533,6 +544,32 @@ export class SearchWorkerService {
 
         this.cancelRequest(state, targetRequestId);
         return { canceled: true };
+    }
+
+    cancelRequestsForPdfPath(pdfPath: string, reason: string) {
+        const targetPathKey = getSearchPdfPathKey(pdfPath);
+        let canceledCount = 0;
+
+        for (const state of this.senderSearchStates.values()) {
+            const requestIds = Array.from(state.pdfPathsByRequestId.entries())
+                .filter(([
+                    , requestPdfPath,
+                ]) => getSearchPdfPathKey(requestPdfPath) === targetPathKey)
+                .map(([requestId]) => requestId);
+
+            for (const requestId of requestIds) {
+                if (!state.pendingByRequestId.has(requestId)) {
+                    continue;
+                }
+                this.cancelRequest(state, requestId);
+                canceledCount += 1;
+            }
+        }
+
+        if (canceledCount > 0) {
+            log.info(`Cancelled ${canceledCount} search request(s) for stale PDF path "${pdfPath}": ${reason}`);
+        }
+        return canceledCount;
     }
 
     resetCache() {
@@ -666,6 +703,7 @@ export class SearchWorkerService {
         this.clearRequestTimeout(state, requestId);
         this.markStateActivity(state);
         state.pendingByRequestId.delete(requestId);
+        state.pdfPathsByRequestId.delete(requestId);
         state.pageCountsByRequestId.delete(requestId);
         settle(pending);
         this.scheduleIdleCleanup(state);
@@ -699,6 +737,7 @@ export class SearchWorkerService {
             pending.reject(options?.rejectionError ?? new Error(reason));
         }
         state.pendingByRequestId.clear();
+        state.pdfPathsByRequestId.clear();
         state.pageCountsByRequestId.clear();
         state.activeRequestId = null;
 
@@ -903,6 +942,7 @@ export class SearchWorkerService {
             worker,
             activeRequestId: null,
             pendingByRequestId: new Map(),
+            pdfPathsByRequestId: new Map(),
             pageCountsByRequestId: new Map(),
             requestTimeouts: new Map(),
             idleCleanupTimer: null,

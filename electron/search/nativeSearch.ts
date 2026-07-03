@@ -32,10 +32,11 @@ import {
     type IPdfSearchIndex,
 } from '@electron/search/indexBuilder';
 import { collectSearchMatchWords } from '@pdf-core';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
-const HEADER_SIZE = 24;
+const HEADER_SIZE = 64;
 const PAGE_RECORD_SIZE = 24;
 const NATIVE_SEARCH_TIMEOUT_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_PDF_SEARCH_TIMEOUT_MS ?? '30000', 10);
@@ -51,12 +52,14 @@ const NATIVE_SEARCH_MAX_STDOUT_BYTES = parseIntegerEnv(
 );
 
 interface INativeSearchIndexMetadata {
+    documentRevision: TDocumentRevisionToken;
     pageCount: number;
     pageRecordCount: number;
 }
 
 interface INativeSearchOptions extends IResolvedSearchMatchOptions {
     pdfPath: string;
+    documentRevision: TDocumentRevisionToken;
     query: string;
     pageCount?: number;
     signal?: AbortSignal;
@@ -121,7 +124,16 @@ async function getSearchSourceMtimeMs(pdfPath: string) {
     return Math.max(pdfMtimeMs ?? 0, ocrManifestMtimeMs ?? 0);
 }
 
-async function loadNativeSearchIndexMetadata(indexPath: string): Promise<INativeSearchIndexMetadata | null> {
+function bigintToSafeNumber(value: bigint) {
+    return value <= BigInt(Number.MAX_SAFE_INTEGER)
+        ? Number(value)
+        : null;
+}
+
+async function loadNativeSearchIndexMetadata(
+    indexPath: string,
+    expectedRevision: TDocumentRevisionToken,
+): Promise<INativeSearchIndexMetadata | null> {
     const file = await open(indexPath, 'r');
     try {
         const header = Buffer.alloc(HEADER_SIZE);
@@ -139,15 +151,52 @@ async function loadNativeSearchIndexMetadata(indexPath: string): Promise<INative
             return null;
         }
 
-        const pageCount = header.readUInt32LE(12);
-        const pageRecordCount = header.readUInt32LE(16);
+        const headerSize = header.readUInt32LE(12);
+        if (headerSize !== HEADER_SIZE) {
+            return null;
+        }
+        const pageCount = header.readUInt32LE(16);
+        const pageRecordCount = header.readUInt32LE(20);
+        const revisionTokenByteLength = header.readUInt32LE(28);
+        const revisionTokenByteOffset = bigintToSafeNumber(header.readBigUInt64LE(32));
+        const pageTableOffset = bigintToSafeNumber(header.readBigUInt64LE(40));
+        const textDataOffset = bigintToSafeNumber(header.readBigUInt64LE(48));
         const fileStat = await file.stat();
-        const minimumSize = HEADER_SIZE + pageRecordCount * PAGE_RECORD_SIZE;
-        if (fileStat.size < minimumSize) {
+        if (
+            revisionTokenByteOffset === null
+            || pageTableOffset === null
+            || textDataOffset === null
+            || revisionTokenByteLength <= 0
+        ) {
+            return null;
+        }
+        const revisionTokenEnd = revisionTokenByteOffset + revisionTokenByteLength;
+        const minimumSize = pageTableOffset + pageRecordCount * PAGE_RECORD_SIZE;
+        if (
+            revisionTokenByteOffset < HEADER_SIZE
+            || revisionTokenEnd > pageTableOffset
+            || textDataOffset < minimumSize
+            || fileStat.size < textDataOffset
+        ) {
+            return null;
+        }
+        const revisionBuffer = Buffer.alloc(revisionTokenByteLength);
+        const { bytesRead: revisionBytesRead } = await file.read(
+            revisionBuffer,
+            0,
+            revisionTokenByteLength,
+            revisionTokenByteOffset,
+        );
+        if (revisionBytesRead !== revisionTokenByteLength) {
+            return null;
+        }
+        const documentRevision = revisionBuffer.toString('utf8');
+        if (documentRevision !== expectedRevision) {
             return null;
         }
 
         return {
+            documentRevision,
             pageCount,
             pageRecordCount,
         };
@@ -156,7 +205,11 @@ async function loadNativeSearchIndexMetadata(indexPath: string): Promise<INative
     }
 }
 
-async function isNativeSearchIndexFresh(pdfPath: string, expectedPageCount?: number) {
+async function isNativeSearchIndexFresh(
+    pdfPath: string,
+    documentRevision: TDocumentRevisionToken,
+    expectedPageCount?: number,
+) {
     const indexPath = getNativeSearchIndexPath(pdfPath);
     const [
         nativeMtimeMs,
@@ -169,7 +222,7 @@ async function isNativeSearchIndexFresh(pdfPath: string, expectedPageCount?: num
         return null;
     }
 
-    const metadata = await loadNativeSearchIndexMetadata(indexPath);
+    const metadata = await loadNativeSearchIndexMetadata(indexPath, documentRevision);
     if (!metadata) {
         return null;
     }
@@ -284,6 +337,8 @@ function createNativeSearchArgs(indexPath: string, options: INativeSearchOptions
         indexPath,
         '--query',
         options.query,
+        '--document-revision',
+        options.documentRevision,
         '--limit',
         String(SEARCH_RESULT_LIMIT),
         '--context',
@@ -361,12 +416,12 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
         return null;
     }
 
-    const freshIndex = await isNativeSearchIndexFresh(options.pdfPath, options.pageCount);
+    const freshIndex = await isNativeSearchIndexFresh(options.pdfPath, options.documentRevision, options.pageCount);
     if (!freshIndex) {
         return null;
     }
 
-    const searchIndex = await loadSearchIndex(options.pdfPath);
+    const searchIndex = await loadSearchIndex(options.pdfPath, options.documentRevision);
     if (!hasSearchIndexGeometry(searchIndex)) {
         return null;
     }

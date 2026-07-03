@@ -4,7 +4,7 @@ import type {
 } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import type { IDjvuPageSize } from '@app/platform/browser-api/public';
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IScrollSnapshot } from '@app/types/pdfUi';
 import {
     capturePageAnchorScrollSnapshot,
     restorePageAnchorScrollSnapshot,

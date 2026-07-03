@@ -31,6 +31,17 @@ const searchConformanceCorpus = JSON.parse(readFileSync(
     'utf8',
 )) as ISearchConformanceCorpus;
 
+function makeBrowserRevision(documentRef: string, token: string, contentRevision = 1) {
+    return {
+        version: 1,
+        documentRef,
+        authority: 'browser-document-store',
+        contentRevision,
+        mintedAt: 1,
+        token,
+    };
+}
+
 class FakeIdbRequest<T> {
     public result!: T;
     public error: Error | null = null;
@@ -240,6 +251,7 @@ const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 const browserDocumentStoreMock = vi.hoisted(() => ({
     stat: vi.fn(),
     getContentSignature: vi.fn(),
+    getDocumentRevision: vi.fn(),
     readRange: vi.fn(),
 }));
 const browserSearchWorkerClientMock = vi.hoisted(() => ({
@@ -296,6 +308,9 @@ describe('createBrowserSearchCapability', () => {
         browserDocumentStoreMock.stat.mockReset();
         browserDocumentStoreMock.getContentSignature.mockReset();
         browserDocumentStoreMock.getContentSignature.mockResolvedValue('content-token-1');
+        browserDocumentStoreMock.getDocumentRevision.mockReset();
+        browserDocumentStoreMock.getDocumentRevision.mockImplementation(async (documentRef: string) =>
+            makeBrowserRevision(documentRef, 'drt1:browser:content-token-1'));
         browserDocumentStoreMock.readRange.mockReset();
         browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReset();
         browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(false);
@@ -526,6 +541,58 @@ describe('createBrowserSearchCapability', () => {
             truncated: false,
         });
         browserDocumentStoreMock.getContentSignature.mockResolvedValue('content-token-2');
+        browserDocumentStoreMock.getDocumentRevision.mockImplementation(async (documentRef: string) =>
+            makeBrowserRevision(documentRef, 'drt1:browser:content-token-2', 2));
+        await expect(capability.run('/tmp/test.pdf', 'bar')).resolves.toEqual({
+            results: [expect.objectContaining({ pageNumber: 1 })],
+            truncated: false,
+        });
+
+        expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(2);
+        expect(firstDocument.getPage).toHaveBeenCalledTimes(1);
+        expect(secondDocument.getPage).toHaveBeenCalledTimes(1);
+    });
+
+    it('invalidates browser page text caches when only document revision changes', async () => {
+        const firstDocument = {
+            numPages: 1,
+            getPage: vi.fn(async () => ({
+                getTextContent: vi.fn(async () => ({items: [{str: 'alpha foo'}]})),
+                cleanup: vi.fn(async () => {}),
+            })),
+            destroy: vi.fn(async () => {}),
+        };
+        const secondDocument = {
+            numPages: 1,
+            getPage: vi.fn(async () => ({
+                getTextContent: vi.fn(async () => ({items: [{str: 'beta bar'}]})),
+                cleanup: vi.fn(async () => {}),
+            })),
+            destroy: vi.fn(async () => {}),
+        };
+
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        browserDocumentStoreMock.getContentSignature.mockResolvedValue('same-content-signature');
+        browserDocumentStoreMock.getDocumentRevision.mockImplementation(async (documentRef: string) =>
+            makeBrowserRevision(documentRef, 'drt1:browser:revision-1'));
+        pdfjsModule.getDocument
+            .mockReturnValueOnce({promise: Promise.resolve(firstDocument)})
+            .mockReturnValueOnce({promise: Promise.resolve(secondDocument)});
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
+        const { capability } = createBrowserSearchCapability();
+
+        await expect(capability.run('/tmp/test.pdf', 'foo')).resolves.toEqual({
+            results: [expect.objectContaining({ pageNumber: 1 })],
+            truncated: false,
+        });
+        browserDocumentStoreMock.getDocumentRevision.mockImplementation(async (documentRef: string) =>
+            makeBrowserRevision(documentRef, 'drt1:browser:revision-2', 2));
         await expect(capability.run('/tmp/test.pdf', 'bar')).resolves.toEqual({
             results: [expect.objectContaining({ pageNumber: 1 })],
             truncated: false,

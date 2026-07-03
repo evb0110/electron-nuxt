@@ -52,6 +52,7 @@ import {
 import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
 import {
     handleFileSave,
+    handleFileSaveStructured,
     handleOptimizePdfForInteraction,
     handleRepairPdfSave,
     handleSerializedPdfSave,
@@ -74,6 +75,7 @@ import {
     removeAllowedOpenPath,
     removeAllowedRevealPath,
 } from '@electron/file-access/openPathCapabilities';
+import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import {
     setMenuDocumentState,
     setMenuTabCount,
@@ -118,6 +120,13 @@ export function createDocumentsService(): IDocumentsService {
             handlePdfNativePagePreview(...args),
         readTextFile: (...args: TDocumentsServiceArgs<'readTextFile'>) => handleFileReadText(...args),
         fileExists: (...args: TDocumentsServiceArgs<'fileExists'>) => handleFileExists(...args),
+        getDocumentRevision: (...args: TDocumentsServiceArgs<'getDocumentRevision'>) => {
+            const [
+                context,
+                filePath,
+            ] = args;
+            return getWorkingCopyRevision(filePath, context.senderId);
+        },
         analyzePdfConformance: (...args: TDocumentsServiceArgs<'analyzePdfConformance'>) =>
             handleAnalyzePdfConformance(...args),
         validatePdfData: (...args: TDocumentsServiceArgs<'validatePdfData'>) => handleValidatePdfData(...args),
@@ -133,6 +142,8 @@ export function createDocumentsService(): IDocumentsService {
             handleReplaceWorkingCopyFromPath(...args),
         writeDocxFile: (...args: TDocumentsServiceArgs<'writeDocxFile'>) => handleFileWriteDocx(...args),
         saveFile: (...args: TDocumentsServiceArgs<'saveFile'>) => handleFileSave(...args),
+        saveFileStructured: (...args: TDocumentsServiceArgs<'saveFileStructured'>) =>
+            handleFileSaveStructured(...args),
         repairPdf: (...args: TDocumentsServiceArgs<'repairPdf'>) => handleRepairPdfSave(...args),
         optimizePdfForInteraction: (...args: TDocumentsServiceArgs<'optimizePdfForInteraction'>) =>
             handleOptimizePdfForInteraction(...args),

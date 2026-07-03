@@ -1,5 +1,5 @@
 import {isFinitePositive} from '@contracts/runtimeGuards';
-import type { IPdfPageMetric } from '@app/types/pdf';
+import type { IPdfPageMetric } from '@app/types/pdfUi';
 
 
 function isValidPageMetric(metric: IPdfPageMetric | null | undefined): metric is IPdfPageMetric {

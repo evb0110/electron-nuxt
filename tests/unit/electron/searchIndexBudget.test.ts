@@ -19,12 +19,13 @@ vi.mock('fs/promises', () => ({
 }));
 
 vi.mock('@electron/search/indexBuilder', () => ({
-    SEARCH_INDEX_SCHEMA_VERSION: 6,
+    SEARCH_INDEX_SCHEMA_VERSION: 7,
     buildSearchIndex: mocks.buildSearchIndex,
     loadSearchIndex: mocks.loadSearchIndex,
 }));
 
 const PDF_PATH = '/tmp/poisoned.pdf';
+const DOCUMENT_REVISION = 'revision-token';
 
 interface IIndexPageForTest {
     pageNumber: number;
@@ -52,7 +53,8 @@ describe('ensureSearchIndex text budget handling', () => {
             throw new Error(`Unexpected stat path: ${path}`);
         });
         mocks.loadSearchIndex.mockResolvedValue({
-            schemaVersion: 6,
+            schemaVersion: 7,
+            documentRevision: {token: DOCUMENT_REVISION},
             pdfPath: PDF_PATH,
             createdAt: 1,
             pageCount: 1,
@@ -62,7 +64,8 @@ describe('ensureSearchIndex text budget handling', () => {
             }],
         });
         mocks.buildSearchIndex.mockResolvedValue({
-            schemaVersion: 6,
+            schemaVersion: 7,
+            documentRevision: {token: DOCUMENT_REVISION},
             pdfPath: PDF_PATH,
             createdAt: 2,
             pageCount: 1,
@@ -82,6 +85,7 @@ describe('ensureSearchIndex text budget handling', () => {
             maxPageTextBytes: 64,
             maxTotalTextBytes: 1024,
         }, {
+            documentRevision: DOCUMENT_REVISION,
             pageCount: 1,
             throwIfCancelled: () => undefined,
         });
@@ -123,6 +127,7 @@ describe('ensureSearchIndex text budget handling', () => {
             maxPageTextBytes: 64,
             maxTotalTextBytes: 1024,
         }, {
+            documentRevision: DOCUMENT_REVISION,
             pageCount: 1,
             throwIfCancelled: () => undefined,
         })).rejects.toThrow('Search index page 1 is too large');

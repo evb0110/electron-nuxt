@@ -9,7 +9,6 @@ export {
     canUseBrowserWorker,
 } from '@app/platform/browser-api/browserWorkerClient';
 export { createBrowserDocumentsCapability } from '@app/platform/browser-api/createBrowserDocumentsCapability';
-export { createBrowserCombinedPdfFromPaths as createCombinedPdfFromPaths } from '@app/platform/browser-api/createBrowserDocumentsFileCapability';
 export { createBrowserSearchCapability } from '@app/platform/browser-api/createBrowserSearchCapability';
 export { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/createDjvuWorkerFromPath';
 export { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/createNativePdfPreviewSourceFromPath';

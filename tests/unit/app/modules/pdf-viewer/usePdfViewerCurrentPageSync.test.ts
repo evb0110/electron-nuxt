@@ -9,7 +9,7 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
 
 vi.mock('@app/utils/asyncHelpers', () => ({waitForVisualFrames: vi.fn(async () => {})}));

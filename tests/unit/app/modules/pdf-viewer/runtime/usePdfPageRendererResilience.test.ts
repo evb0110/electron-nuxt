@@ -12,7 +12,7 @@ import {
     shallowRef,
 } from 'vue';
 import type { Ref } from 'vue';
-import type { IPdfSearchMatch } from '@app/types/pdf';
+import type { IPdfSearchMatch } from '@app/types/pdfUi';
 import { cast } from '@tests/helpers/cast';
 
 const loggerError = vi.fn();
@@ -103,7 +103,10 @@ const textLayerRendererMock = {
 
 const annotationLayerRendererMock = {
     renderAnnotationLayer: vi.fn(),
-    renderAnnotationEditorLayer: vi.fn(() => true),
+    renderAnnotationEditorLayer: vi.fn(() => ({
+        ok: true,
+        rendered: true,
+    })),
     cleanupEditorLayer: vi.fn(),
     clearAllLayers: vi.fn(),
 };

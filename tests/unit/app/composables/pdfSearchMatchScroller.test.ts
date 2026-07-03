@@ -72,6 +72,8 @@ describe('createPdfSearchMatchScroller', () => {
         const beginSearchNavigation = vi.fn();
         const revealSearchNavigationTarget = vi.fn();
         const endSearchNavigation = vi.fn();
+        const beginSearchTransaction = vi.fn(() => 88);
+        const settleSearchTransaction = vi.fn();
 
         const currentMatch = {pageIndex: 4};
         let scrollCalls = 0;
@@ -90,10 +92,14 @@ describe('createPdfSearchMatchScroller', () => {
             beginSearchNavigation,
             revealSearchNavigationTarget,
             endSearchNavigation,
+            beginSearchTransaction,
+            isSearchTransactionCurrent: vi.fn(() => true),
+            settleSearchTransaction,
         });
 
         scroller.requestScrollToMatch(4);
 
+        expect(beginSearchTransaction).toHaveBeenCalledWith(5, undefined);
         expect(beginSearchNavigation).toHaveBeenCalledWith(5);
         expect(revealSearchNavigationTarget).toHaveBeenCalledWith(5);
         expect(scheduleRenderForSinglePage).toHaveBeenCalledWith(5);
@@ -104,6 +110,7 @@ describe('createPdfSearchMatchScroller', () => {
         expect(scrollToPage).not.toHaveBeenCalled();
         expect(scheduleRenderForSinglePage).toHaveBeenCalledWith(5);
         expect(scheduleRenderForSinglePage).toHaveBeenCalledTimes(1);
+        expect(settleSearchTransaction).toHaveBeenCalledWith(88);
         expect(endSearchNavigation).toHaveBeenCalledWith(120);
     });
 
@@ -327,6 +334,38 @@ describe('createPdfSearchMatchScroller', () => {
         await Promise.resolve();
         await vi.runAllTimersAsync();
 
+        expect(scrollToPage).not.toHaveBeenCalled();
+    });
+
+    it('cancels a deferred search scroll when its transaction becomes stale', async () => {
+        const scrollToPage = vi.fn();
+        const cancelSearchTransaction = vi.fn();
+        let isCurrent = true;
+
+        const scroller = createPdfSearchMatchScroller({
+            getContainer: () => createContainerWithMountedPage(10, {
+                hasCanvas: false,
+                rendered: false,
+                textLayerReady: false,
+            }),
+            getCurrentSearchMatch: () => ({pageIndex: 9}),
+            scrollToCurrentMatch: () => false,
+            scheduleRenderForSinglePage: vi.fn(),
+            scrollToPage,
+            suppressSnap: vi.fn(),
+            beginSearchNavigation: vi.fn(),
+            endSearchNavigation: vi.fn(),
+            beginSearchTransaction: vi.fn(() => 91),
+            isSearchTransactionCurrent: vi.fn(() => isCurrent),
+            cancelSearchTransaction,
+        });
+
+        scroller.requestScrollToMatch(9);
+        await Promise.resolve();
+        isCurrent = false;
+        await vi.advanceTimersByTimeAsync(80);
+
+        expect(cancelSearchTransaction).toHaveBeenCalledWith(91);
         expect(scrollToPage).not.toHaveBeenCalled();
     });
 

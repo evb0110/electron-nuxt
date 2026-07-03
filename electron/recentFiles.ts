@@ -15,6 +15,10 @@ import {
 } from 'es-toolkit/array';
 import type { IRecentFile } from '@contracts/shared';
 import {
+    inferDocumentRefBackend,
+    isNativeLegacyDocumentRef,
+} from '@contracts/documentRef';
+import {
     isErrnoException,
     isRecord,
 } from '@contracts/runtimeGuards';
@@ -108,12 +112,16 @@ function normalizeRecentFilesData(raw: unknown): IRecentFilesData {
             if (
                 isRecord(candidate)
                 && typeof candidate.originalPath === 'string'
+                && isNativeLegacyDocumentRef(candidate.originalPath)
                 && typeof candidate.fileName === 'string'
                 && typeof candidate.timestamp === 'number'
                 && typeof candidate.fileSize === 'number'
+                && (candidate.backend === undefined || candidate.backend === 'electron')
+                && inferDocumentRefBackend(candidate.originalPath) === 'electron'
             ) {
                 files.push({
                     originalPath: candidate.originalPath,
+                    backend: 'electron',
                     fileName: candidate.fileName,
                     timestamp: candidate.timestamp,
                     fileSize: candidate.fileSize,
@@ -173,7 +181,9 @@ async function filterExistingFiles(files: IRecentFile[]): Promise<IFilteredRecen
     let removedMissingCount = 0;
     let unreadableCount = 0;
     const checks: IRecentFile[] = [];
-    const inspections = await Promise.all(uniqBy(files, item => item.originalPath).map(async (file) => ({
+    const nativeFiles = files.filter(file => isNativeLegacyDocumentRef(file.originalPath));
+    removedMissingCount += files.length - nativeFiles.length;
+    const inspections = await Promise.all(uniqBy(nativeFiles, item => item.originalPath).map(async (file) => ({
         file,
         inspection: await inspectPath(file.originalPath),
     })));
@@ -317,6 +327,7 @@ export async function addRecentFile(originalPath: string) {
         // Add to front
         data.files.unshift({
             originalPath,
+            backend: 'electron',
             fileName,
             timestamp: Date.now(),
             fileSize,

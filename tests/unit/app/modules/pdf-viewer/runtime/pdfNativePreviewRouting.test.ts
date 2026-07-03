@@ -25,7 +25,7 @@ describe('pdfNativePreviewRouting', () => {
 
         expect(shouldUseNativePdfPreview({
             kind: 'path',
-            path: 'browser://source/huge.pdf',
+            path: 'browser://documents/source/huge.pdf',
             size: PDFJS_NATIVE_PREVIEW_MIN_BYTES,
         })).toBe(false);
 

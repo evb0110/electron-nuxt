@@ -1,4 +1,5 @@
 import { useAnalytics } from '@app/composables/useAnalytics';
+import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
 import { useOcrTextContent } from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
@@ -12,8 +13,14 @@ import { createDocumentHistory } from '@app/modules/workspace-shell/composables/
 import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import { createDocumentPersistence } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistence';
 
-export const usePdfFile = () => {
+let nextPdfFileAnalyticsScopeIndex = 0;
+
+export interface IUsePdfFileOptions { analyticsDocumentScope?: IAnalyticsDocumentScope | undefined; }
+
+export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
     const analytics = useAnalytics();
+    const analyticsDocumentScope = options.analyticsDocumentScope
+        ?? analytics.createDocumentScope(`pdf-file:${++nextPdfFileAnalyticsScopeIndex}`, { activate: true });
     const { t } = useTypedI18n();
 
     const { clearCache: clearOcrCache } = useOcrTextContent();
@@ -35,6 +42,8 @@ export const usePdfFile = () => {
         pendingDjvu,
         resetForClose,
         workingCopyPath,
+        documentRevisionInfo,
+        documentRevisionToken,
     } = sessionState;
     const loadEpoch = createEpochGuard();
     const openEpoch = createEpochGuard();
@@ -82,6 +91,7 @@ export const usePdfFile = () => {
     });
     const documentOpenFlow = createDocumentOpenFlow(sessionState, {
         analytics,
+        analyticsDocumentScope,
         cleanupAbandonedWorkingCopy: path => getDocumentWorkingCopyCapability().cleanupFile(path),
         clearPdfConformanceProfile,
         cleanupPreviousWorkingCopy,
@@ -139,7 +149,7 @@ export const usePdfFile = () => {
 
         resetForClose();
         clearPdfConformanceProfile();
-        analytics.clearDocumentContext();
+        analyticsDocumentScope.clear();
         incrementSessionVersion();
         clearHistory();
         if (pathToCleanup) {
@@ -172,6 +182,8 @@ export const usePdfFile = () => {
         pdfReloadSrc,
         pdfData,
         workingCopyPath,
+        documentRevisionInfo,
+        documentRevisionToken,
         originalPath,
         fileName,
         error,

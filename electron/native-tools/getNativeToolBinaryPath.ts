@@ -15,6 +15,13 @@ interface IFindNativeToolOnSystemPathOptions {
     platform?: NodeJS.Platform;
 }
 
+class MissingNativeToolBinaryError extends Error {
+    constructor(name: string, path: string) {
+        super(`Missing required native tool binary "${name}" at ${path}`);
+        this.name = 'MissingNativeToolBinaryError';
+    }
+}
+
 function getNativeToolExecutableName(
     name: string,
     platform: NodeJS.Platform = process.platform,
@@ -64,7 +71,7 @@ export function getNativeToolBinaryPath(options: INativeToolBinaryPathOptions) {
     }
 
     if (options.isPackaged) {
-        return binPath;
+        throw new MissingNativeToolBinaryError(options.name, binPath);
     }
 
     return findNativeToolOnSystemPath(options.name, {

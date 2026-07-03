@@ -21,7 +21,7 @@ import type {
     IAnnotationCommentSummary,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
 
 vi.mock('pdfjs-dist', () => ({AnnotationEditorType: {

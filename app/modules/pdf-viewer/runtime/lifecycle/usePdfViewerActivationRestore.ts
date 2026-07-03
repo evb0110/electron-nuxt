@@ -5,11 +5,43 @@ import type {
 } from 'vue';
 import { delay } from 'es-toolkit/promise';
 import type {
-    IPageRange,
     PDFDocumentProxy,
     TPdfViewMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type { IPageRange } from '@app/types/pdfUi';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
+import type {
+    IPdfViewerTransactionCancellation,
+    TPdfViewerTransactionState,
+} from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
+
+type TActivationRestoreAdvanceState = Exclude<
+    TPdfViewerTransactionState,
+    'preparing' | 'cancelled'
+>;
+
+interface IActivationRestoreTransactionController {
+    beginTransaction: (options: {
+        kind: 'recovery';
+        source: 'activation-restore';
+        page: number;
+        range: IPageRange;
+        anchor: 'top';
+    }) => { id: number } | null;
+    advanceTransaction: (
+        transactionId: number,
+        state: TActivationRestoreAdvanceState,
+    ) => boolean;
+    cancelActiveTransaction: (
+        cancellation: IPdfViewerTransactionCancellation,
+        transactionId?: number,
+    ) => boolean;
+    isTransactionCurrent: (transactionId: number) => boolean;
+    commitVisibleRange: (
+        range: IPageRange,
+        options?: { transactionId?: number | undefined },
+    ) => boolean;
+}
 
 
 interface IUsePdfViewerActivationRestoreOptions {
@@ -21,6 +53,7 @@ interface IUsePdfViewerActivationRestoreOptions {
     currentPage: Ref<number>;
     visibleRange: Ref<IPageRange>;
     viewMode: ComputedRef<TPdfViewMode>;
+    getVisiblePageRange?: ((container: HTMLElement | null, numPages: number) => IPageRange) | undefined;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     scrollToPage: (pageNumber: number) => void;
     renderVisiblePages: (
@@ -33,6 +66,7 @@ interface IUsePdfViewerActivationRestoreOptions {
     ) => Promise<void>;
     isPageRendered: (page: number) => boolean;
     applySearchHighlights: () => void;
+    transactionController?: IActivationRestoreTransactionController | undefined;
 }
 
 const ACTIVATION_RESTORE_CONTAINER_FRAME_LIMIT = 30;
@@ -47,15 +81,57 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
         currentPage,
         visibleRange,
         viewMode,
+        getVisiblePageRange,
         updateVisibleRange,
         scrollToPage,
         renderVisiblePages,
         isPageRendered,
         applySearchHighlights,
+        transactionController,
     } = options;
     let activeDocumentRestoreRunId = 0;
+    let activeActivationTransactionId: number | null = null;
+
+    function createActivationCancellation(
+        reason: IPdfViewerTransactionCancellation['reason'],
+    ): IPdfViewerTransactionCancellation {
+        return {
+            reason,
+            cancelInFlightRenders: false,
+            bumpRenderVersion: false,
+            clearTimers: true,
+            preserveVisualContent: true,
+        };
+    }
+
+    function cancelActivationTransaction(
+        transactionId: number | null,
+        reason: IPdfViewerTransactionCancellation['reason'],
+    ) {
+        if (transactionId === null) {
+            return true;
+        }
+        if (
+            transactionController
+            && !transactionController.isTransactionCurrent(transactionId)
+        ) {
+            if (activeActivationTransactionId === transactionId) {
+                activeActivationTransactionId = null;
+            }
+            return true;
+        }
+        const didCancel = transactionController?.cancelActiveTransaction(
+            createActivationCancellation(reason),
+            transactionId,
+        ) ?? true;
+        if (activeActivationTransactionId === transactionId) {
+            activeActivationTransactionId = null;
+        }
+        return didCancel;
+    }
 
     function nextActivationRestoreRunId() {
+        cancelActivationTransaction(activeActivationTransactionId, 'superseded');
         activeDocumentRestoreRunId += 1;
         return activeDocumentRestoreRunId;
     }
@@ -128,6 +204,48 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
             && !isLoading.value;
     }
 
+    function beginActivationTransaction() {
+        const range = getCurrentPageRowRange();
+        const transaction = transactionController?.beginTransaction({
+            kind: 'recovery',
+            source: 'activation-restore',
+            page: currentPage.value,
+            range,
+            anchor: 'top',
+        });
+        if (transactionController && !transaction) {
+            return null;
+        }
+        activeActivationTransactionId = transaction?.id ?? null;
+        return activeActivationTransactionId;
+    }
+
+    function isActivationTransactionCurrent(transactionId: number | null) {
+        return transactionId === null
+            || transactionController?.isTransactionCurrent(transactionId) !== false;
+    }
+
+    function advanceActivationTransaction(
+        transactionId: number | null,
+        state: TActivationRestoreAdvanceState,
+    ) {
+        if (transactionId === null) {
+            return true;
+        }
+        return transactionController?.advanceTransaction(transactionId, state) ?? true;
+    }
+
+    function settleActivationTransaction(transactionId: number | null) {
+        if (transactionId === null) {
+            return true;
+        }
+        const didSettle = transactionController?.advanceTransaction(transactionId, 'settled') ?? true;
+        if (activeActivationTransactionId === transactionId) {
+            activeActivationTransactionId = null;
+        }
+        return didSettle;
+    }
+
     async function waitForActivationRenderFrame() {
         await nextTick();
         if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
@@ -163,20 +281,42 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
         return isActivationRunCurrent(runId) && hasMeasurableViewerContainer();
     }
 
-    async function restoreCurrentPageViewportForActivation() {
+    function commitActivationVisibleRange(transactionId: number | null) {
+        const range = getVisiblePageRange?.(viewerContainer.value, numPages.value);
+        if (range) {
+            const didCommit = transactionController?.commitVisibleRange(
+                range,
+                transactionId !== null ? { transactionId } : undefined,
+            );
+            if (didCommit !== undefined) {
+                return didCommit;
+            }
+            visibleRange.value = range;
+            return true;
+        }
+        if (!isActivationTransactionCurrent(transactionId)) {
+            return false;
+        }
         updateVisibleRange(viewerContainer.value, numPages.value);
+        return true;
+    }
+
+    async function restoreCurrentPageViewportForActivation(transactionId: number | null) {
+        if (!commitActivationVisibleRange(transactionId)) {
+            return false;
+        }
         const visible = visibleRange.value;
         if (
             !viewerContainer.value
             || numPages.value <= 0
             || rangeContainsPage(visible, currentPage.value)
         ) {
-            return;
+            return true;
         }
 
         scrollToPage(currentPage.value);
         await waitForActivationRenderFrame();
-        updateVisibleRange(viewerContainer.value, numPages.value);
+        return commitActivationVisibleRange(transactionId);
     }
 
     async function renderActiveDocumentAfterActivation(runId: number) {
@@ -184,14 +324,30 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
         if (!await waitForActivationViewerContainer(runId)) {
             return;
         }
-        await restoreCurrentPageViewportForActivation();
-        if (!isActiveDocumentRestoreRunCurrent(runId, document)) {
+        const transactionId = beginActivationTransaction();
+        if (transactionController && transactionId === null) {
+            return;
+        }
+        if (!await restoreCurrentPageViewportForActivation(transactionId)) {
+            cancelActivationTransaction(transactionId, 'superseded');
+            return;
+        }
+        if (
+            !isActiveDocumentRestoreRunCurrent(runId, document)
+            || !isActivationTransactionCurrent(transactionId)
+        ) {
+            cancelActivationTransaction(transactionId, 'superseded');
             return;
         }
 
         const activationRange = { ...visibleRange.value };
+        advanceActivationTransaction(transactionId, 'render-requested');
         await renderVisiblePages(activationRange, { preserveRenderedPages: true });
-        if (!isActiveDocumentRestoreRunCurrent(runId, document)) {
+        if (
+            !isActiveDocumentRestoreRunCurrent(runId, document)
+            || !isActivationTransactionCurrent(transactionId)
+        ) {
+            cancelActivationTransaction(transactionId, 'superseded');
             return;
         }
 
@@ -201,27 +357,41 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
             && hasRenderedContentForEveryPageInRange(currentRow)
         ) {
             applySearchHighlights();
+            settleActivationTransaction(transactionId);
             return;
         }
 
         if (!rangeContainsPage(visibleRange.value, currentPage.value)) {
             scrollToPage(currentPage.value);
             await waitForActivationRenderFrame();
-            updateVisibleRange(viewerContainer.value, numPages.value);
-            if (!isActiveDocumentRestoreRunCurrent(runId, document)) {
+            if (!commitActivationVisibleRange(transactionId)) {
+                cancelActivationTransaction(transactionId, 'superseded');
+                return;
+            }
+            if (
+                !isActiveDocumentRestoreRunCurrent(runId, document)
+                || !isActivationTransactionCurrent(transactionId)
+            ) {
+                cancelActivationTransaction(transactionId, 'superseded');
                 return;
             }
         }
 
+        advanceActivationTransaction(transactionId, 'render-requested');
         await renderVisiblePages(currentRow, {
             preserveRenderedPages: true,
             forceRerender: true,
             bufferOverride: 0,
         });
-        if (!isActiveDocumentRestoreRunCurrent(runId, document)) {
+        if (
+            !isActiveDocumentRestoreRunCurrent(runId, document)
+            || !isActivationTransactionCurrent(transactionId)
+        ) {
+            cancelActivationTransaction(transactionId, 'superseded');
             return;
         }
         applySearchHighlights();
+        settleActivationTransaction(transactionId);
     }
 
     return {

@@ -14,8 +14,12 @@ import { usePdfViewerDocumentLifecycle } from '@app/modules/pdf-viewer/runtime/c
 import type {
     PDFDocumentProxy,
     PDFPageProxy,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type { IPageRange } from '@app/types/pdfUi';
 import { cast } from '@tests/helpers/cast';
+
+type TDocumentLifecycleOptions = Parameters<typeof usePdfViewerDocumentLifecycle>[0];
+type TReloadTransactionController = NonNullable<TDocumentLifecycleOptions['transactionController']>;
 
 function flushLifecycleTasks() {
     return Promise.resolve()
@@ -706,6 +710,239 @@ describe('usePdfViewerDocumentLifecycle', () => {
         await flushLifecycleTasks();
 
         expect(loadPdf).toHaveBeenCalledWith(reloadSource, undefined);
+    });
+
+    it('routes reload page and range commits through the reload transaction', async () => {
+        const currentPage = ref(7);
+        const visibleRange = ref<IPageRange>({
+            start: 1,
+            end: 1,
+        });
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
+        const numPages = ref(12);
+        const renderVisiblePages = vi.fn(async () => {});
+        const getVisiblePageRange = vi.fn(() => ({
+            start: 7,
+            end: 8,
+        }));
+        const updateVisibleRange = vi.fn();
+        const transactionController: TReloadTransactionController = {
+            beginTransaction: vi.fn(() => ({ id: 51 })),
+            advanceTransaction: vi.fn(() => true),
+            cancelActiveTransaction: vi.fn(() => true),
+            isTransactionCurrent: vi.fn(() => true),
+            commitCurrentPage: vi.fn((page) => {
+                currentPage.value = page;
+                return true;
+            }),
+            commitVisibleRange: vi.fn((range) => {
+                visibleRange.value = range;
+                return true;
+            }),
+        };
+
+        const { scheduleLoadFromSource } = usePdfViewerDocumentLifecycle({
+            viewerContainer: ref(cast<HTMLElement>({ querySelector: vi.fn(() => ({})) })),
+            src: computed(() =>
+                new Blob([new Uint8Array([1])], { type: 'application/pdf' }),
+            ),
+            zoom: computed(() => 1),
+            zoomMode: computed(() => 'fit-width' as const),
+            effectiveScale: ref(1),
+            currentPage,
+            visibleRange,
+            basePageWidth: ref(612),
+            basePageHeight: ref(792),
+            annotationUiManager: shallowRef(null),
+            annotationCommentsCache: ref([]),
+            activeCommentStableKey: ref(null),
+            pdfDocument,
+            numPages,
+            isLoading: ref(false),
+            getRenderVersion: () => 1,
+            loadPdf: vi.fn(async () => {
+                pdfDocument.value = { numPages: numPages.value } as PDFDocumentProxy;
+                return { version: 1 };
+            }),
+            ensurePageMetricsInRange: vi.fn(async () => false),
+            getPage: vi.fn(async () => ({}) as PDFPageProxy),
+            renderVisiblePages,
+            getVisibleRange: () => visibleRange.value,
+            reRenderVisiblePagesAndSyncCurrentPage: vi.fn(async () => {}),
+            syncCurrentPageFromViewport: vi.fn(async () => {}),
+            applySearchHighlights: vi.fn(),
+            getVisiblePageRange,
+            updateVisibleRange,
+            scrollToPage: vi.fn(),
+            cleanupRenderedPages: vi.fn(),
+            invalidateScaleCache: vi.fn(),
+            resetScale: vi.fn(),
+            resetInsets: vi.fn(),
+            setupPagePlaceholders: vi.fn(),
+            computeFitWidthScale: vi.fn(() => true),
+            computeSkeletonInsets: vi.fn(async () => {}),
+            invalidateRenderedPages: vi.fn(),
+            consumePendingInvalidation: () => null,
+            commentSync: {
+                incrementSyncToken: vi.fn(),
+                scheduleAnnotationCommentsSync: vi.fn(),
+            },
+            editor: {
+                destroyAnnotationEditor: vi.fn(),
+                initAnnotationEditor: vi.fn(),
+            },
+            pinCurrentPageDuringRecovery: vi.fn(),
+            suppressNextZoomRerender: vi.fn(),
+            beginVisualReloadTransition: vi.fn(() => 17),
+            endVisualReloadTransition: vi.fn(),
+            transactionController,
+            emit: vi.fn(),
+        });
+
+        scheduleLoadFromSource(true);
+        await flushLifecycleTasks();
+
+        expect(transactionController.beginTransaction).toHaveBeenCalledWith({
+            kind: 'reload',
+            source: 'reload',
+            page: 7,
+            range: {
+                start: 7,
+                end: 7,
+            },
+            anchor: 'top',
+            scrollPlan: {
+                preferExactDom: true,
+                commitCurrentPageOnScroll: true,
+                suppressSnapAfterScroll: true,
+                holdProgrammaticNavigationMs: 900,
+            },
+        });
+        expect(transactionController.commitCurrentPage).toHaveBeenCalledWith(7, {
+            transactionId: 51,
+            emitCurrentPage: false,
+        });
+        expect(transactionController.commitVisibleRange).toHaveBeenCalledWith({
+            start: 7,
+            end: 8,
+        }, { transactionId: 51 });
+        expect(updateVisibleRange).not.toHaveBeenCalled();
+        expect(transactionController.advanceTransaction).toHaveBeenCalledWith(51, 'render-requested');
+        expect(transactionController.advanceTransaction).toHaveBeenCalledWith(51, 'settled');
+        expect(transactionController.cancelActiveTransaction).not.toHaveBeenCalled();
+    });
+
+    it('cancels the active reload transaction when a document load is invalidated', async () => {
+        const currentPage = ref(4);
+        const visibleRange = ref({
+            start: 4,
+            end: 4,
+        });
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
+        const numPages = ref(9);
+        let resolveLoad!: (value: { version: number }) => void;
+        const loadPdf = vi.fn(async () => {
+            const loaded = await new Promise<{ version: number }>((resolve) => {
+                resolveLoad = resolve;
+            });
+            pdfDocument.value = { numPages: numPages.value } as PDFDocumentProxy;
+            return loaded;
+        });
+        let transactionCurrent = true;
+        const transactionController: TReloadTransactionController = {
+            beginTransaction: vi.fn(() => ({ id: 61 })),
+            advanceTransaction: vi.fn(() => true),
+            cancelActiveTransaction: vi.fn(() => {
+                transactionCurrent = false;
+                return true;
+            }),
+            isTransactionCurrent: vi.fn(() => transactionCurrent),
+            commitCurrentPage: vi.fn((page) => {
+                currentPage.value = page;
+                return true;
+            }),
+            commitVisibleRange: vi.fn((range) => {
+                visibleRange.value = range;
+                return true;
+            }),
+        };
+
+        const {
+            invalidateDocumentLoad,
+            scheduleLoadFromSource,
+        } = usePdfViewerDocumentLifecycle({
+            viewerContainer: ref(cast<HTMLElement>({ querySelector: vi.fn(() => ({})) })),
+            src: computed(() =>
+                new Blob([new Uint8Array([1])], { type: 'application/pdf' }),
+            ),
+            zoom: computed(() => 1),
+            zoomMode: computed(() => 'fit-width' as const),
+            effectiveScale: ref(1),
+            currentPage,
+            visibleRange,
+            basePageWidth: ref(612),
+            basePageHeight: ref(792),
+            annotationUiManager: shallowRef(null),
+            annotationCommentsCache: ref([]),
+            activeCommentStableKey: ref(null),
+            pdfDocument,
+            numPages,
+            isLoading: ref(false),
+            getRenderVersion: () => 1,
+            loadPdf,
+            ensurePageMetricsInRange: vi.fn(async () => false),
+            getPage: vi.fn(async () => ({}) as PDFPageProxy),
+            renderVisiblePages: vi.fn(async () => {}),
+            getVisibleRange: () => visibleRange.value,
+            reRenderVisiblePagesAndSyncCurrentPage: vi.fn(async () => {}),
+            syncCurrentPageFromViewport: vi.fn(async () => {}),
+            applySearchHighlights: vi.fn(),
+            getVisiblePageRange: vi.fn(() => visibleRange.value),
+            updateVisibleRange: vi.fn(),
+            scrollToPage: vi.fn(),
+            cleanupRenderedPages: vi.fn(),
+            invalidateScaleCache: vi.fn(),
+            resetScale: vi.fn(),
+            resetInsets: vi.fn(),
+            setupPagePlaceholders: vi.fn(),
+            computeFitWidthScale: vi.fn(() => true),
+            computeSkeletonInsets: vi.fn(async () => {}),
+            invalidateRenderedPages: vi.fn(),
+            consumePendingInvalidation: () => null,
+            commentSync: {
+                incrementSyncToken: vi.fn(),
+                scheduleAnnotationCommentsSync: vi.fn(),
+            },
+            editor: {
+                destroyAnnotationEditor: vi.fn(),
+                initAnnotationEditor: vi.fn(),
+            },
+            pinCurrentPageDuringRecovery: vi.fn(),
+            suppressNextZoomRerender: vi.fn(),
+            beginVisualReloadTransition: vi.fn(() => 17),
+            endVisualReloadTransition: vi.fn(),
+            transactionController,
+            emit: vi.fn(),
+        });
+
+        scheduleLoadFromSource(true);
+        await Promise.resolve();
+        expect(transactionController.beginTransaction).toHaveBeenCalled();
+
+        invalidateDocumentLoad();
+        resolveLoad({ version: 1 });
+        await flushLifecycleTasks();
+
+        expect(transactionController.cancelActiveTransaction).toHaveBeenCalledExactlyOnceWith(
+            {
+                reason: 'document-changed',
+                cancelInFlightRenders: true,
+                bumpRenderVersion: true,
+                clearTimers: true,
+                preserveVisualContent: false,
+            },
+            61,
+        );
     });
 
     it('emits current PDF load failures without treating stale cancellations as errors', async () => {

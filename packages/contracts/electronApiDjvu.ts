@@ -43,7 +43,10 @@ export interface IDjvuPagePreview {
     height: number;
 }
 
-export interface IDjvuPagePreviewOptions {subsample?: number;}
+export interface IDjvuPagePreviewOptions {
+    previewRequestId?: string;
+    subsample?: number;
+}
 
 export interface IDjvuConvertOptions {
     subsample?: number;

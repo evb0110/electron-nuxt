@@ -379,6 +379,15 @@ export function getWorkingCopyOwnerWebContentsId(workingPath: string): number | 
     return workingCopyMap.get(workingPath)?.ownerWebContentsId;
 }
 
+export function getWorkingCopyRegistrationId(workingPath: string, senderWebContentsId?: number): number | null {
+    const activeEntry = workingCopyMap.get(workingPath);
+    if (!activeEntry || !canUseWorkingCopyEntry(activeEntry, senderWebContentsId)) {
+        return null;
+    }
+
+    return activeEntry.registrationId;
+}
+
 export function getWorkingCopyRole(workingPath: string, senderWebContentsId?: number): TWorkingCopyRole | null {
     const activeEntry = workingCopyMap.get(workingPath);
     if (activeEntry) {

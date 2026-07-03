@@ -103,7 +103,7 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue';
 import { groupBy } from 'es-toolkit/array';
-import type { IPdfSearchMatch } from '@app/types/pdf';
+import type { IPdfSearchMatch } from '@app/types/pdfUi';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import PdfPanelEmptyState from '@app/modules/pdf-viewer/components/PdfPanelEmptyState.vue';
 import PdfSearchResultItem from '@app/modules/pdf-viewer/components/PdfSearchResultItem.vue';

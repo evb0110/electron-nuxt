@@ -7,11 +7,22 @@ import {
     readOptionalOcrArtifactJson,
 } from '@app/utils/platformOcrArtifacts';
 
-interface IOcrManifestIndex { pages?: Record<string, { path: string }>; }
+interface IOcrManifestIndex {
+    version: 3;
+    documentRevision: { token: string };
+    pages?: Record<string, { path: string }>;
+}
 
-interface IOcrPageTextEntry { text?: string; }
+interface IOcrPageTextEntry {
+    documentRevision?: { token: string };
+    text?: string;
+}
 
-interface ILegacyOcrIndex { pages?: IOcrPageTextEntry[]; }
+interface ISearchTextIndex {
+    schemaVersion: 7;
+    documentRevision: { token: string };
+    pages?: IOcrPageTextEntry[];
+}
 
 function isOcrPageTextEntry(value: unknown): value is IOcrPageTextEntry {
     return isRecord(value) && (value.text === undefined || typeof value.text === 'string');
@@ -19,6 +30,10 @@ function isOcrPageTextEntry(value: unknown): value is IOcrPageTextEntry {
 
 function isOcrManifestIndex(value: unknown): value is IOcrManifestIndex {
     return isRecord(value)
+        && value.version === 3
+        && isRecord(value.documentRevision)
+        && typeof value.documentRevision.token === 'string'
+        && value.documentRevision.token.length > 0
         && (
             value.pages === undefined
             || (
@@ -28,18 +43,25 @@ function isOcrManifestIndex(value: unknown): value is IOcrManifestIndex {
         );
 }
 
-function isLegacyOcrIndex(value: unknown): value is ILegacyOcrIndex {
+function isSearchTextIndex(value: unknown): value is ISearchTextIndex {
     return isRecord(value)
+        && value.schemaVersion === 7
+        && isRecord(value.documentRevision)
+        && typeof value.documentRevision.token === 'string'
+        && value.documentRevision.token.length > 0
         && (
             value.pages === undefined
             || (Array.isArray(value.pages) && value.pages.every(isOcrPageTextEntry))
         );
 }
 
-export async function loadOcrText(workingCopyPath: TDocumentRef) {
+export async function loadOcrText(
+    workingCopyPath: TDocumentRef,
+    documentRevisionToken: string,
+) {
     try {
         const manifest = await readOptionalOcrArtifactJson(workingCopyPath, 'manifest.json', isOcrManifestIndex);
-        if (manifest) {
+        if (manifest && manifest.documentRevision.token === documentRevisionToken) {
 
             const pageEntries = Object.entries(manifest.pages ?? {})
                 .map(([
@@ -57,7 +79,7 @@ export async function loadOcrText(workingCopyPath: TDocumentRef) {
             for (let index = 0; index < pageEntries.length; index += 1) {
                 const entry = pageEntries[index]!;
                 const pageData = await readOptionalOcrArtifactJson(workingCopyPath, entry.path, isOcrPageTextEntry);
-                if (pageData?.text) {
+                if (pageData?.documentRevision?.token === documentRevisionToken && pageData.text) {
                     texts.push(pageData.text.trim());
                 }
 
@@ -70,8 +92,8 @@ export async function loadOcrText(workingCopyPath: TDocumentRef) {
             return merged.length > 0 ? merged : null;
         }
 
-        const index = await readOptionalAdjacentJsonArtifact(workingCopyPath, '.index.json', isLegacyOcrIndex);
-        if (!index) {
+        const index = await readOptionalAdjacentJsonArtifact(workingCopyPath, '.index.json', isSearchTextIndex);
+        if (!index || index.documentRevision.token !== documentRevisionToken) {
             return null;
         }
 

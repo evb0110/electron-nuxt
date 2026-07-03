@@ -1,4 +1,5 @@
 import type { IDocumentsFileCapability } from '@contracts/electronApiDocuments';
+import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type { IRecentFile } from '@contracts/shared';
 import {
     BROWSER_MAX_FULL_READ_BYTES,
@@ -42,9 +43,14 @@ import {
 import {
     assertBrowserPathWithinFullReadBudget,
     saveWorkingBytesToSource,
+    saveWorkingBytesToSourceStructured,
 } from '@app/platform/browser-api/browserSaveTargets';
+import { createPlatformUnsupportedResult } from '@contracts/platformUnsupported';
 import { writeRecentFilesToStorage } from '@app/platform/browser/browserRecentFilesStore';
 import { stripBrowserPdfEncryption } from '@app/platform/browser-api/stripBrowserPdfEncryption';
+
+const BROWSER_DEFAULT_PDF_APP_UNSUPPORTED = 'Opening via the default desktop PDF app is unavailable in the browser capability';
+const BROWSER_NATIVE_PRINT_UNSUPPORTED = 'Printing via the native desktop dialog is unavailable in the browser capability';
 
 export async function createBrowserCombinedPdfFromPaths(
     paths: string[],
@@ -66,6 +72,14 @@ type TCanonicalDocumentsFileCapability = Omit<
     IDocumentsFileCapability,
     'openPdfDialog' | 'openPdfDirect' | 'openPdfDirectBatch'
 >;
+
+function createCanceledSaveValidationResult(validation: IPdfValidationResult): IPdfValidationResult {
+    return {
+        ...validation,
+        isValid: false,
+        errors: [],
+    };
+}
 
 export function createBrowserDocumentsFileCapability(
     options: ICreateBrowserDocumentsFileCapabilityOptions,
@@ -224,6 +238,12 @@ export function createBrowserDocumentsFileCapability(
         },
         openFolderDialog() {
             return Promise.resolve(null);
+        },
+        openFolderDialogStructured() {
+            return Promise.resolve(createPlatformUnsupportedResult(
+                'requires-native-backend',
+                'Folder dialogs require the desktop app.',
+            ));
         },
         async openCombineDialog() {
             const pickedFiles = await pickFiles({
@@ -408,6 +428,12 @@ export function createBrowserDocumentsFileCapability(
         async fileExists(path) {
             return browserDocumentStore.exists(path);
         },
+        getDocumentRevision(path) {
+            return browserDocumentStore.getDocumentRevision(path);
+        },
+        onDocumentRevisionChanged(callback) {
+            return browserDocumentStore.onDocumentRevisionChanged(callback);
+        },
         async analyzePdfConformance(path) {
             return analyzeBrowserPdfConformance(path);
         },
@@ -421,25 +447,29 @@ export function createBrowserDocumentsFileCapability(
         openPdfInDefaultAppData() {
             return Promise.resolve({
                 success: false,
-                error: 'Opening via the default desktop PDF app is unavailable in the browser capability',
+                error: BROWSER_DEFAULT_PDF_APP_UNSUPPORTED,
+                unsupportedReason: 'requires-native-backend',
             });
         },
         openPdfInDefaultAppPath() {
             return Promise.resolve({
                 success: false,
-                error: 'Opening via the default desktop PDF app is unavailable in the browser capability',
+                error: BROWSER_DEFAULT_PDF_APP_UNSUPPORTED,
+                unsupportedReason: 'requires-native-backend',
             });
         },
         printPdfData() {
             return Promise.resolve({
                 success: false,
-                error: 'Printing via the native desktop dialog is unavailable in the browser capability',
+                error: BROWSER_NATIVE_PRINT_UNSUPPORTED,
+                unsupportedReason: 'requires-native-backend',
             });
         },
         printPdfPath() {
             return Promise.resolve({
                 success: false,
-                error: 'Printing via the native desktop dialog is unavailable in the browser capability',
+                error: BROWSER_NATIVE_PRINT_UNSUPPORTED,
+                unsupportedReason: 'requires-native-backend',
             });
         },
         async writeFile(path, data) {
@@ -458,9 +488,11 @@ export function createBrowserDocumentsFileCapability(
             }
 
             await browserDocumentStore.write(path, data);
-            if (await saveWorkingBytesToSource(path, browserLargeSaveHandleHintProvider)) {
-                clearSearchCaches();
+            const saved = await saveWorkingBytesToSource(path, browserLargeSaveHandleHintProvider);
+            if (!saved) {
+                return createCanceledSaveValidationResult(validation);
             }
+            clearSearchCaches();
             return validation;
         },
         async savePdfDataChunks(path, totalBytes, chunks) {
@@ -560,11 +592,18 @@ export function createBrowserDocumentsFileCapability(
             return workingPath;
         },
         async saveFile(path) {
-            const saved = await saveWorkingBytesToSource(path, browserLargeSaveHandleHintProvider);
-            if (saved) {
+            const result = await saveWorkingBytesToSourceStructured(path, browserLargeSaveHandleHintProvider);
+            if (result.ok) {
                 clearSearchCaches();
             }
-            return saved;
+            return result.ok;
+        },
+        async saveFileStructured(path) {
+            const result = await saveWorkingBytesToSourceStructured(path, browserLargeSaveHandleHintProvider);
+            if (result.ok) {
+                clearSearchCaches();
+            }
+            return result;
         },
         async cleanupFile(path) {
             const entry = await browserDocumentStore.ensureEntry(path);
@@ -594,6 +633,12 @@ export function createBrowserDocumentsFileCapability(
         },
         showItemInFolder(_path) {
             return Promise.resolve(false);
+        },
+        showItemInFolderStructured(_path) {
+            return Promise.resolve(createPlatformUnsupportedResult(
+                'requires-native-backend',
+                'Showing files in a folder requires the desktop app.',
+            ));
         },
         recentFiles: {
             async get() {
@@ -638,6 +683,24 @@ export function createBrowserDocumentsFileCapability(
         },
         getPathsForFiles(files) {
             return files.map(file => browserDocumentStore.getRefForFile(file));
+        },
+        async createCombinedPdfFromFiles(files, options) {
+            const refs: string[] = [];
+            for (const file of files) {
+                const ref = await browserDocumentStore.registerFile(file, {
+                    kind: 'source',
+                    retention: 'transient',
+                    saveKind: 'generic',
+                    saveHandle: null,
+                });
+                refs.push(ref);
+            }
+
+            try {
+                return await createBrowserCombinedPdfFromPaths(refs, options);
+            } finally {
+                await cleanupTransientOpenRefs(refs);
+            }
         },
     };
 

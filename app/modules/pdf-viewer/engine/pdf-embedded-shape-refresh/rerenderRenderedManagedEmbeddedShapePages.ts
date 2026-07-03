@@ -1,5 +1,5 @@
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/renderVisiblePagesOptions';
-import type { IPageRange } from '@app/types/pdf';
+import type { IPageRange } from '@app/types/pdfUi';
 import { uniq } from 'es-toolkit/array';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';

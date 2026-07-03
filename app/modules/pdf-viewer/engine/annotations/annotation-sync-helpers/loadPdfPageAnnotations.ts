@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
 import {

@@ -31,6 +31,7 @@
                         :document-record="documentRecordsByTabId[tab.id] ?? null"
                         :has-document-hint="tabHasDocumentHint(tab)"
                         :initial-view-state="viewStateByTabId[tab.id] ?? null"
+                        :document-session="documentSessionsByTabId[tab.id] ?? null"
                         :is-startup-open-claim-pending="isStartupOpenClaimPending"
                         :is-active="paneForLeaf!.paneId === activePaneId && tab.id === paneForLeaf!.activeTabId"
                         :is-render-active="tab.id === paneForLeaf!.activeTabId"
@@ -78,6 +79,7 @@
                 :tab-lifecycle-by-id="tabLifecycleById"
                 :view-state-by-tab-id="viewStateByTabId"
                 :document-records-by-tab-id="documentRecordsByTabId"
+                :document-sessions-by-tab-id="documentSessionsByTabId"
                 :zen-mode="zenMode"
                 :zen-active-tab-id="zenActiveTabId"
                 :is-fullscreen="isFullscreen"
@@ -127,6 +129,7 @@
                 :tab-lifecycle-by-id="tabLifecycleById"
                 :view-state-by-tab-id="viewStateByTabId"
                 :document-records-by-tab-id="documentRecordsByTabId"
+                :document-sessions-by-tab-id="documentSessionsByTabId"
                 :zen-mode="zenMode"
                 :zen-active-tab-id="zenActiveTabId"
                 :is-fullscreen="isFullscreen"
@@ -180,11 +183,13 @@ import type {
 } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 
 defineOptions({name: 'EditorPanesGrid'});
 
 const {
     documentRecordsByTabId,
+    documentSessionsByTabId,
     panes,
     node,
     tabLifecycleById,
@@ -204,6 +209,7 @@ const {
     tabLifecycleById: Record<string, ITabLifecycleState>;
     viewStateByTabId: Record<string, ITabViewSessionState>;
     documentRecordsByTabId: Record<string, IWorkspaceDocumentRecord>;
+    documentSessionsByTabId: Record<string, IWorkspaceDocumentSessionController>;
     zenMode: boolean;
     zenActiveTabId: string | null;
     isFullscreen: boolean;

@@ -1,4 +1,4 @@
-import type { TPdfViewMode } from '@app/types/pdf';
+import type { TPdfViewMode } from '@app/types/pdfContracts';
 import { clamp } from 'es-toolkit/math';
 
 function clampPageNumber(pageNumber: number, totalPages: number) {

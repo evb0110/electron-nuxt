@@ -13,7 +13,7 @@ import {
     shallowRef,
 } from 'vue';
 import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerLoadingState';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 
 describe('usePdfViewerLoadingState', () => {
     let triggerObservedMutation: (() => void) | null = null;

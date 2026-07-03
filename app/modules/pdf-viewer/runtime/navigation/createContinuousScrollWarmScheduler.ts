@@ -2,12 +2,11 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import type {
-    IPageRange,
-    PDFDocumentProxy,
-} from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
+import type { IPageRange } from '@app/types/pdfUi';
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import type { IGuardAsyncOptions } from '@app/utils/asyncGuard';
 
 const SCROLL_DELTA_EPSILON = 0.01;
 const FAST_VELOCITY_PX_PER_MS = 1;
@@ -47,10 +46,7 @@ interface IContinuousScrollWarmSchedulerControls {
     scheduleFrame: (callback: () => void) => void;
     runGuardedTask: (
         task: () => Promise<void>,
-        options: {
-            scope: string;
-            message: string;
-        },
+        options: IGuardAsyncOptions,
     ) => void;
 }
 
@@ -139,6 +135,7 @@ export function createContinuousScrollWarmScheduler(
                 preserveInFlightRequiredPages: true,
             },
         ), {
+            category: 'user-visible-operation',
             scope: 'pdf-single-page-scroll',
             message: 'Failed to warm PDF pages during continuous scroll',
         });

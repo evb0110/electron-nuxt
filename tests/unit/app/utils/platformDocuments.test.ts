@@ -207,7 +207,12 @@ describe('platformDocuments', () => {
         expect(isNativePrintCapabilityUnavailable({
             success: false,
             error: 'Printing via the native desktop dialog is unavailable in the browser capability',
+            unsupportedReason: 'requires-native-backend',
         })).toBe(true);
+        expect(isNativePrintCapabilityUnavailable({
+            success: false,
+            error: 'Printing via the native desktop dialog is unavailable in the browser capability',
+        })).toBe(false);
         expect(isNativePrintCapabilityUnavailable({
             success: false,
             error: 'Printer offline',

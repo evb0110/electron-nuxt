@@ -13,6 +13,7 @@ import type {
     IAgentTabSnapshot,
     IAgentCommandRequest,
     IAgentCommandResponse,
+    IAgentCommandExecutionScope,
     IAgentRendererAck,
     IAgentWorkspaceSnapshot,
     IAgentWorkspaceSummary,
@@ -25,6 +26,7 @@ import type {
     TAgentRecommendationId,
     TAgentWorkspaceMode,
     TAgentRendererAckReason,
+    TAgentWorkspaceCommandTarget,
 } from '@contracts/agent';
 import {
     isRecord,
@@ -222,6 +224,10 @@ function isOptionalFiniteNumber(value: unknown): value is number | undefined {
     return value === undefined || (typeof value === 'number' && Number.isFinite(value));
 }
 
+function isOptionalDocumentBackend(value: unknown) {
+    return value === undefined || value === 'browser' || value === 'electron';
+}
+
 function isAgentDocumentKind(value: unknown): value is TAgentDocumentKind {
     return value === 'empty'
         || value === 'pdf'
@@ -254,12 +260,41 @@ function isWorkspaceMode(value: unknown): value is TAgentWorkspaceMode {
         || value === 'documents-open-no-active-document';
 }
 
+function isAgentWorkspaceCommandTarget(value: unknown): value is TAgentWorkspaceCommandTarget {
+    if (!isRecord(value)) {
+        return false;
+    }
+
+    if (
+        typeof value.tabId !== 'string'
+        || value.tabId.trim().length === 0
+        || typeof value.sessionId !== 'string'
+        || value.sessionId.trim().length === 0
+        || (value.documentRef !== null && typeof value.documentRef !== 'string')
+        || !isOptionalDocumentBackend(value.documentBackend)
+        || (value.documentRevisionToken !== undefined && typeof value.documentRevisionToken !== 'string')
+    ) {
+        return false;
+    }
+
+    if (value.kind === 'transaction') {
+        return typeof value.transactionId === 'string' && value.transactionId.trim().length > 0;
+    }
+
+    return value.kind === 'revision'
+        && typeof value.sessionRevision === 'number'
+        && Number.isInteger(value.sessionRevision)
+        && value.sessionRevision >= 0;
+}
+
 function isDocumentReference(value: unknown): value is IAgentDocumentReference {
     return isRecord(value)
         && typeof value.tabId === 'string'
         && isNullableString(value.paneId)
         && isNullableString(value.fileName)
         && isNullableString(value.originalPath)
+        && isOptionalDocumentBackend(value.originalBackend)
+        && (value.commandTarget === undefined || isAgentWorkspaceCommandTarget(value.commandTarget))
         && isAgentDocumentKind(value.kind);
 }
 
@@ -314,6 +349,8 @@ function isAgentTabSnapshot(value: unknown): value is IAgentTabSnapshot {
         && isNullableString(value.paneId)
         && isNullableString(value.fileName)
         && isNullableString(value.originalPath)
+        && isOptionalDocumentBackend(value.originalBackend)
+        && (value.commandTarget === undefined || isAgentWorkspaceCommandTarget(value.commandTarget))
         && typeof value.isDirty === 'boolean'
         && isAgentDocumentKind(value.kind)
         && typeof value.workspaceAttached === 'boolean'
@@ -330,6 +367,7 @@ function isAgentRecentFileSnapshot(value: unknown): value is IAgentRecentFileSna
     return isRecord(value)
         && typeof value.fileName === 'string'
         && typeof value.originalPath === 'string'
+        && isOptionalDocumentBackend(value.backend)
         && isAgentDocumentKind(value.kind)
         && typeof value.openedAt === 'string'
         && (value.fileSize === undefined || isNonNegativeInteger(value.fileSize));
@@ -424,6 +462,7 @@ function rejectPendingInvalidSnapshotResponse(
 export function requestAgentWorkspaceSnapshot(
     targetWindow: BrowserWindow | null | undefined,
     timeoutMs = DEFAULT_AGENT_REQUEST_TIMEOUT_MS,
+    scope?: IAgentCommandExecutionScope,
 ) {
     const window = assertUsableTargetWindow(targetWindow);
     const requestId = randomUUID();
@@ -431,6 +470,7 @@ export function requestAgentWorkspaceSnapshot(
     const request: IAgentWorkspaceSnapshotRequest = {
         requestId,
         windowId: window.id,
+        ...(scope === undefined ? {} : { scope }),
         ...(cachedSnapshot === undefined ? {} : { lastSeenRevision: cachedSnapshot.revision }),
     };
     const pending = createPendingRequest(
@@ -458,6 +498,7 @@ export function requestAgentCommand(
     targetWindow: BrowserWindow | null | undefined,
     command: TAgentCommand,
     timeoutMs = DEFAULT_AGENT_REQUEST_TIMEOUT_MS,
+    scope?: IAgentCommandExecutionScope,
 ) {
     const window = assertUsableTargetWindow(targetWindow);
     const requestId = randomUUID();
@@ -465,6 +506,7 @@ export function requestAgentCommand(
         requestId,
         windowId: window.id,
         command,
+        ...(scope === undefined ? {} : { scope }),
     };
     const pending = createPendingRequest(
         pendingCommandRequests,

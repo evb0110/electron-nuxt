@@ -1,4 +1,4 @@
-import type { TPdfSaveMode } from '@app/types/pdf';
+import type { TPdfSaveMode } from '@app/types/pdfContracts';
 import { createPdfPersistResult } from '@app/services/pdf-file/createPdfPersistResult';
 
 export function createFailedPdfPersistResult(

@@ -1,5 +1,13 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
+    IPlatformUnsupportedResult,
+    TPlatformUnsupportedReason,
+} from '@contracts/platformUnsupported';
+import type {
+    IDocumentRevisionChangedEvent,
+    IDocumentRevisionInfo,
+} from '@contracts/documentRevision';
+import type {
     IPdfBox,
     IMarkerRect,
     IPoint2D,
@@ -54,6 +62,16 @@ export interface IOpenPdfDirectBatchProgress {
 
 export type TOpenDocumentDirectBatchProgress = IOpenPdfDirectBatchProgress;
 
+export interface IDocumentsBatchProgress {
+    processed: number;
+    total: number;
+    percent: number;
+    elapsedMs: number;
+    estimatedRemainingMs: number | null;
+}
+
+export interface ICreateCombinedPdfFromFilesOptions { onProgress?: (progress: IDocumentsBatchProgress) => void; }
+
 export interface IOpenPdfResult {
     kind: 'pdf';
     workingPath: TDocumentRef;
@@ -68,6 +86,15 @@ export interface IOpenDjvuResult {
 }
 
 export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
+export type TOpenFolderDialogResult =
+    | {
+        ok: true;
+        value: TOpenFileResult | null
+    }
+    | IPlatformUnsupportedResult;
+export type TShowItemInFolderResult =
+    | {ok: true}
+    | IPlatformUnsupportedResult;
 
 export interface IPdfSaveAsOptions { optimizeLossless?: boolean; }
 
@@ -259,6 +286,39 @@ export interface IPdfNativeWorkingCopyExpectation {
     sha256: string;
 }
 
+export type TDocumentSaveFailureReason =
+    | 'user-canceled'
+    | 'validation-failed'
+    | 'working-copy-missing'
+    | 'write-failed'
+    | 'refresh-failed'
+    | 'unsupported'
+    | 'stale'
+    | 'unknown';
+
+export interface IDocumentSaveSuccessResult {
+    ok: true;
+    externalWriteCommitted: boolean;
+    workingCopyRefreshed: boolean;
+    validation?: IPdfValidationResult | null;
+    warning?: {
+        reason: Extract<TDocumentSaveFailureReason, 'refresh-failed'>;
+        message: string;
+    };
+}
+
+export interface IDocumentSaveFailureResult {
+    ok: false;
+    reason: TDocumentSaveFailureReason;
+    message?: string;
+    externalWriteCommitted?: boolean;
+    validation?: IPdfValidationResult | null;
+}
+
+export type TDocumentSaveResult =
+    | IDocumentSaveSuccessResult
+    | IDocumentSaveFailureResult;
+
 export type TImageExportProgressFormat = 'images' | 'multipage-tiff';
 export type TImageExportProgressPhase = 'rendering' | 'combining';
 
@@ -335,6 +395,7 @@ export interface IDocumentsFileCapability {
     openPdfDialog: () => Promise<TOpenFileResult | null>;
     openCombineDialog: () => Promise<TOpenFileResult | null>;
     openFolderDialog: () => Promise<TOpenFileResult | null>;
+    openFolderDialogStructured?: () => Promise<TOpenFolderDialogResult>;
     openImageDialog: () => Promise<string | null>;
     openDocumentDirect: (path: TDocumentRef) => Promise<TOpenFileResult | null>;
     openPdfDirect: (path: TDocumentRef) => Promise<TOpenFileResult | null>;
@@ -359,25 +420,30 @@ export interface IDocumentsFileCapability {
     ) => Promise<IDocumentChunkReadResult>;
     readTextFile: (path: TDocumentRef) => Promise<string>;
     fileExists: (path: TDocumentRef) => Promise<boolean>;
+    getDocumentRevision: (path: TDocumentRef) => Promise<IDocumentRevisionInfo>;
     analyzePdfConformance: (path: TDocumentRef) => Promise<IPdfConformanceProfile>;
     validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfValidationResult>;
     openPdfInDefaultAppData: (data: Uint8Array, fileName?: string) => Promise<{
         success: boolean;
         error?: string;
+        unsupportedReason?: TPlatformUnsupportedReason;
     }>;
     openPdfInDefaultAppPath: (path: TDocumentRef, fileName?: string) => Promise<{
         success: boolean;
         error?: string;
+        unsupportedReason?: TPlatformUnsupportedReason;
     }>;
     printPdfData: (data: Uint8Array, fileName?: string) => Promise<{
         success: boolean;
         canceled?: boolean;
         error?: string;
+        unsupportedReason?: TPlatformUnsupportedReason;
     }>;
     printPdfPath: (path: TDocumentRef, fileName?: string, pageNumbers?: number[]) => Promise<{
         success: boolean;
         canceled?: boolean;
         error?: string;
+        unsupportedReason?: TPlatformUnsupportedReason;
     }>;
     writeFile: (path: TDocumentRef, data: Uint8Array) => Promise<boolean>;
     replaceWorkingCopyFromPath: (workingCopyPath: TDocumentRef, sourcePath: TDocumentRef) => Promise<boolean>;
@@ -385,6 +451,7 @@ export interface IDocumentsFileCapability {
     createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
     createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
     saveFile: (path: TDocumentRef) => Promise<boolean>;
+    saveFileStructured?: (path: TDocumentRef) => Promise<TDocumentSaveResult>;
     savePdfData: (path: TDocumentRef, data: Uint8Array) => Promise<IPdfValidationResult>;
     savePdfDataChunks: (
         path: TDocumentRef,
@@ -428,6 +495,10 @@ export interface IDocumentsFileCapability {
     cleanupOcrTemp: (path: TDocumentRef) => Promise<void>;
     setWindowTitle: (title: string) => Promise<void>;
     showItemInFolder: (path: TDocumentRef) => Promise<boolean>;
+    showItemInFolderStructured?: (path: TDocumentRef) => Promise<TShowItemInFolderResult>;
+    onDocumentRevisionChanged: (
+        callback: (event: IDocumentRevisionChangedEvent) => void,
+    ) => TMenuEventUnsubscribe;
 
     recentFiles: {
         get: () => Promise<IRecentFile[]>;
@@ -437,6 +508,10 @@ export interface IDocumentsFileCapability {
 
     getPathForFile: (file: File) => TDocumentRef;
     getPathsForFiles: (files: File[]) => TDocumentRef[];
+    createCombinedPdfFromFiles?: (
+        files: File[],
+        options?: ICreateCombinedPdfFromFilesOptions,
+    ) => Promise<Uint8Array>;
 }
 
 export interface IDocumentsPickerCapability extends Pick<
@@ -445,9 +520,11 @@ export interface IDocumentsPickerCapability extends Pick<
     | 'openPdfDialog'
     | 'openCombineDialog'
     | 'openFolderDialog'
+    | 'openFolderDialogStructured'
     | 'openImageDialog'
     | 'getPathForFile'
     | 'getPathsForFiles'
+    | 'createCombinedPdfFromFiles'
 > {}
 
 export interface IDocumentsOpenCapability extends Pick<
@@ -476,6 +553,8 @@ export interface IDocumentsReadCapability extends Pick<
     | 'readFileChunks'
     | 'readTextFile'
     | 'fileExists'
+    | 'getDocumentRevision'
+    | 'onDocumentRevisionChanged'
 > {}
 
 export interface IDocumentsPdfValidationCapability extends Pick<
@@ -503,6 +582,7 @@ export interface IDocumentsPdfPersistenceCapability extends Pick<
     | 'replaceWorkingCopyFromPath'
     | 'writeDocxFile'
     | 'saveFile'
+    | 'saveFileStructured'
     | 'savePdfData'
     | 'savePdfDataChunks'
     | 'repairPdf'
@@ -531,6 +611,7 @@ export interface IDocumentsWindowCapability extends Pick<
     IDocumentsFileCapability,
     | 'setWindowTitle'
     | 'showItemInFolder'
+    | 'showItemInFolderStructured'
 > {}
 
 export interface IDocumentsCapability extends

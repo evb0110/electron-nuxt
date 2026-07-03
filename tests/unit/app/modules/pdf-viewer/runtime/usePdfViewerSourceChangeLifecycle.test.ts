@@ -10,7 +10,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 import { usePdfViewerSourceChangeLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerSourceChangeLifecycle';
 
 function createSource(content: string): TPdfSource {

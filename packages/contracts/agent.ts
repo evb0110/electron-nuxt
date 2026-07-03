@@ -1,5 +1,12 @@
 import type { TEditorLayoutNode } from '@contracts/editorPanes';
-import type { TDocumentRef } from '@contracts/documentRef';
+import type {
+    TDocumentBackend,
+    TDocumentRef,
+} from '@contracts/documentRef';
+import type {
+    IDocumentRevisionInfo,
+    TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 
 export type TAgentDocumentKind = 'empty' | 'pdf' | 'djvu' | 'image' | 'unknown';
 export type TAgentDocumentReadinessStatus = 'ready' | 'needs-preparation' | 'unknown' | 'empty';
@@ -119,6 +126,9 @@ export interface IAgentTabSnapshot {
     paneId: string | null;
     fileName: string | null;
     originalPath: string | null;
+    originalBackend?: TDocumentBackend;
+    documentIdentity?: IDocumentRevisionInfo | null;
+    commandTarget?: TAgentWorkspaceCommandTarget;
     isDirty: boolean;
     kind: TAgentDocumentKind;
     workspaceAttached: boolean;
@@ -136,12 +146,36 @@ export interface IAgentDocumentReference {
     paneId: string | null;
     fileName: string | null;
     originalPath: TDocumentRef | null;
+    originalBackend?: TDocumentBackend;
+    documentIdentity?: IDocumentRevisionInfo | null;
+    commandTarget?: TAgentWorkspaceCommandTarget;
     kind: TAgentDocumentKind;
 }
+
+export type TAgentWorkspaceCommandTarget =
+    | {
+        kind: 'transaction';
+        tabId: string;
+        sessionId: string;
+        documentRef: TDocumentRef | null;
+        documentBackend?: TDocumentBackend;
+        transactionId: string;
+        documentRevisionToken?: TDocumentRevisionToken;
+    }
+    | {
+        kind: 'revision';
+        tabId: string;
+        sessionId: string;
+        documentRef: TDocumentRef | null;
+        documentBackend?: TDocumentBackend;
+        sessionRevision: number;
+        documentRevisionToken?: TDocumentRevisionToken;
+    };
 
 export interface IAgentRecentFileSnapshot {
     fileName: string;
     originalPath: TDocumentRef;
+    backend?: TDocumentBackend;
     kind: TAgentDocumentKind;
     openedAt: string;
     fileSize?: number;
@@ -166,10 +200,20 @@ export interface IAgentWorkspaceSnapshot {
     layout: TEditorLayoutNode | null;
 }
 
+export interface IAgentCommandExecutionScope {
+    windowId: number;
+    tabId: string;
+    documentRef: TDocumentRef | null;
+    documentBackend?: TDocumentBackend;
+    documentIdentity: IDocumentRevisionInfo | null;
+    commandTarget?: TAgentWorkspaceCommandTarget;
+}
+
 export interface IAgentWorkspaceSnapshotRequest {
     requestId: string;
     windowId?: number;
     lastSeenRevision?: number;
+    scope?: IAgentCommandExecutionScope;
 }
 
 export interface IAgentWorkspaceSnapshotResponse {
@@ -222,6 +266,7 @@ export type TAgentCommand =
 export interface IAgentCommandRequest {
     requestId: string;
     windowId?: number;
+    scope?: IAgentCommandExecutionScope;
     command: TAgentCommand;
 }
 
@@ -349,6 +394,9 @@ export interface IAgentAssistantChatScope {
     title: string | null;
     tabId?: string | null;
     documentRef?: TDocumentRef | null;
+    documentBackend?: TDocumentBackend;
+    documentIdentity?: IDocumentRevisionInfo | null;
+    commandTarget?: TAgentWorkspaceCommandTarget;
 }
 
 export interface IAgentAssistantStatus {

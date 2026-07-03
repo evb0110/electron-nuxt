@@ -9,10 +9,20 @@ import {
     parseOcrWorkerStartPayload,
 } from '@electron/ocr/worker/inboundMessage';
 
+const documentRevision = {
+    version: 1 as const,
+    documentRef: '/tmp/source.pdf',
+    authority: 'electron-working-copy' as const,
+    token: 'revision-token',
+    contentRevision: 1,
+    mintedAt: 1,
+};
+
 describe('OCR worker inbound message parsing', () => {
     it('parses start payloads with normalized source path and optional render DPI', () => {
         expect(parseOcrWorkerStartPayload({
             sourcePdfPath: ' /tmp/source.pdf ',
+            documentRevision,
             pages: [{
                 pageNumber: 2,
                 languages: ['eng'],
@@ -20,6 +30,7 @@ describe('OCR worker inbound message parsing', () => {
             renderDpi: 240,
         })).toEqual({
             sourcePdfPath: '/tmp/source.pdf',
+            documentRevision,
             pages: [{
                 pageNumber: 2,
                 languages: ['eng'],
@@ -31,6 +42,7 @@ describe('OCR worker inbound message parsing', () => {
     it('parses searchable PDF options while keeping render DPI compatibility', () => {
         expect(parseOcrWorkerStartPayload({
             sourcePdfPath: '/tmp/source.pdf',
+            documentRevision,
             pages: [{
                 pageNumber: 1,
                 languages: ['eng'],
@@ -43,6 +55,7 @@ describe('OCR worker inbound message parsing', () => {
             },
         })).toEqual({
             sourcePdfPath: '/tmp/source.pdf',
+            documentRevision,
             pages: [{
                 pageNumber: 1,
                 languages: ['eng'],
@@ -189,6 +202,7 @@ describe('OCR worker inbound message parsing', () => {
             jobId: 'job-1',
             data: {
                 sourcePdfPath: '/tmp/source.pdf',
+                documentRevision,
                 pages: [{
                     pageNumber: 1,
                     languages: ['eng'],

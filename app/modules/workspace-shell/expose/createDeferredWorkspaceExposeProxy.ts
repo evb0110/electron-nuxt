@@ -2,8 +2,11 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
 import type { TSplitPayload } from '@contracts/windowTabs';
+import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
 import {
     createDefaultWorkspaceToolbarSnapshot,
+    type IWorkspaceAgentCommandContext,
     type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
 import type { TTabUpdate } from '@app/types/tabs';
@@ -22,10 +25,12 @@ import {
 
 interface IDocumentOpenIntent {
     action: string;
+    commandTarget?: TWorkspaceCommandTarget;
     target?: TTabUpdate | null;
 }
 
 interface ICreateDeferredWorkspaceExposeProxyDeps {
+    documentSession?: IWorkspaceDocumentSessionController | null | undefined;
     enqueueDocumentOpen: <T>(
         intent: IDocumentOpenIntent,
         run: () => Promise<T>,
@@ -55,11 +60,63 @@ function getErrorMessage(error: unknown) {
 export function createDeferredWorkspaceExposeProxy(
     deps: ICreateDeferredWorkspaceExposeProxyDeps,
 ): IWorkspaceExpose {
+    function createCommandTarget() {
+        return deps.documentSession?.createCommandTarget() ?? null;
+    }
+
+    function validateCommandTarget(
+        action: TWorkspaceExposeMethod,
+        target: TWorkspaceCommandTarget | null,
+    ) {
+        if (!target) {
+            return true;
+        }
+
+        const validation = deps.documentSession?.validateCommandTarget(target) ?? {
+            ok: false,
+            reason: 'session-missing',
+        };
+        if (validation.ok) {
+            return true;
+        }
+
+        deps.log(action, new Error(`Stale workspace command target: ${validation.reason}`));
+        return false;
+    }
+
+    async function withTargetedLoadedWorkspace<T>(
+        action: TWorkspaceExposeMethod,
+        target: TWorkspaceCommandTarget | null,
+        run: (workspace: IWorkspaceExpose) => Promise<T> | T,
+        staleResult: T,
+    ) {
+        if (!validateCommandTarget(action, target)) {
+            return staleResult;
+        }
+
+        const result = await deps.withLoadedWorkspace(action, (workspace) => {
+            if (!validateCommandTarget(action, target)) {
+                return staleResult;
+            }
+
+            return run(workspace);
+        });
+        return result ?? staleResult;
+    }
+
     function mountWaitBoolean(
         action: TWorkspaceExposeMethod,
         run: (workspace: IWorkspaceExpose, args: readonly unknown[]) => Promise<boolean> | boolean,
     ) {
-        return async (...args: unknown[]) => await deps.withLoadedWorkspace(action, workspace => run(workspace, args)) === true;
+        return async (...args: unknown[]) => {
+            const target = createCommandTarget();
+            return await withTargetedLoadedWorkspace(
+                action,
+                target,
+                workspace => run(workspace, args),
+                false,
+            ) === true;
+        };
     }
 
     function mountWaitVoid(
@@ -67,7 +124,13 @@ export function createDeferredWorkspaceExposeProxy(
         run: (workspace: IWorkspaceExpose, args: readonly unknown[]) => Promise<void> | void,
     ) {
         return async (...args: unknown[]) => {
-            await deps.withLoadedWorkspace(action, workspace => run(workspace, args));
+            const target = createCommandTarget();
+            await withTargetedLoadedWorkspace(
+                action,
+                target,
+                workspace => run(workspace, args),
+                undefined,
+            );
         };
     }
 
@@ -76,7 +139,15 @@ export function createDeferredWorkspaceExposeProxy(
         run: (workspace: IWorkspaceExpose, args: readonly unknown[]) => void,
     ) {
         return (...args: unknown[]) => {
-            void deps.withLoadedWorkspace(action, workspace => run(workspace, args));
+            const target = createCommandTarget();
+            void withTargetedLoadedWorkspace(
+                action,
+                target,
+                (workspace) => {
+                    run(workspace, args);
+                },
+                undefined,
+            );
         };
     }
 
@@ -85,12 +156,19 @@ export function createDeferredWorkspaceExposeProxy(
         run: (workspace: IWorkspaceExpose, args: readonly unknown[]) => Promise<boolean> | boolean,
         args: readonly unknown[] = [],
     ) {
+        const target = createCommandTarget();
+        if (!validateCommandTarget(action, target)) {
+            return false;
+        }
         const workspace = deps.getMounted();
         if (!workspace) {
             deps.log(action, new WorkspaceExposeCommandUnavailableError(action));
             return false;
         }
         try {
+            if (!validateCommandTarget(action, target)) {
+                return false;
+            }
             return await run(workspace, args);
         } catch (error) {
             deps.log(action, error);
@@ -102,7 +180,25 @@ export function createDeferredWorkspaceExposeProxy(
         intent: IDocumentOpenIntent,
         run: () => Promise<T>,
     ) {
-        return deps.enqueueDocumentOpen(intent, run);
+        const commandTarget = createCommandTarget();
+        return deps.enqueueDocumentOpen({
+            ...intent,
+            ...(commandTarget ? {commandTarget} : {}),
+        }, run);
+    }
+
+    function createAgentCommandContext(
+        context: IWorkspaceAgentCommandContext | undefined,
+        target: TWorkspaceCommandTarget | null,
+    ): IWorkspaceAgentCommandContext | undefined {
+        if (!context) {
+            return undefined;
+        }
+
+        return {
+            ...context,
+            ...(target ? {commandTarget: target} : {}),
+        };
     }
 
     function createDeferredStrategyHandler(
@@ -165,12 +261,15 @@ export function createDeferredWorkspaceExposeProxy(
             'handleOpenFileWithResult',
             workspace => workspace.handleOpenFileWithResult(result),
         )),
-        handleCloseFileFromUi: async options => (
-            await deps.withLoadedWorkspace(
+        handleCloseFileFromUi: async (options) => {
+            const target = createCommandTarget();
+            return await withTargetedLoadedWorkspace(
                 'handleCloseFileFromUi',
+                target,
                 workspace => workspace.handleCloseFileFromUi(options),
-            ) ?? false
-        ),
+                false,
+            ) === true;
+        },
         openRecentFile: async (file: IRecentFile) => openQueued({
             action: 'openRecentFile',
             target: buildPendingTabDocumentHint(file),
@@ -193,16 +292,40 @@ export function createDeferredWorkspaceExposeProxy(
                 return;
             }
 
-            await deps.enqueueDocumentOpen({
+            await openQueued({
                 action: 'restoreSplitPayload',
                 target: null,
             }, restorePayload);
         },
-        runAgentAction: async (actionId, input, options) => {
+        runAgentAction: async (actionId, input, options, context) => {
+            const target = context?.commandTarget ?? createCommandTarget();
+            if (!validateCommandTarget('runAgentAction', target)) {
+                return {
+                    ok: false,
+                    actionId,
+                    error: 'stale-command-target',
+                };
+            }
+
             try {
                 return await deps.withLoadedWorkspaceRequired(
                     'runAgentAction',
-                    workspace => workspace.runAgentAction(actionId, input, options),
+                    (workspace) => {
+                        if (!validateCommandTarget('runAgentAction', target)) {
+                            return {
+                                ok: false,
+                                actionId,
+                                error: 'stale-command-target',
+                            };
+                        }
+
+                        return workspace.runAgentAction(
+                            actionId,
+                            input,
+                            options,
+                            createAgentCommandContext(context, target),
+                        );
+                    },
                 );
             } catch (error) {
                 return {
@@ -212,11 +335,30 @@ export function createDeferredWorkspaceExposeProxy(
                 };
             }
         },
-        readAgentResource: async (uri) => {
+        readAgentResource: async (uri, context) => {
+            const target = context?.commandTarget ?? createCommandTarget();
+            if (!validateCommandTarget('readAgentResource', target)) {
+                return {
+                    ok: false,
+                    uri,
+                    error: 'stale-command-target',
+                };
+            }
+
             try {
                 return await deps.withLoadedWorkspaceRequired(
                     'readAgentResource',
-                    workspace => workspace.readAgentResource(uri),
+                    (workspace) => {
+                        if (!validateCommandTarget('readAgentResource', target)) {
+                            return {
+                                ok: false,
+                                uri,
+                                error: 'stale-command-target',
+                            };
+                        }
+
+                        return workspace.readAgentResource(uri, createAgentCommandContext(context, target));
+                    },
                 );
             } catch (error) {
                 return {
@@ -235,15 +377,21 @@ export function createDeferredWorkspaceExposeProxy(
             workingCopyPath: null,
         },
         handleOcrComplete: async (payload) => {
-            await deps.withLoadedWorkspace(
+            const target = createCommandTarget();
+            await withTargetedLoadedWorkspace(
                 'handleOcrComplete',
+                target,
                 workspace => invokeWorkspaceExposeCommand(workspace, 'handleOcrComplete', [payload]),
+                undefined,
             );
         },
         scrollToPage: (page: number) => {
-            void deps.withLoadedWorkspace(
+            const target = createCommandTarget();
+            void withTargetedLoadedWorkspace(
                 'scrollToPage',
+                target,
                 workspace => invokeWorkspaceExposeCommand(workspace, 'scrollToPage', [page]),
+                undefined,
             );
         },
         getAllShapes: () => {
@@ -259,21 +407,27 @@ export function createDeferredWorkspaceExposeProxy(
             return workspace ? invokeWorkspaceExposeCommand(workspace, 'getDeletedEmbeddedShapeStableKeys') : [];
         },
         highlightSelection: async () => {
-            const result = await deps.withLoadedWorkspace(
+            const target = createCommandTarget();
+            const result = await withTargetedLoadedWorkspace(
                 'highlightSelection',
+                target,
                 workspace => invokeWorkspaceExposeCommand(workspace, 'highlightSelection'),
+                false,
             );
             return result === true;
         },
         commentAtPoint: async (pageNumber, pageX, pageY, options) => {
-            const result = await deps.withLoadedWorkspace(
+            const target = createCommandTarget();
+            const result = await withTargetedLoadedWorkspace(
                 'commentAtPoint',
+                target,
                 workspace => invokeWorkspaceExposeCommand(workspace, 'commentAtPoint', [
                     pageNumber,
                     pageX,
                     pageY,
                     options,
                 ]),
+                false,
             );
             return result === true;
         },

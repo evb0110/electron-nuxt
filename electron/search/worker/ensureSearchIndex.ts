@@ -5,6 +5,7 @@ import {
 import { sortBy } from 'es-toolkit/array';
 import { sumBy } from 'es-toolkit/math';
 import type { IPdfSearchIndex } from '@electron/search/indexBuilder';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     SEARCH_INDEX_SCHEMA_VERSION,
     buildSearchIndex,
@@ -27,6 +28,7 @@ export interface ISearchIndexCacheOptions {
 }
 
 interface IEnsureSearchIndexOptions {
+    documentRevision: TDocumentRevisionToken;
     pageCount?: number;
     signal?: AbortSignal;
     throwIfCancelled: (signal?: AbortSignal) => void;
@@ -42,6 +44,10 @@ class SearchIndexTextBudgetError extends Error {
 
 function getIndexPath(pdfPath: string) {
     return `${pdfPath}.index.json`;
+}
+
+function getIndexCacheKey(pdfPath: string, documentRevision: TDocumentRevisionToken) {
+    return `${pdfPath}\0${documentRevision}`;
 }
 
 async function statMtimeMs(filePath: string) {
@@ -114,47 +120,49 @@ function validateIndexTextBudget(
 
 async function deleteSearchIndexFile(
     indexCache: Map<string, ICachedIndex>,
-    pdfPath: string,
+    cacheKey: string,
     indexPath: string,
 ) {
-    indexCache.delete(pdfPath);
+    indexCache.delete(cacheKey);
     await rm(indexPath, { force: true }).catch(() => undefined);
 }
 
 async function loadCachedIndex(
     indexCache: Map<string, ICachedIndex>,
     pdfPath: string,
+    documentRevision: TDocumentRevisionToken,
     options: ISearchIndexCacheOptions,
 ): Promise<ICachedIndex | null> {
     const now = Date.now();
     pruneIndexCache(indexCache, options, now);
+    const cacheKey = getIndexCacheKey(pdfPath, documentRevision);
     const indexPath = getIndexPath(pdfPath);
 
     const mtimeMs = await statMtimeMs(indexPath);
     if (mtimeMs === null) {
-        indexCache.delete(pdfPath);
+        indexCache.delete(cacheKey);
         return null;
     }
     const sourceMtimeMs = await getSearchSourceMtimeMs(pdfPath);
 
-    const cached = indexCache.get(pdfPath);
+    const cached = indexCache.get(cacheKey);
     if (cached && cached.mtimeMs === mtimeMs && cached.sourceMtimeMs === sourceMtimeMs) {
         const touched = {
             ...cached,
             accessedAt: now,
         };
-        indexCache.set(pdfPath, touched);
+        indexCache.set(cacheKey, touched);
         return touched;
     }
 
     if (sourceMtimeMs > mtimeMs) {
-        indexCache.delete(pdfPath);
+        indexCache.delete(cacheKey);
         return null;
     }
 
-    const index = await loadSearchIndex(pdfPath);
+    const index = await loadSearchIndex(pdfPath, documentRevision);
     if (!index) {
-        indexCache.delete(pdfPath);
+        indexCache.delete(cacheKey);
         return null;
     }
 
@@ -169,12 +177,12 @@ async function loadCachedIndex(
         validateIndexTextBudget(entry.index, options);
     } catch (error) {
         if (error instanceof SearchIndexTextBudgetError) {
-            await deleteSearchIndexFile(indexCache, pdfPath, indexPath);
+            await deleteSearchIndexFile(indexCache, cacheKey, indexPath);
             return null;
         }
         throw error;
     }
-    indexCache.set(pdfPath, entry);
+    indexCache.set(cacheKey, entry);
     pruneIndexCache(indexCache, options, now);
     return entry;
 }
@@ -182,11 +190,13 @@ async function loadCachedIndex(
 async function cacheBuiltIndex(
     indexCache: Map<string, ICachedIndex>,
     pdfPath: string,
+    documentRevision: TDocumentRevisionToken,
     index: IPdfSearchIndex,
     options: ISearchIndexCacheOptions,
 ): Promise<ICachedIndex> {
     const now = Date.now();
     pruneIndexCache(indexCache, options, now);
+    const cacheKey = getIndexCacheKey(pdfPath, documentRevision);
     const indexPath = getIndexPath(pdfPath);
     const mtimeMs = await statMtimeMs(indexPath) ?? Date.now();
     const sourceMtimeMs = await getSearchSourceMtimeMs(pdfPath);
@@ -202,20 +212,24 @@ async function cacheBuiltIndex(
         validateIndexTextBudget(entry.index, options);
     } catch (error) {
         if (error instanceof SearchIndexTextBudgetError) {
-            await deleteSearchIndexFile(indexCache, pdfPath, indexPath);
+            await deleteSearchIndexFile(indexCache, cacheKey, indexPath);
         }
         throw error;
     }
-    indexCache.set(pdfPath, entry);
+    indexCache.set(cacheKey, entry);
     pruneIndexCache(indexCache, options, now);
     return entry;
 }
 
 function shouldRebuildCachedIndex(
     entry: ICachedIndex,
+    documentRevision: TDocumentRevisionToken,
     expectedCount?: number,
 ) {
     if (entry.index.schemaVersion !== SEARCH_INDEX_SCHEMA_VERSION) {
+        return true;
+    }
+    if (entry.index.documentRevision?.token !== documentRevision) {
         return true;
     }
 
@@ -248,6 +262,7 @@ function isNativeSearchSidecarDisabledForRuntime() {
 async function ensureNativeSearchSidecar(
     pdfPath: string,
     entry: ICachedIndex,
+    documentRevision: TDocumentRevisionToken,
     signal?: AbortSignal,
 ) {
     if (isNativeSearchSidecarDisabledForRuntime()) {
@@ -256,7 +271,7 @@ async function ensureNativeSearchSidecar(
 
     try {
         const { ensureNativeSearchIndexBestEffort } = await import('@electron/search/nativeSearchIndex');
-        await ensureNativeSearchIndexBestEffort(pdfPath, entry.index, signal);
+        await ensureNativeSearchIndexBestEffort(pdfPath, entry.index, documentRevision, signal);
     } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {
             throw error;
@@ -271,13 +286,16 @@ export async function ensureSearchIndex(
     ensureOptions: IEnsureSearchIndexOptions,
 ): Promise<ICachedIndex> {
     const expectedCount = ensureOptions.pageCount;
-    const { signal } = ensureOptions;
+    const {
+        documentRevision,
+        signal,
+    } = ensureOptions;
     ensureOptions.throwIfCancelled(signal);
 
-    let entry = await loadCachedIndex(indexCache, pdfPath, cacheOptions);
+    let entry = await loadCachedIndex(indexCache, pdfPath, documentRevision, cacheOptions);
     ensureOptions.throwIfCancelled(signal);
-    if (!entry || shouldRebuildCachedIndex(entry, expectedCount)) {
-        const buildOptions: Parameters<typeof buildSearchIndex>[2] = {};
+    if (!entry || shouldRebuildCachedIndex(entry, documentRevision, expectedCount)) {
+        const buildOptions: Parameters<typeof buildSearchIndex>[2] = {documentRevision};
         if (expectedCount !== undefined) {
             buildOptions.pageCount = expectedCount;
         }
@@ -292,10 +310,11 @@ export async function ensureSearchIndex(
         entry = await cacheBuiltIndex(
             indexCache,
             pdfPath,
+            documentRevision,
             await buildSearchIndex(pdfPath, [], buildOptions),
             cacheOptions,
         );
-        await ensureNativeSearchSidecar(pdfPath, entry, signal);
+        await ensureNativeSearchSidecar(pdfPath, entry, documentRevision, signal);
         return entry;
     }
 
@@ -304,6 +323,6 @@ export async function ensureSearchIndex(
         entry.validatedTextBudget = true;
     }
 
-    await ensureNativeSearchSidecar(pdfPath, entry, signal);
+    await ensureNativeSearchSidecar(pdfPath, entry, documentRevision, signal);
     return entry;
 }

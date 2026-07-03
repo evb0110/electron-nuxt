@@ -3,7 +3,7 @@ import type {
     Ref,
 } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 import { useWorkspaceActiveViewerAdapter } from '@app/modules/workspace-shell/viewers/useWorkspaceActiveViewerAdapter';
 
 interface IWorkspaceViewerVisibilityOptions {

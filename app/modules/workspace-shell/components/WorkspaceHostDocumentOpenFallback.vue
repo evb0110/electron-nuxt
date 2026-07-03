@@ -34,7 +34,7 @@
 
 <script setup lang="ts">
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 import { PdfStatusBar } from '@app/modules/pdf-viewer/public/component-exports/pdfStatusBar';
 import { DjvuBanner } from '@app/modules/djvu-viewer/public/component-exports/djvuBanner';
 import { usePageStatusBar } from '@app/modules/workspace-shell/composables/usePageStatusBar';

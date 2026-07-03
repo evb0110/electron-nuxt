@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { usePdfSearch } from '@app/modules/pdf-viewer/public';
 import { usePageSearch } from '@app/modules/workspace-shell/composables/usePageSearch';
 import { useSidebarResize } from '@app/modules/workspace-shell/composables/useSidebarResize';
@@ -7,6 +8,7 @@ import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspac
 
 interface IWorkspaceSearchSidebarOptions {
     workingCopyPath: Ref<TDocumentRef | null>;
+    documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     showSidebar: Ref<boolean>;
     sidebarTab: Ref<TPdfSidebarTab>;
     dragMode: Ref<boolean>;
@@ -16,6 +18,7 @@ interface IWorkspaceSearchSidebarOptions {
 export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOptions) => {
     const {
         workingCopyPath,
+        documentRevisionToken,
         showSidebar,
         sidebarTab,
         dragMode,
@@ -42,7 +45,7 @@ export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOption
         resetSearchCache,
         isTruncated,
         minQueryLength,
-    } = usePdfSearch();
+    } = usePdfSearch({documentRevisionToken});
 
     const {
         openSearch,
@@ -58,6 +61,7 @@ export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOption
         sidebarTab,
         dragMode,
         workingCopyPath,
+        documentRevisionToken,
         totalPages,
         searchQuery,
         searchOptions,

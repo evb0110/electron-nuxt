@@ -4,7 +4,7 @@ import type { TPdfViewMode } from '@contracts/shared';
 import type {
     IPdfPageMetric,
     TPdfSource,
-} from '@app/types/pdf';
+} from '@app/types/pdfUi';
 import {
     buildBrowserPrintFrameMarkup,
     normalizePrintPageNumbers,

@@ -79,6 +79,7 @@ export function pruneRecentFiles(recentFiles: IRecentFile[]) {
 
         keptRecentFiles.push({
             ...recentFile,
+            backend: 'browser',
             fileSize,
         });
         keptRefs.add(recentFile.originalPath);
@@ -117,6 +118,7 @@ export class BrowserRecentFilesStore {
 
         nextRecentFiles.unshift({
             originalPath: ref,
+            backend: 'browser',
             fileName: entry.saveName ?? entry.fileName,
             timestamp: Date.now(),
             fileSize: entry.fileSize,

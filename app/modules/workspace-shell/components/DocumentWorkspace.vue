@@ -368,16 +368,18 @@ import { useWorkspaceStartupReadiness } from '@app/modules/workspace-shell/compo
 import { useWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorkspaceOrchestration';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
+import type { IWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 import { useWorkspaceViewerVisibility } from '@app/modules/workspace-shell/composables/useWorkspaceViewerVisibility';
 import { useDocumentWorkspaceVisualOpeningState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceVisualOpeningState';
 import { useDocumentTransitionSkeletonLease } from '@app/modules/workspace-shell/composables/useDocumentTransitionSkeletonLease';
 import { useDocumentWorkspaceDocumentRecord } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceDocumentRecord';
+import { useDocumentWorkspacePageOperationHandlers } from '@app/modules/workspace-shell/composables/useDocumentWorkspacePageOperationHandlers';
 import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
 import WorkspaceDocumentTransitionSkeleton from '@app/modules/workspace-shell/components/WorkspaceDocumentTransitionSkeleton.vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TStartSection } from '@app/types/startSection';
-import type { IPdfPageMatches } from '@app/types/pdf';
+import type { IPdfPageMatches } from '@app/types/pdfUi';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type {
     IWorkspaceExpose,
@@ -396,6 +398,7 @@ import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandS
 import type { IRecentFile } from '@contracts/shared';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 import { useWorkspaceViewerAdapterBinding } from '@app/modules/workspace-shell/viewers/useWorkspaceViewerAdapterBinding';
 
 const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/modules/djvu-viewer/public').then(componentModule => componentModule.DjvuConversionOverlay));
@@ -406,9 +409,11 @@ const {
     isFullscreen,
     isRenderActive = isActive,
     isTabTransitionBusy,
+    documentSession = null,
     initialViewState = null,
     pendingDocumentOpen: pendingDocumentOpenProp = false,
     pendingDocumentPath = null,
+    splitCacheSession = null,
     startSection = 'recent',
     tabId,
 } = defineProps<{
@@ -418,9 +423,11 @@ const {
     isTabTransitionBusy: boolean;
     isFullscreen: boolean;
     fullscreenSupported: boolean;
+    documentSession?: IWorkspaceDocumentSessionController | null | undefined;
     initialViewState?: ITabViewSessionState | null | undefined;
     pendingDocumentOpen?: boolean | undefined;
     pendingDocumentPath?: TDocumentRef | null | undefined;
+    splitCacheSession?: IWorkspaceSplitCacheSessionState | null | undefined;
     startSection?: TStartSection | undefined;
 }>();
 const {
@@ -467,6 +474,10 @@ function handleToggleFullscreen() {
 
 const { t } = useTypedI18n();
 const analytics = useAnalytics();
+const analyticsDocumentScope = analytics.createDocumentScope(
+    `workspace-document:${documentSession?.snapshot.value.sessionId ?? tabId}`,
+    { activate: isActive },
+);
 const toast = useToast();
 const { isResolved: recentFilesResolved } = useRecentFiles();
 const workspaceSplitCache = useWorkspaceSplitCache();
@@ -492,8 +503,20 @@ const isActiveRef = computed({
     get: () => isActive,
     set: () => {},
 });
+watch(
+    () => isActive,
+    (active) => {
+        if (active) {
+            analyticsDocumentScope.activate();
+        } else {
+            analyticsDocumentScope.deactivate();
+        }
+    },
+    { immediate: true },
+);
 
 const orchestration = useWorkspaceOrchestration({
+    analyticsDocumentScope,
     isActive: isActiveRef,
     initialViewState,
     pendingDocumentPath: pendingDocumentStatusPath,
@@ -521,6 +544,8 @@ const {
     pdfData,
     pdfError,
     workingCopyPath,
+    documentRevisionInfo,
+    documentRevisionToken,
     originalPath,
     isDjvuMode,
     djvuSourcePath,
@@ -773,6 +798,7 @@ const {
     isTabTransitionBusy: computed(() => isTabTransitionBusy === true),
     workspaceSplitCache,
     workspaceRestoreTracker,
+    splitCacheSession: computed(() => splitCacheSession),
     hasPdf,
     currentPage,
     totalPages,
@@ -895,6 +921,7 @@ const {
     sourcePdfData: viewerSourcePdfData,
     viewMode,
     workingCopyPath,
+    documentRevisionToken,
     zoom,
     zoomMode,
     onAnnotationCommentClick: annotationSession.handleAnnotationCommentClick,
@@ -1027,7 +1054,7 @@ function handleViewerTotalPagesUpdate(value: number) {
     }
     totalPages.value = value;
     if (value > 0) {
-        analytics.mergeDocumentContext({
+        analyticsDocumentScope.merge({
             pageCountBucket: bucketPageCount(value),
             totalPages: value,
         });
@@ -1133,6 +1160,7 @@ useDocumentWorkspaceDocumentRecord({
     isDjvuMode,
     fileName: fileLifecycle.fileName,
     originalPath,
+    documentIdentity: documentRevisionInfo,
     isDirty: hasPendingUnsavedChanges,
     djvuSourcePath,
     toolbarSnapshot: workspaceToolbarSnapshot,
@@ -1140,61 +1168,24 @@ useDocumentWorkspaceDocumentRecord({
     publishRecord: record => emit('update-document-record', record),
 });
 const pageOpBatchEtaText = computed(() => formatEtaDuration(pageOpBatchProgress.value?.estimatedRemainingMs ?? null));
-function handleDeletePages() {
-    const pages = selectedThumbnailPages.value;
-    if (pages.length > 0) {
-        void documentControls.pageOpsDelete(pages, totalPages.value);
-    }
-}
-
-function handleExtractPages() {
-    const pages = selectedThumbnailPages.value;
-    if (pages.length > 0) {
-        void documentControls.pageOpsExtract(pages);
-    }
-}
-
-function handleRotateCw() {
-    const pages = selectedThumbnailPages.value;
-    if (pages.length > 0) {
-        void documentControls.handlePageRotate(pages, 90);
-    }
-}
-
-function handleRotateCcw() {
-    const pages = selectedThumbnailPages.value;
-    if (pages.length > 0) {
-        void documentControls.handlePageRotate(pages, 270);
-    }
-}
-
-function handlePageRotateCw(pages: number[]) {
-    void documentControls.handlePageRotate(pages, 90);
-}
-
-function handlePageRotateCcw(pages: number[]) {
-    void documentControls.handlePageRotate(pages, 270);
-}
-
-function handlePageExtract(pages: number[]) {
-    void documentControls.pageOpsExtract(pages);
-}
-
-function handlePageExport(pages: number[]) {
-    void handleExportImages(pages);
-}
-
-function handlePageDelete(pages: number[]) {
-    void documentControls.pageOpsDelete(pages, totalPages.value);
-}
-
-function handlePageReorder(order: number[]) {
-    void documentControls.pageOpsReorder(order);
-}
-
-function handleInsertPages() {
-    void documentControls.pageOpsInsert(totalPages.value, totalPages.value);
-}
+const {
+    handleDeletePages,
+    handleExtractPages,
+    handleInsertPages,
+    handlePageDelete,
+    handlePageExport,
+    handlePageExtract,
+    handlePageReorder,
+    handlePageRotateCcw,
+    handlePageRotateCw,
+    handleRotateCcw,
+    handleRotateCw,
+} = useDocumentWorkspacePageOperationHandlers({
+    documentControls,
+    handleExportImages,
+    selectedThumbnailPages,
+    totalPages,
+});
 
 function handleViewerCurrentPageUpdate(page: number) {
     const previousPage = currentPage.value;
@@ -1378,6 +1369,7 @@ const {
     closeTextMarkupProperties: annotationSession.closeTextMarkupProperties,
     continuousScroll,
     currentPage,
+    documentIdentity: documentRevisionInfo,
     fitMode,
     handleActualSize,
     handleAnnotationFocusComment: annotationSession.handleAnnotationFocusComment,

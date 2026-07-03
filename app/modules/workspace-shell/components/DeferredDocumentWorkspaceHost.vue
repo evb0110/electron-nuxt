@@ -15,6 +15,8 @@
                 :initial-view-state="initialViewState"
                 :pending-document-open="isDocumentOpenInFlight"
                 :pending-document-path="pendingDocumentPath"
+                :document-session="activeDocumentSession"
+                :split-cache-session="splitCacheSession"
                 :start-section="startSection"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
@@ -105,7 +107,6 @@ import {
 import { BrowserLogger } from '@app/utils/browserLogger';
 import * as platformDocuments from '@app/utils/platformDocuments';
 import { getAsyncChunkLoadErrorMessage } from '@app/modules/workspace-shell/host/getAsyncChunkLoadErrorMessage';
-import { shouldRetryAsyncChunkLoad } from '@app/modules/workspace-shell/host/shouldRetryAsyncChunkLoad';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
@@ -115,6 +116,10 @@ import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/hos
 import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceOnHostMount';
 import { shouldShowWorkspaceHostLoader } from '@app/modules/workspace-shell/host/shouldShowWorkspaceHostLoader';
 import { shouldShowWorkspacePlaceholder } from '@app/modules/workspace-shell/host/shouldShowWorkspacePlaceholder';
+import {
+    workspaceHasDocumentOrOpenError as getWorkspaceHasDocumentOrOpenError,
+    workspaceHasOpenedDocument as getWorkspaceHasOpenedDocument,
+} from '@app/modules/workspace-shell/host/deferredWorkspaceHostState';
 import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
@@ -127,11 +132,21 @@ import {
     createWorkspaceDocumentRecord,
     type IWorkspaceDocumentRecord,
 } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
+import { createWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/document-sessions/createWorkspaceSplitCacheSessionState';
+import type {
+    IWorkspaceDocumentSessionController,
+    IWorkspaceDocumentTransaction,
+    TWorkspaceDocumentTransactionKind,
+} from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
+import { useDeferredWorkspaceChunkLoader } from '@app/modules/workspace-shell/composables/useDeferredWorkspaceChunkLoader';
 
 const {
     hasDocumentHint = false,
     documentPath = null,
     documentRecord = null,
+    documentSession = null,
     isActive,
     isFullscreen,
     isRenderActive = isActive,
@@ -150,6 +165,7 @@ const {
     hasDocumentHint?: boolean | undefined;
     documentPath?: TDocumentRef | null | undefined;
     documentRecord?: IWorkspaceDocumentRecord | null | undefined;
+    documentSession?: IWorkspaceDocumentSessionController | null | undefined;
     initialViewState?: ITabViewSessionState | null | undefined;
     startSection?: TStartSection | undefined;
     isFullscreen: boolean;
@@ -171,6 +187,7 @@ const emit = defineEmits<{
 }>();
 
 function handleDocumentRecordUpdate(record: IWorkspaceDocumentRecord) {
+    activeDocumentSession.value.applyWorkspaceRecord(record, 'workspace');
     emit('update-document-record', record);
 }
 
@@ -200,17 +217,19 @@ function handleToggleFullscreen() {
 
 function handleWorkspaceExposeReady(expose: IWorkspaceExpose) {
     mountedWorkspace.value = expose;
+    activeDocumentSession.value.attachWorkspace(expose);
 }
 
 function handleWorkspaceExposeReleased() {
     mountedWorkspace.value = null;
+    activeDocumentSession.value.detachWorkspace();
 }
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 const LOADER_LOG_SECTION = 'loader';
 const DOCUMENT_OPEN_SETTLE_TIMEOUT_MS = 4_000;
 
-interface IDocumentOpenTransaction {
-    id: number;
+interface IDocumentOpenTransactionRun {
+    sessionTransaction: IWorkspaceDocumentTransaction;
     action: string;
     target: TTabUpdate | null;
     seededTabHint: boolean;
@@ -218,65 +237,40 @@ interface IDocumentOpenTransaction {
 
 interface IDocumentOpenIntent {
     action: string;
+    commandTarget?: TWorkspaceCommandTarget | undefined;
     target?: TTabUpdate | null;
 }
 
-/**
- * DocumentWorkspace stays an async chunk so the shared web/desktop shell bundle stays
- * lean; desktop startup pre-warms it (blocking) before the user can reach this boundary.
- * Policy overview: `workspace-shell/host/warmupDesktopViewerChunks.ts`.
- */
-const loadDocumentWorkspace = () => import('@app/modules/workspace-shell/components/DocumentWorkspace.vue');
-const workspaceChunkLoadError = ref<unknown>(null);
-const workspaceRenderNonce = ref(0);
-const chunkRetryTimers = new Set<ReturnType<typeof setTimeout>>();
-const ASYNC_CHUNK_RETRY_DELAY_STEP_MS = 150;
 const WORKSPACE_MOUNT_POLL_INTERVAL_MS = 25;
 
-const DocumentWorkspace = import.meta.client
-    ? defineAsyncComponent({
-        loader: loadDocumentWorkspace,
-        suspensible: false,
-        onError: (error, retry, fail, attempts) => {
-            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'DocumentWorkspace async chunk load failed', {
-                tabId: tabId,
-                attempts,
-                error,
-            });
-
-            if (shouldRetryAsyncChunkLoad({
-                attempts,
-                error,
-                isDev: import.meta.dev,
-            })) {
-                const retryDelayMs = attempts * ASYNC_CHUNK_RETRY_DELAY_STEP_MS;
-                const retryTimer = setTimeout(() => {
-                    chunkRetryTimers.delete(retryTimer);
-                    retry();
-                }, retryDelayMs);
-                chunkRetryTimers.add(retryTimer);
-                return;
-            }
-
-            workspaceChunkLoadError.value = error;
-            fail();
-        },
-    })
-    : null;
+const {
+    DocumentWorkspace,
+    clearWorkspaceChunkRetryTimers,
+    loadDocumentWorkspace,
+    resetWorkspaceChunkLoadError,
+    retryWorkspaceChunkRender,
+    workspaceChunkLoadError,
+    workspaceRenderNonce,
+} = useDeferredWorkspaceChunkLoader({
+    logSection: RECENT_OPEN_LOG_SECTION,
+    tabId,
+});
 
 const workspaceRequested = ref(false);
 const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
 let workspaceLoadPromise: Promise<IWorkspaceExpose | null> | null = null;
 let workspacePreloadPromise: Promise<boolean> | null = null;
 let isHostUnmounted = false;
-let nextDocumentOpenTransactionId = 0;
-const activeDocumentOpenTransaction = ref<IDocumentOpenTransaction | null>(null);
-const documentOpenInFlightCount = ref(0);
 const filePickerInFlightCount = ref(0);
 const workspaceSplitCache = useWorkspaceSplitCache();
 const WORKSPACE_MOUNT_TIMEOUT_MS = 30_000;
 const WORKSPACE_MOUNT_RETRY_TIMEOUT_MS = 20_000;
-const restoredDocumentPaths = new Set<string>();
+const fallbackDocumentSession = createWorkspaceDocumentSessionCore({
+    tabId,
+    initialRecord: documentRecord ?? createWorkspaceDocumentRecord(),
+});
+const activeDocumentSession = computed(() => documentSession ?? fallbackDocumentSession);
+const splitCacheSession = computed(() => createWorkspaceSplitCacheSessionState(activeDocumentSession.value));
 
 const {
     recentFiles,
@@ -289,13 +283,23 @@ const hasMountedWorkspace = computed(() => mountedWorkspace.value !== null);
 const hasWorkspaceChunkLoadError = computed(() => workspaceChunkLoadError.value !== null);
 const workspaceRenderKey = computed(() => `${tabId}:${workspaceRenderNonce.value}`);
 const currentToolbarSnapshot = computed(() => documentRecord?.toolbarSnapshot ?? createDefaultWorkspaceToolbarSnapshot());
+const activeDocumentOpenTransaction = computed(() => {
+    const transaction = activeDocumentSession.value.snapshot.value.activeTransaction;
+    return transaction && (
+        transaction.kind === 'open'
+        || transaction.kind === 'restore'
+        || transaction.kind === 'reload'
+    )
+        ? transaction
+        : null;
+});
 const workspaceVisibleDocument = computed(() => {
     const snapshot = currentToolbarSnapshot.value;
     return hasWorkspaceViewerDocumentCapabilities(snapshot.viewerCapabilities) || snapshot.isOpeningDocument || snapshot.hasOpenError;
 });
 const hasPendingDocumentHint = computed(() => hasDocumentHint === true && !workspaceVisibleDocument.value);
 const pendingDocumentPath = computed(() => (
-    activeDocumentOpenTransaction.value?.target?.originalPath
+    activeDocumentOpenTransaction.value?.documentRef
     ?? (hasDocumentHint === true ? documentPath : null)
 ));
 const isPlaceholderVisible = computed(() => (
@@ -333,8 +337,13 @@ function readWorkspaceToolbarSnapshot() {
 function emitCurrentViewSessionState(snapshot: IWorkspaceToolbarSnapshot = readWorkspaceToolbarSnapshot()) {
     emit('update-session-state', createTabViewSessionState(snapshot));
 }
-const hasQueuedSplitRestore = computed(() => workspaceSplitCache.has(tabId));
-const isDocumentOpenInFlight = computed(() => documentOpenInFlightCount.value > 0 || activeDocumentOpenTransaction.value !== null);
+const hasQueuedSplitRestore = computed(() => {
+    const session = splitCacheSession.value;
+    return session
+        ? workspaceSplitCache.has(tabId, {session})
+        : workspaceSplitCache.has(tabId);
+});
+const isDocumentOpenInFlight = computed(() => activeDocumentOpenTransaction.value !== null);
 const isFilePickerInFlight = computed(() => filePickerInFlightCount.value > 0);
 // Startup open-claim is a background probe. Mark the open UI busy only once the
 // user or restore flow is actually opening a document.
@@ -426,7 +435,7 @@ watch(loaderVariant, (nextVariant, previousVariant) => {
 
 watch(hasMountedWorkspace, (mounted) => {
     if (mounted) {
-        workspaceChunkLoadError.value = null;
+        resetWorkspaceChunkLoadError();
     }
 });
 
@@ -459,7 +468,6 @@ watch(
             || hasDocumentHint !== true
             || workspaceHasOpenedDocument()
             || opening
-            || restoredDocumentPaths.has(path)
         ) {
             return;
         }
@@ -468,11 +476,7 @@ watch(
             action: 'restoreTabDocument',
             target: null,
         }, async () => {
-            const opened = await openPath(path, 'restoreTabDocument');
-            if (opened) {
-                restoredDocumentPaths.add(path);
-            }
-            return opened;
+            return openPath(path, 'restoreTabDocument');
         });
     },
     { immediate: true },
@@ -502,32 +506,14 @@ watch(hasMountedWorkspace, (mounted) => {
 function handleRetryWorkspaceMount() {
     BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Retrying DocumentWorkspace async chunk load', {tabId: tabId});
 
-    workspaceChunkLoadError.value = null;
-    workspaceRenderNonce.value += 1;
+    retryWorkspaceChunkRender();
     workspaceLoadPromise = null;
     workspaceRequested.value = true;
     void preloadWorkspaceComponent('manual-retry');
 }
 
-function workspaceHasDocumentOrOpenError() {
-    const workspace = mountedWorkspace.value;
-    if (!workspace) {
-        return false;
-    }
-
-    const snapshot = workspace.getToolbarSnapshot();
-    return hasWorkspaceViewerDocumentCapabilities(snapshot.viewerCapabilities) || snapshot.hasOpenError;
-}
-
-function workspaceHasOpenedDocument() {
-    const workspace = mountedWorkspace.value;
-    if (!workspace) {
-        return false;
-    }
-
-    const snapshot = workspace.getToolbarSnapshot();
-    return hasWorkspaceViewerDocumentCapabilities(snapshot.viewerCapabilities);
-}
+const workspaceHasDocumentOrOpenError = () => getWorkspaceHasDocumentOrOpenError(mountedWorkspace.value);
+const workspaceHasOpenedDocument = () => getWorkspaceHasOpenedDocument(mountedWorkspace.value);
 
 function shouldSeedPendingTabHint(target: TTabUpdate | null | undefined) {
     return Boolean(
@@ -536,26 +522,36 @@ function shouldSeedPendingTabHint(target: TTabUpdate | null | undefined) {
     );
 }
 
+function resolveDocumentOpenTransactionKind(action: string): TWorkspaceDocumentTransactionKind {
+    return action.toLowerCase().includes('restore') ? 'restore' : 'open';
+}
+
+function resolveTransactionDocumentRef(target: TTabUpdate | null) {
+    return target?.originalPath ?? documentPath ?? null;
+}
+
 function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
     const target = intent.target ?? null;
-    const transaction: IDocumentOpenTransaction = {
-        id: ++nextDocumentOpenTransactionId,
+    const sessionTransaction = activeDocumentSession.value.beginTransaction({
+        kind: resolveDocumentOpenTransactionKind(intent.action),
+        documentRef: resolveTransactionDocumentRef(target),
+    });
+    const transaction: IDocumentOpenTransactionRun = {
+        sessionTransaction,
         action: intent.action,
         target,
         seededTabHint: shouldSeedPendingTabHint(target),
     };
 
-    activeDocumentOpenTransaction.value = transaction;
-
     if (transaction.seededTabHint && target) {
-        emit('update-document-record', createPendingWorkspaceDocumentRecord(target));
+        handleDocumentRecordUpdate(createPendingWorkspaceDocumentRecord(target));
     }
 
     requestWorkspaceMount(`document-open:${intent.action}`);
 
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Document open transaction started', {
         tabId: tabId,
-        transactionId: transaction.id,
+        transactionId: sessionTransaction.id,
         action: transaction.action,
         seededTabHint: transaction.seededTabHint,
         target: transaction.target,
@@ -564,7 +560,7 @@ function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
     return transaction;
 }
 
-async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransaction, opened: boolean) {
+async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransactionRun, opened: boolean) {
     await nextTick();
 
     if (!opened) {
@@ -574,7 +570,7 @@ async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransa
     const deadline = Date.now() + DOCUMENT_OPEN_SETTLE_TIMEOUT_MS;
     while (
         !isHostUnmounted
-        && activeDocumentOpenTransaction.value?.id === transaction.id
+        && activeDocumentOpenTransaction.value?.id === transaction.sessionTransaction.id
         && Date.now() < deadline
     ) {
         const workspace = mountedWorkspace.value;
@@ -598,7 +594,7 @@ async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransa
     if (!workspaceHasDocumentOrOpenError()) {
         BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Document open did not reach a terminal visible state before settle timeout', {
             tabId: tabId,
-            transactionId: transaction.id,
+            transactionId: transaction.sessionTransaction.id,
             action: transaction.action,
             target: transaction.target,
             timeoutMs: DOCUMENT_OPEN_SETTLE_TIMEOUT_MS,
@@ -607,18 +603,19 @@ async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransa
     }
 }
 
-function finishDocumentOpenTransaction(transaction: IDocumentOpenTransaction, opened: boolean) {
-    if (!opened && transaction.seededTabHint && !workspaceHasDocumentOrOpenError()) {
-        emit('update-document-record', createWorkspaceDocumentRecord());
-    }
+function finishDocumentOpenTransaction(transaction: IDocumentOpenTransactionRun, opened: boolean) {
+    activeDocumentSession.value.finishTransaction(
+        transaction.sessionTransaction.id,
+        opened ? 'committed' : 'failed',
+    );
 
-    if (activeDocumentOpenTransaction.value?.id === transaction.id) {
-        activeDocumentOpenTransaction.value = null;
+    if (!opened && transaction.seededTabHint && !workspaceHasDocumentOrOpenError()) {
+        handleDocumentRecordUpdate(createWorkspaceDocumentRecord());
     }
 
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Document open transaction finished', {
         tabId: tabId,
-        transactionId: transaction.id,
+        transactionId: transaction.sessionTransaction.id,
         action: transaction.action,
         opened,
         hasTerminalDocumentState: workspaceHasDocumentOrOpenError(),
@@ -632,8 +629,10 @@ async function runWithDocumentOpenInFlight<T>(
     if (isHostUnmounted) {
         return false;
     }
+    if (intent.commandTarget && !activeDocumentSession.value.validateCommandTarget(intent.commandTarget).ok) {
+        return false;
+    }
     const transaction = beginDocumentOpenTransaction(intent);
-    documentOpenInFlightCount.value += 1;
     let result: T | undefined;
     let didThrow = false;
     try {
@@ -648,7 +647,6 @@ async function runWithDocumentOpenInFlight<T>(
             await waitForDocumentOpenTerminalState(transaction, opened);
         } finally {
             finishDocumentOpenTransaction(transaction, opened);
-            documentOpenInFlightCount.value = Math.max(0, documentOpenInFlightCount.value - 1);
         }
     }
 }
@@ -984,13 +982,11 @@ onUnmounted(() => {
     emit('expose-released');
     workspaceLoadPromise = null;
     workspacePreloadPromise = null;
-    for (const timer of chunkRetryTimers) {
-        clearTimeout(timer);
-    }
-    chunkRetryTimers.clear();
+    clearWorkspaceChunkRetryTimers();
 });
 
 const workspaceExpose: IWorkspaceExpose = createDeferredWorkspaceExposeProxy({
+    documentSession: activeDocumentSession.value,
     enqueueDocumentOpen,
     getMounted: () => mountedWorkspace.value,
     log: (action, error) => {

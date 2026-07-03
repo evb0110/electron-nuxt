@@ -2,7 +2,7 @@ import type { Ref } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { isEqual } from 'es-toolkit/predicate';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { IPdfPageLabelRange } from '@app/types/pdf';
+import type { IPdfPageLabelRange } from '@app/types/pdfContracts';
 import {
     buildPageLabelsFromRanges,
     derivePageLabelRangesFromLabels,
@@ -142,6 +142,7 @@ export const usePageLabelState = (deps: {
 
     function scheduleSyncPageLabelsFromDocument(doc: PDFDocumentProxy | null) {
         runGuardedTask(() => syncPageLabelsFromDocument(doc), {
+            category: 'background-diagnostic',
             scope: 'page-labels',
             message: 'Failed to synchronize page labels from PDF document',
         });

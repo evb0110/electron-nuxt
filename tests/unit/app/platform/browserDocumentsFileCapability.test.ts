@@ -130,6 +130,10 @@ interface IBrowserDocumentsTestStore {
         options: IBrowserDocumentsTestCreateOptions,
     ) => Promise<string>;
     exists: (ref: string) => Promise<boolean>;
+    getDocumentRevision: (ref: string) => Promise<{
+        token: string;
+        contentRevision: number
+    }>;
     read: (ref: string) => Promise<Uint8Array>;
     readRange: (ref: string, offset: number, length: number) => Promise<Uint8Array>;
     requireEntry: (ref: string) => Promise<IBrowserDocumentsTestEntry>;
@@ -153,15 +157,28 @@ interface IBrowserDocumentsTestCapability {
     openCombineDialog: () => Promise<IBrowserDocumentsTestOpenResult | null>;
     openDocumentDirectBatch: (paths: string[], requestId?: string) => Promise<IBrowserDocumentsTestOpenResult | null>;
     openImageDialog: () => Promise<string | null>;
+    openFolderDialog: () => Promise<IBrowserDocumentsTestOpenResult | null>;
+    openFolderDialogStructured: () => Promise<unknown>;
     openPdfDialog: () => Promise<IBrowserDocumentsTestOpenResult | null>;
     openPdfDirect: (path: string) => Promise<IBrowserDocumentsTestOpenResult | null>;
     recentFiles: { get: () => Promise<IBrowserDocumentsRecentFile[]> };
     saveFile: (workingPath: string) => Promise<boolean>;
+    saveFileStructured: (workingPath: string) => Promise<unknown>;
+    getDocumentRevision: (workingPath: string) => Promise<{
+        token: string;
+        contentRevision: number
+    }>;
     savePdfAs: (workingPath: string) => Promise<string | null>;
+    savePdfData: (workingPath: string, data: Uint8Array) => Promise<{
+        isValid: boolean;
+        errors: string[];
+    }>;
     savePdfDataAs: (workingPath: string, data: Uint8Array) => Promise<{
         path: string | null;
         validation: unknown;
     }>;
+    showItemInFolder: (path: string) => Promise<boolean>;
+    showItemInFolderStructured: (path: string) => Promise<unknown>;
 }
 
 interface IBrowserDocumentsRecentFile {
@@ -258,7 +275,9 @@ async function loadBrowserDocumentsFileCapability(
 
     return {
         BROWSER_MAX_FULL_READ_BYTES,
-        capability: createBrowserDocumentsFileCapability({clearSearchCaches: options?.clearSearchCaches ?? (() => {})}),
+        capability: cast<IBrowserDocumentsTestCapability>(
+            createBrowserDocumentsFileCapability({clearSearchCaches: options?.clearSearchCaches ?? (() => {})}),
+        ),
         browserDocumentStore: browserDocumentStore as IBrowserDocumentsTestStore,
     };
 }
@@ -278,6 +297,23 @@ describe('createBrowserDocumentsFileCapability', () => {
         utifMock.toRGBA8.mockReturnValue(new Uint8Array());
         pdfjsModule.getDocument.mockReset();
         pdfjsModule.getDocument.mockReturnValue({promise: Promise.resolve({destroy: vi.fn(async () => {})})});
+    });
+
+    it('returns typed unsupported results for desktop-only folder actions', async () => {
+        const { capability } = await loadBrowserDocumentsFileCapability();
+
+        await expect(capability.openFolderDialog()).resolves.toBeNull();
+        await expect(capability.openFolderDialogStructured()).resolves.toEqual({
+            ok: false,
+            reason: 'requires-native-backend',
+            message: 'Folder dialogs require the desktop app.',
+        });
+        await expect(capability.showItemInFolder('browser://documents/source.pdf')).resolves.toBe(false);
+        await expect(capability.showItemInFolderStructured('browser://documents/source.pdf')).resolves.toEqual({
+            ok: false,
+            reason: 'requires-native-backend',
+            message: 'Showing files in a folder requires the desktop app.',
+        });
     });
 
     it('cleans up transient source refs via cleanupFile', async () => {
@@ -305,6 +341,31 @@ describe('createBrowserDocumentsFileCapability', () => {
 
         await expect(browserDocumentStore.exists(ref)).resolves.toBe(false);
         expect(clearSearchCaches).toHaveBeenCalledWith(ref);
+    });
+
+    it('exposes browser document revisions through the file capability', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'revision.pdf',
+            new Uint8Array([1]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+
+        const initialRevision = await capability.getDocumentRevision(workingRef);
+        await browserDocumentStore.write(sourceRef, new Uint8Array([2]));
+        const nextRevision = await capability.getDocumentRevision(workingRef);
+
+        expect(initialRevision.token).toMatch(/^drt1:browser:/u);
+        expect(nextRevision.token).not.toBe(initialRevision.token);
+        expect(nextRevision.contentRevision).toBe(initialRevision.contentRevision + 1);
     });
 
     it('exposes DjVu files in the browser combine picker', async () => {
@@ -1317,6 +1378,37 @@ describe('createBrowserDocumentsFileCapability', () => {
         expect(clearSearchCaches).not.toHaveBeenCalled();
     });
 
+    it('returns failed validation for canceled browser PDF data saves without clearing search caches', async () => {
+        const showSaveFilePicker = vi.fn(async () => {
+            throw new DOMException('Canceled', 'AbortError');
+        });
+        const clearSearchCaches = vi.fn();
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({
+            clearSearchCaches,
+            windowOverrides: { showSaveFilePicker },
+        });
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'cancel-save-data.pdf',
+            await createPdfBytes(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+        const data = await createPdfBytes();
+
+        const result = await capability.savePdfData(workingRef, data);
+
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toEqual([]);
+        expect(clearSearchCaches).not.toHaveBeenCalled();
+    });
+
     it('fails browser saves without opening the writer when write permission is denied', async () => {
         const {
             capability,
@@ -1355,9 +1447,12 @@ describe('createBrowserDocumentsFileCapability', () => {
             70,
         ]));
 
-        await expect(capability.saveFile(workingRef)).rejects.toThrow(
-            'Browser write permission was not granted for this file.',
-        );
+        await expect(capability.saveFile(workingRef)).resolves.toBe(false);
+        await expect(capability.saveFileStructured(workingRef)).resolves.toMatchObject({
+            ok: false,
+            reason: 'write-failed',
+            message: expect.stringContaining('Browser write permission was not granted for this file.'),
+        });
 
         expect(createWritable).not.toHaveBeenCalled();
     });

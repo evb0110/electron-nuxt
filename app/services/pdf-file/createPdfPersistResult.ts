@@ -1,7 +1,5 @@
-import type {
-    IPdfPersistResult,
-    TPdfSaveMode,
-} from '@app/types/pdf';
+import type { TPdfSaveMode } from '@app/types/pdfContracts';
+import type { IPdfPersistResult } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 
 export function createPdfPersistResult(

@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => ({
     allowOpenPath: vi.fn(),
     addRecentFile: vi.fn(),
     updateRecentFilesMenu: vi.fn(),
+    markWorkingCopyContentChanged: vi.fn(),
     optimizePdfForSaveAs: vi.fn(),
     optimizeLargePdfForSave: vi.fn(),
     copyFileCopyOnWrite: vi.fn(),
@@ -66,6 +67,7 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     refreshWorkingCopyOriginalFileExpectation: (...args: unknown[]) => mocks.refreshWorkingCopyOriginalFileExpectation(...args),
     setWorkingCopyOriginalPath: (...args: [string, string, number?]) => mocks.setWorkingCopyOriginalPath(...args),
 }));
+vi.mock('@electron/file-access/documentRevisionStore', () => ({markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args)}));
 vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: vi.fn(() => true)}));
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args)}));
@@ -139,6 +141,7 @@ describe('serializedPdfPersistence', () => {
         });
         mocks.optimizePdfForSaveAs.mockResolvedValue(null);
         mocks.optimizeLargePdfForSave.mockResolvedValue(null);
+        mocks.markWorkingCopyContentChanged.mockResolvedValue(undefined);
         mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, await readFile(sourcePath));
             await unlink(sourcePath);

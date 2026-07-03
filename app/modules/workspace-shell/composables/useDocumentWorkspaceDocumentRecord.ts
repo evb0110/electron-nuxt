@@ -4,6 +4,7 @@ import type {
 } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
 import { resolveWorkspaceTabUpdate } from '@app/modules/workspace-shell/state/resolveWorkspaceTabUpdate';
@@ -27,6 +28,7 @@ interface IUseDocumentWorkspaceDocumentRecordOptions {
     isDjvuMode: Ref<boolean>;
     fileName: Ref<string | null>;
     originalPath: Ref<TDocumentRef | null>;
+    documentIdentity: Ref<IDocumentRevisionInfo | null>;
     isDirty: Ref<boolean>;
     djvuSourcePath: Ref<TDocumentRef | null>;
     toolbarSnapshot: Ref<IWorkspaceToolbarSnapshot>;
@@ -81,6 +83,7 @@ export const useDocumentWorkspaceDocumentRecord = (
             : options.toolbarSnapshot.value;
         return createWorkspaceDocumentRecord({
             tab,
+            documentIdentity: isPendingDocumentHint ? null : options.documentIdentity.value,
             toolbarSnapshot,
             ...(isPendingDocumentHint
                 ? { viewState: createPendingWorkspaceViewState(toolbarSnapshot) }

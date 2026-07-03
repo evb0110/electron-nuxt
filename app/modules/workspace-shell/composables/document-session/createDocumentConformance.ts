@@ -1,7 +1,7 @@
 import type {
     IPdfConformanceProfile,
     TPdfSaveMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
 import { BrowserLogger } from '@app/utils/browserLogger';

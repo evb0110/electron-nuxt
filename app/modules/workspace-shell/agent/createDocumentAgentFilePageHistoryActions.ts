@@ -1,6 +1,7 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { ICropMargins } from '@app/types/crop';
+import type { IWorkspaceAgentCommandContext } from '@app/types/workspaceExpose';
 import {
     getAgentNumberArrayInput,
     getAgentNumberInput,
@@ -26,7 +27,10 @@ interface ICreateDocumentAgentFilePageHistoryActionsOptions {
     handleUndo: () => Promise<unknown> | unknown;
     handleRedo: () => Promise<unknown> | unknown;
     waitForAgentMutationStateSettled: () => Promise<void>;
-    runPdfPageOperationAgentAction: (run: () => Promise<object>) => Promise<object>;
+    runPdfPageOperationAgentAction: (
+        run: () => Promise<object>,
+        context?: IWorkspaceAgentCommandContext,
+    ) => Promise<object>;
 }
 
 function parseAgentPageArrayInput(
@@ -99,9 +103,11 @@ export function createDocumentAgentFilePageHistoryActions(
     return [
         defineAgentActionHandler({
             ids: ['file.repair_save'],
+            policy: {mutatesDocument: true},
             parse: parseEmptyInput,
-            async run() {
+            async run(_input, _actionId, context) {
                 await options.waitForAgentMutationStateSettled();
+                context?.assertCurrentDocument();
                 const repairSucceeded = await options.handleRepairSave();
                 await options.waitForAgentMutationStateSettled();
                 if (!repairSucceeded) {
@@ -112,9 +118,11 @@ export function createDocumentAgentFilePageHistoryActions(
         }),
         defineAgentActionHandler({
             ids: ['file.optimize_for_interaction'],
+            policy: {mutatesDocument: true},
             parse: parseEmptyInput,
-            async run() {
+            async run(_input, _actionId, context) {
                 await options.waitForAgentMutationStateSettled();
+                context?.assertCurrentDocument();
                 const optimizeSucceeded = await options.handleOptimizePdfForInteraction();
                 await options.waitForAgentMutationStateSettled();
                 if (!optimizeSucceeded) {
@@ -125,8 +133,9 @@ export function createDocumentAgentFilePageHistoryActions(
         }),
         defineAgentActionHandler({
             ids: ['page_ops.crop'],
+            policy: {mutatesDocument: true},
             parse: parseCropInput,
-            async run(cropInput: ReturnType<typeof parseCropInput>) {
+            async run(cropInput: ReturnType<typeof parseCropInput>, _actionId, context) {
                 return options.runPdfPageOperationAgentAction(async () => {
                     const cropped = await options.handleCropPages(cropInput.pages, cropInput.margins);
                     if (cropped === false) {
@@ -137,13 +146,14 @@ export function createDocumentAgentFilePageHistoryActions(
                         margins: cropInput.margins,
                         cropped: true,
                     };
-                });
+                }, context);
             },
         }),
         defineAgentActionHandler({
             ids: ['page_ops.remove_crop'],
+            policy: {mutatesDocument: true},
             parse: parseRemoveCropInput,
-            async run(pages: number[]) {
+            async run(pages: number[], _actionId, context) {
                 return options.runPdfPageOperationAgentAction(async () => {
                     const removed = await options.handleRemoveCrop(pages);
                     if (removed === false) {
@@ -153,16 +163,18 @@ export function createDocumentAgentFilePageHistoryActions(
                         pages,
                         cropRemoved: true,
                     };
-                });
+                }, context);
             },
         }),
         defineAgentActionHandler({
             ids: ['history.undo'],
+            policy: {mutatesDocument: true},
             parse: parseEmptyInput,
-            async run() {
+            async run(_input, _actionId, context) {
                 if (!options.canUndo.value) {
                     throw new Error('Undo is not currently available.');
                 }
+                context?.assertCurrentDocument();
                 await options.handleUndo();
                 await options.waitForAgentMutationStateSettled();
                 return {
@@ -174,11 +186,13 @@ export function createDocumentAgentFilePageHistoryActions(
         }),
         defineAgentActionHandler({
             ids: ['history.redo'],
+            policy: {mutatesDocument: true},
             parse: parseEmptyInput,
-            async run() {
+            async run(_input, _actionId, context) {
                 if (!options.canRedo.value) {
                     throw new Error('Redo is not currently available.');
                 }
+                context?.assertCurrentDocument();
                 await options.handleRedo();
                 await options.waitForAgentMutationStateSettled();
                 return {

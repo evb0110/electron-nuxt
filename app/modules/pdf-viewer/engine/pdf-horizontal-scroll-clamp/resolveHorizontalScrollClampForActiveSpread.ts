@@ -1,8 +1,8 @@
 import type {
-    IPdfPageMetric,
     TFitMode,
     TPdfViewMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type { IPdfPageMetric } from '@app/types/pdfUi';
 import { getCurrentSpreadRenderedBoundsFromDom } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromDom';
 import { getCurrentSpreadRenderedBoundsFromMetrics } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromMetrics';
 import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';

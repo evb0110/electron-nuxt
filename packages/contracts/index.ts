@@ -99,6 +99,17 @@ export type {
 } from '@contracts/readerCommands';
 
 export type { TDocumentRef } from '@contracts/documentRef';
+export type * from '@contracts/documentRef';
+export type * from '@contracts/platformUnsupported';
+export type {
+    IDocumentRevisionChangedEvent,
+    IDocumentRevisionInfo,
+    IDocumentRevisionStamp,
+    TDocumentRevisionAuthority,
+    TDocumentRevisionChangeReason,
+    TDocumentRevisionToken,
+} from '@contracts/documentRevision';
+export { isDocumentRevisionInfo } from '@contracts/documentRevision';
 
 export {
     DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES,
@@ -337,6 +348,8 @@ export {
 export type {
     IOcrIndexV2Manifest,
     IOcrIndexV2Page,
+    IOcrIndexV3Manifest,
+    IOcrIndexV3Page,
     TOcrIndexRotation,
 } from '@contracts/ocrIndex';
 

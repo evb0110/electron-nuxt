@@ -54,7 +54,7 @@ const EXCLUDED_PATH_SEGMENTS = new Set([
 
 export const SOURCE_SIZE_ALLOWLIST = {
     'app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageScroll.ts': {
-        maxLines: 2144,
+        maxLines: 2086,
         reason: 'transitional PDF navigation controller facade after single-page scroll geometry extraction',
         stage: 'Worker 2/Stage 5 - Single-page scroll geometry extraction',
     },
@@ -69,7 +69,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Finding 9 Stage A - PDF thumbnail render orchestration extraction',
     },
     'electron/features/agent/codexAssistant.ts': {
-        maxLines: 1387,
+        maxLines: 1344,
         reason: 'transitional Electron assistant backend facade after session store and runtime lifecycle extraction',
         stage: 'Worker 2/Stage 1 - Assistant backend session/runtime split',
     },
@@ -94,47 +94,37 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1555,
+        maxLines: 1547,
         reason: 'transitional workspace component hotspot after viewer adapter binding extraction',
         stage: 'Stage S - viewer adapter interface',
     },
-    'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts': {
-        maxLines: 1264,
-        reason: 'transitional PDF annotation highlight facade after text-selection cache extraction',
-        stage: 'Worker 2/Stage 4 - Annotation action/runtime contract split',
-    },
     'app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue': {
-        maxLines: 1070,
+        maxLines: 1066,
         reason: 'transitional deferred workspace host hotspot',
         stage: 'Future workspace host extraction',
     },
     'app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts': {
-        maxLines: 1324,
+        maxLines: 1288,
         reason: 'transitional PDF annotation layer renderer hotspot',
         stage: 'Future PDF rendering extraction',
     },
     'app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer.ts': {
-        maxLines: 1286,
+        maxLines: 1262,
         reason: 'transitional PDF text layer renderer hotspot',
         stage: 'Future PDF rendering extraction',
     },
     'electron/ocr/jobManager.ts': {
-        maxLines: 1013,
+        maxLines: 998,
         reason: 'OCR job manager facade after worker lifecycle extraction',
         stage: 'Worker 2/Stage 3 - OCR job manager lifecycle split',
     },
     'app/modules/workspace-shell/components/AppShellRoot.vue': {
-        maxLines: 1111,
+        maxLines: 1043,
         reason: 'transitional app shell root hotspot',
         stage: 'Future workspace shell extraction',
     },
-    'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts': {
-        maxLines: 1239,
-        reason: 'transitional PDF annotation CRUD hotspot',
-        stage: 'Future PDF annotation extraction',
-    },
     'app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts': {
-        maxLines: 1130,
+        maxLines: 1071,
         reason: 'transitional document workspace agent hotspot',
         stage: 'Future workspace agent extraction',
     },

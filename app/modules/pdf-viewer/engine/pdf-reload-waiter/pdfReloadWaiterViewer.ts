@@ -1,4 +1,4 @@
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IScrollSnapshot } from '@app/types/pdfUi';
 
 export interface IPdfReloadWaiterViewer {
     scrollToPage: (page: number) => void;

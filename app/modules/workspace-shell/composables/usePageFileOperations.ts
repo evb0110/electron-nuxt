@@ -6,7 +6,7 @@ import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { ICloseFileFromUiOptions } from '@app/types/workspaceExpose';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 import type { IRecentFile } from '@contracts/shared';
 import { waitUntilIdle } from '@app/utils/asyncHelpers';
 import { BrowserLogger } from '@app/utils/browserLogger';

@@ -21,6 +21,8 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: vi.fn()}}));
 
 const { loadOcrText } = await import('@app/utils/ocr/loadOcrText');
 
+const TEST_DOCUMENT_REVISION = 'revision-token';
+
 describe('loadOcrText', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -28,11 +30,15 @@ describe('loadOcrText', () => {
         readOptionalAdjacentJsonArtifactMock.mockResolvedValue(null);
     });
 
-    it('yields while reading large legacy OCR indexes', async () => {
+    it('yields while reading large revision-matched search indexes', async () => {
         const pages = Array.from({length: 17}, (_value, index) => ({text: `Page ${index + 1}`}));
-        readOptionalAdjacentJsonArtifactMock.mockResolvedValue({pages});
+        readOptionalAdjacentJsonArtifactMock.mockResolvedValue({
+            schemaVersion: 7,
+            documentRevision: {token: TEST_DOCUMENT_REVISION},
+            pages,
+        });
 
-        await expect(loadOcrText('/tmp/work.pdf')).resolves.toContain('Page 17');
+        await expect(loadOcrText('/tmp/work.pdf', TEST_DOCUMENT_REVISION)).resolves.toContain('Page 17');
 
         expect(yieldToBrowserMock).toHaveBeenCalledTimes(2);
     });

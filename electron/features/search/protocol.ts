@@ -3,6 +3,7 @@ import type {
     IPdfSearchResponse,
     IPdfSearchResult,
 } from '@contracts/search';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
 export type ISearchMatch = IPdfSearchResult;
 export type ISearchResponse = IPdfSearchResponse;
@@ -10,6 +11,7 @@ export type ISearchResponse = IPdfSearchResponse;
 export interface ISearchWorkerRequest {
     requestId: string;
     pdfPath: string;
+    documentRevision: TDocumentRevisionToken;
     query: string;
     pageCount?: number;
     warmup?: boolean;

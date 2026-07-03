@@ -9,10 +9,14 @@ import {
 import {
     computed,
     ref,
+    shallowRef,
 } from 'vue';
 import type { TSplitPayload } from '@contracts/windowTabs';
 import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
+import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
+import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import type { ITab } from '@app/types/tabs';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     createWorkingCopyFromPath: vi.fn(),
@@ -149,6 +153,86 @@ describe('useAppShellDirectionalTabs', () => {
         expect(createTab).not.toHaveBeenCalled();
     });
 
+    it('tags split cache entries with the source tab session snapshot', async () => {
+        const sourcePane = {
+            paneId: 'pane-1',
+            activeTabId: 'tab-1',
+            tabIds: ['tab-1'],
+        };
+        const sourceTab = {
+            id: 'tab-1',
+            fileName: 'sample.pdf',
+            originalPath: '/tmp/sample.pdf',
+            isDirty: true,
+            isDjvu: false,
+        };
+        const session = createWorkspaceDocumentSessionCore({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+            initialRecord: createWorkspaceDocumentRecord({tab: {
+                fileName: sourceTab.fileName,
+                originalPath: sourceTab.originalPath,
+                isDirty: sourceTab.isDirty,
+                isDjvu: sourceTab.isDjvu,
+            }}),
+        });
+        const workspaceSplitCacheSet = vi.fn(() => 'cache-entry');
+        mocks.createWorkingCopyFromPath.mockResolvedValueOnce('/tmp/snapshot-copy.pdf');
+
+        const tabs = useAppShellDirectionalTabs({
+            activePaneId: ref('pane-1'),
+            panes: ref([sourcePane]),
+            tabs: ref([sourceTab]),
+            workspaceRefs: ref(new Map()),
+            documentSessionsByTabId: shallowRef({'tab-1': session}),
+            getDocumentRecord: vi.fn(() => null),
+            isTabTransitionBusy: computed(() => false),
+            getPaneById: vi.fn((paneId: string | null | undefined) => paneId === 'pane-1' ? sourcePane : null),
+            getTabById: vi.fn((tabId: string | null | undefined) => tabId === 'tab-1' ? sourceTab : null),
+            findDirectionalPane: vi.fn(() => null),
+            focusPane: vi.fn(),
+            splitPane: vi.fn(() => 'pane-2'),
+            moveTabToPane: vi.fn(),
+            createTab: vi.fn(() => ({
+                id: 'tab-2',
+                fileName: null,
+                originalPath: null,
+                isDirty: false,
+                isDjvu: false,
+            })),
+            activatePane: vi.fn(),
+            activateTab: vi.fn(),
+            removeTabFromState: vi.fn(),
+            cleanupEmptyPanes: vi.fn(),
+            workspaceSplitCache: {
+                clear: vi.fn(),
+                consume: vi.fn(),
+                has: vi.fn(),
+                peek: vi.fn(),
+                set: workspaceSplitCacheSet,
+            },
+            isSingletonPlaceholderCloseBlocked: vi.fn(() => false),
+            enqueueTabTransition: vi.fn(async task => task()),
+            captureWorkspacePayload: vi.fn(async () => createPayload()),
+            restoreWorkspacePayload: vi.fn(async () => true),
+            moveTabToNewWindow: vi.fn(),
+            moveTabToWindow: vi.fn(),
+            handleCloseTab: vi.fn(),
+        });
+
+        await tabs.splitEditor('right');
+
+        expect(workspaceSplitCacheSet).toHaveBeenCalledWith(
+            'tab-1',
+            expect.objectContaining({kind: 'pdfSnapshot'}),
+            {session: expect.objectContaining({
+                sessionId: 'session-1',
+                sessionRevision: 0,
+                documentRef: '/tmp/sample.pdf',
+            })},
+        );
+    });
+
     it('activates copied destination tabs before restoring their workspace payload', async () => {
         const sourcePane = {
             paneId: 'pane-1',
@@ -257,7 +341,7 @@ describe('useAppShellDirectionalTabs', () => {
     });
 
     it('gates existing-window transfer availability while tab transitions are busy', () => {
-        vi.stubGlobal('window', { electronAPI: {} });
+        vi.stubGlobal('window', { electronAPI: createElectronPlatformApiFixture() });
         const pane = {
             paneId: 'pane-1',
             activeTabId: 'tab-1',

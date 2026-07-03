@@ -43,6 +43,7 @@ function createRuntime() {
         currentSearchMatch: computed(() => null),
         currentSearchMatchNavigationId: computed(() => 0),
         workingCopyPath: computed(() => null),
+        documentRevisionToken: computed(() => null),
         onRenderStall: vi.fn(),
         onPageCanvasMounted: vi.fn(),
         onPageRendered: vi.fn(),

@@ -10,10 +10,12 @@ import {
     shallowRef,
 } from 'vue';
 import { usePdfViewerZoomRerenderQueue } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerZoomRerenderQueue';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
+import type { IPdfViewerTransaction } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import { cast } from '@tests/helpers/cast';
 
 type TQueueOptions = Parameters<typeof usePdfViewerZoomRerenderQueue>[0];
+type TQueueTransactionController = NonNullable<TQueueOptions['transactionController']>;
 
 function createViewerMetrics() {
     return {
@@ -221,6 +223,72 @@ describe('usePdfViewerZoomRerenderQueue', () => {
                     operationId: 42,
                     reason: 'queue-end',
                 }),
+            );
+        } finally {
+            queue.cleanupZoomRerenderQueue();
+        }
+    });
+
+    it('wraps queued zoom rerenders in transaction currentness', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(1_000);
+        let activeTransactionId = 0;
+        let nextTransactionId = 1;
+        const beginTransaction = vi.fn<TQueueTransactionController['beginTransaction']>((options) => {
+            activeTransactionId = nextTransactionId;
+            nextTransactionId += 1;
+            return cast<IPdfViewerTransaction>({
+                id: activeTransactionId,
+                kind: options.kind,
+                source: options.source,
+            });
+        });
+        const advanceTransaction = vi.fn<TQueueTransactionController['advanceTransaction']>((transactionId) => (
+            transactionId === activeTransactionId
+        ));
+        const cancelActiveTransaction = vi.fn<TQueueTransactionController['cancelActiveTransaction']>((_cancellation, transactionId) => {
+            if (transactionId === activeTransactionId) {
+                activeTransactionId = 0;
+            }
+            return true;
+        });
+        const isTransactionCurrent = vi.fn<TQueueTransactionController['isTransactionCurrent']>(transactionId => (
+            transactionId === activeTransactionId
+        ));
+        const reRenderVisiblePagesAndSyncCurrentPage = vi.fn<TQueueOptions['reRenderVisiblePagesAndSyncCurrentPage']>(async () => {});
+        const {queue} = createQueueHarness({
+            isZoomInteractionLocked: () => false,
+            reRenderVisiblePagesAndSyncCurrentPage,
+            transactionController: {
+                beginTransaction,
+                advanceTransaction,
+                cancelActiveTransaction,
+                isTransactionCurrent,
+            },
+        });
+
+        try {
+            queue.enqueueZoomSync({
+                source: 'zoom-gesture-change',
+                resizeAnchor: createResizeAnchor(4, 44),
+            });
+
+            await flushQueuedRerenderFrame();
+
+            expect(beginTransaction).toHaveBeenCalledWith({
+                kind: 'zoom',
+                source: 'zoom-gesture',
+                page: 4,
+                range: {
+                    start: 4,
+                    end: 4,
+                },
+                anchor: 'center',
+            });
+            expect(advanceTransaction).toHaveBeenCalledWith(1, 'render-requested');
+            expect(advanceTransaction).toHaveBeenCalledWith(1, 'settled');
+            expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledWith(
+                expect.not.objectContaining({ transactionId: expect.any(Number) }),
             );
         } finally {
             queue.cleanupZoomRerenderQueue();

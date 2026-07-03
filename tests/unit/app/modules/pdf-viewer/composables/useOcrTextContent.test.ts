@@ -14,6 +14,8 @@ const mockDocuments = {
 };
 vi.mock('@app/utils/platformDocuments', () => ({ getDocumentFilesCapability: () => mockDocuments }));
 
+const TEST_DOCUMENT_REVISION = 'revision-token';
+
 function createViewport(): PageViewport {
     return {
         viewBox: [
@@ -75,7 +77,8 @@ describe('useOcrTextContent', () => {
         mockDocuments.readTextFile.mockImplementation(async (path: string) => {
             if (path.endsWith('manifest.json')) {
                 return JSON.stringify({
-                    version: 2,
+                    version: 3,
+                    documentRevision: {token: TEST_DOCUMENT_REVISION},
                     createdAt: 1,
                     source: {pdfPath: '/tmp/doc.pdf'},
                     pageCount: 1,
@@ -91,6 +94,7 @@ describe('useOcrTextContent', () => {
             if (path.endsWith('page-1.json')) {
                 return JSON.stringify({
                     pageNumber: 1,
+                    documentRevision: {token: TEST_DOCUMENT_REVISION},
                     rotation: 0,
                     render: {
                         dpi: 300,
@@ -131,16 +135,16 @@ describe('useOcrTextContent', () => {
         const second = useOcrTextContent();
         const viewport = createViewport();
 
-        await expect(first.hasOcrData('/tmp/doc.pdf')).resolves.toBe(true);
-        await expect(first.getOcrTextContent('/tmp/doc.pdf', 1, viewport)).resolves.not.toBeNull();
-        await expect(second.getOcrTextContent('/tmp/doc.pdf', 1, viewport)).resolves.not.toBeNull();
+        await expect(first.hasOcrData('/tmp/doc.pdf', TEST_DOCUMENT_REVISION)).resolves.toBe(true);
+        await expect(first.getOcrTextContent('/tmp/doc.pdf', TEST_DOCUMENT_REVISION, 1, viewport)).resolves.not.toBeNull();
+        await expect(second.getOcrTextContent('/tmp/doc.pdf', TEST_DOCUMENT_REVISION, 1, viewport)).resolves.not.toBeNull();
 
         expect(mockDocuments.fileExists).toHaveBeenCalledTimes(2);
         expect(mockDocuments.readTextFile).toHaveBeenCalledTimes(2);
 
         first.clearCache('/tmp/doc.pdf');
 
-        await expect(second.hasOcrData('/tmp/doc.pdf')).resolves.toBe(true);
+        await expect(second.hasOcrData('/tmp/doc.pdf', TEST_DOCUMENT_REVISION)).resolves.toBe(true);
         expect(mockDocuments.fileExists).toHaveBeenCalledTimes(3);
         expect(mockDocuments.readTextFile).toHaveBeenCalledTimes(3);
     });
@@ -149,7 +153,8 @@ describe('useOcrTextContent', () => {
         mockDocuments.readTextFile.mockImplementation(async (path: string) => {
             if (path.endsWith('manifest.json')) {
                 return JSON.stringify({
-                    version: 2,
+                    version: 3,
+                    documentRevision: {token: TEST_DOCUMENT_REVISION},
                     createdAt: 1,
                     source: {pdfPath: '/tmp/mixed.pdf'},
                     pageCount: 1,
@@ -165,6 +170,7 @@ describe('useOcrTextContent', () => {
             if (path.endsWith('page-1.json')) {
                 return JSON.stringify({
                     pageNumber: 1,
+                    documentRevision: {token: TEST_DOCUMENT_REVISION},
                     rotation: 0,
                     render: {
                         dpi: 300,
@@ -196,7 +202,12 @@ describe('useOcrTextContent', () => {
         });
 
         const {useOcrTextContent} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent');
-        const textContent = await useOcrTextContent().getOcrTextContent('/tmp/mixed.pdf', 1, createViewport());
+        const textContent = await useOcrTextContent().getOcrTextContent(
+            '/tmp/mixed.pdf',
+            TEST_DOCUMENT_REVISION,
+            1,
+            createViewport(),
+        );
 
         expect(textContent?.items).toHaveLength(2);
         expect(textContent?.items[0]?.height).toBe(30);
@@ -211,7 +222,8 @@ describe('useOcrTextContent', () => {
         mockDocuments.readTextFile.mockImplementation(async (path: string) => {
             if (path.endsWith('manifest.json')) {
                 return JSON.stringify({
-                    version: 2,
+                    version: 3,
+                    documentRevision: {token: TEST_DOCUMENT_REVISION},
                     createdAt: 1,
                     source: {pdfPath: '/tmp/fallback.pdf'},
                     pageCount: 1,
@@ -227,6 +239,7 @@ describe('useOcrTextContent', () => {
             if (path.endsWith('page-1.json')) {
                 return JSON.stringify({
                     pageNumber: 1,
+                    documentRevision: {token: TEST_DOCUMENT_REVISION},
                     rotation: 0,
                     render: {
                         dpi: 300,
@@ -258,7 +271,12 @@ describe('useOcrTextContent', () => {
         });
 
         const {useOcrTextContent} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent');
-        const textContent = await useOcrTextContent().getOcrTextContent('/tmp/fallback.pdf', 1, createViewport());
+        const textContent = await useOcrTextContent().getOcrTextContent(
+            '/tmp/fallback.pdf',
+            TEST_DOCUMENT_REVISION,
+            1,
+            createViewport(),
+        );
 
         expect(textContent?.items).toHaveLength(2);
         expect(textContent?.styles['ocr-sans']?.ascent).toBe(0.8);

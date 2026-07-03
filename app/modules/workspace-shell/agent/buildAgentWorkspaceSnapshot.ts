@@ -18,6 +18,8 @@ import type {
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 
 interface IBuildAgentWorkspaceSnapshotOptions {
     panes: Ref<IEditorPaneState[]>;
@@ -29,6 +31,7 @@ interface IBuildAgentWorkspaceSnapshotOptions {
     recentFilesResolved?: Ref<boolean>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     documentRecordsByTabId: Ref<Record<string, IWorkspaceDocumentRecord>>;
+    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentSessionController>>;
     getPaneByTabId(tabId: string): IEditorPaneState | null;
 }
 
@@ -157,14 +160,21 @@ function buildAgentTabSnapshot(
     pane: IEditorPaneState | null,
     workspace: IWorkspaceExpose | null,
     record: IWorkspaceDocumentRecord | null,
+    session: IWorkspaceDocumentSessionController | null,
 ): IAgentTabSnapshot {
     const toolbarSnapshot = record?.toolbarSnapshot ?? null;
     const kind = inferDocumentKind(tab, toolbarSnapshot);
+    const commandTarget = session?.createCommandTarget();
+    const originalPath = getTabPath(tab);
+    const originalBackend = resolveDocumentRefBackend(originalPath);
     return {
         tabId: tab.id,
         paneId: pane?.paneId ?? null,
         fileName: tab.fileName,
-        originalPath: getTabPath(tab),
+        originalPath,
+        ...(originalBackend === undefined ? {} : {originalBackend}),
+        ...(record?.documentIdentity === undefined ? {} : { documentIdentity: record.documentIdentity }),
+        ...(commandTarget === undefined ? {} : { commandTarget }),
         isDirty: tab.isDirty,
         kind,
         workspaceAttached: Boolean(workspace),
@@ -194,6 +204,9 @@ function createDocumentReference(tab: IAgentTabSnapshot): IAgentDocumentReferenc
         paneId: tab.paneId,
         fileName: tab.fileName,
         originalPath: tab.originalPath,
+        ...(tab.originalBackend === undefined ? {} : {originalBackend: tab.originalBackend}),
+        ...(tab.documentIdentity === undefined ? {} : { documentIdentity: tab.documentIdentity }),
+        ...(tab.commandTarget === undefined ? {} : { commandTarget: tab.commandTarget }),
         kind: tab.kind,
     };
 }
@@ -206,6 +219,7 @@ function createRecentFileSnapshot(file: IRecentFile): IAgentRecentFileSnapshot {
     return {
         fileName: file.fileName,
         originalPath: file.originalPath,
+        ...(file.backend === undefined ? {} : {backend: file.backend}),
         kind: inferDocumentKindFromName(name),
         openedAt,
         ...(file.fileSize === undefined ? {} : { fileSize: file.fileSize }),
@@ -220,6 +234,7 @@ export function buildAgentWorkspaceSnapshot(
         options.getPaneByTabId(tab.id),
         options.workspaceRefs.value.get(tab.id) ?? null,
         options.documentRecordsByTabId.value[tab.id] ?? null,
+        options.documentSessionsByTabId?.value[tab.id] ?? null,
     ));
     const documentTabs = tabSnapshots.filter(isAgentDocumentTab);
     const activeDocumentTab = documentTabs.find(tab => tab.tabId === options.activeTabId.value) ?? null;

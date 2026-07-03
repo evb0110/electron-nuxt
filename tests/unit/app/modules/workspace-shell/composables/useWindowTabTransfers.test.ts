@@ -5,10 +5,15 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    ref,
+    shallowRef,
+} from 'vue';
 import type { TSplitPayload } from '@contracts/windowTabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
+import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
+import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { cast } from '@tests/helpers/cast';
 import type { ITab } from '@app/types/tabs';
 
@@ -102,6 +107,88 @@ describe('useWindowTabTransfers', () => {
                 target: {kind: 'new-window'},
             },
         });
+    });
+
+    it('includes source session metadata in outgoing transfers', async () => {
+        const payload = createPayload();
+        const tab = {
+            id: 'tab-1',
+            fileName: 'sample.pdf',
+            originalPath: '/tmp/sample.pdf',
+            isDirty: true,
+            isDjvu: false,
+        };
+        const pane = {
+            paneId: 'pane-1',
+            activeTabId: 'tab-1',
+            tabIds: ['tab-1'],
+        };
+        const workspace = cast<IWorkspaceExpose>({
+            hasPdf: true,
+            captureSplitPayload: vi.fn(async () => payload),
+            handleCloseFileFromUi: vi.fn(async () => true),
+        });
+        const session = createWorkspaceDocumentSessionCore({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+            initialRecord: createWorkspaceDocumentRecord({
+                tab,
+                documentIdentity: {
+                    version: 1,
+                    authority: 'browser-document-store',
+                    contentRevision: 4,
+                    documentRef: '/tmp/sample.pdf',
+                    mintedAt: 123,
+                    token: 'revision-token-1',
+                },
+            }),
+        });
+        mocks.transfer.mockResolvedValueOnce({
+            transferId: 'transfer-1',
+            success: false,
+            targetWindowId: 2,
+            error: 'target unavailable',
+        });
+
+        const transfers = useWindowTabTransfers({
+            activePaneId: ref('pane-1'),
+            panes: ref([pane]),
+            tabs: ref([tab]),
+            layout: ref(null),
+            createTab: vi.fn(),
+            getPaneById: vi.fn((paneId: string | null | undefined) => paneId === 'pane-1' ? pane : null),
+            getTabById: vi.fn((tabId: string | null | undefined) => tabId === 'tab-1' ? tab : null),
+            getPaneByTabId: vi.fn((tabId: string) => tabId === 'tab-1' ? pane : null),
+            activatePane: vi.fn(),
+            activateTab: vi.fn(),
+            removeTabFromState: vi.fn(),
+            updateTab: vi.fn(),
+            cleanupEmptyPanes: vi.fn(),
+            closeTabInState: vi.fn(),
+            workspaceRefs: ref(new Map<string, IWorkspaceExpose>([[
+                'tab-1',
+                workspace,
+            ]])),
+            documentSessionsByTabId: shallowRef({'tab-1': session}),
+            waitForWorkspace: vi.fn(async (tabId: string): Promise<IWorkspaceExpose | null> => tabId === 'tab-1' ? workspace : null),
+            workspaceRestoreTracker: {
+                start: vi.fn(),
+                finish: vi.fn(),
+            },
+            handleCloseTab: vi.fn(),
+            handoffActiveTabBeforeClose: vi.fn(),
+        });
+
+        await transfers.moveTabToWindow(2, 'tab-1');
+
+        expect(mocks.transfer).toHaveBeenCalledWith(expect.objectContaining({session: {
+            sessionId: 'session-1',
+            sessionRevision: 0,
+            documentRef: '/tmp/sample.pdf',
+            documentBackend: 'electron',
+            documentRevisionToken: 'revision-token-1',
+        }}));
+        expect(mocks.transfer).toHaveBeenCalledWith(expect.objectContaining({tab: expect.objectContaining({originalBackend: 'electron'})}));
     });
 
     it('activates created incoming transfer tabs before restoring their workspace payload', async () => {

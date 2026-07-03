@@ -265,20 +265,29 @@ async function scaleDjvuPageObjectUrl(
 export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef) {
     const nativeDjvu = getDesktopDjvuPreviewCapability(djvuPath);
     if (nativeDjvu) {
+        let terminated = false;
         return {
             getPageSizes: () => nativeDjvu.getPageSizes(djvuPath),
             async renderPageObjectUrl(
                 pageNumber: number,
                 options?: IDjvuPagePreviewOptions,
             ): Promise<IDjvuRenderedPageObjectUrl> {
+                if (terminated) {
+                    throw new Error('DjVu conversion canceled');
+                }
                 const preview = await nativeDjvu.renderPagePreview(djvuPath, pageNumber, options);
+                if (terminated) {
+                    throw new Error('DjVu conversion canceled');
+                }
                 return {
                     objectUrl: createPngObjectUrl(preview.bytes),
                     renderedPx: preview.width,
                 };
             },
             revokeObjectURL: (url: string) => URL.revokeObjectURL(url),
-            terminate() {},
+            terminate() {
+                terminated = true;
+            },
         };
     }
 

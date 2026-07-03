@@ -4,7 +4,7 @@ import {
     it,
 } from 'vitest';
 import type { IAgentAssistantStatus } from '@contracts/agent';
-import { getAgentAssistantPanelView } from '@app/modules/workspace-shell/agent/getAgentAssistantPanelView';
+import { getAgentAssistantPanelView } from '@app/modules/agent-panel/public/agentAssistantPanelView';
 
 function createStatus(overrides: Partial<IAgentAssistantStatus> = {}): IAgentAssistantStatus {
     return {

@@ -54,7 +54,7 @@ const REQUIRED_SYMBOLS_BY_WORKER: Partial<Record<TWorkerBundleId, string[]>> = {
         'SEARCH_INDEX_CACHE_MAX_ENTRIES',
         'tryRunNativeSearch',
         'evb-pdf-search(search)',
-        'EVBSIDX1',
+        'EVBSIDX2',
     ],
 };
 

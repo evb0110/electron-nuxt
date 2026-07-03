@@ -22,7 +22,7 @@ import type {
     TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { cast } from '@tests/helpers/cast';
 
@@ -61,9 +61,18 @@ class FakeAnnotationEditorUIManager {
 
     setSelected = this.__setSelectedSpy;
 
+    get currentLayer() {
+        return null;
+    }
+
     constructor(..._args: unknown[]) {
         annotationUiManagerInstances.push(this);
     }
+}
+
+class FakeAnnotationEditorLayer {
+    disable() {}
+    destroy() {}
 }
 
 function asAnnotationEditorUIManager(uiManager: FakeAnnotationEditorUIManager) {
@@ -87,10 +96,15 @@ class FakeEventBus {
 function FakeGenericL10n() {}
 
 vi.mock('@app/services/pdfjs/runtimeLib', () => ({
+    default: {
+        version: '5.7.284',
+        AnnotationEditorLayer: FakeAnnotationEditorLayer,
+    },
     AnnotationEditorParamsType: {
         CREATE: 0,
         HIGHLIGHT_SHOW_ALL: 1,
     },
+    AnnotationEditorLayer: FakeAnnotationEditorLayer,
     AnnotationEditorUIManager: FakeAnnotationEditorUIManager,
     PixelsPerInch: { PDF_TO_CSS_UNITS: 1 },
 }));

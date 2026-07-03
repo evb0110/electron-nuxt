@@ -563,7 +563,10 @@ export default {
             'codexMissingMessage': 'Install Codex to use the EVB Viewer MCP integration.',
             'codexMissingDetail': 'After installing Codex, return here and enable the setting again.',
         },
-        'agentAssistant': {'disabledMessage': 'Enable EVB Assistant in Settings to use assistant chat.'},
+        'agentAssistant': {
+            'disabledMessage': 'Enable EVB Assistant in Settings to use assistant chat.',
+            'turnBusy': 'EVB Assistant is still working on the previous message for this document.',
+        },
     },
     'optimizePdf': {
         'title': 'Optimize PDF',
@@ -1126,6 +1129,7 @@ export default {
             'description': 'The app hit an unexpected error and may not work correctly until it reloads.',
             'startupTitle': 'App startup failed',
             'startupDescription': 'The app could not finish starting. Reload to try again.',
+            'electronPlatformContract': 'The desktop bridge is stale or incompatible. Restart the app to load the current preload contract.',
             'reload': 'Reload App',
             'copy': 'Copy details',
             'dismiss': 'Dismiss',

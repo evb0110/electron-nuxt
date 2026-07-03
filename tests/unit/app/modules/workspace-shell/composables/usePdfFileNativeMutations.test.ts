@@ -7,12 +7,21 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { usePdfFile } from '@app/modules/workspace-shell/composables/usePdfFile';
-import type { IPdfConformanceProfile } from '@app/types/pdf';
+import type { IPdfConformanceProfile } from '@app/types/pdfContracts';
 import type { IPdfNativeMutationSet } from '@contracts/electronApiDocuments';
 import { toPageIndex } from '@contracts/pageNumbers';
 
 const analyticsMock = vi.hoisted(() => ({
     clearDocumentContext: vi.fn(),
+    createDocumentScope: vi.fn(() => ({
+        activate: vi.fn(),
+        clear: vi.fn(),
+        deactivate: vi.fn(),
+        dispose: vi.fn(),
+        key: 'test-document-scope',
+        merge: vi.fn(),
+        set: vi.fn(),
+    })),
     setDocumentContext: vi.fn(),
     track: vi.fn(),
 }));

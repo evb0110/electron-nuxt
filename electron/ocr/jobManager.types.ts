@@ -1,5 +1,6 @@
 import type { Worker } from 'worker_threads';
 import type { IOcrSearchablePdfOptions } from '@contracts/electronApiOcr';
+import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { TOcrJobLifecycleState } from '@electron/ocr/ocrJobLifecycle';
 import type {
     IOcrPdfPageRequest,
@@ -12,6 +13,7 @@ export interface IOcrQueuedJob<TState extends TOcrJobLifecycleState = TOcrJobLif
     requestId: string;
     webContentsId: number;
     sourcePdfPath: string;
+    documentRevision: IDocumentRevisionInfo;
     pages: IOcrPdfPageRequest[];
     options: IOcrSearchablePdfOptions;
     queuedAtMs: number;
@@ -23,6 +25,8 @@ export interface IOcrPreparingJob {
     scopedJobId: string;
     requestId: string;
     webContentsId: number;
+    sourcePdfPath: string;
+    documentRevision: IDocumentRevisionInfo;
     requestedBytes: number;
     startedAtMs: number;
     abortController: AbortController;

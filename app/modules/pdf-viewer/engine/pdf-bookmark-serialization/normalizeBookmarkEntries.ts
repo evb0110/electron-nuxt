@@ -1,5 +1,5 @@
 import { clamp } from 'es-toolkit/math';
-import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import { normalizeBookmarkColor } from '@app/utils/pdfOutlineHelpers';
 
 export function normalizeBookmarkEntries(

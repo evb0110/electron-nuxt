@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { TPdfViewMode } from '@contracts/shared';
 import { AGENT_CAPABILITY_TEMPLATES } from '@electron/features/agent/mcp/agentCapabilityTemplates';
 import type {
@@ -13,7 +14,7 @@ import type {
     TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import type { IAnnotationNoteWindowState } from '@app/types/annotationNoteWindow';
 import type { IWorkspacePdfViewerAgentPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import {
@@ -76,6 +77,20 @@ function createAnnotationComment(
     };
 }
 
+function createDocumentIdentity(
+    token = 'revision-1',
+    contentRevision = 1,
+): IDocumentRevisionInfo {
+    return {
+        version: 1,
+        token,
+        documentRef: '/tmp/document.pdf',
+        authority: 'browser-document-store',
+        contentRevision,
+        mintedAt: contentRevision,
+    };
+}
+
 function createAgentOptions(
     overrides: Partial<IUseDocumentWorkspaceAgentOptions> = {},
 ): IUseDocumentWorkspaceAgentOptions {
@@ -105,6 +120,7 @@ function createAgentOptions(
         closeTextMarkupProperties: vi.fn(),
         continuousScroll: ref(false),
         currentPage: ref(1),
+        documentIdentity: ref<IDocumentRevisionInfo | null>(null),
         fitMode: ref<unknown>('width'),
         handleActualSize: vi.fn(),
         handleAnnotationFocusComment: vi.fn(async () => undefined),
@@ -222,6 +238,46 @@ describe('useDocumentWorkspaceAgent', () => {
             });
         expect(showSidebar.value).toBe(false);
         expect(sidebarTab.value).toBe('annotations');
+    });
+
+    it('aborts action execution when the command signal is already aborted', async () => {
+        const abortController = new AbortController();
+        abortController.abort();
+        const assertCurrentDocument = vi.fn();
+        const agent = useDocumentWorkspaceAgent(createAgentOptions());
+
+        await expect(agent.runAgentAction('ui.open_sidebar_tab', {tab: 'bookmarks'}, {}, {
+            signal: abortController.signal,
+            documentIdentity: null,
+            assertCurrentDocument,
+        })).rejects.toThrow('Agent command was aborted.');
+        expect(assertCurrentDocument).not.toHaveBeenCalled();
+    });
+
+    it('aborts mutating bookmark actions when document identity changes after awaited settling', async () => {
+        const firstIdentity = createDocumentIdentity('revision-1', 1);
+        const documentIdentity = ref<IDocumentRevisionInfo | null>(firstIdentity);
+        const handleBookmarksChange = vi.fn();
+        const waitForDocumentOpenSettled = vi.fn(async () => {
+            documentIdentity.value = createDocumentIdentity('revision-2', 2);
+        });
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+            documentIdentity,
+            handleBookmarksChange,
+            waitForDocumentOpenSettled,
+        }));
+
+        await expect(agent.runAgentAction('bookmarks.apply_plan', {entries: [{
+            level: 1,
+            title: 'Chapter',
+            page: 1,
+        }]}, {}, {
+            signal: new AbortController().signal,
+            documentIdentity: firstIdentity,
+            assertCurrentDocument: vi.fn(),
+        })).rejects.toThrow('Agent command target document changed.');
+        expect(waitForDocumentOpenSettled).toHaveBeenCalledOnce();
+        expect(handleBookmarksChange).not.toHaveBeenCalled();
     });
 
     it('preserves execution semantics for a representative handler', async () => {

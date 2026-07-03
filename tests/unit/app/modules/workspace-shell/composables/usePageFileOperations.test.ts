@@ -13,7 +13,7 @@ import { usePageFileOperations } from '@app/modules/workspace-shell/composables/
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 import { cast } from '@tests/helpers/cast';
 
 const {

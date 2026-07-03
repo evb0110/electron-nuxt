@@ -1,6 +1,8 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TSplitPayload } from '@contracts/windowTabs';
+import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
 import type {
     IAnnotationCommentSummary,
     TAnnotationCommentsStatus,
@@ -185,13 +187,24 @@ export interface IWorkspaceUiPort {
     waitForDocumentOpenSettled: () => Promise<void>;
 }
 
+export interface IWorkspaceAgentCommandContext {
+    signal: AbortSignal;
+    documentIdentity: IDocumentRevisionInfo | null;
+    commandTarget?: TWorkspaceCommandTarget;
+    assertCurrentDocument: () => void;
+}
+
 export interface IWorkspaceAgentPort {
     runAgentAction: (
         actionId: string,
         input?: Record<string, unknown>,
         options?: {dryRun?: boolean},
+        context?: IWorkspaceAgentCommandContext,
     ) => Promise<Record<string, unknown>>;
-    readAgentResource: (uri: string) => Promise<Record<string, unknown>>;
+    readAgentResource: (
+        uri: string,
+        context?: IWorkspaceAgentCommandContext,
+    ) => Promise<Record<string, unknown>>;
 }
 
 interface IWorkspaceStatePort {hasPdf: {value: boolean;} | boolean;}

@@ -118,6 +118,10 @@ function isOptionalPositiveInteger(value: unknown): value is number | undefined 
     return value === undefined || (typeof value === 'number' && Number.isSafeInteger(value) && value > 0);
 }
 
+function isNonNegativeInteger(value: unknown): value is number {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
 function isNullableString(value: unknown): value is string | null {
     return value === null || typeof value === 'string';
 }
@@ -152,6 +156,18 @@ function isSplitPayload(value: unknown): value is TSplitPayload {
         && isOptionalPositiveInteger(value.totalPages);
 }
 
+function isTransferSession(value: unknown): value is IWindowTabIncomingTransfer['session'] {
+    return value === undefined
+        || (
+            isRecord(value)
+            && typeof value.sessionId === 'string'
+            && value.sessionId.trim().length > 0
+            && isNonNegativeInteger(value.sessionRevision)
+            && isNullableString(value.documentRef)
+            && (value.documentRevisionToken === undefined || typeof value.documentRevisionToken === 'string')
+        );
+}
+
 function isBrowserTransferEnvelope(value: unknown): value is TBrowserTransferEnvelope {
     return isRecord(value)
         && value.schemaVersion === TRANSFER_MESSAGE_SCHEMA_VERSION
@@ -160,7 +176,8 @@ function isBrowserTransferEnvelope(value: unknown): value is TBrowserTransferEnv
         && isPositiveWindowId(value.sourceWindowId)
         && isPositiveWindowId(value.targetWindowId)
         && isTransferredTabState(value.tab)
-        && isSplitPayload(value.payload);
+        && isSplitPayload(value.payload)
+        && isTransferSession(value.session);
 }
 
 function isBrowserTransferAckEnvelope(value: unknown): value is TBrowserTransferAckEnvelope {
@@ -807,6 +824,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             targetWindowId,
             tab: request.tab,
             payload: request.payload,
+            ...(request.session === undefined ? {} : {session: request.session}),
             schemaVersion: TRANSFER_MESSAGE_SCHEMA_VERSION,
             nonce,
         };

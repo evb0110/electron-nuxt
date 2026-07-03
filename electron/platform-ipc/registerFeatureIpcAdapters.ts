@@ -1,5 +1,9 @@
 import { registerDocumentsIpcAdapter } from '@electron/features/documents/registerDocumentsIpcAdapter';
 import {
+    registerDocumentRevisionEventBridge,
+    registerDocumentRevisionInvalidationEffects,
+} from '@electron/features/documents/public';
+import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
@@ -53,6 +57,8 @@ export function registerFeatureIpcAdapters(
         undefined,
         {eventRegistrar: createValidatedIpcMainEventRegistrar(ipcMain, {allowedChannels: DOCUMENTS_CHANNEL_SET})},
     );
+    registerDocumentRevisionEventBridge();
+    registerDocumentRevisionInvalidationEffects();
     registerAgentIpcAdapter(
         createValidatedIpcMainRegistrar<IAgentInvokeMap>(ipcMain, {allowedChannels: createChannelSet(AGENT_CHANNELS)}),
         options.agentService,

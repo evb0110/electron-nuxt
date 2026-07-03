@@ -2,7 +2,7 @@ import { isEqual } from 'es-toolkit/predicate';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
 import {
     buildPageLabelsFromRanges,
     isImplicitDefaultPageLabels,

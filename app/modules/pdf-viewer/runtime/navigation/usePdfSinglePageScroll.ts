@@ -1,21 +1,14 @@
-import type {
-    Ref,
-    ShallowRef,
-} from 'vue';
 import {
     tryOnScopeDispose,
     useDebounceFn,
 } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import { delay } from 'es-toolkit/promise';
-import type { PDFDocumentProxy } from '@app/types/pdf';
-import type { TPdfViewMode } from '@contracts/shared';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { logPdfNav } from '@app/utils/logPdfNav';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type {
     IWheelPageAccumulatorState,
     TPageSnapAnchor,
@@ -32,7 +25,12 @@ import { createWheelFlipGate } from '@app/modules/pdf-viewer/runtime/navigation/
 import { createNavigationSettleEffects } from '@app/modules/pdf-viewer/runtime/navigation/createNavigationSettleEffects';
 import { createPagedNavigationAuthority } from '@app/modules/pdf-viewer/runtime/navigation/createPagedNavigationAuthority';
 import { createContinuousScrollWarmScheduler } from '@app/modules/pdf-viewer/runtime/navigation/createContinuousScrollWarmScheduler';
-import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type {
+    IApplySnapToMountedPageCommitOptions,
+    IPagedRowRenderRequest,
+    IUsePdfSinglePageScrollOptions,
+} from '@app/modules/pdf-viewer/runtime/navigation/pdfSinglePageScrollTypes';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import {
     canScrollWithinPageBounds,
     hasScrollablePageBounds,
@@ -84,73 +82,6 @@ const CONTINUOUS_NAVIGATION_HOLD_WITH_METRICS_MS = 1_200;
 const CONTINUOUS_NAVIGATION_HOLD_FALLBACK_MS = 220;
 const PROGRAMMATIC_NAVIGATION_RELEASE_RETRY_MS = 40;
 
-interface IPagedRowRenderRequest {
-    allowSuppressedRender?: boolean;
-    pageNumber: number;
-    message: string;
-    runId: number;
-}
-
-type TPagedTargetLayoutPreparation = void | Promise<void>;
-
-interface IApplySnapToMountedPageCommitOptions {commitCurrentPage?: boolean;}
-
-interface IUsePdfSinglePageScrollOptions {
-    viewerContainer: Ref<HTMLElement | null>;
-    numPages: Ref<number>;
-    currentPage: Ref<number>;
-    scaledMargin: Ref<number>;
-    viewMode: Ref<TPdfViewMode>;
-    continuousScroll: Ref<boolean>;
-    isLoading: Ref<boolean>;
-    pdfDocument: ShallowRef<PDFDocumentProxy | null>;
-    getMostVisiblePage: (
-        container: HTMLElement | null,
-        numPages: number,
-    ) => number;
-    scrollToPageInternal: (
-        container: HTMLElement,
-        page: number,
-        total: number,
-        margin: number,
-        options?: IScrollToPageOptions,
-    ) => void;
-    updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
-    updateCurrentPage: (
-        container: HTMLElement | null,
-        numPages: number,
-        options?: { requireAuthoritative?: boolean; },
-    ) => number;
-    renderVisiblePages: (
-        range: {
-            start: number;
-            end: number
-        },
-        renderOptions?: IRenderVisiblePagesOptions,
-    ) => Promise<void>;
-    ensurePageMetricsInRange?: ((startPage: number, endPage: number) => Promise<boolean>) | undefined;
-    preparePagedTargetLayout?: ((
-        pageNumber: number,
-        shouldContinue: () => boolean,
-    ) => TPagedTargetLayoutPreparation) | undefined;
-    /**
-     * Suppress ordinary paged row renders while another controller owns them.
-     *
-     * Fit-height/fit-width navigation must hydrate the target page metrics,
-     * recompute scale, and then force-render the current row. Letting the
-     * generic paged navigation render at the previous scale creates a same-page
-     * cancel/restart race in PDF.js on very large pages.
-     */
-    suppressPagedRowRender?: (() => boolean) | undefined;
-    isPageFreshlyRenderedForNavigation?: ((pageNumber: number) => boolean) | undefined;
-    visibleRange: Ref<{
-        start: number;
-        end: number;
-    }>;
-    emitCurrentPage: (page: number) => void;
-    emitNavigationFeedbackPage?: ((page: number | null) => void) | undefined;
-}
-
 export const usePdfSinglePageScroll = (
     options: IUsePdfSinglePageScrollOptions,
 ) => {
@@ -167,10 +98,10 @@ export const usePdfSinglePageScroll = (
         scrollToPageInternal,
         updateVisibleRange,
         updateCurrentPage,
+        commitVisibleRange,
+        commitCurrentPage,
         renderVisiblePages,
         ensurePageMetricsInRange,
-        preparePagedTargetLayout,
-        suppressPagedRowRender,
         visibleRange,
         emitCurrentPage,
         emitNavigationFeedbackPage,
@@ -179,7 +110,15 @@ export const usePdfSinglePageScroll = (
     const isSnapping = ref(false);
     const snapSuppressUntil = ref(0);
     const isProgrammaticNavigationActive = ref(false);
-    const navigationRuntime = createPdfNavigationRuntimeForCurrentPage(currentPage, emitCurrentPage);
+    const navigationRuntime = createPdfNavigationRuntimeForCurrentPage(
+        currentPage,
+        emitCurrentPage,
+        (page, commitOptions) => commitCurrentPageValue(
+            page,
+            commitOptions.previousPage,
+            commitOptions.transactionId,
+        ),
+    );
     const currentPageAuthority = createPdfCurrentPageAuthority({
         currentPage,
         navigationRuntime,
@@ -233,6 +172,46 @@ export const usePdfSinglePageScroll = (
         }),
     });
     const pagedNavigationHold = pagedNavigationAuthority.hold;
+
+    function commitVisibleRangeValue(
+        range: {
+            start: number;
+            end: number;
+        },
+        transactionId?: number | undefined,
+    ) {
+        const didCommit = commitVisibleRange?.(
+            range,
+            transactionId !== undefined ? { transactionId } : undefined,
+        );
+        if (didCommit !== undefined) {
+            return didCommit;
+        }
+        visibleRange.value = range;
+        return true;
+    }
+
+    function commitCurrentPageValue(
+        page: number,
+        previousPage = currentPage.value,
+        transactionId?: number | undefined,
+    ) {
+        const didCommit = commitCurrentPage?.(
+            page,
+            {
+                previousPage,
+                ...(transactionId !== undefined ? { transactionId } : {}),
+            },
+        );
+        if (didCommit !== undefined) {
+            return didCommit;
+        }
+        currentPage.value = page;
+        if (page !== previousPage) {
+            emitCurrentPage(page);
+        }
+        return true;
+    }
 
     function clearPagedNavigationTarget() {
         navigationEffects.clearPagedSettle();
@@ -322,7 +301,6 @@ export const usePdfSinglePageScroll = (
                     targetPage,
                     'Failed to recover stalled paged navigation target',
                     runId,
-                    { allowSuppressedRender: true },
                 );
             },
             onAbandon: () => {
@@ -362,6 +340,7 @@ export const usePdfSinglePageScroll = (
                             preserveInFlightRequiredPages: true,
                         },
                     ), {
+                        category: 'user-visible-operation',
                         scope: 'pdf-single-page-scroll',
                         message: 'Failed to render visible pages after abandoning stalled paged navigation',
                     });
@@ -449,11 +428,6 @@ export const usePdfSinglePageScroll = (
             && Boolean(pdfDocument.value)
             && targetPage >= 1
             && targetPage <= numPages.value;
-    }
-
-    function isPromiseLike(value: TPagedTargetLayoutPreparation): value is Promise<void> {
-        return value !== undefined
-            && typeof (value as { then?: unknown }).then === 'function';
     }
 
     function getActiveSearchNavigationRunId() {
@@ -882,7 +856,7 @@ export const usePdfSinglePageScroll = (
             return applyContinuousNavigationTargetScroll(targetPage, options);
         }
 
-        const rowRange = setVisibleRangeToPageRow(targetPage);
+        const rowRange = setVisibleRangeToPageRow(targetPage, runId);
         isSnapping.value = true;
         logPdfRenderTrace('single-page-search-reveal-paged-target', {
             runId,
@@ -938,6 +912,7 @@ export const usePdfSinglePageScroll = (
             visibleRange.value,
             { preserveRenderedPages: true },
         ), {
+            category: 'user-visible-operation',
             scope: 'pdf-single-page-scroll',
             message: 'Failed to render visible pages on scroll',
         });
@@ -1030,7 +1005,7 @@ export const usePdfSinglePageScroll = (
         }
 
         const anchor = navigationRuntime.state.value.anchor ?? 'top';
-        const rowRange = setVisibleRangeToPageRow(targetPage);
+        const rowRange = setVisibleRangeToPageRow(targetPage, runId);
         const didSnap = applySnapToMountedPage(
             targetPage,
             anchor,
@@ -1078,20 +1053,20 @@ export const usePdfSinglePageScroll = (
         return commitPagedNavigationTarget(runId, targetPage, reason);
     }
 
-    function setVisibleRangeToPageRow(pageNumber: number) {
+    function setVisibleRangeToPageRow(pageNumber: number, runId?: number | undefined) {
         if (numPages.value === 0) {
-            visibleRange.value = {
+            commitVisibleRangeValue({
                 start: 1,
                 end: 1,
-            };
+            }, runId);
             return visibleRange.value;
         }
 
         const rowRange = resolvePageRowRange(pageNumber);
-        visibleRange.value = {
+        commitVisibleRangeValue({
             start: rowRange.start,
             end: rowRange.end,
-        };
+        }, runId);
         return visibleRange.value;
     }
 
@@ -1143,20 +1118,14 @@ export const usePdfSinglePageScroll = (
                 start: visibleRange.value.start,
                 end: visibleRange.value.end,
             },
-            allowSuppressedRender: request.allowSuppressedRender === true,
         });
         void nextTick(() => {
-            const isPagedRowRenderSuppressed = suppressPagedRowRender?.() === true;
             if (
                 isDisposed
                 || !isPagedNavigationRunCurrent(request.runId)
                 || continuousScroll.value
                 || isLoading.value
                 || !pdfDocument.value
-                || (
-                    isPagedRowRenderSuppressed
-                    && request.allowSuppressedRender !== true
-                )
             ) {
                 logPdfRenderTrace('single-page-row-render-skipped', {
                     targetPage,
@@ -1168,8 +1137,6 @@ export const usePdfSinglePageScroll = (
                     isLoading: isLoading.value,
                     hasDocument: Boolean(pdfDocument.value),
                     currentPage: currentPage.value,
-                    suppressPagedRowRender: isPagedRowRenderSuppressed,
-                    allowSuppressedRender: request.allowSuppressedRender === true,
                 });
                 return;
             }
@@ -1192,6 +1159,7 @@ export const usePdfSinglePageScroll = (
                 );
                 commitPagedNavigationTarget(request.runId, targetPage, 'row-rendered');
             }, {
+                category: 'user-visible-operation',
                 scope: 'pdf-single-page-scroll',
                 message: request.message,
             });
@@ -1202,7 +1170,6 @@ export const usePdfSinglePageScroll = (
         pageNumber: number,
         message: string,
         runId: number,
-        options?: Pick<IPagedRowRenderRequest, 'allowSuppressedRender'>,
     ) {
         const targetPage = clamp(pageNumber, 1, numPages.value);
         const request: IPagedRowRenderRequest = {
@@ -1210,9 +1177,6 @@ export const usePdfSinglePageScroll = (
             message,
             runId,
         };
-        if (options?.allowSuppressedRender !== undefined) {
-            request.allowSuppressedRender = options.allowSuppressedRender;
-        }
         runPagedRowRenderAfterNavigation(request);
     }
 
@@ -1225,7 +1189,6 @@ export const usePdfSinglePageScroll = (
             pageNumber,
             message,
             runId,
-            { allowSuppressedRender: true },
         );
     }
 
@@ -1288,6 +1251,7 @@ export const usePdfSinglePageScroll = (
             await waitForContinuousRenderFrame();
             reapplyContinuousNavigationTargetScroll(runId, pageNumber, scrollOptions);
         }, {
+            category: 'user-visible-operation',
             scope: 'pdf-single-page-scroll',
             message,
         });
@@ -1453,7 +1417,7 @@ export const usePdfSinglePageScroll = (
             return;
         }
 
-        const range = setVisibleRangeToPageRow(targetPage);
+        const range = setVisibleRangeToPageRow(targetPage, runId);
         await renderVisiblePages(
             range,
             {
@@ -1561,8 +1525,7 @@ export const usePdfSinglePageScroll = (
         if (commitOptions?.commitCurrentPage !== false && currentPage.value !== targetPage) {
             const previous = currentPage.value;
             if (!currentPageAuthority.commitActiveNavigationPage(targetPage, previous)) {
-                currentPage.value = targetPage;
-                emitCurrentPage(targetPage);
+                commitCurrentPageValue(targetPage, previous, navigationRuntime.txn.value);
             }
         }
 
@@ -1715,38 +1678,15 @@ export const usePdfSinglePageScroll = (
             }
             const prepareRunId = ++pagedNavigationPrepareRunId;
             pagedNavigationPrepareTargetPage = targetPage;
-            const shouldContinuePreparing = () => isPagedNavigationPrepareRunCurrent(prepareRunId, targetPage);
-            const preparation = preparePagedTargetLayout?.(targetPage, shouldContinuePreparing);
-            if (isPromiseLike(preparation)) {
-                runGuardedTask(
-                    async () => {
-                        try {
-                            await preparation;
-                            await nextTick();
-                            startPreparedPagedNavigationTarget(
-                                prepareRunId,
-                                targetPage,
-                                anchor,
-                                options,
-                            );
-                        } finally {
-                            clearPagedNavigationPreparation(prepareRunId);
-                        }
-                    },
-                    {
-                        scope: 'pdf-single-page-scroll',
-                        message: 'Failed to prepare paged target layout before navigation',
-                    },
-                );
-                return true;
-            }
 
-            return startPreparedPagedNavigationTarget(
+            const didStart = startPreparedPagedNavigationTarget(
                 prepareRunId,
                 targetPage,
                 anchor,
                 options,
             );
+            clearPagedNavigationPreparation(prepareRunId);
+            return didStart;
         }
 
         if (applySnapToMountedPage(targetPage, anchor, options)) {
@@ -1933,7 +1873,7 @@ export const usePdfSinglePageScroll = (
                 && isProgrammaticNavigationActive.value
                 && viewportPage !== previous
             ) {
-                currentPage.value = previous;
+                commitCurrentPageValue(previous, previous);
                 scrollToPageInternal(container!, previous, numPages.value, scaledMargin.value, continuousNavigationTargetScrollOptions);
                 updateVisibleRange(container, numPages.value);
             } else {
@@ -2056,6 +1996,7 @@ export const usePdfSinglePageScroll = (
                         options,
                     ),
                     {
+                        category: 'user-visible-operation',
                         scope: 'pdf-single-page-scroll',
                         message: 'Failed to hydrate target page metrics before scrollToPage',
                         onError: () => {
@@ -2115,6 +2056,7 @@ export const usePdfSinglePageScroll = (
     });
 
     return {
+        navigationState: navigationRuntime.state,
         currentPageAuthority,
         isSnapping,
         handleWheel,

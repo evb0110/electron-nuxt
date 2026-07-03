@@ -15,7 +15,7 @@ import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables
 import type { IWorkspacePdfViewerAnnotationSessionPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { hasAnnotationChanges as detectAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
 import { hasLivePdfJsAnnotationChanges as detectLivePdfJsAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasLivePdfJsAnnotationChanges';
-import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 
 interface IWorkspaceAnnotationSessionOptions {
     pdfViewerRef: Ref<IWorkspacePdfViewerAnnotationSessionPort | null>;
@@ -169,6 +169,14 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         annotationComments,
         markAnnotationDirty,
         updateAnnotationCommentInViewer: (comment, text) => pdfViewerRef.value?.updateAnnotationComment(comment, text) ?? false,
+        queuePendingEmbeddedTextUpdate: (stableKey, comment, text) => (
+            pdfViewerRef.value?.queuePendingEmbeddedTextUpdate?.(comment, text, stableKey) ?? false
+        ),
+        clearPendingEmbeddedTextUpdate: stableKey => pdfViewerRef.value?.clearPendingEmbeddedTextUpdate?.(stableKey),
+        migratePendingEmbeddedTextUpdate: (
+            previousKey,
+            nextKey,
+        ) => pdfViewerRef.value?.migratePendingEmbeddedTextUpdate?.(previousKey, nextKey),
         isAnnotationCommentSyncReady: () => Boolean(pdfDocument.value),
     });
 

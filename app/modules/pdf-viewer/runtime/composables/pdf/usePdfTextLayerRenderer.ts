@@ -6,7 +6,7 @@ import { clamp } from 'es-toolkit/math';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
-} from '@app/types/pdf';
+} from '@app/types/pdfUi';
 import type { IOcrWord } from '@contracts/shared';
 import { buildOcrWordKey } from '@contracts/ocrText';
 import type { TextContent } from 'pdfjs-dist/types/src/display/api';
@@ -14,6 +14,14 @@ import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composabl
 import { useTextLayerSelection } from '@app/modules/pdf-viewer/runtime/composables/useTextLayerSelection';
 import { usePdfWordBoxes } from '@app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes';
 import { useOcrTextContent } from '@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent';
+import type {
+    IHighlightDebugGuard,
+    IHighlightDebugInfo,
+    IHighlightDebugRects,
+    IPageHighlightSignatureState,
+    TPageMatchEntry,
+    TTextLayerTextContentSource,
+} from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfTextLayerRendererTypes';
 import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
 import { transformWordBox } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox';
 import {
@@ -30,47 +38,6 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { measureDevPerf } from '@app/utils/devPerf';
 import { logPdfNav } from '@app/utils/logPdfNav';
 import { guardAsync } from '@app/utils/asyncGuard';
-
-interface IHighlightDebugInfo {
-    userUnit: number;
-    totalScaleFactor: number;
-    viewportWidth: number;
-    viewportHeight: number;
-    rawPageWidth: number;
-    rawPageHeight: number;
-    canvasPixelWidth: number;
-    canvasPixelHeight: number;
-    renderScaleX: number;
-    renderScaleY: number;
-}
-
-interface IPageHighlightSignatureState {
-    signatureByPage: Map<number, string>;
-    pendingRoot: HTMLElement | null;
-    rafId: number;
-    continuationRafId: number;
-    refreshVersion: number;
-}
-
-interface IHighlightDebugGuard {
-    current: IPdfSearchMatch;
-    query: string;
-    scale: number;
-}
-
-type TTextLayerTextContentSource = TextContent | ReadableStream;
-
-type TPageMatchEntry = IPdfPageMatches['matches'][number];
-
-interface IHighlightDebugRects {
-    canvasRect: DOMRect;
-    textRect: DOMRect;
-    containerRect: DOMRect | null;
-    canvasHostRect: DOMRect | null;
-    highlightRect: DOMRect | null;
-    computedTotalScaleFactor: string;
-    currentSpanInfo: string;
-}
 
 const HIGHLIGHT_REFRESH_BUDGET_MS = 8;
 const HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE = 4;
@@ -91,6 +58,7 @@ export const usePdfTextLayerRenderer = (deps: {
     searchPageMatches: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch: MaybeRefOrGetter<IPdfSearchMatch | null>;
     workingCopyPath: MaybeRefOrGetter<string | null>;
+    documentRevisionToken: MaybeRefOrGetter<string | null>;
     effectiveScale: MaybeRefOrGetter<number>;
 }) => {
     const { setupTextLayer } = useTextLayerSelection();
@@ -818,13 +786,15 @@ export const usePdfTextLayerRenderer = (deps: {
         textLayerDiv.style.setProperty('--total-scale-factor', String(totalScaleFactor));
 
         const currentWorkingCopyPath = toValue(deps.workingCopyPath);
+        const currentDocumentRevisionToken = toValue(deps.documentRevisionToken);
         let textContentSource: TTextLayerTextContentSource | null = null;
         let hasOcrFallbackForPage = false;
 
-        if (currentWorkingCopyPath) {
+        if (currentWorkingCopyPath && currentDocumentRevisionToken) {
             try {
                 hasOcrFallbackForPage = await hasPageOcrData(
                     currentWorkingCopyPath,
+                    currentDocumentRevisionToken,
                     pdfPage.pageNumber,
                 );
                 throwIfAborted(signal);
@@ -842,10 +812,11 @@ export const usePdfTextLayerRenderer = (deps: {
 
             if (hasUsablePdfTextContent(pdfjsTextContent)) {
                 textContentSource = pdfjsTextContent;
-            } else if (currentWorkingCopyPath) {
+            } else if (currentWorkingCopyPath && currentDocumentRevisionToken) {
                 try {
                     const ocrTextContent = await getOcrTextContent(
                         currentWorkingCopyPath,
+                        currentDocumentRevisionToken,
                         pdfPage.pageNumber,
                         viewport,
                     );
@@ -1213,6 +1184,7 @@ export const usePdfTextLayerRenderer = (deps: {
         container: HTMLElement,
         pageNumber: number,
         wcPath: string,
+        documentRevisionToken: string,
         viewport: ReturnType<PDFPageProxy['getViewport']>,
         rawPageWidth: number,
         rawPageHeight: number,
@@ -1222,11 +1194,13 @@ export const usePdfTextLayerRenderer = (deps: {
                 container,
                 pageNumber,
                 wcPath,
+                documentRevisionToken,
                 viewport,
                 rawPageWidth,
                 rawPageHeight,
             ),
             {
+                category: 'background-diagnostic',
                 scope: 'pdf-renderer',
                 message: `Failed to render OCR debug overlays for page ${pageNumber}`,
             },
@@ -1251,7 +1225,8 @@ export const usePdfTextLayerRenderer = (deps: {
         }
 
         const wcPath = toValue(deps.workingCopyPath);
-        if (!wcPath) {
+        const documentRevisionToken = toValue(deps.documentRevisionToken);
+        if (!wcPath || !documentRevisionToken) {
             return;
         }
 
@@ -1263,6 +1238,7 @@ export const usePdfTextLayerRenderer = (deps: {
             context.container,
             pageNumber,
             wcPath,
+            documentRevisionToken,
             viewport,
             rawDims.pageWidth,
             rawDims.pageHeight,

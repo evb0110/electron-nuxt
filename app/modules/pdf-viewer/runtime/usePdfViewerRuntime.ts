@@ -9,7 +9,7 @@ import type {
     TFitMode,
     TPdfViewMode,
     TZoomMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
 
 interface IUsePdfViewerRuntimeOptions {
     viewerContainer: Ref<HTMLElement | null>;

@@ -165,8 +165,11 @@ import {
     BROWSER_THEME_COOKIE_KEY,
 } from '@app/utils/browserSettingsPersistence';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
-import { shouldPreloadWorkspaceDuringStartup } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceDuringStartup';
-import { warmupDesktopViewerChunks } from '@app/modules/workspace-shell/host/warmupDesktopViewerChunks';
+import {
+    preloadDocumentWorkspace,
+    shouldPreloadWorkspaceDuringStartup,
+    warmupDesktopViewerChunks,
+} from '@app/modules/workspace-shell/public';
 
 const {
     load: loadSettings,
@@ -376,7 +379,7 @@ async function preloadStartupContent() {
     };
     const shouldPreloadWorkspace = shouldPreloadWorkspaceDuringStartup(preloadSignals);
     const workspacePreload = shouldPreloadWorkspace
-        ? import('@app/modules/workspace-shell/components/DocumentWorkspace.vue')
+        ? preloadDocumentWorkspace()
         : null;
     if (workspacePreload) {
         if (shouldBlockOnWorkspacePreload) {

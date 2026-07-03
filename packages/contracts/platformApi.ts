@@ -21,8 +21,16 @@ import type { IShellCapability } from '@contracts/shellCapability';
 import type { ISystemCapability } from '@contracts/electronApiSystem';
 import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
 import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
+import type { IPlatformRuntimeManifest } from '@contracts/platformManifest';
+export type * from '@contracts/platformManifest';
+export {
+    BROWSER_PLATFORM_MANIFEST,
+    ELECTRON_PLATFORM_MANIFEST,
+    PLATFORM_CONTRACT_VERSION,
+} from '@contracts/platformManifest';
 
 export interface IPlatformApi {
+    manifest: IPlatformRuntimeManifest;
     documents: IDocumentsCapability;
     documentPicker?: IDocumentsPickerCapability;
     documentOpen?: IDocumentsOpenCapability;
@@ -47,6 +55,8 @@ export interface IPlatformApi {
 }
 
 export type { TDocumentRef } from '@contracts/documentRef';
+export type * from '@contracts/platformUnsupported';
+export type * from '@contracts/documentRevision';
 export type * from '@contracts/shared';
 export type * from '@contracts/geometry';
 export type * from '@contracts/pageNumbers';

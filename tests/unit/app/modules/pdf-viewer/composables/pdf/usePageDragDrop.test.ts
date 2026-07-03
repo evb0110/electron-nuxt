@@ -8,6 +8,7 @@ import {
 import { ref } from 'vue';
 import { usePageDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
 import { cast } from '@tests/helpers/cast';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 vi.mock('vue', async () => ({
     ...await vi.importActual('vue'),
@@ -43,10 +44,10 @@ describe('usePageDragDrop', () => {
         ]);
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: {
+            electronAPI: createElectronPlatformApiFixture({
                 documentPicker: { getPathsForFiles: pickerGetPathsForFiles },
                 documents: { getPathsForFiles: legacyGetPathsForFiles },
-            },
+            }),
         });
 
         const onExternalFileDrop = vi.fn();

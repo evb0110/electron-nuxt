@@ -8,14 +8,17 @@ import type {
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import type {
-    IPdfPageMatches,
-    IPdfSearchMatch,
     PDFDocumentProxy,
     TFitMode,
-    TPdfSource,
     TPdfViewMode,
     TZoomMode,
-} from '@app/types/pdf';
+} from '@app/types/pdfContracts';
+import type {
+    IPdfPageMatches,
+    IPdfSearchMatch,
+    TPdfSource,
+} from '@app/types/pdfUi';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
 export interface IPdfViewerProps {
     src: TPdfSource | null;
@@ -43,6 +46,7 @@ export interface IPdfViewerProps {
     currentSearchMatchNavigationId?: number | undefined;
     currentPage?: number | undefined;
     workingCopyPath?: string | null | undefined;
+    documentRevisionToken?: TDocumentRevisionToken | null | undefined;
     authorName?: string | null | undefined;
 }
 

@@ -1,8 +1,6 @@
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
-import type {
-    IPdfPersistResult,
-    TPdfSaveMode,
-} from '@app/types/pdf';
+import type { TPdfSaveMode } from '@app/types/pdfContracts';
+import type { IPdfPersistResult } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
 import type { Ref } from 'vue';
@@ -263,16 +261,18 @@ export const useFileOperationsSaveController = (ports: IFileOperationsSaveAdapte
                 }
 
                 const saveSucceeded = await saveExecutor.executeSelectedSavePath(config, context);
-                if (!saveSucceeded) {
+                if (!saveSucceeded && context.pendingChangesSource === 'workspace-compat') {
                     restorePendingEmbeddedAnnotationChanges(context.pendingTexts, context.pendingDeletes);
                 }
                 saveSucceededForTelemetry = saveSucceeded;
                 return saveSucceeded;
             } catch (error) {
-                restorePendingEmbeddedAnnotationChanges(
-                    context?.pendingTexts ?? null,
-                    context?.pendingDeletes ?? null,
-                );
+                if (context?.pendingChangesSource === 'workspace-compat') {
+                    restorePendingEmbeddedAnnotationChanges(
+                        context.pendingTexts,
+                        context.pendingDeletes,
+                    );
+                }
                 BrowserLogger.error('workspace', config.failureLogMessage, error);
                 toast.add({
                     color: 'error',

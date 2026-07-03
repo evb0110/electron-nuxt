@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
 
@@ -100,7 +100,9 @@ describe('useWorkspaceSplitPayload', () => {
             kind: 'pdfSnapshot',
             fileName: 'sample.pdf',
             originalPath: '/tmp/original.pdf',
+            originalBackend: 'electron',
             snapshotPath: '/tmp/split-path.pdf',
+            snapshotBackend: 'electron',
             isDirty: false,
             currentPage: 2,
             totalPages: 5,
@@ -129,7 +131,9 @@ describe('useWorkspaceSplitPayload', () => {
             kind: 'pdfSnapshot',
             fileName: 'sample.pdf',
             originalPath: '/tmp/original.pdf',
+            originalBackend: 'electron',
             snapshotPath: '/tmp/split-data.pdf',
+            snapshotBackend: 'electron',
             isDirty: true,
             currentPage: 2,
             totalPages: 5,

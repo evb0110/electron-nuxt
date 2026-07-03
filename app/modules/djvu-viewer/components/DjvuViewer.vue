@@ -61,16 +61,16 @@ import type { ComponentPublicInstance } from 'vue';
 import { useResizeObserver } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPdfViewMode } from '@contracts/shared';
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { IDjvuPageSize } from '@app/platform/browser-api/public';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import { PdfInitialSurfacePlaceholder } from '@app/modules/pdf-viewer/public/component-exports/pdfInitialSurfacePlaceholder';
 import DjvuPageContent from '@app/modules/djvu-viewer/components/DjvuPageContent.vue';
-import { clamp } from 'es-toolkit/math';
 import {
     getSpreadStartForPage,
     isStandaloneSpreadPage,
 } from '@app/utils/pdfViewMode';
+import { normalizeDocumentPageNumber } from '@app/utils/document-viewer/documentPageRange';
 import {
     useDjvuPreviewRuntime,
     type IDjvuPageState,
@@ -485,7 +485,7 @@ onBeforeUnmount(() => {
 });
 
 function scrollToPage(pageNumber: number) {
-    const normalizedPage = clamp(pageNumber, 1, totalPages.value || 1);
+    const normalizedPage = normalizeDocumentPageNumber(pageNumber, totalPages.value || 1);
 
     if (!isContinuousScroll.value) {
         currentPage.value = normalizedPage;
@@ -505,7 +505,7 @@ function getSnapshotPage(value: number | null | undefined) {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
         return null;
     }
-    return clamp(Math.floor(value), 1, totalPages.value || 1);
+    return normalizeDocumentPageNumber(value, totalPages.value || 1);
 }
 
 function captureScrollSnapshot(): IScrollSnapshot | null {

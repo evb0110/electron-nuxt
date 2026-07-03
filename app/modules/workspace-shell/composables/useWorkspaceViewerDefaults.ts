@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import { clampPdfManualZoom } from '@app/modules/pdf-viewer/public';
-import type { TPdfSource } from '@app/types/pdf';
+import type { TPdfSource } from '@app/types/pdfUi';
 import type {
     ISettingsData,
     TFitMode,

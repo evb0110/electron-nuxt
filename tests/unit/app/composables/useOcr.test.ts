@@ -30,6 +30,7 @@ const mockDocuments = {
     writeDocxFile: vi.fn(),
     cleanupFile: vi.fn(),
     cleanupOcrTemp: vi.fn(),
+    getDocumentRevision: vi.fn(),
 };
 const mockElectronAPI = {
     ocr: mockOcr,
@@ -89,6 +90,14 @@ describe('useOcr', () => {
             jobId: 'job-1',
         });
         mockOcr.cancel.mockResolvedValue({ canceled: true });
+        mockDocuments.getDocumentRevision.mockResolvedValue({
+            version: 1,
+            documentRef: '/tmp/work.pdf',
+            authority: 'electron-working-copy',
+            contentRevision: 1,
+            mintedAt: 1,
+            token: 'revision-token',
+        });
     });
 
     it('settles runOcr when canceled before completion', async () => {
@@ -671,6 +680,7 @@ describe('useOcr', () => {
                 'loadOcrText',
                 'extractPdfText',
             ]);
+            expect(loadOcrTextMock).toHaveBeenCalledWith('/tmp/work.pdf', 'revision-token');
             expect(createDocxFromTextMock).toHaveBeenCalledWith('pdf text', false);
             expect(mockDocuments.writeDocxFile).toHaveBeenCalledWith(
                 '/tmp/export.docx',
