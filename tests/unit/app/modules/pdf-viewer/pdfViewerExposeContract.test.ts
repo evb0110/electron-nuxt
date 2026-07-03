@@ -55,6 +55,7 @@ describe('PDF viewer expose contract', () => {
             'updateAnnotationComment',
             'deleteAnnotationComment',
             'getAnnotationCommentsSnapshot',
+            'rerenderAnnotationPage',
             'pendingEmbeddedMutationVersion',
             'queuePendingEmbeddedTextUpdate',
             'clearPendingEmbeddedTextUpdate',

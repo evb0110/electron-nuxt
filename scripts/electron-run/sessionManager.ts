@@ -111,6 +111,8 @@ const ELECTRON_LAUNCH_ATTEMPTS = 3;
 const ELECTRON_LAUNCH_RETRY_DELAY_MS = 5_000;
 const ELECTRON_STARTUP_LOG_MAX_LINES = 300;
 const ELECTRON_STARTUP_LOG_TAIL_LINES = 60;
+const RENDERER_DEAD_PAGE_RELOAD_INTERVAL_MS = 5_000;
+const RENDERER_DEAD_PAGE_MAX_RELOADS = 5;
 const PNPM_COMMAND = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const KEEP_NUXT_ON_STOP_MARKER = 'keep-nuxt-on-stop';
 
@@ -517,8 +519,15 @@ function isRendererReady(state: IRendererState) {
         && state.nuxtRootChildren > 0;
 }
 
+function hasRendererDeadDevServerBody(state: IRendererState) {
+    return state.bodyTextSnippet.includes('Failed to fetch dynamically imported module')
+        || state.bodyTextSnippet.includes('500 Internal Server Error');
+}
+
 async function waitForRendererBindings(page: Page, timeoutMs = RENDERER_READY_TIMEOUT_MS): Promise<IRendererState> {
     const start = Date.now();
+    let reloadCount = 0;
+    let lastReloadAt = 0;
     let lastState: IRendererState = {
         bodyExists: false,
         openFileDirect: 'undefined',
@@ -531,15 +540,32 @@ async function waitForRendererBindings(page: Page, timeoutMs = RENDERER_READY_TI
     while (Date.now() - start < timeoutMs) {
         try {
             lastState = await readRendererState(page);
-        } catch (error) {
-            if (!isTransientPageContextError(error)) {
-                throw error;
-            }
+        } catch {
             await delay(250);
             continue;
         }
         if (isRendererReady(lastState)) {
             return lastState;
+        }
+        const now = Date.now();
+        if (
+            hasRendererDeadDevServerBody(lastState)
+            && reloadCount < RENDERER_DEAD_PAGE_MAX_RELOADS
+            && now - lastReloadAt >= RENDERER_DEAD_PAGE_RELOAD_INTERVAL_MS
+        ) {
+            reloadCount += 1;
+            lastReloadAt = now;
+            console.log(`[Puppeteer] Renderer loaded transient dev-server error, reloading (${reloadCount}/${RENDERER_DEAD_PAGE_MAX_RELOADS})...`);
+            try {
+                await page.reload({
+                    waitUntil: 'domcontentloaded',
+                    timeout: 10_000,
+                });
+            } catch (error) {
+                if (!isTransientPageContextError(error) && !isNavigationAbortedError(error)) {
+                    console.log(`[Puppeteer] Renderer reload failed while recovering from transient dev-server error: ${error instanceof Error ? error.message : String(error)}`);
+                }
+            }
         }
         await delay(250);
     }
