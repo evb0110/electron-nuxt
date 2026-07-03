@@ -12,6 +12,7 @@ import {
 import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
+    installWorkspaceExposeProbe,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {
@@ -64,6 +65,14 @@ function describeError(error: unknown) {
     }
 
     return String(error);
+}
+
+function getPathBasename(path: string) {
+    return path
+        .replace(/\\/gu, '/')
+        .split('/')
+        .pop()
+        ?.toLowerCase() ?? '';
 }
 
 async function runWithExecutionContextRetry<T>(
@@ -123,6 +132,84 @@ async function waitForRendererBindings(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
         ? `openFileDirect=${lastState.openFileDirect}, electronAPI=${lastState.electronAPI}, nuxtRootChildren=${lastState.nuxtRootChildren}, url=${lastState.url}`
         : 'renderer state unavailable';
     throw new Error(`Renderer bindings did not become ready within ${timeoutMs}ms (${detail})`);
+}
+
+async function waitForActiveDocumentPath(page: Page, path: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    await installWorkspaceExposeProbe(page);
+    await waitForFunctionInPage(page, (payload: {
+        basename: string;
+        path: string;
+    }) => {
+        const normalize = (value: unknown) => typeof value === 'string'
+            ? value.replace(/\\/gu, '/').toLowerCase()
+            : '';
+        const basenameOf = (value: unknown) => normalize(value).split('/').pop() ?? '';
+        const requestedPath = normalize(payload.path);
+        const requestedBasename = payload.basename;
+        const api = (window as IE2EWindow & {__evbTestApi?: {
+            collectWorkspaceDebugState?: () => {activeWorkspaceState?: Record<string, unknown>;};
+            readActiveWorkspaceStateValues?: (propertyNames: string[]) => Record<string, unknown>;
+        };}).__evbTestApi;
+        const activeState = (api?.readActiveWorkspaceStateValues?.([
+            'fileName',
+            'originalPath',
+            'pendingDocumentPath',
+            'workingCopyPath',
+        ]) ?? api?.collectWorkspaceDebugState?.().activeWorkspaceState ?? {}) as Record<string, unknown>;
+        const activeTab = document.querySelector<HTMLElement>('.tab.is-active, [role="tab"][aria-selected="true"]');
+        const statusCandidates = Array.from(document.querySelectorAll<HTMLElement>('.status-path, .status-file, .workspace-status, .document-status'))
+            .map(candidate => candidate.textContent ?? '');
+        const candidates = [
+            activeState.fileName,
+            activeState.originalPath,
+            activeState.pendingDocumentPath,
+            activeState.workingCopyPath,
+            activeTab?.getAttribute('aria-label'),
+            activeTab?.textContent,
+            ...statusCandidates,
+        ];
+
+        return candidates.some(candidate => {
+            const normalized = normalize(candidate);
+            return normalized === requestedPath || basenameOf(candidate) === requestedBasename;
+        });
+    }, {timeout: timeoutMs}, {
+        basename: getPathBasename(path),
+        path,
+    });
+}
+
+async function openFreshTabForDocumentOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    const clicked = await runWithExecutionContextRetry(page, async () => evaluateInPage(page, () => {
+        const isVisible = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 8
+                && rect.height > 8
+            );
+        };
+        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button, .tab-new'))
+            .find(candidate => (
+                !candidate.disabled
+                && isVisible(candidate)
+                && (
+                    candidate.classList.contains('tab-new')
+                    || candidate.getAttribute('aria-label')?.trim() === 'New Tab'
+                )
+            ));
+        button?.click();
+        return Boolean(button);
+    }));
+    if (!clicked) {
+        throw new Error('Could not open a fresh tab for document open fallback');
+    }
+
+    await waitForActiveWorkspaceHost(page, timeoutMs);
+    await delay(250);
 }
 
 export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
@@ -316,6 +403,7 @@ async function openPathInApp(
     const startedAt = Date.now();
     let lastError: Error | null = null;
     let openTriggered = false;
+    let openedFreshTabAfterBlockedOpen = false;
 
     while (Date.now() - startedAt < timeoutMs) {
         const remainingMs = Math.max(1_000, timeoutMs - (Date.now() - startedAt));
@@ -347,14 +435,28 @@ async function openPathInApp(
                 });
 
                 if (!openResult) {
-                    lastError = new Error('window.__openFileDirect is not available');
-                    await delay(250);
-                    continue;
+                    lastError = new Error('window.__openFileDirect returned false');
+                    try {
+                        await waitForActiveDocumentPath(page, path, Math.min(3_000, remainingMs));
+                        await waitForLoaded(page, remainingMs);
+                        return;
+                    } catch (error) {
+                        lastError = error instanceof Error ? error : new Error(describeError(error));
+                        if (!openedFreshTabAfterBlockedOpen) {
+                            openedFreshTabAfterBlockedOpen = true;
+                            await openFreshTabForDocumentOpen(page, Math.min(remainingMs, 8_000));
+                            await delay(250);
+                            continue;
+                        }
+                        await delay(250);
+                        continue;
+                    }
                 }
 
                 openTriggered = true;
             }
 
+            await waitForActiveDocumentPath(page, path, remainingMs);
             await waitForLoaded(page, remainingMs);
             return;
         } catch (error) {

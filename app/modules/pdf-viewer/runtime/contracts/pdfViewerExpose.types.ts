@@ -187,6 +187,7 @@ export interface IPdfViewerAnnotationCommentExpose {
     updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
+    rerenderAnnotationPage: (pageNumber: number) => Promise<boolean>;
     queuePendingEmbeddedTextUpdate?: (
         comment: IAnnotationCommentSummary,
         text: string,

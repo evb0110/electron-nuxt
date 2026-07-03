@@ -71,6 +71,36 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
     } = annotationRuntime;
     const { currentPage } = viewerRuntime.scroll;
 
+    async function renderAnnotationPage(pageNumber: number, optionsOverride: { forceRerender?: boolean } = {}) {
+        if (!Number.isFinite(pageNumber)) {
+            return false;
+        }
+        const normalizedPageNumber = Math.max(1, Math.trunc(pageNumber));
+        if (viewerRuntime.numPages.value > 0 && normalizedPageNumber > viewerRuntime.numPages.value) {
+            return false;
+        }
+        await options.waitForViewerLoadSettled();
+        await viewerRuntime.document.ensurePageMetricsInRange(normalizedPageNumber, normalizedPageNumber);
+        await options.renderVisiblePages(
+            {
+                start: normalizedPageNumber,
+                end: normalizedPageNumber,
+            },
+            {
+                preserveRenderedPages: true,
+                ...(optionsOverride.forceRerender !== undefined ? { forceRerender: optionsOverride.forceRerender } : {}),
+                bufferOverride: 0,
+            },
+        );
+        await nextTick();
+        const container = options.viewerContainer.value;
+        return Boolean(container && getPageContainerByNumber(container, normalizedPageNumber));
+    }
+
+    async function rerenderAnnotationPage(pageNumber: number) {
+        return renderAnnotationPage(pageNumber, { forceRerender: true });
+    }
+
     async function ensurePublicAnnotationTargetPageReady(pageNumber: number) {
         if (viewerRuntime.numPages.value > 0 && pageNumber > viewerRuntime.numPages.value) {
             return false;
@@ -78,22 +108,7 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         options.cancelPendingSearchScroll();
         options.singlePageScroll.scrollToPage(pageNumber);
         await nextTick();
-        await options.waitForViewerLoadSettled();
-        await viewerRuntime.document.ensurePageMetricsInRange(pageNumber, pageNumber);
-        await options.renderVisiblePages(
-            {
-                start: pageNumber,
-                end: pageNumber,
-            },
-            {
-                preserveRenderedPages: true,
-                forceRerender: true,
-                bufferOverride: 0,
-            },
-        );
-        await nextTick();
-        const container = options.viewerContainer.value;
-        return Boolean(container && getPageContainerByNumber(container, pageNumber));
+        return renderAnnotationPage(pageNumber);
     }
 
     return createPdfViewerPublicApi({
@@ -241,6 +256,7 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
             { source: 'user' },
         ),
         getAnnotationCommentsSnapshot: annotationCommentModel.getSnapshot,
+        rerenderAnnotationPage,
         getMarkupSubtypeOverrides: annotations.editor.getMarkupSubtypeOverrides,
         getMarkupSubtypeHints: annotations.editor.getMarkupSubtypeHints,
         getSelectedTextMarkupAnnotationProperties: annotations.editor.markupSubtype.getSelectedTextMarkupAnnotationProperties,

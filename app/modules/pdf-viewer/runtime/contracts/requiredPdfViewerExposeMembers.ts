@@ -47,6 +47,7 @@ export const requiredPdfViewerExposeMembers = [
     'updateAnnotationComment',
     'deleteAnnotationComment',
     'getAnnotationCommentsSnapshot',
+    'rerenderAnnotationPage',
     'pendingEmbeddedMutationVersion',
     'queuePendingEmbeddedTextUpdate',
     'clearPendingEmbeddedTextUpdate',

@@ -81,6 +81,7 @@ function createPdfViewerExpose(overrides: Partial<IPdfViewerExpose> = {}): IPdfV
         focusAnnotationComment: vi.fn(async () => {}),
         updateAnnotationComment: vi.fn(() => false),
         deleteAnnotationComment: vi.fn(async () => false),
+        rerenderAnnotationPage: vi.fn(async () => false),
         suppressAnnotationId: vi.fn(),
         suppressAnnotationStableKey: vi.fn(),
         removeAnnotationFromDom: vi.fn(),

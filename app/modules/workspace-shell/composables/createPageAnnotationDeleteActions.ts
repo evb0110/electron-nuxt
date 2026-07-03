@@ -26,6 +26,7 @@ interface IPageAnnotationDeleteActionsOptions<TViewer extends TPageAnnotationDel
     getAnnotationCommentsSnapshot: () => IAnnotationCommentSummary[] | null;
     getDeleteErrorMessage: () => string;
     invalidateAnnotationPage: (comment: IAnnotationCommentSummary) => void;
+    rerenderRestoredAnnotationPage: (comment: IAnnotationCommentSummary) => void;
     removeAnnotationFromCache: (stableKey: string) => void;
     removeDeletedAnnotationState: (
         comment: IAnnotationCommentSummary,
@@ -47,6 +48,7 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
         getAnnotationCommentsSnapshot,
         getDeleteErrorMessage,
         invalidateAnnotationPage,
+        rerenderRestoredAnnotationPage,
         removeAnnotationFromCache,
         removeDeletedAnnotationState,
         restoreAnnotationToCache,
@@ -135,7 +137,7 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
             }
             viewer.restoreAnnotationToInternalCache?.(comment);
             restoreAnnotationToCache(comment);
-            invalidateAnnotationPage(comment);
+            rerenderRestoredAnnotationPage(comment);
         };
 
         // Keep embedded annotation deletes local until the user saves.

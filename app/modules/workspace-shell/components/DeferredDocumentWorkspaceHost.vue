@@ -281,6 +281,8 @@ const {
 } = useRecentFiles();
 const hasMountedWorkspace = computed(() => mountedWorkspace.value !== null);
 const hasWorkspaceChunkLoadError = computed(() => workspaceChunkLoadError.value !== null);
+const workspaceHasDocumentOrOpenError = () => getWorkspaceHasDocumentOrOpenError(mountedWorkspace.value);
+const workspaceHasOpenedDocument = () => getWorkspaceHasOpenedDocument(mountedWorkspace.value);
 const workspaceRenderKey = computed(() => `${tabId}:${workspaceRenderNonce.value}`);
 const currentToolbarSnapshot = computed(() => documentRecord?.toolbarSnapshot ?? createDefaultWorkspaceToolbarSnapshot());
 const activeDocumentOpenTransaction = computed(() => {
@@ -511,9 +513,6 @@ function handleRetryWorkspaceMount() {
     workspaceRequested.value = true;
     void preloadWorkspaceComponent('manual-retry');
 }
-
-const workspaceHasDocumentOrOpenError = () => getWorkspaceHasDocumentOrOpenError(mountedWorkspace.value);
-const workspaceHasOpenedDocument = () => getWorkspaceHasOpenedDocument(mountedWorkspace.value);
 
 function shouldSeedPendingTabHint(target: TTabUpdate | null | undefined) {
     return Boolean(

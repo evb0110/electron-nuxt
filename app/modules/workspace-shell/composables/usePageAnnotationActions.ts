@@ -284,6 +284,25 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         invalidateThumbnailPages?.([page]);
     }
 
+    function rerenderRestoredAnnotationPage(comment: IAnnotationCommentSummary) {
+        const page = getAnnotationPageNumber(comment);
+        const rerenderPromise = pdfViewerRef.value?.rerenderAnnotationPage?.(page);
+        if (!rerenderPromise) {
+            invalidateAnnotationPage(comment);
+            return;
+        }
+
+        invalidateThumbnailPages?.([page]);
+        void rerenderPromise.catch((error: unknown) => {
+            BrowserLogger.warn('annotations', 'Failed to rerender restored annotation page', {
+                error,
+                page,
+                stableKey: comment.stableKey,
+            });
+            pdfViewerRef.value?.invalidatePages([page]);
+        });
+    }
+
     function commentsShareDeleteTarget(
         left: IAnnotationCommentSummary,
         right: IAnnotationCommentSummary,
@@ -1109,6 +1128,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         getAnnotationCommentsSnapshot,
         getDeleteErrorMessage: () => t('errors.annotation.delete'),
         invalidateAnnotationPage,
+        rerenderRestoredAnnotationPage,
         removeAnnotationFromCache,
         removeDeletedAnnotationState,
         restoreAnnotationToCache,
