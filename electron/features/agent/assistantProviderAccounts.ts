@@ -153,7 +153,6 @@ export function syncCodexRuntimeStateAfterAuthCheck(
     }
 
     providerRuntime.runtimeState = providerRuntime.authState === 'signed-in' ? 'ready' : 'stopped';
-    providerRuntime.turnPhase = 'idle';
 }
 
 export async function refreshCodexAuthStateAndRuntimeAvailability(

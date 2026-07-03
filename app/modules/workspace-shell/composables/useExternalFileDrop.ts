@@ -1,6 +1,7 @@
 import { useEventListener } from '@vueuse/core';
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { getDocumentPickerCapability } from '@app/utils/platformDocuments';
 import { isSupportedWorkspaceDocumentPath } from '@app/utils/supportedDocumentPaths';
 
@@ -38,24 +39,32 @@ function isToolDropArea(event: DragEvent) {
     return Boolean(target.closest('[data-combine-page]'));
 }
 
-function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
-    if (!dataTransfer) {
-        return [];
-    }
-
+async function getDroppedDocumentPaths(
+    droppedFiles: File[],
+    notifyRegistrationFailure: (error: unknown) => void,
+) {
     const paths: TDocumentRef[] = [];
     const seen = new Set<TDocumentRef>();
-    const droppedFiles = Array.from(dataTransfer.files);
-    const droppedPaths = getDocumentPickerCapability().getPathsForFiles(droppedFiles);
+    const documentPicker = getDocumentPickerCapability();
 
-    for (const path of droppedPaths) {
-        if (!path || seen.has(path)) {
+    for (const file of droppedFiles) {
+        let droppedPaths: TDocumentRef[];
+        try {
+            droppedPaths = await documentPicker.registerFilesForOpen([file]);
+        } catch (error) {
+            notifyRegistrationFailure(error);
             continue;
         }
 
-        if (isSupportedWorkspaceDocumentPath(path)) {
-            seen.add(path);
-            paths.push(path);
+        for (const path of droppedPaths) {
+            if (!path || seen.has(path)) {
+                continue;
+            }
+
+            if (isSupportedWorkspaceDocumentPath(path)) {
+                seen.add(path);
+                paths.push(path);
+            }
         }
     }
 
@@ -67,9 +76,19 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
         openPathsInAppropriateTab,
         isEnabled,
     } = options;
+    const { t } = useTypedI18n();
+    const toast = useToast();
     let queue: Promise<void> = Promise.resolve();
     let lifecycleToken = 0;
     let disposed = false;
+
+    function notifyRegistrationFailure(error: unknown) {
+        toast.add({
+            color: 'error',
+            title: t('errors.file.open'),
+            description: getErrorMessage(error),
+        });
+    }
 
     async function processDroppedPaths(
         paths: TDocumentRef[],
@@ -98,8 +117,8 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
         return hasExternalFilePayload(event.dataTransfer);
     }
 
-    function enqueueDroppedPaths(paths: TDocumentRef[]) {
-        if (paths.length === 0) {
+    function enqueueDroppedFiles(files: File[]) {
+        if (files.length === 0) {
             return;
         }
 
@@ -109,6 +128,10 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
                 // Keep the queue flowing after a single file-open failure.
             })
             .then(async () => {
+                const paths = await getDroppedDocumentPaths(files, notifyRegistrationFailure);
+                if (paths.length === 0) {
+                    return;
+                }
                 await processDroppedPaths(paths, tokenAtSchedule);
             });
     }
@@ -130,7 +153,7 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
         }
 
         event.preventDefault();
-        enqueueDroppedPaths(getDroppedDocumentPaths(event.dataTransfer));
+        enqueueDroppedFiles(Array.from(event.dataTransfer?.files ?? []));
     }, { capture: true });
 
     function cleanup() {

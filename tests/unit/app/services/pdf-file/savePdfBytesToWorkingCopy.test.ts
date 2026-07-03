@@ -10,14 +10,14 @@ import { savePdfBytesToWorkingCopy } from '@app/services/pdf-file/savePdfBytesTo
 
 const mocks = vi.hoisted(() => ({
     documentFiles: {
-        saveFile: vi.fn(),
+        saveFileStructured: vi.fn(),
         savePdfData: undefined as undefined | ReturnType<typeof vi.fn>,
         writeFile: vi.fn(),
     },
     documentPdf: { validatePdfData: vi.fn() },
     legacyDocuments: {
-        saveFile: vi.fn(() => {
-            throw new Error('legacy saveFile should not be used');
+        saveFileStructured: vi.fn(() => {
+            throw new Error('legacy saveFileStructured should not be used');
         }),
         savePdfData: vi.fn(() => {
             throw new Error('legacy savePdfData should not be used');
@@ -40,7 +40,12 @@ vi.mock('@app/utils/platformDocuments', () => ({
 describe('savePdfBytesToWorkingCopy', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.documentFiles.saveFile.mockResolvedValue(true);
+        mocks.documentFiles.saveFileStructured.mockResolvedValue({
+            ok: true,
+            externalWriteCommitted: true,
+            workingCopyRefreshed: true,
+            validation: null,
+        });
         mocks.documentFiles.savePdfData = undefined;
         mocks.documentFiles.writeFile.mockResolvedValue(true);
         mocks.documentPdf.validatePdfData.mockResolvedValue({
@@ -68,7 +73,7 @@ describe('savePdfBytesToWorkingCopy', () => {
         expect(savePdfData).toHaveBeenCalledWith('/tmp/working.pdf', data);
         expect(mocks.documentPdf.validatePdfData).not.toHaveBeenCalled();
         expect(mocks.documentFiles.writeFile).not.toHaveBeenCalled();
-        expect(mocks.documentFiles.saveFile).not.toHaveBeenCalled();
+        expect(mocks.documentFiles.saveFileStructured).not.toHaveBeenCalled();
         expect(mocks.legacyDocuments.savePdfData).not.toHaveBeenCalled();
     });
 
@@ -87,14 +92,19 @@ describe('savePdfBytesToWorkingCopy', () => {
         });
         expect(mocks.documentPdf.validatePdfData).toHaveBeenCalledWith(data);
         expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/working.pdf', data);
-        expect(mocks.documentFiles.saveFile).toHaveBeenCalledWith('/tmp/working.pdf');
+        expect(mocks.documentFiles.saveFileStructured).toHaveBeenCalledWith('/tmp/working.pdf');
         expect(mocks.legacyDocuments.validatePdfData).not.toHaveBeenCalled();
         expect(mocks.legacyDocuments.writeFile).not.toHaveBeenCalled();
-        expect(mocks.legacyDocuments.saveFile).not.toHaveBeenCalled();
+        expect(mocks.legacyDocuments.saveFileStructured).not.toHaveBeenCalled();
     });
 
     it('returns a failed validation result when the target save is canceled', async () => {
-        mocks.documentFiles.saveFile.mockResolvedValueOnce(false);
+        mocks.documentFiles.saveFileStructured.mockResolvedValueOnce({
+            ok: false,
+            reason: 'user-canceled',
+            externalWriteCommitted: false,
+            validation: null,
+        });
         const data = new Uint8Array([
             4,
             5,
@@ -109,7 +119,50 @@ describe('savePdfBytesToWorkingCopy', () => {
         });
         expect(mocks.documentPdf.validatePdfData).toHaveBeenCalledWith(data);
         expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/working.pdf', data);
-        expect(mocks.documentFiles.saveFile).toHaveBeenCalledWith('/tmp/working.pdf');
+        expect(mocks.documentFiles.saveFileStructured).toHaveBeenCalledWith('/tmp/working.pdf');
+    });
+
+    it('returns a failed validation result with the structured save failure message', async () => {
+        mocks.documentFiles.saveFileStructured.mockResolvedValueOnce({
+            ok: false,
+            reason: 'write-failed',
+            message: 'Browser write permission was not granted for this file.',
+            externalWriteCommitted: false,
+            validation: null,
+        });
+        const data = new Uint8Array([
+            7,
+            8,
+            9,
+        ]);
+
+        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', data);
+
+        expect(result).toEqual({
+            isValid: false,
+            errors: ['Browser write permission was not granted for this file.'],
+        });
+        expect(mocks.documentPdf.validatePdfData).toHaveBeenCalledWith(data);
+        expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/working.pdf', data);
+        expect(mocks.documentFiles.saveFileStructured).toHaveBeenCalledWith('/tmp/working.pdf');
+    });
+
+    it('returns a failed validation result with the structured save failure reason when no message is available', async () => {
+        mocks.documentFiles.saveFileStructured.mockResolvedValueOnce({
+            ok: false,
+            reason: 'working-copy-missing',
+            externalWriteCommitted: false,
+            validation: null,
+        });
+
+        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', new Uint8Array([10]));
+
+        expect(result).toEqual({
+            isValid: false,
+            errors: ['working-copy-missing'],
+        });
+        expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/working.pdf', new Uint8Array([10]));
+        expect(mocks.documentFiles.saveFileStructured).toHaveBeenCalledWith('/tmp/working.pdf');
     });
 
     it('returns invalid validation without writing or saving', async () => {
@@ -125,6 +178,6 @@ describe('savePdfBytesToWorkingCopy', () => {
             errors: ['broken'],
         });
         expect(mocks.documentFiles.writeFile).not.toHaveBeenCalled();
-        expect(mocks.documentFiles.saveFile).not.toHaveBeenCalled();
+        expect(mocks.documentFiles.saveFileStructured).not.toHaveBeenCalled();
     });
 });

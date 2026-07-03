@@ -7,10 +7,24 @@ import type { IAssistantSelectionLockState } from '@app/modules/agent-panel/util
 import { isAssistantSelectionLocked } from '@app/modules/agent-panel/utils/isAssistantSelectionLocked';
 
 const idleState: IAssistantSelectionLockState = {
-    activeTurnId: null,
     isSending: false,
     runtimeState: 'ready',
-    turnPhase: 'idle',
+    turn: {
+        id: null,
+        phase: 'idle',
+    },
+};
+const startingTurn = {
+    id: null,
+    phase: 'starting' as const,
+};
+const runningTurn = {
+    id: 'turn-1',
+    phase: 'running' as const,
+};
+const interruptingTurn = {
+    id: 'turn-1',
+    phase: 'interrupting' as const,
 };
 
 describe('assistantSelectionLock', () => {
@@ -28,20 +42,16 @@ describe('assistantSelectionLock', () => {
             patch: {runtimeState: 'busy' as const},
         },
         {
-            name: 'backend reports an active turn id',
-            patch: {activeTurnId: 'turn-1'},
-        },
-        {
             name: 'turn is starting',
-            patch: {turnPhase: 'starting' as const},
+            patch: {turn: startingTurn},
         },
         {
             name: 'turn is running',
-            patch: {turnPhase: 'running' as const},
+            patch: {turn: runningTurn},
         },
         {
             name: 'turn is interrupting',
-            patch: {turnPhase: 'interrupting' as const},
+            patch: {turn: interruptingTurn},
         },
     ])('locks selection while $name', ({patch}) => {
         expect(isAssistantSelectionLocked({
@@ -58,7 +68,10 @@ describe('assistantSelectionLock', () => {
         expect(isAssistantSelectionLocked({
             ...idleState,
             runtimeState: 'error',
-            turnPhase: 'error',
+            turn: {
+                id: null,
+                phase: 'error',
+            },
         })).toBe(false);
     });
 });

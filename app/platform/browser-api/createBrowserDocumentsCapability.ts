@@ -139,6 +139,7 @@ export function createBrowserDocumentsCapability(
         openImageDialog: fileCapability.openImageDialog,
         getPathForFile: fileCapability.getPathForFile,
         getPathsForFiles: fileCapability.getPathsForFiles,
+        registerFilesForOpen: fileCapability.registerFilesForOpen,
     } satisfies IDocumentsPickerCapability;
     const documentOpen = {
         openDocumentDirect: fileCapability.openDocumentDirect,
@@ -153,7 +154,6 @@ export function createBrowserDocumentsCapability(
         cleanupOcrTemp: fileCapability.cleanupOcrTemp,
     } satisfies IDocumentsWorkingCopyCapability;
     const optionalDocumentFileMethods = {
-        ...(fileCapability.saveFileStructured ? {saveFileStructured: fileCapability.saveFileStructured} : {}),
         ...(fileCapability.repairPdf ? {repairPdf: fileCapability.repairPdf} : {}),
         ...(fileCapability.optimizePdfForInteraction ? {optimizePdfForInteraction: fileCapability.optimizePdfForInteraction} : {}),
         ...(fileCapability.optimizePdfAsCopy ? {optimizePdfAsCopy: fileCapability.optimizePdfAsCopy} : {}),
@@ -180,7 +180,7 @@ export function createBrowserDocumentsCapability(
         writeFile: fileCapability.writeFile,
         replaceWorkingCopyFromPath: fileCapability.replaceWorkingCopyFromPath,
         writeDocxFile: fileCapability.writeDocxFile,
-        saveFile: fileCapability.saveFile,
+        saveFileStructured: fileCapability.saveFileStructured,
         savePdfData: fileCapability.savePdfData,
         savePdfDataChunks: fileCapability.savePdfDataChunks,
         ...optionalDocumentFileMethods,

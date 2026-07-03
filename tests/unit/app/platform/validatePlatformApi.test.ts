@@ -15,9 +15,9 @@ function createBrowserApiFixture() {
         manifest: BROWSER_PLATFORM_MANIFEST,
         documents: {
             openDocumentDialog: vi.fn(),
+            registerFilesForOpen: vi.fn(),
             openDocumentDirect: vi.fn(),
             readFile: vi.fn(),
-            saveFile: vi.fn(),
             saveFileStructured: vi.fn(),
             recentFiles: {get: vi.fn()},
         },

@@ -24,7 +24,6 @@ const mocks = vi.hoisted(() => {
             installState: 'missing',
             authState: 'unknown',
             runtimeState: 'stopped',
-            turnPhase: 'idle',
             models: [],
             providers: [],
             mcp: {

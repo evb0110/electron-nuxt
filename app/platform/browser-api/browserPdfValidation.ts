@@ -12,6 +12,7 @@ import {
 } from '@pdf-core';
 import {
     createPdfjsDocumentInit,
+    createPdfjsDocumentInitFromBrowserDocument,
     getPdfjsLib,
 } from '@app/platform/browser-api/browserPdfjsDocumentInit';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
@@ -142,6 +143,47 @@ export async function validateBrowserPdfData(data: Uint8Array): Promise<IPdfVali
         );
         const pdfDocument = await loadingTask.promise;
         await pdfDocument.destroy();
+        return {
+            isValid: true,
+            tool: 'browser',
+            errors: [],
+            warnings: [],
+        };
+    } catch (error) {
+        return {
+            isValid: false,
+            tool: 'browser',
+            errors: [error instanceof Error ? error.message : 'PDF validation failed'],
+            warnings: [],
+        };
+    }
+}
+
+export async function validateBrowserPdfPath(path: string): Promise<IPdfValidationResult> {
+    const { size } = await browserDocumentStore.stat(path);
+    if (size === 0) {
+        return {
+            isValid: false,
+            tool: 'browser',
+            errors: ['PDF validation failed: empty document data'],
+            warnings: [],
+        };
+    }
+
+    try {
+        await yieldToBrowser();
+        const pdfjsLib = await getPdfjsLib();
+        const rangeRead: { error: Error | null } = { error: null };
+        const loadingTask = pdfjsLib.getDocument(
+            await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, path, {onRangeReadFailure: (error) => {
+                rangeRead.error = error;
+            }}),
+        );
+        const pdfDocument = await loadingTask.promise;
+        await pdfDocument.destroy();
+        if (rangeRead.error) {
+            throw rangeRead.error;
+        }
         return {
             isValid: true,
             tool: 'browser',

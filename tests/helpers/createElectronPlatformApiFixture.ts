@@ -36,7 +36,7 @@ export function createElectronPlatformApiFixture(
             openDocumentDialog: vi.fn(),
             openDocumentDirect: vi.fn(),
             readFile: vi.fn(),
-            saveFile: vi.fn(),
+            registerFilesForOpen: vi.fn(async () => []),
             saveFileStructured: vi.fn(),
             recentFiles: { get: vi.fn() },
             ...documents,

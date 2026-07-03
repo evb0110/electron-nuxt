@@ -178,6 +178,5 @@ describe('agent assistant provider accounts', () => {
             recoverFromError: true,
         });
         expect(codexState.runtimeState).toBe('ready');
-        expect(codexState.turnPhase).toBe('idle');
     });
 });

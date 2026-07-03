@@ -1,5 +1,6 @@
 import {
     afterEach,
+    beforeEach,
     describe,
     expect,
     it,
@@ -15,6 +16,8 @@ vi.mock('vue', async () => ({
     onUnmounted: vi.fn(),
 }));
 
+const toastAddMock = vi.fn();
+
 function createDropEvent(paths: string[]) {
     const files = paths.map((path, index) => cast<File>({
         name: `file-${index}`,
@@ -28,15 +31,21 @@ function createDropEvent(paths: string[]) {
 }
 
 describe('usePageDragDrop', () => {
+    beforeEach(() => {
+        toastAddMock.mockClear();
+        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
+    });
+
     afterEach(() => {
         vi.unstubAllGlobals();
     });
 
-    it('extracts external dropped paths through the split picker capability', () => {
-        const legacyGetPathsForFiles = vi.fn(() => {
+    it('registers external dropped paths through the split picker capability', async () => {
+        const legacyRegisterFilesForOpen = vi.fn(() => {
             throw new Error('legacy page drop path extraction should not be used');
         });
-        const pickerGetPathsForFiles = vi.fn(() => [
+        const pickerRegisterFilesForOpen = vi.fn(async () => [
             '/docs/a.pdf',
             '/docs/b.png',
             '/docs/a.pdf',
@@ -45,8 +54,8 @@ describe('usePageDragDrop', () => {
         vi.stubGlobal('window', {
             ...globalThis,
             electronAPI: createElectronPlatformApiFixture({
-                documentPicker: { getPathsForFiles: pickerGetPathsForFiles },
-                documents: { getPathsForFiles: legacyGetPathsForFiles },
+                documentPicker: { registerFilesForOpen: pickerRegisterFilesForOpen },
+                documents: { registerFilesForOpen: legacyRegisterFilesForOpen },
             }),
         });
 
@@ -60,7 +69,7 @@ describe('usePageDragDrop', () => {
         });
         dragDrop.dropInsertIndex.value = 3;
 
-        dragDrop.handleExternalDrop(createDropEvent([
+        await dragDrop.handleExternalDrop(createDropEvent([
             '/ignored/a.pdf',
             '/ignored/b.png',
         ]));
@@ -69,7 +78,42 @@ describe('usePageDragDrop', () => {
             '/docs/a.pdf',
             '/docs/b.png',
         ]);
-        expect(pickerGetPathsForFiles).toHaveBeenCalledOnce();
-        expect(legacyGetPathsForFiles).not.toHaveBeenCalled();
+        expect(pickerRegisterFilesForOpen).toHaveBeenCalledTimes(2);
+        expect(legacyRegisterFilesForOpen).not.toHaveBeenCalled();
+    });
+
+    it('reports failed page-insert registration and inserts remaining valid files', async () => {
+        const registerFilesForOpen = vi.fn(async (files: Array<{ name: string }>) => {
+            if (files[0]?.name === 'file-0') {
+                throw new Error('page ingestion failed');
+            }
+            return ['/docs/b.png'];
+        });
+        vi.stubGlobal('window', {
+            ...globalThis,
+            electronAPI: createElectronPlatformApiFixture({ documentPicker: { registerFilesForOpen } }),
+        });
+
+        const onExternalFileDrop = vi.fn();
+        const dragDrop = usePageDragDrop({
+            containerRef: ref(null),
+            totalPages: ref(7),
+            selectedPages: ref([]),
+            onReorder: vi.fn(),
+            onExternalFileDrop,
+        });
+        dragDrop.dropInsertIndex.value = 3;
+
+        await dragDrop.handleExternalDrop(createDropEvent([
+            '/ignored/a.pdf',
+            '/ignored/b.png',
+        ]));
+
+        expect(toastAddMock).toHaveBeenCalledWith({
+            color: 'error',
+            title: 'errors.file.open',
+            description: 'page ingestion failed',
+        });
+        expect(onExternalFileDrop).toHaveBeenCalledWith(3, ['/docs/b.png']);
     });
 });

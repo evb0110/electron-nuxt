@@ -54,7 +54,6 @@ export const DOCUMENTS_CHANNELS = {
     fileWrite: 'file:write',
     fileReplaceWorkingCopyFromPath: 'file:replaceWorkingCopyFromPath',
     fileWriteDocx: 'file:writeDocx',
-    fileSave: 'file:save',
     fileSaveStructured: 'file:saveStructured',
     fileRepairPdf: 'file:repairPdf',
     fileOptimizePdfForInteraction: 'file:optimizePdfForInteraction',
@@ -269,13 +268,9 @@ export interface IDocumentsInvokeMap {
         args: [path: string, data: Uint8Array];
         result: Awaited<ReturnType<IDocumentsFileCapability['writeDocxFile']>>;
     };
-    [DOCUMENTS_CHANNELS.fileSave]: {
-        args: [path: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['saveFile']>>;
-    };
     [DOCUMENTS_CHANNELS.fileSaveStructured]: {
         args: [path: string];
-        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['saveFileStructured']>>>;
+        result: Awaited<ReturnType<IDocumentsFileCapability['saveFileStructured']>>;
     };
     [DOCUMENTS_CHANNELS.fileRepairPdf]: {
         args: [path: string];

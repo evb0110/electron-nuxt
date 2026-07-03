@@ -130,7 +130,6 @@ export interface IDocumentsService {
         sourcePath: string,
     ) => Promise<boolean>;
     writeDocxFile: (context: IDocumentsSenderIdContext, filePath: string, data: Uint8Array) => Promise<boolean>;
-    saveFile: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<boolean>;
     saveFileStructured: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<TDocumentSaveResult>;
     repairPdf: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<IPdfValidationResult>;
     optimizePdfForInteraction: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<IPdfValidationResult>;

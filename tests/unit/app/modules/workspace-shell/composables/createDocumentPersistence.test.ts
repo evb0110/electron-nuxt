@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => {
             optimizePdfAsCopy: vi.fn(),
             optimizePdfForInteraction: vi.fn(),
             repairPdf: vi.fn(),
-            saveFile: vi.fn(),
+            saveFileStructured: vi.fn(),
             savePdfAs: vi.fn(),
             savePdfNativeMutations: vi.fn(),
             savePdfNoteChanges: vi.fn(),
@@ -38,7 +38,7 @@ const mocks = vi.hoisted(() => {
             optimizePdfAsCopy: createBroadFacadeTripwire('optimizePdfAsCopy'),
             optimizePdfForInteraction: createBroadFacadeTripwire('optimizePdfForInteraction'),
             repairPdf: createBroadFacadeTripwire('repairPdf'),
-            saveFile: createBroadFacadeTripwire('saveFile'),
+            saveFileStructured: createBroadFacadeTripwire('saveFileStructured'),
             savePdfAs: createBroadFacadeTripwire('savePdfAs'),
             savePdfNativeMutations: createBroadFacadeTripwire('savePdfNativeMutations'),
             savePdfNoteChanges: createBroadFacadeTripwire('savePdfNoteChanges'),
@@ -97,7 +97,7 @@ function expectBroadFilePersistenceFacadeNotUsed() {
     expect(mocks.documentsCapability.optimizePdfAsCopy).not.toHaveBeenCalled();
     expect(mocks.documentsCapability.optimizePdfForInteraction).not.toHaveBeenCalled();
     expect(mocks.documentsCapability.repairPdf).not.toHaveBeenCalled();
-    expect(mocks.documentsCapability.saveFile).not.toHaveBeenCalled();
+    expect(mocks.documentsCapability.saveFileStructured).not.toHaveBeenCalled();
     expect(mocks.documentsCapability.savePdfAs).not.toHaveBeenCalled();
     expect(mocks.documentsCapability.savePdfNativeMutations).not.toHaveBeenCalled();
     expect(mocks.documentsCapability.savePdfNoteChanges).not.toHaveBeenCalled();
@@ -134,7 +134,12 @@ describe('createDocumentPersistence', () => {
         });
         mocks.documentFilesCapability.optimizePdfForInteraction.mockResolvedValue(validPdfResult);
         mocks.documentFilesCapability.repairPdf.mockResolvedValue(validPdfResult);
-        mocks.documentFilesCapability.saveFile.mockResolvedValue(true);
+        mocks.documentFilesCapability.saveFileStructured.mockResolvedValue({
+            ok: true,
+            externalWriteCommitted: true,
+            workingCopyRefreshed: true,
+            validation: null,
+        });
         mocks.documentFilesCapability.savePdfAs.mockResolvedValue('/tmp/saved.pdf');
         mocks.documentFilesCapability.savePdfNativeMutations.mockResolvedValue({
             applied: true,
@@ -199,7 +204,7 @@ describe('createDocumentPersistence', () => {
         const result = await persistence.saveWorkingCopy();
 
         expect(result.success).toBe(true);
-        expect(mocks.documentFilesCapability.saveFile).toHaveBeenCalledWith('/tmp/old-working.pdf');
+        expect(mocks.documentFilesCapability.saveFileStructured).toHaveBeenCalledWith('/tmp/old-working.pdf');
         expectBroadFilePersistenceFacadeNotUsed();
         expectBroadWorkingCopyFacadeNotUsed();
     });
@@ -210,14 +215,19 @@ describe('createDocumentPersistence', () => {
             persistence,
             state,
         } = createPersistenceHarness();
-        mocks.documentFilesCapability.saveFile.mockResolvedValueOnce(false);
+        mocks.documentFilesCapability.saveFileStructured.mockResolvedValueOnce({
+            ok: false,
+            reason: 'user-canceled',
+            externalWriteCommitted: false,
+            validation: null,
+        });
 
         const result = await persistence.saveWorkingCopy();
 
         expect(result.success).toBe(false);
         expect(state.isDirty.value).toBe(true);
         expect(deps.markCurrentHistoryEntryClean).not.toHaveBeenCalled();
-        expect(mocks.documentFilesCapability.saveFile).toHaveBeenCalledWith('/tmp/old-working.pdf');
+        expect(mocks.documentFilesCapability.saveFileStructured).toHaveBeenCalledWith('/tmp/old-working.pdf');
         expectBroadFilePersistenceFacadeNotUsed();
         expectBroadWorkingCopyFacadeNotUsed();
     });

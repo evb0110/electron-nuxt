@@ -116,8 +116,6 @@ function createAssistantStatus(
             id: 'turn-1',
             phase: 'running',
         },
-        threadId: 'thread-1',
-        activeTurnId: 'turn-1',
         lastCheckedAt: '2026-01-01T00:00:00.000Z',
         ...patch,
     };
@@ -176,8 +174,6 @@ describe('assistantSelectionState', () => {
         expect(selectedStatus.effort).toBe('medium');
         expect(selectedStatus.speedMode).toBe('standard');
         expect(selectedStatus.turn).toBe(baseStatus.turn);
-        expect(selectedStatus.threadId).toBe('thread-1');
-        expect(selectedStatus.activeTurnId).toBe('turn-1');
     });
 
     it('uses selected model reasoning efforts for optimistic effort selection', () => {
@@ -263,8 +259,6 @@ describe('assistantSelectionState', () => {
             id: null,
             phase: 'idle',
         });
-        expect(selectedStatus.threadId).toBeNull();
-        expect(selectedStatus.activeTurnId).toBeNull();
     });
 
     it('clones assistant scopes without manufacturing nullable optional fields', () => {

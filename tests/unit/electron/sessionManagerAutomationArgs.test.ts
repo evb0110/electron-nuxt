@@ -24,7 +24,11 @@ import {
     buildE2ESharedRendererEnv,
     readE2ESharedRendererConfig,
 } from '@scripts/electron-run/electronRunE2ESharedRenderer';
-import { checkNuxtHttpReadiness } from '@scripts/electron-run/electronRunNuxtServer';
+import {
+    checkNuxtHttpReadiness,
+    warmupElectronAppDependencies,
+    warmupElectronAppDependenciesBestEffort,
+} from '@scripts/electron-run/electronRunNuxtServer';
 import {
     DEFAULT_NUXT_PORT,
     getNuxtPort,
@@ -382,6 +386,102 @@ describe('sessionManager automation launch args', () => {
         }) as typeof fetch;
 
         await expect(checkNuxtHttpReadiness({fetchImpl})).resolves.toBe(false);
+    });
+
+    it('warms the Electron route only after stable reusable Nuxt responses', async () => {
+        const calls: Array<Parameters<typeof fetch>> = [];
+        const responses = [
+            new Response('Outdated Optimize Dep', {
+                status: 504,
+                headers: {'x-powered-by': 'Nuxt'},
+            }),
+            new Response('<script type="module" src="/_nuxt/app.js"></script>', {
+                status: 200,
+                headers: {'x-powered-by': 'Nuxt'},
+            }),
+            new Response('<script type="module" src="/_nuxt/app.js"></script>', {
+                status: 200,
+                headers: {'x-powered-by': 'Nuxt'},
+            }),
+        ];
+        const fetchImpl = (async (...args: Parameters<typeof fetch>) => {
+            calls.push(args);
+            return responses.shift() ?? new Response('', {status: 500});
+        }) as typeof fetch;
+        const timings: string[] = [];
+
+        await expect(warmupElectronAppDependencies(
+            message => timings.push(message),
+            {
+                fetchImpl,
+                stablePolls: 2,
+                pollIntervalMs: 0,
+                timeoutMs: 5_000,
+            },
+        )).resolves.toEqual({
+            ok: true,
+            stablePolls: 2,
+        });
+
+        expect(calls.map(([url]) => url)).toEqual([
+            'http://127.0.0.1:3235/electron',
+            'http://127.0.0.1:3235/electron',
+            'http://127.0.0.1:3235/electron',
+        ]);
+        expect(timings).toEqual(['Nuxt dependency warmup complete']);
+    });
+
+    it('returns a bounded failure result when Electron route warmup does not settle', async () => {
+        const fetchImpl = (async () => new Response(
+            '<main>Failed to fetch dynamically imported module</main>',
+            {
+                status: 200,
+                headers: {'x-powered-by': 'Nuxt'},
+            },
+        )) as typeof fetch;
+
+        await expect(warmupElectronAppDependencies(
+            () => {},
+            {
+                fetchImpl,
+                pollIntervalMs: 0,
+                timeoutMs: 5,
+            },
+        )).resolves.toMatchObject({
+            ok: false,
+            reason: 'Electron app dependencies did not warm within 0s',
+            status: 200,
+            bodySnippet: '<main>Failed to fetch dynamically imported module</main>',
+        });
+    });
+
+    it('logs and continues when best-effort Electron route warmup misses', async () => {
+        const fetchImpl = (async () => new Response('Outdated Optimize Dep', {
+            status: 504,
+            headers: {'x-powered-by': 'Nuxt'},
+        })) as typeof fetch;
+        const originalWarn = console.warn;
+        const warnings: string[] = [];
+        console.warn = (message?: unknown) => {
+            warnings.push(String(message));
+        };
+        try {
+            await expect(warmupElectronAppDependenciesBestEffort(
+                () => {},
+                {
+                    fetchImpl,
+                    pollIntervalMs: 0,
+                    timeoutMs: 5,
+                },
+            )).resolves.toMatchObject({
+                ok: false,
+                status: 504,
+            });
+        } finally {
+            console.warn = originalWarn;
+        }
+
+        expect(warnings.some(message => message.includes('Dependency warmup did not settle; continuing anyway'))).toBe(true);
     });
 
     it('ignores shared renderer metadata unless the e2e signal is enabled', () => {

@@ -198,6 +198,13 @@ const lazyDocumentPickerCapability: IDocumentsPickerCapability = {
     getPathsForFiles(files) {
         return files.map(file => browserDocumentStore.getRefForFile(file));
     },
+    async registerFilesForOpen(files) {
+        const refs: string[] = [];
+        for (const file of files) {
+            refs.push(await browserDocumentStore.registerFile(file));
+        }
+        return refs;
+    },
 };
 
 const lazyDocumentOpenCapability: IDocumentsOpenCapability = {
@@ -230,7 +237,6 @@ const lazyDocumentFilesCapability: IDocumentsFileIoCapability = {
     writeFile: lazyAsync(pathDescriptors.documentFiles.writeFile.path),
     replaceWorkingCopyFromPath: lazyAsync(pathDescriptors.documentFiles.replaceWorkingCopyFromPath.path),
     writeDocxFile: lazyAsync(pathDescriptors.documentFiles.writeDocxFile.path),
-    saveFile: lazyAsync(pathDescriptors.documentFiles.saveFile.path),
     saveFileStructured: lazyAsync(pathDescriptors.documentFiles.saveFileStructured.path),
     savePdfData: lazyAsync(pathDescriptors.documentFiles.savePdfData.path),
     savePdfDataChunks: lazyAsync(pathDescriptors.documentFiles.savePdfDataChunks.path),

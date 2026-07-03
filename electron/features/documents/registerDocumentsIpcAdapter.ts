@@ -543,11 +543,6 @@ export function registerDocumentsIpcAdapter(
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileWriteDocx>
     ) =>
         service.writeDocxFile(createSenderIdContext(event), filePath, data));
-    register(DOCUMENTS_CHANNELS.fileSave, (
-        event: IpcMainInvokeEvent,
-        ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSave>
-    ) =>
-        service.saveFile(createSenderIdContext(event), workingPath));
     register(DOCUMENTS_CHANNELS.fileSaveStructured, (
         event: IpcMainInvokeEvent,
         ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSaveStructured>

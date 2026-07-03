@@ -427,8 +427,6 @@ export interface IAgentAssistantStatus {
     runtimeState: TAgentAssistantRuntimeState;
     mcp: IAgentAssistantMcpStatus;
     turn: IAgentAssistantTurnState;
-    threadId: string | null;
-    activeTurnId: string | null;
     lastCheckedAt: string;
     error?: string;
     errorEnvelope?: IAgentAssistantErrorEnvelope;

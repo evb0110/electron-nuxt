@@ -130,10 +130,21 @@ interface IBrowserDocumentsTestStore {
         options: IBrowserDocumentsTestCreateOptions,
     ) => Promise<string>;
     exists: (ref: string) => Promise<boolean>;
+    clearChunkedDocument: (ref: string) => Promise<void>;
+    finalizeChunkedDocument: (
+        ref: string,
+        options: {
+            fileSize: number;
+            chunkCount: number;
+            chunkSize?: number;
+            saveName?: string;
+        },
+    ) => Promise<void>;
     getDocumentRevision: (ref: string) => Promise<{
         token: string;
         contentRevision: number
     }>;
+    prepareChunkedDocument: (ref: string, options?: { chunkSize?: number }) => Promise<void>;
     read: (ref: string) => Promise<Uint8Array>;
     readRange: (ref: string, offset: number, length: number) => Promise<Uint8Array>;
     requireEntry: (ref: string) => Promise<IBrowserDocumentsTestEntry>;
@@ -141,6 +152,7 @@ interface IBrowserDocumentsTestStore {
     touchRecentFile: (ref: string) => Promise<void>;
     unload: (ref: string) => void;
     write: (ref: string, data: Uint8Array) => Promise<boolean>;
+    writeChunk: (ref: string, index: number, data: Uint8Array) => Promise<void>;
 }
 
 interface IBrowserDocumentsTestOpenResult {
@@ -162,7 +174,7 @@ interface IBrowserDocumentsTestCapability {
     openPdfDialog: () => Promise<IBrowserDocumentsTestOpenResult | null>;
     openPdfDirect: (path: string) => Promise<IBrowserDocumentsTestOpenResult | null>;
     recentFiles: { get: () => Promise<IBrowserDocumentsRecentFile[]> };
-    saveFile: (workingPath: string) => Promise<boolean>;
+    registerFilesForOpen: (files: File[]) => Promise<string[]>;
     saveFileStructured: (workingPath: string) => Promise<unknown>;
     getDocumentRevision: (workingPath: string) => Promise<{
         token: string;
@@ -172,6 +184,15 @@ interface IBrowserDocumentsTestCapability {
     savePdfData: (workingPath: string, data: Uint8Array) => Promise<{
         isValid: boolean;
         errors: string[];
+    }>;
+    savePdfDataChunks: (
+        workingPath: string,
+        totalBytes: number,
+        chunks: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
+    ) => Promise<{
+        isValid: boolean;
+        errors: string[];
+        warnings: string[];
     }>;
     savePdfDataAs: (workingPath: string, data: Uint8Array) => Promise<{
         path: string | null;
@@ -199,6 +220,7 @@ interface IBrowserBatchProgress {
 interface IBrowserDocumentsMenuTestCapability { onOpenPdfDirectBatchProgress: (callback: (progress: IBrowserBatchProgress) => void) => () => void }
 
 interface ILoadedBrowserDocumentsFileCapability {
+    BROWSER_DOCUMENT_CHUNK_SIZE: number;
     BROWSER_MAX_FULL_READ_BYTES: number;
     browserDocumentStore: IBrowserDocumentsTestStore;
     capability: IBrowserDocumentsTestCapability;
@@ -265,6 +287,7 @@ async function loadBrowserDocumentsFileCapability(
     const [
         { createBrowserDocumentsFileCapability },
         {
+            BROWSER_DOCUMENT_CHUNK_SIZE,
             BROWSER_MAX_FULL_READ_BYTES,
             browserDocumentStore,
         },
@@ -274,6 +297,7 @@ async function loadBrowserDocumentsFileCapability(
     ]);
 
     return {
+        BROWSER_DOCUMENT_CHUNK_SIZE,
         BROWSER_MAX_FULL_READ_BYTES,
         capability: cast<IBrowserDocumentsTestCapability>(
             createBrowserDocumentsFileCapability({clearSearchCaches: options?.clearSearchCaches ?? (() => {})}),
@@ -314,6 +338,41 @@ describe('createBrowserDocumentsFileCapability', () => {
             reason: 'requires-native-backend',
             message: 'Showing files in a folder requires the desktop app.',
         });
+    });
+
+    it('registers browser files for open after ingestion completes', async () => {
+        const file = new File([new Uint8Array([
+            1,
+            2,
+            3,
+        ])], 'drop.pdf', { type: 'application/pdf' });
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+
+        const refs = await capability.registerFilesForOpen([file]);
+
+        expect(refs).toHaveLength(1);
+        const [ref] = refs;
+        expect(ref).toBeDefined();
+        await expect(browserDocumentStore.read(ref as string)).resolves.toEqual(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+    });
+
+    it('propagates browser file ingestion failures when registering files for open', async () => {
+        const file = new File([new Uint8Array([
+            1,
+            2,
+            3,
+        ])], 'broken.pdf', { type: 'application/pdf' });
+        vi.spyOn(file, 'arrayBuffer').mockRejectedValueOnce(new Error('read failed'));
+        const { capability } = await loadBrowserDocumentsFileCapability();
+
+        await expect(capability.registerFilesForOpen([file])).rejects.toThrow('read failed');
     });
 
     it('cleans up transient source refs via cleanupFile', async () => {
@@ -1284,7 +1343,7 @@ describe('createBrowserDocumentsFileCapability', () => {
         oversizedBytes[3] = 70;
         await browserDocumentStore.write(workingRef, oversizedBytes);
 
-        await expect(capability.saveFile(workingRef)).resolves.toBe(true);
+        await expect(capability.saveFileStructured(workingRef)).resolves.toMatchObject({ ok: true });
 
         expect(queryPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
         expect(requestPermission).not.toHaveBeenCalled();
@@ -1338,7 +1397,7 @@ describe('createBrowserDocumentsFileCapability', () => {
             70,
         ]));
 
-        await expect(capability.saveFile(workingRef)).resolves.toBe(true);
+        await expect(capability.saveFileStructured(workingRef)).resolves.toMatchObject({ ok: true });
 
         expect(queryPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
         expect(requestPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
@@ -1373,7 +1432,10 @@ describe('createBrowserDocumentsFileCapability', () => {
         );
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
 
-        await expect(capability.saveFile(workingRef)).resolves.toBe(false);
+        await expect(capability.saveFileStructured(workingRef)).resolves.toMatchObject({
+            ok: false,
+            reason: 'user-canceled',
+        });
 
         expect(clearSearchCaches).not.toHaveBeenCalled();
     });
@@ -1407,6 +1469,208 @@ describe('createBrowserDocumentsFileCapability', () => {
         expect(result.isValid).toBe(false);
         expect(result.errors).toEqual([]);
         expect(clearSearchCaches).not.toHaveBeenCalled();
+    });
+
+    it('streams browser PDF data chunks into staged document chunks before saving', async () => {
+        const clearSearchCaches = vi.fn();
+        const writes: Uint8Array[] = [];
+        const handle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'chunked-save.pdf',
+            getFile: vi.fn(async () => new File([new Uint8Array()], 'chunked-save.pdf', { type: 'application/pdf' })),
+            createWritable: vi.fn(async () => ({
+                write: vi.fn(async (chunk: ArrayBuffer) => {
+                    writes.push(new Uint8Array(chunk));
+                }),
+                close: vi.fn(async () => {}),
+            })),
+        });
+        const {
+            BROWSER_DOCUMENT_CHUNK_SIZE,
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({ clearSearchCaches });
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'chunked-save.pdf',
+            await createPdfBytes(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: handle,
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+        const writeSpy = vi.spyOn(browserDocumentStore, 'write');
+        const pdfPrefix = await createPdfBytes();
+        const data = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE + 17);
+        data.set(pdfPrefix.subarray(0, Math.min(pdfPrefix.byteLength, data.byteLength)));
+        data[data.byteLength - 1] = 23;
+
+        const result = await capability.savePdfDataChunks(workingRef, data.byteLength, [
+            data.subarray(0, 3),
+            data.subarray(3, BROWSER_DOCUMENT_CHUNK_SIZE + 5),
+            data.subarray(BROWSER_DOCUMENT_CHUNK_SIZE + 5),
+        ]);
+
+        expect(result).toMatchObject({
+            isValid: true,
+            errors: [],
+            warnings: [],
+        });
+        expect(writeSpy).not.toHaveBeenCalled();
+        const entry = await browserDocumentStore.requireEntry(workingRef);
+        expect(entry.storageMode).toBe('chunked');
+        await expect(browserDocumentStore.readRange(workingRef, 0, 3)).resolves.toEqual(data.subarray(0, 3));
+        await expect(browserDocumentStore.readRange(
+            workingRef,
+            data.byteLength - 1,
+            1,
+        )).resolves.toEqual(new Uint8Array([23]));
+        expect(writes.length).toBe(2);
+        expect(clearSearchCaches).toHaveBeenCalledOnce();
+    });
+
+    it('discards staged browser PDF data chunks when streaming fails before finalization', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const originalBytes = await createPdfBytes();
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'interrupted-chunked-save.pdf',
+            originalBytes,
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+        async function* brokenChunks() {
+            yield new Uint8Array([
+                37,
+                80,
+                68,
+                70,
+            ]);
+            throw new Error('stream interrupted');
+        }
+
+        await expect(capability.savePdfDataChunks(
+            workingRef,
+            originalBytes.byteLength + 4,
+            brokenChunks(),
+        )).rejects.toThrow('stream interrupted');
+
+        await expect(browserDocumentStore.read(workingRef)).resolves.toEqual(originalBytes);
+    });
+
+    it('does not report oversized invalid browser PDF data chunks as valid', async () => {
+        const clearSearchCaches = vi.fn();
+        const {
+            BROWSER_DOCUMENT_CHUNK_SIZE,
+            BROWSER_MAX_FULL_READ_BYTES,
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({ clearSearchCaches });
+        const originalBytes = await createPdfBytes();
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'invalid-oversized-chunked-save.pdf',
+            originalBytes,
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+        pdfjsModule.getDocument.mockImplementationOnce(() => ({promise: Promise.resolve().then(() => {
+            throw new Error('invalid oversized pdf');
+        })}));
+        async function* invalidOversizedChunks() {
+            let bytesWritten = 0;
+            const totalBytes = BROWSER_MAX_FULL_READ_BYTES + 1;
+            while (bytesWritten < totalBytes) {
+                const length = Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, totalBytes - bytesWritten);
+                yield new Uint8Array(length);
+                bytesWritten += length;
+            }
+        }
+
+        const result = await capability.savePdfDataChunks(
+            workingRef,
+            BROWSER_MAX_FULL_READ_BYTES + 1,
+            invalidOversizedChunks(),
+        );
+
+        expect(result).toMatchObject({
+            isValid: false,
+            errors: ['invalid oversized pdf'],
+        });
+        await expect(browserDocumentStore.read(workingRef)).resolves.toEqual(originalBytes);
+        expect(clearSearchCaches).not.toHaveBeenCalled();
+    });
+
+    it('saves oversized valid browser PDF data chunks after range-backed validation', async () => {
+        const clearSearchCaches = vi.fn();
+        let writtenBytes = 0;
+        const handle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'valid-oversized-chunked-save.pdf',
+            createWritable: vi.fn(async () => ({
+                write: vi.fn(async (chunk: ArrayBuffer) => {
+                    writtenBytes += chunk.byteLength;
+                }),
+                close: vi.fn(async () => {}),
+            })),
+        });
+        const {
+            BROWSER_DOCUMENT_CHUNK_SIZE,
+            BROWSER_MAX_FULL_READ_BYTES,
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({ clearSearchCaches });
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'valid-oversized-chunked-save.pdf',
+            await createPdfBytes(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: handle,
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+        const pdfPrefix = await createPdfBytes();
+        async function* validOversizedChunks() {
+            let bytesWritten = 0;
+            const totalBytes = BROWSER_MAX_FULL_READ_BYTES + 1;
+            while (bytesWritten < totalBytes) {
+                const length = Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, totalBytes - bytesWritten);
+                const chunk = new Uint8Array(length);
+                if (bytesWritten === 0) {
+                    chunk.set(pdfPrefix.subarray(0, Math.min(pdfPrefix.byteLength, chunk.byteLength)));
+                }
+                yield chunk;
+                bytesWritten += length;
+            }
+        }
+
+        const result = await capability.savePdfDataChunks(
+            workingRef,
+            BROWSER_MAX_FULL_READ_BYTES + 1,
+            validOversizedChunks(),
+        );
+
+        expect(result).toMatchObject({
+            isValid: true,
+            errors: [],
+            warnings: [],
+        });
+        expect(pdfjsModule.getDocument).toHaveBeenCalledWith(expect.objectContaining({length: BROWSER_MAX_FULL_READ_BYTES + 1}));
+        expect(writtenBytes).toBe(BROWSER_MAX_FULL_READ_BYTES + 1);
+        expect(clearSearchCaches).toHaveBeenCalledOnce();
     });
 
     it('fails browser saves without opening the writer when write permission is denied', async () => {
@@ -1447,7 +1711,6 @@ describe('createBrowserDocumentsFileCapability', () => {
             70,
         ]));
 
-        await expect(capability.saveFile(workingRef)).resolves.toBe(false);
         await expect(capability.saveFileStructured(workingRef)).resolves.toMatchObject({
             ok: false,
             reason: 'write-failed',

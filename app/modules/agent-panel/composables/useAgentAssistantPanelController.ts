@@ -200,7 +200,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         && !isResetting.value
         && (
             messages.value.length > 0
-            || Boolean(status.value.threadId)
+            || isTurnActive.value
             || status.value.runtimeState === 'busy'
         )
     ));
@@ -243,10 +243,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         || status.value.turn.phase === 'interrupting'
     ));
     const assistantSelectionLocked = computed(() => isAssistantSelectionLocked({
-        activeTurnId: status.value.activeTurnId,
         isSending: isSending.value,
         runtimeState: status.value.runtimeState,
-        turnPhase: status.value.turn.phase,
+        turn: status.value.turn,
     }));
     const turnStatusText = computed(() => {
         if (status.value.turn.phase === 'interrupting') {

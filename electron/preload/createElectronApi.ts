@@ -198,6 +198,10 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         ...baseDocuments.recentFiles,
         get: () => invokeWithStartupTrace('recentFiles:get', () => baseDocuments.recentFiles.get()),
     };
+    const extractPathsForFiles = (files: File[]) => files
+        .map(file => electronWebUtils.getPathForFile(file))
+        .filter(filePath => filePath.length > 0);
+
     const getPathForFile = (file: File) => {
         const filePath = electronWebUtils.getPathForFile(file);
         if (filePath) {
@@ -206,11 +210,14 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         return filePath;
     };
     const getPathsForFiles = (files: File[]) => {
-        const filePaths = files
-            .map(file => electronWebUtils.getPathForFile(file))
-            .filter(filePath => filePath.length > 0);
+        const filePaths = extractPathsForFiles(files);
         void allowRendererFileOpenBatch(filePaths);
         return filePaths;
+    };
+    const registerFilesForOpen = async (files: File[]) => {
+        const filePaths = extractPathsForFiles(files);
+        const allowed = await allowRendererFileOpenBatch(filePaths);
+        return allowed ? filePaths : [];
     };
 
     const documentPicker = {
@@ -221,6 +228,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         openImageDialog: baseDocuments.openImageDialog,
         getPathForFile,
         getPathsForFiles,
+        registerFilesForOpen,
     } satisfies IDocumentsPickerCapability;
     const documentOpen = {
         openDocumentDirect,
@@ -235,7 +243,6 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         cleanupOcrTemp: baseDocuments.cleanupOcrTemp,
     } satisfies IDocumentsWorkingCopyCapability;
     const optionalDocumentFileMethods = {
-        ...(baseDocuments.saveFileStructured ? {saveFileStructured: baseDocuments.saveFileStructured} : {}),
         ...(baseDocuments.repairPdf ? {repairPdf: baseDocuments.repairPdf} : {}),
         ...(baseDocuments.optimizePdfForInteraction ? {optimizePdfForInteraction: baseDocuments.optimizePdfForInteraction} : {}),
         ...(baseDocuments.optimizePdfAsCopy ? {optimizePdfAsCopy: baseDocuments.optimizePdfAsCopy} : {}),
@@ -268,7 +275,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         writeFile: baseDocuments.writeFile,
         replaceWorkingCopyFromPath: baseDocuments.replaceWorkingCopyFromPath,
         writeDocxFile: baseDocuments.writeDocxFile,
-        saveFile: baseDocuments.saveFile,
+        saveFileStructured: baseDocuments.saveFileStructured,
         savePdfData: baseDocuments.savePdfData,
         savePdfDataChunks: baseDocuments.savePdfDataChunks,
         ...optionalDocumentFileMethods,

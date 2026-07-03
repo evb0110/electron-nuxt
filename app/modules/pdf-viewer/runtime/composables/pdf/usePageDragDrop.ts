@@ -1,6 +1,7 @@
 import type { Ref } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import type { TDocumentRef } from '@contracts/documentRef';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     useEventListener,
     useIntervalFn,
@@ -49,6 +50,8 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     let dragReorderContext: IDragReorderContext | null = null;
     const autoScrollContainer = ref<HTMLElement | null>(null);
     const autoScrollStep = ref(0);
+    const { t } = useTypedI18n();
+    const toast = useToast();
 
     const THRESHOLD = 5;
     const SCROLL_ZONE = 40;
@@ -363,7 +366,42 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         }
     }
 
-    function handleExternalDrop(e: DragEvent) {
+    function notifyRegistrationFailure(error: unknown) {
+        toast.add({
+            color: 'error',
+            title: t('errors.file.open'),
+            description: getErrorMessage(error),
+        });
+    }
+
+    async function registerExternalDropFiles(files: File[]) {
+        const droppedPaths: TDocumentRef[] = [];
+        const seen = new Set<TDocumentRef>();
+        const documentPicker = getDocumentPickerCapability();
+
+        for (const file of files) {
+            let filePaths: TDocumentRef[];
+            try {
+                filePaths = await documentPicker.registerFilesForOpen([file]);
+            } catch (error) {
+                notifyRegistrationFailure(error);
+                continue;
+            }
+
+            for (const filePath of filePaths) {
+                if (!filePath || seen.has(filePath) || !isSupportedPdfInsertFilePath(filePath)) {
+                    continue;
+                }
+
+                seen.add(filePath);
+                droppedPaths.push(filePath);
+            }
+        }
+
+        return droppedPaths;
+    }
+
+    async function handleExternalDrop(e: DragEvent) {
         e.preventDefault();
         clearAutoScroll();
         const insertAt = dropInsertIndex.value ?? totalPages.value;
@@ -375,18 +413,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             return;
         }
 
-        const droppedPaths: string[] = [];
-        const seen = new Set<string>();
-        const filePaths = getDocumentPickerCapability().getPathsForFiles(Array.from(e.dataTransfer.files));
-
-        for (const filePath of filePaths) {
-            if (!filePath || seen.has(filePath) || !isSupportedPdfInsertFilePath(filePath)) {
-                continue;
-            }
-
-            seen.add(filePath);
-            droppedPaths.push(filePath);
-        }
+        const droppedPaths = await registerExternalDropFiles(Array.from(e.dataTransfer.files));
 
         if (droppedPaths.length > 0) {
             onExternalFileDrop(insertAt, droppedPaths);

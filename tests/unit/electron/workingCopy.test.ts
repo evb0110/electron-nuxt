@@ -122,8 +122,7 @@ describe('workingCopy', () => {
     });
 
     it('preserves WORKING_COPY_MISSING when both working copy and original are gone', async () => {
-        const { WorkingCopyMissingError } = await import('@electron/file-access/workingCopyMissingError');
-        const { handleFileSave } = await import('@electron/features/documents/main/workingCopySave');
+        const { handleFileSaveStructured } = await import('@electron/features/documents/main/workingCopySave');
         const { setWorkingCopyOriginalPath } = await import('@electron/file-access/workingCopyStore');
         const { clearAllWorkingCopies } = await import('@electron/file-access/workingCopyCleanup');
         const originalPath = join(tempRoot, 'missing-original.pdf');
@@ -132,8 +131,10 @@ describe('workingCopy', () => {
         setWorkingCopyOriginalPath(workingPath, originalPath);
 
         const context = {senderId: 1};
-        await expect(handleFileSave(context, workingPath)).rejects.toBeInstanceOf(WorkingCopyMissingError);
-        await expect(handleFileSave(context, workingPath)).rejects.toMatchObject({ code: 'WORKING_COPY_MISSING' });
+        await expect(handleFileSaveStructured(context, workingPath)).resolves.toMatchObject({
+            ok: false,
+            reason: 'working-copy-missing',
+        });
 
         await clearAllWorkingCopies();
     });

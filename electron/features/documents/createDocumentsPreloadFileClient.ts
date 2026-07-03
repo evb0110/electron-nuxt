@@ -47,7 +47,10 @@ import {
     MAX_IPC_FILE_NAME_LENGTH,
 } from '@electron/features/documents/preloadShared';
 
-type TDocumentsPreloadFileClient = Omit<IDocumentsFileCapability, 'getPathForFile' | 'getPathsForFiles'>;
+type TDocumentsPreloadFileClient = Omit<
+    IDocumentsFileCapability,
+    'getPathForFile' | 'getPathsForFiles' | 'registerFilesForOpen'
+>;
 type TDocumentsFileIpcRenderer = Pick<IpcRenderer, 'invoke' | 'postMessage'>
     & Partial<Pick<IpcRenderer, 'on' | 'removeListener'>>;
 const PDF_PERSISTENCE_CHUNK_BYTES = PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES;
@@ -556,7 +559,6 @@ export function createDocumentsPreloadFileClient(
                 assertAbsolutePath(sourcePath, 'createWorkingCopyFromPath.sourcePath'),
                 assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromPath.originalPath'),
             ),
-        saveFile: (path) => invoke(DOCUMENTS_CHANNELS.fileSave, path),
         saveFileStructured: (path) =>
             invoke(
                 DOCUMENTS_CHANNELS.fileSaveStructured,

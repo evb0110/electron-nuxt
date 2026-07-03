@@ -45,9 +45,10 @@ const TOP_LEVEL_CAPABILITY_KEYS = [
 
 const REQUIRED_METHOD_PATHS = [
     'documents.openDocumentDialog',
+    'documents.registerFilesForOpen',
     'documents.openDocumentDirect',
     'documents.readFile',
-    'documents.saveFile',
+    'documents.saveFileStructured',
     'documents.recentFiles.get',
     'pageOps.delete',
     'imageExport.exportPdfToImages',
@@ -192,23 +193,6 @@ function validateRequiredMethods(api: unknown, failures: IPlatformValidationFail
     }
 }
 
-function validateCapabilityBackedMethods(
-    api: unknown,
-    manifest: IPlatformRuntimeManifest,
-    failures: IPlatformValidationFailure[],
-) {
-    if (
-        manifest.capabilities.documents.structuredSaveResult
-        && typeof readPath(api, 'documents.saveFileStructured') !== 'function'
-    ) {
-        failures.push(createFailure(
-            'missing-required-method',
-            'Platform method documents.saveFileStructured is required when structured save results are advertised.',
-            'documents.saveFileStructured',
-        ));
-    }
-}
-
 export function validatePlatformApi(
     api: unknown,
     expectedBackend: TPlatformBackend,
@@ -258,8 +242,6 @@ export function validatePlatformApi(
         validateRequiredCapabilities(manifest, failures);
     }
     validateRequiredMethods(api, failures);
-    validateCapabilityBackedMethods(api, manifest, failures);
-
     return {
         ok: failures.length === 0,
         failures,

@@ -2,6 +2,7 @@ import type { IDocumentsFileCapability } from '@contracts/electronApiDocuments';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type { IRecentFile } from '@contracts/shared';
 import {
+    BROWSER_DOCUMENT_CHUNK_SIZE,
     BROWSER_MAX_FULL_READ_BYTES,
     browserDocumentStore,
     getBrowserDocumentFileName,
@@ -25,6 +26,7 @@ import type { IBrowserBatchOpenProgressOptions } from '@app/platform/browser-api
 import {
     analyzeBrowserPdfConformance,
     validateBrowserPdfData,
+    validateBrowserPdfPath,
 } from '@app/platform/browser-api/browserPdfValidation';
 import {
     isFileSystemAccessDeniedError,
@@ -209,6 +211,33 @@ export function createBrowserDocumentsFileCapability(
         await browserDocumentStore.touchRecentFile(sourceRef);
         browserDocumentStore.unload(sourceRef);
         return sourceRef;
+    }
+
+    async function copyChunkedDocument(sourcePath: string, targetPath: string, totalBytes: number) {
+        await browserDocumentStore.prepareChunkedDocument(targetPath, {chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE});
+        let copiedBytes = 0;
+        let chunkIndex = 0;
+        try {
+            while (copiedBytes < totalBytes) {
+                const length = Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, totalBytes - copiedBytes);
+                const chunk = await browserDocumentStore.readRange(sourcePath, copiedBytes, length);
+                if (chunk.byteLength !== length) {
+                    throw new Error(`Browser document range copy returned ${chunk.byteLength} bytes for requested ${length} bytes`);
+                }
+                await browserDocumentStore.writeChunk(targetPath, chunkIndex, chunk);
+                copiedBytes += chunk.byteLength;
+                chunkIndex += 1;
+            }
+            await browserDocumentStore.finalizeChunkedDocument(targetPath, {
+                fileSize: totalBytes,
+                chunkCount: chunkIndex,
+                chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
+            });
+        } catch (error) {
+            await browserDocumentStore.clearChunkedDocument(targetPath)
+                .catch(() => undefined);
+            throw error;
+        }
     }
 
     const capability: TCanonicalDocumentsFileCapability = {
@@ -499,28 +528,96 @@ export function createBrowserDocumentsFileCapability(
             if (!Number.isSafeInteger(totalBytes) || totalBytes < 1) {
                 throw new Error('savePdfDataChunks.totalBytes must be a positive safe integer');
             }
-            const collected: Uint8Array[] = [];
             let bytesRead = 0;
-            for await (const chunk of chunks) {
-                if (!(chunk instanceof Uint8Array) || chunk.byteLength === 0) {
-                    throw new Error('savePdfDataChunks.chunks must yield non-empty Uint8Array chunks');
+            let stagedChunkCount = 0;
+            let stagingBuffer = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE);
+            let stagingOffset = 0;
+            const stagingPath = await browserDocumentStore.createStoredDocument(
+                `${getBrowserDocumentFileName(path)}.staged-save.pdf`,
+                new Uint8Array(),
+                {
+                    mimeType: 'application/pdf',
+                    kind: 'output',
+                    retention: 'transient',
+                    saveKind: 'pdf',
+                },
+            );
+
+            await browserDocumentStore.prepareChunkedDocument(stagingPath, {chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE});
+
+            try {
+                for await (const chunk of chunks) {
+                    if (!(chunk instanceof Uint8Array) || chunk.byteLength === 0) {
+                        throw new Error('savePdfDataChunks.chunks must yield non-empty Uint8Array chunks');
+                    }
+                    if (bytesRead + chunk.byteLength > totalBytes) {
+                        throw new Error('savePdfDataChunks chunks exceed the declared total size');
+                    }
+                    bytesRead += chunk.byteLength;
+
+                    let chunkOffset = 0;
+                    while (chunkOffset < chunk.byteLength) {
+                        const writableBytes = Math.min(
+                            stagingBuffer.byteLength - stagingOffset,
+                            chunk.byteLength - chunkOffset,
+                        );
+                        stagingBuffer.set(
+                            chunk.subarray(chunkOffset, chunkOffset + writableBytes),
+                            stagingOffset,
+                        );
+                        stagingOffset += writableBytes;
+                        chunkOffset += writableBytes;
+
+                        if (stagingOffset === stagingBuffer.byteLength) {
+                            await browserDocumentStore.writeChunk(
+                                stagingPath,
+                                stagedChunkCount,
+                                stagingBuffer,
+                            );
+                            stagedChunkCount += 1;
+                            stagingBuffer = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE);
+                            stagingOffset = 0;
+                        }
+                    }
                 }
-                bytesRead += chunk.byteLength;
-                if (bytesRead > totalBytes) {
-                    throw new Error('savePdfDataChunks chunks exceed the declared total size');
+                if (bytesRead !== totalBytes) {
+                    throw new Error('savePdfDataChunks chunks did not match the declared total size');
                 }
-                collected.push(chunk);
+                if (stagingOffset > 0) {
+                    await browserDocumentStore.writeChunk(
+                        stagingPath,
+                        stagedChunkCount,
+                        stagingBuffer.subarray(0, stagingOffset),
+                    );
+                    stagedChunkCount += 1;
+                }
+
+                await browserDocumentStore.finalizeChunkedDocument(stagingPath, {
+                    fileSize: totalBytes,
+                    chunkCount: stagedChunkCount,
+                    chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
+                });
+
+                const validation = await validateBrowserPdfPath(stagingPath);
+                if (!validation.isValid) {
+                    return validation;
+                }
+
+                await copyChunkedDocument(stagingPath, path, totalBytes);
+                const saved = await saveWorkingBytesToSource(path, browserLargeSaveHandleHintProvider);
+                if (!saved) {
+                    return createCanceledSaveValidationResult(validation);
+                }
+                clearSearchCaches();
+                return validation;
+            } catch (error) {
+                await browserDocumentStore.clearChunkedDocument(stagingPath)
+                    .catch(() => undefined);
+                throw error;
+            } finally {
+                await browserDocumentStore.remove(stagingPath)
+                    .catch(() => undefined);
             }
-            if (bytesRead !== totalBytes) {
-                throw new Error('savePdfDataChunks chunks did not match the declared total size');
-            }
-            const data = new Uint8Array(totalBytes);
-            let offset = 0;
-            for (const chunk of collected) {
-                data.set(chunk, offset);
-                offset += chunk.byteLength;
-            }
-            return capability.savePdfData(path, data);
         },
         async writeDocxFile(path, data) {
             const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
@@ -590,13 +687,6 @@ export function createBrowserDocumentsFileCapability(
             );
             await decryptBrowserWorkingCopy(workingPath);
             return workingPath;
-        },
-        async saveFile(path) {
-            const result = await saveWorkingBytesToSourceStructured(path, browserLargeSaveHandleHintProvider);
-            if (result.ok) {
-                clearSearchCaches();
-            }
-            return result.ok;
         },
         async saveFileStructured(path) {
             const result = await saveWorkingBytesToSourceStructured(path, browserLargeSaveHandleHintProvider);
@@ -683,6 +773,13 @@ export function createBrowserDocumentsFileCapability(
         },
         getPathsForFiles(files) {
             return files.map(file => browserDocumentStore.getRefForFile(file));
+        },
+        async registerFilesForOpen(files) {
+            const refs: string[] = [];
+            for (const file of files) {
+                refs.push(await browserDocumentStore.registerFile(file));
+            }
+            return refs;
         },
         async createCombinedPdfFromFiles(files, options) {
             const refs: string[] = [];

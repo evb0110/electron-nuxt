@@ -125,8 +125,8 @@ let installPromise: Promise<IAgentAssistantInstallResult> | null = null;
 const sessionStore = createAssistantChatSessionStore({
     onSessionDeleted: (session: IAssistantChatSession, reason: string) => {
         const currentRuntime = runtimeLifecycle.getRuntime();
-        if (session.provider === 'codex' && currentRuntime && session.threadId) {
-            void currentRuntime.client.request('thread/archive', { threadId: session.threadId }).catch((error: unknown) => {
+        if (session.provider === 'codex' && currentRuntime && session.providerThreadId) {
+            void currentRuntime.client.request('thread/archive', { threadId: session.providerThreadId }).catch((error: unknown) => {
                 logger.warn(`Failed to archive ${reason} assistant thread: ${getErrorMessage(error)}`);
             });
         }
@@ -172,10 +172,7 @@ const {
     rememberStateScope,
     supersedeSessionTurn,
     supersedeSessionTurnWithError,
-} = createAssistantSessionTurnCoordinator({
-    providerRuntimeStates,
-    sessionStore,
-});
+} = createAssistantSessionTurnCoordinator({ sessionStore });
 
 const appServerNotifications = createAssistantAppServerNotificationController({
     addMessage,
@@ -222,8 +219,6 @@ function markAssistantDisabledError() {
     const error = createAssistantDisabledError();
     codexProviderRuntime.lastError = error;
     codexProviderRuntime.runtimeState = 'stopped';
-    codexProviderRuntime.turnPhase = 'idle';
-    codexProviderRuntime.activeTurnId = null;
     return error;
 }
 
@@ -248,13 +243,11 @@ async function shutdownClaudeAssistantRuntime(options: { shutdownMcp?: boolean }
             closePromises.push(session.claudeSession.close());
         }
         session.claudeSession = undefined;
-        session.threadId = null;
+        session.providerThreadId = null;
         supersedeSessionTurn(session);
     }
     await Promise.allSettled(closePromises);
     claudeProviderRuntime.runtimeState = 'stopped';
-    claudeProviderRuntime.turnPhase = 'idle';
-    claudeProviderRuntime.activeTurnId = null;
     claudeMcpToolCount = 0;
     sessionStore.clearActiveSessionForProvider('claude');
     if (options.shutdownMcp === true) {
@@ -355,13 +348,8 @@ function currentStatus(
         speedMode: normalizeAssistantSpeedMode(codexAssistantModels, selection.provider, normalizedModel, selection.speedMode),
     } as const satisfies IAssistantSelection;
     const session = getSessionForStatus(scope, normalizedSelection);
-    const activeProviderRuntime = getAssistantProviderRuntimeState(providerRuntimeStates, normalizedSelection.provider);
-    const fallbackTurnPhase = activeProviderRuntime.turnPhase;
-    const sessionTurnPhase = session ? getAssistantTurnPhase(session.turnOwner) : fallbackTurnPhase;
-    const sessionActiveTurnId = session
-        ? getAssistantTurnProviderTurnId(session.turnOwner)
-        : activeProviderRuntime.activeTurnId;
-    const sessionThreadId = session?.threadId ?? null;
+    const sessionTurnPhase = session ? getAssistantTurnPhase(session.turnOwner) : 'idle';
+    const sessionActiveTurnId = session ? getAssistantTurnProviderTurnId(session.turnOwner) : null;
     const effortInput = session?.effort ?? normalizedSelection.effort;
     const speedModeInput = session?.speedMode ?? normalizedSelection.speedMode;
     const providerStatuses = buildAssistantProviderStatuses({
@@ -422,8 +410,6 @@ function currentStatus(
             id: sessionActiveTurnId,
             phase: sessionTurnPhase,
         },
-        threadId: sessionThreadId,
-        activeTurnId: sessionActiveTurnId,
         lastCheckedAt: new Date().toISOString(),
         ...(error
             ? {
@@ -552,9 +538,7 @@ async function refreshClaudeInfo() {
     } else {
         claudeProviderRuntime.authState = 'unknown';
         claudeProviderRuntime.runtimeState = 'stopped';
-        claudeProviderRuntime.turnPhase = 'idle';
         claudeProviderRuntime.account = null;
-        claudeProviderRuntime.activeTurnId = null;
         if (claudeInfoCache.error) {
             claudeProviderRuntime.lastError = claudeInfoCache.error;
         } else {
@@ -623,8 +607,8 @@ function failCodexTurnAndFence(
     const turnId = getAssistantTurnProviderTurnId(session.turnOwner);
     const ownsGeneration = session.turnOwner.generation === generation;
     if (ownsGeneration) {
-        if (session.threadId === options.threadId) {
-            session.threadId = null;
+        if (session.providerThreadId === options.threadId) {
+            session.providerThreadId = null;
         }
         codexProviderRuntime.lastError = reason;
         codexProviderRuntime.runtimeState = 'error';
@@ -675,8 +659,6 @@ function reconcileFailedTurnMessages(session: IAssistantChatSession, errorMessag
 function markClaudeTurnError(session: IAssistantChatSession, message: string) {
     claudeProviderRuntime.lastError = message;
     claudeProviderRuntime.runtimeState = 'error';
-    claudeProviderRuntime.turnPhase = 'error';
-    claudeProviderRuntime.activeTurnId = null;
     if (isClaudeAuthErrorMessage(message)) {
         claudeProviderRuntime.authState = 'signed-out';
     }
@@ -701,7 +683,7 @@ function shouldDropClaudeCallback(session: IAssistantChatSession, turnId: string
 function createClaudeCallbacks(session: IAssistantChatSession) {
     return {
         onInitialized: (info: IClaudeAgentAssistantInit) => {
-            session.threadId = info.sessionId;
+            session.providerThreadId = info.sessionId;
             session.model = normalizeClaudeAssistantModel(info.model ?? session.model);
             if (info.models && info.models.length > 0) {
                 claudeAssistantModels = info.models;
@@ -712,7 +694,6 @@ function createClaudeCallbacks(session: IAssistantChatSession) {
             claudeProviderRuntime.authState = 'signed-in';
             if (claudeProviderRuntime.runtimeState !== 'busy') {
                 claudeProviderRuntime.runtimeState = 'ready';
-                claudeProviderRuntime.turnPhase = 'idle';
             }
             publishState(session.scope, session);
         },
@@ -731,7 +712,6 @@ function createClaudeCallbacks(session: IAssistantChatSession) {
             }
             if (claudeProviderRuntime.runtimeState === 'busy') {
                 markSessionTurnRunning(session, session.turnOwner.generation, getAssistantTurnProviderTurnId(session.turnOwner));
-                claudeProviderRuntime.turnPhase = 'running';
             }
             appendAssistantDelta(session, messageId, delta);
         },
@@ -772,7 +752,6 @@ async function ensureClaudeAssistantSession(
         const error = claudeInfo.error ?? 'Claude Agent SDK is not available.';
         claudeProviderRuntime.lastError = error;
         claudeProviderRuntime.runtimeState = 'stopped';
-        claudeProviderRuntime.turnPhase = 'idle';
         publishState(session.scope, session);
         throw new Error(error);
     }
@@ -799,12 +778,11 @@ async function ensureClaudeAssistantSession(
             logger.warn(`Failed to close Claude assistant session for settings change: ${getErrorMessage(error)}`);
         });
         session.claudeSession = undefined;
-        session.threadId = null;
+        session.providerThreadId = null;
         supersedeSessionTurn(session);
     }
 
     claudeProviderRuntime.runtimeState = 'starting';
-    claudeProviderRuntime.turnPhase = 'idle';
     delete claudeProviderRuntime.lastError;
     publishState(session.scope, session);
     const cwd = await ensureAssistantCwd();
@@ -827,7 +805,6 @@ async function ensureClaudeAssistantSession(
         callbacks: createClaudeCallbacks(session),
     });
     claudeProviderRuntime.runtimeState = 'ready';
-    claudeProviderRuntime.turnPhase = 'idle';
     publishState(session.scope, session);
     return session.claudeSession;
 }
@@ -900,7 +877,6 @@ export async function installAgentAssistantCodex(): Promise<IAgentAssistantInsta
         } catch (error) {
             codexProviderRuntime.lastError = getErrorMessage(error);
             codexProviderRuntime.runtimeState = 'error';
-            codexProviderRuntime.turnPhase = 'error';
             publishAssistantEvent({
                 type: 'error',
                 error: codexProviderRuntime.lastError,
@@ -1152,7 +1128,7 @@ export async function sendAgentAssistantMessage(
             }, decodeRecordResponse);
             if (isRecord(response.turn) && typeof response.turn.id === 'string') {
                 session.model = normalizeCodexAssistantModel(codexAssistantModels, selection.model);
-                if (session.threadId !== currentThreadId) {
+                if (session.providerThreadId !== currentThreadId) {
                     return {
                         ok: true,
                         state: currentState(session.scope, session),
@@ -1166,7 +1142,7 @@ export async function sendAgentAssistantMessage(
                 state: currentState(session.scope, session),
             };
         } catch (error) {
-            if (currentThreadId && session.threadId !== currentThreadId) {
+            if (currentThreadId && session.providerThreadId !== currentThreadId) {
                 return withAssistantErrorEnvelope({
                     ok: false,
                     state: currentState(session.scope, session),
@@ -1239,7 +1215,7 @@ export async function interruptAgentAssistant(
                 logger.warn(`Failed to interrupt Claude assistant turn: ${getErrorMessage(error)}`);
             });
             // interrupt() -> completeTurn() -> markClaudeTurnCompleted already resets
-            // activeTurnId/turnPhase/runtimeState and emits the turn-completed event.
+            // runtimeState and emits the turn-completed event.
             return currentState(session.scope, session);
         }
         supersedeSessionTurn(session);
@@ -1252,11 +1228,11 @@ export async function interruptAgentAssistant(
 
     const currentRuntime = runtimeLifecycle.getRuntime();
     const activeTurnId = session ? getAssistantTurnProviderTurnId(session.turnOwner) : null;
-    if (currentRuntime && session?.threadId && activeTurnId) {
+    if (currentRuntime && session?.providerThreadId && activeTurnId) {
         interruptSessionTurn(session);
         publishState(session.scope, session);
         await currentRuntime.client.request('turn/interrupt', {
-            threadId: session.threadId,
+            threadId: session.providerThreadId,
             turnId: activeTurnId,
         }).catch((error: unknown) => {
             logger.warn(`Failed to interrupt assistant turn: ${getErrorMessage(error)}`);
@@ -1294,7 +1270,7 @@ export async function resetAgentAssistantChat(
             });
         }
         session.claudeSession = undefined;
-        session.threadId = null;
+        session.providerThreadId = null;
         supersedeSessionTurn(session);
         session.messages.length = 0;
         delete session.lastError;
@@ -1305,7 +1281,7 @@ export async function resetAgentAssistantChat(
         return currentState(session.scope, session);
     }
 
-    const previousThreadId = session.threadId;
+    const previousThreadId = session.providerThreadId;
     const previousTurnId = getAssistantTurnProviderTurnId(session.turnOwner);
     const currentRuntime = runtimeLifecycle.getRuntime();
     if (currentRuntime && previousThreadId && previousTurnId) {
@@ -1325,7 +1301,7 @@ export async function resetAgentAssistantChat(
         });
     }
 
-    session.threadId = null;
+    session.providerThreadId = null;
     supersedeSessionTurn(session);
     session.messages.length = 0;
     delete session.lastError;

@@ -33,6 +33,11 @@ export const ELECTRON_SERVER_PATH = '/electron';
 
 const PNPM_COMMAND = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const NUXT_HTTP_READINESS_TIMEOUT_MS = 1000;
+const NUXT_DEPENDENCY_WARMUP_TIMEOUT_MS = 30_000;
+const NUXT_DEPENDENCY_WARMUP_REQUEST_TIMEOUT_MS = 2_000;
+const NUXT_DEPENDENCY_WARMUP_STABLE_POLLS = 2;
+const NUXT_DEPENDENCY_WARMUP_POLL_INTERVAL_MS = 500;
+const DYNAMIC_IMPORT_FAILURE_MARKER = 'Failed to fetch dynamically imported module';
 
 function formatElapsedMs(startedAt: number) {
     return `${((Date.now() - startedAt) / 1000).toFixed(2)}s`;
@@ -548,12 +553,101 @@ function spawnNuxtStartupAttempt(attemptIndex: number, logTiming: (message: stri
     return attempt;
 }
 
-async function warmupElectronAppDependencies(logTiming: (message: string) => void) {
-    console.log('[Nuxt] Warming up dependencies...');
+async function sampleElectronAppDependencyWarmup(options: {
+    fetchImpl?: typeof fetch;
+    requestTimeoutMs?: number;
+} = {}) {
+    const fetchImpl = options.fetchImpl ?? fetch;
+    const requestTimeoutMs = options.requestTimeoutMs ?? NUXT_DEPENDENCY_WARMUP_REQUEST_TIMEOUT_MS;
     try {
-        await fetch(getElectronAppUrl(), { method: 'GET' });
-    } catch {}
-    logTiming('Nuxt dependency warmup complete');
+        const res = await fetchImpl(getElectronAppUrl(), {
+            method: 'GET',
+            signal: AbortSignal.timeout(requestTimeoutMs),
+        });
+        const body = await res.text();
+        return {
+            ok: res.status === 200
+                && isReusableNuxtResponse({
+                    poweredBy: res.headers.get('x-powered-by'),
+                    body,
+                })
+                && !body.includes(DYNAMIC_IMPORT_FAILURE_MARKER),
+            status: res.status,
+            bodySnippet: body.trim().replace(/\s+/g, ' ').slice(0, 180),
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            status: null,
+            bodySnippet: error instanceof Error ? error.message : String(error),
+        };
+    }
+}
+
+export async function warmupElectronAppDependencies(
+    logTiming: (message: string) => void = () => {},
+    options: {
+        fetchImpl?: typeof fetch;
+        timeoutMs?: number;
+        requestTimeoutMs?: number;
+        stablePolls?: number;
+        pollIntervalMs?: number;
+    } = {},
+) {
+    console.log('[Nuxt] Warming up dependencies...');
+    const timeoutMs = options.timeoutMs ?? NUXT_DEPENDENCY_WARMUP_TIMEOUT_MS;
+    const stablePollsRequired = options.stablePolls ?? NUXT_DEPENDENCY_WARMUP_STABLE_POLLS;
+    const pollIntervalMs = options.pollIntervalMs ?? NUXT_DEPENDENCY_WARMUP_POLL_INTERVAL_MS;
+    const start = Date.now();
+    let stablePolls = 0;
+    let lastSample: Awaited<ReturnType<typeof sampleElectronAppDependencyWarmup>> | null = null;
+
+    while (Date.now() - start < timeoutMs) {
+        lastSample = await sampleElectronAppDependencyWarmup({
+            ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+            ...(options.requestTimeoutMs === undefined ? {} : { requestTimeoutMs: options.requestTimeoutMs }),
+        });
+        if (lastSample.ok) {
+            stablePolls += 1;
+            if (stablePolls >= stablePollsRequired) {
+                logTiming('Nuxt dependency warmup complete');
+                return {
+                    ok: true as const,
+                    stablePolls,
+                };
+            }
+        } else {
+            stablePolls = 0;
+        }
+        await delay(pollIntervalMs);
+    }
+
+    return {
+        ok: false as const,
+        reason: `Electron app dependencies did not warm within ${Math.round(timeoutMs / 1000)}s`,
+        status: lastSample?.status ?? null,
+        bodySnippet: lastSample?.bodySnippet ?? '',
+    };
+}
+
+function logElectronAppDependencyWarmupMiss(result: Awaited<ReturnType<typeof warmupElectronAppDependencies>>) {
+    if (result.ok) {
+        return;
+    }
+
+    console.warn(
+        `[Nuxt] Dependency warmup did not settle; continuing anyway. ${result.reason}`
+        + ` (last status=${result.status ?? 'unknown'}, body="${result.bodySnippet}")`,
+    );
+}
+
+export async function warmupElectronAppDependenciesBestEffort(
+    logTiming: (message: string) => void = () => {},
+    options: Parameters<typeof warmupElectronAppDependencies>[1] = {},
+) {
+    const result = await warmupElectronAppDependencies(logTiming, options);
+    logElectronAppDependencyWarmupMiss(result);
+    return result;
 }
 
 function createNuxtStartupExitError(attempt: INuxtStartupAttempt) {
@@ -630,7 +724,7 @@ async function waitForNuxtStartupAttempt(
 
             console.log('[Nuxt] Server ready at http://127.0.0.1:' + getNuxtPort());
             logTiming('Nuxt server ready');
-            await warmupElectronAppDependencies(logTiming);
+            await warmupElectronAppDependenciesBestEffort(logTiming);
             return {
                 kind: 'ready',
                 nuxt: attempt.nuxt,
@@ -640,6 +734,7 @@ async function waitForNuxtStartupAttempt(
         if (serverUp && elapsedMs > 15_000 && await isReusableNuxtServer()) {
             console.log('[Nuxt] Reusable server responded without full build markers; proceeding with existing readiness signal.');
             logTiming('Nuxt server ready from HTTP fallback');
+            await warmupElectronAppDependenciesBestEffort(logTiming);
             return {
                 kind: 'ready',
                 nuxt: attempt.nuxt,
@@ -657,6 +752,7 @@ async function waitForNuxtStartupAttempt(
         const now = Date.now();
         if (serverUp && !buildsComplete && now - lastLog > 5000) {
             if (await maybeReuseUnrelatedNuxtServer(attempt)) {
+                await warmupElectronAppDependenciesBestEffort(logTiming);
                 return {
                     kind: 'ready',
                     nuxt: null,
@@ -683,6 +779,7 @@ async function stopTimedOutNuxtAttempt(attempt: INuxtStartupAttempt) {
 export async function startNuxtServer(forceClean = false): Promise<ChildProcess | null> {
     const logTiming = createStartupLogger();
     if (!await prepareNuxtServerStart(forceClean, logTiming)) {
+        await warmupElectronAppDependenciesBestEffort(logTiming);
         return null;
     }
 

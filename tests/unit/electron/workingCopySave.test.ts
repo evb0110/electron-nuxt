@@ -132,9 +132,9 @@ describe('workingCopySave', () => {
         const queuedMutation = deferred<undefined>();
         const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
         const blockingMutation = enqueueWorkingCopyMutation(workingPath, () => queuedMutation.promise);
-        const { handleFileSave } = await import('@electron/features/documents/main/workingCopySave');
+        const { handleFileSaveStructured } = await import('@electron/features/documents/main/workingCopySave');
 
-        const savePromise = handleFileSave(context, workingPath);
+        const savePromise = handleFileSaveStructured(context, workingPath);
         await waitForSettledQueueTurn();
 
         expect(readFileSyncUtf8(originalPath)).toBe('old-original');
@@ -142,7 +142,11 @@ describe('workingCopySave', () => {
 
         queuedMutation.resolve(undefined);
         await blockingMutation;
-        await expect(savePromise).resolves.toBe(true);
+        await expect(savePromise).resolves.toMatchObject({
+            ok: true,
+            externalWriteCommitted: true,
+            workingCopyRefreshed: true,
+        });
         expect(readFileSyncUtf8(originalPath)).toBe('new-working');
         expect(mocks.optimizeLargePdfForSave).toHaveBeenCalledWith(`${originalPath}.tmp`);
         expect(mocks.atomicReplace).toHaveBeenCalledWith(`${originalPath}.tmp`, originalPath);

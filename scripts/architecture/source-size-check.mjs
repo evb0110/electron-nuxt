@@ -69,7 +69,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Finding 9 Stage A - PDF thumbnail render orchestration extraction',
     },
     'electron/features/agent/codexAssistant.ts': {
-        maxLines: 1344,
+        maxLines: 1320,
         reason: 'transitional Electron assistant backend facade after session store and runtime lifecycle extraction',
         stage: 'Worker 2/Stage 1 - Assistant backend session/runtime split',
     },

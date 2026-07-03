@@ -9,7 +9,6 @@ import type {
     TAgentAssistantEffort,
     TAgentAssistantProviderId,
     TAgentAssistantSpeedMode,
-    TAgentAssistantTurnPhase,
 } from '@contracts/agent';
 import {
     ASSISTANT_DEFAULT_EFFORT,
@@ -33,13 +32,11 @@ export interface IAssistantChatSession {
     model: string;
     effort: TAgentAssistantEffort;
     speedMode: TAgentAssistantSpeedMode;
-    threadId: string | null;
+    providerThreadId: string | null;
     lastSenderWindowId: number | null;
     turnOwner: TAssistantTurnOwnerState;
     sendInFlight: Promise<unknown> | null;
     scopeBinding: IAssistantSessionScopeBinding | null;
-    activeTurnId: string | null;
-    turnPhase: TAgentAssistantTurnPhase;
     messages: IAgentAssistantChatMessage[];
     lastAccessedAtMs: number;
     claudeSession: ClaudeAgentAssistantSession | undefined;
@@ -134,11 +131,7 @@ function cloneAssistantMessage(message: IAgentAssistantChatMessage): IAgentAssis
 }
 
 function isEvictableChatSession(session: IAssistantChatSession) {
-    return session.activeTurnId === null
-        && !isAssistantTurnActive(session.turnOwner)
-        && session.turnPhase !== 'starting'
-        && session.turnPhase !== 'running'
-        && session.turnPhase !== 'interrupting';
+    return !isAssistantTurnActive(session.turnOwner);
 }
 
 export function createAssistantChatSessionStore(options: IAssistantChatSessionStoreOptions = {}) {
@@ -287,13 +280,11 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             model: selection.model,
             effort: selection.effort,
             speedMode: selection.speedMode,
-            threadId: null,
+            providerThreadId: null,
             lastSenderWindowId: null,
             turnOwner: createInitialAssistantTurnOwner(),
             sendInFlight: null,
             scopeBinding: null,
-            activeTurnId: null,
-            turnPhase: 'idle',
             messages: [],
             lastAccessedAtMs: now,
             claudeSession: undefined,
@@ -317,7 +308,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         }
 
         const session = Array.from(chatSessions.values())
-            .find(candidate => candidate.provider === 'codex' && candidate.threadId === candidateThreadId) ?? null;
+            .find(candidate => candidate.provider === 'codex' && candidate.providerThreadId === candidateThreadId) ?? null;
         return session ? touchSession(session) : null;
     }
 

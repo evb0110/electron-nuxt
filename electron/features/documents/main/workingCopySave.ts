@@ -158,25 +158,6 @@ async function repairPdfWithQpdf(
     });
 }
 
-export async function handleFileSave(
-    context: IDocumentsSenderIdContext,
-    workingPath: string,
-) {
-    const result = await handleFileSaveStructured(context, workingPath);
-    if (result.ok) {
-        return true;
-    }
-
-    if (result.reason === 'working-copy-missing') {
-        throw new WorkingCopyMissingError(result.message);
-    }
-    if (result.reason === 'validation-failed' || result.reason === 'stale') {
-        throw new Error(`PDF validation failed: ${result.validation?.errors.join('; ') ?? result.message ?? 'unknown error'}`);
-    }
-
-    throw new Error(`Failed to save: ${result.message ?? result.reason}`);
-}
-
 export async function handleFileSaveStructured(
     context: IDocumentsSenderIdContext,
     workingPath: string,

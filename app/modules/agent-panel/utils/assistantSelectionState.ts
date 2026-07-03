@@ -135,8 +135,6 @@ export function createSelectedAssistantStatus(
                 id: null,
                 phase: 'idle',
             },
-        threadId: preserveTurn ? baseStatus.threadId : null,
-        activeTurnId: preserveTurn ? baseStatus.activeTurnId : null,
         ...(providerStatus.error ? {error: providerStatus.error} : {}),
     } satisfies IAgentAssistantStatus;
 }

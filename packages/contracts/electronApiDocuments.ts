@@ -450,8 +450,7 @@ export interface IDocumentsFileCapability {
     writeDocxFile: (path: TDocumentRef, data: Uint8Array) => Promise<boolean>;
     createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
     createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
-    saveFile: (path: TDocumentRef) => Promise<boolean>;
-    saveFileStructured?: (path: TDocumentRef) => Promise<TDocumentSaveResult>;
+    saveFileStructured: (path: TDocumentRef) => Promise<TDocumentSaveResult>;
     savePdfData: (path: TDocumentRef, data: Uint8Array) => Promise<IPdfValidationResult>;
     savePdfDataChunks: (
         path: TDocumentRef,
@@ -506,8 +505,19 @@ export interface IDocumentsFileCapability {
         clear: () => Promise<void>;
     };
 
+    /**
+     * Synchronous native path extraction for file inputs. Browser File ingestion
+     * for open/drop flows must use registerFilesForOpen so ingestion failures
+     * reach the caller before a document ref is opened.
+     */
     getPathForFile: (file: File) => TDocumentRef;
+    /**
+     * Synchronous native path extraction for file inputs. Browser File ingestion
+     * for open/drop flows must use registerFilesForOpen so ingestion failures
+     * reach the caller before document refs are opened.
+     */
     getPathsForFiles: (files: File[]) => TDocumentRef[];
+    registerFilesForOpen: (files: File[]) => Promise<TDocumentRef[]>;
     createCombinedPdfFromFiles?: (
         files: File[],
         options?: ICreateCombinedPdfFromFilesOptions,
@@ -524,6 +534,7 @@ export interface IDocumentsPickerCapability extends Pick<
     | 'openImageDialog'
     | 'getPathForFile'
     | 'getPathsForFiles'
+    | 'registerFilesForOpen'
     | 'createCombinedPdfFromFiles'
 > {}
 
@@ -581,7 +592,6 @@ export interface IDocumentsPdfPersistenceCapability extends Pick<
     | 'writeFile'
     | 'replaceWorkingCopyFromPath'
     | 'writeDocxFile'
-    | 'saveFile'
     | 'saveFileStructured'
     | 'savePdfData'
     | 'savePdfDataChunks'

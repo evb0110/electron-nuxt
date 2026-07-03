@@ -140,8 +140,6 @@ function createStatus(overrides: Partial<IAgentAssistantStatus> = {}): IAgentAss
             id: null,
             phase: 'idle',
         },
-        threadId: null,
-        activeTurnId: null,
         lastCheckedAt: '2026-06-02T00:00:00.000Z',
         ...overrides,
     };

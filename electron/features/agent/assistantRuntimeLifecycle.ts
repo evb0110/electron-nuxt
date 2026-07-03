@@ -154,18 +154,14 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         runtime?.client.shutdown();
         runtime = null;
         options.providerRuntime.runtimeState = 'stopped';
-        options.providerRuntime.turnPhase = 'idle';
-        options.providerRuntime.activeTurnId = null;
         options.sessionStore.clearActiveSessionForProvider('codex');
         for (const session of options.sessionStore.listSessions()) {
             if (session.provider !== 'codex') {
                 continue;
             }
-            session.threadId = null;
+            session.providerThreadId = null;
             session.turnOwner = supersedeAssistantTurn(session.turnOwner);
             session.scopeBinding = null;
-            session.activeTurnId = null;
-            session.turnPhase = 'idle';
         }
         mcpToolCount = 0;
         if (shutdownOptions.shutdownMcp === true) {
@@ -232,21 +228,18 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
 
     async function startRuntime() {
         options.providerRuntime.runtimeState = 'starting';
-        options.providerRuntime.turnPhase = 'idle';
         delete options.providerRuntime.lastError;
         options.publishCodexState();
 
         const codexInfo = await refreshCodexInfo();
         if (!codexInfo.installed || !codexInfo.path) {
             options.providerRuntime.runtimeState = 'stopped';
-            options.providerRuntime.turnPhase = 'idle';
             options.providerRuntime.authState = 'unknown';
             options.publishCodexState();
             throw new Error('Codex is not installed.');
         }
         if (!codexInfo.isVersionSupported) {
             options.providerRuntime.runtimeState = 'error';
-            options.providerRuntime.turnPhase = 'error';
             options.providerRuntime.lastError = `Codex ${codexInfo.version ?? ''} is too old. EVB Assistant requires Codex ${codexInfo.minimumVersion} or newer.`;
             options.publishCodexState();
             throw new Error(options.providerRuntime.lastError);
@@ -306,7 +299,6 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             client.shutdown();
             runtime = null;
             options.providerRuntime.runtimeState = 'error';
-            options.providerRuntime.turnPhase = 'error';
             options.providerRuntime.lastError = getErrorMessage(error);
             options.publishCodexState();
             throw error;
@@ -368,8 +360,8 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         if (options.providerRuntime.authState !== 'signed-in') {
             throw new Error('Sign in with ChatGPT before using EVB Assistant.');
         }
-        if (session.threadId) {
-            return session.threadId;
+        if (session.providerThreadId) {
+            return session.providerThreadId;
         }
 
         const codexModel = normalizeCodexAssistantModel(options.getCodexModels(), session.model);
@@ -387,16 +379,13 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         if (!isRecord(response.thread) || typeof response.thread.id !== 'string') {
             throw new Error('Codex did not return an assistant thread.');
         }
-        session.threadId = response.thread.id;
+        session.providerThreadId = response.thread.id;
         session.turnOwner = supersedeAssistantTurn(session.turnOwner);
         session.scopeBinding = null;
-        session.activeTurnId = null;
-        session.turnPhase = 'idle';
         options.sessionStore.setActiveSession(session);
         options.providerRuntime.runtimeState = 'ready';
-        options.providerRuntime.turnPhase = 'idle';
         options.publishCodexState(session.scope, session);
-        return session.threadId;
+        return session.providerThreadId;
     }
 
     return {

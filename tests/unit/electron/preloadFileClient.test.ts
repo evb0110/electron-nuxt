@@ -295,7 +295,7 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.saveFileStructured?.('/tmp/working.pdf')).resolves.toBe(result);
+        await expect(client.saveFileStructured('/tmp/working.pdf')).resolves.toBe(result);
 
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.fileSaveStructured,

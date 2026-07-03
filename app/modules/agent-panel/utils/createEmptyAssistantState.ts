@@ -122,8 +122,6 @@ export function createEmptyAssistantState({
                 id: null,
                 phase: 'idle',
             },
-            threadId: null,
-            activeTurnId: null,
             lastCheckedAt: '',
         },
         messages: [],

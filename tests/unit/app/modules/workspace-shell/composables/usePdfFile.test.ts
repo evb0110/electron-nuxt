@@ -31,7 +31,7 @@ const mockDocumentFiles = {
     readFile: vi.fn(),
     readFileRange: vi.fn(),
     writeFile: vi.fn(),
-    saveFile: vi.fn(),
+    saveFileStructured: vi.fn(),
     savePdfNoteTextUpdates: vi.fn(),
     savePdfNoteChanges: vi.fn(),
     savePdfAs: vi.fn(),
@@ -71,7 +71,7 @@ const mockDocuments = {
     writeFile: vi.fn(() => failLegacyDocumentsCall('writeFile')),
     createWorkingCopyFromData: vi.fn(() => failLegacyDocumentsCall('createWorkingCopyFromData')),
     createWorkingCopyFromPath: vi.fn(() => failLegacyDocumentsCall('createWorkingCopyFromPath')),
-    saveFile: vi.fn(() => failLegacyDocumentsCall('saveFile')),
+    saveFileStructured: vi.fn(() => failLegacyDocumentsCall('saveFileStructured')),
     savePdfNoteTextUpdates: vi.fn(() => failLegacyDocumentsCall('savePdfNoteTextUpdates')),
     savePdfNoteChanges: vi.fn(() => failLegacyDocumentsCall('savePdfNoteChanges')),
     savePdfAs: vi.fn(() => failLegacyDocumentsCall('savePdfAs')),
@@ -212,7 +212,13 @@ describe('usePdfFile', () => {
         mockDocumentFiles.readFile.mockReset();
         mockDocumentFiles.readFileRange.mockReset();
         mockDocumentFiles.writeFile.mockReset();
-        mockDocumentFiles.saveFile.mockReset();
+        mockDocumentFiles.saveFileStructured.mockReset();
+        mockDocumentFiles.saveFileStructured.mockResolvedValue({
+            ok: true,
+            externalWriteCommitted: true,
+            workingCopyRefreshed: true,
+            validation: null,
+        });
         mockDocumentFiles.savePdfNoteTextUpdates.mockReset();
         mockDocumentFiles.savePdfNoteChanges.mockReset();
         mockDocumentFiles.savePdfAs.mockReset();
@@ -1205,7 +1211,12 @@ describe('usePdfFile', () => {
                 .mockResolvedValueOnce(pdfBytes.buffer)
                 .mockResolvedValueOnce(savedBytes.buffer);
             mockDocumentFiles.writeFile.mockResolvedValue(undefined);
-            mockDocumentFiles.saveFile.mockResolvedValue(true);
+            mockDocumentFiles.saveFileStructured.mockResolvedValue({
+                ok: true,
+                externalWriteCommitted: true,
+                workingCopyRefreshed: true,
+                validation: null,
+            });
 
             const file = createTestPdfFile();
             await file.openFile();
@@ -1236,7 +1247,12 @@ describe('usePdfFile', () => {
             mockDocumentFiles.statFile.mockResolvedValue({ size: pdfBytes.length });
             mockDocumentFiles.readFile.mockResolvedValue(pdfBytes.buffer);
             mockDocumentFiles.writeFile.mockResolvedValue(undefined);
-            mockDocumentFiles.saveFile.mockResolvedValue(true);
+            mockDocumentFiles.saveFileStructured.mockResolvedValue({
+                ok: true,
+                externalWriteCommitted: true,
+                workingCopyRefreshed: true,
+                validation: null,
+            });
 
             const file = createTestPdfFile();
             await file.openFile();
@@ -1284,7 +1300,12 @@ describe('usePdfFile', () => {
             mockDocumentFiles.statFile.mockResolvedValue({ size: 2 });
             mockDocumentFiles.readFile.mockResolvedValueOnce(pdfBytes.buffer);
             mockDocumentFiles.writeFile.mockResolvedValue(undefined);
-            mockDocumentFiles.saveFile.mockResolvedValue(true);
+            mockDocumentFiles.saveFileStructured.mockResolvedValue({
+                ok: true,
+                externalWriteCommitted: true,
+                workingCopyRefreshed: true,
+                validation: null,
+            });
             mockDocumentPdf.analyzePdfConformance
                 .mockResolvedValueOnce(unsignedProfile)
                 .mockImplementationOnce(() => conformanceGate.promise);
@@ -1512,9 +1533,15 @@ describe('usePdfFile', () => {
             });
             const saveGate = deferred<boolean>();
             mockDocumentFiles.writeFile.mockResolvedValue(undefined);
-            mockDocumentFiles.saveFile.mockImplementation(async (path: string) => {
+            mockDocumentFiles.saveFileStructured.mockImplementation(async (path: string) => {
                 if (path === '/tmp/first.pdf') {
-                    return saveGate.promise;
+                    await saveGate.promise;
+                    return {
+                        ok: true,
+                        externalWriteCommitted: true,
+                        workingCopyRefreshed: true,
+                        validation: null,
+                    };
                 }
                 throw new Error(`unexpected save path ${path}`);
             });
@@ -1662,7 +1689,7 @@ describe('usePdfFile', () => {
 
             const result = await file.saveFile(pdfBytes, { saveMode: 'rewrite' });
 
-            expect(mockDocumentFiles.saveFile).not.toHaveBeenCalled();
+            expect(mockDocumentFiles.saveFileStructured).not.toHaveBeenCalled();
             expect(mockDocumentWorkingCopy.createWorkingCopyFromData).toHaveBeenCalledWith('signed.pdf', pdfBytes);
             expect(mockDocumentFiles.savePdfAs).toHaveBeenCalledWith('/tmp/staged-signed.pdf');
             expect(result).toEqual({

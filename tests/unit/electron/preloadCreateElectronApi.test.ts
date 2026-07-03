@@ -57,7 +57,6 @@ const documentsClientMock = vi.hoisted(() => ({
     writeDocxFile: vi.fn(async () => true),
     createWorkingCopyFromData: vi.fn(async () => '/tmp/working-copy.pdf'),
     createWorkingCopyFromPath: vi.fn(async () => '/tmp/working-copy.pdf'),
-    saveFile: vi.fn(async () => true),
     saveFileStructured: vi.fn(async () => ({
         ok: true,
         externalWriteCommitted: true,
@@ -179,7 +178,6 @@ const splitDocumentCapabilityMirrorGroups = [
             ['writeFile'],
             ['replaceWorkingCopyFromPath'],
             ['writeDocxFile'],
-            ['saveFile'],
             ['saveFileStructured'],
             ['savePdfData'],
             ['savePdfDataChunks'],

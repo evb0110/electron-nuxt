@@ -192,7 +192,7 @@ export function createAssistantAppServerNotificationController(options: IAssista
             options.codexProviderRuntime.runtimeState = 'busy';
             options.publishAssistantEvent({
                 type: 'turn-started',
-                ...(options.codexProviderRuntime.activeTurnId ? { turnId: options.codexProviderRuntime.activeTurnId } : {}),
+                ...(turnId ? { turnId } : {}),
             }, session.scope, session);
             return;
         }
@@ -234,7 +234,6 @@ export function createAssistantAppServerNotificationController(options: IAssista
             const delta = getStringParam(params, 'delta');
             if (options.codexProviderRuntime.runtimeState === 'busy') {
                 options.markSessionTurnRunning(session, session.turnOwner.generation, getAssistantTurnProviderTurnId(session.turnOwner));
-                options.codexProviderRuntime.turnPhase = 'running';
             }
             if (itemId && delta) {
                 options.appendAssistantDelta(session, itemId, delta);
@@ -299,18 +298,14 @@ export function createAssistantAppServerNotificationController(options: IAssista
         const session = options.getActiveChatSession();
         options.clearRuntimeForExit();
         options.codexProviderRuntime.runtimeState = 'error';
-        options.codexProviderRuntime.turnPhase = 'error';
-        options.codexProviderRuntime.activeTurnId = null;
         for (const chatSession of options.sessionStore.listSessions()) {
             if (chatSession.provider !== 'codex') {
                 continue;
             }
-            chatSession.threadId = null;
+            chatSession.providerThreadId = null;
             options.supersedeSessionTurn(chatSession);
         }
         options.codexProviderRuntime.runtimeState = 'error';
-        options.codexProviderRuntime.turnPhase = 'error';
-        options.codexProviderRuntime.activeTurnId = null;
         if (session) {
             options.errorSessionTurn(session, session.turnOwner.generation, message);
             session.lastError = message;

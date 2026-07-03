@@ -19,6 +19,7 @@ interface ICapturedListeners {
 }
 
 let capturedListeners: ICapturedListeners = {};
+const toastAddMock = vi.fn();
 
 vi.mock('@vueuse/core', () => ({ useEventListener: vi.fn((_target: unknown, event: string, listener: TCapturedListener) => {
     if (event === 'dragover' || event === 'drop') {
@@ -68,6 +69,9 @@ async function flushDropQueue() {
 describe('useExternalFileDrop', () => {
     beforeEach(() => {
         capturedListeners = {};
+        toastAddMock.mockClear();
+        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
     });
 
     afterEach(() => {
@@ -76,21 +80,18 @@ describe('useExternalFileDrop', () => {
 
     it('opens supported dropped files', async () => {
         const openPathsInAppropriateTab = vi.fn(async (_paths: string[]) => {});
-        const legacyGetPathsForFiles = vi.fn(() => {
+        const legacyRegisterFilesForOpen = vi.fn(() => {
             throw new Error('legacy drop path extraction should not be used');
         });
-        const pickerGetPathsForFiles = vi.fn((files: Array<{ name: string }>) => files.map((file) => {
-            if (file.name === 'file-0') {
-                return '/docs/a.pdf';
-            }
-            return '/docs/b.djvu';
-        }));
+        const pickerRegisterFilesForOpen = vi.fn(async (files: Array<{ name: string }>) => files.map((file) =>
+            file.name === 'file-0' ? '/docs/a.pdf' : '/docs/b.djvu',
+        ));
 
         vi.stubGlobal('window', {
             ...globalThis,
             electronAPI: createElectronPlatformApiFixture({
-                documentPicker: { getPathsForFiles: pickerGetPathsForFiles },
-                documents: { getPathsForFiles: legacyGetPathsForFiles },
+                documentPicker: { registerFilesForOpen: pickerRegisterFilesForOpen },
+                documents: { registerFilesForOpen: legacyRegisterFilesForOpen },
             }),
         });
 
@@ -106,8 +107,8 @@ describe('useExternalFileDrop', () => {
             '/docs/a.pdf',
             '/docs/b.djvu',
         ]);
-        expect(pickerGetPathsForFiles).toHaveBeenCalledOnce();
-        expect(legacyGetPathsForFiles).not.toHaveBeenCalled();
+        expect(pickerRegisterFilesForOpen).toHaveBeenCalledTimes(2);
+        expect(legacyRegisterFilesForOpen).not.toHaveBeenCalled();
     });
 
     it('ignores unsupported extensions and non-file drags', async () => {
@@ -115,7 +116,7 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createElectronPlatformApiFixture({ documents: { getPathsForFiles: vi.fn(() => ['/docs/readme.txt']) } }),
+            electronAPI: createElectronPlatformApiFixture({ documents: { registerFilesForOpen: vi.fn(async () => ['/docs/readme.txt']) } }),
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -137,7 +138,7 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createElectronPlatformApiFixture({ documents: { getPathsForFiles: vi.fn(() => ['/docs/a.pdf']) } }),
+            electronAPI: createElectronPlatformApiFixture({ documents: { registerFilesForOpen: vi.fn(async () => ['/docs/a.pdf']) } }),
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -165,12 +166,9 @@ describe('useExternalFileDrop', () => {
             }
         });
 
-        const documents = { getPathsForFiles: vi.fn((files: Array<{ name: string }>) => files.map((file) => {
-            if (file.name === 'file-0') {
-                return '/docs/a.pdf';
-            }
-            return '/docs/b.png';
-        })) };
+        const documents = { registerFilesForOpen: vi.fn(async (files: Array<{ name: string }>) => files.map((file) =>
+            file.name === 'file-0' ? '/docs/a.pdf' : '/docs/b.png',
+        )) };
 
         vi.stubGlobal('window', {
             ...globalThis,
@@ -195,5 +193,35 @@ describe('useExternalFileDrop', () => {
         await flushDropQueue();
 
         expect(openPathsInAppropriateTab).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports failed dropped-file registration and opens remaining valid files', async () => {
+        const openPathsInAppropriateTab = vi.fn(async (_paths: string[]) => {});
+        const registerFilesForOpen = vi.fn(async (files: Array<{ name: string }>) => {
+            if (files[0]?.name === 'file-0') {
+                throw new Error('ingestion failed');
+            }
+            return ['/docs/b.pdf'];
+        });
+
+        vi.stubGlobal('window', {
+            ...globalThis,
+            electronAPI: createElectronPlatformApiFixture({ documentPicker: { registerFilesForOpen } }),
+        });
+
+        useExternalFileDrop({ openPathsInAppropriateTab });
+        capturedListeners.drop?.(createDragEvent([
+            '/docs/a.pdf',
+            '/docs/b.pdf',
+        ]));
+
+        await flushDropQueue();
+
+        expect(toastAddMock).toHaveBeenCalledWith({
+            color: 'error',
+            title: 'errors.file.open',
+            description: 'ingestion failed',
+        });
+        expect(openPathsInAppropriateTab).toHaveBeenCalledWith(['/docs/b.pdf']);
     });
 });

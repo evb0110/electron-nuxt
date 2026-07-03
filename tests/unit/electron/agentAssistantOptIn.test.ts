@@ -683,7 +683,6 @@ describe('agent assistant opt-in gating', () => {
         expect(result.ok).toBe(false);
         expect(result.error).toBe('turn/start timed out after 30000ms.');
         expect(process.requestMethods).toContain('thread/archive');
-        expect(result.state.status.threadId).toBeNull();
         vi.useRealTimers();
 
         process.notifyAppServer('item/completed', {
@@ -699,7 +698,6 @@ describe('agent assistant opt-in gating', () => {
 
         const state = await getAgentAssistantState({ scope: documentScope });
         expect(state.messages.map(message => message.text)).not.toContain('late text');
-        expect(state.status.threadId).toBeNull();
     });
 
     it('starts fresh Codex threads for inactive document sessions after app-server exit', async () => {

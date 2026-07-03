@@ -51,7 +51,6 @@ import {
 } from '@electron/features/documents/main/print';
 import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
 import {
-    handleFileSave,
     handleFileSaveStructured,
     handleOptimizePdfForInteraction,
     handleRepairPdfSave,
@@ -141,7 +140,6 @@ export function createDocumentsService(): IDocumentsService {
         replaceWorkingCopyFromPath: (...args: TDocumentsServiceArgs<'replaceWorkingCopyFromPath'>) =>
             handleReplaceWorkingCopyFromPath(...args),
         writeDocxFile: (...args: TDocumentsServiceArgs<'writeDocxFile'>) => handleFileWriteDocx(...args),
-        saveFile: (...args: TDocumentsServiceArgs<'saveFile'>) => handleFileSave(...args),
         saveFileStructured: (...args: TDocumentsServiceArgs<'saveFileStructured'>) =>
             handleFileSaveStructured(...args),
         repairPdf: (...args: TDocumentsServiceArgs<'repairPdf'>) => handleRepairPdfSave(...args),

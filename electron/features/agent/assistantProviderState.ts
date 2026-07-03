@@ -7,7 +7,6 @@ import type {
     TAgentAssistantProviderId,
     TAgentAssistantRuntimeState,
     TAgentAssistantSpeedMode,
-    TAgentAssistantTurnPhase,
 } from '@contracts/agent';
 import type { ICodexCliInfo } from '@electron/features/agent/codexCli';
 import type { TCodexAssistantModelOption } from '@electron/features/agent/assistantModelCatalog';
@@ -22,8 +21,6 @@ export interface IAssistantProviderRuntimeState {
     authState: TAgentAssistantAuthState;
     runtimeState: TAgentAssistantRuntimeState;
     account: IAgentAssistantAccount | null;
-    activeTurnId: string | null;
-    turnPhase: TAgentAssistantTurnPhase;
     lastError?: string;
 }
 
@@ -39,8 +36,6 @@ function createAssistantProviderRuntimeState(
         authState: 'unknown',
         runtimeState: 'stopped',
         account: null,
-        activeTurnId: null,
-        turnPhase: 'idle',
         ...overrides,
     };
 }

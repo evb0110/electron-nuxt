@@ -118,8 +118,6 @@ export function createBrowserAssistantState(): IAgentAssistantState {
                 id: null,
                 phase: 'idle',
             },
-            threadId: null,
-            activeTurnId: null,
             lastCheckedAt: new Date().toISOString(),
         },
         messages: [],
