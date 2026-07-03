@@ -117,8 +117,11 @@ import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/
 import { shouldShowWorkspaceHostLoader } from '@app/modules/workspace-shell/host/shouldShowWorkspaceHostLoader';
 import { shouldShowWorkspacePlaceholder } from '@app/modules/workspace-shell/host/shouldShowWorkspacePlaceholder';
 import {
+    createWorkspaceRestoreAttemptState,
+    tryClaimWorkspaceRestoreAttempt,
     workspaceHasDocumentOrOpenError as getWorkspaceHasDocumentOrOpenError,
     workspaceHasOpenedDocument as getWorkspaceHasOpenedDocument,
+    workspaceSessionHasOpenedDocument as getWorkspaceSessionHasOpenedDocument,
 } from '@app/modules/workspace-shell/host/deferredWorkspaceHostState';
 import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
@@ -187,7 +190,9 @@ const emit = defineEmits<{
 }>();
 
 function handleDocumentRecordUpdate(record: IWorkspaceDocumentRecord) {
-    activeDocumentSession.value.applyWorkspaceRecord(record, 'workspace');
+    if (!documentSession) {
+        activeDocumentSession.value.applyWorkspaceRecord(record, 'workspace');
+    }
     emit('update-document-record', record);
 }
 
@@ -261,6 +266,7 @@ const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
 let workspaceLoadPromise: Promise<IWorkspaceExpose | null> | null = null;
 let workspacePreloadPromise: Promise<boolean> | null = null;
 let isHostUnmounted = false;
+const restoreAttemptState = createWorkspaceRestoreAttemptState();
 const filePickerInFlightCount = ref(0);
 const workspaceSplitCache = useWorkspaceSplitCache();
 const WORKSPACE_MOUNT_TIMEOUT_MS = 30_000;
@@ -396,6 +402,16 @@ function requestWorkspaceMount(reason: string) {
     });
 }
 
+const workspaceHasDocumentOrOpenError = () => getWorkspaceHasDocumentOrOpenError(
+    mountedWorkspace.value,
+    activeDocumentSession.value.snapshot.value,
+);
+const workspaceHasOpenedDocument = () => getWorkspaceHasOpenedDocument(
+    mountedWorkspace.value,
+    activeDocumentSession.value.snapshot.value,
+);
+const workspaceSessionHasOpenedDocument = () => getWorkspaceSessionHasOpenedDocument(activeDocumentSession.value.snapshot.value);
+
 watch(
     [
         hasQueuedSplitRestore,
@@ -470,6 +486,7 @@ watch(
             || hasDocumentHint !== true
             || workspaceHasOpenedDocument()
             || opening
+            || !tryClaimWorkspaceRestoreAttempt(restoreAttemptState, activeDocumentSession.value.snapshot.value, path)
         ) {
             return;
         }
@@ -492,6 +509,7 @@ watch(hasMountedWorkspace, (mounted) => {
         || !documentPath
         || activeDocumentOpenTransaction.value
         || workspaceHasOpenedDocument()
+        || !tryClaimWorkspaceRestoreAttempt(restoreAttemptState, activeDocumentSession.value.snapshot.value, documentPath)
     ) {
         return;
     }
@@ -517,7 +535,8 @@ function handleRetryWorkspaceMount() {
 function shouldSeedPendingTabHint(target: TTabUpdate | null | undefined) {
     return Boolean(
         target
-        && !workspaceHasOpenedDocument(),
+        && !workspaceHasOpenedDocument()
+        && !workspaceSessionHasOpenedDocument(),
     );
 }
 
@@ -563,7 +582,7 @@ async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransa
     await nextTick();
 
     if (!opened) {
-        return;
+        return false;
     }
 
     const deadline = Date.now() + DOCUMENT_OPEN_SETTLE_TIMEOUT_MS;
@@ -576,14 +595,27 @@ async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransa
         if (workspace) {
             const remainingMs = Math.max(0, deadline - Date.now());
             if (remainingMs > 0) {
-                await Promise.race([
-                    workspace.waitForDocumentOpenSettled(),
-                    delay(remainingMs),
-                ]);
+                try {
+                    await Promise.race([
+                        workspace.waitForDocumentOpenSettled(),
+                        delay(remainingMs).then(() => {
+                            throw new Error('Document open settle timed out');
+                        }),
+                    ]);
+                } catch (error) {
+                    BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Document open settle wait failed', {
+                        tabId: tabId,
+                        transactionId: transaction.sessionTransaction.id,
+                        action: transaction.action,
+                        target: transaction.target,
+                        error,
+                    });
+                    return false;
+                }
             }
 
             if (workspaceHasDocumentOrOpenError()) {
-                return;
+                return true;
             }
         } else {
             await delay(WORKSPACE_MOUNT_POLL_INTERVAL_MS);
@@ -600,6 +632,8 @@ async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransa
             hasMountedWorkspace: hasMountedWorkspace.value,
         });
     }
+
+    return workspaceHasDocumentOrOpenError();
 }
 
 function finishDocumentOpenTransaction(transaction: IDocumentOpenTransactionRun, opened: boolean) {
@@ -634,19 +668,17 @@ async function runWithDocumentOpenInFlight<T>(
     const transaction = beginDocumentOpenTransaction(intent);
     let result: T | undefined;
     let didThrow = false;
+    let didReachTerminalState = false;
     try {
         result = await run();
-        return result;
+        didReachTerminalState = await waitForDocumentOpenTerminalState(transaction, result !== false);
+        return didReachTerminalState ? result : false;
     } catch (error) {
         didThrow = true;
         throw error;
     } finally {
         const opened = !didThrow && result !== false;
-        try {
-            await waitForDocumentOpenTerminalState(transaction, opened);
-        } finally {
-            finishDocumentOpenTransaction(transaction, opened);
-        }
+        finishDocumentOpenTransaction(transaction, opened && didReachTerminalState);
     }
 }
 

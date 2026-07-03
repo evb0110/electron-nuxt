@@ -3,6 +3,7 @@ import {
     ref,
 } from 'vue';
 import {
+    afterEach,
     describe,
     expect,
     it,
@@ -85,6 +86,10 @@ async function expectStillPending(settled: ReturnType<typeof vi.fn>) {
 }
 
 describe('useDocumentOpenVisualSettle', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
     it('keeps standard PDF behavior gated on initial visual readiness', async () => {
         const harness = createHarness({
             hasPdf: true,
@@ -161,5 +166,25 @@ describe('useDocumentOpenVisualSettle', () => {
         const settled = observeSettlement(harness.settle.waitForDocumentOpenSettled());
 
         await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce());
+    });
+
+    it('rejects timeout waits without resolving the pending visual waiter', async () => {
+        vi.useFakeTimers();
+        const harness = createHarness({
+            showNativeDjvuViewer: true,
+            isLoading: true,
+            totalPages: 1,
+        });
+        const wait = harness.settle.waitForDocumentOpenSettled();
+        const rejection = expect(wait).rejects.toThrow('Document open visual settle timed out');
+
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(4_000);
+        await rejection;
+
+        harness.isLoading.value = false;
+        harness.settle.handlePdfInitialVisualReady();
+
+        await expect(harness.settle.waitForDocumentOpenSettled()).resolves.toBeUndefined();
     });
 });

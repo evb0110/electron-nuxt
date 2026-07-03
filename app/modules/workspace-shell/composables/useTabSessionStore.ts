@@ -5,6 +5,13 @@ import type { ITab } from '@app/types/tabs';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
 
+function areTabViewSessionStatesEqual(
+    first: ITabViewSessionState | null | undefined,
+    second: ITabViewSessionState | null | undefined,
+) {
+    return JSON.stringify(first ?? null) === JSON.stringify(second ?? null);
+}
+
 export const useTabSessionStore = (options: {
     tabs: Ref<ITab[]>;
     panes: Ref<IEditorPaneState[]>;
@@ -36,6 +43,10 @@ export const useTabSessionStore = (options: {
     });
 
     function updateViewState(tabId: string, state: ITabViewSessionState) {
+        if (areTabViewSessionStatesEqual(viewStateByTabId.value[tabId], state)) {
+            return;
+        }
+
         viewStateByTabId.value = {
             ...viewStateByTabId.value,
             [tabId]: state,

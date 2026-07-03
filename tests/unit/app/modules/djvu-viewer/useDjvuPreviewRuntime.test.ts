@@ -409,6 +409,29 @@ describe('useDjvuPreviewRuntime', () => {
         expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(2, expect.any(Object));
         expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(3, expect.any(Object));
         expect(previewMocks.renderPageObjectUrl).toHaveBeenCalledWith(4, expect.any(Object));
+        const previewOptionsByPage = new Map(
+            previewMocks.renderPageObjectUrl.mock.calls.map(([
+                pageNumber,
+                renderOptions,
+            ]) => [
+                pageNumber,
+                renderOptions as {
+                    previewPriority?: number;
+                    previewRequestId?: string;
+                },
+            ]),
+        );
+        const anchorOptions = previewOptionsByPage.get(3);
+        const previousOptions = previewOptionsByPage.get(2);
+        expect(anchorOptions).toMatchObject({
+            previewPriority: expect.any(Number),
+            previewRequestId: expect.stringMatching(/^1:3:\d+$/u),
+        });
+        expect(previousOptions).toMatchObject({
+            previewPriority: expect.any(Number),
+            previewRequestId: expect.stringMatching(/^1:2:\d+$/u),
+        });
+        expect(anchorOptions?.previewPriority ?? 0).toBeGreaterThan(previousOptions?.previewPriority ?? 0);
 
         runtime.dispose();
     });

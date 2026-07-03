@@ -345,6 +345,7 @@ describe('registerDjvuIpcAdapter', () => {
                 previewRequestId: 'preview-3',
                 subsample: 3,
             });
+            const thirdRejection = expect(thirdRun).rejects.toThrow('DjVu preview request superseded');
             const fourthRun = handler(event, realPath, 1, {
                 previewRequestId: 'preview-4',
                 subsample: 3,
@@ -359,7 +360,7 @@ describe('registerDjvuIpcAdapter', () => {
                 height: 200,
             });
 
-            await expect(thirdRun).rejects.toThrow('DjVu preview request superseded');
+            await thirdRejection;
             await Promise.resolve();
 
             expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(3);
@@ -382,6 +383,210 @@ describe('registerDjvuIpcAdapter', () => {
             await expect(firstRun).resolves.toMatchObject({width: 100});
             await expect(secondRun).resolves.toMatchObject({width: 100});
             await expect(fourthRun).resolves.toMatchObject({width: 100});
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('prioritizes visible native preview waiters over retained queued pages', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-preview-priority-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            const canonicalRealPath = realpathSync.native(realPath);
+            const firstPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number;
+            }>();
+            const secondPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number;
+            }>();
+            const visiblePreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number;
+            }>();
+            const retainedPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number;
+            }>();
+            mocks.renderDjvuPagePreview
+                .mockReturnValueOnce(firstPreview.promise)
+                .mockReturnValueOnce(secondPreview.promise)
+                .mockReturnValueOnce(visiblePreview.promise)
+                .mockReturnValueOnce(retainedPreview.promise);
+
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const event = {sender: {id: 10}};
+            allowOpenPath(realPath, event.sender as never);
+            registerDjvuIpcAdapter();
+            const handler = getHandler('djvu:renderPagePreview');
+
+            const firstRun = handler(event, realPath, 1, {
+                previewPriority: 10,
+                previewRequestId: '1:1:1',
+                subsample: 3,
+            });
+            const secondRun = handler(event, realPath, 2, {
+                previewPriority: 9,
+                previewRequestId: '1:2:1',
+                subsample: 3,
+            });
+            const retainedRun = handler(event, realPath, 8, {
+                previewPriority: 1,
+                previewRequestId: '1:8:1',
+                subsample: 3,
+            });
+            const visibleRun = handler(event, realPath, 3, {
+                previewPriority: 20,
+                previewRequestId: '1:3:1',
+                subsample: 3,
+            });
+
+            await Promise.resolve();
+            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2);
+
+            firstPreview.resolve({
+                bytes: new Uint8Array([1]),
+                width: 100,
+                height: 200,
+            });
+
+            await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(3));
+            expect(mocks.renderDjvuPagePreview).toHaveBeenNthCalledWith(3, canonicalRealPath, 3, {
+                previewPriority: 20,
+                previewRequestId: '1:3:1',
+                subsample: 3,
+            });
+
+            secondPreview.resolve({
+                bytes: new Uint8Array([2]),
+                width: 100,
+                height: 200,
+            });
+
+            await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(4));
+            expect(mocks.renderDjvuPagePreview).toHaveBeenNthCalledWith(4, canonicalRealPath, 8, {
+                previewPriority: 1,
+                previewRequestId: '1:8:1',
+                subsample: 3,
+            });
+
+            visiblePreview.resolve({
+                bytes: new Uint8Array([3]),
+                width: 100,
+                height: 200,
+            });
+            retainedPreview.resolve({
+                bytes: new Uint8Array([8]),
+                width: 100,
+                height: 200,
+            });
+
+            await expect(firstRun).resolves.toMatchObject({width: 100});
+            await expect(secondRun).resolves.toMatchObject({width: 100});
+            await expect(visibleRun).resolves.toMatchObject({width: 100});
+            await expect(retainedRun).resolves.toMatchObject({width: 100});
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('drops older generation native preview waiters before they consume render slots', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-preview-generation-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            const canonicalRealPath = realpathSync.native(realPath);
+            const firstPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number;
+            }>();
+            const secondPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number;
+            }>();
+            const nextGenerationPreview = createDeferred<{
+                bytes: Uint8Array;
+                width: number;
+                height: number;
+            }>();
+            mocks.renderDjvuPagePreview
+                .mockReturnValueOnce(firstPreview.promise)
+                .mockReturnValueOnce(secondPreview.promise)
+                .mockReturnValueOnce(nextGenerationPreview.promise);
+
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const event = {sender: {id: 11}};
+            allowOpenPath(realPath, event.sender as never);
+            registerDjvuIpcAdapter();
+            const handler = getHandler('djvu:renderPagePreview');
+
+            const firstRun = handler(event, realPath, 1, {
+                previewPriority: 10,
+                previewRequestId: '1:1:1',
+                subsample: 3,
+            });
+            const secondRun = handler(event, realPath, 2, {
+                previewPriority: 9,
+                previewRequestId: '1:2:1',
+                subsample: 3,
+            });
+            const staleRun = handler(event, realPath, 8, {
+                previewPriority: 1,
+                previewRequestId: '1:8:1',
+                subsample: 3,
+            });
+            const staleRejection = expect(staleRun).rejects.toThrow('DjVu preview request superseded');
+            const nextGenerationRun = handler(event, realPath, 3, {
+                previewPriority: 20,
+                previewRequestId: '2:3:1',
+                subsample: 3,
+            });
+
+            await Promise.resolve();
+            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2);
+            await staleRejection;
+
+            firstPreview.resolve({
+                bytes: new Uint8Array([1]),
+                width: 100,
+                height: 200,
+            });
+
+            await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(3));
+            expect(mocks.renderDjvuPagePreview).toHaveBeenNthCalledWith(3, canonicalRealPath, 3, {
+                previewPriority: 20,
+                previewRequestId: '2:3:1',
+                subsample: 3,
+            });
+
+            secondPreview.resolve({
+                bytes: new Uint8Array([2]),
+                width: 100,
+                height: 200,
+            });
+            nextGenerationPreview.resolve({
+                bytes: new Uint8Array([3]),
+                width: 100,
+                height: 200,
+            });
+
+            await expect(firstRun).resolves.toMatchObject({width: 100});
+            await expect(secondRun).resolves.toMatchObject({width: 100});
+            await expect(nextGenerationRun).resolves.toMatchObject({width: 100});
         } finally {
             rmSync(tempRoot, {
                 force: true,

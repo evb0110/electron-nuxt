@@ -119,6 +119,13 @@ function normalizeDjvuPagePreviewOptions(options: IDjvuPagePreviewOptions | unde
         }
         normalizedOptions.previewRequestId = previewRequestId.trim();
     }
+    const previewPriority = options.previewPriority;
+    if (previewPriority !== undefined) {
+        if (!isFiniteNumber(previewPriority)) {
+            throw new TypeError('renderPagePreview.options.previewPriority must be a finite number');
+        }
+        normalizedOptions.previewPriority = previewPriority;
+    }
     return normalizedOptions;
 }
 

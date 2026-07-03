@@ -3,6 +3,7 @@ import type { TTabUpdate } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import {
+    areWorkspaceDocumentRecordsEqual,
     createWorkspaceDocumentRecord,
     type IWorkspaceDocumentRecord,
     type TWorkspaceDocumentTabState,
@@ -190,6 +191,13 @@ function createSnapshotFromRecord(options: {
     } satisfies IWorkspaceDocumentSessionSnapshot;
 }
 
+function areSessionSnapshotsEqual(
+    first: IWorkspaceDocumentSessionSnapshot,
+    second: IWorkspaceDocumentSessionSnapshot,
+) {
+    return JSON.stringify(first) === JSON.stringify(second);
+}
+
 function isDocumentRevisionTokenEqual(
     target: TWorkspaceCommandTarget,
     actual: IDocumentRevisionInfo | null,
@@ -234,13 +242,19 @@ export function createWorkspaceDocumentSessionCore(
     ) {
         const current = snapshot.value;
         const next = updater(current);
-        snapshot.value = {
+        const nextSnapshot = {
             ...next,
             sessionRevision: options.incrementSessionRevision === true
                 ? current.sessionRevision + 1
                 : next.sessionRevision,
         };
+        if (areSessionSnapshotsEqual(current, nextSnapshot)) {
+            return false;
+        }
+
+        snapshot.value = nextSnapshot;
         rejectStaleWaiters();
+        return true;
     }
 
     function resolveWaiter(waiter: IWorkspaceWaiter, workspace: IWorkspaceExpose | null) {
@@ -340,8 +354,15 @@ export function createWorkspaceDocumentSessionCore(
     }
 
     function applyWorkspaceRecord(record: IWorkspaceDocumentRecord) {
+        const normalizedRecord = createWorkspaceDocumentRecord(record);
+        if (
+            !snapshot.value.activeTransaction
+            && areWorkspaceDocumentRecordsEqual(toDocumentRecord(), normalizedRecord)
+        ) {
+            return;
+        }
+
         updateSnapshot((current) => {
-            const normalizedRecord = createWorkspaceDocumentRecord(record);
             const nextIdentity = normalizeIdentityFromRecord(normalizedRecord, current.identity);
             return {
                 ...current,
@@ -355,7 +376,7 @@ export function createWorkspaceDocumentSessionCore(
             };
         }, {incrementSessionRevision: !areIdentitiesEqual(
             snapshot.value.identity,
-            normalizeIdentityFromRecord(createWorkspaceDocumentRecord(record), snapshot.value.identity),
+            normalizeIdentityFromRecord(normalizedRecord, snapshot.value.identity),
         )});
     }
 

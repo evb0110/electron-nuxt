@@ -70,6 +70,12 @@ interface IWorkspaceViewerAdapterBindingOptions {
 }
 
 export const useWorkspaceViewerAdapterBinding = (options: IWorkspaceViewerAdapterBindingOptions) => {
+    function setViewerRef<T>(target: Ref<T | null>, value: T | null) {
+        if (target.value !== value) {
+            target.value = value;
+        }
+    }
+
     function createNativeViewerProps(source: TDocumentRef | null) {
         return {
             src: source,
@@ -163,26 +169,25 @@ export const useWorkspaceViewerAdapterBinding = (options: IWorkspaceViewerAdapte
     });
 
     function bindActiveViewerRef(instance: unknown) {
-        options.pdfViewerRef.value = null;
-        options.nativePdfViewerRef.value = null;
-        options.djvuViewerRef.value = null;
-        if (!instance) {
-            return;
-        }
-
-        if (options.activeViewerAdapter.value?.id === 'pdf') {
-            options.pdfViewerRef.value = instance as IPdfViewerExpose;
-            return;
-        }
-
-        if (options.activeViewerAdapter.value?.id === 'native-pdf') {
-            options.nativePdfViewerRef.value = instance as IDocumentViewerExpose;
-            return;
-        }
-
-        if (options.activeViewerAdapter.value?.id === 'djvu') {
-            options.djvuViewerRef.value = instance as IDocumentViewerExpose;
-        }
+        const adapterId = options.activeViewerAdapter.value?.id ?? null;
+        setViewerRef(
+            options.pdfViewerRef,
+            adapterId === 'pdf' && instance
+                ? instance as IPdfViewerExpose
+                : null,
+        );
+        setViewerRef(
+            options.nativePdfViewerRef,
+            adapterId === 'native-pdf' && instance
+                ? instance as IDocumentViewerExpose
+                : null,
+        );
+        setViewerRef(
+            options.djvuViewerRef,
+            adapterId === 'djvu' && instance
+                ? instance as IDocumentViewerExpose
+                : null,
+        );
     }
 
     return {

@@ -7,9 +7,17 @@ import {
 import {
     nextTick,
     ref,
+    watch,
 } from 'vue';
+import type { TTabMemoryPolicy } from '@contracts/shared';
+import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import {
+    createDefaultWorkspaceViewerCapabilities,
+    type IWorkspaceExpose,
+} from '@app/types/workspaceExpose';
+import { useTabSessionStore } from '@app/modules/workspace-shell/composables/useTabSessionStore';
+import { useWorkspaceDocumentRecords } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentRecords';
 import { useWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { workspaceExposeRequiredMethodNames } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
@@ -32,6 +40,36 @@ function createWorkspace() {
         workspace[method] = vi.fn();
     }
     return cast<IWorkspaceExpose>(workspace);
+}
+
+function createPane(activeTabId: string, tabIds: string[]): IEditorPaneState {
+    return {
+        paneId: 'pane-1',
+        activeTabId,
+        tabIds,
+    };
+}
+
+function createReadyRecord(fileName: string, originalPath: string, overrides: Partial<ITab> = {}) {
+    return createWorkspaceDocumentRecord({
+        tab: {
+            fileName,
+            originalPath,
+            isDirty: overrides.isDirty ?? false,
+            isDjvu: overrides.isDjvu ?? false,
+        },
+        toolbarSnapshot: {
+            hasPdf: true,
+            viewerCapabilities: {
+                ...createDefaultWorkspaceViewerCapabilities(),
+                closeableDocument: true,
+                pdfDocument: true,
+                sidebar: true,
+            },
+            currentPage: 1,
+            totalPages: 3,
+        },
+    });
 }
 
 describe('useWorkspaceDocumentSessions', () => {
@@ -117,5 +155,83 @@ describe('useWorkspaceDocumentSessions', () => {
 
         expect(sessions.getSession('tab-1')).toBeNull();
         expect(sessions.documentRecordsByTabId.value).toEqual({});
+    });
+
+    it('does not recursively update when session projections are mirrored during a second open', async () => {
+        const activeTabId = ref('tab-1');
+        const tabs = ref([createTab()]);
+        const panes = ref([createPane('tab-1', ['tab-1'])]);
+        const sessions = useWorkspaceDocumentSessions({
+            activeTabId,
+            tabs,
+        });
+        const legacyRecords = useWorkspaceDocumentRecords({
+            activeTabId,
+            tabs,
+        });
+        const tabSessionStore = useTabSessionStore({
+            activeTabId,
+            panes,
+            policy: ref<TTabMemoryPolicy>('conservative'),
+            tabs,
+        });
+        let bridgeRuns = 0;
+        let projectionRuns = 0;
+        const stop = watch(
+            () => sessions.documentRecordsByTabId.value,
+            (recordsByTabId) => {
+                projectionRuns += 1;
+                for (const [
+                    tabId,
+                    record,
+                ] of Object.entries(recordsByTabId)) {
+                    bridgeRuns += 1;
+                    if (bridgeRuns > 20) {
+                        throw new Error('session projection feedback loop');
+                    }
+
+                    sessions.setWorkspaceDocumentRecord(tabId, record);
+                    const sessionRecord = sessions.getDocumentRecord(tabId) ?? record;
+                    legacyRecords.setWorkspaceDocumentRecord(tabId, sessionRecord);
+                    sessions.applyViewState(tabId, sessionRecord.viewState);
+                    tabSessionStore.updateViewState(tabId, sessionRecord.viewState);
+                }
+            },
+            { flush: 'sync' },
+        );
+
+        try {
+            sessions.setWorkspaceDocumentRecord('tab-1', createReadyRecord('First.pdf', '/docs/first.pdf'));
+            await nextTick();
+
+            sessions.setWorkspaceDocumentRecord('tab-1', createReadyRecord('First.pdf', '/docs/first.pdf', {isDirty: true}));
+            await nextTick();
+
+            const secondTab = createTab({
+                id: 'tab-2',
+                fileName: 'Second.pdf',
+                originalPath: '/docs/second.pdf',
+            });
+            tabs.value = [
+                tabs.value[0]!,
+                secondTab,
+            ];
+            panes.value = [createPane('tab-2', [
+                'tab-1',
+                'tab-2',
+            ])];
+            activeTabId.value = 'tab-2';
+            await nextTick();
+
+            sessions.setWorkspaceDocumentRecord('tab-2', createReadyRecord('Second.pdf', '/docs/second.pdf'));
+            await nextTick();
+
+            expect(bridgeRuns).toBeLessThanOrEqual(10);
+            expect(projectionRuns).toBeLessThanOrEqual(5);
+            expect(sessions.getDocumentRecord('tab-1')?.tab.isDirty).toBe(true);
+            expect(sessions.getDocumentRecord('tab-2')?.tab.originalPath).toBe('/docs/second.pdf');
+        } finally {
+            stop();
+        }
     });
 });

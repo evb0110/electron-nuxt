@@ -211,11 +211,12 @@ describe('useTabsShellBindings', () => {
         const unmount = await mountBindingsClient(options);
 
         expect(window.__evbTestApi).toBeUndefined();
-        expect(window.__openFileDirect).toBe(options.openPathInAppropriateTab);
+        expect(window.__openFileDirect).not.toBe(options.openPathInAppropriateTab);
+        await expect(window.__openFileDirect?.('/tmp/sample.pdf')).resolves.toBeUndefined();
         unmount();
     });
 
-    it('installs and cleans up the stable automation API in automation mode', async () => {
+    it('installs and cleans up the stable test API in automation mode', async () => {
         window.__allowRendererFileOpenForAutomation = vi.fn(async () => true);
         const options = createOptions();
         options.openPathInAppropriateTab = vi.fn(async () => true);
@@ -231,7 +232,35 @@ describe('useTabsShellBindings', () => {
         unmount();
 
         expect(window.__evbTestApi).toBeUndefined();
-        expect(window.__openFileDirect).toBeUndefined();
+        expect(window.__openFileDirect).toBeTypeOf('function');
+        await expect(window.__openFileDirect?.('/tmp/sample.pdf')).resolves.toBe(false);
+    });
+
+    it('keeps direct-open dispatcher stable across shell binding remounts', async () => {
+        const firstOptions = createOptions();
+        firstOptions.openPathInAppropriateTab = vi.fn(async () => true);
+
+        const unmountFirst = await mountBindingsClient(firstOptions);
+        const dispatcher = window.__openFileDirect;
+
+        expect(dispatcher).toBeTypeOf('function');
+        await expect(dispatcher?.('/tmp/first.pdf')).resolves.toBe(true);
+        expect(firstOptions.openPathInAppropriateTab).toHaveBeenCalledWith('/tmp/first.pdf');
+
+        unmountFirst();
+
+        expect(window.__openFileDirect).toBe(dispatcher);
+        await expect(window.__openFileDirect?.('/tmp/unbound.pdf')).resolves.toBe(false);
+
+        const secondOptions = createOptions();
+        secondOptions.openPathInAppropriateTab = vi.fn(async () => true);
+        const unmountSecond = await mountBindingsClient(secondOptions);
+
+        expect(window.__openFileDirect).toBe(dispatcher);
+        await expect(window.__openFileDirect?.('/tmp/second.pdf')).resolves.toBe(true);
+        expect(secondOptions.openPathInAppropriateTab).toHaveBeenCalledWith('/tmp/second.pdf');
+
+        unmountSecond();
     });
 
     it('reads the current active workspace through the automation API after tab changes', async () => {

@@ -165,12 +165,10 @@ import { useDirtyTabCloseDialog } from '@app/modules/workspace-shell/composables
 import { useShellWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useShellWorkspaceToolbar';
 import { useMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
-import { useWorkspaceDocumentRecords } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentRecords';
 import { useWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import { useWorkspaceToolbarContentPresence } from '@app/modules/workspace-shell/composables/useWorkspaceToolbarContentPresence';
 import { useTabsShellBindings } from '@app/modules/workspace-shell/composables/useTabsShellBindings';
-import { useWorkspaceRefRegistry } from '@app/modules/workspace-shell/composables/useWorkspaceRefRegistry';
 import { useAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot';
 import { useAssistantPanelResize } from '@app/modules/workspace-shell/composables/useAssistantPanelResize';
 import { useAppUpdates } from '@app/composables/useAppUpdates';
@@ -182,6 +180,7 @@ import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables
 import { useTabSessionStore } from '@app/modules/workspace-shell/composables/useTabSessionStore';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import { useBrowserInstallHint } from '@app/modules/workspace-shell/composables/useBrowserInstallHint';
+import { useDirectOpenAutomationDispatcherShell } from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
 import type {
     TPdfViewMode,
     TTabMemoryPolicy,
@@ -204,6 +203,7 @@ import {
 } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 
 traceRendererStartup('index.vue script setup start');
+useDirectOpenAutomationDispatcherShell();
 
 const {
     panes,
@@ -311,15 +311,6 @@ const {
     activeTabId,
     tabs,
 });
-const {setWorkspaceRef: setWorkspaceRefInRegistry} = useWorkspaceRefRegistry({ activeTabId });
-const {
-    removeDocumentRecord: removeLegacyDocumentRecord,
-    seedTabDocumentRecord: seedLegacyTabDocumentRecord,
-    setWorkspaceDocumentRecord: setLegacyWorkspaceDocumentRecord,
-} = useWorkspaceDocumentRecords({
-    activeTabId,
-    tabs,
-});
 function updateTabViewState(tabId: string, state: IWorkspaceDocumentRecord['viewState']) {
     applySessionViewState(tabId, state);
     updateTabViewStateInStore(tabId, state);
@@ -327,7 +318,6 @@ function updateTabViewState(tabId: string, state: IWorkspaceDocumentRecord['view
 
 function setWorkspaceRef(tabId: string, el: unknown) {
     setSessionWorkspaceRef(tabId, el);
-    setWorkspaceRefInRegistry(tabId, el);
 }
 
 const globalToolbarHostRef = ref<HTMLElement | null>(null);
@@ -382,25 +372,21 @@ const {
 function updateTab(tabId: string, updates: Partial<ITab>) {
     updateTabInState(tabId, updates);
     seedSessionTabDocumentRecord(tabId, updates);
-    seedLegacyTabDocumentRecord(tabId, updates);
 }
 
 function removeTabFromState(tabId: string) {
     removeSessionDocumentRecord(tabId);
-    removeLegacyDocumentRecord(tabId);
     removeTabFromLifecycleState(tabId);
 }
 
 function closeTabInState(paneId: string, tabId: string) {
     removeSessionDocumentRecord(tabId);
-    removeLegacyDocumentRecord(tabId);
     closeTabInLifecycleState(paneId, tabId);
 }
 
 function handleDocumentRecordUpdate(tabId: string, record: IWorkspaceDocumentRecord) {
     setSessionWorkspaceDocumentRecord(tabId, record);
     const sessionRecord = getDocumentRecord(tabId) ?? record;
-    setLegacyWorkspaceDocumentRecord(tabId, sessionRecord);
     updateTabInState(tabId, sessionRecord.tab);
     updateTabViewState(tabId, sessionRecord.viewState);
 }

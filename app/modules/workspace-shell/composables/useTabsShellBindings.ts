@@ -32,6 +32,7 @@ import {
     isWorkspaceExposeCommandName,
     type TWorkspaceExposeMethod,
 } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
+import { registerDirectOpenAutomationDelegate } from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
 
 const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
 type TTabKeyboardShortcutAction = 'new-tab' | 'close-tab' | 'next-tab' | 'previous-tab';
@@ -88,6 +89,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     const menuCleanups: Array<() => void> = [];
     const debugHandleSave = () => activeWorkspace.value?.handleSave() ?? Promise.resolve();
     let installedTestApi: IEvbTestApi | null = null;
+    let cleanupDirectOpenDelegate: (() => void) | null = null;
 
     function isAutomationTestApiEnabled() {
         return typeof window !== 'undefined'
@@ -399,7 +401,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         traceRendererStartup('tabs shell initial tab available', {tabCount: tabs.value.length});
 
         if (typeof window !== 'undefined') {
-            (window as Window & { __openFileDirect?: (path: TDocumentRef) => Promise<boolean> }).__openFileDirect = openPathInAppropriateTab;
+            cleanupDirectOpenDelegate = registerDirectOpenAutomationDelegate(openPathInAppropriateTab);
             (window as Window & { __handleSave?: () => Promise<unknown> }).__handleSave = debugHandleSave;
             installAutomationTestApi();
         }
@@ -484,11 +486,9 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
 
     onUnmounted(() => {
         isDisposed = true;
-        if (typeof window !== 'undefined' && (window as Window & { __openFileDirect?: unknown }).__openFileDirect === openPathInAppropriateTab) {
-            delete (window as Window & { __openFileDirect?: (path: TDocumentRef) => Promise<boolean> }).__openFileDirect;
-        }
+        cleanupDirectOpenDelegate?.();
+        cleanupDirectOpenDelegate = null;
         if (typeof window !== 'undefined' && (window as Window & { __handleSave?: unknown }).__handleSave === debugHandleSave) {
-            // Remove debug hooks on unmount so old closures do not retain stale workspace state.
             delete (window as Window & { __handleSave?: () => Promise<unknown> }).__handleSave;
         }
         if (typeof window !== 'undefined' && window.__evbTestApi === installedTestApi) {

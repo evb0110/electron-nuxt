@@ -4,6 +4,62 @@ import { getIgnorableRuntimeErrorMessage } from '@app/utils/runtimeErrorFilter';
 
 const INSTALL_FLAG = '__evbRendererErrorGuardInstalled';
 const RENDERER_GUARD_WARN_THROTTLE_MS = 5000;
+const MAX_SERIALIZED_ERROR_LENGTH = 12_000;
+
+function truncateSerializedError(value: string) {
+    return value.length > MAX_SERIALIZED_ERROR_LENGTH
+        ? `${value.slice(0, MAX_SERIALIZED_ERROR_LENGTH)}...`
+        : value;
+}
+
+function readStringProperty(value: object, key: string) {
+    const property = (value as Record<string, unknown>)[key];
+    return typeof property === 'string' && property.trim().length > 0
+        ? property
+        : null;
+}
+
+function stringifyErrorValue(error: unknown) {
+    if (error instanceof Error) {
+        return [
+            `${error.name}: ${error.message}`,
+            error.stack,
+        ].filter(Boolean).join('\n');
+    }
+
+    if (typeof error === 'string') {
+        return error;
+    }
+
+    const seen = new WeakSet<object>();
+    try {
+        const serialized = JSON.stringify(error, (_key, value: unknown) => {
+            if (value instanceof Error) {
+                return {
+                    name: value.name,
+                    message: value.message,
+                    stack: value.stack,
+                };
+            }
+
+            if (typeof value === 'bigint') {
+                return value.toString();
+            }
+
+            if (typeof value === 'object' && value !== null) {
+                if (seen.has(value)) {
+                    return '[Circular]';
+                }
+                seen.add(value);
+            }
+
+            return value;
+        }, 2);
+        return typeof serialized === 'string' ? serialized : String(error);
+    } catch {
+        return String(error);
+    }
+}
 
 function serializeError(error: unknown) {
     if (error instanceof Error) {
@@ -13,7 +69,18 @@ function serializeError(error: unknown) {
             stack: error.stack,
         };
     }
-    return error;
+
+    if (typeof error === 'object' && error !== null) {
+        const message = readStringProperty(error, 'message') ?? stringifyErrorValue(error);
+        const stack = readStringProperty(error, 'stack');
+        return {
+            message: truncateSerializedError(message),
+            stack: stack ? truncateSerializedError(stack) : undefined,
+            value: truncateSerializedError(stringifyErrorValue(error)),
+        };
+    }
+
+    return {message: truncateSerializedError(stringifyErrorValue(error))};
 }
 
 function getTrimmedName(name: unknown) {

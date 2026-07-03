@@ -107,21 +107,24 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         }
 
         const timeout = createDocumentOpenVisualSettleTimeout();
-        try {
-            await Promise.race([
-                ensureDocumentOpenVisualSettlePromise(),
-                timeout.promise,
-            ]);
-        } finally {
+        const settleResult = await Promise.race([
+            ensureDocumentOpenVisualSettlePromise().then(() => 'settled' as const),
+            timeout.promise,
+        ]).finally(() => {
             timeout.cancel();
-        }
+        });
         await nextTick();
 
         if (hasSettledDocumentOpenVisualState()) {
             return;
         }
 
-        BrowserLogger.warn('recent-open', 'Document open visual settle timed out', {
+        if (settleResult !== 'timeout') {
+            return;
+        }
+
+        const error = new Error('Document open visual settle timed out');
+        BrowserLogger.warn('recent-open', error.message, {
             tabId: options.tabId,
             hasPdf: options.hasPdf.value,
             hasPdfSrc: Boolean(options.pdfSrc.value),
@@ -134,7 +137,7 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
             hasPdfError: Boolean(options.pdfError.value),
             hasDjvuError: Boolean(options.djvuError.value),
         });
-        resolveDocumentOpenVisualSettle();
+        throw error;
     }
 
     watch([

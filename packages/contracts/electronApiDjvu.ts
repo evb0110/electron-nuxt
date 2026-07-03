@@ -44,6 +44,7 @@ export interface IDjvuPagePreview {
 }
 
 export interface IDjvuPagePreviewOptions {
+    previewPriority?: number;
     previewRequestId?: string;
     subsample?: number;
 }

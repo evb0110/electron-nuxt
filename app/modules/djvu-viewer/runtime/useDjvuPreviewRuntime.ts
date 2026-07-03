@@ -119,6 +119,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
     let initialVisualSettlePromise: Promise<void> | null = null;
     let resolveInitialVisualSettlePromise: (() => void) | null = null;
     let queuedPageNumbers: number[] = [];
+    let queuedPagePriorities = new Map<number, number>();
     let lastRenderedPageSet = new Set<number>();
     let retainedPageEpochs = new Map<number, number>();
     let retainedPageEpoch = 0;
@@ -283,6 +284,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         retainedPageEpoch = 0;
         activeRenderPageNumbers.clear();
         queuedPageNumbers = [];
+        queuedPagePriorities = new Map();
     }
 
     function cleanupViewerState() {
@@ -322,6 +324,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         }
 
         queuedPageNumbers = [];
+        queuedPagePriorities = new Map();
         lastRenderedPageSet = new Set<number>();
     }
 
@@ -603,15 +606,22 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         });
     }
 
-    function withPreviewRequestId(renderOptions: unknown, previewRequestId: string) {
+    function withPreviewRequestMetadata(
+        renderOptions: unknown,
+        metadata: {
+            previewPriority: number;
+            previewRequestId: string;
+        },
+    ) {
         if (renderOptions && typeof renderOptions === 'object' && !Array.isArray(renderOptions)) {
             return {
                 ...renderOptions,
-                previewRequestId,
+                previewPriority: metadata.previewPriority,
+                previewRequestId: metadata.previewRequestId,
             };
         }
 
-        return { previewRequestId };
+        return metadata;
     }
 
     async function ensurePageLoaded(pageNumber: number) {
@@ -626,6 +636,7 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
         pageState.token += 1;
         const token = pageState.token;
         const previewRequestId = `${generation}:${pageNumber}:${token}`;
+        const previewPriority = queuedPagePriorities.get(pageNumber) ?? 0;
         const previewPlan = getPreviewResolutionPlan(pageNumber);
 
         try {
@@ -635,7 +646,10 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
             const {
                 objectUrl,
                 renderedPx,
-            } = await worker.renderPageObjectUrl(pageNumber, withPreviewRequestId(renderOptions, previewRequestId));
+            } = await worker.renderPageObjectUrl(pageNumber, withPreviewRequestMetadata(renderOptions, {
+                previewPriority,
+                previewRequestId,
+            }));
             const currentState = getCurrentPagePreviewLoadState(pageNumber, token, generation, worker);
             if (!currentState) {
                 discardStalePageObjectUrl(worker, objectUrl);
@@ -662,6 +676,12 @@ export const useDjvuPreviewRuntime = (options: IUseDjvuPreviewRuntimeOptions) =>
             && pageNumber <= source.totalPages.value
             && list.indexOf(pageNumber) === index
         ));
+        queuedPagePriorities = new Map(
+            queuedPageNumbers.map((pageNumber, index) => [
+                pageNumber,
+                queuedPageNumbers.length - index,
+            ]),
+        );
     }
 
     function estimatePagePreviewPixelCost(pageNumber: number) {

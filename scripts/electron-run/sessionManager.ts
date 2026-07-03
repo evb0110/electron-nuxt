@@ -15,7 +15,9 @@ import {
 import { join } from 'node:path';
 import puppeteer, {
     type Browser,
+    type ConsoleMessage,
     type HTTPResponse,
+    type JSHandle,
     type Page,
 } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
@@ -98,6 +100,7 @@ let sessionState: ISessionState | null = null;
 
 const handleCommand = createCommandHandler(() => sessionState);
 const MAX_CONSOLE_MESSAGES = 400;
+const MAX_CONSOLE_ARG_TEXT_LENGTH = 2000;
 const MAX_DEVTOOLS_EVENTS = 1200;
 const RENDERER_READY_TIMEOUT_MS = 30_000;
 const ELECTRON_APP_PAGE_APPEAR_TIMEOUT_MS = 20_000;
@@ -125,6 +128,47 @@ function pushBounded<T>(collection: T[], item: T, maxSize: number) {
     collection.push(item);
     if (collection.length > maxSize) {
         collection.splice(0, collection.length - maxSize);
+    }
+}
+
+function boundConsoleArgText(text: string) {
+    if (text.length <= MAX_CONSOLE_ARG_TEXT_LENGTH) {
+        return text;
+    }
+    return `${text.slice(0, MAX_CONSOLE_ARG_TEXT_LENGTH)}...`;
+}
+
+function stringifyConsoleArgValue(value: unknown) {
+    try {
+        const text = typeof value === 'string'
+            ? value
+            : JSON.stringify(value);
+        return boundConsoleArgText(text ?? String(value));
+    } catch {
+        return boundConsoleArgText(String(value));
+    }
+}
+
+async function serializeConsoleArg(arg: JSHandle, fallbackText: string) {
+    try {
+        return stringifyConsoleArgValue(await arg.jsonValue());
+    } catch {
+        return boundConsoleArgText(fallbackText);
+    }
+}
+
+async function formatConsoleMessage(msg: ConsoleMessage) {
+    const text = msg.text();
+    try {
+        const serializedArgs = await Promise.all(
+            msg.args().map(arg => serializeConsoleArg(arg, text)),
+        );
+        if (serializedArgs.length === 0) {
+            return text;
+        }
+        return `${text} ${serializedArgs.join(' ')}`;
+    } catch {
+        return text;
     }
 }
 
@@ -1161,13 +1205,25 @@ function attachPageDiagnostics(page: Page) {
     type TConsoleEntry = ISessionState['consoleMessages'][number];
 
     page.on('console', (msg) => {
-        const entry: TConsoleEntry = {
-            type: msg.type(),
-            text: msg.text(),
-            timestamp: Date.now(),
-        };
-        pushConsoleMessage(entry);
-        console.log(`[${entry.type.toUpperCase()}] ${entry.text}`);
+        void (async () => {
+            try {
+                const entry: TConsoleEntry = {
+                    type: msg.type(),
+                    text: await formatConsoleMessage(msg),
+                    timestamp: Date.now(),
+                };
+                pushConsoleMessage(entry);
+                console.log(`[${entry.type.toUpperCase()}] ${entry.text}`);
+            } catch {
+                const entry: TConsoleEntry = {
+                    type: msg.type(),
+                    text: msg.text(),
+                    timestamp: Date.now(),
+                };
+                pushConsoleMessage(entry);
+                console.log(`[${entry.type.toUpperCase()}] ${entry.text}`);
+            }
+        })();
     });
     page.on('request', (request) => {
         pushDevtoolsEvent({
