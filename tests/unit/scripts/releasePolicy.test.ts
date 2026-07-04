@@ -75,9 +75,15 @@ interface IReleasePolicyModule {
 
 interface IReleaseChecksModule {
     getLocalReleaseCheckCommands: () => IReleaseCommand[];
+    parseReleaseVerifySkipList: (
+        rawSkipList: string | undefined,
+        options?: { knownScripts?: string[] },
+    ) => string[];
     runLocalReleaseChecks: (options?: {
         env?: TReleaseEnv;
         runCommand?: TRunCommand;
+        skipList?: string;
+        stderr?: { write: (message: string) => void };
     }) => void;
 }
 
@@ -175,6 +181,7 @@ const {
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/policy.mjs')).href) as IReleasePolicyModule;
 const {
     getLocalReleaseCheckCommands,
+    parseReleaseVerifySkipList,
     runLocalReleaseChecks,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-checks.mjs')).href) as IReleaseChecksModule;
 const {
@@ -625,6 +632,35 @@ describe('release policy', () => {
         expect(calls.every(call => call.env?.CI === 'true')).toBe(true);
         expect(calls.every(call => call.env?.EVB_AUTOMATION_HIDE_WINDOW === undefined)).toBe(true);
         expect(calls.every(call => call.env?.EVB_AUTOMATION_NO_FOCUS === undefined)).toBe(true);
+    });
+
+    it('skips explicitly listed release gates without changing the default gate list', () => {
+        const calls: string[][] = [];
+        const stderrLines: string[] = [];
+
+        runLocalReleaseChecks({
+            runCommand: (_command: string, args: string[]) => {
+                calls.push(args);
+            },
+            skipList: 'test:coverage, test:rust',
+            stderr: { write: (message: string) => stderrLines.push(message) },
+        });
+
+        const scriptNames = calls.map(args => args[1]);
+        expect(scriptNames).not.toContain('test:coverage');
+        expect(scriptNames).not.toContain('test:rust');
+        expect(calls).toHaveLength(getLocalReleaseCheckCommands().length - 2);
+        expect(stderrLines.join('')).toContain('skipping test:coverage');
+    });
+
+    it('rejects unknown gate names in the release verify skip list', () => {
+        expect(() => runLocalReleaseChecks({
+            runCommand: () => {},
+            skipList: 'test:coferage',
+            stderr: { write: () => {} },
+        })).toThrow(/unknown release gates: test:coferage/u);
+        expect(parseReleaseVerifySkipList(undefined)).toEqual([]);
+        expect(parseReleaseVerifySkipList('')).toEqual([]);
     });
 
     it('fails standalone release verification when the worktree snapshot changes', () => {
