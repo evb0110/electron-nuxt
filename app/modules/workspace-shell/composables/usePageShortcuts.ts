@@ -13,6 +13,7 @@ interface IPdfViewerForShortcuts {deleteSelectedShape: () => void;}
 interface IPageShortcutsDeps {
     isActive: Ref<boolean>;
     pdfSrc: Ref<TPdfSource | null>;
+    canPrint: Ref<boolean>;
     canSave: Ref<boolean>;
     annotationTool: Ref<TAnnotationTool>;
     annotationPlacingPageNote: Ref<boolean>;
@@ -70,6 +71,7 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
     const {
         isActive,
         pdfSrc,
+        canPrint,
         annotationTool,
         annotationPlacingPageNote,
         shapePropertiesPopoverVisible,
@@ -110,12 +112,15 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
             return false;
         }
         event.preventDefault();
+        if (!canPrint.value) {
+            return true;
+        }
         deps.handlePrint();
         return true;
     }
 
     function handleSaveShortcut(event: KeyboardEvent, key: string, shouldHandleRendererAccelerators: boolean) {
-        if (key !== 's' || event.shiftKey || !shouldHandleRendererAccelerators) {
+        if (key !== 's' || event.shiftKey || !shouldHandleRendererAccelerators || !pdfSrc.value) {
             return false;
         }
         event.preventDefault();
@@ -200,18 +205,21 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
         event.preventDefault();
         event.stopPropagation();
 
-        if (!isActive.value || !pdfSrc.value || event.shiftKey) {
+        if (!isActive.value || event.shiftKey) {
             return;
         }
 
         if (key === 's') {
-            if (!deps.canSave.value) {
+            if (!pdfSrc.value || !deps.canSave.value) {
                 return;
             }
             deps.handleSave();
             return;
         }
         if (key === 'p') {
+            if (!canPrint.value) {
+                return;
+            }
             deps.handlePrint();
         }
     }
@@ -236,6 +244,17 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
             return;
         }
 
+        const key = event.key.toLowerCase();
+        const shouldHandleRendererAccelerators = shouldHandleRendererMenuAccelerators();
+        if (hasMod) {
+            if (handleSaveShortcut(event, key, shouldHandleRendererAccelerators)) {
+                return;
+            }
+            if (handlePrintShortcut(event, key, shouldHandleRendererAccelerators)) {
+                return;
+            }
+        }
+
         if (!hasMod || !pdfSrc.value) {
             editableBlocked.value = isEditingText(event.target);
             if (editableBlocked.value) {
@@ -247,15 +266,6 @@ export const usePageShortcuts = <TDeps extends IPageShortcutsDeps>(deps: TDeps) 
             return;
         }
 
-        const key = event.key.toLowerCase();
-        const shouldHandleRendererAccelerators = shouldHandleRendererMenuAccelerators();
-
-        if (handleSaveShortcut(event, key, shouldHandleRendererAccelerators)) {
-            return;
-        }
-        if (handlePrintShortcut(event, key, shouldHandleRendererAccelerators)) {
-            return;
-        }
         if (handleSearchShortcut(event, key)) {
             return;
         }

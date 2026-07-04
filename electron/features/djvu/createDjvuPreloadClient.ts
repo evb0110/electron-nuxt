@@ -2,6 +2,7 @@ import type {IpcRenderer} from 'electron';
 import type {
     IDjvuCapability,
     IDjvuConvertOptions,
+    IDjvuPrintOptions,
     IDjvuProgress,
     IDjvuPagePreviewOptions,
     IDjvuViewingErrorEvent,
@@ -31,6 +32,7 @@ const DJVU_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1000;
 const DJVU_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [DJVU_CHANNELS.openForViewing]: DJVU_NATIVE_IPC_TIMEOUT_MS,
     [DJVU_CHANNELS.convertToPdf]: DJVU_NATIVE_IPC_TIMEOUT_MS,
+    [DJVU_CHANNELS.printDjvuPath]: DJVU_NATIVE_IPC_TIMEOUT_MS,
     [DJVU_CHANNELS.getInfo]: DJVU_NATIVE_IPC_TIMEOUT_MS,
     [DJVU_CHANNELS.getPageSizes]: DJVU_NATIVE_IPC_TIMEOUT_MS,
     [DJVU_CHANNELS.renderPagePreview]: DJVU_NATIVE_IPC_TIMEOUT_MS,
@@ -129,6 +131,85 @@ function normalizeDjvuPagePreviewOptions(options: IDjvuPagePreviewOptions | unde
     return normalizedOptions;
 }
 
+function normalizePrintPageNumbers(pageNumbers: unknown) {
+    if (!Array.isArray(pageNumbers)) {
+        throw new TypeError('printDjvuPath.options.pageNumbers must be an array');
+    }
+    return pageNumbers.map((pageNumber) => {
+        if (typeof pageNumber !== 'number' || !Number.isInteger(pageNumber) || pageNumber < 1) {
+            throw new TypeError('printDjvuPath.options.pageNumbers must contain positive integers');
+        }
+        return pageNumber;
+    });
+}
+
+function normalizeDjvuPrintOptions(options: IDjvuPrintOptions) {
+    if (!isRecord(options)) {
+        throw new TypeError('printDjvuPath.options must be an object');
+    }
+    if (
+        options.viewMode !== 'single'
+        && options.viewMode !== 'facing'
+        && options.viewMode !== 'facing-first-single'
+    ) {
+        throw new TypeError('printDjvuPath.options.viewMode is invalid');
+    }
+    if (
+        options.orientation !== 'auto'
+        && options.orientation !== 'portrait'
+        && options.orientation !== 'landscape'
+    ) {
+        throw new TypeError('printDjvuPath.options.orientation is invalid');
+    }
+    if (
+        options.pdfStrategy !== undefined
+        && options.pdfStrategy !== 'direct'
+        && options.pdfStrategy !== 'compact-djvu-aware'
+        && options.pdfStrategy !== 'auto'
+    ) {
+        throw new TypeError('printDjvuPath.options.pdfStrategy is invalid');
+    }
+    if (
+        options.subsample !== undefined
+        && (
+            typeof options.subsample !== 'number'
+            || !Number.isInteger(options.subsample)
+            || options.subsample < 1
+        )
+    ) {
+        throw new TypeError('printDjvuPath.options.subsample must be a positive integer');
+    }
+    const fileName = options.fileName;
+    if (fileName !== undefined && typeof fileName !== 'string') {
+        throw new TypeError('printDjvuPath.options.fileName must be a string');
+    }
+    const requestId = options.requestId;
+    if (requestId !== undefined && typeof requestId !== 'string') {
+        throw new TypeError('printDjvuPath.options.requestId must be a string');
+    }
+
+    const normalizedOptions: IDjvuPrintOptions = {
+        viewMode: options.viewMode,
+        orientation: options.orientation,
+    };
+    if (fileName !== undefined) {
+        normalizedOptions.fileName = fileName;
+    }
+    if (options.pageNumbers !== undefined) {
+        normalizedOptions.pageNumbers = normalizePrintPageNumbers(options.pageNumbers);
+    }
+    if (requestId !== undefined) {
+        normalizedOptions.requestId = requestId;
+    }
+    if (options.subsample !== undefined) {
+        normalizedOptions.subsample = options.subsample;
+    }
+    if (options.pdfStrategy !== undefined) {
+        normalizedOptions.pdfStrategy = options.pdfStrategy;
+    }
+    return normalizedOptions;
+}
+
 export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapability {
     const invoke = createTypedIpcInvoker<IDjvuInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: DJVU_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const eventSubscriber = createTypedIpcEventSubscriber<IDjvuEventMap>(ipcRenderer);
@@ -147,6 +228,14 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
             djvuPath,
             outputPath,
             options,
+        ),
+        printDjvuPath: (
+            djvuPath: TDocumentRef,
+            options: IDjvuPrintOptions,
+        ) => invoke(
+            DJVU_CHANNELS.printDjvuPath,
+            djvuPath,
+            normalizeDjvuPrintOptions(options),
         ),
         cancel: (jobId: string) => invoke(DJVU_CHANNELS.cancel, jobId),
         getInfo: (djvuPath: TDocumentRef) => invoke(DJVU_CHANNELS.getInfo, djvuPath),

@@ -835,6 +835,12 @@ export const browserDjvuCapability: IDjvuCapability = {
             cleanupDjvuJob(jobId);
         }
     },
+    printDjvuPath() {
+        return Promise.resolve({
+            success: false,
+            error: 'DjVu printing is only available in the desktop app',
+        });
+    },
     cancel(jobId) {
         const job = activeJobs.get(jobId);
         if (!job) {

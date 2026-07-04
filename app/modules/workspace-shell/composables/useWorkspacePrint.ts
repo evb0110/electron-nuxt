@@ -58,11 +58,16 @@ interface IWorkspacePrintDeps {
     fileName: Readonly<Ref<string | null>>;
     hasPendingUnsavedChanges: Readonly<Ref<boolean>>;
     hasPendingPrintSerializationChanges?: Readonly<Ref<boolean>>;
+    canPrintDjvuSource?: Readonly<Ref<boolean>>;
     getQuickPrintPageMetrics: () => Promise<IPdfPageMetric[] | null>;
     getPrintableSourceData: () => Promise<Uint8Array | null>;
     renderLoadedPdfPagesForBrowserPrint?: (
         targetDocument: IBrowserPrintDocument,
         pageNumbers: number[],
+        options?: { signal?: AbortSignal },
+    ) => Promise<void>;
+    printDjvuSource?: (
+        payload: IPrintDialogSubmitPayload,
         options?: { signal?: AbortSignal },
     ) => Promise<void>;
 }
@@ -91,6 +96,11 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     let activeBrowserPrintUrl: string | null = null;
     let activePrintAbortController: AbortController | null = null;
     let closeDialogForSystemPrint = false;
+
+    function canPrintDjvuSource() {
+        return Boolean(deps.printDjvuSource)
+            && (deps.canPrintDjvuSource?.value ?? true);
+    }
 
     function resetPrintError() {
         printError.value = null;
@@ -173,6 +183,14 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             viewMode: 'single',
             orientation: 'auto',
         } satisfies IPrintDialogSubmitPayload;
+
+        if (canPrintDjvuSource()) {
+            await handlePrintDialogSubmit(defaultPayload, {
+                action: 'default',
+                reopenDialogOnError: false,
+            });
+            return;
+        }
 
         const { shouldPrintPageMetricsDirectly } = await import('@app/utils/pdfPrint');
         const printSourceDirectly = shouldPrintPageMetricsDirectly(
@@ -529,6 +547,14 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         resetPrintError();
 
         try {
+            if (canPrintDjvuSource() && deps.printDjvuSource) {
+                throwIfPrintAborted(signal);
+                await deps.printDjvuSource(payload, { signal });
+                throwIfPrintAborted(signal);
+                closePrintDialogForSystemDialog();
+                return;
+            }
+
             const loadedPageNumbers = resolveLoadedPdfSinglePagePrint(payload);
             if (loadedPageNumbers) {
                 await printLoadedPdfPagesInHiddenFrame(loadedPageNumbers, signal);

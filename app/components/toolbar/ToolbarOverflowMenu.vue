@@ -104,6 +104,7 @@ interface IProps {
     triggerIcon: string
     showDocumentSection?: boolean
     canCombineFiles?: boolean
+    canPrint?: boolean
     canPrintCurrentPage?: boolean
     canConvertToPdf?: boolean
     isPreparingPrint?: boolean
@@ -115,6 +116,7 @@ const {
     canCombineFiles,
     canConvertToPdf,
     canCrop,
+    canPrint = true,
     canPrintCurrentPage,
     canQuickNote,
     canToggleSidebar,
@@ -276,7 +278,7 @@ function buildDocumentItems() {
 
     if (canPrintCurrentPage === true) {
         items.push(createCommandItem('print-current-page', t('menu.printCurrentPage'), undefined, {
-            disabled: !hasInteractiveDocument.value || isPreparingPrint === true || isDjvuMode,
+            disabled: !hasInteractiveDocument.value || !canPrint || isPreparingPrint === true,
             slot: 'print-current-page',
         }));
     }

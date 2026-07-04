@@ -13,6 +13,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
     const shellState = deps.shellState ?? useWorkspaceShellState(deps);
     let lastSyncedMenuDocumentState: {
         hasDocument: boolean;
+        canPrint: boolean;
         canSave: boolean;
         canRepairSave: boolean;
         canOptimizePdf: boolean;
@@ -21,11 +22,13 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
 
     function syncMenuDocumentState() {
         const hasDocument = shellState.hasDocument.value;
+        const canPrint = shellState.activeWorkspaceCanPrint.value;
         const canSave = shellState.activeWorkspaceCanSave.value;
         const canRepairSave = shellState.activeWorkspaceCanRepairSave.value;
         const canOptimizePdf = shellState.activeWorkspaceCanOptimizePdf.value;
         if (
             lastSyncedMenuDocumentState?.hasDocument === hasDocument
+            && lastSyncedMenuDocumentState.canPrint === canPrint
             && lastSyncedMenuDocumentState.canSave === canSave
             && lastSyncedMenuDocumentState.canRepairSave === canRepairSave
             && lastSyncedMenuDocumentState.canOptimizePdf === canOptimizePdf
@@ -34,6 +37,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
         }
         lastSyncedMenuDocumentState = {
             hasDocument,
+            canPrint,
             canSave,
             canRepairSave,
             canOptimizePdf,
@@ -44,6 +48,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
         }
         guardAsync(setMenuDocumentState({
             hasDocument,
+            canPrint,
             canSave,
             canRepairSave,
             canOptimizePdf,

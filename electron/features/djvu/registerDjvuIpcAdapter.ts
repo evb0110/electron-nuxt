@@ -35,6 +35,8 @@ export function registerDjvuIpcAdapter(
         service.releaseViewingPath(createDjvuOperationContext(event), djvuPath));
     registrar.handle(DJVU_CHANNELS.convertToPdf, (event, djvuPath, outputPath, options) =>
         service.convertToPdf(createDjvuOperationContext(event), djvuPath, outputPath, options));
+    registrar.handle(DJVU_CHANNELS.printDjvuPath, (event, djvuPath, options) =>
+        service.printDjvuPath(createDjvuOperationContext(event), djvuPath, options));
     registrar.handle(DJVU_CHANNELS.cancel, (event, jobId) =>
         service.cancel(createDjvuOperationContext(event), jobId));
     registrar.handle(DJVU_CHANNELS.getInfo, (event, djvuPath) =>

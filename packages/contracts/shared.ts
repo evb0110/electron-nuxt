@@ -58,6 +58,7 @@ export function isOcrWord(value: unknown): value is IOcrWord {
 export type TFitMode = 'width' | 'height';
 export type TZoomMode = 'custom' | 'fit-width' | 'fit-height';
 export type TPdfViewMode = 'single' | 'facing' | 'facing-first-single';
+export type TPrintOrientation = 'auto' | 'portrait' | 'landscape';
 export type TDefaultZoomPreset = 'fit-width' | 'fit-height' | '100' | '125' | '150';
 
 export type TAppTheme = 'light' | 'dark';

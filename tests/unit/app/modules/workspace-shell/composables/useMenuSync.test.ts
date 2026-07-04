@@ -59,6 +59,7 @@ describe('useMenuSync', () => {
             canSave: false,
             canRepairSave: false,
             canOptimizePdf: false,
+            canPrint: false,
         });
         expect(mocks.setMenuTabCount).toHaveBeenCalledWith(1);
 
@@ -77,6 +78,7 @@ describe('useMenuSync', () => {
             canSave: false,
             canRepairSave: false,
             canOptimizePdf: false,
+            canPrint: false,
         });
         expect(mocks.setMenuTabCount).toHaveBeenLastCalledWith(2);
         expect(mocks.legacySetMenuDocumentState).not.toHaveBeenCalled();
@@ -109,6 +111,7 @@ describe('useMenuSync', () => {
             canSave: false,
             canRepairSave: true,
             canOptimizePdf: true,
+            canPrint: false,
         });
 
         activeDocumentRecord.value = createWorkspaceDocumentRecord({
@@ -125,6 +128,7 @@ describe('useMenuSync', () => {
             canSave: true,
             canRepairSave: true,
             canOptimizePdf: true,
+            canPrint: false,
         });
     });
 
@@ -154,6 +158,7 @@ describe('useMenuSync', () => {
             canSave: true,
             canRepairSave: true,
             canOptimizePdf: false,
+            canPrint: false,
         });
 
         activeDocumentRecord.value = createWorkspaceDocumentRecord({
@@ -170,6 +175,7 @@ describe('useMenuSync', () => {
             canSave: true,
             canRepairSave: true,
             canOptimizePdf: true,
+            canPrint: false,
         });
     });
 

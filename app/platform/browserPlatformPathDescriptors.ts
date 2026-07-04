@@ -344,6 +344,7 @@ export const browserPlatformPathDescriptors = {
         openForViewing: asyncPath('djvu', 'openForViewing'),
         releaseViewingPath: asyncPath('djvu', 'releaseViewingPath'),
         convertToPdf: asyncPath('djvu', 'convertToPdf'),
+        printDjvuPath: asyncPath('djvu', 'printDjvuPath'),
         cancel: asyncPath('djvu', 'cancel'),
         getInfo: asyncPath('djvu', 'getInfo'),
         getPageSizes: asyncPath('djvu', 'getPageSizes'),

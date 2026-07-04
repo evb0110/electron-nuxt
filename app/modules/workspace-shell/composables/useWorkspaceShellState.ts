@@ -9,6 +9,7 @@ import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/stat
 export interface IWorkspaceShellState {
     activeTab: ComputedRef<ITab | null>;
     activeWorkspaceHasDocument: ComputedRef<boolean>;
+    activeWorkspaceCanPrint: ComputedRef<boolean>;
     activeWorkspaceCanSave: ComputedRef<boolean>;
     activeWorkspaceCanRepairSave: ComputedRef<boolean>;
     activeWorkspaceCanOptimizePdf: ComputedRef<boolean>;
@@ -37,6 +38,10 @@ export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions):
         activeToolbarSnapshot.value?.hasPdf === true
         || activeToolbarSnapshot.value?.isDjvuMode === true
     ));
+    const activeWorkspaceCanPrint = computed(() => (
+        activeWorkspaceHasDocument.value
+        && activeToolbarSnapshot.value?.viewerCapabilities.print === true
+    ));
     const activeWorkspaceCanSave = computed(() => activeToolbarSnapshot.value?.canSave === true);
     const activeWorkspaceCanRepairSave = computed(() => activeToolbarSnapshot.value?.canRepairSave === true);
     const activeWorkspaceCanOptimizePdf = computed(() => activeToolbarSnapshot.value?.canOptimizePdf === true);
@@ -54,6 +59,7 @@ export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions):
     return {
         activeTab,
         activeWorkspaceHasDocument,
+        activeWorkspaceCanPrint,
         activeWorkspaceCanSave,
         activeWorkspaceCanRepairSave,
         activeWorkspaceCanOptimizePdf,

@@ -180,6 +180,7 @@ describe('createDefaultWorkspaceToolbarSnapshot', () => {
                 optimizePdf: false,
                 pdfDocument: false,
                 pdfMutationActions: false,
+                print: false,
                 regionCapture: false,
                 repairSave: false,
                 save: false,

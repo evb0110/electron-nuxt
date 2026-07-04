@@ -3,8 +3,7 @@ import {
     uniq,
 } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
-
-export type TPrintOrientation = 'auto' | 'portrait' | 'landscape';
+export type { TPrintOrientation } from '@contracts/shared';
 
 export const BROWSER_PRINT_ROOT_SELECTOR = '[data-browser-print-root]';
 

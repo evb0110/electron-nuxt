@@ -6,6 +6,7 @@ import {
     handleDjvuGetInfo,
     handleDjvuGetPageSizes,
     handleDjvuOpenForViewingOperation,
+    handleDjvuPrintPathOperation,
     handleDjvuReleaseViewingPath,
     handleDjvuRenderPagePreview,
 } from '@electron/features/djvu/main/djvuOperations';
@@ -21,6 +22,8 @@ export function createDjvuService(): IDjvuService {
         },
         convertToPdf: (context, djvuPath, outputPath, options) =>
             handleDjvuConvertToPdfOperation(context, djvuPath, outputPath, options),
+        printDjvuPath: (context, djvuPath, options) =>
+            handleDjvuPrintPathOperation(context, djvuPath, options),
         cancel: (context, jobId) =>
             handleDjvuCancelOperation(context, jobId),
         getInfo: (context, djvuPath) =>

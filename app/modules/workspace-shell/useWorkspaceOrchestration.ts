@@ -23,7 +23,11 @@ import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/comp
 import { mergeWorkspaceAnnotationComments } from '@app/modules/workspace-shell/annotations/mergeWorkspaceAnnotationComments';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { IRecentFile } from '@contracts/shared';
+import type {
+    IRecentFile,
+    TPdfViewMode,
+    TPrintOrientation,
+} from '@contracts/shared';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
@@ -35,6 +39,7 @@ import { useDocumentOperationLease } from '@app/modules/workspace-shell/composab
 import { serializePrintableSourceData } from '@app/modules/workspace-shell/serialization/serializePrintableSourceData';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
+import { getDjvuCapability } from '@app/utils/getDjvuCapability';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { WORKSPACE_PAGE_NAVIGATION_LOCK_MS } from '@app/modules/workspace-shell/workspacePageNavigationLockMs';
 import { useWorkspaceActiveViewerAdapter } from '@app/modules/workspace-shell/viewers/useWorkspaceActiveViewerAdapter';
@@ -52,10 +57,33 @@ interface IWorkspaceOrchestrationDeps {
     };
 }
 
+interface IWorkspacePrintSubmitPayload {
+    pageNumbers?: number[];
+    viewMode: TPdfViewMode;
+    orientation: TPrintOrientation;
+}
+
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 const WORKSPACE_PAGE_NAVIGATION_TARGET_SETTLE_MS = 200;
+
+function createDjvuPrintRequestId() {
+    return globalThis.crypto?.randomUUID?.()
+        ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function createDjvuPrintAbortError() {
+    const error = new Error('Print preparation was canceled');
+    error.name = 'AbortError';
+    return error;
+}
+
+function throwIfDjvuPrintAborted(signal: AbortSignal | undefined) {
+    if (signal?.aborted) {
+        throw createDjvuPrintAbortError();
+    }
+}
 
 function readExposedNumber(value: unknown) {
     if (typeof value === 'number' && Number.isFinite(value)) {
@@ -884,6 +912,46 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         await viewer.renderLoadedPdfPagesForBrowserPrint(targetDocument, pageNumbers, options);
     }
 
+    async function printDjvuSource(
+        payload: IWorkspacePrintSubmitPayload,
+        options?: { signal?: AbortSignal },
+    ) {
+        const sourcePath = djvuSourcePath.value;
+        if (!isDjvuMode.value || !sourcePath) {
+            throw new Error('DjVu printing is unavailable');
+        }
+
+        const requestId = createDjvuPrintRequestId();
+        const jobId = `djvu-print-${requestId}`;
+        let cancelRequested = false;
+        const cancelPrint = () => {
+            cancelRequested = true;
+            void getDjvuCapability().cancel(jobId).catch(() => undefined);
+        };
+
+        throwIfDjvuPrintAborted(options?.signal);
+        options?.signal?.addEventListener('abort', cancelPrint, { once: true });
+        try {
+            const result = await getDjvuCapability().printDjvuPath(sourcePath, {
+                ...payload,
+                requestId,
+                pdfStrategy: 'compact-djvu-aware',
+                ...(fileName.value ? { fileName: fileName.value } : {}),
+            });
+            if (options?.signal?.aborted || cancelRequested) {
+                throw createDjvuPrintAbortError();
+            }
+            if (result.canceled) {
+                return;
+            }
+            if (!result.success) {
+                throw new Error(result.error ?? 'DjVu print preparation failed');
+            }
+        } finally {
+            options?.signal?.removeEventListener('abort', cancelPrint);
+        }
+    }
+
     const workspacePrint = useWorkspacePrint({
         totalPages,
         currentPage,
@@ -893,9 +961,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         fileName,
         hasPendingUnsavedChanges,
         hasPendingPrintSerializationChanges,
+        canPrintDjvuSource: computed(() => isDjvuMode.value && Boolean(djvuSourcePath.value)),
         getQuickPrintPageMetrics,
         getPrintableSourceData,
         renderLoadedPdfPagesForBrowserPrint,
+        printDjvuSource,
     });
 
     const interactionControls = useWorkspaceInteractionControls({
@@ -909,6 +979,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         effectiveZoom,
         zoomMode,
         pdfSrc,
+        canPrint: computed(() => activeViewerAdapter.value?.capabilities.print === true),
         canSave,
         showSettings,
         annotationTool,

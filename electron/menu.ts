@@ -34,6 +34,7 @@ import { getErrorMessage } from '@electron/utils/error';
 const logger = createLogger('menu');
 const MENU_REBUILD_DEBOUNCE_MS = 40;
 const menuDocumentStateByWindow = new Map<number, boolean>();
+const menuPrintStateByWindow = new Map<number, boolean>();
 const menuSaveStateByWindow = new Map<number, boolean>();
 const menuRepairSaveStateByWindow = new Map<number, boolean>();
 const menuOptimizePdfStateByWindow = new Map<number, boolean>();
@@ -119,6 +120,14 @@ function getWindowSaveState(window: BrowserWindow | null) {
     }
 
     return menuSaveStateByWindow.get(window.id) ?? getWindowDocumentState(window);
+}
+
+function getWindowPrintState(window: BrowserWindow | null) {
+    if (!window) {
+        return false;
+    }
+
+    return menuPrintStateByWindow.get(window.id) ?? getWindowDocumentState(window);
 }
 
 function getWindowRepairSaveState(window: BrowserWindow | null) {
@@ -342,6 +351,7 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
 
 function getFileMenu(
     documentActionsEnabled: boolean,
+    printActionEnabled: boolean,
     saveActionEnabled: boolean,
     repairSaveActionEnabled: boolean,
     optimizePdfActionEnabled: boolean,
@@ -383,12 +393,12 @@ function getFileMenu(
             createWindowMenuAction({
                 label: te('menu.print'),
                 accelerator: 'CmdOrCtrl+P',
-                enabled: documentActionsEnabled,
+                enabled: printActionEnabled,
                 channel: DOCUMENTS_EVENT_CHANNELS.menuPrint,
             }),
             createWindowMenuAction({
                 label: te('menu.printCurrentPage'),
-                enabled: documentActionsEnabled,
+                enabled: printActionEnabled,
                 channel: DOCUMENTS_EVENT_CHANNELS.menuPrintCurrentPage,
             }),
             {
@@ -764,6 +774,7 @@ function getMacAppMenu(): MenuItemConstructorOptions {
 function buildMenuTemplate(activeWindow: BrowserWindow | null): MenuItemConstructorOptions[] {
     const template: MenuItemConstructorOptions[] = [];
     const documentActionsEnabled = getWindowDocumentState(activeWindow);
+    const printActionEnabled = getWindowPrintState(activeWindow);
     const saveActionEnabled = getWindowSaveState(activeWindow);
     const repairSaveActionEnabled = getWindowRepairSaveState(activeWindow);
     const optimizePdfActionEnabled = getWindowOptimizePdfState(activeWindow);
@@ -773,7 +784,7 @@ function buildMenuTemplate(activeWindow: BrowserWindow | null): MenuItemConstruc
     }
 
     template.push(
-        getFileMenu(documentActionsEnabled, saveActionEnabled, repairSaveActionEnabled, optimizePdfActionEnabled),
+        getFileMenu(documentActionsEnabled, printActionEnabled, saveActionEnabled, repairSaveActionEnabled, optimizePdfActionEnabled),
         getEditMenu(documentActionsEnabled),
         getPagesMenu(documentActionsEnabled),
         getViewMenu(documentActionsEnabled),
@@ -837,6 +848,7 @@ function trackWindowForMenu(window: BrowserWindow) {
     window.on('closed', () => {
         trackedWindowIds.delete(window.id);
         menuDocumentStateByWindow.delete(window.id);
+        menuPrintStateByWindow.delete(window.id);
         menuSaveStateByWindow.delete(window.id);
         menuRepairSaveStateByWindow.delete(window.id);
         menuOptimizePdfStateByWindow.delete(window.id);
@@ -885,6 +897,7 @@ export function refreshMenu() {
 
 export function setMenuDocumentState(windowId: number, state: boolean | {
     hasDocument: boolean;
+    canPrint?: boolean;
     canSave: boolean;
     canRepairSave?: boolean;
     canOptimizePdf?: boolean;
@@ -892,6 +905,9 @@ export function setMenuDocumentState(windowId: number, state: boolean | {
     const normalizedDocument = typeof state === 'boolean'
         ? Boolean(state)
         : Boolean(state.hasDocument);
+    const normalizedPrint = typeof state === 'boolean'
+        ? normalizedDocument
+        : state.canPrint ?? normalizedDocument;
     const normalizedSave = typeof state === 'boolean'
         ? normalizedDocument
         : Boolean(state.canSave);
@@ -903,6 +919,7 @@ export function setMenuDocumentState(windowId: number, state: boolean | {
         : state.canOptimizePdf ?? normalizedRepairSave;
     if (
         menuDocumentStateByWindow.get(windowId) === normalizedDocument
+        && menuPrintStateByWindow.get(windowId) === normalizedPrint
         && menuSaveStateByWindow.get(windowId) === normalizedSave
         && menuRepairSaveStateByWindow.get(windowId) === normalizedRepairSave
         && menuOptimizePdfStateByWindow.get(windowId) === normalizedOptimizePdf
@@ -911,6 +928,7 @@ export function setMenuDocumentState(windowId: number, state: boolean | {
     }
 
     menuDocumentStateByWindow.set(windowId, normalizedDocument);
+    menuPrintStateByWindow.set(windowId, normalizedPrint);
     menuSaveStateByWindow.set(windowId, normalizedSave);
     menuRepairSaveStateByWindow.set(windowId, normalizedRepairSave);
     menuOptimizePdfStateByWindow.set(windowId, normalizedOptimizePdf);

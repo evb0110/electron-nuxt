@@ -178,6 +178,7 @@ export interface IDocumentsService {
         context: IDocumentsWindowContext,
         state: boolean | {
             hasDocument: boolean;
+            canPrint?: boolean;
             canSave: boolean;
             canRepairSave?: boolean;
         },

@@ -55,7 +55,7 @@
                         :icon="getReaderCommandToolbarIcon('print')"
                         :tooltip="t('toolbar.print')"
                         :shortcut="shortcutLabels.print"
-                        :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
+                        :disabled="!hasInteractiveDocument || !canPrint || isAnySaving || isHistoryBusy"
                         :loading="isPreparingPrint && !isPreparingCurrentPagePrint"
                         @click="handleToolbarCommand('print')"
                     />
@@ -65,7 +65,7 @@
                         v-if="isCommandInline('print-current-page')"
                         icon="ph:printer"
                         :tooltip="t('toolbar.printCurrentPage')"
-                        :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
+                        :disabled="!hasInteractiveDocument || !canPrint || isAnySaving || isHistoryBusy"
                         :loading="isPreparingCurrentPagePrint"
                         @click="handleToolbarCommand('print-current-page')"
                     >
@@ -299,6 +299,7 @@ const {
     isOpeningDocument = false,
     isFullscreen = false,
     fullscreenSupported = true,
+    canPrint = true,
 } = defineProps<{
     hasPdf: boolean;
     variant?: 'editor' | 'reader';
@@ -307,6 +308,7 @@ const {
     fullscreenSupported?: boolean;
     hasOcrAction?: boolean;
     canToggleSidebar?: boolean;
+    canPrint?: boolean;
     canSave: boolean;
     canUndo: boolean;
     canRedo: boolean;

@@ -29,11 +29,14 @@ const mocks = vi.hoisted(() => {
         copyFile: vi.fn(),
         makeSiblingTempPath: vi.fn(),
         mkdtemp: vi.fn(),
+        readFile: vi.fn(),
         rename: vi.fn(),
         rm: vi.fn(),
         stat: vi.fn(),
         unlink: vi.fn(),
+        writeFile: vi.fn(),
         atomicReplace: vi.fn(),
+        getAppTempDir: vi.fn(),
         getDjvuPageCount: vi.fn(),
         getDjvuResolution: vi.fn(),
         getDjvuOutline: vi.fn(),
@@ -44,6 +47,7 @@ const mocks = vi.hoisted(() => {
         cancelConversion: vi.fn(),
         embedBookmarksIntoPdfFile: vi.fn(),
         optimizeGeneratedPdfForInteraction: vi.fn(),
+        printManagedTempPdfPath: vi.fn(),
         createDjvuPdfBookmarkTask: vi.fn(),
         consumeAllowedDjvuWritePath: vi.fn(),
         safeSendToWindow: vi.fn(),
@@ -63,10 +67,12 @@ vi.mock('node:crypto', () => ({randomUUID: mocks.randomUUID}));
 vi.mock('fs/promises', () => ({
     copyFile: mocks.copyFile,
     mkdtemp: mocks.mkdtemp,
+    readFile: mocks.readFile,
     rename: mocks.rename,
     rm: mocks.rm,
     stat: mocks.stat,
     unlink: mocks.unlink,
+    writeFile: mocks.writeFile,
 }));
 
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
@@ -87,6 +93,11 @@ vi.mock('@electron/features/djvu/main/pagePreview', () => ({getDjvuPageSizesForV
 vi.mock('@electron/djvu/parseDjvuOutline', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
 vi.mock('@electron/djvu/embedBookmarksIntoPdfFile', () => ({embedBookmarksIntoPdfFile: mocks.embedBookmarksIntoPdfFile}));
 vi.mock('@electron/features/documents/public/pdfSaveAsOptimization', () => ({optimizeGeneratedPdfForInteraction: (...args: unknown[]) => mocks.optimizeGeneratedPdfForInteraction(...args)}));
+vi.mock('@electron/utils/printHandoff', () => ({
+    PRINT_DJVU_TEMP_PREFIX: 'print-djvu-',
+    printManagedTempPdfPath: (...args: unknown[]) => mocks.printManagedTempPdfPath(...args),
+}));
+vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => mocks.getAppTempDir()}));
 vi.mock('@electron/djvu/exportPaths', () => ({consumeAllowedDjvuWritePath: mocks.consumeAllowedDjvuWritePath}));
 vi.mock('@electron/djvu/safeSendToWindow', () => ({safeSendToWindow: mocks.safeSendToWindow}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
@@ -109,6 +120,7 @@ vi.mock('@electron/features/djvu/main/pdfWorkerClient', () => ({
 const {
     handleDjvuCancel,
     handleDjvuConvertToPdf,
+    handleDjvuPrintPath,
     shutdownDjvuConversions,
 } = await import('@electron/features/djvu/main/pdfExport');
 
@@ -151,6 +163,7 @@ function createOperationContext(senderId: number) {
 describe('handleDjvuConvertToPdf', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.randomUUID.mockReset();
         mocks.bookmarkTaskState.mode = 'success';
         mocks.bookmarkTaskState.rejectPendingBookmark = null;
         mocks.bookmarkTaskState.workerTerminate = vi.fn(() => {
@@ -164,11 +177,14 @@ describe('handleDjvuConvertToPdf', () => {
         mocks.copyFile.mockResolvedValue(undefined);
         mocks.makeSiblingTempPath.mockReturnValue('/tmp/.staged-output.tmp');
         mocks.mkdtemp.mockResolvedValue('/tmp/djvu-export-test');
+        mocks.readFile.mockResolvedValue(Buffer.from('%PDF-1.7\n%%EOF\n'));
         mocks.rename.mockResolvedValue(undefined);
         mocks.rm.mockResolvedValue(undefined);
         mocks.stat.mockResolvedValue({size: 8 * 1024 * 1024});
         mocks.unlink.mockResolvedValue(undefined);
+        mocks.writeFile.mockResolvedValue(undefined);
         mocks.atomicReplace.mockResolvedValue(undefined);
+        mocks.getAppTempDir.mockReturnValue('/tmp/evb-viewer');
         mocks.getDjvuPageCount.mockResolvedValue(2);
         mocks.getDjvuResolution.mockResolvedValue(300);
         mocks.getDjvuPageSizesForViewing.mockResolvedValue([
@@ -209,6 +225,7 @@ describe('handleDjvuConvertToPdf', () => {
         mocks.cancelConversion.mockReturnValue(false);
         mocks.embedBookmarksIntoPdfFile.mockResolvedValue(123);
         mocks.optimizeGeneratedPdfForInteraction.mockResolvedValue(null);
+        mocks.printManagedTempPdfPath.mockResolvedValue({ success: true });
         mocks.createDjvuPdfBookmarkTask.mockImplementation(() => {
             if (mocks.bookmarkTaskState.mode === 'startup-error') {
                 throw new mocks.StartupError('bookmark worker missing');
@@ -587,6 +604,44 @@ describe('handleDjvuConvertToPdf', () => {
             mocks.optimizeGeneratedPdfForInteraction.mock.invocationCallOrder[0]!,
         ).toBeLessThan(mocks.copyFile.mock.invocationCallOrder[0]!);
         expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/.staged-output.tmp', '/tmp/output.pdf');
+    });
+
+    it('prints selected DjVu pages through compact temp PDF and native print handoff', async () => {
+        const event = createOperationContext(12);
+
+        const result = await handleDjvuPrintPath(
+            event as never,
+            trustedDjvuPath,
+            {
+                requestId: 'print-req',
+                fileName: 'book.djvu',
+                pageNumbers: [
+                    2,
+                    1,
+                    2,
+                ],
+                viewMode: 'single',
+                orientation: 'auto',
+            },
+        );
+
+        const expectedFinalPath = '/tmp/evb-viewer/print-djvu-djvu-print-print-req.pdf';
+        expect(result).toEqual({
+            success: true,
+            jobId: 'djvu-print-print-req',
+        });
+        expect(mocks.buildCompactDjvuAwarePdfFromDjvu).toHaveBeenCalledWith(expect.objectContaining({
+            jobId: 'djvu-print-print-req',
+            djvuPath: trustedDjvuPath,
+            outputPath: expectedFinalPath,
+            pages: [
+                1,
+                2,
+            ],
+        }));
+        expect(mocks.convertDjvuToPdfFile).not.toHaveBeenCalled();
+        expect(mocks.optimizeGeneratedPdfForInteraction).toHaveBeenCalledWith(expectedFinalPath);
+        expect(mocks.printManagedTempPdfPath).toHaveBeenCalledWith({window: null}, expectedFinalPath, 'book.djvu');
     });
 
     it('cancels active jobs when the sender is destroyed', async () => {

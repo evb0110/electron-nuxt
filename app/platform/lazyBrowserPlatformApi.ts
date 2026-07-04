@@ -361,6 +361,7 @@ const lazyDjvuCapability: IDjvuCapability = {
     openForViewing: lazyAsync(pathDescriptors.djvu.openForViewing.path),
     releaseViewingPath: lazyAsync(pathDescriptors.djvu.releaseViewingPath.path),
     convertToPdf: lazyAsync(pathDescriptors.djvu.convertToPdf.path),
+    printDjvuPath: lazyAsync(pathDescriptors.djvu.printDjvuPath.path),
     cancel: lazyAsync(pathDescriptors.djvu.cancel.path),
     getInfo: lazyAsync(pathDescriptors.djvu.getInfo.path),
     getPageSizes: lazyAsync(pathDescriptors.djvu.getPageSizes.path),

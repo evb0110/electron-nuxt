@@ -25,6 +25,10 @@ export interface IDjvuService {
         context: IDjvuOperationContext,
         ...args: Parameters<TDjvuApi['convertToPdf']>
     ) => ReturnType<TDjvuApi['convertToPdf']>;
+    printDjvuPath: (
+        context: IDjvuOperationContext,
+        ...args: Parameters<TDjvuApi['printDjvuPath']>
+    ) => ReturnType<TDjvuApi['printDjvuPath']>;
     cancel: (
         context: IDjvuOperationContext,
         ...args: Parameters<TDjvuApi['cancel']>

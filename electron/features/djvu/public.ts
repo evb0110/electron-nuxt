@@ -14,6 +14,7 @@ export {
 export {
     handleDjvuCancel,
     handleDjvuConvertToPdf,
+    handleDjvuPrintPath,
     shutdownDjvuConversions,
 } from '@electron/features/djvu/main/pdfExport';
 export {

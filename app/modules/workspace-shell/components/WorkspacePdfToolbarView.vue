@@ -2,6 +2,7 @@
     <PdfToolbar
         :has-pdf="toolbarHasPdf"
         :can-save="snapshot.canSave"
+        :can-print="snapshot.viewerCapabilities.print"
         :can-undo="snapshot.canUndo"
         :can-redo="snapshot.canRedo"
         :can-export-docx="snapshot.canExportDocx"
@@ -52,6 +53,7 @@
             <ToolbarAppMenu
                 :open="appMenuOpen"
                 :has-pdf="toolbarHasPdf"
+                :can-print="snapshot.viewerCapabilities.print"
                 :can-save="snapshot.canSave"
                 :can-repair-save="snapshot.canRepairSave"
                 :can-optimize-pdf="snapshot.canOptimizePdf"
@@ -161,6 +163,7 @@
                 :surface="surface"
                 :show-document-section="isDesktopRuntime"
                 can-combine-files
+                :can-print="snapshot.viewerCapabilities.print"
                 can-print-current-page
                 :can-convert-to-pdf="canUseDjvu && snapshot.viewerCapabilities.conversionDialog"
                 :is-preparing-print="snapshot.isPreparingPrint"

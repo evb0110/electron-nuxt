@@ -39,6 +39,7 @@ interface IWorkspaceInteractionControlsOptions {
     effectiveZoom: Ref<number>;
     zoomMode: Ref<TZoomMode>;
     pdfSrc: Ref<TPdfSource | null>;
+    canPrint: Ref<boolean>;
     canSave: Ref<boolean>;
     showSettings: Ref<boolean>;
     annotationTool: Ref<TAnnotationTool>;
@@ -164,6 +165,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
     usePageShortcuts({
         isActive,
         pdfSrc,
+        canPrint: options.canPrint,
         canSave: options.canSave,
         showSettings,
         annotationTool,

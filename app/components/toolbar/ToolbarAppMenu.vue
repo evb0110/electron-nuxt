@@ -64,6 +64,7 @@ interface IToolbarAppMenuCommandItem {
 interface IProps {
     open: boolean
     hasPdf: boolean
+    canPrint?: boolean
     canSave: boolean
     canRepairSave: boolean
     canOptimizePdf: boolean
@@ -86,6 +87,7 @@ const {
     canOptimizePdf,
     canRepairSave,
     canSave,
+    canPrint = true,
     canUndo,
     canUseDjvu,
     documentBusy,
@@ -141,10 +143,10 @@ const emitMenuCommand = {
 const shortcutLabels = useShortcutLabels();
 const hasInteractiveDocument = computed(() => hasPdf && documentBusy !== true);
 const isPrintCommandDisabled = computed(() => !hasInteractiveDocument.value
+    || !canPrint
     || isPreparingPrint
     || isAnySaving
-    || isHistoryBusy
-    || isDjvuMode);
+    || isHistoryBusy);
 const isExportDocxCommandDisabled = computed(() => !hasInteractiveDocument.value
     || !canExportDocx
     || isAnySaving

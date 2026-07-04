@@ -349,6 +349,7 @@ export interface IImageExportCapability {
 export interface IDocumentsMenuCapability {
     setMenuDocumentState: (state: boolean | {
         hasDocument: boolean;
+        canPrint?: boolean;
         canSave: boolean;
         canRepairSave?: boolean;
         canOptimizePdf?: boolean;

@@ -1,6 +1,7 @@
 export interface IWorkspaceHasPdfState {
     hasPdf: boolean | { value: boolean };
     getToolbarSnapshot?: () => {
+        canPrint?: boolean;
         canSave: boolean;
         canRepairSave?: boolean;
         canOptimizePdf?: boolean;

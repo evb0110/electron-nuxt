@@ -89,6 +89,7 @@ export interface IViewerHostApi {
 export interface IDesktopMenuCapability {
     setMenuDocumentState(state: boolean | {
         hasDocument: boolean;
+        canPrint?: boolean;
         canSave: boolean;
         canRepairSave?: boolean;
         canOptimizePdf?: boolean;

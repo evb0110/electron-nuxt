@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => {
         public readonly removeListener = vi.fn();
         public readonly webContents = {
             print: vi.fn(printHandler),
+            printToPDF: vi.fn(async () => Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n')),
             once: vi.fn(),
             removeListener: vi.fn(),
         };
@@ -157,6 +158,7 @@ describe('documents print', () => {
 
     afterEach(() => {
         vi.useRealTimers();
+        delete process.env.EVB_PRINT_DIALOG_TEST_MODE;
         rmSync(sourcePdfWorkDir, {
             force: true,
             recursive: true,
@@ -194,6 +196,27 @@ describe('documents print', () => {
             pathToFileURL(sourcePdfPath).toString(),
         );
         expect(mocks.browserWindowInstances[0]?.webContents.print).toHaveBeenCalledTimes(1);
+        expect(mocks.browserWindowInstances[0]?.close).not.toHaveBeenCalled();
+
+        await vi.runOnlyPendingTimersAsync();
+
+        expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses the env-gated print-to-PDF smoke mode without opening the native dialog', async () => {
+        process.env.EVB_PRINT_DIALOG_TEST_MODE = 'print-to-pdf';
+        vi.useFakeTimers();
+
+        const resultPromise = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'source.pdf',
+        );
+        const result = await settleNativePrint(resultPromise);
+
+        expect(result).toEqual({ success: true });
+        expect(mocks.browserWindowInstances[0]?.webContents.print).not.toHaveBeenCalled();
+        expect(mocks.browserWindowInstances[0]?.webContents.printToPDF).toHaveBeenCalledWith({printBackground: true});
         expect(mocks.browserWindowInstances[0]?.close).not.toHaveBeenCalled();
 
         await vi.runOnlyPendingTimersAsync();

@@ -59,6 +59,7 @@ export interface IWorkspaceViewerCapabilities {
     optimizePdf: boolean;
     pdfDocument: boolean;
     pdfMutationActions: boolean;
+    print: boolean;
     regionCapture: boolean;
     repairSave: boolean;
     save: boolean;
@@ -74,6 +75,7 @@ export function createDefaultWorkspaceViewerCapabilities(): IWorkspaceViewerCapa
         optimizePdf: false,
         pdfDocument: false,
         pdfMutationActions: false,
+        print: false,
         regionCapture: false,
         repairSave: false,
         save: false,

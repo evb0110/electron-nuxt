@@ -13,6 +13,7 @@ import { parseDjvuOutline } from '@electron/djvu/parseDjvuOutline';
 import {
     handleDjvuCancel,
     handleDjvuConvertToPdf,
+    handleDjvuPrintPath,
 } from '@electron/features/djvu/main/pdfExport';
 import { createLogger } from '@electron/utils/createLogger';
 import {
@@ -35,6 +36,7 @@ import type { IDjvuOperationContext } from '@electron/features/djvu/ports';
 import type {
     IDjvuConvertOptions,
     IDjvuPagePreviewOptions,
+    IDjvuPrintOptions,
 } from '@contracts/electronApiDjvu';
 
 const logger = createLogger('djvu-operations');
@@ -314,6 +316,18 @@ export function handleDjvuConvertToPdfOperation(
         context,
         requireDjvuOpenPath(djvuPath, context.sender),
         outputPath,
+        options,
+    );
+}
+
+export function handleDjvuPrintPathOperation(
+    context: IDjvuOperationContext,
+    djvuPath: string,
+    options: IDjvuPrintOptions,
+) {
+    return handleDjvuPrintPath(
+        context,
+        requireDjvuOpenPath(djvuPath, context.sender),
         options,
     );
 }

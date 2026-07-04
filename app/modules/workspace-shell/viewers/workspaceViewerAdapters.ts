@@ -35,6 +35,7 @@ const PDF_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
     optimizePdf: true,
     pdfDocument: true,
     pdfMutationActions: true,
+    print: true,
     regionCapture: true,
     repairSave: true,
     save: true,
@@ -45,6 +46,7 @@ const NATIVE_PDF_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
     ...createDefaultWorkspaceViewerCapabilities(),
     closeableDocument: true,
     pdfDocument: true,
+    print: true,
 };
 
 const DJVU_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
@@ -52,6 +54,7 @@ const DJVU_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
     closeableDocument: true,
     conversionBanner: true,
     conversionDialog: true,
+    print: true,
 };
 
 function createDjvuLifecycleHooks(context: IWorkspaceViewerLifecycleContext): IWorkspaceViewerLifecycleHooks {

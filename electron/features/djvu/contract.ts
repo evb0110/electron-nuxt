@@ -9,6 +9,7 @@ export const DJVU_CHANNELS = {
     openForViewing: 'djvu:openForViewing',
     releaseViewingPath: 'djvu:releaseViewingPath',
     convertToPdf: 'djvu:convertToPdf',
+    printDjvuPath: 'djvu:printDjvuPath',
     cancel: 'djvu:cancel',
     getInfo: 'djvu:getInfo',
     getPageSizes: 'djvu:getPageSizes',
@@ -36,6 +37,10 @@ export interface IDjvuInvokeMap {
     [DJVU_CHANNELS.convertToPdf]: {
         args: [djvuPath: string, outputPath: string, options: Parameters<IDjvuCapability['convertToPdf']>[2]];
         result: Awaited<ReturnType<IDjvuCapability['convertToPdf']>>;
+    };
+    [DJVU_CHANNELS.printDjvuPath]: {
+        args: [djvuPath: string, options: Parameters<IDjvuCapability['printDjvuPath']>[1]];
+        result: Awaited<ReturnType<IDjvuCapability['printDjvuPath']>>;
     };
     [DJVU_CHANNELS.cancel]: {
         args: [jobId: string];

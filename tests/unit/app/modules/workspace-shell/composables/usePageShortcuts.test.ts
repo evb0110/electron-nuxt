@@ -30,6 +30,7 @@ function createDeps() {
     return {
         isActive: ref(true),
         pdfSrc: ref<TPdfSource | null>(new Blob([], { type: 'application/pdf' })),
+        canPrint: ref(true),
         canSave: ref(true),
         showSettings: ref(false),
         annotationTool: ref<TAnnotationTool>('none'),
@@ -191,6 +192,55 @@ describe('usePageShortcuts', () => {
 
         expect(preventDefault).toHaveBeenCalled();
         expect(deps.handlePrint).toHaveBeenCalledOnce();
+    });
+
+    it('routes Cmd/Ctrl+P for printable non-PDF documents without pdfSrc', async () => {
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
+        const deps = createDeps();
+        deps.pdfSrc.value = null;
+        deps.canPrint.value = true;
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        capturedOnEventFired?.(cast<KeyboardEvent>({
+            type: 'keydown',
+            key: 'p',
+            code: 'KeyP',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            shiftKey: false,
+            target: null,
+            preventDefault,
+        }));
+
+        expect(preventDefault).toHaveBeenCalled();
+        expect(deps.handlePrint).toHaveBeenCalledOnce();
+    });
+
+    it('does not route Cmd/Ctrl+P when the active document cannot print', async () => {
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
+        const deps = createDeps();
+        deps.canPrint.value = false;
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        capturedOnEventFired?.(cast<KeyboardEvent>({
+            type: 'keydown',
+            key: 'p',
+            code: 'KeyP',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            shiftKey: false,
+            target: null,
+            preventDefault,
+        }));
+
+        expect(preventDefault).toHaveBeenCalled();
+        expect(deps.handlePrint).not.toHaveBeenCalled();
     });
 
     it('intercepts Cmd/Ctrl+S in the web app and routes it to save', async () => {

@@ -1,6 +1,10 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDjvuPdfExportStrategy } from '@contracts/djvuConversionPolicy';
 import type {
+    TPdfViewMode,
+    TPrintOrientation,
+} from '@contracts/shared';
+import type {
     TMenuEventCallback,
     TMenuEventUnsubscribe,
 } from '@contracts/electronApiCommon';
@@ -55,6 +59,16 @@ export interface IDjvuConvertOptions {
     pdfStrategy?: TDjvuPdfExportStrategy;
 }
 
+export interface IDjvuPrintOptions {
+    fileName?: string;
+    pageNumbers?: number[];
+    viewMode: TPdfViewMode;
+    orientation: TPrintOrientation;
+    requestId?: string;
+    subsample?: number;
+    pdfStrategy?: TDjvuPdfExportStrategy;
+}
+
 export interface IDjvuOpenResult {
     success: boolean;
     pdfPath?: TDocumentRef;
@@ -66,6 +80,13 @@ export interface IDjvuOpenResult {
 export interface IDjvuConvertResult {
     success: boolean;
     pdfPath?: TDocumentRef;
+    jobId?: string;
+    error?: string;
+}
+
+export interface IDjvuPrintResult {
+    success: boolean;
+    canceled?: boolean;
     jobId?: string;
     error?: string;
 }
@@ -85,6 +106,7 @@ export interface IDjvuAPI {
     openForViewing: (djvuPath: TDocumentRef) => Promise<IDjvuOpenResult>;
     releaseViewingPath: (djvuPath: TDocumentRef) => Promise<void>;
     convertToPdf: (djvuPath: TDocumentRef, outputPath: string, options: IDjvuConvertOptions) => Promise<IDjvuConvertResult>;
+    printDjvuPath: (djvuPath: TDocumentRef, options: IDjvuPrintOptions) => Promise<IDjvuPrintResult>;
     cancel: (jobId: string) => Promise<{ canceled: boolean }>;
     getInfo: (djvuPath: TDocumentRef) => Promise<IDjvuInfo>;
     getPageSizes: (djvuPath: TDocumentRef) => Promise<IDjvuPageSize[]>;

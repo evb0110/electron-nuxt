@@ -199,6 +199,15 @@ function createState(options?: {
         height: number;
     }> | null>;
     getPrintableSourceData?: () => Promise<Uint8Array | null>;
+    canPrintDjvuSource?: boolean;
+    printDjvuSource?: (
+        payload: {
+            pageNumbers?: number[];
+            viewMode: string;
+            orientation: string;
+        },
+        options?: { signal?: AbortSignal },
+    ) => Promise<void>;
     renderLoadedPdfPagesForBrowserPrint?: (
         targetDocument: IBrowserPrintDocument,
         pageNumbers: number[],
@@ -223,8 +232,14 @@ function createState(options?: {
         ...(options?.hasPendingPrintSerializationChanges !== undefined
             ? { hasPendingPrintSerializationChanges: ref(options.hasPendingPrintSerializationChanges) }
             : {}),
+        ...(options?.canPrintDjvuSource !== undefined
+            ? { canPrintDjvuSource: ref(options.canPrintDjvuSource) }
+            : {}),
         getQuickPrintPageMetrics,
         getPrintableSourceData,
+        ...(options?.printDjvuSource
+            ? { printDjvuSource: options.printDjvuSource }
+            : {}),
         ...(options?.renderLoadedPdfPagesForBrowserPrint
             ? { renderLoadedPdfPagesForBrowserPrint: options.renderLoadedPdfPagesForBrowserPrint }
             : {}),
@@ -332,6 +347,37 @@ describe('useWorkspacePrint', () => {
                 color: 'success',
                 title: 'print.requestSent',
             });
+            expect(state.isPreparingPrint.value).toBe(false);
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('prints DjVu through the DjVu print source without serializing PDF data', async () => {
+        const printDjvuSource = vi.fn(async () => {});
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({
+            canPrintDjvuSource: true,
+            printDjvuSource,
+        });
+
+        try {
+            await state.handlePrintDialogSubmit({
+                pageNumbers: [4],
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+
+            expect(printDjvuSource).toHaveBeenCalledWith({
+                pageNumbers: [4],
+                viewMode: 'single',
+                orientation: 'auto',
+            }, {signal: expect.any(AbortSignal)});
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
             expect(state.isPreparingPrint.value).toBe(false);
         } finally {
             scope.stop();
