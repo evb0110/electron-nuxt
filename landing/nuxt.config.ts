@@ -55,8 +55,8 @@ export default defineNuxtConfig({
         githubRepo: process.env.NUXT_GITHUB_REPO || 'evb-viewer',
         githubToken: process.env.NUXT_GITHUB_TOKEN || '',
         public: {
-            siteUrl: process.env.NUXT_PUBLIC_SITE_URL || process.env.NUXT_SITE_URL || 'https://evb-viewer.vercel.app',
-            webAppUrl: process.env.NUXT_PUBLIC_WEB_APP_URL || 'https://evb-viewer-web.vercel.app',
+            siteUrl: process.env.NUXT_PUBLIC_SITE_URL || process.env.NUXT_SITE_URL || 'https://evb-viewer.com',
+            webAppUrl: process.env.NUXT_PUBLIC_WEB_APP_URL || 'https://web.evb-viewer.com',
         },
     },
 
@@ -104,7 +104,7 @@ export default defineNuxtConfig({
         restructureDir: 'app',
         locales: LOCALE_DEFINITIONS.map(locale => ({ ...locale })),
         defaultLocale: DEFAULT_LOCALE,
-        baseUrl: process.env.NUXT_PUBLIC_SITE_URL || process.env.NUXT_SITE_URL || 'https://evb-viewer.vercel.app',
+        baseUrl: process.env.NUXT_PUBLIC_SITE_URL || process.env.NUXT_SITE_URL || 'https://evb-viewer.com',
         langDir: 'locales/',
         strategy: 'prefix_except_default',
         detectBrowserLanguage: {

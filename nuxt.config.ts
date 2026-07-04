@@ -186,8 +186,8 @@ export default defineNuxtConfig({
         },
         public: {
             analyticsEnabled: process.env.NUXT_PUBLIC_ANALYTICS_ENABLED === '1',
-            landingUrl: process.env.NUXT_PUBLIC_LANDING_URL || 'https://evb-viewer.vercel.app',
-            siteUrl: process.env.NUXT_PUBLIC_SITE_URL || 'https://evb-viewer-web.vercel.app',
+            landingUrl: process.env.NUXT_PUBLIC_LANDING_URL || 'https://evb-viewer.com',
+            siteUrl: process.env.NUXT_PUBLIC_SITE_URL || 'https://web.evb-viewer.com',
         },
     },
 
@@ -257,7 +257,7 @@ export default defineNuxtConfig({
         restructureDir: 'app',
         locales: LOCALE_DEFINITIONS,
         defaultLocale: DEFAULT_LOCALE,
-        baseUrl: process.env.NUXT_PUBLIC_SITE_URL || 'https://evb-viewer-web.vercel.app',
+        baseUrl: process.env.NUXT_PUBLIC_SITE_URL || 'https://web.evb-viewer.com',
         lazy: true,
         langDir: 'i18n/runtime-locales/',
         strategy: 'no_prefix',

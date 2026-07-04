@@ -1,4 +1,4 @@
-const DEFAULT_SITE_URL = 'https://evb-viewer.vercel.app';
+const DEFAULT_SITE_URL = 'https://evb-viewer.com';
 export const SEO_IMAGE_PATH = '/evb-viewer-seo.png';
 
 export function normalizeSiteUrl(siteUrl?: string): string {

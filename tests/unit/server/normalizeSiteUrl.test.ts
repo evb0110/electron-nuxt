@@ -53,6 +53,6 @@ describe('resolveSiteUrl', () => {
         requestUrlMock.value = new URL('http://localhost/sitemap.xml');
         const { resolveSiteUrl } = await import('@server/utils/normalizeSiteUrl');
 
-        expect(resolveSiteUrl({} as H3Event)).toBe('https://evb-viewer-web.vercel.app/');
+        expect(resolveSiteUrl({} as H3Event)).toBe('https://web.evb-viewer.com/');
     });
 });

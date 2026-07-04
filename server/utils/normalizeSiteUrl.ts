@@ -5,7 +5,7 @@ import {
 import { compact } from 'es-toolkit/array';
 import { getRuntimeEnv } from '@server/utils/getRuntimeEnv';
 
-const DEFAULT_PRODUCTION_SITE_URL = 'https://evb-viewer-web.vercel.app';
+const DEFAULT_PRODUCTION_SITE_URL = 'https://web.evb-viewer.com';
 
 function firstNonEmptyString(values: Array<string | undefined>) {
     for (const value of values) {
