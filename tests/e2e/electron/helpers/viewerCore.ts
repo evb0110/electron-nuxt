@@ -75,6 +75,13 @@ function getPathBasename(path: string) {
         ?.toLowerCase() ?? '';
 }
 
+function getGeneratedPdfBasenameForImage(path: string) {
+    const basename = getPathBasename(path);
+    return /\.(?:a?png|avif|bmp|gif|ico|jpe?g|svgz?|tiff?|webp)$/iu.test(basename)
+        ? basename.replace(/\.[^.]+$/u, '.pdf')
+        : '';
+}
+
 async function runWithExecutionContextRetry<T>(
     page: Page,
     task: () => Promise<T>,
@@ -138,6 +145,7 @@ async function waitForActiveDocumentPath(page: Page, path: string, timeoutMs = D
     await installWorkspaceExposeProbe(page);
     await waitForFunctionInPage(page, (payload: {
         basename: string;
+        generatedPdfBasename: string;
         path: string;
     }) => {
         const normalize = (value: unknown) => typeof value === 'string'
@@ -171,10 +179,14 @@ async function waitForActiveDocumentPath(page: Page, path: string, timeoutMs = D
 
         return candidates.some(candidate => {
             const normalized = normalize(candidate);
-            return normalized === requestedPath || basenameOf(candidate) === requestedBasename;
+            const candidateBasename = basenameOf(candidate);
+            return normalized === requestedPath
+                || candidateBasename === requestedBasename
+                || (payload.generatedPdfBasename.length > 0 && candidateBasename === payload.generatedPdfBasename);
         });
     }, {timeout: timeoutMs}, {
         basename: getPathBasename(path),
+        generatedPdfBasename: getGeneratedPdfBasenameForImage(path),
         path,
     });
 }

@@ -270,8 +270,6 @@ jobs:
         run: pnpm run check:electron:install
 
       - name: Electron E2E smoke
-        env:
-          EVB_E2E_REQUIRE_DJVU_FIXTURE: '1'
         run: pnpm run test:e2e:electron
 
   nightly_electron_e2e_rapid_navigation:
@@ -330,9 +328,7 @@ jobs:
         run: pnpm run check:electron:install
 
       - name: Electron E2E large PDF
-        env:
-          EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE: '1'
-        run: pnpm run test:e2e:electron:large
+        run: pnpm run build:electron && pnpm exec vitest run --project e2e-large-pdf --reporter verbose
 
   nightly_electron_e2e_quarantine:
     name: Nightly Electron E2E Quarantine

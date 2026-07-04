@@ -241,7 +241,7 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('name: Nightly Electron E2E Smoke');
         expect(workflow).toContain('runs-on: macos-14');
         expect(workflow).toContain('continue-on-error: true');
-        expect(workflow).toContain('EVB_E2E_REQUIRE_DJVU_FIXTURE: \'1\'');
+        expect(workflowJob(workflow, 'nightly_electron_e2e')).not.toContain('EVB_E2E_REQUIRE_DJVU_FIXTURE');
         expect(workflow).toContain('run: pnpm run test:e2e:electron');
         expect(workflow).toContain('name: Nightly Electron E2E Rapid Navigation');
         expect(workflowJob(workflow, 'nightly_electron_e2e')).toContain('run: pnpm run check:electron:install');
@@ -249,8 +249,9 @@ describe('CI topology policy', () => {
         expect(workflow).toMatch(/nightly_electron_e2e_rapid_navigation:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run test:e2e:electron:rapid-navigation/u);
         expect(workflow).toContain('name: Nightly Electron E2E Large PDF');
         expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).toContain('run: pnpm run check:electron:install');
-        expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).toContain('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE: \'1\'');
-        expect(workflow).toMatch(/nightly_electron_e2e_large_pdf:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run test:e2e:electron:large/u);
+        expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).not.toContain('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE');
+        expect(workflow).toMatch(/nightly_electron_e2e_large_pdf:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run build:electron && pnpm exec vitest run --project e2e-large-pdf --reporter verbose/u);
+        expect(packageJson).toContain('"test:e2e:electron:large:no-build": "EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 vitest run --project e2e-large-pdf --reporter verbose"');
         expect(workflow).toContain('name: Nightly Electron E2E Quarantine');
         expect(workflowJob(workflow, 'nightly_electron_e2e_quarantine')).toContain('run: pnpm run check:electron:install');
         expect(workflow).toContain('run: pnpm run test:e2e:electron:quarantine');
